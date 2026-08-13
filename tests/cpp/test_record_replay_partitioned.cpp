@@ -207,6 +207,21 @@ namespace
         }
     };
 
+    /** Replays a prefixed recording, supplying the same prefix it was recorded
+        with - which replay now requires rather than recovering by position. */
+    template <typename TS_>
+    struct PrefixedReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "prefixed_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                             arg<"frame_prefix">(Str{"px_"}))
+                .template as<TS_>();
+        }
+    };
+
     /** Both runs under the same DATA_FRAME configuration. */
     void use_frame_backend(GlobalContext &context)
     {
@@ -392,16 +407,34 @@ TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
     REQUIRE(recorded.table->GetColumnByName("px_b") != nullptr);
     CHECK(recorded.table->GetColumnByName("a") == nullptr);
 
-    // And replay has to read it back WITHOUT being told the prefix: the
-    // options are not stored with the recording, which is why the value
-    // columns are resolved positionally rather than by name.
-    const auto replayed = eval_node<ReplayGraph<TS<FrameOf<Row>>>>();
+    // Replay resolves the payload by its CONFIGURED name, so it has to be given
+    // the same prefix the recording used.
+    const auto replayed = eval_node<PrefixedReplayGraph<TS<FrameOf<Row>>>>();
     REQUIRE(replayed.size() == 2);
     REQUIRE(replayed[0].has_value());
     REQUIRE(replayed[1].has_value());
     // Round-tripped under the frame's OWN names, not the prefixed ones.
     CHECK(equals(*replayed[0], first));
     CHECK(equals(*replayed[1], second));
+}
+
+TEST_CASE("partitioned record/replay: replaying without the recorded prefix fails")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<PrefixedRecordGraph<TS<FrameOf<Row>>>>(values<Frame>(row_frame({1}, {10})));
+
+    // This used to SUCCEED: the payload was recovered positionally, so a
+    // caller could omit the prefix and still get its frame back. That made a
+    // supplied frame_prefix ignorable, and position does not identify a column
+    // in general - a default recording and one with as_of omitted plus removes
+    // tracked are both four columns with different meanings at index 1. A
+    // projection that does not describe the recording is now an error naming
+    // the column it could not find, rather than a plausible-looking frame.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<TS<FrameOf<Row>>>>(),
+                      Catch::Matchers::ContainsSubstring("recording has no column 'a'") &&
+                          Catch::Matchers::ContainsSubstring("must match the one used to record"));
 }
 
 TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it "

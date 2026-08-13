@@ -1023,66 +1023,6 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
-        void apply_recorded_frame_rows(const TsTableLayout &layout, const Frame &recorded,
-                                       std::int64_t first, std::int64_t count,
-                                       const TSOutputView &out)
-        {
-            if (!layout.is_multi_row || layout.frame_converter == nullptr)
-            {
-                throw std::invalid_argument("replay: not a frame-valued recording");
-            }
-
-            // The value columns are taken POSITIONALLY after excluding the
-            // bitemporal and TSD structural columns, then renamed back to the
-            // frame's own names. Resolving them by name instead would break
-            // the moment a recording used ``frame_prefix``, because the
-            // options are not stored with the recording and replay has no way
-            // to know the prefix. Their relative layout order is stable even
-            // when a frame lives beneath one or more TSD levels.
-            arrow::FieldVector                                fields;
-            std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
-            fields.reserve(layout.value_cols.size());
-            columns.reserve(layout.value_cols.size());
-            const auto &recorded_schema = *recorded.table->schema();
-            for (int i = 0; i < recorded_schema.num_fields(); ++i)
-            {
-                const std::string &name = recorded_schema.field(i)->name();
-                if (name == layout.date_key || name == layout.as_of_key)
-                {
-                    continue;
-                }
-                if (std::find(layout.partition_keys.begin(), layout.partition_keys.end(), name) !=
-                        layout.partition_keys.end() ||
-                    std::find(layout.removed_keys.begin(), layout.removed_keys.end(), name) !=
-                        layout.removed_keys.end())
-                {
-                    continue;
-                }
-                if (columns.size() == layout.value_cols.size())
-                {
-                    throw std::runtime_error(
-                        "replay: recording has more frame columns than the frame schema");
-                }
-                fields.push_back(
-                    recorded_schema.field(i)->WithName(layout.value_cols[columns.size()].name));
-                columns.push_back(recorded.table->column(i));
-            }
-            if (columns.size() != layout.value_cols.size())
-            {
-                throw std::runtime_error(
-                    "replay: recording has fewer frame columns than the frame schema");
-            }
-
-            const auto projected = arrow::Table::Make(arrow::schema(std::move(fields)), columns,
-                                                      recorded.table->num_rows());
-            Frame      tick{projected->Slice(first, count)};
-
-            // Box over the OUTPUT's (typed) frame schema - the base Frame{}
-            // scalar meta would not match a Frame[Schema] output.
-            Value boxed{checked_binding(out.schema()->value_schema, "replay")};
-            *static_cast<Frame *>(const_cast<void *>(boxed.view().data())) = std::move(tick);
-            apply_current_value(out, boxed.view());
-        }
 
         Value assemble_from_paths(const ValueTypeMetaData                  *meta,
                                   std::span<const std::vector<std::size_t>> paths,

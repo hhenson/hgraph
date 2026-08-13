@@ -77,20 +77,54 @@ namespace hgraph::stdlib
             Frame frame, const table_ts_detail::TsTableLayout &layout,
             std::span<const std::string> stored_names)
         {
+            // Which layout columns may legitimately be absent from a recording:
+            // the as-of column (``as_of: Omit``) and each level's removed flag
+            // (``removes: Omit``). Everything else - the date column, the key
+            // columns and the payload columns - is structural, so a configured
+            // name that is not in the stored table means the projection given to
+            // replay does not describe this recording.
+            // The layout's row always opens with the bitemporal pair, so the
+            // as-of is column 1 (``build_layout`` pushes date then as-of before
+            // any level).
+            constexpr std::size_t as_of_column = 1;
+            const auto optional_column = [&](std::size_t column) {
+                if (column == as_of_column) { return true; }
+                return std::any_of(layout.levels.begin(), layout.levels.end(),
+                                   [column](const table_ts_detail::TsTableLayout::Level &level) {
+                                       return column == level.removed_col;
+                                   });
+            };
+
             std::vector<std::string> names = frame.table->ColumnNames();
             for (std::size_t column = 0; column < layout.keys.size(); ++column)
             {
-                const std::string &stored = stored_names[column];
                 const std::string &canonical = layout.keys[column];
-                if (stored.empty() || stored == canonical)
-                {
-                    continue;
-                }
+                // An empty projection entry means the recording does not carry
+                // this column at all, so the canonical name is what to look for.
+                const std::string &stored =
+                    stored_names[column].empty() ? canonical : stored_names[column];
 
+                // Presence is checked for EVERY required column, not only ones
+                // being renamed. Skipping the check when stored == canonical is
+                // what let a frame payload recorded under a prefix replay as
+                // silent nulls: the names matched trivially, nothing was
+                // renamed, and the absent column later read as an empty cell.
                 const int source = frame.table->schema()->GetFieldIndex(stored);
                 if (source < 0)
                 {
-                    continue;
+                    if (optional_column(column))
+                    {
+                        continue;
+                    }
+                    // Never inferred. Recovering the column by position or type
+                    // is unsound - a default recording and one with
+                    // ``as_of: Omit`` plus ``removes: Track`` are both four
+                    // columns - and a guess that is usually right turns a clear
+                    // error here into wrong data much later (RFC 0019,
+                    // *Projection is explicit or it fails*).
+                    throw std::runtime_error(
+                        "replay: recording has no column '" + stored + "' for '" + canonical +
+                        "'; the projection supplied to replay must match the one used to record");
                 }
                 const int existing = frame.table->schema()->GetFieldIndex(canonical);
                 if (existing >= 0 && existing != source)
@@ -101,30 +135,12 @@ namespace hgraph::stdlib
                 names[static_cast<std::size_t>(source)] = canonical;
             }
 
-            // A frame prefix is a recording-side disambiguation aid, not
-            // part of the value schema.  Legacy replay therefore did not
-            // require callers to repeat it: frame payload columns were read
-            // positionally through the frame converter.  Preserve that
-            // contract while normalising the stored frame for the canonical
-            // row-source path.  Recorder projections always append expanded
-            // frame fields last and in schema order.
-            if (layout.is_multi_row && !layout.value_cols.empty())
-            {
-                if (names.size() < layout.value_cols.size())
-                {
-                    throw std::runtime_error(
-                        "replay: recording has fewer columns than the frame schema");
-                }
-                const std::size_t first_payload = names.size() - layout.value_cols.size();
-                for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
-                {
-                    const std::string &canonical = layout.keys[layout.value_col_start + i];
-                    if (std::find(names.begin(), names.end(), canonical) == names.end())
-                    {
-                        names[first_payload + i] = canonical;
-                    }
-                }
-            }
+            // A frame payload used to be recovered POSITIONALLY here, so a
+            // caller did not have to repeat ``frame_prefix``. That is withdrawn:
+            // position does not identify a column, and the fallback also meant a
+            // supplied ``frame_prefix`` could be quietly ignored. Payload columns
+            // now resolve by their configured name like every other column, which
+            // is why the loop above covers them with no special case.
             for (std::size_t lhs = 0; lhs < names.size(); ++lhs)
             {
                 for (std::size_t rhs = lhs + 1; rhs < names.size(); ++rhs)

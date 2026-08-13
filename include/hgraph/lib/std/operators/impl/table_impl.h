@@ -89,19 +89,6 @@ namespace hgraph::stdlib
             const ValueTypeMetaData *meta, std::span<const std::vector<std::size_t>> paths,
             std::span<const Value> leaves);
 
-        /**
-         * Apply the recorded rows ``[first, first + count)`` as one
-         * frame-valued tick at ``out``.
-         *
-         * A ``TS[Frame[Row]]`` leaf records one row per FRAME row, so a tick is
-         * a run of recorded rows sharing a value time rather than a single row.
-         * The recorded value columns are the frame's own columns, so the tick's
-         * frame is a projection of the recording — the columns selected and the
-         * run sliced — not a cell-by-cell rebuild.
-         */
-        HGRAPH_EXPORT void apply_recorded_frame_rows(const TsTableLayout &layout,
-                                                     const Frame &recorded, std::int64_t first,
-                                                     std::int64_t count, const TSOutputView &out);
     }  // namespace table_ts_detail
 
     struct TableLayoutState
