@@ -38,6 +38,9 @@ namespace hgraph
         std::vector<const ValueTypeMetaData *> generic_arguments{};
         bool is_abstract{false};
         const char *discriminator{"__type__"};
+        /** Serialized value which identifies this concrete alternative.
+            Null retains the canonical qualified Bundle name. */
+        const char *discriminator_value{nullptr};
         std::uint64_t generation{0};
     };
 
@@ -286,6 +289,21 @@ namespace hgraph
             return bundle_hierarchy != nullptr && bundle_hierarchy->discriminator != nullptr
                        ? std::string_view{bundle_hierarchy->discriminator}
                        : std::string_view{"__type__"};
+        }
+        /** Value written into a polymorphic Bundle's discriminator field. */
+        [[nodiscard]] constexpr std::string_view bundle_discriminator_value() const noexcept
+        {
+            return bundle_hierarchy != nullptr &&
+                           bundle_hierarchy->discriminator_value != nullptr
+                       ? std::string_view{bundle_hierarchy->discriminator_value}
+                       : name();
+        }
+        /** Match canonical, local, or explicitly configured discriminator values. */
+        [[nodiscard]] constexpr bool matches_bundle_discriminator(
+            std::string_view value) const noexcept
+        {
+            return value == name() || value == bundle_local_name() ||
+                   value == bundle_discriminator_value();
         }
         [[nodiscard]] const std::vector<const ValueTypeMetaData *> &bundle_generic_arguments() const noexcept
         {

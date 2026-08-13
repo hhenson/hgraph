@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 207
+     - 208
    * - Public operator groups
      - 188
    * - Public submodules
@@ -157,6 +157,7 @@ Top-level wildcard exports
    * - ``delayed_binding``
    * - ``dispatch``
    * - ``dispatch_``
+   * - ``downcast_``
    * - ``downcast_ref``
    * - ``drop_dups``
    * - ``emit``
@@ -361,7 +362,7 @@ whose curated signatures remain authoritative.
      - 4 native overloads; lazy operator
    * - :ref:`downcast_ <python-operator-downcast_>`
      - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; lazy operator
+     - 1 native overload; explicit helper
    * - :ref:`downcast_ref <python-operator-downcast_ref>`
      - ``downcast_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[OUT]``
      - 1 native overload; explicit helper

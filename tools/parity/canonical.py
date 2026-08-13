@@ -32,12 +32,9 @@ def _canonical_float(value: float) -> dict[str, str]:
 def canonicalize(value: Any) -> Any:
     """Convert a runtime value to a stable JSON-compatible representation."""
 
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
-    if isinstance(value, float):
-        return _canonical_float(value)
-    if isinstance(value, bytes):
-        return {"$bytes": base64.b64encode(value).decode("ascii")}
+    # IntEnum and StrEnum are also instances of their primitive base classes;
+    # preserve nominal identity before the primitive fast path so differential
+    # recipes can detect enum schema loss at the Python boundary.
     if isinstance(value, enum.Enum):
         return {
             "$enum": {
@@ -46,6 +43,12 @@ def canonicalize(value: Any) -> Any:
                 "value": canonicalize(value.value),
             }
         }
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        return _canonical_float(value)
+    if isinstance(value, bytes):
+        return {"$bytes": base64.b64encode(value).decode("ascii")}
     if isinstance(value, dt.datetime):
         return {"$datetime": value.isoformat()}
     if isinstance(value, dt.date):

@@ -80,7 +80,11 @@ A scalar schema has one of nine kinds, recorded on its
     module plus enclosing scope.
     ``class Quote(CompoundScalar, namespace="feed", abstract=True,
     discriminator="kind")`` overrides the namespace, construction policy,
-    and external type marker. Anonymous compounds produced by
+    and external type marker. The release/0.5 class-body markers
+    ``__serialise_base__`` and ``__serialise_discriminator_field__`` are
+    translated to this same native metadata; a descendant's class attribute
+    named by the discriminator becomes its hierarchy-local discriminator
+    value. Anonymous compounds produced by
     ``compound_scalar(**kwargs)`` remain structural.
 
     A plain standard-library dataclass, or an explicitly registered annotated
@@ -136,8 +140,10 @@ Python conversion constructs the active concrete dataclass directly in the
 union. ``None`` means an unset Bundle field. A dictionary or JSON object being
 decoded *through a polymorphic parent* must include the configured
 discriminator (``__type__`` by default), naming a valid qualified or
-unambiguous local alternative. The marker is an external wire artifact and is
-not stored as a Bundle field.
+unambiguous local alternative, or its explicitly registered discriminator
+value. The marker is normally an external wire artifact. When the configured
+discriminator is itself a Bundle field, the JSON codec reads and writes that
+stored field without adding a duplicate external key.
 
 Recursive Bundle fields
 -----------------------

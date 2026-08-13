@@ -993,6 +993,58 @@ TEST_CASE(
   REQUIRE(nested_round_trip.as_bundle()["item"].concrete().schema() == child);
 }
 
+TEST_CASE(
+    "polymorphic Bundle JSON supports configured discriminator values") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  const auto *text = registry.value_type("str");
+  REQUIRE(integer != nullptr);
+  REQUIRE(text != nullptr);
+
+  SECTION("external discriminator") {
+    const auto *base = registry.bundle(
+        "tests.json.alias", "LegacyBase", {{"id", integer}}, {}, true,
+        "kind");
+    const auto *child = registry.bundle(
+        "tests.json.alias", "LegacyChild",
+        {{"id", integer}, {"quantity", integer}}, {base}, false, "kind", {},
+        "LSCS");
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope scope{snapshot.get()};
+
+    REQUIRE(child->bundle_discriminator_value() == "LSCS");
+    REQUIRE(child->matches_bundle_discriminator("LSCS"));
+    Value value = from_json_string(
+        base, R"({"kind": "LSCS", "id": 1, "quantity": 2})");
+    REQUIRE(value.view().concrete().schema() == child);
+    REQUIRE(to_json_string(value.view()).find(R"("kind": "LSCS")") !=
+            std::string::npos);
+  }
+
+  SECTION("discriminator stored as a Bundle field") {
+    const auto *base = registry.bundle(
+        "tests.json.field_alias", "LegacyFieldBase",
+        {{"id", integer}, {"kind", text}}, {}, true, "kind");
+    const auto *child = registry.bundle(
+        "tests.json.field_alias", "LegacyFieldChild",
+        {{"id", integer}, {"kind", text}, {"quantity", integer}}, {base},
+        false, "kind", {}, "LSCS");
+    const auto snapshot = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope scope{snapshot.get()};
+
+    Value value = from_json_string(
+        base, R"({"id": 1, "kind": "LSCS", "quantity": 2})");
+    REQUIRE(value.view().concrete().schema() == child);
+    const std::string encoded = to_json_string(value.view());
+    REQUIRE(encoded.find(R"("kind": "LSCS")") != std::string::npos);
+    REQUIRE(encoded.find("kind", encoded.find("kind") + 1) ==
+            std::string::npos);
+    REQUIRE(from_json_string(base, encoded).view().concrete().schema() ==
+            child);
+  }
+}
+
 TEST_CASE("TypeRegistry assigns exact stable canonical labels to every value "
           "schema family") {
   using namespace hgraph;

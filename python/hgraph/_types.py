@@ -544,6 +544,7 @@ def _register_mutual_recursive_component(component):
             bool(scalar.__dict__.get("__compound_abstract__", False)),
             scalar.__dict__.get("__compound_discriminator__", "__type__"),
             [],
+            scalar.__dict__.get("__compound_discriminator_value__", ""),
         ))
 
     metas = _hgraph.recursive_bundles_vt(definitions)
@@ -1292,7 +1293,14 @@ def _compound_value_type(scalar, type_args=()):
     generic_arguments = [_value_type(argument) for argument in type_args]
     register = _hgraph.recursive_bundle_vt if has_self_recursion else _hgraph.qualified_bundle_vt
     meta = register(
-        bundle_namespace, local_name, fields, parent_metas, is_abstract, discriminator, generic_arguments
+        bundle_namespace,
+        local_name,
+        fields,
+        parent_metas,
+        is_abstract,
+        discriminator,
+        generic_arguments,
+        scalar.__dict__.get("__compound_discriminator_value__", ""),
     )
     # Python erases generic arguments on ``instance.__class__``. The runtime
     # schema still carries invariant arguments, while class matching must use

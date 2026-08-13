@@ -1,4 +1,6 @@
 """Dispatch coverage beyond the upstream ported wiring cases."""
+import inspect
+from dataclasses import dataclass
 from typing import Type, Union
 
 import pytest
@@ -360,6 +362,35 @@ def test_compound_scalar_downcast_rejects_the_wrong_active_leaf():
 
     with pytest.raises(RuntimeError, match="active Bundle value does not match"):
         eval_node(app, [Cat()])
+
+
+def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar):
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        sound: str
+
+    @graph
+    def positional(animal: TS[Animal]) -> TS[Dog]:
+        return downcast_(Dog, animal)
+
+    @graph
+    def keyword(animal: TS[Animal]) -> TS[Dog]:
+        return downcast_(tp=Dog, ts=animal)
+
+    @graph
+    def output_selected(animal: TS[Animal]) -> TS[Dog]:
+        return downcast_[TS[Dog]](animal)
+
+    samples = [Dog(identifier=1, sound="woof"), Dog(identifier=2, sound="yip")]
+    assert eval_node(positional, samples) == samples
+    assert eval_node(keyword, samples) == samples
+    assert eval_node(output_selected, samples) == samples
+    assert tuple(inspect.signature(downcast_).parameters) == ("tp", "ts")
+    assert tuple(inspect.signature(downcast_[TS[Dog]]).parameters) == ("ts",)
 
 
 def test_compound_scalar_reference_downcast_uses_the_native_reference_operator():

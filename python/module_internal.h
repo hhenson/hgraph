@@ -140,6 +140,10 @@ namespace hgraph::python_bridge
     /** meta -> registered python Enum class (backs the core enum ops'
         python conversion; cleared on registry reset). */
     [[nodiscard]] std::unordered_map<const ValueTypeMetaData *, nb::object> &enum_class_registry();
+    /** Exact Python Enum class -> nominal native enum schema.  This reverse
+        index must be consulted before primitive conversion because IntEnum
+        and StrEnum are also instances of int and str respectively. */
+    [[nodiscard]] std::unordered_map<PyTypeObject *, const ValueTypeMetaData *> &enum_type_registry();
     [[nodiscard]] std::unordered_map<const ValueTypeMetaData *,
                                      std::unordered_map<long long, nb::object>> &
     enum_to_python_registry();

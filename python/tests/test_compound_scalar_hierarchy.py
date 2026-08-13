@@ -1064,6 +1064,79 @@ def test_configured_json_discriminator_selects_the_concrete_class():
     assert '"kind": "tests.json::Derived"' in encode(value)
 
 
+def test_legacy_serialise_base_uses_the_default_discriminator():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_base__ = True
+        p1: int
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        p2: float
+
+    assert SimpleCompoundScalar.__serialise_discriminator_field__ == "__type__"
+    assert SimpleCompoundScalar.__serialise_children__ == {
+        "LessSimpleCompoundScalar": LessSimpleCompoundScalar
+    }
+    assert SimpleCompoundScalar.__serialise_base__ is True
+    assert LessSimpleCompoundScalar.__serialise_base__ is False
+
+    encode = to_json_builder(SimpleCompoundScalar)
+    decode = from_json_builder(SimpleCompoundScalar)
+    value = LessSimpleCompoundScalar(p1=1, p2=2.0)
+    payload = encode(value)
+
+    assert '"__type__": "LessSimpleCompoundScalar"' in payload
+    assert decode(payload) == value
+
+
+def test_legacy_serialise_discriminator_uses_the_child_class_value():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_base__ = True
+        __serialise_discriminator_field__ = "name"
+        p1: int
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        name = "LSCS"
+        p2: float = 1.0
+
+    assert SimpleCompoundScalar.__serialise_children__ == {
+        "LSCS": LessSimpleCompoundScalar
+    }
+    encode = to_json_builder(SimpleCompoundScalar)
+    decode = from_json_builder(SimpleCompoundScalar)
+    value = LessSimpleCompoundScalar(p1=1, p2=2.0)
+    payload = encode(value)
+
+    assert '"name": "LSCS"' in payload
+    assert decode(payload) == value
+
+
+def test_legacy_serialise_discriminator_can_be_a_schema_field():
+    @dataclass
+    class SimpleCompoundScalar(CompoundScalar):
+        __serialise_base__ = True
+        __serialise_discriminator_field__ = "name"
+        p1: int
+        name: str
+
+    @dataclass
+    class LessSimpleCompoundScalar(SimpleCompoundScalar):
+        name: str = "LSCS"
+        p2: float = 1.0
+
+    encode = to_json_builder(SimpleCompoundScalar)
+    decode = from_json_builder(SimpleCompoundScalar)
+    value = LessSimpleCompoundScalar(p1=1, p2=2.0)
+    payload = encode(value)
+
+    assert payload.count('"name"') == 1
+    assert '"name": "LSCS"' in payload
+    assert decode(payload) == value
+
+
 def test_self_recursive_compound_scalar_allocates_children_on_demand():
     @dataclass
     class RecursiveValue(CompoundScalar, namespace="tests.recursion"):

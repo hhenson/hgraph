@@ -198,6 +198,26 @@ namespace
         }
     };
 
+    struct DowncastValueGraph
+    {
+        static constexpr auto name = "downcast_value_graph";
+
+        static Port<void> compose(Wiring &w, Port<TS<Animal>> animal)
+        {
+            const auto types = register_dispatch_types();
+            WiringArg input{.kind = WiringArg::Kind::TimeSeries, .port = animal.erased()};
+            std::array<WiringArg, 1> inputs{std::move(input)};
+            OperatorWireResult narrowed = wire_operator(
+                w, "downcast_", std::span<const WiringArg>{inputs}, true,
+                TypeRegistry::instance().ts(types.dog));
+            if (!narrowed.has_output)
+            {
+                throw std::logic_error("downcast_ did not produce an output");
+            }
+            return Port<void>{w, std::move(narrowed.output)};
+        }
+    };
+
     struct DowncastRefValueGraph
     {
         static constexpr auto name = "downcast_ref_value_graph";
@@ -506,6 +526,32 @@ TEST_CASE("downcast_ref: C++ wiring reads a registered derived Bundle without ma
         testing::eval_node<DowncastRefSoundGraph>(testing::values<Value>(
             dog_value(types, 1, "woof"), puppy_value(types, 2, "yip"))),
         testing::values<Str>("woof", "yip"));
+}
+
+TEST_CASE("downcast_: C++ wiring narrows compatible derived Bundle values")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+    const auto dog = dog_value(types, 1, "woof");
+    const auto puppy = puppy_value(types, 2, "yip");
+
+    CHECK_OUTPUT(
+        testing::eval_node<DowncastValueGraph>(testing::values<Value>(dog, puppy)),
+        testing::values<Value>(dog, puppy));
+}
+
+TEST_CASE("downcast_: C++ wiring rejects an incompatible active Bundle leaf")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    REQUIRE_THROWS_WITH(
+        testing::eval_node<DowncastValueGraph>(
+            testing::values<Value>(cat_value(types, 1))),
+        Catch::Matchers::ContainsSubstring(
+            "active Bundle value does not match the requested derived type"));
 }
 
 TEST_CASE("downcast_ref: C++ eval_node records the concrete derived Bundle")

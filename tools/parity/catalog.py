@@ -2187,6 +2187,173 @@ def _stream_dataclass(hg, recipe):
     }
 
 
+def _validate_compound_scalar_downcast(recipe):
+    if recipe.parameters:
+        raise RecipeError("compound_scalar_downcast takes no parameters")
+    for tick in recipe.inputs["event"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {
+            "event_id", "order_id", "quantity"
+        }:
+            raise RecipeError(
+                "compound_scalar_downcast events require event_id, order_id, and quantity"
+            )
+        if not isinstance(tick["event_id"], str) or not tick["event_id"]:
+            raise RecipeError("compound_scalar_downcast event_id must be a non-empty string")
+        if not isinstance(tick["order_id"], str) or not tick["order_id"]:
+            raise RecipeError("compound_scalar_downcast order_id must be a non-empty string")
+        if not isinstance(tick["quantity"], int) or isinstance(tick["quantity"], bool):
+            raise RecipeError("compound_scalar_downcast quantity must be an integer")
+
+
+def _compound_scalar_downcast(hg, recipe):
+    from dataclasses import dataclass
+
+    from hgraph.test import eval_node
+
+    @dataclass(frozen=True)
+    class Event(hg.CompoundScalar):
+        event_id: str
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        quantity: int
+
+    @hg.graph
+    def parity_graph(event: hg.TS[Event]) -> hg.TS[CreateEvent]:
+        # The explicit positional target is the released 0.5 public contract.
+        return hg.downcast_(CreateEvent, event)
+
+    events = [
+        CreateEvent(**tick) if tick is not None else None
+        for tick in decoded_inputs(hg, recipe)["event"]
+    ]
+    return eval_node(parity_graph, events)
+
+
+def _validate_enum_literal_selection(recipe):
+    if set(recipe.parameters) != {"kind"}:
+        raise RecipeError("enum_literal_selection requires only the kind parameter")
+    if recipe.parameters["kind"] not in {"int", "str"}:
+        raise RecipeError("enum_literal_selection kind must be 'int' or 'str'")
+    for tick in recipe.inputs["condition"]:
+        if tick is not None and not isinstance(tick, bool):
+            raise RecipeError(
+                "enum_literal_selection condition ticks must be bool or null"
+            )
+
+
+def _enum_literal_selection(hg, recipe):
+    from enum import IntEnum, StrEnum
+
+    from hgraph.test import eval_node
+
+    if recipe.parameters["kind"] == "int":
+        class IntegerChoice(IntEnum):
+            FIRST = 1
+            SECOND = 2
+
+        Choice = IntegerChoice
+    else:
+        class StringChoice(StrEnum):
+            FIRST = "first"
+            SECOND = "second"
+
+        Choice = StringChoice
+
+    @hg.graph
+    def parity_graph(condition: hg.TS[bool]) -> hg.TS[Choice]:
+        # Released hgraph lifts nominal enum members without an explicit const.
+        return hg.if_then_else(condition, Choice.FIRST, Choice.SECOND)
+
+    return eval_node(
+        parity_graph,
+        decoded_inputs(hg, recipe)["condition"],
+    )
+
+
+def _validate_legacy_compound_scalar_json(recipe):
+    if set(recipe.parameters) != {"mode"}:
+        raise RecipeError(
+            "legacy_compound_scalar_json requires only the mode parameter"
+        )
+    if recipe.parameters["mode"] not in {"default", "custom", "field"}:
+        raise RecipeError(
+            "legacy_compound_scalar_json mode must be default, custom, or field"
+        )
+    for tick in recipe.inputs["value"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {"p1", "p2"}:
+            raise RecipeError(
+                "legacy_compound_scalar_json values require p1 and p2"
+            )
+        if not isinstance(tick["p1"], int) or isinstance(tick["p1"], bool):
+            raise RecipeError("legacy_compound_scalar_json p1 must be an integer")
+        if (
+            not isinstance(tick["p2"], (int, float))
+            or isinstance(tick["p2"], bool)
+        ):
+            raise RecipeError("legacy_compound_scalar_json p2 must be numeric")
+
+
+def _legacy_compound_scalar_json(hg, recipe):
+    from dataclasses import dataclass
+
+    mode = recipe.parameters["mode"]
+    if mode == "default":
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            p1: int
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            p2: float
+    elif mode == "custom":
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            __serialise_discriminator_field__ = "name"
+            p1: int
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            name = "LSCS"
+            p2: float = 1.0
+    else:
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            __serialise_discriminator_field__ = "name"
+            p1: int
+            name: str
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            name: str = "LSCS"
+            p2: float = 1.0
+
+    encode = hg.to_json_builder(LegacyBase)
+    decode = hg.from_json_builder(LegacyBase)
+    encoded = []
+    decoded = []
+    for tick in decoded_inputs(hg, recipe)["value"]:
+        if tick is None:
+            encoded.append(None)
+            decoded.append(None)
+            continue
+        payload = json.loads(encode(LegacyChild(**tick)))
+        encoded.append(payload)
+        decoded.append(decode(payload))
+    return {"encoded": encoded, "decoded": decoded}
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -2607,6 +2774,45 @@ CATALOG = {
         operators=("convert",),
         execute=_stream_dataclass,
     ),
+    "compound_scalar_downcast": TemplateSpec(
+        name="compound_scalar_downcast",
+        required_inputs=("event",),
+        features=(
+            "boundary:python-owned",
+            "shape:TS",
+            "type:compound-scalar",
+            "type:polymorphic",
+            "conversion:checked-downcast",
+        ),
+        operators=("downcast_",),
+        execute=_compound_scalar_downcast,
+    ),
+    "enum_literal_selection": TemplateSpec(
+        name="enum_literal_selection",
+        required_inputs=("condition",),
+        features=(
+            "boundary:python-owned",
+            "shape:TS",
+            "type:enum",
+            "conversion:auto-const",
+            "topology:branch-selection",
+        ),
+        operators=("if_then_else",),
+        execute=_enum_literal_selection,
+    ),
+    "legacy_compound_scalar_json": TemplateSpec(
+        name="legacy_compound_scalar_json",
+        required_inputs=("value",),
+        features=(
+            "boundary:python-owned",
+            "type:compound-scalar",
+            "type:polymorphic",
+            "conversion:json",
+            "compatibility:release-0.5",
+        ),
+        operators=("to_json", "from_json"),
+        execute=_legacy_compound_scalar_json,
+    ),
     "temporal_expression": TemplateSpec(
         name="temporal_expression",
         required_inputs=None,
@@ -2729,6 +2935,12 @@ def validate_recipe(recipe):
         _validate_nested_higher_order(recipe)
     elif recipe.template == "data_frame_recording":
         _validate_data_frame_recording(recipe)
+    elif recipe.template == "compound_scalar_downcast":
+        _validate_compound_scalar_downcast(recipe)
+    elif recipe.template == "enum_literal_selection":
+        _validate_enum_literal_selection(recipe)
+    elif recipe.template == "legacy_compound_scalar_json":
+        _validate_legacy_compound_scalar_json(recipe)
     elif recipe.template == "polymorphic_event_flow":
         _validate_polymorphic_event_flow(recipe)
     elif recipe.template == "polymorphic_event_map":

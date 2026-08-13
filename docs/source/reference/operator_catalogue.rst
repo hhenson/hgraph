@@ -1668,9 +1668,9 @@ Accepted native overloads
 ``downcast_``
 -------------
 
-Downcast values to an explicitly selected derived type with runtime checking.
+Downcast values to an explicitly selected derived type with runtime checking. Python supports the release/0.5-compatible ``downcast_(Derived, ts)`` spelling and the output-selected ``downcast_[TS[Derived]](ts)`` spelling. Both wire this native operator with the same resolved output schema.
 
-Python exposure: lazy native operator proxy.
+Python entry point: ``downcast_(tp: type[SCALAR], ts: TS[SCALAR_1]) -> TS[SCALAR]`` (explicit helper).
 
 Parameters
 ~~~~~~~~~~
@@ -1680,6 +1680,9 @@ are fixed when the graph is built.
 
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Base-typed input.
+
+``tp`` : Python argument; ``object``
+   Derived CompoundScalar class selected at Python wiring time; C++ callers select the equivalent output schema in ``wire<downcast_, TS<Derived>>``.
 
 Returns
 ~~~~~~~
@@ -1691,7 +1694,8 @@ Python example
 
 .. code-block:: python
 
-   derived = hg.downcast_[TS[Derived]](base)
+   derived = hg.downcast_(Derived, base)
+   equivalent = hg.downcast_[TS[Derived]](base)
 
 Accepted native overloads
 
@@ -2953,7 +2957,7 @@ Accepted native overloads
 ``if_then_else``
 ----------------
 
-Select between two value streams using the latest boolean condition. A tick from the active branch is forwarded; a tick from the inactive branch is not.
+Select between two value streams using the latest boolean condition. A tick from the active branch is forwarded; a tick from the inactive branch is not. Python scalar branch values are lifted to constant sources.  This preserves the nominal type of ``Enum``, ``IntEnum``, and ``StrEnum`` members, so callers do not need to wrap them in typed ``const`` nodes.
 
 Python exposure: lazy native operator proxy.
 

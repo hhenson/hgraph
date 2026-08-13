@@ -156,7 +156,8 @@ class CompoundScalar:
     ``namespace`` defaults to the defining module plus any enclosing class or
     function scope. Hierarchy registration is completed lazily when the class
     is first materialised as an hgraph value type, after ``@dataclass`` has
-    populated its inherited field set.
+    populated its inherited field set. Release/0.5 serialization markers are
+    translated into the same native hierarchy metadata as the class options.
     """
 
     __compound_namespace__ = ""
@@ -178,9 +179,45 @@ class CompoundScalar:
         enclosing = cls.__qualname__.rsplit(".", 1)[0] if "." in cls.__qualname__ else ""
         if namespace is None:
             namespace = cls.__module__ if not enclosing else f"{cls.__module__}.{enclosing}"
+
+        # Release/0.5 described polymorphic JSON hierarchies with class-body
+        # markers. Keep their historical child registry visible for code
+        # which inspects it, while translating the behavior into the native
+        # Bundle hierarchy used by every 0.8 codec and runtime boundary.
+        legacy_parent = next(
+            (
+                base
+                for base in cls.__mro__[1:]
+                if getattr(base, "__serialise_children__", None) is not None
+            ),
+            None,
+        )
+        legacy_base = bool(cls.__dict__.get("__serialise_base__", False))
+        discriminator_value = ""
+        if legacy_parent is not None:
+            discriminator = getattr(
+                legacy_parent,
+                "__serialise_discriminator_field__",
+                "__type__",
+            )
+            discriminator_value = str(
+                getattr(cls, discriminator, cls.__name__)
+            )
+            legacy_parent.__serialise_children__[discriminator_value] = cls
+            cls.__serialise_base__ = False
+        elif legacy_base:
+            abstract = True
+            discriminator = cls.__dict__.get(
+                "__serialise_discriminator_field__",
+                "__type__",
+            )
+            cls.__serialise_discriminator_field__ = discriminator
+            cls.__serialise_children__ = {}
+
         cls.__compound_namespace__ = namespace
         cls.__compound_abstract__ = bool(abstract)
         cls.__compound_discriminator__ = discriminator
+        cls.__compound_discriminator_value__ = discriminator_value
         cls.__compound_options__ = dict(options)
         _COMPOUND_SCALAR_CLASSES.append(cls)
 

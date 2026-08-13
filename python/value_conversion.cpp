@@ -33,6 +33,13 @@ namespace hgraph::python_bridge
         return *registry;
     }
 
+    std::unordered_map<PyTypeObject *, const ValueTypeMetaData *> &enum_type_registry()
+    {
+        static auto *registry =
+            new std::unordered_map<PyTypeObject *, const ValueTypeMetaData *>{};
+        return *registry;
+    }
+
     std::unordered_map<const ValueTypeMetaData *,
                        std::unordered_map<long long, nb::object>> &
     enum_to_python_registry()
@@ -428,6 +435,15 @@ namespace hgraph::python_bridge
 
     Value py_to_value(nb::handle object)
     {
+        // Preserve nominal Python enum identity before considering primitive
+        // base classes: IntEnum and StrEnum deliberately satisfy isinstance
+        // checks for int and str.  TS[EnumType] materialisation registers the
+        // exact class and schema in this reverse index.
+        if (const auto enumeration = enum_type_registry().find(Py_TYPE(object.ptr()));
+            enumeration != enum_type_registry().end())
+        {
+            return py_to_value_as(object, enumeration->second);
+        }
         if (nb::isinstance<nb::bool_>(object)) { return Value{Bool{nb::cast<bool>(object)}}; }
         if (nb::isinstance<nb::int_>(object)) { return Value{Int{nb::cast<Int>(object)}}; }
         if (nb::isinstance<nb::float_>(object)) { return Value{Float{nb::cast<Float>(object)}}; }
@@ -436,17 +452,6 @@ namespace hgraph::python_bridge
         {
             auto raw = nb::cast<nb::bytes>(object);
             return Value{Bytes{std::string{raw.c_str(), raw.size()}}};
-        }
-        // A Python Enum class is registered when its TS annotation is
-        // materialised. Preserve that nominal schema for plain enum values
-        // used in operator calls so the C++ auto-const path receives the
-        // same type as a connected TS[Enum] input.
-        for (const auto &[meta, python_type] : enum_class_registry())
-        {
-            if (python_type.is_valid() && nb::isinstance(object, python_type))
-            {
-                return py_to_value_as(object, meta);
-            }
         }
         const auto &date_time_types = python_datetime_types();
         if (nb::isinstance(object, date_time_types.datetime))
@@ -676,7 +681,7 @@ namespace hgraph::python_bridge
             const ValueTypeMetaData *match = nullptr;
             for (const auto *alternative : alternatives)
             {
-                if (alternative->name() == requested || alternative->bundle_local_name() == requested)
+                if (alternative->matches_bundle_discriminator(requested))
                 {
                     if (match != nullptr)
                     {

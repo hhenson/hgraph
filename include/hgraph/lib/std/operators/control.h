@@ -156,6 +156,9 @@ namespace hgraph::stdlib
 
     /** Select between two value streams using the latest boolean condition.
         A tick from the active branch is forwarded; a tick from the inactive branch is not.
+        Python scalar branch values are lifted to constant sources.  This
+        preserves the nominal type of ``Enum``, ``IntEnum``, and ``StrEnum``
+        members, so callers do not need to wrap them in typed ``const`` nodes.
         @param condition Boolean selector.
         @param true_value Value exposed while ``condition`` is true.
         @param false_value Value exposed while ``condition`` is false.

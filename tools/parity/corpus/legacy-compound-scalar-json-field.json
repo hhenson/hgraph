@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "legacy-compound-scalar-json-field",
+  "description": "Release/0.5 CompoundScalar serialization reuses a stored schema field as the discriminator without emitting a duplicate key.",
+  "template": "legacy_compound_scalar_json",
+  "inputs": {
+    "value": [
+      {
+        "p1": 1,
+        "p2": 2.5
+      },
+      null,
+      {
+        "p1": 3,
+        "p2": 4.5
+      }
+    ]
+  },
+  "parameters": {
+    "mode": "field"
+  },
+  "features": [
+    "boundary:python-owned",
+    "type:compound-scalar",
+    "type:polymorphic",
+    "conversion:json",
+    "compatibility:release-0.5",
+    "discriminator:stored-field"
+  ]
+}

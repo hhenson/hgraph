@@ -905,7 +905,8 @@ namespace hgraph
         const std::vector<const ValueTypeMetaData *> &parents,
         bool is_abstract,
         std::string_view discriminator,
-        const std::vector<const ValueTypeMetaData *> &generic_arguments)
+        const std::vector<const ValueTypeMetaData *> &generic_arguments,
+        std::string_view discriminator_value)
     {
         RecursiveBundleDefinition definition;
         definition.bundle_namespace = bundle_namespace;
@@ -914,6 +915,7 @@ namespace hgraph
         definition.is_abstract = is_abstract;
         definition.discriminator = discriminator;
         definition.generic_arguments = generic_arguments;
+        definition.discriminator_value = discriminator_value;
         definition.fields.reserve(fields.size());
         for (const auto &[field_name, field_type] : fields)
         {
@@ -1038,6 +1040,10 @@ namespace hgraph
             hierarchy->is_abstract = definition.is_abstract;
             hierarchy->discriminator =
                 store_name_interned(definition.discriminator);
+            hierarchy->discriminator_value = store_name_interned(
+                definition.discriminator_value.empty()
+                    ? qualified_names[index]
+                    : definition.discriminator_value);
             hierarchy->generation = ++bundle_hierarchy_generation_;
             record->bundle_hierarchy = hierarchy.get();
             named.push_back(record.get());
@@ -1111,7 +1117,8 @@ namespace hgraph
                          const std::vector<const ValueTypeMetaData *> &parents,
                          bool is_abstract,
                          std::string_view discriminator,
-                         const std::vector<const ValueTypeMetaData *> &generic_arguments)
+                         const std::vector<const ValueTypeMetaData *> &generic_arguments,
+                         std::string_view discriminator_value)
     {
         const std::lock_guard lock(mutex_);
         if (local_name.empty())
@@ -1120,6 +1127,9 @@ namespace hgraph
         }
         const std::string qualified_name = qualified_bundle_name(bundle_namespace, local_name);
         if (discriminator.empty()) { throw std::invalid_argument("bundle discriminator must not be empty"); }
+        const std::string_view effective_discriminator_value =
+            discriminator_value.empty() ? std::string_view{qualified_name}
+                                        : discriminator_value;
         if (const ValueTypeMetaData *existing = value_type(qualified_name);
             existing != nullptr && !existing->is_named_bundle())
         {
@@ -1186,6 +1196,8 @@ namespace hgraph
             hierarchy->generic_arguments = generic_arguments;
             hierarchy->is_abstract = is_abstract;
             hierarchy->discriminator = store_name_interned(discriminator);
+            hierarchy->discriminator_value =
+                store_name_interned(effective_discriminator_value);
             hierarchy->generation = ++bundle_hierarchy_generation_;
             m.bundle_hierarchy = hierarchy.get();
             bundle_hierarchy_storage_.push_back(std::move(hierarchy));
@@ -1196,6 +1208,8 @@ namespace hgraph
         if (hierarchy == nullptr) { throw std::logic_error("named bundle is missing hierarchy metadata"); }
         if (hierarchy->parents != parents || hierarchy->is_abstract != is_abstract ||
             std::string_view{hierarchy->discriminator} != discriminator ||
+            std::string_view{hierarchy->discriminator_value} !=
+                effective_discriminator_value ||
             hierarchy->generic_arguments != generic_arguments)
         {
             throw std::invalid_argument("named bundle '" + qualified_name +

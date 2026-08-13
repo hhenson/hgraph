@@ -69,6 +69,7 @@ namespace hgraph
         bool is_abstract{false};
         std::string discriminator{"__type__"};
         std::vector<const ValueTypeMetaData *> generic_arguments{};
+        std::string discriminator_value{};
     };
 
     /**
@@ -141,6 +142,8 @@ namespace hgraph
         /**
          * Define a self-recursive named Bundle. A null field type denotes an
          * ``Owned<Self>`` edge; all other fields are ordinary value schemas.
+         * ``discriminator_value`` optionally supplies this alternative's
+         * hierarchy-local serialized tag; the qualified name is the default.
          */
         const ValueTypeMetaData *recursive_bundle(
             std::string_view bundle_namespace,
@@ -149,7 +152,8 @@ namespace hgraph
             const std::vector<const ValueTypeMetaData *> &parents = {},
             bool is_abstract = false,
             std::string_view discriminator = "__type__",
-            const std::vector<const ValueTypeMetaData *> &generic_arguments = {});
+            const std::vector<const ValueTypeMetaData *> &generic_arguments = {},
+            std::string_view discriminator_value = {});
         /** Atomically declare mutually recursive named bundles. Each field
             supplies either a direct value schema or an index into this batch;
             indexed edges are stored as one-pointer Owned values. */
@@ -164,7 +168,10 @@ namespace hgraph
          */
         const ValueTypeMetaData *bundle(std::string_view name,
                                         const std::vector<std::pair<std::string, const ValueTypeMetaData *>> &fields);
-        /** Intern a qualified named bundle and register its immediate bundle parents. */
+        /** Intern a qualified named bundle and register its immediate bundle
+            parents. ``discriminator_value`` optionally supplies this
+            alternative's hierarchy-local serialized tag; the qualified name
+            is the default. */
         const ValueTypeMetaData *bundle(
             std::string_view bundle_namespace,
             std::string_view local_name,
@@ -172,7 +179,8 @@ namespace hgraph
             const std::vector<const ValueTypeMetaData *> &parents = {},
             bool is_abstract = false,
             std::string_view discriminator = "__type__",
-            const std::vector<const ValueTypeMetaData *> &generic_arguments = {});
+            const std::vector<const ValueTypeMetaData *> &generic_arguments = {},
+            std::string_view discriminator_value = {});
         /**
          * Look up a previously-registered *named* bundle by name. Returns
          * the canonical named-bundle metadata, or ``nullptr`` if no schema

@@ -120,11 +120,17 @@ namespace hgraph::stdlib
     };
 
     /** Downcast values to an explicitly selected derived type with runtime checking.
+        Python supports the release/0.5-compatible ``downcast_(Derived, ts)`` spelling
+        and the output-selected ``downcast_[TS[Derived]](ts)`` spelling. Both wire this
+        native operator with the same resolved output schema.
+        @param tp Derived CompoundScalar class selected at Python wiring time; C++
+        callers select the equivalent output schema in ``wire<downcast_, TS<Derived>>``.
         @param ts Base-typed input.
         @return The same values viewed through the selected derived schema.
         @par Python example
         @code{.py}
-        derived = hg.downcast_[TS[Derived]](base)
+        derived = hg.downcast_(Derived, base)
+        equivalent = hg.downcast_[TS[Derived]](base)
         @endcode */
     struct downcast_ : Operator<"downcast_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
