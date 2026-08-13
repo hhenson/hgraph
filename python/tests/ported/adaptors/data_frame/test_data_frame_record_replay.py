@@ -25,11 +25,13 @@ def _stored_frame(ds):
 def test_data_frame_record():
     with GlobalState() as gs, MemoryDataFrameStorage() as ds:
         set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
-        set_as_of(MIN_ST + MIN_TD * 30)
+        fixed_as_of = MIN_ST + MIN_TD * 30
+        set_as_of(fixed_as_of)
         eval_node(record[TS[int]], ts=[1, 2, 3], key="ts", recordable_id="test")
 
         df = _stored_frame(ds)
         assert len(df) == 3
+        assert df["__as_of__"].to_list() == [fixed_as_of] * 3
         assert df["value"][0] == 1
         assert df["value"][1] == 2
         assert df["value"][2] == 3

@@ -134,7 +134,12 @@ def _legacy_record_replay_kwargs(name, args, kwargs):
         from hgraph import RecordAsOf, RecordRemoves
 
         translated.setdefault(
-            "as_of", RecordAsOf.TRACK if options.get("track_as_of", True) else RecordAsOf.OMIT
+            # The 0.5 flag controls whether the column is present; it does not
+            # override a fixed graph-level ``set_as_of`` value.  ``INHERIT``
+            # preserves that distinction while still tracking evaluation time
+            # when no fixed value is configured.  Callers can continue to pass
+            # ``RecordAsOf.TRACK`` explicitly when they want that override.
+            "as_of", RecordAsOf.INHERIT if options.get("track_as_of", True) else RecordAsOf.OMIT
         )
         translated.setdefault(
             "removes", RecordRemoves.TRACK if options.get("track_removes", False) else RecordRemoves.OMIT
