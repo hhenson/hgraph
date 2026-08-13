@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "coverage-structural-map-lookup",
+  "description": "A typed mapped child forwards the physical REF[TSB] produced by keyed lookup.",
+  "template": "structural_map_projection",
+  "inputs": {
+    "lookups": [
+      {"left": "a", "right": "b"},
+      {"left": "b"},
+      {"right": {"$remove": true}},
+      {"right": "a"}
+    ],
+    "rows": [
+      {
+        "a": {"value": 1, "quantity": 10, "label": "alpha"},
+        "b": {"value": 2, "quantity": 20, "label": "beta"}
+      },
+      {"b": {"value": 3, "quantity": 30, "label": "beta-2"}},
+      {"a": {"value": 4}},
+      null
+    ]
+  },
+  "parameters": {"projection": "lookup"},
+  "features": [
+    "shape:TSB",
+    "shape:TSD",
+    "reference:REF",
+    "topology:typed-child-graph",
+    "binding:non-peered"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/pull/442"
+}

@@ -50,6 +50,12 @@ namespace hgraph
             const auto *view = static_cast<const TSDOutputView *>(context);
             return {view->key_at_slot(slot), view->at_slot(slot)};
         }
+
+        [[nodiscard]] bool tsd_output_structure_modified(
+            const TSOutputView &view)
+        {
+            return view.data_view().as_dict().structural_delta_current(view.evaluation_time());
+        }
     }  // namespace
 
     TSDOutputView::TSDOutputView(TSOutputView view)
@@ -68,8 +74,14 @@ namespace hgraph
     std::size_t TSDOutputView::slot_capacity() const { return data_view().slot_capacity(); }
     bool TSDOutputView::slot_occupied(std::size_t slot) const { return data_view().slot_occupied(slot); }
     bool TSDOutputView::slot_live(std::size_t slot) const { return data_view().slot_live(slot); }
-    bool TSDOutputView::slot_added(std::size_t slot) const { return data_view().slot_added(slot); }
-    bool TSDOutputView::slot_removed(std::size_t slot) const { return data_view().slot_removed(slot); }
+    bool TSDOutputView::slot_added(std::size_t slot) const
+    {
+        return tsd_output_structure_modified(view_) && data_view().slot_added(slot);
+    }
+    bool TSDOutputView::slot_removed(std::size_t slot) const
+    {
+        return tsd_output_structure_modified(view_) && data_view().slot_removed(slot);
+    }
     bool TSDOutputView::slot_modified(std::size_t slot) const { return data_view().slot_modified(slot); }
     ValueView TSDOutputView::key_at_slot(std::size_t slot) const { return data_view().key_at_slot(slot); }
     TSOutputView TSDOutputView::at_slot(std::size_t slot) const
@@ -141,13 +153,13 @@ namespace hgraph
 
     Range<ValueView> TSDOutputView::added_keys() const
     {
-        if (!modified()) { return detail::empty_output_range<ValueView>(); }
+        if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<ValueView>(); }
         return data_view().added_keys();
     }
 
     Range<TSOutputView> TSDOutputView::added_values() const
     {
-        if (!modified()) { return detail::empty_output_range<TSOutputView>(); }
+        if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<TSOutputView>(); }
         return Range<TSOutputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
                                    .predicate = &tsd_output_added_slot,
                                    .projector = &tsd_output_project_value};
@@ -155,7 +167,10 @@ namespace hgraph
 
     KeyValueRange<ValueView, TSOutputView> TSDOutputView::added_items() const
     {
-        if (!modified()) { return detail::empty_output_kv_range<ValueView, TSOutputView>(); }
+        if (!tsd_output_structure_modified(view_))
+        {
+            return detail::empty_output_kv_range<ValueView, TSOutputView>();
+        }
         return KeyValueRange<ValueView, TSOutputView>{.context = this,
                                                       .memory = nullptr,
                                                       .limit = slot_capacity(),
@@ -165,13 +180,13 @@ namespace hgraph
 
     Range<ValueView> TSDOutputView::removed_keys() const
     {
-        if (!modified()) { return detail::empty_output_range<ValueView>(); }
+        if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<ValueView>(); }
         return data_view().removed_keys();
     }
 
     Range<TSOutputView> TSDOutputView::removed_values() const
     {
-        if (!modified()) { return detail::empty_output_range<TSOutputView>(); }
+        if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<TSOutputView>(); }
         return Range<TSOutputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
                                    .predicate = &tsd_output_removed_slot,
                                    .projector = &tsd_output_project_value};
@@ -179,7 +194,10 @@ namespace hgraph
 
     KeyValueRange<ValueView, TSOutputView> TSDOutputView::removed_items() const
     {
-        if (!modified()) { return detail::empty_output_kv_range<ValueView, TSOutputView>(); }
+        if (!tsd_output_structure_modified(view_))
+        {
+            return detail::empty_output_kv_range<ValueView, TSOutputView>();
+        }
         return KeyValueRange<ValueView, TSOutputView>{.context = this,
                                                       .memory = nullptr,
                                                       .limit = slot_capacity(),

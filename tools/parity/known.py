@@ -32,6 +32,7 @@ VALID_SUBSET_REDUCE = "valid-subset-reduce"
 SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
 REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
 NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier"
+POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 
 
 def load_known_divergences(
@@ -90,6 +91,70 @@ def _trace_value_relation(
     _family: dict[str, Any],
 ) -> bool:
     return difference.get("classification") == "value"
+
+
+def _polymorphic_json_preserves_leaf_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Released hgraph reconstructs a JSON-decoded Event as the declared
+    base, while the candidate retains the concrete Heartbeat/Create/Cancel
+    leaf. Admit only that exact information-preserving difference: project
+    candidate event leaves back to Event and require the complete traces to
+    become identical. Any changed base field, timing, container shape, or
+    unrelated payload remains reportable."""
+    if difference.get("classification") not in {"value", "length"}:
+        return False
+
+    changed = False
+
+    def project(value):
+        nonlocal changed
+        if isinstance(value, list):
+            return [project(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if set(value) == {"$dataclass"}:
+            payload = value["$dataclass"]
+            if isinstance(payload, dict):
+                type_name = payload.get("type")
+                leaf = type_name.rsplit(".", 1)[-1] if isinstance(type_name, str) else ""
+                if leaf in {"HeartbeatEvent", "CreateEvent", "CancelEvent"}:
+                    fields = payload.get("fields")
+                    if not isinstance(fields, list):
+                        return value
+                    event_fields = [
+                        field for field in fields
+                        if isinstance(field, list)
+                        and len(field) == 2
+                        and field[0] == "event_id"
+                    ]
+                    if len(event_fields) != 1:
+                        return value
+                    changed = True
+                    prefix = type_name.rsplit(".", 1)[0]
+                    return {
+                        "$dataclass": {
+                            "type": f"{prefix}.Event",
+                            "fields": [["event_id", project(event_fields[0][1])]],
+                        }
+                    }
+        return {key: project(item) for key, item in value.items()}
+
+    normalized_candidate = {
+        "status": "ok",
+        "trace": project(candidate.get("trace")),
+    }
+    normalized_reference = {
+        "status": "ok",
+        "trace": reference.get("trace"),
+    }
+    return changed and compare_outcomes(
+        normalized_reference, normalized_candidate
+    ) is None
 
 
 def _without_map_field(trace: Any, field: str) -> Any:
@@ -388,19 +453,20 @@ def _nested_request_reply_one_cycle_earlier_relation(
     if removed_index is None:
         # Removing a trailing silence exposes no earlier response.
         return False
-    if any(
-        tick is not None and _canonical_map_entries(tick) != []
-        for tick in candidate_trace[:removed_index]
-    ):
-        # The prefix may establish the map, but an agreeing response before
-        # the removed cycle proves this is not the first response advance.
-        return False
-
     active_selector = None
     selector_ticks = (recipe.get("inputs") or {}).get("selector") or ()
-    for selector in selector_ticks[: removed_index + 1]:
+    for index in range(removed_index + 1):
+        selector = selector_ticks[index] if index < len(selector_ticks) else None
         if selector is not None:
             active_selector = selector
+        if index >= removed_index or active_selector != "alpha":
+            continue
+        entries = _canonical_map_entries(candidate_trace[index])
+        if entries:
+            # A beta branch may establish a non-empty structural prefix before
+            # the flip. Once alpha is active, however, an agreeing response
+            # before the removed cycle proves this is not its first advance.
+            return False
     if active_selector != "alpha":
         return False
 
@@ -534,6 +600,9 @@ RELATIONS = {
         _nested_request_reply_one_cycle_earlier_relation
     ),
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
+    POLYMORPHIC_JSON_PRESERVES_LEAF: (
+        _polymorphic_json_preserves_leaf_relation
+    ),
 }
 
 

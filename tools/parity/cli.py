@@ -53,7 +53,7 @@ CORPUS = Path(__file__).with_name("corpus")
 
 CAMPAIGN_PROFILES = {
     "pr": {
-        "examples": 48,
+        "examples": 96,
         "time_budget": 900.0,
         "reduce": False,
         "min_ticks": 8,
@@ -63,6 +63,10 @@ CAMPAIGN_PROFILES = {
             "scalar_operator_arguments",
             "feedback_accumulate",
             "switch_arithmetic",
+            "polymorphic_event_flow",
+            "polymorphic_event_map",
+            "structural_map_projection",
+            "arrow_typed_projection",
         ),
     },
     "nightly": {

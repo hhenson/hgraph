@@ -1602,6 +1602,551 @@ def _issue_40_no_key_rebind(hg, recipe):
     )
 
 
+# --------------------------------------------------------------------------
+# Realistic Python user surfaces which combine Python-owned nominal values,
+# structural time-series, higher-order wiring, and helper frameworks.  These
+# are deliberately public-API constructions: the campaign must find failures
+# through the same paths an application uses, not by manipulating internals.
+
+_POLYMORPHIC_EVENT_OPERATIONS = (
+    "compute",
+    "emit",
+    "feedback",
+    "feedback_default",
+    "tuple",
+    "set",
+    "mapping",
+    "collect_values",
+    "batch",
+    "window",
+    "json_round_trip",
+    "record_replay",
+)
+_POLYMORPHIC_EVENT_MAP_OPERATIONS = (
+    "map_compute",
+    "map_emit",
+    "map_feedback",
+    "map_emit_feedback_outer",
+)
+_STRUCTURAL_MAP_PROJECTIONS = ("lookup", "combine", "dispatch_combine")
+_ARROW_PROJECTIONS = ("pair", "first", "second")
+_ARROW_DEBUG_MODES = ("none", "direct", "configured")
+_ARROW_EXECUTION_MODES = ("graph", "eval")
+
+
+def _validate_event_spec(value, *, context):
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise RecipeError(f"{context} must be an event object or null")
+    kind = value.get("kind")
+    fields = {
+        "heartbeat": {"kind", "event_id"},
+        "create": {"kind", "event_id", "order_id", "quantity"},
+        "cancel": {"kind", "event_id", "order_id", "reason"},
+    }
+    if kind not in fields or set(value) != fields[kind]:
+        raise RecipeError(
+            f"{context} must be a heartbeat, create, or cancel event"
+        )
+    for name, item in value.items():
+        if name == "quantity":
+            if (
+                not isinstance(item, int)
+                or isinstance(item, bool)
+                or not -1_000 <= item <= 1_000
+            ):
+                raise RecipeError(f"{context} quantity must be a bounded integer")
+        elif not isinstance(item, str) or not 1 <= len(item) <= 64:
+            raise RecipeError(f"{context} {name} must be a bounded string")
+
+
+def _validate_polymorphic_event_flow(recipe):
+    if set(recipe.inputs) != {"events", "trigger", "key"}:
+        raise RecipeError(
+            "polymorphic_event_flow requires events, trigger, and key inputs"
+        )
+    operation = recipe.parameters.get("operation")
+    if operation not in _POLYMORPHIC_EVENT_OPERATIONS:
+        raise RecipeError(
+            "polymorphic_event_flow operation must be one of "
+            f"{_POLYMORPHIC_EVENT_OPERATIONS}"
+        )
+    lengths = {len(values) for values in recipe.inputs.values()}
+    if len(lengths) != 1:
+        raise RecipeError("polymorphic_event_flow inputs must have equal tick counts")
+    for index, value in enumerate(recipe.inputs["events"]):
+        _validate_event_spec(value, context=f"events[{index}]")
+    for value in recipe.inputs["trigger"]:
+        if value is not None and not isinstance(value, bool):
+            raise RecipeError("polymorphic_event_flow trigger ticks must be booleans")
+    for value in recipe.inputs["key"]:
+        if value is not None and (
+            not isinstance(value, str) or not 1 <= len(value) <= 32
+        ):
+            raise RecipeError("polymorphic_event_flow key ticks must be bounded strings")
+
+
+def _validate_polymorphic_event_map(recipe):
+    if set(recipe.inputs) != {"events"}:
+        raise RecipeError("polymorphic_event_map requires the events input")
+    operation = recipe.parameters.get("operation")
+    if operation not in _POLYMORPHIC_EVENT_MAP_OPERATIONS:
+        raise RecipeError(
+            "polymorphic_event_map operation must be one of "
+            f"{_POLYMORPHIC_EVENT_MAP_OPERATIONS}"
+        )
+    for tick_index, tick in enumerate(recipe.inputs["events"]):
+        if tick is None:
+            continue
+        if not isinstance(tick, dict):
+            raise RecipeError("polymorphic_event_map ticks must be mappings or null")
+        for key, value in tick.items():
+            if not isinstance(key, str) or not 1 <= len(key) <= 32:
+                raise RecipeError("polymorphic_event_map keys must be bounded strings")
+            if isinstance(value, dict) and value == {"$remove": True}:
+                continue
+            _validate_event_spec(
+                value, context=f"events[{tick_index}][{key!r}]"
+            )
+
+
+def _validate_structural_map_projection(recipe):
+    if set(recipe.inputs) != {"lookups", "rows"}:
+        raise RecipeError(
+            "structural_map_projection requires lookups and rows inputs"
+        )
+    projection = recipe.parameters.get("projection")
+    if projection not in _STRUCTURAL_MAP_PROJECTIONS:
+        raise RecipeError(
+            "structural_map_projection projection must be one of "
+            f"{_STRUCTURAL_MAP_PROJECTIONS}"
+        )
+    if len(recipe.inputs["lookups"]) != len(recipe.inputs["rows"]):
+        raise RecipeError(
+            "structural_map_projection inputs must have equal tick counts"
+        )
+    for tick in recipe.inputs["lookups"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict):
+            raise RecipeError("structural_map_projection lookups must be mappings")
+        for key, value in tick.items():
+            if not isinstance(key, str) or not 1 <= len(key) <= 32:
+                raise RecipeError("structural_map_projection lookup keys are invalid")
+            if isinstance(value, dict) and value == {"$remove": True}:
+                continue
+            if not isinstance(value, str) or not 1 <= len(value) <= 32:
+                raise RecipeError(
+                    "structural_map_projection lookup values must be bounded strings"
+                )
+    row_fields = {"value", "quantity", "label"}
+    for tick in recipe.inputs["rows"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict):
+            raise RecipeError("structural_map_projection rows must be mappings")
+        for key, value in tick.items():
+            if not isinstance(key, str) or not 1 <= len(key) <= 32:
+                raise RecipeError("structural_map_projection row keys are invalid")
+            if isinstance(value, dict) and value == {"$remove": True}:
+                continue
+            if not isinstance(value, dict) or not value or not set(value) <= row_fields:
+                raise RecipeError(
+                    "structural_map_projection row values must contain Row fields"
+                )
+            for field_name, field_value in value.items():
+                if field_name == "label":
+                    if not isinstance(field_value, str) or len(field_value) > 64:
+                        raise RecipeError("structural row labels must be bounded strings")
+                elif (
+                    not isinstance(field_value, int)
+                    or isinstance(field_value, bool)
+                    or not -1_000 <= field_value <= 1_000
+                ):
+                    raise RecipeError(
+                        "structural row numeric fields must be bounded integers"
+                    )
+
+
+def _validate_arrow_typed_projection(recipe):
+    if set(recipe.inputs) != {"side", "events"}:
+        raise RecipeError("arrow_typed_projection requires side and events inputs")
+    if len(recipe.inputs["side"]) != len(recipe.inputs["events"]):
+        raise RecipeError("arrow_typed_projection inputs must have equal tick counts")
+    if recipe.parameters.get("projection") not in _ARROW_PROJECTIONS:
+        raise RecipeError(
+            f"arrow_typed_projection projection must be one of {_ARROW_PROJECTIONS}"
+        )
+    if recipe.parameters.get("debug") not in _ARROW_DEBUG_MODES:
+        raise RecipeError(
+            f"arrow_typed_projection debug must be one of {_ARROW_DEBUG_MODES}"
+        )
+    if recipe.parameters.get("execution") not in _ARROW_EXECUTION_MODES:
+        raise RecipeError(
+            "arrow_typed_projection execution must be one of "
+            f"{_ARROW_EXECUTION_MODES}"
+        )
+    for value in recipe.inputs["side"]:
+        if value is not None and value not in {"BUY", "SELL"}:
+            raise RecipeError("arrow_typed_projection sides must be BUY or SELL")
+    for index, value in enumerate(recipe.inputs["events"]):
+        _validate_event_spec(value, context=f"events[{index}]")
+
+
+def _polymorphic_event_model(hg):
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Event(hg.CompoundScalar):
+        event_id: str
+
+    # Defining a public node against the base before defining extension leaves
+    # models the normal package import order without reaching into metadata
+    # internals.
+    @hg.compute_node
+    def upcast(value: hg.TS[Event]) -> hg.TS[Event]:
+        return value.value
+
+    @dataclass(frozen=True)
+    class HeartbeatEvent(Event):
+        pass
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        quantity: int
+
+    @dataclass(frozen=True)
+    class CancelEvent(OrderEvent):
+        reason: str
+
+    def decode(value):
+        if value is None:
+            return None
+        kind = value["kind"]
+        if kind == "heartbeat":
+            return HeartbeatEvent(event_id=value["event_id"])
+        if kind == "create":
+            return CreateEvent(
+                event_id=value["event_id"],
+                order_id=value["order_id"],
+                quantity=value["quantity"],
+            )
+        return CancelEvent(
+            event_id=value["event_id"],
+            order_id=value["order_id"],
+            reason=value["reason"],
+        )
+
+    return Event, HeartbeatEvent, CreateEvent, CancelEvent, upcast, decode
+
+
+def _polymorphic_event_flow(hg, recipe):
+    from typing import Mapping, Set
+
+    from hgraph.test import eval_node
+
+    Event, _, CreateEvent, _, upcast, decode = _polymorphic_event_model(hg)
+    operation = recipe.parameters["operation"]
+    events = [decode(value) for value in recipe.inputs["events"]]
+    triggers = list(recipe.inputs["trigger"])
+    keys = list(recipe.inputs["key"])
+    end_time = hg.MIN_ST + (recipe.tick_count + 4) * hg.MIN_TD
+
+    @hg.compute_node
+    def singleton(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
+        return (value.value,)
+
+    @hg.graph
+    def emitted(value: hg.TS[Event]) -> hg.TS[Event]:
+        return hg.emit(singleton(value))
+
+    @hg.graph
+    def delayed(value: hg.TS[Event]) -> hg.TS[Event]:
+        state = hg.feedback(hg.TS[Event])
+        state(value)
+        return state()
+
+    default_event = CreateEvent(
+        event_id="default-event", order_id="default-order", quantity=0
+    )
+
+    @hg.graph
+    def delayed_from_default(value: hg.TS[Event]) -> hg.TS[Event]:
+        state = hg.feedback(hg.TS[Event], default=default_event)
+        state(value)
+        return state()
+
+    @hg.graph
+    def singleton_tuple(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
+        return hg.convert[hg.TS[tuple[Event, ...]]](value)
+
+    @hg.graph
+    def singleton_set(value: hg.TS[Event]) -> hg.TS[Set[Event]]:
+        return hg.convert[hg.TS[Set[Event]]](value)
+
+    @hg.graph
+    def singleton_mapping(
+        key: hg.TS[str], value: hg.TS[Event]
+    ) -> hg.TS[Mapping[str, Event]]:
+        return hg.convert[hg.TS[Mapping[str, Event]]](key, value)
+
+    @hg.graph
+    def collected_values(
+        key: hg.TS[str], value: hg.TS[Event]
+    ) -> hg.TS[tuple[Event, ...]]:
+        values = hg.collect[hg.TS[Mapping[str, Event]]](key, value)
+        return hg.values_(values)
+
+    @hg.graph
+    def batched(
+        trigger: hg.TS[bool], value: hg.TS[Event]
+    ) -> hg.TS[tuple[Event, ...]]:
+        return hg.batch(trigger, value, hg.MIN_TD)
+
+    @hg.graph
+    def windowed(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
+        return hg.window(value, 2).buffer
+
+    @hg.graph
+    def json_round_trip(value: hg.TS[Event]) -> hg.TS[Event]:
+        return hg.from_json[hg.TS[Event]](hg.to_json(value))
+
+    unary = {
+        "compute": upcast,
+        "emit": emitted,
+        "feedback": delayed,
+        "feedback_default": delayed_from_default,
+        "tuple": singleton_tuple,
+        "set": singleton_set,
+        "window": windowed,
+        "json_round_trip": json_round_trip,
+    }
+    if operation in unary:
+        return eval_node(unary[operation], events, __end_time__=end_time)
+    if operation == "mapping":
+        return eval_node(singleton_mapping, keys, events, __end_time__=end_time)
+    if operation == "collect_values":
+        return eval_node(collected_values, keys, events, __end_time__=end_time)
+    if operation == "batch":
+        return eval_node(batched, triggers, events, __end_time__=end_time)
+
+    @hg.component
+    def recorded_events(events: hg.TS[Event]) -> hg.TS[Event]:
+        return events
+
+    with hg.GlobalState() as state:
+        hg.set_record_replay_model(hg.IN_MEMORY)
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            live = eval_node(recorded_events, events, __end_time__=end_time)
+        recording = state.get(":memory:recorded_events.events")
+        recorded = [value for _, value in recording]
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+            replayed = eval_node(recorded_events, [], __end_time__=end_time)
+    return {"live": live, "recorded": recorded, "replayed": replayed}
+
+
+def _polymorphic_event_map(hg, recipe):
+    from hgraph.test import eval_node
+
+    Event, _, _, _, upcast, decode = _polymorphic_event_model(hg)
+    operation = recipe.parameters["operation"]
+
+    ticks = []
+    for tick in recipe.inputs["events"]:
+        if tick is None:
+            ticks.append(None)
+            continue
+        ticks.append({
+            key: (
+                _decode_value(hg, value)
+                if isinstance(value, dict) and value == {"$remove": True}
+                else decode(value)
+            )
+            for key, value in tick.items()
+        })
+
+    @hg.compute_node
+    def singleton(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
+        return (value.value,)
+
+    @hg.graph
+    def emit_event(value: hg.TS[Event]) -> hg.TS[Event]:
+        return hg.emit(singleton(value))
+
+    @hg.graph
+    def delayed_event(value: hg.TS[Event]) -> hg.TS[Event]:
+        state = hg.feedback(hg.TS[Event])
+        state(value)
+        return state()
+
+    @hg.graph
+    def emit_then_delay(value: hg.TS[Event]) -> hg.TS[Event]:
+        return delayed_event(emit_event(value))
+
+    if operation == "map_compute":
+        @hg.graph
+        def app(events: hg.TSD[str, hg.TS[Event]]) -> hg.TSD[str, hg.TS[Event]]:
+            return hg.map_(upcast, events)
+    elif operation == "map_emit":
+        @hg.graph
+        def app(events: hg.TSD[str, hg.TS[Event]]) -> hg.TSD[str, hg.TS[Event]]:
+            return hg.map_(emit_event, events)
+    elif operation == "map_feedback":
+        @hg.graph
+        def app(events: hg.TSD[str, hg.TS[Event]]) -> hg.TSD[str, hg.TS[Event]]:
+            return hg.map_(delayed_event, events)
+    else:
+        @hg.graph
+        def app(
+            events: hg.TSD[str, hg.TS[Event]],
+        ) -> hg.TSB[hg.KeyValue[str, hg.TS[Event]]]:
+            return hg.emit(hg.map_(emit_then_delay, events))
+
+    return eval_node(
+        app,
+        ticks,
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 5) * hg.MIN_TD,
+    )
+
+
+def _structural_map_projection(hg, recipe):
+    from hgraph.test import eval_node
+
+    class Row(hg.TimeSeriesSchema):
+        value: hg.TS[int]
+        quantity: hg.TS[int]
+        label: hg.TS[str]
+
+    class Projection(hg.TimeSeriesSchema):
+        value: hg.TS[int]
+        quantity: hg.TS[int]
+        label: hg.TS[str]
+
+    @hg.graph
+    def keyed_lookup(
+        lookup: hg.TS[str], rows: hg.TSD[str, hg.TSB[Row]],
+    ) -> hg.TSB[Row]:
+        return rows[lookup]
+
+    @hg.graph
+    def materialize_lookup(
+        lookup: hg.TS[str], rows: hg.TSD[str, hg.TSB[Row]],
+    ) -> hg.TSB[Projection]:
+        selected = rows[lookup]
+        return hg.combine[hg.TSB[Projection]](
+            value=selected.value,
+            quantity=selected.quantity,
+            label=selected.label,
+        )
+
+    projection = recipe.parameters["projection"]
+    if projection == "lookup":
+        @hg.graph
+        def app(
+            lookups: hg.TSD[str, hg.TS[str]],
+            rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TSD[str, hg.REF[hg.TSB[Row]]]:
+            return hg.map_(keyed_lookup, lookups, hg.pass_through(rows))
+    elif projection == "combine":
+        @hg.graph
+        def app(
+            lookups: hg.TSD[str, hg.TS[str]],
+            rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TSD[str, hg.TSB[Projection]]:
+            return hg.map_(materialize_lookup, lookups, hg.pass_through(rows))
+    else:
+        class Animal(hg.CompoundScalar):
+            pass
+
+        class Dog(Animal):
+            pass
+
+        @hg.operator
+        def apply(
+            animal: hg.TS[Animal], repository: hg.TSB[Projection],
+        ) -> hg.TS[int]: ...
+
+        @hg.graph(overloads=apply)
+        def apply_dog(
+            animal: hg.TS[Dog], repository: hg.TSB[Projection],
+        ) -> hg.TS[int]:
+            return repository.value + repository.quantity
+
+        @hg.graph
+        def dispatch_lookup(
+            lookup: hg.TS[str], rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TS[int]:
+            repository = materialize_lookup(lookup, rows)
+            return hg.dispatch_(
+                apply, hg.const(Dog()), repository=repository
+            )
+
+        @hg.graph
+        def app(
+            lookups: hg.TSD[str, hg.TS[str]],
+            rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(dispatch_lookup, lookups, hg.pass_through(rows))
+
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(
+        app,
+        inputs["lookups"],
+        inputs["rows"],
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 4) * hg.MIN_TD,
+    )
+
+
+def _arrow_typed_projection(hg, recipe):
+    from enum import Enum
+
+    from hgraph.arrow import arrow, debug_, eval_, first, i, second
+    from hgraph.test import eval_node
+
+    Event, _, _, _, _, decode = _polymorphic_event_model(hg)
+
+    class Side(Enum):
+        BUY = "BUY"
+        SELL = "SELL"
+
+    @hg.compute_node
+    def render(side: hg.TS[Side], event: hg.TS[Event]) -> hg.TS[str]:
+        value = event.value
+        return f"{side.value.value}:{type(value).__name__}:{value.event_id}"
+
+    @hg.compute_node
+    def render_side(side: hg.TS[Side]) -> hg.TS[str]:
+        return side.value.value
+
+    @hg.compute_node
+    def render_event(event: hg.TS[Event]) -> hg.TS[str]:
+        value = event.value
+        return f"{type(value).__name__}:{value.event_id}"
+
+    projection = recipe.parameters["projection"]
+    debug = recipe.parameters["debug"]
+    terminal = render if projection == "pair" else render_side if projection == "first" else render_event
+    projection_arrow = i if projection == "pair" else first if projection == "first" else second
+    debug_arrow = i if debug == "none" else debug_ if debug == "direct" else debug_("parity {}")
+    pipeline = debug_arrow >> projection_arrow >> terminal
+    sides = [Side[value] if value is not None else None for value in recipe.inputs["side"]]
+    events = [decode(value) for value in recipe.inputs["events"]]
+
+    if recipe.parameters["execution"] == "eval":
+        return eval_(sides, events, type_map=(hg.TS[Side], hg.TS[Event])) | pipeline
+
+    @hg.graph
+    def app(side: hg.TS[Side], event: hg.TS[Event]) -> hg.TS[str]:
+        return arrow(side, event) | pipeline
+
+    return eval_node(app, sides, events)
+
+
 def _stream_dataclass(hg, recipe):
     from dataclasses import dataclass
 
@@ -1979,6 +2524,83 @@ CATALOG = {
         ),
         execute=_issue_40_no_key_rebind,
     ),
+    "polymorphic_event_flow": TemplateSpec(
+        name="polymorphic_event_flow",
+        required_inputs=("events", "trigger", "key"),
+        features=(
+            "shape:TS",
+            "type:CompoundScalar",
+            "type:polymorphic",
+            "boundary:python-owned",
+            "lifecycle:multi-cycle",
+            "topology:user-pipeline",
+        ),
+        operators=(
+            "batch",
+            "collect",
+            "convert",
+            "emit",
+            "feedback",
+            "from_json",
+            "to_json",
+            "values_",
+            "window",
+        ),
+        execute=_polymorphic_event_flow,
+    ),
+    "polymorphic_event_map": TemplateSpec(
+        name="polymorphic_event_map",
+        required_inputs=("events",),
+        features=(
+            "shape:TS",
+            "shape:TSD",
+            "shape:TSB",
+            "type:CompoundScalar",
+            "type:polymorphic",
+            "boundary:python-owned",
+            "topology:map",
+            "topology:feedback",
+            "lifecycle:keyed",
+            "lifecycle:nested-graph",
+        ),
+        operators=("emit", "feedback", "map_"),
+        execute=_polymorphic_event_map,
+    ),
+    "structural_map_projection": TemplateSpec(
+        name="structural_map_projection",
+        required_inputs=("lookups", "rows"),
+        features=(
+            "shape:TS",
+            "shape:TSB",
+            "shape:TSD",
+            "topology:map",
+            "topology:keyed-lookup",
+            "reference:REF",
+            "binding:non-peered",
+            "boundary:structural",
+            "lifecycle:keyed",
+        ),
+        operators=(
+            "combine", "dispatch_", "getitem_", "map_", "pass_through",
+        ),
+        execute=_structural_map_projection,
+    ),
+    "arrow_typed_projection": TemplateSpec(
+        name="arrow_typed_projection",
+        required_inputs=("side", "events"),
+        features=(
+            "shape:TS",
+            "shape:TSB",
+            "type:Enum",
+            "type:CompoundScalar",
+            "type:polymorphic",
+            "boundary:python-owned",
+            "framework:arrow",
+            "topology:projection",
+        ),
+        operators=("debug_", "getitem_"),
+        execute=_arrow_typed_projection,
+    ),
     "stream_dataclass": TemplateSpec(
         name="stream_dataclass",
         required_inputs=("probe",),
@@ -2113,6 +2735,14 @@ def validate_recipe(recipe):
         _validate_nested_higher_order(recipe)
     elif recipe.template == "data_frame_recording":
         _validate_data_frame_recording(recipe)
+    elif recipe.template == "polymorphic_event_flow":
+        _validate_polymorphic_event_flow(recipe)
+    elif recipe.template == "polymorphic_event_map":
+        _validate_polymorphic_event_map(recipe)
+    elif recipe.template == "structural_map_projection":
+        _validate_structural_map_projection(recipe)
+    elif recipe.template == "arrow_typed_projection":
+        _validate_arrow_typed_projection(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

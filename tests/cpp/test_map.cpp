@@ -256,6 +256,38 @@ namespace
         }
     };
 
+    struct RemovedLookupCountNode
+    {
+        static constexpr auto name = "removed_lookup_count";
+
+        static void eval(In<"values", TSD<Str, REF<LookupMappedBundle>>> values,
+                         In<"source", TSD<Str, LookupMappedBundle>>,
+                         Out<TS<Int>> out)
+        {
+            Int count{0};
+            for ([[maybe_unused]] const ValueView &key : values.removed_keys())
+            {
+                ++count;
+            }
+            out.set(count);
+        }
+    };
+
+    struct MapLookupRemovalCountG
+    {
+        static constexpr auto name = "map_lookup_removal_count_g";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TSD<Str, TS<Str>>> lookups,
+            Port<TSD<Str, LookupMappedBundle>> values)
+        {
+            auto mapped = wire<stdlib::map_>(
+                w, fn<LookupMappedBundleG>(), lookups,
+                stdlib::pass_through(values));
+            return wire<RemovedLookupCountNode>(w, mapped, values).as<TS<Int>>();
+        }
+    };
+
     struct ExplicitKeySetMapG
     {
         static constexpr auto name = "explicit_key_set_map_g";
@@ -1448,6 +1480,29 @@ TEST_CASE("map_: a typed graph preserves its keyed REF[TSB] terminal")
                 {{"a"s, tsb_delta<LookupMappedBundle>(Int{1}, Str{"one"})},
                  {"b"s, tsb_delta<LookupMappedBundle>(Int{2}, Str{"two"})}}))),
         values<Int>(1));
+}
+
+TEST_CASE("map_: a removed REF[TSB] child is not repeated on a sibling update")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MapLookupRemovalCountG>(
+            values<Value>(
+                dict_delta<Str, TS<Str>>(
+                    {{"extra"s, "b"s}, {"right"s, "b"s}}),
+                dict_delta<Str, TS<Str>>({}, {"extra"s}),
+                none),
+            values<Value>(
+                dict_delta<Str, LookupMappedBundle>(
+                    {{"b"s, tsb_delta<LookupMappedBundle>(
+                                  Int{2}, Str{"beta"})}}),
+                none,
+                dict_delta<Str, LookupMappedBundle>(
+                    {{"b"s, tsb_delta<LookupMappedBundle>(
+                                  Int{3}, Str{"updated"})}}))),
+        values<Int>(0, 1, 0));
 }
 
 TEST_CASE("map_: a downstream map binds when an upstream phantom slot becomes valid")

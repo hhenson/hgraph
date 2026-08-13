@@ -2025,6 +2025,65 @@ TEST_CASE("TSInput endpoint operations preserve published structural state seman
     REQUIRE_FALSE(detail::has_published_structural_state(TSDataView{}, t1));
 }
 
+TEST_CASE("TSD input structural ranges do not repeat a prior removal on a forwarding retick")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+
+    TSOutput first{*dict_schema};
+    TSOutput second{*dict_schema};
+    TSOutput forwarding{TSEndpointSchema::peered(dict_schema)};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(
+        *dict_schema, TSEndpointSchema::peered(dict_schema))};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    const auto t3 = t2 + TimeDelta{1};
+    Value removed_key{std::int32_t{1}};
+    Value surviving_key{std::int32_t{2}};
+    Value initial{std::int32_t{10}};
+
+    for (TSOutput *source : {&first, &second})
+    {
+        auto output_view = source->view(t1);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        mutation.set(removed_key.view(), initial.view());
+        mutation.set(surviving_key.view(), initial.view());
+    }
+    for (TSOutput *source : {&first, &second})
+    {
+        auto output_view = source->view(t2);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t2);
+        REQUIRE(mutation.erase(removed_key.view()));
+    }
+
+    forwarding.view(t1).bind_forwarding_target(first.view(t1));
+    input.view(nullptr, t1).bind_output(forwarding.view(t1));
+    forwarding.view(t3).bind_forwarding_target(second.view(t3));
+
+    auto input_view = input.view(nullptr, t3);
+    auto current = input_view.as_dict();
+    REQUIRE(current.modified());
+    REQUIRE_FALSE(current.structure_modified());
+    auto added_keys = current.added_keys();
+    auto added_values = current.added_values();
+    auto added_items = current.added_items();
+    auto removed_keys = current.removed_keys();
+    auto removed_values = current.removed_values();
+    auto removed_items = current.removed_items();
+    CHECK(added_keys.begin() == added_keys.end());
+    CHECK(added_values.begin() == added_values.end());
+    CHECK(added_items.begin() == added_items.end());
+    CHECK(removed_keys.begin() == removed_keys.end());
+    CHECK(removed_values.begin() == removed_values.end());
+    CHECK(removed_items.begin() == removed_items.end());
+}
+
 TEST_CASE("TSW input removed value is limited to the current evaluation cycle")
 {
     using namespace hgraph;

@@ -841,6 +841,254 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             ],
         }
 
+    def event_payload(draw, index, *, force_kind=None):
+        kind = force_kind or draw(st.sampled_from((
+            "heartbeat", "create", "cancel"
+        )))
+        value = {"kind": kind, "event_id": f"event-{index}"}
+        if kind == "create":
+            value.update(
+                order_id=f"order-{draw(st.integers(min_value=0, max_value=5))}",
+                quantity=draw(st.integers(min_value=-20, max_value=20)),
+            )
+        elif kind == "cancel":
+            value.update(
+                order_id=f"order-{draw(st.integers(min_value=0, max_value=5))}",
+                reason=draw(st.sampled_from(("user", "risk", "expired"))),
+            )
+        return value
+
+    @st.composite
+    def polymorphic_event_flow(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        operation = draw(st.sampled_from((
+            "compute",
+            "emit",
+            "feedback",
+            "feedback_default",
+            "tuple",
+            "set",
+            "mapping",
+            "collect_values",
+            "batch",
+            "window",
+            "json_round_trip",
+            "record_replay",
+        )))
+        # Normal campaign profiles use at least three ticks, so every ordinary
+        # recipe crosses the abstract base with all three concrete layouts.
+        # Keeping short, reducer-style generation within its requested bounds
+        # makes the strategy usable by focused tests too.
+        seed_kinds = ("heartbeat", "create", "cancel")
+        events = [
+            event_payload(draw, index, force_kind=seed_kinds[index])
+            if index < len(seed_kinds)
+            else (
+                None
+                if draw(st.booleans())
+                else event_payload(draw, index)
+            )
+            for index in range(count)
+        ]
+        seed_triggers = (False, True, False)
+        trigger = [
+            seed_triggers[index]
+            if index < len(seed_triggers)
+            else draw(st.one_of(st.none(), st.booleans()))
+            for index in range(count)
+        ]
+        if operation in {"mapping", "collect_values"}:
+            # Released hgraph samples only on a same-cycle key/value update,
+            # while the candidate intentionally also accepts a later key for
+            # the current value. That settled sampling difference is not the
+            # polymorphic-storage behavior this family targets.
+            key = [
+                None
+                if event is None
+                else draw(st.sampled_from(("order", "risk", "heartbeat")))
+                for event in events
+            ]
+        else:
+            seed_keys = ("order", "order", "heartbeat")
+            key = [
+                seed_keys[index]
+                if index < len(seed_keys)
+                else draw(st.one_of(
+                    st.none(), st.sampled_from(("order", "risk", "heartbeat"))
+                ))
+                for index in range(count)
+            ]
+        return {
+            "template": "polymorphic_event_flow",
+            "inputs": {"events": events, "trigger": trigger, "key": key},
+            "parameters": {"operation": operation},
+            "features": [
+                *CATALOG["polymorphic_event_flow"].features,
+                f"polymorphic-operation:{operation}",
+                "type:transitive-subclass",
+                "lifecycle:leaf-change",
+            ],
+        }
+
+    @st.composite
+    def polymorphic_event_map(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        operation = draw(st.sampled_from((
+            "map_compute",
+            "map_emit",
+            "map_feedback",
+            "map_emit_feedback_outer",
+        )))
+        keys = ("order-a", "order-b", "heartbeat")
+        if operation == "map_emit_feedback_outer":
+            # emit(TSD) serializes keyed changes. Multiple same-cycle initial
+            # keys have hash-order-dependent ordering in released hgraph, so
+            # introduce keys on separate cycles and retain deterministic
+            # payload ordering as the differential contract.
+            active = {"order-a"}
+            ticks = [{
+                "order-a": event_payload(draw, 0, force_kind="create"),
+            }]
+        else:
+            active = {"order-a", "heartbeat"}
+            ticks = [{
+                "order-a": event_payload(draw, 0, force_kind="create"),
+                "heartbeat": event_payload(draw, 1, force_kind="heartbeat"),
+            }]
+        for index in range(1, count):
+            action = draw(st.sampled_from((
+                "none", "update", "update", "add", "remove"
+            )))
+            if action == "none":
+                ticks.append(None)
+                continue
+            if action == "remove" and active:
+                key = draw(st.sampled_from(sorted(active)))
+                active.remove(key)
+                ticks.append({key: {"$remove": True}})
+                continue
+            available = [key for key in keys if key not in active]
+            if action == "add" and available:
+                key = draw(st.sampled_from(available))
+                active.add(key)
+            elif active:
+                key = draw(st.sampled_from(sorted(active)))
+            else:
+                key = draw(st.sampled_from(keys))
+                active.add(key)
+            ticks.append({key: event_payload(draw, index + 1)})
+        return {
+            "template": "polymorphic_event_map",
+            "inputs": {"events": ticks},
+            "parameters": {"operation": operation},
+            "features": [
+                *CATALOG["polymorphic_event_map"].features,
+                f"polymorphic-operation:{operation}",
+                "type:transitive-subclass",
+                "lifecycle:leaf-change",
+                "lifecycle:key-removal",
+            ],
+        }
+
+    @st.composite
+    def structural_map_projection(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        rows = [{
+            "a": {"value": 1, "quantity": 10, "label": "alpha"},
+            "b": {"value": 2, "quantity": 20, "label": "beta"},
+        }]
+        lookups = [{"left": "a", "right": "b"}]
+        clients = {"left", "right"}
+        for index in range(1, count):
+            action = draw(st.sampled_from((
+                "none", "row", "row", "lookup", "add", "remove"
+            )))
+            row_tick = None
+            lookup_tick = None
+            if action == "row":
+                row = draw(st.sampled_from(("a", "b")))
+                row_tick = {row: {
+                    "value": draw(st.integers(min_value=-20, max_value=20)),
+                    "quantity": draw(st.integers(min_value=-20, max_value=20)),
+                    "label": f"{row}-{index}",
+                }}
+            elif action == "lookup" and clients:
+                client = draw(st.sampled_from(sorted(clients)))
+                lookup_tick = {client: draw(st.sampled_from(("a", "b")))}
+            elif action == "add":
+                available = [
+                    key for key in ("left", "right", "extra") if key not in clients
+                ]
+                if available:
+                    client = draw(st.sampled_from(available))
+                    clients.add(client)
+                    lookup_tick = {client: draw(st.sampled_from(("a", "b")))}
+            elif action == "remove" and clients:
+                client = draw(st.sampled_from(sorted(clients)))
+                clients.remove(client)
+                lookup_tick = {client: {"$remove": True}}
+            rows.append(row_tick)
+            lookups.append(lookup_tick)
+        projection = draw(st.sampled_from(
+            ("lookup", "combine", "dispatch_combine")
+        ))
+        return {
+            "template": "structural_map_projection",
+            "inputs": {"lookups": lookups, "rows": rows},
+            "parameters": {"projection": projection},
+            "features": [
+                *CATALOG["structural_map_projection"].features,
+                f"projection:{projection}",
+                "topology:typed-child-graph",
+                "lifecycle:key-removal",
+            ],
+        }
+
+    @st.composite
+    def arrow_typed_projection(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        sides = [
+            ("BUY", "SELL")[index]
+            if index < 2
+            else draw(st.one_of(
+                st.none(), st.sampled_from(("BUY", "SELL"))
+            ))
+            for index in range(count)
+        ]
+        events = [
+            event_payload(
+                draw,
+                index,
+                force_kind=("heartbeat", "create")[index],
+            )
+            if index < 2
+            else (
+                None
+                if draw(st.booleans())
+                else event_payload(draw, index)
+            )
+            for index in range(count)
+        ]
+        projection = draw(st.sampled_from(("pair", "first", "second")))
+        debug = draw(st.sampled_from(("none", "direct", "configured")))
+        execution = draw(st.sampled_from(("graph", "eval")))
+        return {
+            "template": "arrow_typed_projection",
+            "inputs": {"side": sides, "events": events},
+            "parameters": {
+                "projection": projection,
+                "debug": debug,
+                "execution": execution,
+            },
+            "features": [
+                *CATALOG["arrow_typed_projection"].features,
+                f"projection:{projection}",
+                f"arrow-debug:{debug}",
+                f"execution:{execution}",
+                "type:transitive-subclass",
+            ],
+        }
+
     # (name, factory) pairs for discovery. The service strategies exercise
     # the Python parity contract directly; only still-accepted divergences are
     # constrained within their individual generators.
@@ -863,6 +1111,14 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("collection_size", collection_size),
         ("lifecycle_state", lifecycle_state),
         ("data_frame_recording", data_frame_recording),
+        ("polymorphic_event_flow", polymorphic_event_flow),
+        ("polymorphic_event_flow", polymorphic_event_flow),
+        ("polymorphic_event_map", polymorphic_event_map),
+        ("polymorphic_event_map", polymorphic_event_map),
+        ("structural_map_projection", structural_map_projection),
+        ("structural_map_projection", structural_map_projection),
+        ("arrow_typed_projection", arrow_typed_projection),
+        ("arrow_typed_projection", arrow_typed_projection),
         ("nested_higher_order", nested_higher_order),
         ("nested_higher_order", nested_higher_order),
     )
