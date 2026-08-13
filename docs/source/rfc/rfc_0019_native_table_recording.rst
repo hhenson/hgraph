@@ -213,6 +213,35 @@ Expanded columns may be prefixed, through ``frame_prefix``. That is the
 intended way to keep a frame's columns clear of the key and bitemporal columns,
 and to distinguish two frames recorded side by side.
 
+Replay of a frame-valued leaf therefore consumes a **run** of rows rather than
+one row: the rows sharing a value time are the tick's frame. It resolves the
+value columns **positionally** — every recorded column that is not bitemporal,
+in layout order — and renames them back to the frame's own names. Resolving
+them by name would fail under any ``frame_prefix``, because the recording
+options are not stored with the recording and replay has no way to recover the
+prefix; the order it does know, since a frame-valued leaf has no key columns.
+
+.. note::
+
+   ``frame_prefix`` is not yet reachable from a ``record`` call — it exists on
+   ``TableRecordingOptions`` but has no wiring argument, unlike ``as_of``,
+   ``removes``, ``partition_names`` and ``removed_names``. The replay side is
+   prefix-agnostic as described above, so wiring the argument is all that
+   remains for the ``frame_prefix`` acceptance criterion.
+
+Compound keys are rebuilt through their paths
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A ``TSD`` key that is a tuple or bundle flattens into one column per leaf, so
+replay cannot read it back as a single cell. ``assemble_from_paths`` is the
+exact inverse of that flattening: it consumes the level's ``key_paths`` and the
+cells read from those columns together, in the field order ``flatten_value``
+emitted them in, and rebuilds the key to any nesting depth. An atomic key is
+the one-column case of the same walk, not a separate path.
+
+Every leaf must carry a value. A key missing a component is not a key, and
+building a partial one would replay ticks under a key that never existed.
+
 A name that still collides after the configured prefix is applied is an
 **error** at layout time. Silently renaming would produce a frame that replays
 by name into the wrong column, which is the failure mode this whole path exists

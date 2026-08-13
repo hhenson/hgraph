@@ -9,6 +9,9 @@
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_builder.h>
 
+#include <arrow/table.h>
+#include <arrow/type.h>
+
 #include <fmt/format.h>
 
 #include <memory>
@@ -764,6 +767,107 @@ namespace hgraph::stdlib
                                     TSOutputView{out.output(), element, out.evaluation_time()});
             }
         }  // namespace
+
+        namespace
+        {
+            /** ``assemble_from_paths`` at one nesting depth.
+                ``paths``/``leaves`` are the entries that reach this node, and
+                ``flatten_value`` emitted them in field order, so the entries
+                for one field are contiguous. */
+            [[nodiscard]] Value assemble_at(const ValueTypeMetaData *meta,
+                                            std::span<const std::vector<std::size_t>> paths,
+                                            std::span<const Value> leaves, std::size_t depth)
+            {
+                if (meta == nullptr)
+                {
+                    throw std::invalid_argument("replay: cannot rebuild a key with no schema");
+                }
+                if (meta->value_kind() == ValueTypeKind::Atomic)
+                {
+                    // An atomic node is reached by exactly one column, so the
+                    // uncompounded key falls out of the same walk.
+                    if (leaves.size() != 1 || !leaves.front().has_value())
+                    {
+                        throw std::invalid_argument(
+                            "replay: recorded key column is empty, so the key cannot be rebuilt");
+                    }
+                    return Value{leaves.front().view()};
+                }
+
+                BundleBuilder builder{ValuePlanFactory::instance().type_for(meta)};
+                std::size_t   i = 0;
+                while (i < paths.size())
+                {
+                    const std::size_t field = paths[i][depth];
+                    std::size_t       j     = i;
+                    while (j < paths.size() && paths[j][depth] == field) { ++j; }
+                    builder.set(field, assemble_at(meta->fields[field].type, paths.subspan(i, j - i),
+                                                   leaves.subspan(i, j - i), depth + 1));
+                    i = j;
+                }
+                return builder.build();
+            }
+        }  // namespace
+
+        void apply_recorded_frame_rows(const TsTableLayout &layout, const Frame &recorded,
+                                       std::int64_t first, std::int64_t count, const TSOutputView &out)
+        {
+            if (!layout.is_multi_row || layout.frame_converter == nullptr)
+            {
+                throw std::invalid_argument("replay: not a frame-valued recording");
+            }
+
+            // The value columns are taken POSITIONALLY - every recorded column
+            // that is not bitemporal, in order - and renamed back to the
+            // frame's own names. Resolving them by name instead would break
+            // the moment a recording used ``frame_prefix``, because the
+            // options are not stored with the recording and replay has no way
+            // to know the prefix. Order it does know: a frame-valued leaf has
+            // no key columns, so what follows the bitemporal pair is the
+            // frame, in layout order.
+            arrow::FieldVector                                fields;
+            std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
+            fields.reserve(layout.value_cols.size());
+            columns.reserve(layout.value_cols.size());
+            const auto &recorded_schema = *recorded.table->schema();
+            for (int i = 0; i < recorded_schema.num_fields(); ++i)
+            {
+                const std::string &name = recorded_schema.field(i)->name();
+                if (name == layout.date_key || name == layout.as_of_key) { continue; }
+                if (columns.size() == layout.value_cols.size())
+                {
+                    throw std::runtime_error("replay: recording has more frame columns than the frame schema");
+                }
+                fields.push_back(
+                    recorded_schema.field(i)->WithName(layout.value_cols[columns.size()].name));
+                columns.push_back(recorded.table->column(i));
+            }
+            if (columns.size() != layout.value_cols.size())
+            {
+                throw std::runtime_error("replay: recording has fewer frame columns than the frame schema");
+            }
+
+            const auto projected = arrow::Table::Make(arrow::schema(std::move(fields)), columns,
+                                                      recorded.table->num_rows());
+            Frame      tick{projected->Slice(first, count)};
+
+            // Box over the OUTPUT's (typed) frame schema - the base Frame{}
+            // scalar meta would not match a Frame[Schema] output.
+            Value boxed{checked_binding(out.schema()->value_schema, "replay")};
+            *static_cast<Frame *>(const_cast<void *>(boxed.view().data())) = std::move(tick);
+            apply_current_value(out, boxed.view());
+        }
+
+        Value assemble_from_paths(const ValueTypeMetaData *meta,
+                                  std::span<const std::vector<std::size_t>> paths,
+                                  std::span<const Value> leaves)
+        {
+            if (paths.size() != leaves.size())
+            {
+                throw std::invalid_argument("replay: key column count does not match the key layout");
+            }
+            return assemble_at(meta, paths, leaves, 0);
+        }
 
         void apply_rows(const TsTableLayout &layout, const ValueView &value, const TSOutputView &out)
         {

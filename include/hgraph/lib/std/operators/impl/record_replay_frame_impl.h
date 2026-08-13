@@ -144,9 +144,10 @@ namespace hgraph::stdlib
         struct ReplayHandle
         {
             const TableConverter                   *converter{nullptr};
-            /** Set when the recording is partitioned: a row is then a key and a
-                value rather than a whole value, so it cannot be read straight
-                through the converter. */
+            /** Set when one recorded row is not one whole value, so the row
+                cannot be read straight through the converter: partitioned (a
+                row is a key plus a value) or frame-valued (a TICK is a run of
+                rows). Null for the plain TS and TSB cases. */
             const table_ts_detail::TsTableLayout   *layout{nullptr};
             Frame                                   frame{};
             std::int64_t                            row{0};
@@ -169,18 +170,23 @@ namespace hgraph::stdlib
             }
 
             const auto &level = layout.levels[level_index];
-            if (level.key_paths.size() != 1)
+            // One cell per flattened key column, then rebuilt through the same
+            // paths the recording flattened the key down. An atomic key is the
+            // one-column case of this, not a separate path.
+            std::vector<Value> key_leaves;
+            key_leaves.reserve(level.key_paths.size());
+            for (std::size_t i = 0; i < level.key_paths.size(); ++i)
             {
-                throw std::runtime_error(
-                    "replay: compound TSD keys are not yet reassembled from their flattened columns");
+                const std::string &name       = layout.keys[level.first_key_col + i];
+                const auto         key_column = frame.table->GetColumnByName(name);
+                if (key_column == nullptr)
+                {
+                    throw std::runtime_error("replay: recording is missing key column '" + name + "'");
+                }
+                key_leaves.push_back(read_table_cell(layout.col_metas[level.first_key_col + i],
+                                                     *key_column->chunk(0), *frame.table->schema(), row));
             }
-            const auto key_column = frame.table->GetColumnByName(layout.keys[level.first_key_col]);
-            if (key_column == nullptr)
-            {
-                throw std::runtime_error("replay: recording is missing key column '" +
-                                         layout.keys[level.first_key_col] + "'");
-            }
-            const Value key = read_table_cell(level.key_meta, *key_column->chunk(0), *frame.table->schema(), row);
+            const Value key = table_ts_detail::assemble_from_paths(level.key_meta, level.key_paths, key_leaves);
 
             auto dict_out = out.as_dict();
             auto mutation = dict_out.begin_mutation(now);
@@ -361,12 +367,17 @@ namespace hgraph::stdlib
             const auto &layout =
                 table_ts_detail::ts_table_layout(erased.schema(), config.date_key, config.as_of_key);
             // The leaf's value schema for the value columns; the key columns
-            // are read separately, since no value schema names them.
-            const auto &converter = table_converter(
-                layout.partitioned() ? layout.leaf_ts->value_schema : erased.schema()->value_schema,
-                config.date_key, config.as_of_key);
+            // are read separately, since no value schema names them. A
+            // frame-valued leaf has no value schema to convert at all - its
+            // columns come from the frame's own converter.
+            const auto &converter =
+                layout.is_multi_row
+                    ? *layout.frame_converter
+                    : table_converter(layout.partitioned() ? layout.leaf_ts->value_schema
+                                                           : erased.schema()->value_schema,
+                                      config.date_key, config.as_of_key);
             auto handle = std::make_unique<ReplayHandle>(
-                ReplayHandle{&converter, layout.partitioned() ? &layout : nullptr, std::move(frame), 0});
+                ReplayHandle{&converter, layout.multi() ? &layout : nullptr, std::move(frame), 0});
             if (frame_rows(handle->frame) > 0)
             {
                 sched.schedule(frame_value_time(converter, handle->frame, 0));
@@ -381,6 +392,29 @@ namespace hgraph::stdlib
             static_cast<void>(recordable_id);
             auto      *handle = state.get().handle;
             const auto rows   = frame_rows(handle->frame);
+            if (handle->layout != nullptr && handle->layout->is_multi_row)
+            {
+                // A frame-valued leaf recorded one row per FRAME row, so this
+                // tick is the whole RUN of rows at ``now`` - consumed as one
+                // frame rather than applied row by row.
+                const std::int64_t first = handle->row;
+                while (handle->row < rows &&
+                       frame_value_time(*handle->converter, handle->frame, handle->row) == now)
+                {
+                    ++handle->row;
+                }
+                if (handle->row > first)
+                {
+                    table_ts_detail::apply_recorded_frame_rows(*handle->layout, handle->frame, first,
+                                                               handle->row - first,
+                                                               static_cast<const TSOutputView &>(out));
+                }
+                if (handle->row < rows)
+                {
+                    sched.schedule(frame_value_time(*handle->converter, handle->frame, handle->row));
+                }
+                return;
+            }
             while (handle->row < rows && frame_value_time(*handle->converter, handle->frame, handle->row) == now)
             {
                 if (handle->layout != nullptr)

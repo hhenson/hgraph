@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <span>
 #include <vector>
 
 namespace hgraph::stdlib
@@ -176,6 +177,39 @@ namespace hgraph::stdlib
 
         /** Apply a row/rows VALUE as the tick's delta at ``out``. */
         void apply_rows(const TsTableLayout &layout, const ValueView &value, const TSOutputView &out);
+
+        /**
+         * Rebuild a value from its flattened leaves — the exact inverse of the
+         * flattening a layout applies to a TSD key.
+         *
+         * A compound key (``TSD[tuple[int, str], ...]``, or a bundle, nested to
+         * any depth) occupies one column per leaf, so replay cannot read the
+         * key back as a single cell the way an atomic key allows. ``paths`` are
+         * the level's ``key_paths`` and ``leaves`` the cells read from those
+         * columns, parallel and in column order; the two are consumed together
+         * in the field order ``flatten_value`` emitted them in.
+         *
+         * Every leaf must carry a value: a key missing a component is not a
+         * key, and silently building a partial one would replay ticks under a
+         * key that never existed.
+         */
+        [[nodiscard]] HGRAPH_EXPORT Value assemble_from_paths(
+            const ValueTypeMetaData *meta, std::span<const std::vector<std::size_t>> paths,
+            std::span<const Value> leaves);
+
+        /**
+         * Apply the recorded rows ``[first, first + count)`` as one
+         * frame-valued tick at ``out``.
+         *
+         * A ``TS[Frame[Row]]`` leaf records one row per FRAME row, so a tick is
+         * a run of recorded rows sharing a value time rather than a single row.
+         * The recorded value columns are the frame's own columns, so the tick's
+         * frame is a projection of the recording — the columns selected and the
+         * run sliced — not a cell-by-cell rebuild.
+         */
+        HGRAPH_EXPORT void apply_recorded_frame_rows(const TsTableLayout &layout, const Frame &recorded,
+                                                     std::int64_t first, std::int64_t count,
+                                                     const TSOutputView &out);
     }  // namespace table_ts_detail
 
     struct TableLayoutState
