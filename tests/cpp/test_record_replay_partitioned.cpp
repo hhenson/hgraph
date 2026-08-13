@@ -18,6 +18,8 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/value/compact_storage.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -55,6 +57,23 @@ namespace
         std::shared_ptr<arrow::Array> result;
         require_arrow(builder.Finish(&result));
         return result;
+    }
+
+    /** A ``tuple[str, ...]`` wiring argument. The rename parameters are
+        constrained to that shape, so a plain list value will not bind. */
+    [[nodiscard]] Value names_tuple(std::initializer_list<std::string_view> names)
+    {
+        const auto *meta = scalar_descriptor<HomogeneousTuple<Str>>::value_meta();
+        const auto  binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta());
+        ListBuilder builder{binding};
+        for (const std::string_view name : names)
+        {
+            Str entry{name};
+            builder.push_back(entry);
+        }
+        ListStorage storage = builder.build_storage();
+        return Value{compact_list_type(binding, *meta), &storage};
     }
 
     [[nodiscard]] bool equals(const Frame &lhs, const Frame &rhs)
@@ -218,6 +237,57 @@ namespace
         {
             return wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
                                              arg<"frame_prefix">(Str{"px_"}))
+                .template as<TS_>();
+        }
+    };
+
+    /** A ``TSD[str, TS[int]]`` recording whose key column is called ``symbol``,
+        alongside an UNRELATED column that happens to be called ``__key_1__``.
+
+        That second column is the point. Replay used to normalise a stored table
+        by renaming its columns onto the layout's canonical names, which assumed
+        those names never occur as real data - so ``symbol`` -> ``__key_1__``
+        collided with a column that was none of its business, and the recording
+        became unreadable through no fault of its author. */
+    [[nodiscard]] Frame decoy_named_frame()
+    {
+        arrow::TimestampBuilder date{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                     arrow::default_memory_pool()};
+        arrow::TimestampBuilder as_of{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                      arrow::default_memory_pool()};
+        arrow::StringBuilder    symbol;
+        arrow::Int64Builder     value;
+        arrow::Int64Builder     decoy;
+        for (const auto &[when, sym, item, junk] :
+             std::vector<std::tuple<DateTime, std::string, std::int64_t, std::int64_t>>{
+                 {MIN_ST, "a", 1, 111}, {MIN_ST + TimeDelta{1}, "b", 2, 222}})
+        {
+            require_arrow(date.Append(when.time_since_epoch().count()));
+            require_arrow(as_of.Append(when.time_since_epoch().count()));
+            require_arrow(symbol.Append(sym));
+            require_arrow(value.Append(item));
+            require_arrow(decoy.Append(junk));
+        }
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("__date_time__", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                           arrow::field("__as_of__", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                           arrow::field("symbol", arrow::utf8()),
+                           arrow::field("value", arrow::int64()),
+                           arrow::field("__key_1__", arrow::int64())}),
+            {finish(date), finish(as_of), finish(symbol), finish(value), finish(decoy)}, 2)};
+    }
+
+    /** Replays with the projection the recording used. */
+    template <typename TS_>
+    struct ProjectedReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "projected_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(
+                       w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                       arg<"partition_names">(names_tuple({"symbol"})))
                 .template as<TS_>();
         }
     };
@@ -467,4 +537,26 @@ TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it "
     const std::vector<Value> missing{Value{Int{7}}, Value{}, Value{Int{9}}};
     CHECK_THROWS_AS(stdlib::table_ts_detail::assemble_from_paths(outer, paths, missing),
                     std::invalid_argument);
+}
+
+TEST_CASE("partitioned record/replay: a stored column named like a canonical "
+          "one does not break the projection")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    // The recording keys on `symbol` and also carries an unrelated `__key_1__`.
+    const Frame stored = decoy_named_frame();
+    // Pinned, so the case cannot quietly stop being exercised: without the
+    // decoy this test passes for the wrong reason.
+    REQUIRE(stored.table->GetColumnByName("__key_1__") != nullptr);
+    REQUIRE(stored.table->GetColumnByName("symbol") != nullptr);
+    record_replay::store_write("book.ticks", stored);
+
+    // Renaming `symbol` -> `__key_1__` collided with the decoy and made this
+    // recording unreadable. Resolving to a column INDEX instead leaves the
+    // stored names alone, so the decoy is simply a column nobody asked for.
+    const auto replayed = eval_node<ProjectedReplayGraph<PriceDict>>();
+    CHECK_OUTPUT(replayed, values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                                         dict_delta<Str, TS<Int>>({{"b"s, 2}})));
 }

@@ -1024,6 +1024,66 @@ namespace hgraph::stdlib
         }  // namespace
 
 
+        std::vector<int> resolve_replay_columns(const Frame &frame, const TsTableLayout &layout,
+                                                std::span<const std::string> stored_names)
+        {
+            if (!frame.has_value())
+            {
+                throw std::invalid_argument("replay: cannot resolve columns of an empty frame");
+            }
+            // The layout's row always opens with the bitemporal pair, so the
+            // as-of is column 1 (``build_layout`` pushes date then as-of before
+            // any level).
+            constexpr std::size_t as_of_column = 1;
+            const auto            optional_column = [&](std::size_t column) {
+                if (column == as_of_column) { return true; }
+                return std::any_of(layout.levels.begin(), layout.levels.end(),
+                                              [column](const TsTableLayout::Level &level) {
+                                       return column == level.removed_col;
+                                              });
+            };
+
+            const auto      &schema = *frame.table->schema();
+            std::vector<int> columns(layout.keys.size(), -1);
+            for (std::size_t column = 0; column < layout.keys.size(); ++column)
+            {
+                const std::string &canonical = layout.keys[column];
+                const std::string &stored =
+                    column < stored_names.size() && !stored_names[column].empty()
+                        ? stored_names[column]
+                        : canonical;
+
+                const int index = schema.GetFieldIndex(stored);
+                if (index < 0)
+                {
+                    if (optional_column(column)) { continue; }
+                    throw std::runtime_error(
+                        "replay: recording has no column '" + stored + "' for '" + canonical +
+                        "'; the projection supplied to replay must match the one used to record");
+                }
+                columns[column] = index;
+            }
+
+            // Two layout columns resolving to one stored column would read the
+            // same data under two meanings. A projection should never produce
+            // that, and a hand-built table cannot be trusted not to.
+            for (std::size_t lhs = 0; lhs < columns.size(); ++lhs)
+            {
+                if (columns[lhs] < 0) { continue; }
+                for (std::size_t rhs = lhs + 1; rhs < columns.size(); ++rhs)
+                {
+                    if (columns[lhs] == columns[rhs])
+                    {
+                        throw std::runtime_error("replay: '" + layout.keys[lhs] + "' and '" +
+                                                 layout.keys[rhs] +
+                                                 "' both resolve to stored column '" +
+                                                 schema.field(columns[lhs])->name() + "'");
+                    }
+                }
+            }
+            return columns;
+        }
+
         Value assemble_from_paths(const ValueTypeMetaData                  *meta,
                                   std::span<const std::vector<std::size_t>> paths,
                                   std::span<const Value>                    leaves)

@@ -239,6 +239,20 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT Value frame_cell(const Frame &frame, std::string_view column,
                                                  const ValueTypeMetaData *leaf, std::int64_t row);
 
+    /**
+     * Read one cell by resolved column INDEX at ``row``, typed by ``leaf``.
+     *
+     * The index form exists so replay can resolve each layout column to a
+     * position in the stored table once, and then read through that position —
+     * without renaming the stored table onto the layout's canonical names.
+     * Renaming assumed those names never occur as real columns in a stored
+     * table, and discarded the caller's projection in the process (RFC 0019,
+     * *Resolution does not rewrite the table*).
+     */
+    [[nodiscard]] HGRAPH_EXPORT Value frame_cell_at(const Frame &frame, int column,
+                                                    const ValueTypeMetaData *leaf,
+                                                    std::int64_t row);
+
     /** Rename columns per (from, to) pairs (convert frame->frame mapping). */
     [[nodiscard]] HGRAPH_EXPORT Frame frame_rename_columns(
         const Frame &frame, std::span<const std::pair<std::string, std::string>> renames);

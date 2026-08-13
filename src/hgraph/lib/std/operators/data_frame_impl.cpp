@@ -337,23 +337,18 @@ namespace hgraph::stdlib
 
             [[nodiscard]] Value read_table_row(
                 const table_ts_detail::TsTableLayout &layout,
-                const Frame &frame, std::int64_t row)
+                const Frame &frame, std::span<const int> columns, std::int64_t row)
             {
                 Value value{checked_binding(layout.row_meta, "replay_data_frame")};
                 auto  tuple = value.as_tuple().begin_mutation();
                 for (std::size_t column = 0; column < layout.keys.size(); ++column)
                 {
-                    if (frame.table->GetColumnByName(layout.keys[column]) == nullptr)
-                    {
-                        const bool optional =
-                            layout.keys[column] == layout.as_of_key ||
-                            std::find(layout.removed_keys.begin(),
-                                      layout.removed_keys.end(),
-                                      layout.keys[column]) != layout.removed_keys.end();
-                        if (optional) { continue; }
-                    }
-                    Value cell = frame_cell(frame, layout.keys[column],
-                                            layout.col_metas[column], row);
+                    // ``-1`` is a column the recording does not carry; a missing
+                    // REQUIRED column was already refused when the projection
+                    // was resolved.
+                    if (columns[column] < 0) { continue; }
+                    Value cell = frame_cell_at(frame, columns[column],
+                                               layout.col_metas[column], row);
                     if (cell.has_value()) { tuple.at(column).copy_from(cell.view()); }
                 }
                 return value;
@@ -361,12 +356,12 @@ namespace hgraph::stdlib
 
             [[nodiscard]] Value build_table_rows(
                 const table_ts_detail::TsTableLayout &layout,
-                const Frame &frame,
+                const Frame &frame, std::span<const int> columns,
                 std::span<const ReplayCandidate> candidates)
             {
                 if (!layout.multi())
                 {
-                    return read_table_row(layout, frame, candidates.front().row);
+                    return read_table_row(layout, frame, columns, candidates.front().row);
                 }
 
                 const auto row_binding =
@@ -374,7 +369,7 @@ namespace hgraph::stdlib
                 ListBuilder builder{row_binding};
                 for (const ReplayCandidate &candidate : candidates)
                 {
-                    Value row = read_table_row(layout, frame, candidate.row);
+                    Value row = read_table_row(layout, frame, columns, candidate.row);
                     builder.push_back_copy(row.view().data());
                 }
                 Value rows{checked_binding(layout.rows_meta, "replay_data_frame")};
@@ -386,6 +381,7 @@ namespace hgraph::stdlib
 
         Frame select_replay_frame(const Frame &frame,
                                   const table_ts_detail::TsTableLayout &layout,
+                                  std::span<const int> columns,
                                   DateTime as_of_time, DateTime start_time)
         {
             if (!frame.has_value() || frame_rows(frame) == 0) { return frame; }
@@ -400,15 +396,15 @@ namespace hgraph::stdlib
             }
             normalized.table = *combined;
 
-            const bool has_as_of =
-                normalized.table->GetColumnByName(layout.as_of_key) != nullptr;
+            const int  as_of_column = columns[1];
+            const bool has_as_of = as_of_column >= 0;
             std::vector<ReplayGroup> groups;
             std::unordered_map<std::size_t, std::vector<std::size_t>> buckets;
 
             for (std::int64_t row = 0; row < frame_rows(normalized); ++row)
             {
-                const Value when_cell = frame_cell(
-                    normalized, layout.date_key,
+                const Value when_cell = frame_cell_at(
+                    normalized, columns[0],
                     scalar_descriptor<DateTime>::value_meta(), row);
                 if (!when_cell.has_value())
                 {
@@ -421,8 +417,8 @@ namespace hgraph::stdlib
                 DateTime revision = MIN_DT;
                 if (has_as_of)
                 {
-                    const Value as_of_cell = frame_cell(
-                        normalized, layout.as_of_key,
+                    const Value as_of_cell = frame_cell_at(
+                        normalized, as_of_column,
                         scalar_descriptor<DateTime>::value_meta(), row);
                     if (!as_of_cell.has_value())
                     {
@@ -445,8 +441,8 @@ namespace hgraph::stdlib
                          key_index < level.key_paths.size(); ++key_index)
                     {
                         const std::size_t column = level.first_key_col + key_index;
-                        Value value = frame_cell(normalized, layout.keys[column],
-                                                 layout.col_metas[column], row);
+                        Value value = frame_cell_at(normalized, columns[column],
+                                                    layout.col_metas[column], row);
                         if (!value.has_value())
                         {
                             throw std::invalid_argument(
@@ -456,13 +452,12 @@ namespace hgraph::stdlib
                         keys.push_back(std::move(value));
                     }
 
-                    const auto removed_column = normalized.table->GetColumnByName(
-                        layout.keys[level.removed_col]);
-                    if (removed_column != nullptr &&
-                        !removed_column->chunk(0)->IsNull(row))
+                    const int removed_index = columns[level.removed_col];
+                    if (removed_index >= 0 &&
+                        !normalized.table->column(removed_index)->chunk(0)->IsNull(row))
                     {
-                        const Value removed = frame_cell(
-                            normalized, layout.keys[level.removed_col],
+                        const Value removed = frame_cell_at(
+                            normalized, removed_index,
                             layout.col_metas[level.removed_col], row);
                         if (removed.has_value() &&
                             removed.view().checked_as<Bool>())
@@ -538,13 +533,19 @@ namespace hgraph::stdlib
             const DateTime cutoff = as_of_time == MAX_DT
                                         ? config.as_of.value_or(start_time)
                                         : as_of_time;
+            // The raw path has no caller-supplied projection: the frame is
+            // handed straight to replay, so its columns must already carry the
+            // layout's own names. Resolving with an empty projection applies
+            // exactly the same strictness - a required column that is absent
+            // is an error rather than a silently empty cell.
+            const auto  columns = table_ts_detail::resolve_replay_columns(frame, *plan->layout, {});
             const Frame normalized =
-                select_replay_frame(frame, *plan->layout, cutoff, start_time);
+                select_replay_frame(frame, *plan->layout, columns, cutoff, start_time);
             std::vector<ReplayCandidate> candidates;
             for (std::int64_t row = 0; row < frame_rows(normalized); ++row)
             {
-                const Value when_cell = frame_cell(
-                    normalized, plan->layout->date_key,
+                const Value when_cell = frame_cell_at(
+                    normalized, columns[0],
                     scalar_descriptor<DateTime>::value_meta(), row);
                 if (!when_cell.has_value())
                 {
@@ -565,7 +566,7 @@ namespace hgraph::stdlib
                 }
                 plan->ticks.push_back(ReplayFrameTick{
                     candidates[begin].when,
-                    build_table_rows(*plan->layout, normalized,
+                    build_table_rows(*plan->layout, normalized, columns,
                                      std::span<const ReplayCandidate>{candidates}.subspan(
                                          begin, end - begin))});
                 begin = end;

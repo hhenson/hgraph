@@ -122,7 +122,7 @@ namespace hgraph::stdlib
             retains every row belonging to its selected revision. */
         [[nodiscard]] HGRAPH_EXPORT Frame select_replay_frame(
             const Frame &frame, const table_ts_detail::TsTableLayout &layout,
-            DateTime as_of_time, DateTime start_time);
+            std::span<const int> columns, DateTime as_of_time, DateTime start_time);
         void eval_replay_data_frame(ReplayDataFramePlan &plan, DateTime now,
                                     NodeScheduler &sched, const TSOutputView &out);
 

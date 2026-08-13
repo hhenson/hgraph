@@ -1356,6 +1356,30 @@ namespace hgraph
         return array_cell(*array, leaf, row);
     }
 
+    Value frame_cell_at(const Frame &frame, int column, const ValueTypeMetaData *leaf,
+                        std::int64_t row)
+    {
+        if (!frame.has_value()) { throw std::invalid_argument("table codec: cannot read an empty frame"); }
+        if (column < 0 || column >= frame.table->num_columns())
+        {
+            throw std::out_of_range(
+                fmt::format("table codec: column index {} is outside the frame", column));
+        }
+        const auto chunked = frame.table->column(column);
+        std::shared_ptr<arrow::Array> array;
+        if (chunked->num_chunks() != 1)
+        {
+            const auto combined = arrow::Concatenate(chunked->chunks());
+            if (!combined.ok()) { fail_status(combined.status(), "concatenate chunks"); }
+            array = *combined;
+        }
+        else { array = chunked->chunk(0); }
+        validate_versioned_array_type(
+            *array, leaf, *frame.table->schema(),
+            fmt::format("column '{}'", frame.table->schema()->field(column)->name()));
+        return array_cell(*array, leaf, row);
+    }
+
     Frame frame_rename_columns(const Frame &frame,
                                std::span<const std::pair<std::string, std::string>> renames)
     {

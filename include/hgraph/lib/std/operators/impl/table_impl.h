@@ -85,6 +85,29 @@ namespace hgraph::stdlib
          * key, and silently building a partial one would replay ticks under a
          * key that never existed.
          */
+        /**
+         * Resolve every layout column to its position in a stored table.
+         *
+         * ``stored_names`` is the caller's projection, indexed by layout
+         * column; an empty entry means the layout's own name. The result is
+         * parallel to ``layout.keys``: a column index into ``frame``, or ``-1``
+         * for a column the recording legitimately does not carry (the as-of
+         * column under ``as_of: Omit``, a level's removed flag under
+         * ``removes: Omit``).
+         *
+         * A REQUIRED column that cannot be found throws, naming it. Replay
+         * never infers a column from position or type — see RFC 0019,
+         * *Projection is explicit or it fails*.
+         *
+         * Resolving to positions rather than renaming the stored table keeps
+         * the stored names intact, so a table that genuinely contains a column
+         * called ``__key_1__`` stays readable and the caller's projection is
+         * never discarded.
+         */
+        [[nodiscard]] HGRAPH_EXPORT std::vector<int> resolve_replay_columns(
+            const Frame &frame, const TsTableLayout &layout,
+            std::span<const std::string> stored_names);
+
         [[nodiscard]] HGRAPH_EXPORT Value assemble_from_paths(
             const ValueTypeMetaData *meta, std::span<const std::vector<std::size_t>> paths,
             std::span<const Value> leaves);
