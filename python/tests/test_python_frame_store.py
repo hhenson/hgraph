@@ -49,10 +49,10 @@ def _using(store):
             _hgraph._restore_python_frame_store(state._impl)
 
 
-def _record(store, ticks, tp, key="out"):
+def _record(store, ticks, tp, key="out", **options):
     @hg.graph
     def g(ts: tp):
-        hg.record(ts, key=key, recordable_id="py")
+        hg.record(ts, key=key, recordable_id="py", **options)
 
     with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
         hg.eval_node(g, ticks)
@@ -76,6 +76,16 @@ def test_the_run_writes_once_rather_than_per_tick(store):
         _record(store, [1, 2, 3, 4, 5], hg.TS[int])
 
     assert len(store.writes) == 1
+
+
+def test_python_compatibility_stores_remain_whole_frame_when_flushing_is_requested(store):
+    """Segmentation is a native-store protocol, not an expansion of the
+    Python ``store/load/has`` compatibility seam."""
+    with _using(store):
+        _record(store, [1, 2, 3], hg.TS[int], flush_rows=1)
+
+    assert store.writes == ["py.out"]
+    assert store.frames["py.out"]["value"].to_pylist() == [1, 2, 3]
 
 
 def test_native_reads_resolve_through_the_python_store(store):

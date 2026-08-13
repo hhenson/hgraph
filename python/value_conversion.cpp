@@ -5,6 +5,7 @@
 
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/io.h>
+#include <hgraph/lib/std/operators/table.h>
 
 #include <arrow/array.h>
 #include <arrow/c/abi.h>
@@ -516,6 +517,10 @@ namespace hgraph::python_bridge
         if (record_removes_enum_slot().is_valid() && nb::isinstance(object, record_removes_enum_slot()))
         {
             return Value{static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(object.attr("value")))};
+        }
+        if (to_table_mode_enum_slot().is_valid() && nb::isinstance(object, to_table_mode_enum_slot()))
+        {
+            return Value{static_cast<stdlib::ToTableMode>(nb::cast<std::int64_t>(object.attr("value")))};
         }
         if (auto bundle = try_python_bundle_value(object)) { return std::move(*bundle); }
         if (nb::isinstance<nb::frozenset>(object) || nb::isinstance<nb::set>(object) ||

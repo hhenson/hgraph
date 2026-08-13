@@ -6,6 +6,7 @@
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/util/date_time.h>
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,16 +26,17 @@ namespace hgraph::record_replay
      * become bridge shims over this API.
      */
 
-    /** The record/replay modes (a flag set, mirroring Python's ``RecordReplayEnum``). */
+    /** The record/replay modes (a flag set, mirroring Python's
+     * ``RecordReplayEnum``). */
     enum class Mode : unsigned
     {
-        None         = 0,
-        Record       = 1u << 0,
-        Replay       = 1u << 1,
-        Compare      = 1u << 2,
+        None = 0,
+        Record = 1u << 0,
+        Replay = 1u << 1,
+        Compare = 1u << 2,
         ReplayOutput = 1u << 3,
-        Reset        = 1u << 4,
-        Recover      = 1u << 5,
+        Reset = 1u << 4,
+        Recover = 1u << 5,
     };
 
     [[nodiscard]] constexpr Mode operator|(Mode lhs, Mode rhs) noexcept
@@ -50,7 +52,8 @@ namespace hgraph::record_replay
     /** True when every bit of ``flag`` is set in ``mode``. */
     [[nodiscard]] constexpr bool has_mode(Mode mode, Mode flag) noexcept
     {
-        return (static_cast<unsigned>(mode) & static_cast<unsigned>(flag)) == static_cast<unsigned>(flag) &&
+        return (static_cast<unsigned>(mode) & static_cast<unsigned>(flag)) ==
+                   static_cast<unsigned>(flag) &&
                flag != Mode::None;
     }
 
@@ -60,7 +63,8 @@ namespace hgraph::record_replay
         — the upstream semantics that append across runs and tolerate arbitrary
         cross-cycle gaps (real-time alarms, components). ``replay`` is a single
         backend serving both models; see
-        ``record_replay_table.rst`` (*In-memory record/replay — sparse vs dense*). */
+        ``record_replay_table.rst`` (*In-memory record/replay — sparse vs dense*).
+     */
     inline constexpr std::string_view IN_MEMORY = "InMemory";
 
     /** The DENSE cycle-aligned in-memory model (the graph testing harness).
@@ -118,10 +122,10 @@ namespace hgraph::record_replay
     {
       public:
         explicit scope(Mode mode, std::string recordable_id = {});
-        scope(const scope &)            = delete;
+        scope(const scope &) = delete;
         scope &operator=(const scope &) = delete;
-        scope(scope &&)                 = delete;
-        scope &operator=(scope &&)      = delete;
+        scope(scope &&) = delete;
+        scope &operator=(scope &&) = delete;
         ~scope();
     };
 
@@ -142,16 +146,24 @@ namespace hgraph::record_replay
     [[nodiscard]] HGRAPH_EXPORT store::FrameStore frame_store(GlobalStateView state);
 
     /** Convenience wrappers over the active store. */
-    HGRAPH_EXPORT void store_write(std::string_view key, Frame frame);
+    HGRAPH_EXPORT void                store_write(std::string_view key, Frame frame);
     [[nodiscard]] HGRAPH_EXPORT Frame store_read(std::string_view key);
-    [[nodiscard]] HGRAPH_EXPORT bool store_contains(std::string_view key);
+    [[nodiscard]] HGRAPH_EXPORT bool  store_contains(std::string_view key);
 
     /** Graph-scoped store operations. A store installed in ``state`` wins;
         otherwise these use the process-lifetime fallback above. Runtime nodes
         use these overloads so storage follows the graph that selected it. */
     HGRAPH_EXPORT void store_write(GlobalStateView state, std::string_view key, Frame frame);
     [[nodiscard]] HGRAPH_EXPORT Frame store_read(GlobalStateView state, std::string_view key);
-    [[nodiscard]] HGRAPH_EXPORT bool store_contains(GlobalStateView state, std::string_view key);
+    [[nodiscard]] HGRAPH_EXPORT bool  store_contains(GlobalStateView state, std::string_view key);
+
+    /** RFC 0019's immutable segmented-recording object protocol. */
+    [[nodiscard]] HGRAPH_EXPORT Frame segmented_recording_marker();
+    [[nodiscard]] HGRAPH_EXPORT Frame segmented_recording_manifest(std::size_t segments,
+                                                                   std::size_t rows);
+    [[nodiscard]] HGRAPH_EXPORT bool  is_segmented_recording(const Frame &frame) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT std::string segment_key(std::string_view key, std::size_t segment);
+    [[nodiscard]] HGRAPH_EXPORT std::string completion_key(std::string_view key);
 
     /** Reset transient scopes and the registered content store to defaults. */
     HGRAPH_EXPORT void reset() noexcept;
@@ -182,7 +194,7 @@ namespace hgraph
 
         /** The node-injectable form (``TraitsView`` parameter on a hook). */
         [[nodiscard]] HGRAPH_EXPORT std::string fq_recordable_id(const TraitsView &traits,
-                                                                 std::string_view recordable_id);
+                                                                 std::string_view  recordable_id);
 
         /**
          * The ``replay_const`` read (Python's wiring-time recorded-state
@@ -193,10 +205,10 @@ namespace hgraph
          * const_fn ruling — wiring code calls it directly (wrap with
          * ``const_`` for a source); the bridge exposes it eagerly.
          */
-        [[nodiscard]] HGRAPH_EXPORT Value replay_const_value(GlobalStateView state,
-                                                             std::string_view fq_key,
+        [[nodiscard]] HGRAPH_EXPORT Value replay_const_value(GlobalStateView          state,
+                                                             std::string_view         fq_key,
                                                              const ValueTypeMetaData *meta,
-                                                             DateTime tm    = MAX_DT,
+                                                             DateTime                 tm = MAX_DT,
                                                              DateTime as_of = MAX_DT);
 
         /**
@@ -205,9 +217,10 @@ namespace hgraph
          * honouring the configured as-of override. Registered on seeds by
          * ``component<G>`` under ``Mode::Recover``.
          */
-        [[nodiscard]] HGRAPH_EXPORT Value recorded_seed_resolver(
-            GlobalStateView state, std::string_view fq_key,
-            const TSValueTypeMetaData *schema, DateTime start_time);
+        [[nodiscard]] HGRAPH_EXPORT Value recorded_seed_resolver(GlobalStateView            state,
+                                                                 std::string_view           fq_key,
+                                                                 const TSValueTypeMetaData *schema,
+                                                                 DateTime start_time);
 
         /**
          * Comparison-result summary: (rows compared, mismatches) from the
@@ -221,7 +234,7 @@ namespace hgraph
             std::size_t mismatches{0};
         };
 
-        [[nodiscard]] HGRAPH_EXPORT ComparisonSummary comparison_summary(GlobalStateView state,
+        [[nodiscard]] HGRAPH_EXPORT ComparisonSummary comparison_summary(GlobalStateView  state,
                                                                          std::string_view fq_key);
     }  // namespace record_replay
 }  // namespace hgraph

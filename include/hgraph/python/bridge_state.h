@@ -58,6 +58,7 @@ struct HGRAPH_LOCAL PythonValueHolder {
     overload declares, rather than to a boxed Python object. */
 [[nodiscard]] HGRAPH_EXPORT nb::object &record_as_of_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &record_removes_enum_slot();
+[[nodiscard]] HGRAPH_EXPORT nb::object &to_table_mode_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &removed_sentinel_slot();
 
 /** hgraph's REMOVE_IF_EXISTS sentinel (lenient TSD key removal; REMOVE

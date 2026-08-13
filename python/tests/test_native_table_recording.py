@@ -65,12 +65,35 @@ def test_removals_are_omitted_by_default():
     assert _rows(frame) == 1
 
 
+def test_an_omitted_removal_does_not_remove_the_replayed_key():
+    ticks = [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}]
+
+    # There is deliberately no second replay tick: omission records neither a
+    # removal flag nor a row, so replay retains the last value for the key.
+    assert _round_trip(ticks, hg.TSD[str, hg.TS[float]]) == [{"a": 1.0}]
+
+
 def test_a_flat_series_still_records():
     """The no-levels case goes through the same recorder."""
     frame = _record([1, 2, 3], hg.TS[int])
 
     assert _columns(frame) == ["__date_time__", "__as_of__", "value"]
     assert _rows(frame) == 3
+
+
+def test_record_accepts_tick_sample_and_snap_table_modes():
+    ticks = [{"a": 1, "b": 10}, {"a": 2}]
+    tp = hg.TSD[str, hg.TS[int]]
+
+    tick = _record(ticks, tp, mode=hg.ToTableMode.Tick)
+    sample = _record(ticks, tp, mode=hg.ToTableMode.Sample)
+    snap = _record(ticks, tp, mode=hg.ToTableMode.Snap)
+
+    assert _rows(tick) == 3
+    assert _rows(sample) == 3
+    # Snap walks the complete valid dictionary on the second tick, including
+    # key b, while Tick and Sample walk only modified keys.
+    assert _rows(snap) == 4
 
 
 def _round_trip(ticks, tp, **config):
@@ -82,7 +105,13 @@ def _round_trip(ticks, tp, **config):
     def rep() -> tp:
         replay_config = {
             name: config[name]
-            for name in ("partition_names", "removed_names", "frame_prefix")
+            for name in (
+                "partition_names",
+                "removed_names",
+                "date_key",
+                "as_of_key",
+                "frame_prefix",
+            )
             if name in config
         }
         return hg.replay("out", tp, recordable_id="rt", **replay_config)
@@ -120,6 +149,16 @@ def test_an_outer_nested_tsd_removal_round_trips_by_its_key_prefix():
 
 def test_a_flat_series_still_round_trips():
     assert _round_trip([1, 2, 3], hg.TS[int]) == [1, 2, 3]
+
+
+def test_per_recording_time_column_names_round_trip():
+    frame = _record(
+        [1, 2], hg.TS[int], date_key="event_time", as_of_key="revision"
+    )
+    assert _columns(frame) == ["event_time", "revision", "value"]
+    assert _round_trip(
+        [1, 2], hg.TS[int], date_key="event_time", as_of_key="revision"
+    ) == [1, 2]
 
 
 def test_renamed_partition_and_removal_columns_round_trip():
@@ -317,3 +356,98 @@ def test_a_prefixed_frame_valued_leaf_round_trips_all_rows():
     replayed = result[0]
     assert replayed["instrument"].to_pylist() == ["a", "b"]
     assert replayed["value"].to_pylist() == [1.0, 2.0]
+
+
+def test_frame_valued_leaves_beneath_a_tsd_round_trip_by_key():
+    import pyarrow as pa
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        instrument: str
+        value: float
+
+    first = pa.table({"instrument": ["a", "b"], "value": [1.0, 2.0]})
+    second = pa.table({"instrument": ["c"], "value": [3.0]})
+    replacement = pa.table({"instrument": ["d", "e"], "value": [4.0, 5.0]})
+    ticks = [{"one": first, "two": second}, {"one": replacement}]
+
+    result = _round_trip(ticks, hg.TSD[str, hg.TS[hg.Frame[PriceRow]]])
+
+    assert len(result) == 2
+    assert result[0]["one"].equals(first)
+    assert result[0]["two"].equals(second)
+    assert result[1]["one"].equals(replacement)
+
+
+def test_to_table_from_table_round_trips_frame_valued_tsd_leaves():
+    import pyarrow as pa
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        instrument: str
+        value: float
+
+    tp = hg.TSD[str, hg.TS[hg.Frame[PriceRow]]]
+
+    @hg.graph
+    def g(ts: tp) -> tp:
+        return hg.from_table[tp](hg.to_table(ts))
+
+    first = pa.table({"instrument": ["a", "b"], "value": [1.0, 2.0]})
+    second = pa.table({"instrument": ["c"], "value": [3.0]})
+    result = hg.eval_node(g, [{"one": first, "two": second}])
+
+    assert result[0]["one"].equals(first)
+    assert result[0]["two"].equals(second)
+
+
+def test_a_keyed_frame_removal_round_trips():
+    import pyarrow as pa
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        value: float
+
+    frame = pa.table({"value": [1.0, 2.0]})
+    ticks = [{"one": frame}, {"one": hg.REMOVE}]
+
+    result = _round_trip(
+        ticks,
+        hg.TSD[str, hg.TS[hg.Frame[PriceRow]]],
+        removes=hg.RecordRemoves.TRACK,
+    )
+
+    assert result[0]["one"].equals(frame)
+    assert result[1] == {"one": hg.REMOVE}
+
+
+def test_native_segmented_recording_replays_across_all_committed_frames():
+    @hg.graph
+    def rec(ts: hg.TS[int]):
+        hg.record(
+            ts,
+            key="out",
+            recordable_id="segments",
+            flush_rows=2,
+        )
+
+    @hg.graph
+    def rep() -> hg.TS[int]:
+        return hg.replay("out", hg.TS[int], recordable_id="segments")
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(rec, [1, 2, 3, 4, 5])
+
+        assert hg.frame_store_read("segments.out").num_rows == 0
+        assert hg.frame_store_read("segments.out.0").num_rows == 2
+        assert hg.frame_store_read("segments.out.1").num_rows == 2
+        assert hg.frame_store_read("segments.out.2").num_rows == 1
+        assert hg.frame_store_contains("segments.out.complete")
+
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+            assert hg.eval_node(rep) == [1, 2, 3, 4, 5]

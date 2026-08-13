@@ -1485,6 +1485,8 @@ namespace hgraph::python_bridge
           [](nb::object enum_class) { record_as_of_enum_slot() = std::move(enum_class); });
     m.def("_set_record_removes_enum",
           [](nb::object enum_class) { record_removes_enum_slot() = std::move(enum_class); });
+    m.def("_set_to_table_mode_enum",
+          [](nb::object enum_class) { to_table_mode_enum_slot() = std::move(enum_class); });
     m.def("_set_removed_sentinel", [](nb::object sentinel) { PyTimeSeries::removed_slot() = std::move(sentinel); });
     m.def("_set_remove_if_exists_sentinel",
           [](nb::object sentinel) { remove_if_exists_sentinel_slot() = std::move(sentinel); });

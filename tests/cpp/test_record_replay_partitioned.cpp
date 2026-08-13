@@ -35,15 +35,18 @@ namespace
     using namespace hgraph::testing;
     using namespace std::string_literals;
 
-    using PriceDict       = TSD<Str, TS<Int>>;
+    using PriceDict = TSD<Str, TS<Int>>;
     using NestedPriceDict = TSD<Str, TSD<Str, TS<Int>>>;
-    using CompoundKey     = Tuple<Int, Str>;
-    using LegDict         = TSD<CompoundKey, TS<Int>>;
-    using Row             = Bundle<"tests.replay_partitioned::Row", Field<"a", Int>, Field<"b", Int>>;
+    using CompoundKey = Tuple<Int, Str>;
+    using LegDict = TSD<CompoundKey, TS<Int>>;
+    using Row = Bundle<"tests.replay_partitioned::Row", Field<"a", Int>, Field<"b", Int>>;
 
     void require_arrow(const arrow::Status &status)
     {
-        if (!status.ok()) { throw std::runtime_error(status.ToString()); }
+        if (!status.ok())
+        {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
     template <typename Builder>
@@ -77,8 +80,10 @@ namespace
         key type, and a tuple schema is a tag rather than a value type. */
     [[nodiscard]] Frame compound_key_frame()
     {
-        arrow::TimestampBuilder date{arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
-        arrow::TimestampBuilder as_of{arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
+        arrow::TimestampBuilder date{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                     arrow::default_memory_pool()};
+        arrow::TimestampBuilder as_of{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                      arrow::default_memory_pool()};
         arrow::Int64Builder     leg;
         arrow::StringBuilder    ccy;
         arrow::Int64Builder     value;
@@ -98,22 +103,23 @@ namespace
                            arrow::field("__key_1_0__", arrow::int64()),
                            arrow::field("__key_1_1__", arrow::utf8()),
                            arrow::field("value", arrow::int64())}),
-            {finish(date), finish(as_of), finish(leg), finish(ccy), finish(value)},
-            2)};
+            {finish(date), finish(as_of), finish(leg), finish(ccy), finish(value)}, 2)};
     }
 
-    template <typename TS_> struct RecordGraph
+    template <typename TS_>
+    struct RecordGraph
     {
         [[maybe_unused]] static constexpr auto name = "partitioned_record_graph";
 
         static Port<TS_> compose(Wiring &w, Port<TS_> ts)
         {
             wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}));
-            return ts;   // eval_node needs an output; the recording is the side effect
+            return ts;  // eval_node needs an output; the recording is the side effect
         }
     };
 
-    template <typename TS_> struct ReplayGraph
+    template <typename TS_>
+    struct ReplayGraph
     {
         [[maybe_unused]] static constexpr auto name = "partitioned_replay_graph";
 
@@ -126,7 +132,8 @@ namespace
 
     /** Records explicit removal rows, including removals at an intermediate
         level of a nested TSD. */
-    template <typename TS_> struct TrackedRecordGraph
+    template <typename TS_>
+    struct TrackedRecordGraph
     {
         [[maybe_unused]] static constexpr auto name = "tracked_partitioned_record_graph";
 
@@ -142,7 +149,8 @@ namespace
         a key rebuilt wrongly re-records under different key columns, so the two
         recordings can only agree if the reassembly is the exact inverse of the
         flattening. */
-    template <typename TS_> struct EchoGraph
+    template <typename TS_>
+    struct EchoGraph
     {
         [[maybe_unused]] static constexpr auto name = "partitioned_echo_graph";
 
@@ -155,9 +163,39 @@ namespace
         }
     };
 
+    template <typename TS_>
+    struct TrackedEchoGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "tracked_partitioned_echo_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            auto out = wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}))
+                           .template as<TS_>();
+            wire<stdlib::record>(w, out, Str{"echo"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"removes">(stdlib::RecordRemoves::Track));
+            return out;
+        }
+    };
+
+    template <typename TS_>
+    struct TableRoundTripRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "partitioned_table_round_trip_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            auto rows = wire<stdlib::to_table>(w, ts);
+            auto out = wire<stdlib::from_table, TS_>(w, rows).template as<TS_>();
+            wire<stdlib::record>(w, out, Str{"table_echo"}, arg<"recordable_id">(Str{"book"}));
+            return out;
+        }
+    };
+
     /** Records with a ``frame_prefix``, so the frame's columns land under
         qualified names. */
-    template <typename TS_> struct PrefixedRecordGraph
+    template <typename TS_>
+    struct PrefixedRecordGraph
     {
         [[maybe_unused]] static constexpr auto name = "prefixed_record_graph";
 
@@ -173,8 +211,9 @@ namespace
     void use_frame_backend(GlobalContext &context)
     {
         stdlib::register_standard_operators();
-        record_replay::set_config(context.state().view(),
-                                  record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::set_config(
+            context.state().view(),
+            record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
     }
 }  // namespace
 
@@ -183,9 +222,9 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
     GlobalContext context;
     use_frame_backend(context);
 
-    const Value first  = dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}});
+    const Value first = dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}});
     const Value second = dict_delta<Str, TS<Int>>({{"a"s, 3}});
-    const Value third  = dict_delta<Str, TS<Int>>({{"b"s, 4}});
+    const Value third = dict_delta<Str, TS<Int>>({{"b"s, 4}});
 
     (void)eval_node<RecordGraph<PriceDict>>(values<Value>(first, second, third));
 
@@ -197,18 +236,17 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
     CHECK_OUTPUT(eval_node<ReplayGraph<PriceDict>>(), values<Value>(first, second, third));
 }
 
-TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key prefix")
+TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key "
+          "prefix")
 {
     GlobalContext context;
     use_frame_backend(context);
 
     const Value first = dict_delta<Str, TSD<Str, TS<Int>>>(
         {{"desk"s, dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})}});
-    const Value removed =
-        dict_delta<Str, TSD<Str, TS<Int>>>({}, {"desk"s});
+    const Value removed = dict_delta<Str, TSD<Str, TS<Int>>>({}, {"desk"s});
 
-    (void)eval_node<TrackedRecordGraph<NestedPriceDict>>(
-        values<Value>(first, removed));
+    (void)eval_node<TrackedRecordGraph<NestedPriceDict>>(values<Value>(first, removed));
 
     const Frame recorded = record_replay::store_read("book.ticks");
     REQUIRE(frame_rows(recorded) == 3);
@@ -216,11 +254,11 @@ TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key p
     REQUIRE(inner_key != nullptr);
     CHECK(inner_key->chunk(0)->IsNull(2));
 
-    CHECK_OUTPUT(eval_node<ReplayGraph<NestedPriceDict>>(),
-                 values<Value>(first, removed));
+    CHECK_OUTPUT(eval_node<ReplayGraph<NestedPriceDict>>(), values<Value>(first, removed));
 }
 
-TEST_CASE("partitioned record/replay: a compound TSD key round-trips through its flattened columns")
+TEST_CASE("partitioned record/replay: a compound TSD key round-trips through "
+          "its flattened columns")
 {
     GlobalContext context;
     use_frame_backend(context);
@@ -248,7 +286,8 @@ TEST_CASE("partitioned record/replay: a compound TSD key round-trips through its
     }
 }
 
-TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole frames, not rows")
+TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole "
+          "frames, not rows")
 {
     GlobalContext context;
     use_frame_backend(context);
@@ -256,7 +295,7 @@ TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole frames, 
     // A frame tick records one row PER FRAME ROW, so replay has to group the
     // run of rows sharing a value time back into a single frame. Reading them
     // one at a time would tick three times carrying one row each.
-    const Frame first  = row_frame({1, 2, 3}, {10, 20, 30});
+    const Frame first = row_frame({1, 2, 3}, {10, 20, 30});
     const Frame second = row_frame({4}, {40});
 
     (void)eval_node<RecordGraph<TS<FrameOf<Row>>>>(values<Frame>(first, second));
@@ -273,6 +312,57 @@ TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole frames, 
     CHECK(equals(*replayed[1], second));
 }
 
+TEST_CASE("partitioned record/replay: frame-valued leaves beneath a TSD "
+          "round-trip by key")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Frame one = row_frame({1, 2}, {10, 20});
+    const Frame two = row_frame({3}, {30});
+    const Frame next = row_frame({4, 5, 6}, {40, 50, 60});
+    const Value first = dict_delta<Str, TS<FrameOf<Row>>>({{Str{"one"}, one}, {Str{"two"}, two}});
+    const Value second = dict_delta<Str, TS<FrameOf<Row>>>({{Str{"one"}, next}});
+
+    (void)eval_node<RecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(values<Value>(first, second));
+
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(frame_rows(recorded) == 6);
+    REQUIRE(recorded.table->GetColumnByName("__key_1__") != nullptr);
+
+    // Re-recording the replayed keyed frames proves that replay groups each
+    // key's row run back into one Frame tick before descending into the TSD.
+    (void)eval_node<EchoGraph<TSD<Str, TS<FrameOf<Row>>>>>();
+    const Frame echoed = record_replay::store_read("book.echo");
+    REQUIRE(echoed.has_value());
+    CHECK(echoed.table->Equals(*recorded.table));
+
+    (void)eval_node<TableRoundTripRecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(
+        values<Value>(first, second));
+    const Frame table_echo = record_replay::store_read("book.table_echo");
+    REQUIRE(table_echo.has_value());
+    CHECK(table_echo.table->Equals(*recorded.table));
+}
+
+TEST_CASE("partitioned record/replay: a keyed frame removal round-trips")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Frame initial = row_frame({1, 2}, {10, 20});
+    const Value first = dict_delta<Str, TS<FrameOf<Row>>>({{Str{"one"}, initial}});
+    const Value removed = dict_delta<Str, TS<FrameOf<Row>>>({}, {Str{"one"}});
+
+    (void)eval_node<TrackedRecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(values<Value>(first, removed));
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(frame_rows(recorded) == 3);
+
+    (void)eval_node<TrackedEchoGraph<TSD<Str, TS<FrameOf<Row>>>>>();
+    const Frame echoed = record_replay::store_read("book.echo");
+    REQUIRE(echoed.has_value());
+    CHECK(echoed.table->Equals(*recorded.table));
+}
+
 TEST_CASE("partitioned record/replay: zero-row frame ticks are rejected explicitly")
 {
     GlobalContext context;
@@ -281,8 +371,7 @@ TEST_CASE("partitioned record/replay: zero-row frame ticks are rejected explicit
     const Frame empty = row_frame({}, {});
     CHECK_THROWS_WITH(
         (void)eval_node<RecordGraph<TS<FrameOf<Row>>>>(values<Frame>(empty)),
-        Catch::Matchers::ContainsSubstring(
-            "zero-row Frame ticks cannot be recorded"));
+        Catch::Matchers::ContainsSubstring("zero-row Frame ticks cannot be recorded"));
     CHECK_FALSE(record_replay::store_contains("book.ticks"));
 }
 
@@ -291,7 +380,7 @@ TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
     GlobalContext context;
     use_frame_backend(context);
 
-    const Frame first  = row_frame({1, 2}, {10, 20});
+    const Frame first = row_frame({1, 2}, {10, 20});
     const Frame second = row_frame({3}, {30});
 
     (void)eval_node<PrefixedRecordGraph<TS<FrameOf<Row>>>>(values<Frame>(first, second));
@@ -315,7 +404,8 @@ TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
     CHECK(equals(*replayed[1], second));
 }
 
-TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it was flattened down")
+TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it "
+          "was flattened down")
 {
     // The unit behind the replay case above, exercised at a depth the
     // recording layer does not yet produce - the inverse has to be defined by
@@ -323,8 +413,8 @@ TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it was
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = scalar_descriptor<Int>::value_meta();
     const auto *str_meta = scalar_descriptor<Str>::value_meta();
-    const auto *inner    = registry.tuple({int_meta, str_meta});
-    const auto *outer    = registry.tuple({inner, int_meta});
+    const auto *inner = registry.tuple({int_meta, str_meta});
+    const auto *outer = registry.tuple({inner, int_meta});
 
     // Paths as flatten_value emits them: depth-first, in field order.
     const std::vector<std::vector<std::size_t>> paths{{0, 0}, {0, 1}, {1}};

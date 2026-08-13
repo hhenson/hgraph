@@ -99,6 +99,7 @@ from ._frame import (frame_metadata, has_frame_metadata, without_frame_metadata,
 from ._table import (ToTableMode, TableSchema, make_table_schema, table_schema,
                      table_shape, table_shape_from_schema, shape_of_table_type,
                      get_table_schema_date_key, get_table_schema_as_of_key)
+_hgraph._set_to_table_mode_enum(ToTableMode)
 
 from ._wiring import Removed
 

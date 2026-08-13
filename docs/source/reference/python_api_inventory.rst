@@ -774,7 +774,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`to_table <python-operator-to_table>`
-     - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT``
+     - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`to_window <python-operator-to_window>`
      - ``4 overloads``

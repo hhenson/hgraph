@@ -5932,8 +5932,23 @@ class _record_Operator(_Protocol):
     ``removed_names`` : scalar; ``tuple[str, ...]``
        Optional stored names for TSD removal-flag columns. Optional in overloads that show ``= ...``.
 
+    ``date_key`` : scalar; ``str``
+       Optional stored name for the value-time column. Optional in overloads that show ``= ...``.
+
+    ``as_of_key`` : scalar; ``str``
+       Optional stored name for the as-of column. Optional in overloads that show ``= ...``.
+
     ``frame_prefix`` : scalar; ``str``
        Prefix applied to expanded frame-valued columns. Optional in overloads that show ``= ...``.
+
+    ``mode`` : scalar; ``ToTableMode``
+       Fixed Tick, Sample, or Snap row-selection policy. Optional in overloads that show ``= ...``.
+
+    ``flush_rows`` : scalar; ``int``
+       Native-store segment threshold in rows; zero disables it. Optional in overloads that show ``= ...``.
+
+    ``flush_interval`` : scalar; ``timedelta``
+       Native-store segment threshold in evaluation time; zero disables it. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -5952,7 +5967,7 @@ class _record_Operator(_Protocol):
 
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None``
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -5964,7 +5979,7 @@ class _record_Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: object = ..., flush_rows: int = ..., flush_interval: _timedelta = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator
@@ -6153,6 +6168,12 @@ class _replay_Operator(_Protocol):
     ``removed_names`` : scalar; ``tuple[str, ...]``
        Stored names used for TSD removal-flag columns. Optional in overloads that show ``= ...``.
 
+    ``date_key`` : scalar; ``str``
+       Stored name for the value-time column. Optional in overloads that show ``= ...``.
+
+    ``as_of_key`` : scalar; ``str``
+       Stored name for the as-of column. Optional in overloads that show ``= ...``.
+
     ``frame_prefix`` : scalar; ``str``
        Prefix used by expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
@@ -6173,7 +6194,7 @@ class _replay_Operator(_Protocol):
     Accepted native overloads:
 
     - ``replay(key: str, recordable_id: str = ...) -> OUT``
-    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> OUT``
+    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -6183,7 +6204,7 @@ class _replay_Operator(_Protocol):
     @_overload
     def __call__(self, key: str, recordable_id: str = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> _WiringPort: ...
+    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay: _replay_Operator
@@ -7775,7 +7796,7 @@ to_json: _to_json_Operator
 class _to_table_Operator(_Protocol):
     """Table serialization operators (design record: *Record/replay, tables and const_fn*, P4 + step 6). ``to_table`` is the Python-parity TUPLE-ROW protocol: each tick converts to bitemporal row values ``[date, as_of, {removed, *keys}(per TSD level), *value columns]`` — ``TS<tuple[...]>`` for single-row types, ``TS<tuple[tuple[...], ...]>`` for partitioned (TSD) or multi-row (``Frame``-valued) types; unset cells are tuple field validity (Python ``None``). The output schema is computed from the resolved input at wiring. ``mode`` is a ``ToTableMode`` enum time-series (Tick/Sample/Snap) defaulting to Tick.
 
-    ``from_table`` reverses it, applying each row as the tick's delta at the resolved output (supplied at the wiring site: ``wire<from_table, TS<MySchema>>(w, ts)``); removed flags map to TSD key removals. The record/replay backends bypass both and drive the Arrow serializer ops directly (``types/value/table_codec.h``).
+    ``from_table`` reverses it, applying each row as the tick's delta at the resolved output (supplied at the wiring site: ``wire<from_table, TS<MySchema>>(w, ts)``); removed flags map to TSD key removals. The record/replay backends bypass tuple materialisation and drive the selected ``TableTypeOps`` into Arrow builders directly.
 
     Parameters
     ~~~~~~~~~~
@@ -7784,26 +7805,26 @@ class _to_table_Operator(_Protocol):
     are fixed when the graph is built.
 
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
-       The primary time-series input.
+       Time-series value or structure to flatten.
 
-    ``mode`` : time-series; ``TS[SCALAR]``
-       The mode value used by the selected overload. Optional in overloads that show ``= ...``.
+    ``mode`` : time-series; ``TS[ToTableMode]``
+       Tick emits deltas, Sample emits complete modified entries, and Snap emits a complete snapshot when the source ticks. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
 
-    A wired output with one of the overload-selected shapes: ``OUT``.
+    One row per scalar tick, or a tuple of rows for partitioned and frame-valued inputs.
 
     Python example
     ~~~~~~~~~~~~~~
 
     .. code-block:: python
 
-       result = hg.to_table(ts)
+       rows = hg.to_table(positions, hg.ToTableMode.Sample)
 
     Accepted native overloads:
 
-    - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT``
+    - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

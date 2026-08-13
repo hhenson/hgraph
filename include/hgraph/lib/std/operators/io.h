@@ -205,7 +205,12 @@ namespace hgraph::stdlib
         @param removes Whether TSD removals are emitted as explicit rows.
         @param partition_names Optional stored names for flattened TSD key columns.
         @param removed_names Optional stored names for TSD removal-flag columns.
+        @param date_key Optional stored name for the value-time column.
+        @param as_of_key Optional stored name for the as-of column.
         @param frame_prefix Prefix applied to expanded frame-valued columns.
+        @param mode Fixed Tick, Sample, or Snap row-selection policy.
+        @param flush_rows Native-store segment threshold in rows; zero disables it.
+        @param flush_interval Native-store segment threshold in evaluation time; zero disables it.
         @return No output.
         @par Python example
         @code{.py}
@@ -222,6 +227,8 @@ namespace hgraph::stdlib
         @param recordable_id Optional explicit identity; context supplies it when omitted.
         @param partition_names Stored names used for flattened TSD key columns.
         @param removed_names Stored names used for TSD removal-flag columns.
+        @param date_key Stored name for the value-time column.
+        @param as_of_key Stored name for the as-of column.
         @param frame_prefix Prefix used by expanded frame-valued columns.
         @return A source reproducing the recorded stream.
         @par Python example

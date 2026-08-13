@@ -83,8 +83,8 @@ namespace hgraph::store
     /** Frames live in an S3 bucket. */
     struct S3Location
     {
-        std::string                bucket{};
-        std::string                prefix{};
+        std::string bucket{};
+        std::string prefix{};
         /** Unset resolves the region through the ambient chain. */
         std::optional<std::string> region{};
         /** Set to point at an S3-compatible endpoint (MinIO, LocalStack). */
@@ -100,7 +100,7 @@ namespace hgraph::store
         Format      format{Format::ArrowIpc};
         Compression compression{Compression::Default};
         /** Reject a write whose key already exists (RFC 0016 decision). */
-        bool        immutable{true};
+        bool immutable{true};
     };
 
     /**
@@ -171,7 +171,7 @@ namespace hgraph::store
         /** Bind an owned erased context to a static, complete operations table. */
         FrameStore(std::shared_ptr<void> context, const FrameStoreOps &ops);
 
-        FrameStore(const FrameStore &)            = default;
+        FrameStore(const FrameStore &) = default;
         FrameStore &operator=(const FrameStore &) = default;
         FrameStore(FrameStore &&other) noexcept;
         FrameStore &operator=(FrameStore &&other) noexcept;
@@ -182,8 +182,10 @@ namespace hgraph::store
                    std::optional<Compression> compression = {}) const;
         /** An empty ``Frame`` when the key is absent. */
         [[nodiscard]] Frame read(std::string_view key) const;
-        [[nodiscard]] bool contains(std::string_view key) const;
-        void clear() const;
+        [[nodiscard]] bool  contains(std::string_view key) const;
+        /** True only for native stores that implement immutable segment keys. */
+        [[nodiscard]] bool supports_segmented_recordings() const noexcept;
+        void               clear() const;
 
         /** True when this handle owns a concrete representation. */
         [[nodiscard]] explicit operator bool() const noexcept;
