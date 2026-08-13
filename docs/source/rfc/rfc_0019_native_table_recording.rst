@@ -342,8 +342,9 @@ Storage
 ~~~~~~~
 
 Recording writes through the graph-scoped ``store::FrameStore`` contract that
-RFC 0016 defines. Its private ops table keeps the recorder independent of
-memory, filesystem, S3 and Python representations.
+RFC 0016 defines. The owning erased handle and its passive ops table keep the
+recorder independent of memory, filesystem, S3 and Python representations;
+none of those strategies is a public base-class implementation.
 
 ``DataFrameStorage`` is then a compatibility frame-store implementation rather
 than a parallel recording stack. The Python adaptor keeps its public surface

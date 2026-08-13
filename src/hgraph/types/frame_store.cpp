@@ -1,8 +1,5 @@
 #include <hgraph/types/frame_store.h>
 
-#include <hgraph/runtime/global_state.h>
-#include <hgraph/types/metadata/type_registry.h>
-
 #include <arrow/filesystem/filesystem.h>
 #include <arrow/filesystem/localfs.h>
 #include <arrow/io/interfaces.h>
@@ -24,6 +21,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 namespace hgraph::store
 {
@@ -93,18 +91,73 @@ namespace hgraph::store
 #endif
     }
 
-    FrameStore::~FrameStore() = default;
+    const FrameStoreOps &FrameStore::empty_ops() noexcept
+    {
+        static const FrameStoreOps ops{
+            [](void *, std::string_view, Frame, std::optional<Compression>) {
+                throw std::logic_error("no frame store is bound");
+            },
+            [](void *, std::string_view) { return Frame{}; },
+            [](void *, std::string_view) { return false; },
+            [](void *) {},
+        };
+        return ops;
+    }
+
+    FrameStore::FrameStore() noexcept = default;
+
+    FrameStore::FrameStore(std::shared_ptr<void> context, const FrameStoreOps &ops)
+        : context_(std::move(context)), ops_(&ops)
+    {
+        if (!context_) { throw std::invalid_argument("frame store context must not be null"); }
+        if (ops.write == nullptr || ops.read == nullptr || ops.contains == nullptr || ops.clear == nullptr)
+        {
+            throw std::invalid_argument("frame store operations must be complete");
+        }
+    }
+
+    FrameStore::FrameStore(FrameStore &&other) noexcept
+        : context_(std::move(other.context_)), ops_(std::exchange(other.ops_, &empty_ops()))
+    {
+    }
+
+    FrameStore &FrameStore::operator=(FrameStore &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+        context_ = std::move(other.context_);
+        ops_     = std::exchange(other.ops_, &empty_ops());
+        return *this;
+    }
+
+    void FrameStore::write(std::string_view key, Frame frame, std::optional<Compression> compression) const
+    {
+        ops_->write(context_.get(), key, std::move(frame), compression);
+    }
+
+    Frame FrameStore::read(std::string_view key) const { return ops_->read(context_.get(), key); }
+
+    bool FrameStore::contains(std::string_view key) const { return ops_->contains(context_.get(), key); }
+
+    void FrameStore::clear() const { ops_->clear(context_.get()); }
+
+    FrameStore::operator bool() const noexcept { return context_ != nullptr; }
+
+    void FrameStore::reset() noexcept
+    {
+        context_.reset();
+        ops_ = &empty_ops();
+    }
 
     namespace
     {
         // ---- memory ----
 
-        class MemoryStore final : public FrameStore
+        class MemoryStore
         {
           public:
-            explicit MemoryStore(FrameStoreConfig config) : FrameStore(std::move(config)) {}
+            explicit MemoryStore(FrameStoreConfig config) : config_(std::move(config)) {}
 
-            void write(std::string_view key, Frame frame, std::optional<Compression>) override
+            void write(std::string_view key, Frame frame, std::optional<Compression>)
             {
                 require_valid_key(key);
                 const std::string k{key};
@@ -115,36 +168,52 @@ namespace hgraph::store
                 frames_[k] = std::move(frame);
             }
 
-            [[nodiscard]] Frame read(std::string_view key) override
+            [[nodiscard]] Frame read(std::string_view key)
             {
                 require_valid_key(key);
                 const auto it = frames_.find(std::string{key});
                 return it == frames_.end() ? Frame{} : it->second;
             }
 
-            [[nodiscard]] bool contains(std::string_view key) override
+            [[nodiscard]] bool contains(std::string_view key)
             {
                 require_valid_key(key);
                 return frames_.contains(std::string{key});
             }
 
-            void clear() override { frames_.clear(); }
+            void clear() { frames_.clear(); }
 
           private:
+            FrameStoreConfig                       config_;
             std::unordered_map<std::string, Frame> frames_{};
         };
 
+        [[nodiscard]] const FrameStoreOps &memory_store_ops() noexcept
+        {
+            static const FrameStoreOps ops{
+                [](void *context, std::string_view key, Frame frame, std::optional<Compression> compression) {
+                    static_cast<MemoryStore *>(context)->write(key, std::move(frame), compression);
+                },
+                [](void *context, std::string_view key) { return static_cast<MemoryStore *>(context)->read(key); },
+                [](void *context, std::string_view key) {
+                    return static_cast<MemoryStore *>(context)->contains(key);
+                },
+                [](void *context) { static_cast<MemoryStore *>(context)->clear(); },
+            };
+            return ops;
+        }
+
         // ---- filesystem-backed (local and S3 share everything but the fs) ----
 
-        class FileSystemStore final : public FrameStore
+        class FileSystemStore
         {
           public:
             FileSystemStore(FrameStoreConfig config, std::shared_ptr<arrow::fs::FileSystem> fs, std::string root)
-                : FrameStore(std::move(config)), fs_(std::move(fs)), root_(std::move(root))
+                : config_(std::move(config)), fs_(std::move(fs)), root_(std::move(root))
             {
             }
 
-            void write(std::string_view key, Frame frame, std::optional<Compression> compression) override
+            void write(std::string_view key, Frame frame, std::optional<Compression> compression)
             {
                 require_valid_key(key);
                 if (!frame.has_value()) { throw std::invalid_argument("cannot write an empty frame"); }
@@ -162,7 +231,7 @@ namespace hgraph::store
                 check(out->Close(), "close output stream");
             }
 
-            [[nodiscard]] Frame read(std::string_view key) override
+            [[nodiscard]] Frame read(std::string_view key)
             {
                 require_valid_key(key);
                 const auto path = resolve(key);
@@ -171,13 +240,13 @@ namespace hgraph::store
                 return Frame{read_table(in)};
             }
 
-            [[nodiscard]] bool contains(std::string_view key) override
+            [[nodiscard]] bool contains(std::string_view key)
             {
                 require_valid_key(key);
                 return exists(resolve(key));
             }
 
-            void clear() override
+            void clear()
             {
                 const auto info = unwrap(fs_->GetFileInfo(root_), "stat root");
                 if (info.type() == arrow::fs::FileType::NotFound) { return; }
@@ -283,9 +352,27 @@ namespace hgraph::store
             }
 #endif
 
+            FrameStoreConfig                       config_;
             std::shared_ptr<arrow::fs::FileSystem> fs_;
             std::string                            root_;
         };
+
+        [[nodiscard]] const FrameStoreOps &filesystem_store_ops() noexcept
+        {
+            static const FrameStoreOps ops{
+                [](void *context, std::string_view key, Frame frame, std::optional<Compression> compression) {
+                    static_cast<FileSystemStore *>(context)->write(key, std::move(frame), compression);
+                },
+                [](void *context, std::string_view key) {
+                    return static_cast<FileSystemStore *>(context)->read(key);
+                },
+                [](void *context, std::string_view key) {
+                    return static_cast<FileSystemStore *>(context)->contains(key);
+                },
+                [](void *context) { static_cast<FileSystemStore *>(context)->clear(); },
+            };
+            return ops;
+        }
 
 #if defined(HGRAPH_WITH_S3)
         /**
@@ -313,7 +400,7 @@ namespace hgraph::store
 #endif
     }  // namespace
 
-    std::shared_ptr<FrameStore> make_frame_store(FrameStoreConfig config)
+    FrameStore make_frame_store(FrameStoreConfig config)
     {
         if (config.format == Format::Parquet && !parquet_available())
         {
@@ -322,7 +409,7 @@ namespace hgraph::store
 
         if (std::holds_alternative<MemoryLocation>(config.location))
         {
-            return std::make_shared<MemoryStore>(std::move(config));
+            return FrameStore{std::make_shared<MemoryStore>(std::move(config)), memory_store_ops()};
         }
 
         if (const auto *local = std::get_if<LocalLocation>(&config.location))
@@ -331,7 +418,8 @@ namespace hgraph::store
             auto root = local->root;
             auto fs   = std::make_shared<arrow::fs::LocalFileSystem>();
             check(fs->CreateDir(root, true), "create store root");
-            return std::make_shared<FileSystemStore>(std::move(config), std::move(fs), std::move(root));
+            return FrameStore{std::make_shared<FileSystemStore>(std::move(config), std::move(fs), std::move(root)),
+                              filesystem_store_ops()};
         }
 
         const auto &s3 = std::get<S3Location>(config.location);
@@ -373,64 +461,12 @@ namespace hgraph::store
 
         auto fs   = unwrap(arrow::fs::S3FileSystem::Make(options), "create S3 filesystem");
         auto root = s3.prefix.empty() ? s3.bucket : s3.bucket + "/" + s3.prefix;
-        return std::make_shared<FileSystemStore>(std::move(config), std::move(fs), std::move(root));
+        return FrameStore{std::make_shared<FileSystemStore>(std::move(config), std::move(fs), std::move(root)),
+                          filesystem_store_ops()};
 #else
         (void)s3;
         throw std::runtime_error("this build has no S3 support; configure with HGRAPH_WITH_S3");
 #endif
     }
 
-    namespace
-    {
-        FrameStore &store_of(void *context) { return *static_cast<FrameStore *>(context); }
-    }  // namespace
-
-    record_replay::FrameStoreOps frame_store_ops(const std::shared_ptr<FrameStore> &store)
-    {
-        if (!store) { throw std::invalid_argument("frame store must not be null"); }
-        return record_replay::FrameStoreOps{
-            store.get(),
-            [](void *context, std::string_view key, Frame frame) { store_of(context).write(key, std::move(frame)); },
-            [](void *context, std::string_view key) { return store_of(context).read(key); },
-            [](void *context, std::string_view key) { return store_of(context).contains(key); },
-            [](void *context) { store_of(context).clear(); },
-        };
-    }
 }  // namespace hgraph::store
-
-namespace hgraph::record_replay
-{
-    namespace
-    {
-        inline constexpr std::string_view FRAME_STORE_KEY{"__hgraph.record_replay.frame_store__"};
-
-        /** GlobalState owns the store for the run, following the
-            time-zone-provider holder pattern. */
-        struct FrameStoreHolder
-        {
-            std::shared_ptr<store::FrameStore> store;
-        };
-    }  // namespace
-
-    void set_frame_store(GlobalStateView state, std::shared_ptr<store::FrameStore> frame_store)
-    {
-        if (!state.valid()) { throw std::logic_error("installing a frame store requires GlobalState"); }
-        if (!frame_store) { throw std::invalid_argument("frame store must not be null"); }
-        (void)TypeRegistry::instance().register_scalar<FrameStoreHolder>("__frame_store_holder__");
-        state.set(FRAME_STORE_KEY, Value{FrameStoreHolder{std::move(frame_store)}});
-    }
-
-    void clear_frame_store(GlobalStateView state)
-    {
-        if (!state.valid()) { throw std::logic_error("clearing a frame store requires GlobalState"); }
-        static_cast<void>(state.erase(FRAME_STORE_KEY));
-    }
-
-    std::shared_ptr<store::FrameStore> frame_store(GlobalStateView state)
-    {
-        if (!state.valid()) { return nullptr; }
-        const ValueView value = state.get(FRAME_STORE_KEY);
-        if (!value) { return nullptr; }
-        return value.checked_as<FrameStoreHolder>().store;
-    }
-}  // namespace hgraph::record_replay

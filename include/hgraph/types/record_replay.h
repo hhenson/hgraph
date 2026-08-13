@@ -2,7 +2,7 @@
 #define HGRAPH_TYPES_RECORD_REPLAY_H
 
 #include <hgraph/hgraph_export.h>
-#include <hgraph/types/frame.h>
+#include <hgraph/types/frame_store.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/util/date_time.h>
 
@@ -125,28 +125,21 @@ namespace hgraph::record_replay
         ~scope();
     };
 
-    /**
-     * The type-erased keyed content store (P6 — ruled): recorded frames,
-     * comparison results and related content read/write through this ops
-     * table, with implementations REGISTERED like operator backends. The
-     * default registration is an in-memory map; file / Arrow-dataset stores
-     * register over it. Ops-table shape (no virtuals): first param is the
-     * store context.
-     */
-    struct FrameStoreOps
-    {
-        void *context{nullptr};
-        void (*write)(void *context, std::string_view key, Frame frame){nullptr};
-        /** Empty ``Frame`` when the key is absent. */
-        Frame (*read)(void *context, std::string_view key){nullptr};
-        bool (*contains)(void *context, std::string_view key){nullptr};
-        void (*clear)(void *context){nullptr};
-    };
+    /** Register an owning type-erased process fallback store. */
+    HGRAPH_EXPORT void set_frame_store(store::FrameStore frame_store);
+    /** The active process fallback store. */
+    [[nodiscard]] HGRAPH_EXPORT const store::FrameStore &frame_store();
 
-    /** Register a store (replacing the active one). */
-    HGRAPH_EXPORT void set_frame_store(FrameStoreOps ops);
-    /** The active store's ops. */
-    [[nodiscard]] HGRAPH_EXPORT const FrameStoreOps &frame_store();
+    /** Install a configured store for one graph run. ``GlobalState`` owns a
+        copy of the erased handle and therefore shares its context. */
+    HGRAPH_EXPORT void set_frame_store(GlobalStateView state, store::FrameStore frame_store);
+
+    /** Remove the graph-selected store; subsequent operations use the process
+        fallback store. */
+    HGRAPH_EXPORT void clear_frame_store(GlobalStateView state);
+
+    /** The graph-selected store, or an empty handle when none is installed. */
+    [[nodiscard]] HGRAPH_EXPORT store::FrameStore frame_store(GlobalStateView state);
 
     /** Convenience wrappers over the active store. */
     HGRAPH_EXPORT void store_write(std::string_view key, Frame frame);

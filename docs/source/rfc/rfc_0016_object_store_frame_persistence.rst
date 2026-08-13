@@ -50,13 +50,13 @@ construction.
 Motivation
 ----------
 
-``record_replay::FrameStoreOps`` already exists as the type-erased keyed store,
-and its declaration anticipates this work:
+``store::FrameStoreOps`` defines the passive type-erased keyed-store
+operations. It preserves the seam originally introduced for this work:
 
    *"The default registration is an in-memory map; file / Arrow-dataset stores
    register over it."*
 
-At proposal time, what was missing was any registration other than the
+At proposal time, what was missing was any implementation other than the
 default. A user who wanted
 recorded frames to outlive a process — or to be read by something that is not
 this process — had to write the store themselves, and got no help with format,
@@ -100,8 +100,8 @@ Ownership boundary
 The store abstraction, its configuration, and the Arrow-backed backends are
 **core**. Three things put them there rather than in an extension:
 
-* the seam is already core (``FrameStoreOps`` in
-  ``include/hgraph/types/record_replay.h``);
+* the seam is already core (``FrameStoreOps`` and its owning handle in
+  ``include/hgraph/types/frame_store.h``);
 * the value type is already core (``Frame``, and ``Frame[Rows, Metadata]``
   under RFC 0001);
 * no new *package* is acquired: ``arrow::fs`` and ``arrow::ipc`` are in the
@@ -122,34 +122,50 @@ application or extension concerns built *on* this contract.
 C++ contract
 ------------
 
-The public semantic contract is an owned C++ ``FrameStore``. It deliberately
-contains only storage concerns: complete-frame reads and writes, existence,
-and explicit administrative clearing. Record/replay depends on this contract,
-not on a concrete memory, filesystem or S3 representation.
+The public semantic contract is an owning, type-erased C++ ``FrameStore``. It
+deliberately contains only storage concerns: complete-frame reads and writes,
+existence, and explicit administrative clearing. Record/replay depends on this
+contract, not on a concrete memory, filesystem, S3 or Python representation.
 
 .. code-block:: cpp
 
-    class FrameStore
+    struct FrameStoreOps
     {
-      public:
-        virtual ~FrameStore();
-        virtual void write(std::string_view key, Frame frame,
-                           std::optional<Compression> compression = {}) = 0;
-        [[nodiscard]] virtual Frame read(std::string_view key) = 0;
-        [[nodiscard]] virtual bool contains(std::string_view key) = 0;
-        virtual void clear() = 0;
-        [[nodiscard]] const FrameStoreConfig &config() const noexcept;
+        void (*write)(void *, std::string_view, Frame,
+                      std::optional<Compression>);
+        Frame (*read)(void *, std::string_view);
+        bool (*contains)(void *, std::string_view);
+        void (*clear)(void *);
     };
 
-The factory returns ``std::shared_ptr<FrameStore>``. Shared ownership is
-intentional: ``GlobalState`` copies into the executor and back to the caller,
-and both views must refer to the same store rather than duplicate a backend or
-extend one through a borrowed pointer.
+    class FrameStore final
+    {
+        std::shared_ptr<void> context_;
+        const FrameStoreOps *ops_;       // always non-null
+
+      public:
+        FrameStore(std::shared_ptr<void> context,
+                   const FrameStoreOps &static_ops);
+        void write(std::string_view key, Frame frame,
+                   std::optional<Compression> compression = {}) const;
+        [[nodiscard]] Frame read(std::string_view key) const;
+        [[nodiscard]] bool contains(std::string_view key) const;
+        void clear() const;
+    };
+
+``FrameStore`` is a value handle, not a strategy hierarchy. Its erased
+``shared_ptr<void>`` makes ownership explicit: ``GlobalState`` copies into the
+executor and back to the caller, and every copy refers to the same context.
+Default and moved-from handles bind a canonical empty ops table, so dispatch
+never branches around a null ops pointer. Empty-handle reads and existence
+checks report absence; writes fail explicitly rather than silently losing
+data. Concrete strategies and their containers are private to implementation
+files.
 
 **Registration is scoped to the graph run, not the process.** ``GlobalState``
 is already owned by one graph instance and copied into and back from that run.
-The legacy ``g_store`` in ``record_replay.cpp`` is only a process-lifetime
-fallback and cannot represent a graph-selected destination. The precedent is
+The process store in ``record_replay.cpp`` is only a fallback and cannot
+represent a graph-selected destination. The precedent is
 ``set_config(GlobalStateView, ...)``; the selected store follows the same
 graph-scoped ownership.
 
@@ -157,7 +173,7 @@ graph-scoped ownership.
 
     namespace hgraph::store
     {
-        [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<FrameStore>
+        [[nodiscard]] HGRAPH_EXPORT FrameStore
         make_frame_store(FrameStoreConfig config);
     }
 
@@ -166,12 +182,12 @@ graph-scoped ownership.
         /** Register for the active run; the store is owned by GlobalState and
             released with it. Mirrors set_config's scoping. */
         HGRAPH_EXPORT void set_frame_store(
-            GlobalStateView state, std::shared_ptr<store::FrameStore> store);
+            GlobalStateView state, store::FrameStore store);
     }
 
-The old passive ``FrameStoreOps`` registration remains only as a process-level
-compatibility fallback. Native configured backends are graph-owned
-``FrameStore`` objects and runtime nodes always resolve the graph store first.
+The process fallback is another owning ``FrameStore`` handle, not a parallel
+registration mechanism. Runtime nodes resolve the graph store first and then
+dispatch through the fallback handle when no graph store was selected.
 
 The configuration a backend is built from:
 
@@ -206,7 +222,7 @@ The configuration a backend is built from:
         };
 
         /** Build a store; the caller registers it with set_frame_store. */
-        [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<FrameStore>
+        [[nodiscard]] HGRAPH_EXPORT FrameStore
         make_frame_store(FrameStoreConfig config);
     }
 
@@ -452,10 +468,12 @@ container and invoking the tag.
 Compatibility and migration
 ---------------------------
 
-Additive. Selecting the ``DATA_FRAME`` model creates a graph-owned native
-memory store unless the graph already has another store. The legacy
-process-level ``FrameStoreOps`` registration remains a fallback, so an existing
-C++ caller that owns its context for the process lifetime keeps working.
+Selecting the ``DATA_FRAME`` model creates a graph-owned native memory store
+unless the graph already has another store. A custom C++ store supplies an
+owned context plus a static ``FrameStoreOps`` table and installs the resulting
+handle either on the graph or as the process fallback. A borrowed raw context
+is deliberately no longer accepted: the graph copy-in/copy-out lifecycle must
+not be able to outlive a store representation.
 
 Nothing about the wire format of ``Frame`` changes. Persisted files are
 ordinary Parquet or Arrow IPC and are not versioned by hgraph beyond the RFC

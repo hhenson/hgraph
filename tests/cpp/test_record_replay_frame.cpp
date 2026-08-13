@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Step 4 of the record/replay/table design record: the Arrow data-frame
@@ -173,6 +174,33 @@ namespace
             return ts;
         }
     };
+
+    struct CapturingFrameStore
+    {
+        std::unordered_map<std::string, Frame> frames;
+    };
+
+    [[nodiscard]] const store::FrameStoreOps &capturing_frame_store_ops()
+    {
+        static const store::FrameStoreOps ops{
+            [](void *context, std::string_view key, Frame frame,
+               std::optional<store::Compression>) {
+                static_cast<CapturingFrameStore *>(context)->frames[std::string{key}] =
+                    std::move(frame);
+            },
+            [](void *context, std::string_view key) {
+                const auto &frames = static_cast<CapturingFrameStore *>(context)->frames;
+                const auto  item   = frames.find(std::string{key});
+                return item == frames.end() ? Frame{} : item->second;
+            },
+            [](void *context, std::string_view key) {
+                return static_cast<CapturingFrameStore *>(context)->frames.contains(
+                    std::string{key});
+            },
+            [](void *context) { static_cast<CapturingFrameStore *>(context)->frames.clear(); },
+        };
+        return ops;
+    }
 }  // namespace
 
 TEST_CASE("frame backend: record writes a bitemporal frame to the store; replay re-emits it")
@@ -191,6 +219,23 @@ TEST_CASE("frame backend: record writes a bitemporal frame to the store; replay 
 
     // Run 2: replay - values re-emitted at the RECORDED times (cycle-aligned).
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, none, 30, 40));
+}
+
+TEST_CASE("frame backend: a custom erased C++ store participates through public wiring")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    const auto    state   = context.state().view();
+    auto          capture = std::make_shared<CapturingFrameStore>();
+    record_replay::set_frame_store(
+        state, store::FrameStore{capture, capturing_frame_store_ops()});
+    record_replay::set_config(
+        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+
+    (void)eval_node<RecordGraph>(values<Int>(10, none, 30));
+    REQUIRE(capture->frames.contains("book.prices"));
+    CHECK(frame_rows(capture->frames.at("book.prices")) == 2);
+    CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, none, 30));
 }
 
 TEST_CASE("frame backend: the recordable id resolves through graph traits at runtime")

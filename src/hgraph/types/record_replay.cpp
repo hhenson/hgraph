@@ -1,7 +1,7 @@
 #include <hgraph/types/record_replay.h>
 
 #include <hgraph/runtime/graph.h>
-#include <hgraph/types/frame_store.h>
+#include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -11,7 +11,6 @@
 #include <arrow/array.h>
 
 #include <stdexcept>
-#include <unordered_map>
 #include <vector>
 
 namespace hgraph::record_replay
@@ -19,6 +18,7 @@ namespace hgraph::record_replay
     namespace
     {
         inline constexpr std::string_view CONFIG_KEY{"__hgraph.record_replay.config__"};
+        inline constexpr std::string_view FRAME_STORE_KEY{"__hgraph.record_replay.frame_store__"};
 
         thread_local std::vector<ScopeState> g_scopes{};
         const ScopeState                     g_no_scope{};
@@ -28,34 +28,30 @@ namespace hgraph::record_replay
             (void)TypeRegistry::instance().register_scalar<Config>("RecordReplayConfig");
         }
 
-        // ---- the default (in-memory) frame store ----
-        std::unordered_map<std::string, Frame> g_default_store;
-
-        void default_store_write(void *, std::string_view key, Frame frame)
+        struct FrameStoreHolder
         {
-            g_default_store[std::string{key}] = std::move(frame);
-        }
+            store::FrameStore store;
+        };
 
-        Frame default_store_read(void *, std::string_view key)
+        struct ProcessFrameStores
         {
-            const auto it = g_default_store.find(std::string{key});
-            return it == g_default_store.end() ? Frame{} : it->second;
-        }
+            ProcessFrameStores()
+            {
+                store::FrameStoreConfig config;
+                config.immutable = false;
+                fallback         = store::make_frame_store(std::move(config));
+                active           = fallback;
+            }
 
-        bool default_store_contains(void *, std::string_view key)
+            store::FrameStore fallback{};
+            store::FrameStore active{};
+        };
+
+        [[nodiscard]] ProcessFrameStores &process_frame_stores()
         {
-            return g_default_store.contains(std::string{key});
+            static ProcessFrameStores stores;
+            return stores;
         }
-
-        void default_store_clear(void *) { g_default_store.clear(); }
-
-        [[nodiscard]] FrameStoreOps default_store_ops() noexcept
-        {
-            return FrameStoreOps{nullptr, &default_store_write, &default_store_read, &default_store_contains,
-                                 &default_store_clear};
-        }
-
-        FrameStoreOps g_store = default_store_ops();
     }  // namespace
 
     void set_config(GlobalStateView state, Config config)
@@ -98,16 +94,34 @@ namespace hgraph::record_replay
         if (!g_scopes.empty()) { g_scopes.pop_back(); }
     }
 
-    void set_frame_store(FrameStoreOps ops)
+    void set_frame_store(store::FrameStore frame_store)
     {
-        if (ops.write == nullptr || ops.read == nullptr || ops.contains == nullptr)
-        {
-            throw std::invalid_argument("frame store registration requires write/read/contains ops");
-        }
-        g_store = ops;
+        if (!frame_store) { throw std::invalid_argument("frame store must not be empty"); }
+        process_frame_stores().active = std::move(frame_store);
     }
 
-    const FrameStoreOps &frame_store() { return g_store; }
+    const store::FrameStore &frame_store() { return process_frame_stores().active; }
+
+    void set_frame_store(GlobalStateView state, store::FrameStore frame_store)
+    {
+        if (!state.valid()) { throw std::logic_error("installing a frame store requires GlobalState"); }
+        if (!frame_store) { throw std::invalid_argument("frame store must not be empty"); }
+        (void)TypeRegistry::instance().register_scalar<FrameStoreHolder>("__frame_store_holder__");
+        state.set(FRAME_STORE_KEY, Value{FrameStoreHolder{std::move(frame_store)}});
+    }
+
+    void clear_frame_store(GlobalStateView state)
+    {
+        if (!state.valid()) { throw std::logic_error("clearing a frame store requires GlobalState"); }
+        static_cast<void>(state.erase(FRAME_STORE_KEY));
+    }
+
+    store::FrameStore frame_store(GlobalStateView state)
+    {
+        if (!state.valid()) { return {}; }
+        const ValueView value = state.get(FRAME_STORE_KEY);
+        return value ? value.checked_as<FrameStoreHolder>().store : store::FrameStore{};
+    }
 
     void store_write(std::string_view key, Frame frame)
     {
@@ -115,47 +129,47 @@ namespace hgraph::record_replay
         {
             if (auto selected = frame_store(state->view()))
             {
-                selected->write(key, std::move(frame));
+                selected.write(key, std::move(frame));
                 return;
             }
         }
-        g_store.write(g_store.context, key, std::move(frame));
+        frame_store().write(key, std::move(frame));
     }
 
     Frame store_read(std::string_view key)
     {
         if (GlobalState *state = GlobalContext::active_state())
         {
-            if (auto selected = frame_store(state->view())) { return selected->read(key); }
+            if (auto selected = frame_store(state->view())) { return selected.read(key); }
         }
-        return g_store.read(g_store.context, key);
+        return frame_store().read(key);
     }
 
     bool store_contains(std::string_view key)
     {
         if (GlobalState *state = GlobalContext::active_state())
         {
-            if (auto selected = frame_store(state->view())) { return selected->contains(key); }
+            if (auto selected = frame_store(state->view())) { return selected.contains(key); }
         }
-        return g_store.contains(g_store.context, key);
+        return frame_store().contains(key);
     }
 
     void store_write(GlobalStateView state, std::string_view key, Frame frame)
     {
-        if (auto selected = frame_store(state)) { selected->write(key, std::move(frame)); }
-        else { g_store.write(g_store.context, key, std::move(frame)); }
+        if (auto selected = frame_store(state)) { selected.write(key, std::move(frame)); }
+        else { frame_store().write(key, std::move(frame)); }
     }
 
     Frame store_read(GlobalStateView state, std::string_view key)
     {
-        if (auto selected = frame_store(state)) { return selected->read(key); }
-        return g_store.read(g_store.context, key);
+        if (auto selected = frame_store(state)) { return selected.read(key); }
+        return frame_store().read(key);
     }
 
     bool store_contains(GlobalStateView state, std::string_view key)
     {
-        if (auto selected = frame_store(state)) { return selected->contains(key); }
-        return g_store.contains(g_store.context, key);
+        if (auto selected = frame_store(state)) { return selected.contains(key); }
+        return frame_store().contains(key);
     }
 
     Value replay_const_value(GlobalStateView state, std::string_view fq_key, const ValueTypeMetaData *meta,
@@ -232,9 +246,10 @@ namespace hgraph::record_replay
     void reset() noexcept
     {
         g_scopes.clear();
-        if (g_store.clear != nullptr) { g_store.clear(g_store.context); }
-        g_store = default_store_ops();
-        g_default_store.clear();
+        auto &stores = process_frame_stores();
+        stores.active.clear();
+        stores.fallback.clear();
+        stores.active = stores.fallback;
     }
 
     bool has_recordable_id(const GraphView &graph) noexcept

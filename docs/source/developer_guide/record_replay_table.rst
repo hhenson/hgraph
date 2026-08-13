@@ -361,12 +361,14 @@ Step 4 — landed (first pass)
 The Arrow data-frame record/replay backend, model
 ``record_replay::DATA_FRAME``:
 
-- **The P6 content store** — a graph-scoped ``store::FrameStore`` selected in
-  ``GlobalState``. Native memory, local-filesystem and S3 implementations own
-  key validation, serialization, compression and immutable-key enforcement.
-  The private ``record_replay::FrameStoreOps`` process-level registration is
-  retained only as a legacy fallback; graph execution uses the store belonging
-  to that graph.
+- **The P6 content store** — a graph-scoped, owning type-erased
+  ``store::FrameStore`` selected in ``GlobalState``. The handle shares an
+  erased context and dispatches through a non-null ``store::FrameStoreOps``
+  table; it is not an abstract base class. Native memory, local-filesystem and
+  S3 representations remain private and own key validation, serialization,
+  compression and immutable-key enforcement. The process fallback uses the
+  same erased handle; graph execution first resolves the store belonging to
+  that graph.
 - **``TraitsView``** — the node-level injectable completing the traits
   primitive: a transparent stateless injectable (the ``SingleShotScheduler``
   pattern) giving hooks ``trait``/``trait_or`` over the owning graph's

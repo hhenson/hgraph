@@ -10,6 +10,7 @@
 #include "py_bindings.h"
 
 #include <hgraph/types/frame_store.h>
+#include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/type_realization.h>
 
 namespace nb = nanobind;
@@ -261,61 +262,108 @@ namespace hgraph::python_bridge
          * to the C++ memory/file/S3 implementations; a Python bridge decides
          * its own overwrite behaviour and is never asked to manage segments.
          */
-        class PythonFrameStore final : public store::FrameStore
+        struct PythonFrameStore
         {
-          public:
-            PythonFrameStore(nb::object impl, std::shared_ptr<store::FrameStore> previous)
-                : FrameStore(store::FrameStoreConfig{.immutable = false}),
-                  impl_(std::move(impl)), previous_(std::move(previous))
-            {
-            }
-
-            void write(std::string_view key, Frame frame, std::optional<store::Compression>) override
-            {
-                const nb::gil_scoped_acquire gil;
-                impl_.get().attr("store")(std::string{key}, frame_to_py(frame));
-            }
-
-            [[nodiscard]] Frame read(std::string_view key) override
-            {
-                const nb::gil_scoped_acquire gil;
-                nb::object out = impl_.get().attr("load")(std::string{key});
-                if (out.is_none()) { return Frame{}; }
-                const Value frame = py_arrow_to_frame(out);
-                return Frame{frame.view().checked_as<Frame>()};
-            }
-
-            [[nodiscard]] bool contains(std::string_view key) override
-            {
-                const nb::gil_scoped_acquire gil;
-                return nb::cast<bool>(impl_.get().attr("has")(std::string{key}));
-            }
-
-            // The deliberately small Python protocol has no bulk-delete
-            // operation. Removing the adapter from GlobalState releases it;
-            // deleting persisted user data remains the implementation's API.
-            void clear() override {}
-
-            [[nodiscard]] const std::shared_ptr<store::FrameStore> &previous() const noexcept
-            {
-                return previous_;
-            }
-
-          private:
-            PyObj                              impl_;
-            std::shared_ptr<store::FrameStore> previous_;
+            explicit PythonFrameStore(nb::object impl) : impl(std::move(impl)) {}
+            PyObj impl;
         };
+
+        [[nodiscard]] const store::FrameStoreOps &python_frame_store_ops() noexcept
+        {
+            static const store::FrameStoreOps ops{
+                [](void *context, std::string_view key, Frame frame, std::optional<store::Compression>) {
+                    const nb::gil_scoped_acquire gil;
+                    static_cast<PythonFrameStore *>(context)->impl.get().attr("store")(
+                        std::string{key}, frame_to_py(frame));
+                },
+                [](void *context, std::string_view key) {
+                    const nb::gil_scoped_acquire gil;
+                    nb::object out = static_cast<PythonFrameStore *>(context)->impl.get().attr("load")(
+                        std::string{key});
+                    if (out.is_none()) { return Frame{}; }
+                    const Value frame = py_arrow_to_frame(out);
+                    return Frame{frame.view().checked_as<Frame>()};
+                },
+                [](void *context, std::string_view key) {
+                    const nb::gil_scoped_acquire gil;
+                    return nb::cast<bool>(static_cast<PythonFrameStore *>(context)->impl.get().attr("has")(
+                        std::string{key}));
+                },
+                // The deliberately small Python protocol has no bulk-delete
+                // operation. Removing the adapter from GlobalState releases
+                // it; deleting persisted user data remains its own API.
+                [](void *) {},
+            };
+            return ops;
+        }
+
+        struct PythonFrameStoreStack
+        {
+            std::vector<store::FrameStore> previous;
+        };
+
+        inline constexpr std::string_view PYTHON_FRAME_STORE_STACK_KEY{
+            "__hgraph.python.frame_store_stack__"};
+
+        [[nodiscard]] PythonFrameStoreStack python_frame_store_stack(GlobalStateView state)
+        {
+            const ValueView value = state.get(PYTHON_FRAME_STORE_STACK_KEY);
+            return value ? value.checked_as<PythonFrameStoreStack>() : PythonFrameStoreStack{};
+        }
+
+        [[nodiscard]] bool python_frame_store_active(GlobalStateView state)
+        {
+            const ValueView value = state.get(PYTHON_FRAME_STORE_STACK_KEY);
+            return value && !value.checked_as<PythonFrameStoreStack>().previous.empty();
+        }
+
+        void install_python_frame_store(GlobalStateView state, nb::object impl)
+        {
+            auto previous = record_replay::frame_store(state);
+            auto stack    = python_frame_store_stack(state);
+            stack.previous.push_back(previous);
+
+            auto adapter = store::FrameStore{
+                std::make_shared<PythonFrameStore>(std::move(impl)), python_frame_store_ops()};
+            record_replay::set_frame_store(state, std::move(adapter));
+            try
+            {
+                (void)TypeRegistry::instance().register_scalar<PythonFrameStoreStack>(
+                    "__python_frame_store_stack__");
+                state.set(PYTHON_FRAME_STORE_STACK_KEY, Value{std::move(stack)});
+            }
+            catch (...)
+            {
+                if (previous) { record_replay::set_frame_store(state, std::move(previous)); }
+                else { record_replay::clear_frame_store(state); }
+                throw;
+            }
+        }
 
         void restore_python_frame_store(GlobalStateView state)
         {
             auto current = record_replay::frame_store(state);
-            auto python  = std::dynamic_pointer_cast<PythonFrameStore>(current);
-            if (!python)
+            auto stack   = python_frame_store_stack(state);
+            if (!current || stack.previous.empty())
             {
                 throw std::logic_error("the active graph store is not a Python frame store");
             }
-            if (python->previous()) { record_replay::set_frame_store(state, python->previous()); }
+
+            auto previous = std::move(stack.previous.back());
+            stack.previous.pop_back();
+            if (previous) { record_replay::set_frame_store(state, std::move(previous)); }
             else { record_replay::clear_frame_store(state); }
+
+            try
+            {
+                if (stack.previous.empty()) { static_cast<void>(state.erase(PYTHON_FRAME_STORE_STACK_KEY)); }
+                else { state.set(PYTHON_FRAME_STORE_STACK_KEY, Value{std::move(stack)}); }
+            }
+            catch (...)
+            {
+                record_replay::set_frame_store(state, std::move(current));
+                throw;
+            }
         }
     }  // namespace
 
@@ -429,8 +477,7 @@ namespace hgraph::python_bridge
             // A Python compatibility store is user-owned and remains installed
             // so `with DataFrameStorage(): set_record_replay_model(...)` keeps
             // the legacy ordering contract.
-            const auto current = record_replay::frame_store(state.view());
-            if (!std::dynamic_pointer_cast<PythonFrameStore>(current))
+            if (!python_frame_store_active(state.view()))
             {
                 record_replay::set_frame_store(
                     state.view(), store::make_frame_store(store::FrameStoreConfig{}));
@@ -496,11 +543,9 @@ namespace hgraph::python_bridge
     });
 
     // Install/restore a graph-scoped Python compatibility store. Nesting is
-    // lossless: each adapter retains the native or Python store it replaced.
+    // lossless: graph state retains each native or Python handle it replaced.
     m.def("_set_python_frame_store", [](GlobalState &state, nb::object impl) {
-        auto previous = record_replay::frame_store(state.view());
-        record_replay::set_frame_store(
-            state.view(), std::make_shared<PythonFrameStore>(std::move(impl), std::move(previous)));
+        install_python_frame_store(state.view(), std::move(impl));
     });
     m.def("_restore_python_frame_store", [](GlobalState &state) {
         restore_python_frame_store(state.view());
