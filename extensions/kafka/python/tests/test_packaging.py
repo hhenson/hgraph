@@ -105,7 +105,7 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
     release_workflow = (
         REPOSITORY_ROOT / ".github/workflows/release-wheels.yml"
     ).read_text()
-    workflow = "\n".join(
+    wheel_workflows = "\n".join(
         (
             release_workflow,
             (
@@ -116,6 +116,9 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
             ).read_text(),
         )
     )
+    native_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/native-cpp.yml"
+    ).read_text()
 
     for artifact in (
         "kafka-distribution-sdist",
@@ -123,24 +126,25 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
         "kafka-distribution-wheel-ubuntu-latest",
         "kafka-distribution-wheel-windows-latest",
     ):
-        assert artifact in workflow
-    assert "python -m pytest extensions/kafka/python/tests -q" in workflow
-    assert "-DHGRAPH_BUILD_KAFKA_EXTENSION=ON" in workflow
+        assert artifact in wheel_workflows
+    assert "python -m pytest extensions/kafka/python/tests -q" in wheel_workflows
+    assert "-DHGRAPH_BUILD_KAFKA_EXTENSION=ON" in native_workflow
+    assert "Build and test installed Kafka consumer" in native_workflow
     assert '      - "*.*.*"' in release_workflow
     assert "hgraph-kafka-v_" not in release_workflow
-    assert "pattern: kafka-distribution-*" in workflow
+    assert "pattern: kafka-distribution-*" in wheel_workflows
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
     ) == 3
-    assert "--wheel --no-isolation" in workflow
-    assert "--sdist --no-isolation" in workflow
-    assert "--skip-dependency-check" in workflow
+    assert "--wheel --no-isolation" in wheel_workflows
+    assert "--sdist --no-isolation" in wheel_workflows
+    assert "--skip-dependency-check" in wheel_workflows
     for dependency in (
         '"scikit-build-core==1.0.3"',
         '"nanobind==2.13.0"',
         '"ninja==1.13.0"',
         '"pyarrow==25.0.0"',
     ):
-        assert dependency in workflow
-    assert '"scikit-build-core>=0.11"' not in workflow
-    assert '"pyarrow>=25,<26"' not in workflow
+        assert dependency in wheel_workflows
+    assert '"scikit-build-core>=0.11"' not in wheel_workflows
+    assert '"pyarrow>=25,<26"' not in wheel_workflows
