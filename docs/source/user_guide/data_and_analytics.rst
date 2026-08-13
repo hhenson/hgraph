@@ -42,6 +42,14 @@ package. The public catalogue delegates to C++ operators:
 * ``quantile`` and ``array_std`` provide scalar reductions; and
 * ``rolling_window`` returns shaped value and timestamp arrays.
 
+Generic estimators also live in the extension. ``std`` and ``var`` cover
+running numeric streams and current collection shapes, while ``std`` also
+reduces a core ``TSW`` with an explicit ``ddof``. ``rolling_mean`` computes a
+trailing tick- or duration-window mean, and ``resample`` reticks the latest
+value at a regular engine-time interval. Core retains ``mean`` as a primitive
+fold and ``to_window`` as generic storage; callers opt into the policy-bearing
+estimators by importing ``hgraph_analytics``.
+
 The former ``hgraph.numpy_`` module is retired. See
 :doc:`analytics_migration` for the complete name mapping.
 
@@ -57,10 +65,11 @@ Its public result is a scalar, so the obsolete ``keepdims`` compatibility
 argument was removed. ``window_values`` is limited to fixed tick windows;
 duration windows have no fixed output shape.
 
-The core ``hgraph.nodes`` compatibility surface retains ``rolling_window`` and
-``rolling_average``. The NumPy-prefixed conveniences moved to
-``hgraph-analytics`` as ``rolling_window``, ``quantile``, and ``array_std``;
-see :doc:`analytics_migration`. An analytics rolling window whose
+The core ``hgraph.nodes`` compatibility surface retains the generic
+``rolling_window`` alias for ``window``. The NumPy-prefixed conveniences and
+the policy-bearing ``rolling_average`` moved to ``hgraph-analytics`` as
+``rolling_window``, ``quantile``, ``array_std``, and ``rolling_mean``; see
+:doc:`analytics_migration`. An analytics rolling window whose
 ``min_window_period`` is smaller than its capacity emits shorter arrays while
 warming up. Those fields use an unbounded array dimension so the runtime schema
 truthfully describes the values.

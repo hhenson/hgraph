@@ -9,5 +9,6 @@ namespace hgraph::analytics
         detail::register_numerical_operators();
         detail::register_array_operators();
         detail::register_shaped_array_operators();
+        detail::register_statistics_operators();
     }
 }  // namespace hgraph::analytics

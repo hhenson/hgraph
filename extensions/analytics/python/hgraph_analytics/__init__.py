@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Generic
 
 from hgraph import (
@@ -35,6 +35,10 @@ _correlation = operator_function("hgraph.analytics.correlation")
 _quantile = operator_function("hgraph.analytics.quantile")
 _array_std = operator_function("hgraph.analytics.array_std")
 _rolling_window = operator_function("hgraph.analytics.rolling_window")
+_std = operator_function("hgraph.analytics.std")
+_var = operator_function("hgraph.analytics.var")
+_rolling_mean = operator_function("hgraph.analytics.rolling_mean")
+_resample = operator_function("hgraph.analytics.resample")
 _to_window = operator_function("to_window")
 
 
@@ -212,6 +216,71 @@ def rolling_window(
     return _rolling_window(window)
 
 
+def std(*values, ddof: int | None = None, default_value=None):
+    """Return standard deviation according to input shape and arity.
+
+    A numeric scalar stream produces running population standard deviation. A
+    collection reduces its current valid members using the migrated collection
+    contract, and a core typed window reduces its retained observations.
+    Binary and fixed-list inputs are evaluated element by element. ``ddof`` is
+    a wiring-time typed-window policy and defaults to zero; an insufficient
+    retained count produces NaN. ``default_value`` is retained for compatible
+    scalar-container reductions. Invalid cycles do not update running state or
+    trigger windowed output.
+    """
+
+    kwargs = {}
+    if ddof is not None:
+        kwargs["ddof"] = ddof
+    if default_value is not None:
+        kwargs["default_value"] = default_value
+    return _std(*values, **kwargs)
+
+
+def var(*values, default_value=None):
+    """Return variance according to input shape and arity.
+
+    A numeric scalar stream produces running population variance. Collections
+    use their existing sample-variance contract, including zero for fewer than
+    two valid members; binary and fixed-list inputs are evaluated element by
+    element. ``default_value`` remains available to compatible scalar-container
+    reductions. Invalid cycles do not update running state.
+    """
+
+    return (
+        _var(*values)
+        if default_value is None
+        else _var(*values, default_value=default_value)
+    )
+
+
+def rolling_mean(ts: TS[NUMBER], period: int | timedelta, min_window_period=None):
+    """Return the mean over a trailing observation-count or duration window.
+
+    ``period`` and ``min_window_period`` are fixed while wiring. A zero or
+    omitted minimum selects the full tick-count period; duration windows use
+    the covered tick count as their denominator. Invalid source cycles do not
+    add observations. Invalid period/minimum combinations fail while wiring.
+    """
+
+    return (
+        _rolling_mean(ts, period)
+        if min_window_period is None
+        else _rolling_mean(ts, period, min_window_period)
+    )
+
+
+def resample(ts, period: timedelta):
+    """Retick the latest valid value on a regular engine-time schedule.
+
+    ``period`` is a positive wiring-time interval. Once the source is valid,
+    the retained latest value continues to emit on schedule even without a new
+    source tick. A non-positive interval raises during node start.
+    """
+
+    return _resample(ts, period)
+
+
 __all__ = [
     "RollingWindowResult",
     "array_get_item",
@@ -225,7 +294,11 @@ __all__ = [
     "ewma",
     "pct_change",
     "quantile",
+    "resample",
+    "rolling_mean",
     "rolling_window",
     "span_to_alpha",
+    "std",
+    "var",
     "window_values",
 ]

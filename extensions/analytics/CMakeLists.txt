@@ -62,6 +62,7 @@ add_library(hgraph_analytics
     src/operators.cpp
     src/registration.cpp
     src/shaped_array_operators.cpp
+    src/statistics.cpp
 )
 add_library(hgraph::analytics ALIAS hgraph_analytics)
 

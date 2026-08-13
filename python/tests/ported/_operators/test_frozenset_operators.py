@@ -1,7 +1,7 @@
 import math
 
 import pytest
-from hgraph import TS, graph, and_, KEYABLE_SCALAR, or_, sum_, str_, min_, max_, mean, std, var
+from hgraph import TS, graph, and_, KEYABLE_SCALAR, or_, sum_, str_, min_, max_, mean
 from hgraph.test import eval_node
 
 
@@ -81,36 +81,6 @@ def test_mean_frozenset_unary_float():
     assert output[0] == 1.5
     assert math.isnan(output[1])
     assert output[2] == -1.0
-
-
-def test_std_frozenset_unary():
-    @graph
-    def app(ts: TS[frozenset[float]]) -> TS[float]:
-        return std(ts)
-
-    assert eval_node(
-        app,
-        [
-            frozenset(),
-            frozenset({1.0}),
-            frozenset({1.0, 2.0}),
-            frozenset({1.0, 2.0, 3.0}),
-            frozenset({1.0, 2.0, 3.0, 5.0}),
-        ],
-    ) == [0.0, 0.0, 0.7071067811865476, 1.0, 1.707825127659933]
-
-
-def test_var_frozenset_unary():
-    @graph
-    def app(ts: TS[frozenset[float]]) -> TS[float]:
-        return var(ts)
-
-    assert eval_node(app, [frozenset(), frozenset({-1.0}), frozenset({1.0, 2.0}), frozenset({1.0, 2.0, 3.0, 5.0})]) == [
-        0.0,
-        0.0,
-        0.5,
-        2.9166666666666665,
-    ]
 
 
 def test_str_frozenset():

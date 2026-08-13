@@ -87,10 +87,10 @@ def test_array_std_honors_ddof_and_uses_stable_variance():
     assert hg.eval_node(stable, [offset_values]) == [np.sqrt(5.0)]
 
 
-def test_numpy_prefixed_compatibility_surface_is_retired():
-    assert not hasattr(hg_nodes, "np_rolling_window")
-    assert not hasattr(hg_nodes, "np_quantile")
-    assert not hasattr(hg_nodes, "np_std")
+def test_numpy_prefixed_compatibility_surface_is_deprecated():
+    assert hg_nodes.np_rolling_window._deprecated
+    assert hg_nodes.np_quantile._deprecated
+    assert hg_nodes.np_std._deprecated
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("hgraph.numpy_")
 

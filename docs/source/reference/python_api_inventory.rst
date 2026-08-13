@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 207
    * - Public operator groups
-     - 192
+     - 188
    * - Public submodules
      - 18
 
@@ -674,15 +674,9 @@ whose curated signatures remain authoritative.
    * - :ref:`request_id <python-operator-request_id>`
      - ``request_id(hash: int) -> TS[int]``
      - 1 native overload; lazy operator
-   * - :ref:`resample <python-operator-resample>`
-     - ``resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
-     - 1 native overload; lazy operator
    * - :ref:`resolve_civil <python-operator-resolve_civil>`
      - ``resolve_civil(local: TS[civil_datetime], zone: TS[zone_id], ambiguous: ambiguous_time_policy = ..., nonexistent: nonexistent_time_policy = ...) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
-   * - :ref:`rolling_average <python-operator-rolling_average>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`round_ <python-operator-round_>`
      - ``round_(ts: TS[float], n_digits: TS[int]) -> TS[float]``
      - 1 native overload; lazy operator
@@ -719,9 +713,6 @@ whose curated signatures remain authoritative.
    * - :ref:`split <python-operator-split>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
-   * - :ref:`std <python-operator-std>`
-     - ``18 overloads``
-     - 18 native overloads; lazy operator
    * - :ref:`step <python-operator-step>`
      - ``step(ts: TIME_SERIES_TYPE, step_size: int) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
@@ -815,9 +806,6 @@ whose curated signatures remain authoritative.
    * - :ref:`values_ <python-operator-values_>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
-   * - :ref:`var <python-operator-var>`
-     - ``16 overloads``
-     - 16 native overloads; lazy operator
    * - :ref:`weekday <python-operator-weekday>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -896,6 +884,10 @@ hgraph.nodes
    * - ``keys_where_true``
    * - ``make_tsd``
    * - ``make_tsd_scalar``
+   * - ``np_quantile``
+   * - ``np_rolling_window``
+   * - ``np_std``
+   * - ``pct_change``
    * - ``request_id``
    * - ``rolling_average``
    * - ``rolling_window``

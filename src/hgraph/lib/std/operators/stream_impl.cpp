@@ -21,7 +21,6 @@ namespace hgraph::stdlib
         register_overload<request_id, request_id_impl>();
         register_overload<schedule, schedule_ts_impl>();
         register_overload<schedule, schedule_ts_start_impl>();
-        register_overload<resample, resample_impl>();
         register_overload<until_true, until_true_bool_impl>();
         register_overload<until_true, until_true_value_callable_impl>();
         register_graph_overload<until_true, until_true_fn_compose>();
@@ -39,10 +38,6 @@ namespace hgraph::stdlib
         register_overload<sum_, stream_impl_detail::tsw_numeric_aggregate_impl<false, Float>>();
         register_overload<mean, stream_impl_detail::tsw_numeric_aggregate_impl<true, Int>>();
         register_overload<mean, stream_impl_detail::tsw_numeric_aggregate_impl<true, Float>>();
-        register_overload<std_, stream_impl_detail::tsw_std_impl<Int>>();
-        register_overload<std_, stream_impl_detail::tsw_std_impl<Float>>();
-        register_overload<std_, stream_impl_detail::tsw_std_ddof_impl<Int>>();
-        register_overload<std_, stream_impl_detail::tsw_std_ddof_impl<Float>>();
         register_overload<min_, stream_impl_detail::tsw_extremum_impl<true>>();
         register_overload<max_, stream_impl_detail::tsw_extremum_impl<false>>();
         register_overload<min_, stream_impl_detail::tsw_extremum_default_impl<true>>();
@@ -64,7 +59,5 @@ namespace hgraph::stdlib
         register_overload<batch, batch_impl>();
         register_overload<window, window_tick_impl>();
         register_overload<window, window_time_impl>();
-        register_graph_overload<rolling_average, rolling_average_tick_compose>();
-        register_graph_overload<rolling_average, rolling_average_time_compose>();
     }
 }  // namespace hgraph::stdlib

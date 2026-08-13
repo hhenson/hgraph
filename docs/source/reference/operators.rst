@@ -27,8 +27,8 @@ Common families
      - ``combine``, ``collect``, ``emit``, ``keys_``, ``values_``, ``merge``
    * - Dynamic graphs
      - ``map_``, ``reduce``, ``mesh_``, ``switch_``, ``dispatch_``
-   * - Windows and statistics
-     - ``to_window``, ``rolling_average``, ``mean``, ``std``, ``quantile``
+   * - Windows and aggregation
+     - ``to_window``, ``window``, ``mean``, ``sum_``, ``min_``, ``max_``
    * - Temporal
      - ``at_zone``, ``resolve_civil``, ``temporal_floor``, ``range_union``
    * - Frames and JSON
@@ -57,3 +57,7 @@ The selected overload, scalar options and input schemas determine the final
 signature. Browse every accepted native overload, along with its semantic
 description, in the :doc:`operator_catalogue`. The compact
 :doc:`python_api_inventory` summarizes how those names are exposed.
+
+Statistical estimators, rolling means, resampling, and shaped-array analytics
+are provided by the separately installed ``hgraph-analytics`` package; see
+:doc:`../user_guide/analytics_migration`.
