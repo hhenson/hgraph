@@ -22,6 +22,48 @@ The following authoring patterns remain part of the public Python surface:
 * services, adaptors, components and record/replay; and
 * Python-authored nodes running inside native and mixed graphs.
 
+CompoundScalar serialisation hierarchies
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Release/0.5 CompoundScalar declarations using
+``__serialise_base__`` and ``__serialise_discriminator_field__`` remain
+supported. The Python authoring layer detects those class-body markers and
+registers the equivalent closed hierarchy with the native runtime:
+
+.. code-block:: python
+
+   from dataclasses import dataclass
+   from hgraph import CompoundScalar
+
+   @dataclass
+   class Event(CompoundScalar):
+       __serialise_base__ = True
+       __serialise_discriminator_field__ = "kind"
+       event_id: str
+
+   @dataclass
+   class CreateEvent(Event):
+       kind = "create"
+       quantity: int = 0
+
+The marked base is treated as serialization-abstract. Descendants inherit its
+discriminator field, and a child class attribute with that name supplies the
+serialized discriminator value. With no configured field, ``__type__`` and
+the child class name are used, as in 0.5. The discriminator may also be an
+annotated CompoundScalar field; in that form the native JSON codec uses the
+stored value and does not emit a second copy of the key.
+
+New code should normally express the hierarchy with class options:
+
+.. code-block:: python
+
+   @dataclass
+   class Event(CompoundScalar, abstract=True, discriminator="kind"):
+       event_id: str
+
+The legacy spelling is retained so existing models and their serialized wire
+format do not require a coordinated migration.
+
 Operators are exposed dynamically from the native registry. A name can
 therefore be supported even when it is not present in ``hgraph.__all__``:
 

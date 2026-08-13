@@ -1732,6 +1732,83 @@ def _enum_literal_selection(hg, recipe):
     )
 
 
+def _validate_legacy_compound_scalar_json(recipe):
+    if set(recipe.parameters) != {"mode"}:
+        raise RecipeError(
+            "legacy_compound_scalar_json requires only the mode parameter"
+        )
+    if recipe.parameters["mode"] not in {"default", "custom", "field"}:
+        raise RecipeError(
+            "legacy_compound_scalar_json mode must be default, custom, or field"
+        )
+    for tick in recipe.inputs["value"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {"p1", "p2"}:
+            raise RecipeError(
+                "legacy_compound_scalar_json values require p1 and p2"
+            )
+        if not isinstance(tick["p1"], int) or isinstance(tick["p1"], bool):
+            raise RecipeError("legacy_compound_scalar_json p1 must be an integer")
+        if (
+            not isinstance(tick["p2"], (int, float))
+            or isinstance(tick["p2"], bool)
+        ):
+            raise RecipeError("legacy_compound_scalar_json p2 must be numeric")
+
+
+def _legacy_compound_scalar_json(hg, recipe):
+    from dataclasses import dataclass
+
+    mode = recipe.parameters["mode"]
+    if mode == "default":
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            p1: int
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            p2: float
+    elif mode == "custom":
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            __serialise_discriminator_field__ = "name"
+            p1: int
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            name = "LSCS"
+            p2: float = 1.0
+    else:
+        @dataclass
+        class LegacyBase(hg.CompoundScalar):
+            __serialise_base__ = True
+            __serialise_discriminator_field__ = "name"
+            p1: int
+            name: str
+
+        @dataclass
+        class LegacyChild(LegacyBase):
+            name: str = "LSCS"
+            p2: float = 1.0
+
+    encode = hg.to_json_builder(LegacyBase)
+    decode = hg.from_json_builder(LegacyBase)
+    encoded = []
+    decoded = []
+    for tick in decoded_inputs(hg, recipe)["value"]:
+        if tick is None:
+            encoded.append(None)
+            decoded.append(None)
+            continue
+        payload = json.loads(encode(LegacyChild(**tick)))
+        encoded.append(payload)
+        decoded.append(decode(payload))
+    return {"encoded": encoded, "decoded": decoded}
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -2101,6 +2178,19 @@ CATALOG = {
         operators=("if_then_else",),
         execute=_enum_literal_selection,
     ),
+    "legacy_compound_scalar_json": TemplateSpec(
+        name="legacy_compound_scalar_json",
+        required_inputs=("value",),
+        features=(
+            "boundary:python-owned",
+            "type:compound-scalar",
+            "type:polymorphic",
+            "conversion:json",
+            "compatibility:release-0.5",
+        ),
+        operators=("to_json", "from_json"),
+        execute=_legacy_compound_scalar_json,
+    ),
     "temporal_expression": TemplateSpec(
         name="temporal_expression",
         required_inputs=None,
@@ -2227,6 +2317,8 @@ def validate_recipe(recipe):
         _validate_compound_scalar_downcast(recipe)
     elif recipe.template == "enum_literal_selection":
         _validate_enum_literal_selection(recipe)
+    elif recipe.template == "legacy_compound_scalar_json":
+        _validate_legacy_compound_scalar_json(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

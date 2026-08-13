@@ -184,6 +184,36 @@ def test_enum_literal_selection_recipe_rejects_non_boolean_conditions():
         validate_recipe(recipe)
 
 
+def test_legacy_compound_scalar_json_recipe_rejects_unknown_mode():
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-invalid-legacy-compound-scalar-json",
+            "template": "legacy_compound_scalar_json",
+            "inputs": {"value": [{"p1": 1, "p2": 2.0}]},
+            "parameters": {"mode": "modern"},
+            "features": ["type:compound-scalar"],
+        }
+    )
+    with pytest.raises(RecipeError, match="mode must be default, custom, or field"):
+        validate_recipe(recipe)
+
+
+def test_legacy_compound_scalar_json_recipe_rejects_malformed_values():
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-invalid-legacy-compound-scalar-json-value",
+            "template": "legacy_compound_scalar_json",
+            "inputs": {"value": [{"p1": 1}]},
+            "parameters": {"mode": "field"},
+            "features": ["type:compound-scalar"],
+        }
+    )
+    with pytest.raises(RecipeError, match="values require p1 and p2"):
+        validate_recipe(recipe)
+
+
 def test_recipe_fingerprint_is_independent_of_json_key_order():
     first = _scalar_recipe()
     raw = first.to_dict()

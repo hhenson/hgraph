@@ -142,6 +142,8 @@ namespace hgraph
         /**
          * Define a self-recursive named Bundle. A null field type denotes an
          * ``Owned<Self>`` edge; all other fields are ordinary value schemas.
+         * ``discriminator_value`` optionally supplies this alternative's
+         * hierarchy-local serialized tag; the qualified name is the default.
          */
         const ValueTypeMetaData *recursive_bundle(
             std::string_view bundle_namespace,
@@ -166,7 +168,10 @@ namespace hgraph
          */
         const ValueTypeMetaData *bundle(std::string_view name,
                                         const std::vector<std::pair<std::string, const ValueTypeMetaData *>> &fields);
-        /** Intern a qualified named bundle and register its immediate bundle parents. */
+        /** Intern a qualified named bundle and register its immediate bundle
+            parents. ``discriminator_value`` optionally supplies this
+            alternative's hierarchy-local serialized tag; the qualified name
+            is the default. */
         const ValueTypeMetaData *bundle(
             std::string_view bundle_namespace,
             std::string_view local_name,

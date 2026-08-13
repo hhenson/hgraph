@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "legacy-compound-scalar-json-default",
+  "description": "Release/0.5 CompoundScalar serialization markers use the child class name in the default __type__ discriminator.",
+  "template": "legacy_compound_scalar_json",
+  "inputs": {
+    "value": [
+      {
+        "p1": 1,
+        "p2": 2.5
+      },
+      null,
+      {
+        "p1": 3,
+        "p2": 4.5
+      }
+    ]
+  },
+  "parameters": {
+    "mode": "default"
+  },
+  "features": [
+    "boundary:python-owned",
+    "type:compound-scalar",
+    "type:polymorphic",
+    "conversion:json",
+    "compatibility:release-0.5",
+    "discriminator:external"
+  ]
+}

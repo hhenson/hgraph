@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "legacy-compound-scalar-json-custom",
+  "description": "Release/0.5 CompoundScalar serialization uses the child class attribute as a custom discriminator value.",
+  "template": "legacy_compound_scalar_json",
+  "inputs": {
+    "value": [
+      {
+        "p1": 1,
+        "p2": 2.5
+      },
+      {
+        "p1": 3,
+        "p2": 4.5
+      }
+    ]
+  },
+  "parameters": {
+    "mode": "custom"
+  },
+  "features": [
+    "boundary:python-owned",
+    "type:compound-scalar",
+    "type:polymorphic",
+    "conversion:json",
+    "compatibility:release-0.5",
+    "discriminator:custom-value"
+  ]
+}
