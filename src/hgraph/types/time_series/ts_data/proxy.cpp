@@ -246,6 +246,7 @@ namespace hgraph
                 dict_base.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
                 dict_base.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
+                dict_ops.structural_delta_current_impl = &structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
                 dict_ops.next_modified_slot_impl = &next_modified_slot;
@@ -624,6 +625,15 @@ namespace hgraph
                                               DateTime modified_time)
             {
                 proxy_storage(memory).record_child_modified(child_id, modified_time);
+            }
+
+            [[nodiscard]] static bool structural_delta_current(const void *, const void *memory,
+                                                                DateTime evaluation_time)
+            {
+                if (!source_available(memory) || evaluation_time == MIN_DT) { return false; }
+                const auto &store = proxy_storage(memory);
+                return store.key_set_tracking().last_modified_time == evaluation_time ||
+                       source_dict(memory).structural_delta_current(evaluation_time);
             }
 
             static void subscribe_slot_observer(const void *, void *memory, SlotObserver *observer)

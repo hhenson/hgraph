@@ -192,7 +192,7 @@ The scalar-expression and scalar-operator-argument families retain direct
 inputs to preserve an independent baseline and isolate public overload
 selection from reference projection behavior.
 
-The pull-request profile generates 48 cases of 8--32 ticks in addition to the
+The pull-request profile generates 96 cases of 8--32 ticks in addition to the
 curated corpus.  The nightly profile generates 5,000 cases of 8--64 ticks and
 may shrink a failure below that range.  Nightly-only parameter variants retain
 high-value stress points, such as direct formatting of a selected REF, without
@@ -277,6 +277,26 @@ and extending as new regressions are identified:
   the subscription variant avoids key re-adds inside this already-complex
   composition; standalone subscription generation covers that lifecycle.
   Its first differential replays surfaced issues #94 and #95.
+- ``polymorphic_event_flow`` changes concrete Python ``CompoundScalar`` leaves
+  behind one public base while exercising compute nodes, ``emit``, feedback,
+  tuple/set/mapping conversion, ``collect``/``values_``, ``batch``, ``window``,
+  JSON round trips, and in-memory component recording.  The base is consumed
+  before extension leaves are declared, matching normal package import order.
+- ``polymorphic_event_map`` combines the same changing event hierarchy with
+  keyed child creation/removal, mapped ``emit`` and feedback, and an outer
+  keyed ``emit``.  This permanently covers the production failure sequence
+  where each individually correct operator lost the concrete leaf only when
+  composed under ``map_``.
+- ``structural_map_projection`` maps a typed child graph which performs keyed
+  lookup into ``TSD[str, TSB[...]]``.  It varies forwarding the physical
+  ``REF[TSB]`` terminal, materializing an owned bundle with ``combine``, and
+  passing that bundle through dispatch; keyed churn and ``pass_through`` keep
+  peered/non-peered structural binding in the generated path.
+- ``arrow_typed_projection`` crosses enum and polymorphic ``CompoundScalar``
+  fields through pair/first/second projections, direct and configured
+  ``debug_``, and both ordinary graph evaluation and Arrow's standalone
+  ``eval_`` runner.  Its first seed found that ``eval_`` closed the graph before
+  client-defined concrete leaves were registered.
 
 When a new compatibility issue is fixed, extend this list: either an
 existing template's generated space must provably contain the issue's
@@ -347,6 +367,11 @@ way:
   events without minting a new divergence. The request/reply-backed ``alpha``
   branch must be active at the removed cycle, the advanced tick must carry a
   mapped response value, and every payload and remaining silence must agree.
+* ``polymorphic-json-preserves-leaf`` covers the intentional improvement over
+  0.5's lossy JSON reconstruction of a value declared as ``TS[Event]``.  It
+  accepts the difference only when projecting each candidate concrete event
+  back to the base (and dropping only the leaf fields) makes the complete
+  traces identical.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through

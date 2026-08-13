@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-arrow-direct-polymorphic-pair",
+  "description": "Direct debug_ preserves enum and polymorphic CompoundScalar projections for a typed consumer.",
+  "template": "arrow_typed_projection",
+  "inputs": {
+    "side": ["BUY", "SELL", "BUY"],
+    "events": [
+      {"kind": "heartbeat", "event_id": "heartbeat-1"},
+      {"kind": "create", "event_id": "create-1", "order_id": "order-1", "quantity": 10},
+      {"kind": "cancel", "event_id": "cancel-1", "order_id": "order-1", "reason": "risk"}
+    ]
+  },
+  "parameters": {
+    "projection": "pair",
+    "debug": "direct",
+    "execution": "graph"
+  },
+  "features": [
+    "framework:arrow",
+    "type:Enum",
+    "type:CompoundScalar",
+    "type:polymorphic",
+    "arrow-debug:direct"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/pull/442"
+}

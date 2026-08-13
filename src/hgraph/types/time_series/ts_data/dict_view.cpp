@@ -48,6 +48,12 @@ namespace hgraph
         return base().modified(evaluation_time);
     }
 
+    bool TSDDataView::structural_delta_current(DateTime evaluation_time) const
+    {
+        const auto &ops = dict_ops();
+        return ops.structural_delta_current_impl(ops.context, storage_.data(), evaluation_time);
+    }
+
     void TSDDataView::subscribe(Notifiable *observer) const
     {
         base().subscribe(observer);

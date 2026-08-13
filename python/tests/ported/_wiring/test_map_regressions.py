@@ -73,3 +73,43 @@ def test_map_preserves_typed_keyed_bundle_reference_and_materialization():
 
     assert eval_node(reference_app, lookups, rows) == expected
     assert eval_node(materialized_app, lookups, rows) == expected
+
+
+def test_map_removed_typed_bundle_reference_does_not_retick_with_sibling():
+    class Row(hg.TimeSeriesSchema):
+        value: hg.TS[int]
+        label: hg.TS[str]
+
+    @hg.graph
+    def keyed_lookup(
+        lookup: hg.TS[str], rows: hg.TSD[str, hg.TSB[Row]],
+    ) -> hg.TSB[Row]:
+        return rows[lookup]
+
+    @hg.graph
+    def app(
+        lookups: hg.TSD[str, hg.TS[str]],
+        rows: hg.TSD[str, hg.TSB[Row]],
+    ) -> hg.TSD[str, hg.REF[hg.TSB[Row]]]:
+        return hg.map_(keyed_lookup, lookups, hg.pass_through(rows))
+
+    assert eval_node(
+        app,
+        [
+            {"extra": "b", "right": "b"},
+            {"extra": hg.REMOVE},
+            None,
+        ],
+        [
+            {"b": {"value": 2, "label": "beta"}},
+            None,
+            {"b": {"value": 3, "label": "updated"}},
+        ],
+    ) == [
+        {
+            "extra": {"value": 2, "label": "beta"},
+            "right": {"value": 2, "label": "beta"},
+        },
+        {"extra": hg.REMOVE},
+        {"right": {"value": 3, "label": "updated"}},
+    ]

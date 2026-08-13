@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "coverage-polymorphic-record-replay",
+  "description": "An in-memory component recording changes concrete event leaf across an abstract CompoundScalar base.",
+  "template": "polymorphic_event_flow",
+  "inputs": {
+    "events": [
+      {"kind": "heartbeat", "event_id": "heartbeat-1"},
+      {"kind": "create", "event_id": "create-1", "order_id": "order-1", "quantity": 10},
+      {"kind": "cancel", "event_id": "cancel-1", "order_id": "order-1", "reason": "user"},
+      {"kind": "heartbeat", "event_id": "heartbeat-2"}
+    ],
+    "trigger": [false, true, false, true],
+    "key": ["events", "events", "events", "events"]
+  },
+  "parameters": {"operation": "record_replay"},
+  "features": [
+    "type:CompoundScalar",
+    "type:polymorphic",
+    "lifecycle:leaf-change",
+    "topology:record-replay"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/pull/441"
+}

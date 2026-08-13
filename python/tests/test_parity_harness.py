@@ -18,6 +18,7 @@ from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
 from tools.parity.environments import ParityEnvironments, prepare_environments
 from tools.parity.issues import failure_fingerprint, issue_body, publish_failures
+from tools.parity.known import is_known_family_failure
 from tools.parity.model import Recipe, RecipeError, load_corpus
 from tools.parity.reduce import reduce_recipe
 from tools.parity.runner import _fallback_operator_names
@@ -360,15 +361,30 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
             8, seed=31, templates=("service_adaptor_roundtrip",),
         )
     } == {"service_adaptor_roundtrip"}
+    # The newly added Python-owned value and Arrow families deliberately do
+    # not manufacture an unrelated REF merely to satisfy this metric.  Keep
+    # the original reference-transparency requirement over the catalogue
+    # families for which REF/non-peered input projection is the target.
+    reference_candidates = [
+        recipe for recipe in recipes
+        if recipe.template not in {
+            "polymorphic_event_flow",
+            "polymorphic_event_map",
+            "arrow_typed_projection",
+        }
+    ]
     assert sum(
         "reference:REF" in recipe.features
         and "binding:non-peered" in recipe.features
-        for recipe in recipes
-    ) >= len(recipes) * 0.8
+        for recipe in reference_candidates
+    ) >= len(reference_candidates) * 0.8
+    operator_pipelines = generate_recipes(
+        32, seed=37, templates=("operator_pipeline",)
+    )
     assert any(
         recipe.template == "operator_pipeline"
         and recipe.parameters["format_ref"]
-        for recipe in recipes
+        for recipe in operator_pipelines
     )
     # dedup_size=false is the ruled no-change space and is corpus-only now
     # (PR #67 review); generated recipes always dedup.
@@ -377,6 +393,71 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
         for recipe in recipes
         if recipe.template == "tsd_key_set_pipeline"
     )
+
+
+def test_generator_covers_realistic_python_structural_and_polymorphic_workflows():
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(
+        1024,
+        seed=139,
+        templates=(
+            "polymorphic_event_flow",
+            "polymorphic_event_map",
+            "structural_map_projection",
+            "arrow_typed_projection",
+        ),
+    )
+    assert {
+        "polymorphic_event_flow",
+        "polymorphic_event_map",
+        "structural_map_projection",
+        "arrow_typed_projection",
+    } == {recipe.template for recipe in recipes}
+    assert {
+        "compute",
+        "emit",
+        "feedback",
+        "feedback_default",
+        "tuple",
+        "set",
+        "mapping",
+        "collect_values",
+        "batch",
+        "window",
+        "json_round_trip",
+        "record_replay",
+    } == {
+        recipe.parameters["operation"]
+        for recipe in recipes
+        if recipe.template == "polymorphic_event_flow"
+    }
+    assert {
+        "map_compute", "map_emit", "map_feedback", "map_emit_feedback_outer",
+    } == {
+        recipe.parameters["operation"]
+        for recipe in recipes
+        if recipe.template == "polymorphic_event_map"
+    }
+    assert {"lookup", "combine", "dispatch_combine"} == {
+        recipe.parameters["projection"]
+        for recipe in recipes
+        if recipe.template == "structural_map_projection"
+    }
+    arrows = [
+        recipe for recipe in recipes
+        if recipe.template == "arrow_typed_projection"
+    ]
+    assert {"pair", "first", "second"} == {
+        recipe.parameters["projection"] for recipe in arrows
+    }
+    assert {"none", "direct", "configured"} == {
+        recipe.parameters["debug"] for recipe in arrows
+    }
+    assert {"graph", "eval"} == {
+        recipe.parameters["execution"] for recipe in arrows
+    }
 
 
 def test_generator_covers_scalar_operator_arguments_and_valid_reference_space():
@@ -431,8 +512,14 @@ def test_generator_covers_scalar_operator_arguments_and_valid_reference_space():
 
 
 def test_campaign_profiles_scale_nightly_breadth_and_tick_depth():
-    assert CAMPAIGN_PROFILES["pr"]["examples"] == 48
+    assert CAMPAIGN_PROFILES["pr"]["examples"] == 96
     assert "scalar_operator_arguments" in CAMPAIGN_PROFILES["pr"]["templates"]
+    assert {
+        "polymorphic_event_flow",
+        "polymorphic_event_map",
+        "structural_map_projection",
+        "arrow_typed_projection",
+    } <= set(CAMPAIGN_PROFILES["pr"]["templates"])
     assert CAMPAIGN_PROFILES["nightly"]["examples"] == 5000
     assert CAMPAIGN_PROFILES["nightly"]["max_ticks"] == 64
     assert CAMPAIGN_PROFILES["nightly"]["time_budget"] == 3600.0
@@ -688,6 +775,128 @@ def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_
     assert report["summary"]["quarantined"] == 0
     known = report["known_failures"][0]
     assert known["reduction"]["attempts"] == 0
+
+
+def test_polymorphic_json_family_accepts_only_concrete_leaf_preservation():
+    recipe = {
+        "template": "polymorphic_event_flow",
+        "inputs": {
+            "events": [
+                {"kind": "heartbeat", "event_id": "heartbeat-one"},
+                {
+                    "kind": "create",
+                    "event_id": "create-one",
+                    "order_id": "order-one",
+                    "quantity": 10,
+                },
+                {
+                    "kind": "cancel",
+                    "event_id": "cancel-one",
+                    "order_id": "order-one",
+                    "reason": "risk",
+                },
+            ]
+        },
+        "parameters": {"operation": "json_round_trip"},
+    }
+    families = [
+        {
+            "template": "polymorphic_event_flow",
+            "parameters_equal": {"operation": "json_round_trip"},
+            "parameters_not_equal": {},
+            "relation": "polymorphic-json-preserves-leaf",
+        }
+    ]
+    reference = {
+        "status": "ok",
+        "trace": [
+            {
+                "$dataclass": {
+                    "type": "model.Event",
+                    "fields": [["event_id", "heartbeat-one"]],
+                }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.Event",
+                    "fields": [["event_id", "create-one"]],
+                }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.Event",
+                    "fields": [["event_id", "cancel-one"]],
+                }
+            },
+        ],
+    }
+    candidate = {
+        "status": "ok",
+        "trace": [
+            {
+                "$dataclass": {
+                    "type": "model.HeartbeatEvent",
+                    "fields": [["event_id", "heartbeat-one"]],
+                }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.CreateEvent",
+                    "fields": [
+                        ["event_id", "create-one"],
+                        ["order_id", "order-one"],
+                        ["quantity", 10],
+                    ],
+                }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.CancelEvent",
+                    "fields": [
+                        ["event_id", "cancel-one"],
+                        ["order_id", "order-one"],
+                        ["reason", "risk"],
+                    ],
+                }
+            },
+        ],
+    }
+    difference = compare_outcomes(reference, candidate)
+    assert difference is not None
+    assert is_known_family_failure(
+        recipe,
+        difference.to_dict(),
+        reference,
+        candidate,
+        families,
+    )
+
+    corruptions = (
+        (0, "type", "model.CreateEvent"),
+        (0, "event_id", "wrong"),
+        (1, "order_id", "wrong-order"),
+        (1, "quantity", 11),
+        (2, "reason", "wrong-reason"),
+    )
+    for index, field_name, value in corruptions:
+        corrupted = json.loads(json.dumps(candidate))
+        payload = corrupted["trace"][index]["$dataclass"]
+        if field_name == "type":
+            payload["type"] = value
+        else:
+            field = next(
+                field for field in payload["fields"] if field[0] == field_name
+            )
+            field[1] = value
+        corrupted_difference = compare_outcomes(reference, corrupted)
+        assert corrupted_difference is not None
+        assert not is_known_family_failure(
+            recipe,
+            corrupted_difference.to_dict(),
+            reference,
+            corrupted,
+            families,
+        )
 
 
 def test_family_suppression_covers_only_the_documented_difference(
@@ -1693,6 +1902,20 @@ def test_nested_request_reply_one_cycle_earlier_preserves_structural_prefix():
     # Issue #274: reduction removed the later outer-key collision, leaving
     # exactly RFC 0014's one-cycle response advance after a stable map prefix.
     assert classify([empty, None, first], [empty, first])
+    beta_prefix = {
+        **recipe,
+        "inputs": {
+            **recipe["inputs"],
+            "selector": ["beta", "alpha"],
+            "values": [{"k1": 8}, None],
+        },
+    }
+    beta_value = mapped([["k1", 16]])
+    assert classify(
+        [beta_value, empty, None, first],
+        [beta_value, empty, first],
+        with_recipe=beta_prefix,
+    )
     # Payload changes, prefix loss, multiple removed cycles, and trailing
     # silence removal remain reportable.
     assert not classify(

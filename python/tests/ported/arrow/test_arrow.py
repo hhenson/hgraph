@@ -348,6 +348,38 @@ def test_debug_is_a_direct_typed_arrow_for_enum_and_compound_scalar(capsys):
     ) == [(Side.BUY, buy), (Side.SELL, sell)]
 
 
+def test_eval_preserves_concrete_compound_scalar_leaves():
+    @dataclass(frozen=True)
+    class Event(hgraph.CompoundScalar):
+        event_id: str
+
+    # Parse a user node against the public base before an extension defines
+    # its concrete leaves, matching normal package import order.
+    @compute_node
+    def event_name(event: TS[Event]) -> TS[str]:
+        return f"{type(event.value).__name__}:{event.value.event_id}"
+
+    @dataclass(frozen=True)
+    class HeartbeatEvent(Event):
+        pass
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        quantity: int
+
+    heartbeat = HeartbeatEvent(event_id="heartbeat")
+    created = CreateEvent(event_id="create", order_id="order", quantity=10)
+
+    assert eval_([heartbeat, created], type_map=TS[Event]) | arrow(event_name) == [
+        "HeartbeatEvent:heartbeat",
+        "CreateEvent:create",
+    ]
+
+
 def test_side_effects():
 
     @compute_node

@@ -32,6 +32,8 @@ namespace hgraph
         [[nodiscard]] ValueView delta_value(DateTime evaluation_time) const;
         [[nodiscard]] DateTime last_modified_time() const;
         [[nodiscard]] bool modified(DateTime evaluation_time) const;
+        /** Whether added/removed slot bits describe ``evaluation_time``. */
+        [[nodiscard]] bool structural_delta_current(DateTime evaluation_time) const;
         void subscribe(Notifiable *observer) const;
         void unsubscribe(Notifiable *observer) const;
         [[nodiscard]] bool has_observers() const;

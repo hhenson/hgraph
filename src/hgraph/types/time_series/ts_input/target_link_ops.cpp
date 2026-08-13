@@ -150,6 +150,20 @@ namespace hgraph::detail
             return target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
         }
 
+        [[nodiscard]] bool target_link_dict_structural_delta_current(const void *context,
+                                                                      const void *memory,
+                                                                      DateTime evaluation_time)
+        {
+            const auto *link = target_link_for(context, memory);
+            if (link != nullptr && link->structural_transition_active() &&
+                link->structural_transition_time() == evaluation_time)
+            {
+                return true;
+            }
+            auto target = target_link_target_view(context, memory);
+            return target.valid() && target.as_dict().structural_delta_current(evaluation_time);
+        }
+
         [[nodiscard]] TSDataView target_link_previous_view(const void *context, const void *memory) noexcept
         {
             const auto *link = target_link_for(context, memory);
@@ -1239,6 +1253,7 @@ namespace hgraph::detail
             configure_target_link_set_ops(context->dict_ops, &target_link_dict_insert_key,
                                           &target_link_dict_remove_key);
             context->dict_ops.child_binding_at_slot_impl = &target_link_dict_child_binding_at_slot;
+            context->dict_ops.structural_delta_current_impl = &target_link_dict_structural_delta_current;
             context->dict_ops.child_at_slot_impl = &target_link_dict_child_at_slot;
             context->dict_ops.slot_modified_impl = &target_link_dict_slot_modified;
             context->dict_ops.next_modified_slot_impl = &target_link_dict_next_modified_slot;

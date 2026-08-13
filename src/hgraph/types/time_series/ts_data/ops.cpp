@@ -61,6 +61,11 @@ namespace hgraph::ts_data_detail
 
     void noop_record_child_modified(const void *, void *, std::size_t, DateTime) {}
 
+    bool no_structural_delta(const void *, const void *, DateTime) noexcept
+    {
+        return false;
+    }
+
     bool missing_copy_value_from(const void *, void *, const ValueView &, DateTime)
     {
         missing_ts_data_op("copy value");
