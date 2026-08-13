@@ -204,6 +204,14 @@ TEST_CASE("frame store: a local store persists frames as files")
     // point of persisting at all.
     auto reopened = make_frame_store(local_config(dir, Format::ArrowIpc));
     CHECK(reopened.contains("run/2026-08-10/prices"));
+
+    // Publication uses an atomic rename from a sibling staging file.  A
+    // completed write must not leave implementation files visible beside the
+    // immutable key.
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(dir.string()))
+    {
+        CHECK(entry.path().filename().string().find(".hgraph-tmp-") == std::string::npos);
+    }
 }
 
 TEST_CASE("frame store: both formats round-trip a frame")

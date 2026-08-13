@@ -1,4 +1,5 @@
 #include <hgraph/types/frame_store.h>
+#include <hgraph/util/scope.h>
 
 #include <arrow/filesystem/filesystem.h>
 #include <arrow/filesystem/localfs.h>
@@ -18,6 +19,8 @@
 #include <parquet/properties.h>
 #endif
 
+#include <atomic>
+#include <chrono>
 #include <mutex>
 #include <stdexcept>
 #include <unordered_map>
@@ -265,8 +268,9 @@ namespace hgraph::store
         {
           public:
             FileSystemStore(FrameStoreConfig config, std::shared_ptr<arrow::fs::FileSystem> fs,
-                            std::string root)
-                : config_(std::move(config)), fs_(std::move(fs)), root_(std::move(root))
+                            std::string root, bool atomic_local_publication = false)
+                : config_(std::move(config)), fs_(std::move(fs)), root_(std::move(root)),
+                  atomic_local_publication_(atomic_local_publication)
             {
             }
 
@@ -289,9 +293,32 @@ namespace hgraph::store
                     check(fs_->CreateDir(path.substr(0, slash), true), "create directory");
                 }
 
-                auto out = unwrap(fs_->OpenOutputStream(path), "open output stream");
+                const auto output_path =
+                    atomic_local_publication_ ? temporary_sibling(path) : path;
+                auto remove_incomplete = make_scope_exit<true>([&] {
+                    if (atomic_local_publication_)
+                    {
+                        (void)fs_->DeleteFile(output_path);
+                    }
+                });
+                auto out = unwrap(fs_->OpenOutputStream(output_path), "open output stream");
                 write_table(*frame.table, out, compression.value_or(config_.compression));
                 check(out->Close(), "close output stream");
+
+                if (atomic_local_publication_)
+                {
+                    // A reader must see either no segment or a complete segment.  The
+                    // sibling is on the same filesystem, so LocalFileSystem::Move is
+                    // an atomic rename rather than a copy-and-delete publication.
+                    std::scoped_lock lock(local_publication_mutex());
+                    if (config_.immutable && exists(path))
+                    {
+                        throw std::runtime_error("frame-store key already exists: " +
+                                                 std::string{key});
+                    }
+                    check(fs_->Move(output_path, path), "publish output file");
+                }
+                remove_incomplete.release();
             }
 
             [[nodiscard]] Frame read(std::string_view key)
@@ -323,6 +350,20 @@ namespace hgraph::store
             }
 
           private:
+            [[nodiscard]] static std::string temporary_sibling(const std::string &path)
+            {
+                static std::atomic<std::uint64_t> sequence{0};
+                const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+                return path + ".hgraph-tmp-" + std::to_string(stamp) + "-" +
+                       std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
+            }
+
+            [[nodiscard]] static std::mutex &local_publication_mutex()
+            {
+                static std::mutex mutex;
+                return mutex;
+            }
+
             [[nodiscard]] std::string resolve(std::string_view key) const
             {
                 return root_.empty() ? std::string{key} : root_ + "/" + std::string{key};
@@ -435,6 +476,7 @@ namespace hgraph::store
             FrameStoreConfig                       config_;
             std::shared_ptr<arrow::fs::FileSystem> fs_;
             std::string                            root_;
+            bool                                   atomic_local_publication_{false};
         };
 
         [[nodiscard]] const FrameStoreOps &filesystem_store_ops() noexcept
@@ -505,7 +547,7 @@ namespace hgraph::store
             auto fs = std::make_shared<arrow::fs::LocalFileSystem>();
             check(fs->CreateDir(root, true), "create store root");
             return FrameStore{std::make_shared<FileSystemStore>(std::move(config), std::move(fs),
-                                                                std::move(root)),
+                                                                std::move(root), true),
                               filesystem_store_ops()};
         }
 

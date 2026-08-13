@@ -71,6 +71,29 @@ def test_data_frame_record_replay_overrides_ts():
         assert eval_node(replay[TS[int]], key="ts", recordable_id="test") == [1, 2, 3]
 
 
+def test_data_frame_record_replay_overrides_accept_positional_recordable_id():
+    with GlobalState(), MemoryDataFrameStorage() as ds:
+        set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
+        set_as_of(MIN_ST + MIN_TD * 30)
+        set_table_schema_date_key("date")
+        set_data_frame_overrides(
+            key="ts",
+            recordable_id="test",
+            track_as_of=False,
+            track_removes=False,
+            partition_keys=["id"],
+        )
+
+        eval_node(record[TSD[str, TS[int]]], [{"a": 1}, {"b": 2}, {"a": 3}], "ts", "test")
+
+        assert list(_stored_frame(ds).schema) == ["date", "id", "value"]
+        assert eval_node(replay[TSD[str, TS[int]]], "ts", "test") == [
+            {"a": 1},
+            {"b": 2},
+            {"a": 3},
+        ]
+
+
 def test_data_frame_record_replay_overrides_tsd():
     with GlobalState() as gs, MemoryDataFrameStorage() as ds:
         set_record_replay_model(DATA_FRAME_RECORD_REPLAY)

@@ -126,7 +126,11 @@ def _legacy_record_replay_kwargs(name, args, kwargs):
 
     key_position = 1 if name == "record" else 0
     key = kwargs.get("key", args[key_position] if len(args) > key_position else "out")
-    recordable_id = kwargs.get("recordable_id")
+    recordable_id_position = 2 if name == "record" else 1
+    recordable_id = kwargs.get(
+        "recordable_id",
+        args[recordable_id_position] if len(args) > recordable_id_position else None,
+    )
     options = get_data_frame_record_overrides(key, recordable_id, state)
     translated = dict(kwargs)
 

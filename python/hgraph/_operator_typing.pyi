@@ -21,6 +21,7 @@ from _hgraph import (AmbiguousTimePolicy as _AmbiguousTimePolicy,
                      ZonedDateTime as _ZonedDateTime)
 from ._compat import (CmpResult as _CmpResult, DivideByZero as _DivideByZero,
                       RecordAsOf as _RecordAsOf, RecordRemoves as _RecordRemoves)
+from ._table import ToTableMode as _ToTableMode
 from ._wiring import WiringPort as _WiringPort
 
 class _abs__Operator(_Protocol):
@@ -5979,7 +5980,7 @@ class _record_Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: object = ..., flush_rows: int = ..., flush_interval: _timedelta = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: _ToTableMode = ..., flush_rows: int = ..., flush_interval: _timedelta = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator
@@ -7831,7 +7832,7 @@ class _to_table_Operator(_Protocol):
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | object, mode: _WiringPort | object = ...) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, mode: _WiringPort | _ToTableMode = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 to_table: _to_table_Operator

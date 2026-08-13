@@ -1119,6 +1119,7 @@ _SCALAR_ANNOTATIONS = {
     "DivideByZero": "_DivideByZero",
     "RecordAsOf": "_RecordAsOf",
     "RecordRemoves": "_RecordRemoves",
+    "ToTableMode": "_ToTableMode",
     "instant_range": "_InstantRange",
     "month_end_policy": "_MonthEndPolicy",
     "nonexistent_time_policy": "_NonexistentTimePolicy",
@@ -1252,6 +1253,7 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
         "                     ZonedDateTime as _ZonedDateTime)",
         "from ._compat import (CmpResult as _CmpResult, DivideByZero as _DivideByZero,",
         "                      RecordAsOf as _RecordAsOf, RecordRemoves as _RecordRemoves)",
+        "from ._table import ToTableMode as _ToTableMode",
         "from ._wiring import WiringPort as _WiringPort",
         "",
     ]

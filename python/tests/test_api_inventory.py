@@ -286,6 +286,24 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
         if isinstance(call, ast.FunctionDef) and call.name == "__call__"
     )
 
+    record = classes["_record_Operator"]
+    assert any(
+        any(
+            argument.arg == "mode" and ast.unparse(argument.annotation) == "_ToTableMode"
+            for argument in call.args.args + call.args.kwonlyargs
+        )
+        for call in record.body
+        if isinstance(call, ast.FunctionDef) and call.name == "__call__"
+    )
+    to_table = classes["_to_table_Operator"]
+    assert any(
+        argument.arg == "mode"
+        and ast.unparse(argument.annotation) == "_WiringPort | _ToTableMode"
+        for call in to_table.body
+        if isinstance(call, ast.FunctionDef) and call.name == "__call__"
+        for argument in call.args.args + call.args.kwonlyargs
+    )
+
     typing_all = next(
         node for node in tree.body
         if isinstance(node, ast.Assign)
