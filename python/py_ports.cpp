@@ -237,7 +237,8 @@ void bind_ports(nb::module_ &m) {
       "qualified_bundle_vt",
       [](const std::string &bundle_namespace, const std::string &local_name,
          nb::list fields, nb::list parents, bool is_abstract,
-         const std::string &discriminator, nb::list generic_arguments) {
+         const std::string &discriminator, nb::list generic_arguments,
+         const std::string &discriminator_value) {
         std::vector<std::pair<std::string, const ValueTypeMetaData *>>
             field_metas;
         field_metas.reserve(nb::len(fields));
@@ -258,18 +259,21 @@ void bind_ports(nb::module_ &m) {
         }
         return PyValueType{TypeRegistry::instance().bundle(
             bundle_namespace, local_name, field_metas, parent_metas,
-            is_abstract, discriminator, generic_metas)};
+            is_abstract, discriminator, generic_metas,
+            discriminator_value)};
       },
       nb::arg("namespace"), nb::arg("local_name"), nb::arg("fields"),
       nb::arg("parents") = nb::list(), nb::arg("abstract") = false,
       nb::arg("discriminator") = "__type__",
-      nb::arg("generic_arguments") = nb::list());
+      nb::arg("generic_arguments") = nb::list(),
+      nb::arg("discriminator_value") = "");
 
   m.def(
       "recursive_bundle_vt",
       [](const std::string &bundle_namespace, const std::string &local_name,
          nb::list fields, nb::list parents, bool is_abstract,
-         const std::string &discriminator, nb::list generic_arguments) {
+         const std::string &discriminator, nb::list generic_arguments,
+         const std::string &discriminator_value) {
         std::vector<std::pair<std::string, const ValueTypeMetaData *>>
             field_metas;
         field_metas.reserve(nb::len(fields));
@@ -293,12 +297,14 @@ void bind_ports(nb::module_ &m) {
         }
         return PyValueType{TypeRegistry::instance().recursive_bundle(
             bundle_namespace, local_name, field_metas, parent_metas,
-            is_abstract, discriminator, generic_metas)};
+            is_abstract, discriminator, generic_metas,
+            discriminator_value)};
       },
       nb::arg("namespace"), nb::arg("local_name"), nb::arg("fields"),
       nb::arg("parents") = nb::list(), nb::arg("abstract") = false,
       nb::arg("discriminator") = "__type__",
-      nb::arg("generic_arguments") = nb::list());
+      nb::arg("generic_arguments") = nb::list(),
+      nb::arg("discriminator_value") = "");
 
   m.def(
       "recursive_bundles_vt",
@@ -329,6 +335,10 @@ void bind_ports(nb::module_ &m) {
           for (nb::handle argument : nb::cast<nb::list>(definition[6])) {
             entry.generic_arguments.push_back(
                 nb::cast<PyValueType &>(argument).meta);
+          }
+          if (nb::len(definition) > 7) {
+            entry.discriminator_value =
+                nb::cast<std::string>(definition[7]);
           }
           native.push_back(std::move(entry));
         }

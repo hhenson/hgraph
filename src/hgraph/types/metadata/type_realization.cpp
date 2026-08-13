@@ -700,8 +700,7 @@ struct TypeRealizationSnapshot::Impl {
         const auto requested = nb::cast<std::string>(map[key]);
         ValueTypeRef match{};
         for (const auto alternative : alternatives) {
-          if (alternative.schema()->name() == requested ||
-              alternative.schema()->bundle_local_name() == requested) {
+          if (alternative.schema()->matches_bundle_discriminator(requested)) {
             if (match) {
               throw std::invalid_argument(
                   "polymorphic Bundle discriminator is ambiguous");

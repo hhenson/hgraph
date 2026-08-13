@@ -681,7 +681,7 @@ namespace hgraph::python_bridge
             const ValueTypeMetaData *match = nullptr;
             for (const auto *alternative : alternatives)
             {
-                if (alternative->name() == requested || alternative->bundle_local_name() == requested)
+                if (alternative->matches_bundle_discriminator(requested))
                 {
                     if (match != nullptr)
                     {

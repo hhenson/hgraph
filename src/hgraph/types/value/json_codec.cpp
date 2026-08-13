@@ -1331,11 +1331,17 @@ namespace hgraph
             const bool as_array = selected->names.empty();
             out.push_back(as_array ? '[' : '{');
             bool first = true;
-            if (polymorphic)
+            const bool discriminator_is_stored_field =
+                polymorphic &&
+                std::ranges::find(selected->names,
+                                  self.meta->bundle_discriminator()) !=
+                    selected->names.end();
+            if (polymorphic && !discriminator_is_stored_field)
             {
                 json_detail::append_escaped(self.meta->bundle_discriminator(), out);
                 out += ": ";
-                json_detail::append_escaped(concrete.schema()->name(), out);
+                json_detail::append_escaped(
+                    concrete.schema()->bundle_discriminator_value(), out);
                 first = false;
             }
             for (std::size_t i = 0; i < selected->children.size(); ++i)
@@ -1651,7 +1657,7 @@ namespace hgraph
             const ValueTypeMetaData *selected = nullptr;
             for (const auto *alternative : snapshot->alternatives(converter.meta))
             {
-                if (alternative->name() == requested || alternative->bundle_local_name() == requested)
+                if (alternative->matches_bundle_discriminator(requested))
                 {
                     if (selected != nullptr) { probe.fail("polymorphic Bundle discriminator is ambiguous"); }
                     selected = alternative;
