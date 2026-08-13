@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "coverage-structural-map-captured-combine",
+  "description": "A key-only mapped lambda combines REF fields selected from two captured keyed dictionaries into a public TSB output.",
+  "template": "structural_map_projection",
+  "inputs": {
+    "lookups": [
+      {"a": "alpha"},
+      {"b": "beta"},
+      {"a": "updated"},
+      {"a": {"$remove": true}}
+    ],
+    "rows": [
+      {"a": {"value": 1, "quantity": 10, "label": "alpha"}},
+      {"b": {"value": 2, "quantity": 20, "label": "beta"}},
+      {"a": {"value": 3}},
+      null
+    ]
+  },
+  "parameters": {"projection": "captured_combine"},
+  "features": [
+    "boundary:capture",
+    "boundary:structural",
+    "lifecycle:key-removal",
+    "operator:combine",
+    "reference:interior-REF",
+    "shape:TSB",
+    "shape:TSD",
+    "topology:key-only-map",
+    "topology:map"
+  ]
+}

@@ -446,12 +446,24 @@ namespace hgraph
             auto *entry = storage.entries.entry_at(slot);
             if (entry == nullptr) { return; }
 
-            clear_entry_output_binding(view, context, *entry, evaluation_time);
             if (entry->graph.has_value() && entry->graph.view().started()) {
                 entry->graph.view().stop(evaluation_time);
             }
             entry->schedule_context.pulled_when = MAX_DT;
-            if (output_mutation != nullptr) { (void)output_mutation->erase(entry->key.view()); }
+            if (output_mutation != nullptr)
+            {
+                // Erasing the owned element stops its forwarding TSData tree.
+                // Do this while the key is still published so the TSD records
+                // the required removal delta; clearing a reference-bearing
+                // forwarding tree first makes the element invalid and can
+                // consume that transition before the key itself is erased.
+                (void)output_mutation->erase(entry->key.view());
+            }
+            else
+            {
+                clear_entry_output_binding(view, context, *entry,
+                                           evaluation_time);
+            }
             if (error_mutation != nullptr && error_mutation->contains(entry->key.view()))
             {
                 (void)error_mutation->erase(entry->key.view());

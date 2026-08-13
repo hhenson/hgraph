@@ -1199,6 +1199,55 @@ namespace
         }
     };
 
+    struct DereferenceDirectRefBundleGraph
+    {
+        static constexpr auto name = "dereference_direct_ref_bundle_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> condition,
+                                     Port<TS<Int>> ts)
+        {
+            auto routed =
+                wire<stdlib::if_, IfIntRefBundle>(w, condition, ts)
+                    .as<IfIntRefBundle>();
+            auto fields = wire<stdlib::dereference>(w, routed);
+            if (fields.erased().schema != ts_type<IfIntRefBundle>())
+            {
+                throw std::logic_error(
+                    "direct TSB dereference did not normalize interior REF fields");
+            }
+            return wire<stdlib::getitem_>(w, fields, Str{"true"})
+                .as<TS<Int>>();
+        }
+    };
+
+    struct DereferenceDirectRefListGraph
+    {
+        static constexpr auto name = "dereference_direct_ref_list_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> condition,
+                                     Port<TS<Int>> ts)
+        {
+            auto routed =
+                wire<stdlib::if_, IfIntRefBundle>(w, condition, ts)
+                    .as<IfIntRefBundle>();
+            auto true_branch = wire<stdlib::getitem_>(w, routed, Str{"true"})
+                                   .as<REF<TS<Int>>>();
+            auto false_branch =
+                wire<stdlib::getitem_>(w, routed, Str{"false"})
+                    .as<REF<TS<Int>>>();
+            auto direct = stdlib::to_tsl<IntTslPairReferences>(
+                w, true_branch, false_branch);
+            auto elements = wire<stdlib::dereference>(w, direct);
+            if (elements.erased().schema != ts_type<IntTslPairReferences>())
+            {
+                throw std::logic_error(
+                    "direct TSL dereference did not normalize interior REF elements");
+            }
+            return tsl_element(elements.as<IntTslPairReferences>(), 0)
+                .as<TS<Int>>();
+        }
+    };
+
     struct SampleIfTrueRouteGraph
     {
         static constexpr auto name = "sample_if_true_route_graph";
@@ -3216,6 +3265,20 @@ TEST_CASE("std operators: dereference materializes REF TSL elements as reference
                                none,
                                list_delta<TS<Int>>({{0, 2}, {1, 20}}),
                                none));
+}
+
+TEST_CASE("std operators: dereference direct containers normalizes interior references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DereferenceDirectRefBundleGraph>(
+                     values<Bool>(true, true, false, true),
+                     values<Int>(1, 2, 3, 4)),
+                 values<Int>(1, 2, none, 4));
+    CHECK_OUTPUT(eval_node<DereferenceDirectRefListGraph>(
+                     values<Bool>(true, true, false, true),
+                     values<Int>(1, 2, 3, 4)),
+                 values<Int>(1, 2, none, 4));
 }
 
 TEST_CASE("std operators: dereference rejects incompatible non-peered child references")

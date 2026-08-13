@@ -1624,7 +1624,13 @@ _POLYMORPHIC_EVENT_MAP_OPERATIONS = (
     "map_feedback",
     "map_emit_feedback_outer",
 )
-_STRUCTURAL_MAP_PROJECTIONS = ("lookup", "combine", "dispatch_combine")
+_STRUCTURAL_MAP_PROJECTIONS = (
+    "lookup",
+    "combine",
+    "dispatch_combine",
+    "dereference",
+    "captured_combine",
+)
 _ARROW_PROJECTIONS = ("pair", "first", "second")
 _ARROW_DEBUG_MODES = ("none", "direct", "configured")
 _ARROW_EXECUTION_MODES = ("graph", "eval")
@@ -2055,7 +2061,7 @@ def _structural_map_projection(hg, recipe):
             rows: hg.TSD[str, hg.TSB[Row]],
         ) -> hg.TSD[str, hg.TSB[Projection]]:
             return hg.map_(materialize_lookup, lookups, hg.pass_through(rows))
-    else:
+    elif projection == "dispatch_combine":
         class Animal(hg.CompoundScalar):
             pass
 
@@ -2088,6 +2094,36 @@ def _structural_map_projection(hg, recipe):
             rows: hg.TSD[str, hg.TSB[Row]],
         ) -> hg.TSD[str, hg.TS[int]]:
             return hg.map_(dispatch_lookup, lookups, hg.pass_through(rows))
+    elif projection == "dereference":
+        @hg.graph
+        def dereference_row(
+            row: hg.TSB[hg.TS_SCHEMA],
+        ) -> hg.TSB[hg.TS_SCHEMA]:
+            return hg.dereference(row)
+
+        @hg.graph
+        def app(
+            lookups: hg.TSD[str, hg.TS[str]],
+            rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TSD[str, hg.TSB[Row]]:
+            return hg.map_(dereference_row, rows)
+    else:
+        class CapturedProjection(hg.TimeSeriesSchema):
+            lookup: hg.TS[str]
+            row_value: hg.TS[int]
+
+        @hg.graph
+        def app(
+            lookups: hg.TSD[str, hg.TS[str]],
+            rows: hg.TSD[str, hg.TSB[Row]],
+        ) -> hg.TSD[str, hg.TSB[CapturedProjection]]:
+            row_values = rows.value
+            return hg.map_(
+                lambda key: hg.combine(
+                    lookup=lookups[key], row_value=row_values[key],
+                ),
+                __keys__=lookups.key_set,
+            )
 
     inputs = decoded_inputs(hg, recipe)
     return eval_node(
@@ -2742,7 +2778,8 @@ CATALOG = {
             "lifecycle:keyed",
         ),
         operators=(
-            "combine", "dispatch_", "getitem_", "map_", "pass_through",
+            "combine", "dereference", "dispatch_", "getitem_", "map_",
+            "pass_through",
         ),
         execute=_structural_map_projection,
     ),
