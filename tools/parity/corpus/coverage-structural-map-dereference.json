@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-structural-map-dereference",
+  "description": "A mapped generic TSB child dereferences its direct element boundary through the normal REF-transparent input contract.",
+  "template": "structural_map_projection",
+  "inputs": {
+    "lookups": [
+      {"left": "a"},
+      null,
+      {"right": "b"},
+      {"left": {"$remove": true}}
+    ],
+    "rows": [
+      {"a": {"value": 1, "quantity": 10, "label": "alpha"}},
+      {"a": {"value": 2}},
+      {"b": {"value": 3, "quantity": 30, "label": "beta"}},
+      {"a": {"$remove": true}}
+    ]
+  },
+  "parameters": {"projection": "dereference"},
+  "features": [
+    "boundary:structural",
+    "lifecycle:key-removal",
+    "operator:dereference",
+    "reference:REF-transparent",
+    "shape:TSB",
+    "shape:TSD",
+    "topology:map",
+    "type:generic-schema"
+  ]
+}

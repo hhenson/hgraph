@@ -182,7 +182,9 @@ resolve_indexed_reference_target(
     const auto *deref = TypeRegistry::instance().dereference(data_schema);
     target = target.binding_for(*deref).view(evaluation_time);
   }
-  if (!time_series_schema_equivalent(&container, target.schema())) {
+  auto &registry = TypeRegistry::instance();
+  if (!time_series_schema_equivalent(registry.dereference(&container),
+                                     registry.dereference(target.schema()))) {
     const auto owner = target.owner_node();
     throw std::invalid_argument(
         std::string{operation} + ": " + std::string{subject} +
@@ -1411,11 +1413,21 @@ struct dereference_indexed_ref_node {
     if (context.args.size() != 1) {
       return nullptr;
     }
-    if constexpr (ContainerKind == TSTypeKind::TSB) {
-      return container_impl_detail::ref_tsb_schema(context.args[0]);
-    } else {
-      return container_impl_detail::ref_tsl_schema(context.args[0]);
+    const TSValueTypeMetaData *surface = time_series_schema(
+        context.args[0], SchemaRefMode::Direct);
+    if (surface == nullptr) {
+      return nullptr;
     }
+
+    // A direct structured source binds to this node's REF<S> input through
+    // the normal to-REF adaptation. Recursively normalize both direct and
+    // explicit REF surfaces because eval() does the same before constructing
+    // the materialized reference fields. This also prevents an interior REF
+    // from becoming REF[REF[T]] during output resolution.
+    const TSValueTypeMetaData *target =
+        TypeRegistry::instance().dereference(surface);
+    return target != nullptr && target->kind == ContainerKind ? target
+                                                               : nullptr;
   }
 
   static bool requires_(const ResolutionMap &, OperatorCallContext context) {

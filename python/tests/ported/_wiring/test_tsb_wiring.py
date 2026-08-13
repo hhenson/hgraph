@@ -20,6 +20,7 @@ from hgraph import (
     compute_node,
     generator,
     graph,
+    if_,
     IncorrectTypeBinding,
     ParseError,
     TIME_SERIES_TYPE,
@@ -353,6 +354,23 @@ def test_dereference_materializes_tsb_field_references():
         {"p1": 1},
         {"p2": "a"},
         {"p1": 2},
+    ]
+
+
+def test_dereference_direct_tsb_normalizes_nested_reference_fields():
+    @graph
+    def g(condition: TS[bool], value: TS[int]) -> TS[int]:
+        routed = if_(condition, value)
+        fields = dereference(routed)
+        assert fields["true"].output_type == REF[TS[int]]
+        assert fields["false"].output_type == REF[TS[int]]
+        return fields["true"]
+
+    assert eval_node(g, [True, True, False, True], [1, 2, 3, 4]) == [
+        1,
+        2,
+        None,
+        4,
     ]
 
 

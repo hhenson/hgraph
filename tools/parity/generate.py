@@ -993,20 +993,40 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
     @st.composite
     def structural_map_projection(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        projection = draw(st.sampled_from(
+            (
+                "lookup",
+                "combine",
+                "dispatch_combine",
+                "dereference",
+                "captured_combine",
+            )
+        ))
+        row_keys = (
+            ("left", "right")
+            if projection == "captured_combine"
+            else ("a", "b")
+        )
         rows = [{
-            "a": {"value": 1, "quantity": 10, "label": "alpha"},
-            "b": {"value": 2, "quantity": 20, "label": "beta"},
+            row_keys[0]: {"value": 1, "quantity": 10, "label": "alpha"},
+            row_keys[1]: {"value": 2, "quantity": 20, "label": "beta"},
         }]
         lookups = [{"left": "a", "right": "b"}]
         clients = {"left", "right"}
         for index in range(1, count):
-            action = draw(st.sampled_from((
-                "none", "row", "row", "lookup", "add", "remove"
-            )))
+            # Released hgraph replays captured TSD history into a late-starting
+            # key-only child. Re-adding a client after an earlier removal can
+            # therefore apply that removal to an empty replay dictionary.
+            actions = (
+                ("none", "row", "row", "lookup", "remove")
+                if projection == "captured_combine"
+                else ("none", "row", "row", "lookup", "add", "remove")
+            )
+            action = draw(st.sampled_from(actions))
             row_tick = None
             lookup_tick = None
             if action == "row":
-                row = draw(st.sampled_from(("a", "b")))
+                row = draw(st.sampled_from(row_keys))
                 row_tick = {row: {
                     "value": draw(st.integers(min_value=-20, max_value=20)),
                     "quantity": draw(st.integers(min_value=-20, max_value=20)),
@@ -1029,9 +1049,6 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 lookup_tick = {client: {"$remove": True}}
             rows.append(row_tick)
             lookups.append(lookup_tick)
-        projection = draw(st.sampled_from(
-            ("lookup", "combine", "dispatch_combine")
-        ))
         return {
             "template": "structural_map_projection",
             "inputs": {"lookups": lookups, "rows": rows},

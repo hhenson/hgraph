@@ -113,3 +113,71 @@ def test_map_removed_typed_bundle_reference_does_not_retick_with_sibling():
         {"extra": hg.REMOVE},
         {"right": {"value": 3, "label": "updated"}},
     ]
+
+
+def test_map_generic_bundle_child_can_dereference_its_element():
+    class Params(hg.TimeSeriesSchema):
+        value: hg.TS[int]
+
+    @hg.graph
+    def materialize(params: hg.TSB[hg.TS_SCHEMA]) -> hg.TSB[hg.TS_SCHEMA]:
+        return hg.dereference(params)
+
+    @hg.graph
+    def app(
+        params: hg.TSD[str, hg.TSB[Params]],
+    ) -> hg.TSD[str, hg.TSB[Params]]:
+        return hg.map_(materialize, params=params)
+
+    assert eval_node(
+        app,
+        [
+            {"left": {"value": 1}},
+            {"left": {"value": 2}},
+            {"right": {"value": 3}},
+            {"left": hg.REMOVE},
+        ],
+    ) == [
+        {"left": {"value": 1}},
+        {"left": {"value": 2}},
+        {"right": {"value": 3}},
+        {"left": hg.REMOVE},
+    ]
+
+
+def test_key_only_map_combines_captured_reference_fields():
+    @hg.graph
+    def app(
+        statuses: hg.TSD[str, hg.TS[bool]],
+        rejects: hg.TSD[str, hg.TS[bool]],
+    ) -> hg.TSD[
+        str,
+        hg.TSB["status": hg.TS[bool], "rejected": hg.TS[bool]],
+    ]:
+        return hg.map_(
+            lambda key: hg.combine(
+                status=statuses[key], rejected=rejects[key],
+            ),
+            __keys__=statuses.key_set,
+        )
+
+    assert eval_node(
+        app,
+        [
+            {"left": True},
+            {"right": False},
+            {"left": False},
+            {"left": hg.REMOVE},
+        ],
+        [
+            {"left": False},
+            {"right": True},
+            None,
+            None,
+        ],
+    ) == [
+        {"left": {"status": True, "rejected": False}},
+        {"right": {"status": False, "rejected": True}},
+        {"left": {"status": False}},
+        {"left": hg.REMOVE},
+    ]

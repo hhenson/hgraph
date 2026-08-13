@@ -217,6 +217,77 @@ namespace
     using LookupMappedBundle =
         UnNamedTSB<Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
 
+    using DereferencedMappedBundle =
+        UnNamedTSB<Field<"value", TS<Int>>>;
+    using DereferencedMappedReferenceBundle =
+        UnNamedTSB<Field<"value", REF<TS<Int>>>>;
+
+    struct DereferenceMappedBundleG
+    {
+        static constexpr auto name = "dereference_mapped_bundle_g";
+
+        static Port<DereferencedMappedReferenceBundle> compose(
+            Wiring &w, Port<DereferencedMappedBundle> params)
+        {
+            return wire<stdlib::dereference>(w, params)
+                .as<DereferencedMappedReferenceBundle>();
+        }
+    };
+
+    struct MapDereferencedBundleG
+    {
+        static constexpr auto name = "map_dereferenced_bundle_g";
+
+        static Port<TSD<Str, DereferencedMappedBundle>> compose(
+            Wiring &w,
+            Port<TSD<Str, DereferencedMappedBundle>> params)
+        {
+            return wire<stdlib::map_>(w, fn<DereferenceMappedBundleG>(), params)
+                .as<TSD<Str, DereferencedMappedBundle>>();
+        }
+    };
+
+    using CapturedMapReferenceBundle =
+        UnNamedTSB<Field<"status", REF<TS<Bool>>>,
+                     Field<"rejected", REF<TS<Bool>>>>;
+    using CapturedMapBundle =
+        UnNamedTSB<Field<"status", TS<Bool>>,
+                     Field<"rejected", TS<Bool>>>;
+
+    struct CombineCapturedMapFieldsG
+    {
+        static constexpr auto name = "combine_captured_map_fields_g";
+
+        static Port<CapturedMapReferenceBundle> compose(
+            Wiring &w, NamedPort<"key", TS<Str>> key,
+            Port<TSD<Str, TS<Bool>>> statuses,
+            Port<TSD<Str, TS<Bool>>> rejects)
+        {
+            auto status = wire<stdlib::getitem_>(w, statuses, key)
+                              .as<REF<TS<Bool>>>();
+            auto rejected = wire<stdlib::getitem_>(w, rejects, key)
+                                .as<REF<TS<Bool>>>();
+            return stdlib::to_tsb<CapturedMapReferenceBundle>(w, status,
+                                                               rejected);
+        }
+    };
+
+    struct MapCapturedReferenceFieldsG
+    {
+        static constexpr auto name = "map_captured_reference_fields_g";
+
+        static Port<TSD<Str, CapturedMapBundle>> compose(
+            Wiring &w, Port<TSD<Str, TS<Bool>>> statuses,
+            Port<TSD<Str, TS<Bool>>> rejects, Port<TSS<Str>> keys)
+        {
+            return wire<stdlib::map_>(
+                       w, fn<CombineCapturedMapFieldsG>(),
+                       stdlib::pass_through(statuses),
+                       stdlib::pass_through(rejects), arg<"__keys__">(keys))
+                .as<TSD<Str, CapturedMapBundle>>();
+        }
+    };
+
     /** A typed graph whose public C++ return type is TSB, while its actual
         terminal is the REF[TSB] produced by a dynamic TSD lookup. */
     struct LookupMappedBundleG
@@ -1480,6 +1551,70 @@ TEST_CASE("map_: a typed graph preserves its keyed REF[TSB] terminal")
                 {{"a"s, tsb_delta<LookupMappedBundle>(Int{1}, Str{"one"})},
                  {"b"s, tsb_delta<LookupMappedBundle>(Int{2}, Str{"two"})}}))),
         values<Int>(1));
+}
+
+TEST_CASE("map_: a direct TSB child boundary can be dereferenced")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MapDereferencedBundleG>(
+            values<Value>(
+                dict_delta<Str, DereferencedMappedBundle>(
+                    {{"left"s,
+                      tsb_delta<DereferencedMappedBundle>(Int{1})}}),
+                dict_delta<Str, DereferencedMappedBundle>(
+                    {{"left"s,
+                      tsb_delta<DereferencedMappedBundle>(Int{2})}}),
+                dict_delta<Str, DereferencedMappedBundle>(
+                    {{"right"s,
+                      tsb_delta<DereferencedMappedBundle>(Int{3})}}),
+                dict_delta<Str, DereferencedMappedBundle>({}, {"left"s}))),
+        values<Value>(
+            dict_delta<Str, DereferencedMappedBundle>(
+                {{"left"s,
+                  tsb_delta<DereferencedMappedBundle>(Int{1})}}),
+            dict_delta<Str, DereferencedMappedBundle>(
+                {{"left"s,
+                  tsb_delta<DereferencedMappedBundle>(Int{2})}}),
+            dict_delta<Str, DereferencedMappedBundle>(
+                {{"right"s,
+                  tsb_delta<DereferencedMappedBundle>(Int{3})}}),
+            dict_delta<Str, DereferencedMappedBundle>({}, {"left"s})));
+}
+
+TEST_CASE("map_: a structural child preserves captured REF fields")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MapCapturedReferenceFieldsG>(
+            values<Value>(
+                dict_delta<Str, TS<Bool>>({{"left"s, true}}),
+                dict_delta<Str, TS<Bool>>({{"right"s, false}}),
+                dict_delta<Str, TS<Bool>>({{"left"s, false}}),
+                dict_delta<Str, TS<Bool>>({}, {"left"s})),
+            values<Value>(
+                dict_delta<Str, TS<Bool>>({{"left"s, false}}),
+                dict_delta<Str, TS<Bool>>({{"right"s, true}}),
+                none, none),
+            values<Value>(
+                set_delta<Str>({"left"s}, {}),
+                set_delta<Str>({"right"s}, {}), none,
+                set_delta<Str>({}, {"left"s}))),
+        values<Value>(
+            dict_delta<Str, CapturedMapBundle>(
+                {{"left"s,
+                  tsb_delta<CapturedMapBundle>(Bool{true}, Bool{false})}}),
+            dict_delta<Str, CapturedMapBundle>(
+                {{"right"s,
+                  tsb_delta<CapturedMapBundle>(Bool{false}, Bool{true})}}),
+            dict_delta<Str, CapturedMapBundle>(
+                {{"left"s,
+                  tsb_delta<CapturedMapBundle>(Bool{false}, std::nullopt)}}),
+            dict_delta<Str, CapturedMapBundle>({}, {"left"s})));
 }
 
 TEST_CASE("map_: a removed REF[TSB] child is not repeated on a sibling update")

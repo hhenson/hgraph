@@ -342,10 +342,13 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
                                                   ForwardingSourceMode source_mode =
                                                       ForwardingSourceMode::ResolveCurrentTarget) {
   TSOutputView effective_source = source.borrowed_ref();
+  // Adapt only the terminal's root REF. Interior REF fields are part of the
+  // structural endpoint contract and must remain visible to the forwarding
+  // tree (REF[TSB[REF[...]]] -> TSB[REF[...]]).
   if (source.bound() && source.schema() != nullptr &&
       source.schema()->kind == TSTypeKind::REF && target.schema() != nullptr &&
       time_series_schema_equivalent(
-          TypeRegistry::instance().dereference(source.schema()),
+          source.schema()->referenced_ts(),
           target.schema())) {
     effective_source =
         source.binding_for(*target.schema()).view(source.evaluation_time());

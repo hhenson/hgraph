@@ -141,6 +141,23 @@ def test_dereference_materializes_tsl_element_references():
     ]
 
 
+def test_dereference_direct_tsl_normalizes_nested_reference_elements():
+    @graph
+    def g(condition: TS[bool], value: TS[int]) -> TS[int]:
+        routed = if_(condition, value)
+        direct = TSL.from_ts(routed.true, routed.false)
+        elements = dereference(direct)
+        assert elements.output_type == TSL[REF[TS[int]], Size[2]]
+        return elements[0]
+
+    assert eval_node(g, [True, True, False, True], [1, 2, 3, 4]) == [
+        1,
+        2,
+        None,
+        4,
+    ]
+
+
 def test_dereference_rejects_incompatible_non_peered_tsl_child_references():
     expected_type = TSL[TS[int], Size[2]]
     wrong_type = TSL[TS[str], Size[2]]
