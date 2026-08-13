@@ -458,6 +458,12 @@ namespace hgraph
         return bundle_hierarchy_generation_;
     }
 
+    std::uint64_t TypeRegistry::reset_generation() const noexcept
+    {
+        const std::lock_guard lock(mutex_);
+        return reset_generation_;
+    }
+
     BundleHierarchySnapshot TypeRegistry::bundle_hierarchy_snapshot() const
     {
         const std::lock_guard lock(mutex_);
@@ -689,6 +695,11 @@ namespace hgraph
         recursive_bundle_storage_.clear();
         bundle_hierarchy_storage_.clear();
         bundle_hierarchy_generation_ = 0;
+        // Every schema this registry owns has just been freed, so any cache
+        // interning by schema pointer now holds keys that a later interning
+        // can reuse. Caches above stdlib in the link order cannot be cleared
+        // from reset_all_registries(); they compare this instead.
+        ++reset_generation_;
 
         // Reset singletons that don't fit any of the keyed caches.
         signal_meta_.reset();

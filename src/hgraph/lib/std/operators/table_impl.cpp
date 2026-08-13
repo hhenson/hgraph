@@ -49,6 +49,23 @@ namespace hgraph::stdlib
             };
 
             std::unordered_map<LayoutKey, std::unique_ptr<TsTableLayout>, LayoutKeyHash> g_layouts;
+            /** The registry generation ``g_layouts`` was built against. */
+            std::uint64_t g_layouts_generation{0};
+
+            /** Drop the cache when the registry that owns its keys has been
+                reset: the schema pointers it interns by are freed by that
+                reset, and the next interning can hand the same address to a
+                DIFFERENT type - at which point a stale entry answers for it.
+                register_table_operators() also clears, but only a caller that
+                registers operators reaches it, and building a layout needs
+                nothing but the type registry. */
+            void discard_stale_layouts()
+            {
+                const std::uint64_t generation = TypeRegistry::instance().reset_generation();
+                if (generation == g_layouts_generation) { return; }
+                g_layouts.clear();
+                g_layouts_generation = generation;
+            }
 
             /** Flatten a VALUE schema to (suffix, leaf, path) triples. Bundles
                 flatten by field name (dotted), tuples by index; the suffix is
@@ -239,12 +256,17 @@ namespace hgraph::stdlib
         const TsTableLayout &ts_table_layout(const TSValueTypeMetaData *ts, std::string_view date_key,
                                              std::string_view as_of_key)
         {
+            discard_stale_layouts();
             const LayoutKey key{ts, std::string{date_key}, std::string{as_of_key}};
             if (const auto it = g_layouts.find(key); it != g_layouts.end()) { return *it->second; }
             return *build_layout(ts, date_key, as_of_key);
         }
 
-        void clear_ts_table_layouts() noexcept { g_layouts.clear(); }
+        void clear_ts_table_layouts() noexcept
+        {
+            g_layouts.clear();
+            g_layouts_generation = TypeRegistry::instance().reset_generation();
+        }
 
         const ValueTypeMetaData *to_table_mode_meta()
         {
@@ -776,9 +798,10 @@ namespace hgraph::stdlib
 
     void register_table_operators()
     {
-        // Layouts intern by TS-schema POINTER (the plan-registries rule):
-        // registration follows every registry reset, so clearing here keeps
-        // the cache generation-consistent without a types->stdlib reset hook.
+        // Layouts intern by TS-schema POINTER (the plan-registries rule).
+        // ts_table_layout() drops the cache itself when the registry
+        // generation moves, so this is belt-and-braces rather than the only
+        // guard - registration is not on the path a layout build must take.
         table_ts_detail::clear_ts_table_layouts();
         static_cast<void>(table_ts_detail::to_table_mode_meta());   // register the mode enum
         register_overload<to_table, to_table_rows_impl>();

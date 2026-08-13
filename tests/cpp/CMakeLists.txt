@@ -291,6 +291,7 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_record_replay.cpp
     test_record_replay_config.cpp
     test_record_replay_frame.cpp
+    test_recording_columns.cpp
     test_table.cpp
 )
 

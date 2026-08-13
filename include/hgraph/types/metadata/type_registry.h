@@ -215,6 +215,18 @@ namespace hgraph
         [[nodiscard]] std::vector<const ValueTypeMetaData *> named_bundles() const;
         /** Current hierarchy generation; incremented whenever a bundle edge or abstract flag is added. */
         [[nodiscard]] std::uint64_t bundle_hierarchy_generation() const noexcept;
+        /**
+         * Current reset generation; incremented by every ``reset()``.
+         *
+         * A cache that interns by schema POINTER holds keys this registry
+         * owns, so a reset frees them and the next interning can reuse the
+         * address - at which point a stale entry answers to a different type.
+         * ``reset_all_registries()`` clears such caches directly, but it can
+         * only reach the ones below stdlib in the link order. A cache above it
+         * compares this counter and drops itself when it moves, which is
+         * self-invalidating rather than dependent on someone remembering.
+         */
+        [[nodiscard]] std::uint64_t reset_generation() const noexcept;
         /** Copy the complete Bundle hierarchy while holding the registry lock once. */
         [[nodiscard]] BundleHierarchySnapshot bundle_hierarchy_snapshot() const;
 
@@ -654,6 +666,7 @@ namespace hgraph
         std::vector<std::unique_ptr<TSFieldMetaData[]>> ts_field_storage_;
         std::vector<std::unique_ptr<BundleHierarchyMetaData>> bundle_hierarchy_storage_;
         std::uint64_t bundle_hierarchy_generation_{0};
+        std::uint64_t reset_generation_{0};
 
         // Identity caches: thin wrappers over InternTable that own the
         // metadata. Equivalent keys always return the same canonical pointer.

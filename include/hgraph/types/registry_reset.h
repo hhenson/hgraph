@@ -7,6 +7,14 @@
 // binding cache MUST be added to reset_all_registries() — never grow a second
 // teardown sequence elsewhere. Reset is a test-only facility; production
 // processes never reset.
+//
+// The ONE exception is a cache that sits ABOVE this function in the link order
+// (hgraph_stdlib links hgraph_runtime, not the reverse), which reset_all_registries()
+// cannot name without inverting the dependency. Such a cache compares
+// ``TypeRegistry::reset_generation()`` and drops itself when it moves — see
+// ``ts_table_layout``. That is self-invalidating, not a second teardown
+// sequence: no caller has to remember it. Do NOT use it to opt a
+// reachable cache out of the list above.
 #ifndef HGRAPH_TYPES_REGISTRY_RESET_H
 #define HGRAPH_TYPES_REGISTRY_RESET_H
 
