@@ -247,6 +247,51 @@ namespace
         }
     };
 
+    using MappedKeywordParams =
+        UnNamedTSB<Field<"flag", TS<Bool>>, Field<"limit", TS<Int>>>;
+    using MappedKeywordParamRefs =
+        UnNamedTSB<Field<"flag", REF<TS<Bool>>>,
+                     Field<"limit", REF<TS<Int>>>>;
+
+    struct MappedKeywordParamsChildG
+    {
+        static constexpr auto name = "mapped_keyword_params_child_g";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, NamedPort<"value", TS<Int>> value,
+            NamedPort<"params", MappedKeywordParams> params)
+        {
+            using namespace hgraph::stdlib::syntax;
+            auto resolved = wire<stdlib::dereference>(w, params)
+                                .as<MappedKeywordParamRefs>();
+            auto flag = wire<stdlib::getattr_>(w, resolved, Str{"flag"})
+                            .as<REF<TS<Bool>>>();
+            auto limit = wire<stdlib::getattr_>(w, resolved, Str{"limit"})
+                             .as<REF<TS<Int>>>();
+            auto accepted = (value + limit).as<TS<Int>>();
+            auto rejected = (value - limit).as<TS<Int>>();
+            return wire<stdlib::if_then_else>(w, flag, accepted, rejected)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MapBundledKeywordParamsG
+    {
+        static constexpr auto name = "map_bundled_keyword_params_g";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> values,
+            Port<TS<Bool>> flag, Port<TS<Int>> limit, Port<TSS<Str>> keys)
+        {
+            auto params = stdlib::to_tsb<MappedKeywordParams>(w, flag, limit);
+            return wire<stdlib::map_>(
+                       w, fn<MappedKeywordParamsChildG>(),
+                       arg<"value">(values), arg<"params">(params),
+                       arg<"__keys__">(keys))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     using CapturedMapReferenceBundle =
         UnNamedTSB<Field<"status", REF<TS<Bool>>>,
                      Field<"rejected", REF<TS<Bool>>>>;
@@ -1582,6 +1627,22 @@ TEST_CASE("map_: a direct TSB child boundary can be dereferenced")
                 {{"right"s,
                   tsb_delta<DereferencedMappedBundle>(Int{3})}}),
             dict_delta<Str, DereferencedMappedBundle>({}, {"left"s})));
+}
+
+TEST_CASE("map_: a structural TSB broadcast binds through a named child parameter")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MapBundledKeywordParamsG>(
+            values<Value>(
+                dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}), none),
+            values<Bool>(true, false), values<Int>(10, 5),
+            values<Value>(set_delta<Str>({"a"s, "b"s}, {}), none)),
+        values<Value>(
+            dict_delta<Str, TS<Int>>({{"a"s, 12}, {"b"s, 13}}),
+            dict_delta<Str, TS<Int>>({{"a"s, -3}, {"b"s, -2}})));
 }
 
 TEST_CASE("map_: a structural child preserves captured REF fields")

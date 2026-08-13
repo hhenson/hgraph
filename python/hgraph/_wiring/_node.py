@@ -3,6 +3,7 @@ normalisation), @compute_node/@sink_node, lift, @generator, push_queue."""
 import inspect
 import typing
 import warnings
+from collections.abc import Mapping
 from copy import copy
 
 import _hgraph
@@ -68,6 +69,23 @@ def _lift_time_series_argument(value, annotation):
     """Lift a plain Python value to the time-series shape declared by a
     graph or node parameter, retaining nominal CompoundScalar schemas when
     the annotation itself is generic."""
+    if (_annotation_ts_kind(annotation) == _hgraph.TS_KIND_TSB
+            and isinstance(value, Mapping)):
+        if not all(isinstance(name, str) for name in value):
+            raise TypeError("TSB field names must be strings")
+        if isinstance(annotation, _TsExpr):
+            return annotation.from_ts(**value)
+
+        lifted = {}
+        for name, field_value in value.items():
+            if not isinstance(field_value, WiringPort):
+                field_value = wire("const", field_value)
+            lifted[name] = _unwrap(field_value)
+
+        tsb_type = _hgraph.un_named_tsb_type(
+            [(name, port.ts_type) for name, port in lifted.items()])
+        return WiringPort(_hgraph.tsb_port(tsb_type, lifted))
+
     if isinstance(annotation, _TsExpr):
         return wire("const", value, output_type=annotation)
 

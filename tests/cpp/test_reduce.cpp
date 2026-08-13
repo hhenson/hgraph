@@ -222,6 +222,34 @@ namespace
         }
     };
 
+    using ReduceReferenceBundle = UnNamedTSB<Field<"value", TS<Int>>>;
+
+    struct KeepLeftReferencedBundleG
+    {
+        static constexpr auto name = "keep_left_referenced_bundle_g";
+
+        static Port<ReduceReferenceBundle> compose(
+            Wiring &w, Port<ReduceReferenceBundle> lhs,
+            Port<ReduceReferenceBundle>)
+        {
+            return wire<stdlib::dereference>(w, lhs)
+                .as<ReduceReferenceBundle>();
+        }
+    };
+
+    struct ReduceReferencedBundleG
+    {
+        static constexpr auto name = "reduce_referenced_bundle_g";
+
+        static Port<ReduceReferenceBundle> compose(
+            Wiring &w, Port<TSD<Str, ReduceReferenceBundle>> values)
+        {
+            return wire<stdlib::reduce_>(
+                       w, fn<KeepLeftReferencedBundleG>(), values)
+                .as<ReduceReferenceBundle>();
+        }
+    };
+
     // Specialised reduce overload: concrete TSL<TS<Int>, 2>, gated on the wired
     // function's identity — selected over the generic default by requires_.
     struct ReduceFirstTimes100
@@ -911,6 +939,20 @@ TEST_CASE("reduce over TSD: fixed composite results remain projectable and follo
                       tsb_delta<ReduceBundle>(Int{1}, Int{2}),
                       tsb_delta<ReduceBundle>(Int{4}, Int{6}),
                       tsb_delta<ReduceBundle>(Int{3}, Int{4})));
+}
+
+TEST_CASE("reduce over TSD: generic bundle reference fields forward through the result")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ReduceReferencedBundleG>(
+            values<Value>(dict_delta<Str, ReduceReferenceBundle>(
+                {{"a"s, tsb_delta<ReduceReferenceBundle>(Int{7})},
+                 {"b"s, tsb_delta<ReduceReferenceBundle>(Int{7})}}))),
+        values<Value>(tsb_delta<ReduceReferenceBundle>(Int{7})));
 }
 
 TEST_CASE("reduce over TSD: keys added over time grow the tree")

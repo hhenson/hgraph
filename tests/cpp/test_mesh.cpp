@@ -172,6 +172,48 @@ struct MeshGenericOffsetG {
   }
 };
 
+using MeshKeywordParams =
+    UnNamedTSB<Field<"flag", TS<Bool>>, Field<"limit", TS<Int>>>;
+using MeshKeywordParamRefs =
+    UnNamedTSB<Field<"flag", REF<TS<Bool>>>,
+               Field<"limit", REF<TS<Int>>>>;
+
+struct MeshKeywordParamsChildG {
+  static constexpr auto name = "mesh_keyword_params_child_g";
+
+  static Port<TS<Int>>
+  compose(Wiring &w, NamedPort<"value", TS<Int>> value,
+          NamedPort<"params", MeshKeywordParams> params) {
+    using namespace hgraph::stdlib::syntax;
+    auto resolved = wire<stdlib::dereference>(w, params)
+                        .as<MeshKeywordParamRefs>();
+    auto flag = wire<stdlib::getattr_>(w, resolved, Str{"flag"})
+                    .as<REF<TS<Bool>>>();
+    auto limit = wire<stdlib::getattr_>(w, resolved, Str{"limit"})
+                     .as<REF<TS<Int>>>();
+    auto accepted = (value + limit).as<TS<Int>>();
+    auto rejected = (value - limit).as<TS<Int>>();
+    return wire<stdlib::if_then_else>(w, flag, accepted, rejected)
+        .as<TS<Int>>();
+  }
+};
+
+struct MeshBundledKeywordParamsG {
+  static constexpr auto name = "mesh_bundled_keyword_params_g";
+
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> values,
+          Port<TS<Bool>> flag, Port<TS<Int>> limit,
+          Port<TSS<Str>> keys) {
+    auto params = stdlib::to_tsb<MeshKeywordParams>(w, flag, limit);
+    return wire<stdlib::mesh_>(w, fn<MeshKeywordParamsChildG>(),
+                               arg<"value">(values),
+                               arg<"params">(params),
+                               arg<"__keys__">(keys))
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
 struct ConcreteDictSizeG {
   static constexpr auto name = "mesh_concrete_dict_size_g";
   static Port<TS<Int>> compose(Wiring &w,
@@ -639,6 +681,21 @@ TEST_CASE("mesh_: a non-TSD passed to a generic child parameter is direct") {
           values<Int>(10, 20))),
       values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 12}}),
                     dict_delta<Str, TS<Int>>({{"a"s, 21}, {"b"s, 22}})));
+}
+
+TEST_CASE("mesh_: a structural TSB broadcast binds through a named child parameter") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      eval_node<MeshBundledKeywordParamsG>(
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}), none),
+          values<Bool>(true, false), values<Int>(10, 5),
+          values<Value>(set_delta<Str>({"a"s, "b"s}, {}), none)),
+      values<Value>(
+          dict_delta<Str, TS<Int>>({{"a"s, 12}, {"b"s, 13}}),
+          dict_delta<Str, TS<Int>>({{"a"s, -3}, {"b"s, -2}})));
 }
 
 TEST_CASE(

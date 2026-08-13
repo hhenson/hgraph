@@ -7,12 +7,16 @@ from hgraph import (
     REMOVE_IF_EXISTS,
     Size,
     TS,
+    TSB,
     TSD,
+    TS_SCHEMA,
     TSL,
+    TimeSeriesSchema,
     add_,
     compute_node,
     const,
     default,
+    dereference,
     graph,
     map_,
     reduce,
@@ -184,6 +188,27 @@ def test_tsl_reduce_uses_the_same_zero_cardinality_rules():
 
 def test_tsd_reduce_preserves_explicit_none_as_an_unset_zero():
     assert eval_node(_sum_with_none_zero, [None, {"a": 1, "b": 2}]) == [None, 3]
+
+
+def test_tsd_reduce_accepts_generic_bundle_combiner_reference_fields():
+    class Params(TimeSeriesSchema):
+        value: TS[int]
+
+    @graph
+    def keep_lhs(
+        lhs: TSB[TS_SCHEMA], rhs: TSB[TS_SCHEMA],
+    ) -> TSB[TS_SCHEMA]:
+        del rhs
+        return dereference(lhs)
+
+    @graph
+    def app(values: TSD[str, TSB[Params]]) -> TSB[Params]:
+        return reduce(keep_lhs, values)
+
+    assert eval_node(
+        app,
+        [{"a": {"value": 7}, "b": {"value": 7}}],
+    ) == [{"value": 7}]
 
 
 def test_tsd_reduce_wires_three_argument_map_inside_combiner():

@@ -1,6 +1,7 @@
 """_GraphFn/@graph, graph-fn wrapping (the borrowed-wiring re-entry),
 signature auto-resolution and @component."""
 import inspect
+from collections.abc import Mapping
 
 import _hgraph
 
@@ -8,7 +9,7 @@ from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
 from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, _wiring_stack, wire)
-from ._markers import _INJECTABLE_MARKERS
+from ._markers import _INJECTABLE_MARKERS, _annotation_ts_kind
 from ._node import (_PyNode, _is_time_series_annotation,
                     _lift_time_series_argument, _warn_deprecated)
 from ._operator import _register_overload, _run_requires
@@ -152,6 +153,12 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         if _is_time_series_annotation(parameter.annotation):
             input_names.append(parameter.name)
             if value is not inspect.Parameter.empty:
+                if (not isinstance(value, WiringPort)
+                        and isinstance(value, Mapping)
+                        and _annotation_ts_kind(parameter.annotation)
+                        == _hgraph.TS_KIND_TSB):
+                    value = _lift_time_series_argument(
+                        value, parameter.annotation)
                 prepared_args.append(value)
             continue
         if parameter.annotation is inspect.Parameter.empty:

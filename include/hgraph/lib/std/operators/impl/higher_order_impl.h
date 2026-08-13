@@ -136,6 +136,36 @@ namespace hgraph::stdlib
             return refs;
         }
 
+        /** Nested map-like runtimes rebind broadcast arguments from one root
+            output handle. A fixed TSB/TSL assembled from child ports has no
+            such root, so materialize its structural REF once in the parent.
+            The multiplexed inputs retain their collection storage and every
+            map/mesh child shares the live broadcast reference. */
+        inline void materialize_structural_broadcast_inputs(
+            Wiring &w,
+            std::vector<WiringPortRef> &inputs,
+            std::vector<const TSValueTypeMetaData *> &schemas,
+            std::span<const std::size_t> multiplexed_inputs)
+        {
+            auto &registry = TypeRegistry::instance();
+            for (std::size_t index = 0; index < inputs.size(); ++index)
+            {
+                if (std::find(multiplexed_inputs.begin(), multiplexed_inputs.end(), index) !=
+                        multiplexed_inputs.end() ||
+                    !inputs[index].is_structural_source())
+                {
+                    continue;
+                }
+
+                const auto tag = inputs[index].arg_tag;
+                inputs[index] = graph_wiring_detail::adapt_source_for_input(
+                    w, registry.ref(inputs[index].schema),
+                    std::move(inputs[index]));
+                inputs[index].arg_tag = tag;
+                schemas[index] = inputs[index].schema;
+            }
+        }
+
         inline void bind_graph_output(ResolutionMap &resolution,
                                       const TSValueTypeMetaData *output,
                                       std::string_view legacy_var = {})
@@ -3039,6 +3069,10 @@ namespace hgraph::stdlib
             // excluded from the inference. The runtime is always keys-driven;
             // there is no in-node union scan.
             auto &registry = TypeRegistry::instance();
+            materialize_structural_broadcast_inputs(
+                w, ordered, ts_schemas,
+                {spec.multiplexed_inputs.data(),
+                 spec.multiplexed_inputs.size()});
             WiringPortRef lifecycle_keys = wire_keyed_lifecycle_keys(
                 w, std::move(keys),
                 {spec.multiplexed_inputs.data(), spec.multiplexed_inputs.size()},
@@ -3190,6 +3224,11 @@ namespace hgraph::stdlib
                 w, std::move(external_services), ts_schemas, arg_tags, ordered);
 
             auto &registry = TypeRegistry::instance();
+
+            materialize_structural_broadcast_inputs(
+                w, ordered, ts_schemas,
+                {map_spec.multiplexed_inputs.data(),
+                 map_spec.multiplexed_inputs.size()});
 
             WiringPortRef lifecycle_keys = wire_keyed_lifecycle_keys(
                 w, std::move(keys),
@@ -4091,6 +4130,11 @@ namespace hgraph::stdlib
             }
             append_external_service_inputs(
                 w, std::move(external_services), ts_schemas, arg_tags, ordered);
+
+            materialize_structural_broadcast_inputs(
+                w, ordered, ts_schemas,
+                {spec.multiplexed_inputs.data(),
+                 spec.multiplexed_inputs.size()});
 
             std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
             fields.reserve(ts_schemas.size());

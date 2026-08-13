@@ -5,11 +5,15 @@ import pytest
 from hgraph import (
     TIME_SERIES_TYPE,
     TS,
+    TSB,
     TSD,
+    TS_SCHEMA,
     TSS,
     WiringError,
     compute_node,
+    dereference,
     graph,
+    if_then_else,
     len_,
     mesh_,
     no_key,
@@ -121,6 +125,40 @@ def test_mesh_non_tsd_generic_input_is_direct():
         [{"a": 1, "b": 2}, None],
         [10, 20],
     ) == [{"a": 11, "b": 12}, {"a": 21, "b": 22}]
+
+
+def test_mesh_generic_bundle_parameter_accepts_keyword_mapping():
+    @graph
+    def handler(
+        value: TS[int], flag: TS[bool], limit: TS[int],
+    ) -> TS[int]:
+        return if_then_else(flag, value + limit, value - limit)
+
+    @graph
+    def child(value: TS[int], params: TSB[TS_SCHEMA]) -> TS[int]:
+        resolved = dereference(params)
+        return handler(value=value, **resolved)
+
+    @graph
+    def g(
+        values: TSD[str, TS[int]], flag: TS[bool], limit: TS[int],
+    ) -> TSD[str, TS[int]]:
+        return mesh_(
+            child,
+            value=values,
+            params={"flag": flag, "limit": limit},
+            __keys__=values.key_set,
+        )
+
+    assert eval_node(
+        g,
+        [{"a": 2, "b": 3}, None],
+        [True, False],
+        [10, 5],
+    ) == [
+        {"a": 12, "b": 13},
+        {"a": -3, "b": -2},
+    ]
 
 
 def test_mesh_concrete_tsd_before_first_multiplexed_input_is_direct():
