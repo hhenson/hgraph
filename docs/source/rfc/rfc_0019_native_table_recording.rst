@@ -224,11 +224,13 @@ and to distinguish two frames recorded side by side.
 
 Replay of a frame-valued leaf therefore consumes a **run** of rows rather than
 one row: the rows sharing a value time and, below ``TSD``, a key path are the
-tick's frame. Key and removal columns retain their structural role. The
-remaining payload columns are resolved **positionally** and renamed back to
-the frame's own names. Resolving payloads by name would fail under any
-``frame_prefix``, because replay need not repeat the prefix; column order is
-the stable part of the recording contract.
+tick's frame. Key and removal columns retain their structural role, and the
+remaining columns are the frame's payload.
+
+Payload columns are resolved by their configured name, exactly like every other
+column — **replay must be given the same ``frame_prefix`` the recording used.**
+An earlier revision resolved them positionally so the prefix need not be
+repeated. That is withdrawn: see *Projection is explicit or it fails* below.
 
 ``frame_prefix`` is a ``record`` argument like ``as_of``, ``removes``,
 ``partition_names`` and ``removed_names``: the whole option surface is set at
@@ -253,6 +255,54 @@ A name that still collides after the configured prefix is applied is an
 by name into the wrong column, which is the failure mode this whole path exists
 to avoid.
 
+Projection is explicit or it fails
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Replay reads a table it did not necessarily write — a hand-built Arrow table is
+a first-class input, so the recording options can never be assumed present.
+That makes it tempting to *infer* a column when the configured name is absent.
+**Replay never infers.** A configured column that is not found is an error, at
+start, naming the column.
+
+The rule exists because every inference available here is unsound:
+
+* **Position does not identify a column.** A default recording and one with
+  ``as_of: Omit`` plus ``removes: Track`` are both four columns —
+  ``[date, as_of, key, value]`` against ``[date, removed, key, value]``.
+  Omitting the as-of removes a column and tracking removals adds one, so the
+  counts cancel and position 1 is the as-of in one and a removed flag in the
+  other. A positional reader silently swaps a timestamp for a boolean.
+* **Type does not identify a column either.** It breaks the tie in that one
+  example only because those two types differ; it says nothing about two key
+  columns of the same type in the wrong order.
+
+A guess that is right most of the time is worse than no guess at all: it moves
+the failure from a clear error at start to wrong data much later, in a
+recording that already looks readable. So the payload-column positional
+fallback is removed, and ``frame_prefix`` must be supplied to replay like every
+other projection argument. Configuration that can be ignored is configuration
+that cannot be trusted.
+
+Resolution does not rewrite the table
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Replay resolves each layout column to a **column index** in the stored table,
+once at start, and reads through those indices. It does not rename the stored
+table's columns to the layout's canonical names.
+
+Renaming was the earlier approach, and it has two defects. It assumes the
+canonical names (``__date_time__``, ``__key_1__``) never occur as real columns
+in a stored table; they were chosen to be unlikely, but "unlikely" is not a
+contract, and a table that happens to carry one becomes unreadable through no
+fault of its author. And it discards the configuration: after the rewrite,
+nothing downstream can tell what the caller actually asked for, which is why a
+projection argument could be silently ignored in the first place.
+
+Index resolution has neither problem. The configured name is used to *find* the
+column and is never overwritten, so a stored column called ``__key_1__`` is
+simply a column called ``__key_1__``, and a mis-supplied projection fails at
+start rather than resolving to something plausible.
+
 A recording is one run
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -262,6 +312,26 @@ write to an existing key fails: another run has no relationship to the first
 and must use another key, or the caller must explicitly remove the old object.
 The Python compatibility seam delegates overwrite policy to its implementation;
 core does not impose native storage policy on user code.
+
+.. important::
+
+   **This is a behaviour change, and it is the intended one.** Recording twice
+   to the same key previously replaced the first recording silently. It now
+   fails at ``start``:
+
+   .. code-block:: text
+
+      node[1 'g.record'] start failed: recording key already exists: native.out
+
+   **To re-record a key, delete it first.** The failure is deliberate rather
+   than a limitation: a silent replace loses a completed recording with no
+   signal, and cannot be distinguished from the append that this model does
+   not support.
+
+   The scope that matters is the ``GlobalState``, not the graph run — a
+   ``GlobalState`` may span several runs, and a second run under the same one
+   hits this. Re-running under a fresh ``GlobalState`` gets a fresh store and
+   is unaffected, which is why test suites do not normally encounter it.
 
 That removes schema evolution from scope entirely — there is no widening rule
 to design and no compatibility check on append. Through adaptor migration the
@@ -326,14 +396,24 @@ This keeps *A recording is one run* intact: one run, one recording, written as
 one flat frame by default or as however many segments its flush policy
 produced.
 
-Configuration is graph-scoped, with per-record shaping
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Configuration is GlobalState-scoped, with per-record shaping
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``record_replay::Config`` is graph-scoped in ``GlobalState``: each graph/run
-has its own copied-in configuration and store selection. The adaptor grew a
-second, per-key override dictionary beside it. Instead the options that shape
-one recording are passed **to the recorder**, and the graph-level bitemporal
-configuration supplies their defaults.
+``record_replay::Config`` lives in ``GlobalState``, reached through
+``GlobalContext::active_state()``: the configuration and the store selection
+belong to the enclosing ``GlobalState``, not to a process-wide singleton.
+
+**A ``GlobalState`` is not one-per-run.** It is an ambient scope that may span
+several graph runs, and every run inside one sees the same configuration *and
+the same store*. That is precisely why a second run recording to the same key
+under one ``GlobalState`` hits the duplicate-key rejection described in
+*A recording is one run*, while re-running under a fresh ``GlobalState`` does
+not — the store is new. Anything reasoning about recording lifetime must reason
+about the ``GlobalState``, not the graph.
+
+The adaptor grew a second, per-key override dictionary beside this. Instead the
+options that shape one recording are passed **to the recorder**, and the
+``GlobalState``-level bitemporal configuration supplies their defaults.
 
 This also answers where per-key options live: they do not live anywhere. They
 are an argument at the call site, so two recordings in one graph differ by
@@ -531,8 +611,18 @@ Acceptance criteria
   recorded ticks is never seeded with a later value.
 * Retained Arrow memory tracks payload rather than tick count, at both one row
   per tick and five rows per tick over 20 000 ticks.
-* The Python adaptor's existing tests pass unchanged against the migrated
-  implementation.
+* The Python adaptor's existing tests pass against the migrated implementation,
+  with one deliberate exception: **Python integration is limited to atomic
+  whole tables — batching is no longer supported.** The batching knob
+  (``RECORD_BATCH_ROWS``) and the test that drove it
+  (``test_recording_spanning_several_batches_is_complete_and_ordered``) are
+  gone with the Python recorder, replaced by
+  ``test_native_recording_is_complete_and_ordered`` asserting the same
+  completeness and ordering over the native path. Known client usage meets the
+  atomic-table constraint. The chunk-retention regression
+  (``test_recording_does_not_retain_a_chunk_per_tick``) is retained unchanged
+  in substance, since it pins the defect that motivated this work rather than
+  the mechanism that fixed it.
 * A release/0.5-style ``MemoryDataFrameStorage`` can set and retrieve complete
   frames while all row construction and replay remain native.
 * A Python compatibility store is invoked only through ``store``/``load``/
@@ -547,9 +637,17 @@ Acceptance criteria
   test rather than left implicit.
 * A frame-valued leaf under a ``TSD`` level expands to ``K x R`` rows with the
   key cells repeated.
-* ``frame_prefix`` renames expanded payload columns; replay restores them
-  positionally even when the caller does not repeat the prefix. A collision
-  that survives the prefix is refused at layout time.
+* ``frame_prefix`` renames expanded payload columns, and replay resolves them
+  by the same configured name. Replaying without the prefix the recording used
+  **fails**, naming the missing column, rather than recovering the columns
+  positionally. A collision that survives the prefix is refused at layout time.
+* No projection argument is ever inferred. For every projection option, a
+  recording made with it and replayed without it fails at start, and the error
+  names the column that was not found.
+* Replay resolves layout columns to stored column indices and leaves the stored
+  table's column names untouched. A stored table carrying a column literally
+  named ``__date_time__`` or ``__key_1__`` is readable, and its own projection
+  still applies.
 * A recording interrupted mid-run reads back exactly the rows up to its last
   flush, and never a torn segment.
 * Segments read back in write order, and a recording of one segment is
