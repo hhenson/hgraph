@@ -531,7 +531,7 @@ namespace hgraph::stdlib
             for (std::size_t i = 0; i < args.size(); ++i)
             {
                 positional_fields.emplace_back(
-                    std::to_string(i), graph_wiring_detail::value_consumer_source(args[i]));
+                    std::to_string(i), args[i]);
             }
 
             std::vector<std::pair<std::string, WiringPortRef>> fields;
@@ -539,8 +539,7 @@ namespace hgraph::stdlib
             fields.insert(fields.end(), positional_fields.begin(), positional_fields.end());
             for (const auto &[field_name, field_port] : kwargs)
             {
-                fields.emplace_back(
-                    field_name, graph_wiring_detail::value_consumer_source(field_port));
+                fields.emplace_back(field_name, field_port);
             }
 
             if (fields.empty())

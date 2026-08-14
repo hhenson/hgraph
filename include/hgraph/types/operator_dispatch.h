@@ -122,6 +122,35 @@ namespace hgraph
         struct is_var_in<VarIn<N, S>> : std::true_type
         {
         };
+
+        /** Whether a declared schema asks for a REFERENCE rather than a value.
+            ``REF`` must be explicit: a generic time-series parameter binds the
+            DEREFERENCED type, so a consumer never silently receives a ref
+            token in place of the value it names. */
+        template <typename S>
+        struct declares_reference : std::false_type
+        {
+        };
+        template <typename S>
+        struct declares_reference<REF<S>> : std::true_type
+        {
+        };
+
+        /** The port a value consumer should observe: the ref is followed
+            (recursively, for container schemas) unless the parameter asked for
+            a reference. ``S = void`` is an argument that declares nothing at
+            all - a bare ``**kwargs`` entry - which by the rule is a value.
+
+            This is the ONE place the rule is decided. Everything that binds
+            arguments routes through it rather than dereferencing by hand, so
+            there is a single answer to change rather than a set to keep in
+            step. */
+        template <typename S>
+        [[nodiscard]] inline WiringPortRef value_argument(WiringPortRef port)
+        {
+            if constexpr (declares_reference<S>::value) { return port; }
+            else { return graph_wiring_detail::value_consumer_source(std::move(port)); }
+        }
     }  // namespace operator_dispatch_detail
 
     /**
@@ -1594,7 +1623,30 @@ namespace hgraph
                         {
                             using KW = std::tuple_element_t<lay::total - 1, params_tuple>;
                             KW collected{};
-                            collected.ports.assign(kwargs.begin(), kwargs.end());
+                            if constexpr (std::is_void_v<typename KW::pack_schema>)
+                            {
+                                // An UNTYPED collector declares no schema, so
+                                // nothing in it could ask for a reference: a
+                                // consumer of bare **kwargs wants the values.
+                                collected.ports.reserve(kwargs.size());
+                                for (const auto &entry : kwargs)
+                                {
+                                    auto value          = entry;
+                                    value.second.schema = TypeRegistry::instance().dereference(value.second.schema);
+                                    collected.ports.push_back(std::move(value));
+                                }
+                            }
+                            else
+                            {
+                                // A TYPED collector's pack schema is the
+                                // declaration, and dispatch has already matched
+                                // it against the supplied schemas. Rewriting the
+                                // ports here would violate it — a REF field in
+                                // the pack would be silently stripped, leaving
+                                // output resolution describing a reference the
+                                // implementation never receives.
+                                collected.ports.assign(kwargs.begin(), kwargs.end());
+                            }
                             return invoke(std::forward<decltype(tail_args)>(tail_args)..., std::move(collected));
                         }
                         else { return invoke(std::forward<decltype(tail_args)>(tail_args)...); }
@@ -1614,12 +1666,17 @@ namespace hgraph
                     tail.ports.reserve(args.size() - tail_start);
                     for (std::size_t i = tail_start; i < args.size(); ++i)
                     {
+                        using tail_schema = typename V::schema_type;
                         if (args[i].kind == WiringArg::Kind::TimeSeries)
                         {
-                            tail.ports.push_back(args[i].port);
+                            // The variadic tail is bound HERE for every
+                            // operator, so the deref rule belongs here rather
+                            // than in each consumer that packs its arguments.
+                            tail.ports.push_back(
+                                operator_dispatch_detail::value_argument<tail_schema>(
+                                    args[i].port));
                             continue;
                         }
-                        using tail_schema = typename V::schema_type;
                         const TSValueTypeMetaData *target = nullptr;
                         if constexpr (schema_descriptor<tail_schema>::is_concrete())
                         {

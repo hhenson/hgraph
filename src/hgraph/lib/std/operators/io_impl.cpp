@@ -26,17 +26,31 @@ namespace hgraph::stdlib
                 return operator_dispatch_detail::wire_scalar_const(w, arg, schema);
             };
 
+            // This closure REPLACES the generated one, so it is also where the
+            // deref rule has to be applied by hand - operator_dispatch never
+            // sees these arguments. The declarations it stands in for are
+            // apply_value_callable_signature's: VarIn<"args", TsVar<"S">> and
+            // an untyped VarKwIn<"kwargs">, neither of which asks for a
+            // reference. `fn` is left alone: it is passed on as an ordinary
+            // named input below, where input adaptation handles it.
+            using apply_args = VarIn<"args", TsVar<"S">>;
+
             WiringPortRef fn = as_port(args.front());
             std::vector<WiringPortRef> positional;
             positional.reserve(args.size() - 1);
             for (std::size_t index = 1; index < args.size(); ++index)
             {
-                positional.push_back(as_port(args[index]));
+                positional.push_back(
+                    operator_dispatch_detail::value_argument<apply_args::schema_type>(as_port(args[index])));
+            }
+            std::vector<std::pair<std::string, WiringPortRef>> named{kwargs.begin(), kwargs.end()};
+            for (auto &[name, port] : named)
+            {
+                static_cast<void>(name);
+                port = operator_dispatch_detail::value_argument<void>(port);
             }
             const auto positional_count = static_cast<Int>(positional.size());
-            WiringPortRef packed = io_impl_detail::pack_format_args(
-                std::move(positional),
-                std::vector<std::pair<std::string, WiringPortRef>>{kwargs.begin(), kwargs.end()});
+            WiringPortRef packed = io_impl_detail::pack_format_args(std::move(positional), std::move(named));
 
             const auto *output = ts_pattern_resolve(output_pattern, resolution);
             if (output == nullptr) { throw std::logic_error("apply output type is unresolved"); }
@@ -121,13 +135,11 @@ namespace hgraph::stdlib
             std::size_t index = 0;
             for (WiringPortRef &port : positional)
             {
-                port = graph_wiring_detail::value_consumer_source(std::move(port));
                 fields.emplace_back(fmt::format("${}", index++), port.schema);
                 children.push_back(std::move(port));
             }
             for (auto &[name, port] : named)
             {
-                port = graph_wiring_detail::value_consumer_source(std::move(port));
                 fields.emplace_back(name, port.schema);
                 children.push_back(std::move(port));
             }

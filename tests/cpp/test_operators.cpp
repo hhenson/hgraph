@@ -1342,6 +1342,76 @@ namespace
         }
     };
 
+    // Whether a port still carries a REF, using only the public registry.
+    [[nodiscard]] inline bool is_reference_port(const WiringPortRef &port)
+    {
+        return port.schema != TypeRegistry::instance().dereference(port.schema);
+    }
+
+    // A TYPED **kwargs collector declares a pack schema, and a REF field in
+    // that pack is an explicit request for the reference token. The deref rule
+    // applies to what carries no such declaration, so it must not overrule one.
+    struct ref_kw_ : Operator<"ref_kw",
+                              VarKwIn<"kwargs", UnNamedTSB<Field<"x", REF<TS<Int>>>>>,
+                              Out<TS<Int>>>
+    {
+    };
+    struct ref_kw_impl
+    {
+        static constexpr auto name             = "ref_kw_impl";
+        inline static bool    saw_reference    = false;
+        static Port<TS<Int>>  compose(Wiring &w,
+                                      VarKwIn<"kwargs", UnNamedTSB<Field<"x", REF<TS<Int>>>>> rest)
+        {
+            REQUIRE(rest.size() == 1);
+            saw_reference = is_reference_port(rest[0].second);
+            return Port<TS<Int>>{w, rest[0].second};
+        }
+    };
+
+    // The untyped counterpart over the same source: nothing declares a
+    // reference, so the collector receives the value.
+    struct plain_kw_ : Operator<"plain_kw", VarKwIn<"kwargs">, Out<TS<Int>>>
+    {
+    };
+    struct plain_kw_impl
+    {
+        static constexpr auto name          = "plain_kw_impl";
+        inline static bool    saw_reference = true;
+        static Port<TS<Int>>  compose(Wiring &w, VarKwIn<"kwargs"> rest)
+        {
+            REQUIRE(rest.size() == 1);
+            saw_reference = is_reference_port(rest[0].second);
+            return Port<TS<Int>>{w, rest[0].second};
+        }
+    };
+
+    // if_then_else publishes a reference; each collector sees it per its own
+    // declaration.
+    struct RefKwGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "ref_kw_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> choose_lhs, Port<TS<Int>> lhs,
+                                     Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(w, choose_lhs, lhs, rhs);
+            return wire<ref_kw_>(w, arg<"x">(selected)).as<TS<Int>>();
+        }
+    };
+
+    struct PlainKwGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "plain_kw_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> choose_lhs, Port<TS<Int>> lhs,
+                                     Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(w, choose_lhs, lhs, rhs);
+            return wire<plain_kw_>(w, arg<"x">(selected)).as<TS<Int>>();
+        }
+    };
+
     [[nodiscard]] inline WiringArg scalar_arg(Value value)
     {
         WiringArg arg;
@@ -1552,6 +1622,31 @@ TEST_CASE("operators: a typed **kwargs collector gates candidates on its pack pa
         OperatorRegistry::instance().resolve("typed_kw",
                                              std::span<const WiringArg>{mismatched}),
         Catch::Matchers::ContainsSubstring("**kwargs pattern"));
+}
+
+TEST_CASE("operators: a typed **kwargs pack schema decides whether REF survives")
+{
+    using namespace hgraph;
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    register_graph_overload<ref_kw_, ref_kw_impl>();
+    register_graph_overload<plain_kw_, plain_kw_impl>();
+
+    // The declared pack asks for REF<TS<Int>>, so the reference reaches the
+    // implementation intact - dispatch matched against that schema, and
+    // rewriting the port here would leave output resolution describing a
+    // reference the implementation never receives.
+    ref_kw_impl::saw_reference = false;
+    CHECK_OUTPUT(eval_node<RefKwGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Int>(8));
+    CHECK(ref_kw_impl::saw_reference);
+
+    // Nothing in a bare **kwargs can ask for a reference, so the same source
+    // arrives dereferenced.
+    plain_kw_impl::saw_reference = true;
+    CHECK_OUTPUT(eval_node<PlainKwGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Int>(8));
+    CHECK(!plain_kw_impl::saw_reference);
 }
 
 TEST_CASE("operators: arg<\"name\">(...) flows named arguments through wire<Op>")

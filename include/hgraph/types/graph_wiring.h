@@ -2044,10 +2044,16 @@ namespace hgraph
 
         /**
          * Describe a source by the value a consumer should observe rather than
-         * by any REF token used to reach that value. Variadic consumers use
-         * this before building a structural argument pack so ordinary input
-         * binding can install the same REF-transparent adaptation as a typed
-         * ``In<T>``. Dereferencing is recursive for container schemas.
+         * by any REF token used to reach that value, so ordinary input binding
+         * installs the same REF-transparent adaptation as a typed ``In<T>``.
+         * Dereferencing is recursive for container schemas.
+         *
+         * Do NOT call this from an operator implementation: whether a given
+         * argument wants the value or the reference is decided by its
+         * declaration, in ``operator_dispatch_detail::value_argument``, which
+         * is the sole caller. A consumer that dereferences by hand is deciding
+         * a question its declaration has already answered — that is how the
+         * rule came to be applied inconsistently in the first place.
          */
         [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
         {
