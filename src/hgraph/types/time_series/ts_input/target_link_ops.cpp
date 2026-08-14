@@ -1,5 +1,6 @@
 #include "target_link_ops.h"
 #include "../ts_data/ownership.h"
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -1201,6 +1202,8 @@ namespace hgraph::detail
                 .kind                      = context.schema->kind,
                 .allows_mutation           = true,
                 .ownership_ops             = &target_link_ownership_ops(),
+                .current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(context.schema->kind),
                 .layout_impl               = &target_link_layout,
                 .tracking_impl             = &target_link_tracking,
                 .mutable_tracking_impl     = &target_link_mutable_tracking,

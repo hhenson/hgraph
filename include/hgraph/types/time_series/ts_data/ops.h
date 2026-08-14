@@ -3,6 +3,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/storage_metrics.h>
+#include <hgraph/types/time_series/ts_data/current_state_ops.h>
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/value_range.h>
@@ -138,6 +139,11 @@ namespace hgraph
         TSTypeKind  kind{TSTypeKind::TS};
         bool        allows_mutation{false};
         const detail::TSDataOwnershipOps *ownership_ops{nullptr};
+        // Current-state transfer is a separately selected, non-null erased
+        // policy. Semantic consumers must dispatch through it rather than
+        // recover a representation from ``kind``.
+        const TSCurrentStateOps *current_state_ops{
+            &ts_current_state_detail::missing_current_state_ops()};
 
         const TSDataLayout *(*layout_impl)(const void *context) = &ts_data_detail::missing_layout;
         const TSDataTracking *(*tracking_impl)(const void *context,

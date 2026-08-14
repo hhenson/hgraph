@@ -1,6 +1,5 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
-
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -8,6 +7,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cassert>
+#include <concepts>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -160,6 +161,35 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] const TSCurrentStateOps &current_state_ops(const TSRoleTypeRef &type,
+                                                                 const char *fn)
+        {
+            if (!type) { throw std::logic_error(fmt::format("{}: unresolved TSData type", fn)); }
+            const auto *ops = type.ops_ref().current_state_ops;
+            if (ops == nullptr)
+            {
+                throw std::logic_error(fmt::format("{}: TSData current-state policy is null", fn));
+            }
+            return *ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &current_state_ops_for_input(
+            const TSInputView &input, const char *fn)
+        {
+            if (const auto type = input.type_ref(); type)
+            {
+                return current_state_ops(type.as_role(), fn);
+            }
+            const auto &data = input.data_view();
+            if (data.valid())
+            {
+                const auto *ops = data.ops().current_state_ops;
+                if (ops != nullptr) { return *ops; }
+            }
+            static_cast<void>(require_schema(input.schema(), fn));
+            throw std::logic_error(fmt::format("{} requires a canonical input type record", fn));
+        }
+
         [[nodiscard]] bool field_name_equal(const TSFieldMetaData &ts_field,
                                             const ValueFieldMetaData &value_field) noexcept
         {
@@ -170,8 +200,9 @@ namespace hgraph
             return ts_name == value_name;
         }
 
-        [[nodiscard]] bool current_value_schema_compatible_ts(const TSValueTypeMetaData &schema,
-                                                              const ValueTypeMetaData   &value_schema) noexcept
+        [[nodiscard]] bool current_value_schema_compatible_atomic(
+            const TSValueTypeMetaData &schema,
+            const ValueTypeMetaData &value_schema) noexcept
         {
             if (schema.value_schema == &value_schema) { return true; }
             if (schema.value_schema != nullptr &&
@@ -179,7 +210,7 @@ namespace hgraph
             {
                 return true;
             }
-            // Variadic tuple vs list: distinct schema identity, ONE layout
+            // Variadic tuple vs list: distinct schema identity, one layout
             // (same element type; flags differ only by VariadicTuple).
             const auto *target = schema.value_schema;
             return target != nullptr && target->try_value_kind() == ValueTypeKind::List &&
@@ -188,37 +219,53 @@ namespace hgraph
                    target->element_type == value_schema.element_type;
         }
 
-        [[nodiscard]] bool current_value_schema_compatible_tss(const TSValueTypeMetaData &schema,
-                                                               const ValueTypeMetaData   &value_schema) noexcept
+        [[nodiscard]] bool current_value_schema_compatible_set(
+            const TSValueTypeMetaData &schema,
+            const ValueTypeMetaData &value_schema) noexcept
         {
             return schema.value_schema == &value_schema;
         }
 
-        [[nodiscard]] bool current_value_schema_compatible_tsd(const TSValueTypeMetaData &schema,
-                                                               const ValueTypeMetaData   &value_schema)
+        [[nodiscard]] bool current_value_schema_compatible_dict(
+            const TSValueTypeMetaData &schema,
+            const ValueTypeMetaData &value_schema)
         {
-            return value_schema.value_kind() == ValueTypeKind::Map &&
-                   schema.key_type() == value_schema.key_type &&
-                   schema.element_ts() != nullptr &&
-                   value_schema.element_type != nullptr &&
-                   current_value_schema_compatible(*schema.element_ts(), *value_schema.element_type);
+            if (value_schema.try_value_kind() != ValueTypeKind::Map ||
+                schema.key_type() != value_schema.key_type || schema.element_ts() == nullptr ||
+                value_schema.element_type == nullptr)
+            {
+                return false;
+            }
+            const auto *child_schema = schema.element_ts();
+            const auto &child_ops = ts_current_state_detail::current_state_ops_for(
+                child_schema->kind);
+            return child_ops.value_schema_compatible_impl(
+                *child_schema, *value_schema.element_type);
         }
 
-        [[nodiscard]] bool current_value_schema_compatible_tsl(const TSValueTypeMetaData &schema,
-                                                               const ValueTypeMetaData   &value_schema)
+        [[nodiscard]] bool current_value_schema_compatible_list(
+            const TSValueTypeMetaData &schema,
+            const ValueTypeMetaData &value_schema)
         {
-            return value_schema.value_kind() == ValueTypeKind::List &&
-                   schema.element_ts() != nullptr &&
-                   value_schema.element_type != nullptr &&
-                   (schema.fixed_size() == 0 || value_schema.fixed_size == 0 ||
-                    schema.fixed_size() == value_schema.fixed_size) &&
-                   current_value_schema_compatible(*schema.element_ts(), *value_schema.element_type);
+            if (value_schema.try_value_kind() != ValueTypeKind::List ||
+                schema.element_ts() == nullptr || value_schema.element_type == nullptr ||
+                (schema.fixed_size() != 0 && value_schema.fixed_size != 0 &&
+                 schema.fixed_size() != value_schema.fixed_size))
+            {
+                return false;
+            }
+            const auto *child_schema = schema.element_ts();
+            const auto &child_ops = ts_current_state_detail::current_state_ops_for(
+                child_schema->kind);
+            return child_ops.value_schema_compatible_impl(
+                *child_schema, *value_schema.element_type);
         }
 
-        [[nodiscard]] bool current_value_schema_compatible_tsb(const TSValueTypeMetaData &schema,
-                                                               const ValueTypeMetaData   &value_schema)
+        [[nodiscard]] bool current_value_schema_compatible_bundle(
+            const TSValueTypeMetaData &schema,
+            const ValueTypeMetaData &value_schema)
         {
-            if (value_schema.value_kind() != ValueTypeKind::Bundle ||
+            if (value_schema.try_value_kind() != ValueTypeKind::Bundle ||
                 schema.field_count() != value_schema.field_count)
             {
                 return false;
@@ -227,10 +274,15 @@ namespace hgraph
             {
                 const auto &ts_field    = schema.fields()[index];
                 const auto &value_field = value_schema.fields[index];
-                if (!field_name_equal(ts_field, value_field) ||
-                    ts_field.type == nullptr ||
-                    value_field.type == nullptr ||
-                    !current_value_schema_compatible(*ts_field.type, *value_field.type))
+                if (!field_name_equal(ts_field, value_field) || ts_field.type == nullptr ||
+                    value_field.type == nullptr)
+                {
+                    return false;
+                }
+                const auto &child_ops = ts_current_state_detail::current_state_ops_for(
+                    ts_field.type->kind);
+                if (!child_ops.value_schema_compatible_impl(
+                        *ts_field.type, *value_field.type))
                 {
                     return false;
                 }
@@ -238,45 +290,103 @@ namespace hgraph
             return true;
         }
 
-        using CurrentValueSchemaCompatibleFn = bool (*)(const TSValueTypeMetaData &, const ValueTypeMetaData &);
+        [[nodiscard]] bool current_ts_schema_compatible(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source);
 
-        [[nodiscard]] constexpr std::size_t ts_kind_index(TSTypeKind kind) noexcept
+        [[nodiscard]] bool current_ts_schema_compatible_atomic(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
         {
-            return static_cast<std::size_t>(kind);
+            return source.kind == target.kind && source.value_schema != nullptr &&
+                   current_value_schema_compatible_atomic(target, *source.value_schema);
         }
 
-        [[nodiscard]] CurrentValueSchemaCompatibleFn current_value_schema_compatible_for(
-            TSTypeKind kind) noexcept
+        [[nodiscard]] bool current_ts_schema_compatible_set(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source) noexcept
         {
-            static constexpr std::size_t kind_count = ts_kind_index(TSTypeKind::SIGNAL) + 1U;
-            static const std::array<CurrentValueSchemaCompatibleFn, kind_count> table{
-                &current_value_schema_compatible_ts,
-                &current_value_schema_compatible_tss,
-                &current_value_schema_compatible_tsd,
-                &current_value_schema_compatible_tsl,
-                &current_value_schema_compatible_ts,
-                &current_value_schema_compatible_tsb,
-                &current_value_schema_compatible_ts,
-                &current_value_schema_compatible_ts,
-            };
-
-            const auto index = ts_kind_index(kind);
-            return index < table.size() ? table[index] : &current_value_schema_compatible_ts;
+            return source.kind == target.kind && source.value_schema != nullptr &&
+                   current_value_schema_compatible_set(target, *source.value_schema);
         }
 
-        [[nodiscard]] bool schema_contains_tsd(const TSValueTypeMetaData *schema) noexcept
+        [[nodiscard]] bool current_ts_schema_compatible_dict(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
         {
-            if (schema == nullptr) { return false; }
-            if (schema->kind == TSTypeKind::TSD) { return true; }
-            if (schema->kind == TSTypeKind::TSL) { return schema_contains_tsd(schema->element_ts()); }
-            if (schema->kind == TSTypeKind::TSB)
+            return source.kind == target.kind && target.key_type() == source.key_type() &&
+                   target.element_ts() != nullptr && source.element_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.element_ts(), *source.element_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_list(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && target.fixed_size() == source.fixed_size() &&
+                   target.element_ts() != nullptr && source.element_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.element_ts(), *source.element_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_bundle(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            if (source.kind != target.kind || target.field_count() != source.field_count())
             {
-                for (std::size_t index = 0; index < schema->field_count(); ++index)
+                return false;
+            }
+            for (std::size_t index = 0; index < target.field_count(); ++index)
+            {
+                const auto &target_field = target.fields()[index];
+                const auto &source_field = source.fields()[index];
+                const std::string_view target_name =
+                    target_field.name != nullptr ? std::string_view{target_field.name}
+                                                 : std::string_view{};
+                const std::string_view source_name =
+                    source_field.name != nullptr ? std::string_view{source_field.name}
+                                                 : std::string_view{};
+                if (target_name != source_name || target_field.type == nullptr ||
+                    source_field.type == nullptr ||
+                    !current_ts_schema_compatible(*target_field.type, *source_field.type))
                 {
-                    if (schema_contains_tsd(schema->fields()[index].type)) { return true; }
+                    return false;
                 }
             }
-            return false;
+            return true;
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_ref(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && target.referenced_ts() != nullptr &&
+                   source.referenced_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.referenced_ts(), *source.referenced_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_window(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            if (!current_ts_schema_compatible_atomic(target, source) ||
+                target.is_duration_based() != source.is_duration_based())
+            {
+                return false;
+            }
+            return target.is_duration_based()
+                       ? target.time_range() == source.time_range() &&
+                             target.min_time_range() == source.min_time_range()
+                       : target.period() == source.period() &&
+                             target.min_period() == source.min_period();
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            const auto &ops = ts_current_state_detail::current_state_ops_for(target.kind);
+            return ops.reconcile_schema_compatible_impl(target, source);
         }
 
         void apply_current_value_direct(const TSOutputView &out, const ValueView &value)
@@ -285,7 +395,7 @@ namespace hgraph
             static_cast<void>(mutation.copy_value_from(value));
         }
 
-        void apply_current_value_tsd(const TSOutputView &out, const ValueView &value)
+        void apply_current_value_dict(const TSOutputView &out, const ValueView &value)
         {
             auto       dict_out   = out.as_dict();
             auto       mutation   = dict_out.begin_mutation(out.evaluation_time());
@@ -306,16 +416,13 @@ namespace hgraph
             for (const auto &key : removals) { static_cast<void>(mutation.erase(key.view())); }
         }
 
-        void apply_current_value_tsl(const TSOutputView &out, const ValueView &value)
+        void apply_current_value_list(const TSOutputView &out, const ValueView &value)
         {
             const auto *schema = out.schema();
-            if (schema == nullptr) { throw std::logic_error("apply_current_value: TSL output schema is missing"); }
-            if (value.schema() == schema->value_schema && !schema_contains_tsd(schema))
+            if (schema == nullptr)
             {
-                apply_current_value_direct(out, value);
-                return;
+                throw std::logic_error("apply_current_value: TSL output schema is missing");
             }
-
             const auto source_values = value.as_indexed_view();
             if (schema->fixed_size() != 0 && source_values.size() != schema->fixed_size())
             {
@@ -331,17 +438,20 @@ namespace hgraph
             for (std::size_t index = 0; index < source_values.size(); ++index)
             {
                 auto source_child = source_values.at(index);
-                // UNSET source children are skipped (the TSL carries the
-                // same field-validity contract as TSB).
+                // Current-value application is a patch: an UNSET structural
+                // child leaves the target child untouched.
                 if (!source_child.valid()) { continue; }
                 apply_current_value(list_out.at(index), source_child);
             }
         }
 
-        void apply_current_value_tsb(const TSOutputView &out, const ValueView &value)
+        void apply_current_value_bundle(const TSOutputView &out, const ValueView &value)
         {
             const auto *schema = out.schema();
-            if (schema == nullptr) { throw std::logic_error("apply_current_value: TSB output schema is missing"); }
+            if (schema == nullptr)
+            {
+                throw std::logic_error("apply_current_value: TSB output schema is missing");
+            }
             const auto source_values = value.as_indexed_view();
             if (source_values.size() != schema->field_count())
             {
@@ -352,34 +462,677 @@ namespace hgraph
             for (std::size_t index = 0; index < source_values.size(); ++index)
             {
                 auto source_child = source_values.at(index);
-                // UNSET source fields are skipped (Bundle field validity):
-                // applying a partially-valid value writes only its live
-                // fields - never defaults.
+                // As above, bundle field validity gives patch semantics.
                 if (!source_child.valid()) { continue; }
                 apply_current_value(bundle_out.at(index), source_child);
             }
         }
 
-        using CurrentValueApplyFn = void (*)(const TSOutputView &, const ValueView &);
-
-        [[nodiscard]] CurrentValueApplyFn current_value_apply_for(TSTypeKind kind) noexcept
+        [[nodiscard]] Value capture_current_atomic(const TSInputView &input)
         {
-            static constexpr std::size_t kind_count = ts_kind_index(TSTypeKind::SIGNAL) + 1U;
-            static const std::array<CurrentValueApplyFn, kind_count> table{
-                &apply_current_value_direct,
-                &apply_current_value_direct,
-                &apply_current_value_tsd,
-                &apply_current_value_tsl,
-                &apply_current_value_direct,
-                &apply_current_value_tsb,
-                &apply_current_value_direct,
-                &apply_current_value_direct,
-            };
+            return Value{input.value()};
+        }
 
-            const auto index = ts_kind_index(kind);
-            return index < table.size() ? table[index] : &apply_current_value_direct;
+        [[nodiscard]] Value capture_current_signal(const TSInputView &)
+        {
+            return Value{true};
+        }
+
+        [[nodiscard]] Value capture_current_set(const TSInputView &input)
+        {
+            const auto &schema = require_schema(input.schema(), "capture_current_delta");
+            const ValueTypeRef element = binding_for(
+                schema.value_schema->element_type, "capture_current_delta");
+            SetBuilder added{element};
+            const auto set = input.as_set();
+            for (const auto &value : set.values())
+            {
+                const BorrowedOperand borrowed{element, value, "capture_current_delta"};
+                static_cast<void>(added.insert_copy(borrowed.data()));
+            }
+            SetBuilder removed{element};
+            BundleBuilder bundle{binding_for(schema.delta_value_schema, "capture_current_delta")};
+            bundle.set("added", added.build());
+            bundle.set("removed", removed.build());
+            return bundle.build();
+        }
+
+        [[nodiscard]] Value capture_current_dict(const TSInputView &input)
+        {
+            const auto &schema = require_schema(input.schema(), "capture_current_delta");
+            const ValueTypeRef key_binding = binding_for(
+                schema.key_type(), "capture_current_delta");
+            const auto *element_schema = schema.element_ts();
+            const ValueTypeRef delta_binding = binding_for(
+                element_schema->delta_value_schema, "capture_current_delta");
+
+            SetBuilder removed{key_binding};
+            MapBuilder modified{key_binding, delta_binding};
+            const auto dict = input.as_dict();
+            for (const auto &[key, child] : dict.valid_items())
+            {
+                Value child_delta = capture_current_delta(child);
+                modified.set_item(key, child_delta.view());
+            }
+
+            Value removed_delta = removed.build();
+            Value modified_delta = modified.build();
+            const std::array field_bindings{
+                removed_delta.binding(), modified_delta.binding()};
+            const auto bundle_binding = ValuePlanFactory::instance().realized_composite_type_for(
+                schema.delta_value_schema, field_bindings);
+            BundleBuilder bundle{bundle_binding};
+            bundle.set("removed", std::move(removed_delta));
+            bundle.set("modified", std::move(modified_delta));
+            return bundle.build();
+        }
+
+        [[nodiscard]] Value capture_current_list(const TSInputView &input)
+        {
+            const auto &schema = require_schema(input.schema(), "capture_current_delta");
+            const ValueTypeRef key_binding = binding_for(
+                schema.delta_value_schema->key_type, "capture_current_delta");
+            const ValueTypeRef delta_binding = binding_for(
+                schema.delta_value_schema->element_type, "capture_current_delta");
+            MapBuilder builder{key_binding, delta_binding};
+            const auto list = input.as_list();
+            for (const auto &[index, child] : list.valid_items())
+            {
+                const std::int64_t key = static_cast<std::int64_t>(index);
+                Value child_delta = capture_current_delta(child);
+                builder.set_item(ValueView{key_binding, std::addressof(key)}, child_delta.view());
+            }
+            return builder.build();
+        }
+
+        [[nodiscard]] Value capture_current_bundle(const TSInputView &input)
+        {
+            const auto &schema = require_schema(input.schema(), "capture_current_delta");
+            const auto type = ts_type_for(&schema, "capture_current_delta");
+            BundleBuilder builder{binding_for(schema.delta_value_schema, "capture_current_delta")};
+            initialize_tsb_delta_defaults(type, builder);
+            auto bundle = input.as_bundle();
+            for (std::size_t index = 0; index < bundle.size(); ++index)
+            {
+                auto child = bundle.at(index);
+                if (child.valid()) { builder.set(index, capture_current_delta(child)); }
+            }
+            return builder.build();
+        }
+
+        [[nodiscard]] Value capture_current_transient(const TSInputView &input)
+        {
+            if (input.modified()) { return capture_delta(input); }
+            throw std::logic_error(
+                "capture_current_delta cannot reconstruct an unmodified TSW or REF");
+        }
+
+        [[nodiscard]] bool observable_atomic(const TSInputView &input,
+                                             const ValueView &delta)
+        {
+            return input.modified() && input.valid() && delta.has_value();
+        }
+
+        [[nodiscard]] bool observable_window(const TSInputView &input,
+                                             const ValueView &delta)
+        {
+            // Tick windows emit before they reach min-size validity.
+            return input.modified() && delta.has_value();
+        }
+
+        [[nodiscard]] bool observable_set(const TSInputView &input,
+                                          const ValueView &delta)
+        {
+            if (!input.modified() || !delta.has_value()) { return false; }
+            if (input.valid()) { return true; }
+            const auto bundle = delta.as_bundle();
+            return bundle.at(tss_delta_removed).as_indexed_view().size() != 0;
+        }
+
+        [[nodiscard]] bool observable_dict(const TSInputView &input,
+                                           const ValueView &delta)
+        {
+            if (!input.modified() || !delta.has_value()) { return false; }
+            if (input.valid()) { return true; }
+            const auto bundle = delta.as_bundle();
+            return bundle.at(tsd_delta_removed).as_indexed_view().size() != 0 ||
+                   bundle.at(tsd_delta_modified).as_map().size() != 0;
+        }
+
+        [[nodiscard]] bool observable_list(const TSInputView &input,
+                                           const ValueView &delta)
+        {
+            if (!input.modified() || !delta.has_value()) { return false; }
+            const auto &schema = require_schema(input.schema(), "delta_is_observable");
+            const bool has_children = delta.as_map().size() != 0;
+            if (schema.fixed_size() != 0) { return has_children; }
+            return input.valid() || has_children;
+        }
+
+        [[nodiscard]] bool observable_bundle(const TSInputView &input,
+                                             const ValueView &delta)
+        {
+            if (!input.modified() || !delta.has_value()) { return false; }
+            const auto bundle = delta.as_bundle();
+            auto children = input.as_bundle();
+            for (std::size_t index = 0; index < children.size(); ++index)
+            {
+                auto child = children.at(index);
+                if (!child.modified()) { continue; }
+                const auto &ops = current_state_ops_for_input(child, "delta_is_observable");
+                if (ops.delta_is_observable_impl(child, bundle.at(index))) { return true; }
+            }
+            return false;
+        }
+
+        void reconcile_current(const TSOutputView &target, const TSInputView &source,
+                               TSCurrentReconcileOptions options);
+        void reconcile_current(const TSOutputView &target, const TSDataView &source,
+                               TSCurrentReconcileOptions options);
+
+        template <typename Source>
+        [[nodiscard]] bool source_live(const Source &source)
+        {
+            if constexpr (std::same_as<Source, TSInputView>)
+            {
+                return source.valid();
+            }
+            else
+            {
+                return source.valid() && source.has_current_value();
+            }
+        }
+
+        template <typename Source>
+        [[nodiscard]] bool source_modified(const Source &source,
+                                           const TSOutputView &target)
+        {
+            if constexpr (std::same_as<Source, TSInputView>)
+            {
+                return source.modified();
+            }
+            else
+            {
+                if (!source.valid()) { return false; }
+                return source.modified(target.evaluation_time());
+            }
+        }
+
+        template <typename Source>
+        [[nodiscard]] bool should_visit_source(const Source &source,
+                                               const TSOutputView &target,
+                                               TSCurrentReconcileOptions options)
+        {
+            return options.scope == TSCurrentReconcileScope::Full || options.sample_all ||
+                   source_modified(source, target);
+        }
+
+        template <typename SourceChild>
+        [[nodiscard]] bool source_child_live(const SourceChild &child)
+        {
+            if constexpr (std::same_as<SourceChild, TSInputView>)
+            {
+                return child.valid();
+            }
+            else
+            {
+                return child.valid() && child.has_current_value();
+            }
+        }
+
+        void invalidate_target(const TSOutputView &target)
+        {
+            if (!target.data_view().has_current_value()) { return; }
+            auto mutation = target.begin_mutation(target.evaluation_time());
+            static_cast<void>(mutation.invalidate());
+        }
+
+        template <typename Source>
+        void reconcile_atomic_impl(const TSOutputView &target, const Source &source,
+                                   TSCurrentReconcileOptions options)
+        {
+            if (!should_visit_source(source, target, options)) { return; }
+            if (!source_live(source))
+            {
+                if (options.scope == TSCurrentReconcileScope::Full) { invalidate_target(target); }
+                return;
+            }
+
+            const auto source_value = source.value();
+            const bool equal = target.data_view().has_current_value() &&
+                               target.value().equals(source_value);
+            if (equal && !options.sample_all) { return; }
+            auto mutation = target.begin_mutation(target.evaluation_time());
+            static_cast<void>(mutation.copy_value_from(source_value));
+            if (options.sample_all) { mutation.mark_modified(); }
+        }
+
+        template <typename Source>
+        void reconcile_set_impl(const TSOutputView &target, const Source &source,
+                                TSCurrentReconcileOptions options)
+        {
+            if (!should_visit_source(source, target, options)) { return; }
+            auto target_set = target.as_set();
+
+            if (!source_live(source))
+            {
+                if (target.data_view().has_current_value())
+                {
+                    auto mutation = target_set.begin_mutation(target.evaluation_time());
+                    mutation.clear();
+                }
+                return;
+            }
+            auto mutation = target_set.begin_mutation(target.evaluation_time());
+            const auto source_set = source.as_set();
+
+            if (options.scope == TSCurrentReconcileScope::Full)
+            {
+                std::vector<Value> removals;
+                for (const auto key : target_set.values())
+                {
+                    if (!source_set.contains(key)) { removals.emplace_back(key); }
+                }
+                for (const auto &key : removals)
+                {
+                    static_cast<void>(mutation.remove(key.view()));
+                }
+                for (const auto key : source_set.values())
+                {
+                    if (!target_set.contains(key)) { static_cast<void>(mutation.add(key)); }
+                }
+                if (options.sample_all) { mutation.touch(); }
+                return;
+            }
+
+            for (const auto key : source_set.removed())
+            {
+                static_cast<void>(mutation.remove(key));
+            }
+            for (const auto key : source_set.added())
+            {
+                if (!target_set.contains(key)) { static_cast<void>(mutation.add(key)); }
+            }
+            if (options.sample_all) { mutation.touch(); }
+        }
+
+        template <typename Source>
+        void reconcile_dict_impl(const TSOutputView &target, const Source &source,
+                                 TSCurrentReconcileOptions options)
+        {
+            if (!should_visit_source(source, target, options)) { return; }
+            auto target_dict = target.as_dict();
+
+            if (!source_live(source))
+            {
+                if (target.data_view().has_current_value())
+                {
+                    auto mutation = target_dict.begin_mutation(target.evaluation_time());
+                    mutation.clear();
+                }
+                return;
+            }
+            auto mutation = target_dict.begin_mutation(target.evaluation_time());
+            const auto source_dict = source.as_dict();
+
+            if (options.scope == TSCurrentReconcileScope::Full)
+            {
+                std::vector<Value> removals;
+                for (const auto key : target_dict.keys())
+                {
+                    const auto source_child = source_dict.at(key);
+                    if (!source_child_live(source_child))
+                    {
+                        removals.emplace_back(key);
+                    }
+                }
+                for (const auto &key : removals)
+                {
+                    static_cast<void>(mutation.erase(key.view()));
+                }
+                for (auto &&[key, source_child] : source_dict.valid_items())
+                {
+                    auto target_child = mutation.at(key);
+                    reconcile_current(
+                        TSOutputView{target.output(), target_child, target.evaluation_time()},
+                        source_child,
+                        TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
+                                                  options.sample_all});
+                }
+                return;
+            }
+
+            const bool structure_modified = [&]() {
+                if constexpr (std::same_as<Source, TSInputView>)
+                {
+                    return source_dict.structure_modified();
+                }
+                else
+                {
+                    return source_dict.structural_delta_current(target.evaluation_time());
+                }
+            }();
+            if (structure_modified)
+            {
+                for (const auto key : source_dict.removed_keys())
+                {
+                    static_cast<void>(mutation.erase(key));
+                }
+            }
+            auto modified_items = [&]() {
+                if constexpr (std::same_as<Source, TSInputView>)
+                {
+                    return source_dict.modified_items();
+                }
+                else
+                {
+                    return source_dict.modified_items(target.evaluation_time());
+                }
+            }();
+            for (auto &&[key, source_child] : modified_items)
+            {
+                if (!source_child_live(source_child)) { continue; }
+                auto target_child = mutation.at(key);
+                reconcile_current(
+                    TSOutputView{target.output(), target_child, target.evaluation_time()},
+                    source_child,
+                    TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
+                                              options.sample_all});
+            }
+        }
+
+        template <typename Source>
+        void reconcile_indexed_impl(const TSOutputView &target, const Source &source,
+                                    TSCurrentReconcileOptions options)
+        {
+            if (!should_visit_source(source, target, options)) { return; }
+            const std::size_t target_size = target.data_view().indexed_child_count();
+            const bool full = options.scope == TSCurrentReconcileScope::Full;
+
+            // A default view is the explicit "no source" sentinel used while
+            // a forwarding publication changes owners. It has no topology to
+            // traverse; a full reconciliation invalidates the current fixed
+            // or indexed state without attempting representation dispatch.
+            if (source.schema() == nullptr)
+            {
+                if (full)
+                {
+                    for (std::size_t index = 0; index < target_size; ++index)
+                    {
+                        invalidate_target(target.indexed_child_at(index));
+                    }
+                }
+                return;
+            }
+
+            const std::size_t source_size = [&]() {
+                if constexpr (std::same_as<Source, TSInputView>)
+                {
+                    return source.data_view().indexed_child_count();
+                }
+                else
+                {
+                    return source.indexed_child_count();
+                }
+            }();
+
+            if (full && target.data_view().ops().indexed_child_growth &&
+                source_size < target_size)
+            {
+                throw std::invalid_argument(
+                    "reconcile_current_state: dynamic TSL current state cannot shrink");
+            }
+
+            for (std::size_t index = 0; index < source_size; ++index)
+            {
+                auto source_child = [&]() {
+                    if constexpr (std::same_as<Source, TSInputView>)
+                    {
+                        return source.indexed_child_at(index);
+                    }
+                    else
+                    {
+                        return source.indexed_child_at(index);
+                    }
+                }();
+                if (!full && !options.sample_all &&
+                    !source_modified(source_child, target))
+                {
+                    continue;
+                }
+                auto target_child = target.indexed_child_at(index);
+                reconcile_current(
+                    target_child, source_child,
+                    TSCurrentReconcileOptions{full ? TSCurrentReconcileScope::Full
+                                                   : TSCurrentReconcileScope::Incremental,
+                                              options.sample_all});
+            }
+
+            if (full)
+            {
+                for (std::size_t index = source_size; index < target_size; ++index)
+                {
+                    invalidate_target(target.indexed_child_at(index));
+                }
+            }
+
+            if (source_live(source) && source_size == 0 &&
+                (!target.valid() || options.sample_all))
+            {
+                auto mutation = target.begin_mutation(target.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(source.value()));
+                if (options.sample_all) { mutation.mark_modified(); }
+            }
+        }
+
+        void reconcile_current(const TSOutputView &target, const TSInputView &source,
+                               TSCurrentReconcileOptions options)
+        {
+            const auto *ops = target.data_view().ops().current_state_ops;
+            if (ops == nullptr)
+            {
+                throw std::logic_error("reconcile_current_state: target policy is null");
+            }
+            ops->reconcile_input_impl(target, source, options);
+        }
+
+        void reconcile_current(const TSOutputView &target, const TSDataView &source,
+                               TSCurrentReconcileOptions options)
+        {
+            const auto *ops = target.data_view().ops().current_state_ops;
+            if (ops == nullptr)
+            {
+                throw std::logic_error("reconcile_current_state: target policy is null");
+            }
+            ops->reconcile_data_impl(target, source, options);
+        }
+
+        [[noreturn]] bool missing_schema_compatible(const TSValueTypeMetaData &,
+                                                    const ValueTypeMetaData &)
+        {
+            throw std::logic_error("TSData current-state schema compatibility is not available");
+        }
+
+        [[noreturn]] bool missing_reconcile_schema_compatible(
+            const TSValueTypeMetaData &,
+            const TSValueTypeMetaData &)
+        {
+            throw std::logic_error(
+                "TSData current-state topology compatibility is not available");
+        }
+
+        [[noreturn]] Value missing_capture_current(const TSInputView &)
+        {
+            throw std::logic_error("TSData current-state capture is not available");
+        }
+
+        [[noreturn]] void missing_apply_current(const TSOutputView &, const ValueView &)
+        {
+            throw std::logic_error("TSData current-value application is not available");
+        }
+
+        [[noreturn]] bool missing_observable_delta(const TSInputView &, const ValueView &)
+        {
+            throw std::logic_error("TSData observable-delta classification is not available");
+        }
+
+        [[noreturn]] void missing_reconcile_input(const TSOutputView &, const TSInputView &,
+                                                  TSCurrentReconcileOptions)
+        {
+            throw std::logic_error("TSData current-state reconciliation is not available");
+        }
+
+        [[noreturn]] void missing_reconcile_data(const TSOutputView &, const TSDataView &,
+                                                 TSCurrentReconcileOptions)
+        {
+            throw std::logic_error("TSData current-state reconciliation is not available");
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &atomic_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_atomic,
+                &capture_current_atomic,
+                &apply_current_value_direct,
+                &observable_atomic,
+                &reconcile_atomic_impl<TSInputView>,
+                &reconcile_atomic_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &signal_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_atomic,
+                &capture_current_signal,
+                &apply_current_value_direct,
+                &observable_atomic,
+                &reconcile_atomic_impl<TSInputView>,
+                &reconcile_atomic_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &transient_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_ref,
+                &capture_current_transient,
+                &apply_current_value_direct,
+                &observable_atomic,
+                &reconcile_atomic_impl<TSInputView>,
+                &reconcile_atomic_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &window_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_window,
+                &capture_current_transient,
+                &apply_current_value_direct,
+                &observable_window,
+                &reconcile_atomic_impl<TSInputView>,
+                &reconcile_atomic_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &set_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_set,
+                &current_ts_schema_compatible_set,
+                &capture_current_set,
+                &apply_current_value_direct,
+                &observable_set,
+                &reconcile_set_impl<TSInputView>,
+                &reconcile_set_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &dict_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_dict,
+                &current_ts_schema_compatible_dict,
+                &capture_current_dict,
+                &apply_current_value_dict,
+                &observable_dict,
+                &reconcile_dict_impl<TSInputView>,
+                &reconcile_dict_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &list_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_list,
+                &current_ts_schema_compatible_list,
+                &capture_current_list,
+                &apply_current_value_list,
+                &observable_list,
+                &reconcile_indexed_impl<TSInputView>,
+                &reconcile_indexed_impl<TSDataView>,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] const TSCurrentStateOps &bundle_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &current_value_schema_compatible_bundle,
+                &current_ts_schema_compatible_bundle,
+                &capture_current_bundle,
+                &apply_current_value_bundle,
+                &observable_bundle,
+                &reconcile_indexed_impl<TSInputView>,
+                &reconcile_indexed_impl<TSDataView>,
+            };
+            return ops;
         }
     }  // namespace
+
+    namespace ts_current_state_detail
+    {
+        const TSCurrentStateOps &missing_current_state_ops() noexcept
+        {
+            static const TSCurrentStateOps ops{
+                &missing_schema_compatible,
+                &missing_reconcile_schema_compatible,
+                &missing_capture_current,
+                &missing_apply_current,
+                &missing_observable_delta,
+                &missing_reconcile_input,
+                &missing_reconcile_data,
+            };
+            return ops;
+        }
+
+        const TSCurrentStateOps &current_state_ops_for(TSTypeKind kind) noexcept
+        {
+            static const std::array<const TSCurrentStateOps *, 8> table{
+                &atomic_current_state_ops(),
+                &set_current_state_ops(),
+                &dict_current_state_ops(),
+                &list_current_state_ops(),
+                &window_current_state_ops(),
+                &bundle_current_state_ops(),
+                &transient_current_state_ops(),
+                &signal_current_state_ops(),
+            };
+            const auto index = static_cast<std::size_t>(kind);
+            return index < table.size() ? *table[index] : missing_current_state_ops();
+        }
+    }  // namespace ts_current_state_detail
 
     namespace ts_data_detail
     {
@@ -460,7 +1213,19 @@ namespace hgraph
 
         Value capture_delta_ts(const TSInputView &in)
         {
-            return Value{in.value()};
+            const ValueView value = in.value();
+            if (value.type()) { return Value{value}; }
+
+            // A modified atomic endpoint may be scheduled by a reference
+            // unbind while carrying no value. Preserve the canonical delta
+            // binding as a typed null so generic consumers can classify the
+            // event without reconstructing the representation policy.
+            const auto &schema = require_schema(in.schema(), "capture_delta");
+            if (schema.delta_value_schema == nullptr)
+            {
+                throw std::logic_error("capture_delta: atomic delta schema is missing");
+            }
+            return Value{*schema.delta_value_schema};
         }
 
         Value capture_delta_signal(const TSInputView &)
@@ -804,116 +1569,20 @@ namespace hgraph
 
     Value capture_current_delta(const TSInputView &in)
     {
-        const auto &schema = require_schema(in.schema(), "capture_current_delta");
+        static_cast<void>(require_schema(in.schema(), "capture_current_delta"));
         if (!in.valid())
         {
             throw std::invalid_argument("capture_current_delta requires a valid input");
         }
+        const auto &ops = current_state_ops_for_input(in, "capture_current_delta");
+        return ops.capture_current_delta_impl(in);
+    }
 
-        switch (schema.kind)
-        {
-            case TSTypeKind::TS: return Value{in.value()};
-            case TSTypeKind::SIGNAL: return Value{true};
-            case TSTypeKind::TSS:
-            {
-                const ValueTypeRef element = binding_for(
-                    schema.value_schema->element_type, "capture_current_delta");
-                SetBuilder added{element};
-                const auto set = in.as_set();
-                for (const auto &value : set.values())
-                {
-                    const BorrowedOperand borrowed{element, value, "capture_current_delta"};
-                    static_cast<void>(added.insert_copy(borrowed.data()));
-                }
-                SetBuilder removed{element};
-                BundleBuilder bundle{
-                    binding_for(schema.delta_value_schema, "capture_current_delta")};
-                bundle.set("added", added.build());
-                bundle.set("removed", removed.build());
-                return bundle.build();
-            }
-            case TSTypeKind::TSD:
-            {
-                const ValueTypeRef key_binding = binding_for(
-                    schema.key_type(), "capture_current_delta");
-                const auto *element_schema = schema.element_ts();
-                const ValueTypeRef delta_binding = binding_for(
-                    element_schema->delta_value_schema, "capture_current_delta");
-
-                SetBuilder removed{key_binding};
-                MapBuilder modified{key_binding, delta_binding};
-                const auto dict = in.as_dict();
-                for (const auto &[key, child] : dict.valid_items())
-                {
-                    const BorrowedOperand borrowed{key_binding, key, "capture_current_delta"};
-                    Value child_delta = capture_current_delta(child);
-                    if (child_delta.binding() == delta_binding)
-                    {
-                        modified.set_item_copy(
-                            borrowed.data(), child_delta.view().data());
-                        continue;
-                    }
-                    Value stored_delta{delta_binding};
-                    delta_binding.ops_ref().copy_assign_from(
-                        delta_binding,
-                        const_cast<void *>(stored_delta.view().data()),
-                        child_delta.binding(),
-                        child_delta.view().data());
-                    modified.set_item_copy(
-                        borrowed.data(), stored_delta.view().data());
-                }
-
-                Value removed_delta = removed.build();
-                Value modified_delta = modified.build();
-                const std::array field_bindings{
-                    removed_delta.binding(), modified_delta.binding()};
-                const auto bundle_binding = ValuePlanFactory::instance().realized_composite_type_for(
-                    schema.delta_value_schema, field_bindings);
-                BundleBuilder bundle{bundle_binding};
-                bundle.set("removed", std::move(removed_delta));
-                bundle.set("modified", std::move(modified_delta));
-                return bundle.build();
-            }
-            case TSTypeKind::TSL:
-            {
-                const ValueTypeRef key_binding = binding_for(
-                    schema.delta_value_schema->key_type, "capture_current_delta");
-                const ValueTypeRef delta_binding = binding_for(
-                    schema.delta_value_schema->element_type, "capture_current_delta");
-                MapBuilder builder{key_binding, delta_binding};
-                const auto list = in.as_list();
-                for (const auto &[index, child] : list.valid_items())
-                {
-                    const std::int64_t key = static_cast<std::int64_t>(index);
-                    Value child_delta = capture_current_delta(child);
-                    builder.set_item_copy(std::addressof(key), child_delta.view().data());
-                }
-                return builder.build();
-            }
-            case TSTypeKind::TSB:
-            {
-                const auto type = ts_type_for(&schema, "capture_current_delta");
-                BundleBuilder builder{
-                    binding_for(schema.delta_value_schema, "capture_current_delta")};
-                initialize_tsb_delta_defaults(type, builder);
-                auto bundle = in.as_bundle();
-                for (std::size_t index = 0; index < bundle.size(); ++index)
-                {
-                    auto child = bundle.at(index);
-                    if (child.valid())
-                    {
-                        builder.set(index, capture_current_delta(child));
-                    }
-                }
-                return builder.build();
-            }
-            case TSTypeKind::TSW:
-            case TSTypeKind::REF:
-                if (in.modified()) { return capture_delta(in); }
-                throw std::logic_error(
-                    "capture_current_delta cannot reconstruct an unmodified TSW or REF");
-        }
-        throw std::logic_error("capture_current_delta received an unknown time-series kind");
+    bool delta_is_observable(const TSInputView &in, const ValueView &delta)
+    {
+        static_cast<void>(require_schema(in.schema(), "delta_is_observable"));
+        const auto &ops = current_state_ops_for_input(in, "delta_is_observable");
+        return ops.delta_is_observable_impl(in, delta);
     }
 
     void apply_delta(const TSOutputView &out, const ValueView &delta)
@@ -928,7 +1597,8 @@ namespace hgraph
     bool current_value_schema_compatible(const TSValueTypeMetaData &schema,
                                          const ValueTypeMetaData   &value_schema)
     {
-        return current_value_schema_compatible_for(schema.kind)(schema, value_schema);
+        const auto &ops = ts_current_state_detail::current_state_ops_for(schema.kind);
+        return ops.value_schema_compatible_impl(schema, value_schema);
     }
 
     void apply_current_value(const TSOutputView &out, const ValueView &value)
@@ -948,7 +1618,61 @@ namespace hgraph
                 static_cast<std::size_t>(schema.kind)));
         }
 
-        current_value_apply_for(schema.kind)(out, value);
+        const auto type = out.type_ref();
+        const auto &ops = current_state_ops(type.as_role(), "apply_current_value");
+        ops.apply_current_value_impl(out, value);
+    }
+
+    namespace
+    {
+        template <typename Source>
+        void validate_reconcile_source(const TSValueTypeMetaData &schema,
+                                       const TSCurrentStateOps &ops,
+                                       const Source &source)
+        {
+            const auto *source_schema = source.schema();
+            // A default, non-live view is the contract's explicit absent
+            // source. It carries no topology and asks the selected strategy
+            // to clear/invalidate its target state.
+            if (source_schema == nullptr && !source.valid()) { return; }
+            if (source_schema == nullptr ||
+                !ops.reconcile_schema_compatible_impl(schema, *source_schema))
+            {
+                throw std::invalid_argument(fmt::format(
+                    "reconcile_current_state requires compatible source and target time-series topology "
+                    "(target '{}', source '{}')",
+                    schema.name(),
+                    source_schema != nullptr ? source_schema->name()
+                                             : std::string_view{"<unbound>"}));
+            }
+        }
+    }
+
+    void reconcile_current_state(const TSOutputView &target, const TSInputView &source,
+                                 TSCurrentReconcileOptions options)
+    {
+        const auto &schema = require_schema(target.schema(), "reconcile_current_state");
+        if (!target.bound())
+        {
+            throw std::invalid_argument("reconcile_current_state requires a bound target");
+        }
+        const auto type = target.type_ref();
+        const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        validate_reconcile_source(schema, ops, source);
+        ops.reconcile_input_impl(target, source, options);
+    }
+
+    void reconcile_current_state(const TSOutputView &target, const TSDataView &source,
+                                 TSCurrentReconcileOptions options)
+    {
+        const auto &schema = require_schema(target.schema(), "reconcile_current_state");
+        if (!target.bound())
+        {
+            throw std::invalid_argument("reconcile_current_state requires a bound target");
+        }
+        const auto type = target.type_ref();
+        const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        validate_reconcile_source(schema, ops, source);
+        ops.reconcile_data_impl(target, source, options);
     }
 }  // namespace hgraph
-

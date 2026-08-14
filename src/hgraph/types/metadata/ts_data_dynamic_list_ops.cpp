@@ -1,6 +1,7 @@
 #include <hgraph/util/scope.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -386,6 +387,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     .kind                      = TSTypeKind::TSL,
                     .allows_mutation           = true,
                     .ownership_ops             = &ownership_ops(),
+                    .current_state_ops =
+                        &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSL),
                     .layout_impl               = &dynamic_layout,
                     .tracking_impl             = &dynamic_tracking,
                     .mutable_tracking_impl     = &dynamic_mutable_tracking,

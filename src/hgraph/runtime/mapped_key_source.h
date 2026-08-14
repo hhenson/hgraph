@@ -2,6 +2,7 @@
 #define HGRAPH_RUNTIME_MAPPED_KEY_SOURCE_H
 
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 
@@ -73,6 +74,8 @@ namespace hgraph::runtime_detail
                 .context                   = context.get(),
                 .kind                      = TSTypeKind::TS,
                 .allows_mutation           = false,
+                .current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(TSTypeKind::TS),
                 .layout_impl               = [](const void *ctx) noexcept -> const TSDataLayout * {
                     return &static_cast<const Context *>(ctx)->layout;
                 },

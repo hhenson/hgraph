@@ -136,10 +136,12 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 5. ABI 5 adds the cold-path dynamic-storage
-    attribution hook used by GraphDiagnostics. ABI 4 represented destructive value
-    assignment sources as writable ``ValueView`` pointers rather than owning
-    ``Value&&`` objects.
+    ``TS_DATA_OPS_ABI_VERSION`` is 8. ABI 8 adds recursive source-topology
+    validation to the current-state strategy table introduced by ABI 7. ABI 6
+    added the erased Python-conversion operations. ABI 5 added the cold-path
+    dynamic-storage attribution hook used by GraphDiagnostics. ABI 4 represented
+    destructive value assignment sources as writable ``ValueView`` pointers
+    rather than owning ``Value&&`` objects.
 
 ``TSDataStorageRef<DataOps>``
     The non-owning time-series cursor. Every generic and specialised form is
@@ -456,7 +458,7 @@ runtime implementation identifier. Consequently attach,
 reparent, and invalidation cannot follow a visible TargetLink projection into
 producer-owned storage. This projection is private lifecycle infrastructure;
 it adds no storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 5.
+``TS_DATA_OPS_ABI_VERSION``, currently 8.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

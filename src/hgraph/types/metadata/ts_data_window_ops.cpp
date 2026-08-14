@@ -2,6 +2,7 @@
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -844,6 +845,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context                   = this,
                     .kind                      = TSTypeKind::TSW,
                     .allows_mutation           = true,
+                    .current_state_ops =
+                        &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSW),
                     .layout_impl               = &window_layout,
                     .tracking_impl             = &window_tracking,
                     .mutable_tracking_impl     = &window_mutable_tracking,

@@ -3,6 +3,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -279,6 +280,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 .kind                      = schema->kind,
                 .allows_mutation           = true,
                 .ownership_ops             = &ownership_ops(),
+                .current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(schema->kind),
                 .layout_impl               = &fixed_layout,
                 .tracking_impl             = &fixed_tracking,
                 .mutable_tracking_impl     = &fixed_mutable_tracking,

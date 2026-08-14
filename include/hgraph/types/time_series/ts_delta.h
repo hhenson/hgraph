@@ -2,9 +2,11 @@
 #define HGRAPH_TYPES_TIME_SERIES_TS_DELTA_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/types/time_series/ts_data/current_state_ops.h>
 
 namespace hgraph
 {
+    class TSDataView;
     class TSInputView;
     class TSOutputView;
     struct TSValueTypeMetaData;
@@ -44,6 +46,12 @@ namespace hgraph
         composite input. */
     [[nodiscard]] HGRAPH_EXPORT Value capture_current_delta(const TSInputView &in);
 
+    /** True when a captured delta represents an externally observable tick.
+        This includes invalid structural-removal and pre-valid tick-window
+        events, while excluding scheduling-only empty structural deltas. */
+    [[nodiscard]] HGRAPH_EXPORT bool delta_is_observable(
+        const TSInputView &in, const ValueView &delta);
+
     HGRAPH_EXPORT void apply_delta(const TSOutputView &out, const ValueView &delta);
 
     /**
@@ -57,6 +65,14 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT bool current_value_schema_compatible(
         const TSValueTypeMetaData &schema, const ValueTypeMetaData &value_schema);
     HGRAPH_EXPORT void apply_current_value(const TSOutputView &out, const ValueView &value);
+
+    /** Reconcile a publication/snapshot output with a live source TSData tree. */
+    HGRAPH_EXPORT void reconcile_current_state(
+        const TSOutputView &target, const TSInputView &source,
+        TSCurrentReconcileOptions options = {});
+    HGRAPH_EXPORT void reconcile_current_state(
+        const TSOutputView &target, const TSDataView &source,
+        TSCurrentReconcileOptions options = {});
 }  // namespace hgraph
 
 #endif  // HGRAPH_TYPES_TIME_SERIES_TS_DELTA_H
