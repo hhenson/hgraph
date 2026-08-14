@@ -191,12 +191,36 @@ namespace hgraph
             return ops_->size(ops_->context, data());
         }
 
+        /** True when the indexed element is logically set.
+
+            Storage lifetime and element validity are separate: a list may
+            retain a default-constructed slot for an UNSET element. The
+            representation supplies the answer through ``IndexedValueOps``;
+            older/dense strategies fall back to a non-null element address. */
+        [[nodiscard]] bool element_valid(std::size_t index) const
+        {
+            const auto n = ops_->size(ops_->context, data());
+            if (index >= n)
+            {
+                throw std::out_of_range(
+                    "IndexedValueView::element_valid: index out of range");
+            }
+            return ops_->element_valid != nullptr
+                       ? ops_->element_valid(ops_->context, data(), index)
+                       : ops_->element_at(ops_->context, data(), index) != nullptr;
+        }
+
         [[nodiscard]] const ValueView at(std::size_t index) const
         {
             const auto n = ops_->size(ops_->context, data());
             if (index >= n) { throw std::out_of_range("IndexedValueView::at: index out of range"); }
-            return ValueView{ops_->element_binding(ops_->context, data(), index),
-                             ops_->element_at(ops_->context, data(), index)};
+            const auto binding = ops_->element_binding(ops_->context, data(), index);
+            if (ops_->element_valid != nullptr &&
+                !ops_->element_valid(ops_->context, data(), index))
+            {
+                return ValueView{binding, nullptr};
+            }
+            return ValueView{binding, ops_->element_at(ops_->context, data(), index)};
         }
 
         [[nodiscard]] const ValueView operator[](std::size_t index) const { return at(index); }

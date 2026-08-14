@@ -235,16 +235,16 @@ def test_raw_replay_applies_tsb_and_selects_each_tsd_partition():
     bundle_schema = hg.ts_schema(a=hg.TS[int], b=hg.TS[str])
     bundle_frame = pa.table(
         {
-            "__date_time__": [hg.MIN_ST],
-            "__as_of__": [hg.MIN_ST],
-            "a": [1],
-            "b": ["one"],
+            "__date_time__": [hg.MIN_ST, hg.MIN_ST + hg.MIN_TD],
+            "__as_of__": [hg.MIN_ST, hg.MIN_ST],
+            "a": [1, None],
+            "b": ["one", "two"],
         }
     )
     assert hg.eval_node(
         replay_data_frame[hg.TSB[bundle_schema]], bundle_frame,
         as_of_time=hg.MIN_ST
-    ) == [{"a": 1, "b": "one"}]
+    ) == [{"a": 1, "b": "one"}, {"b": "two"}]
 
     dict_frame = pa.table(
         {
