@@ -210,6 +210,25 @@ namespace hgraph
                        : ops_->element_at(ops_->context, data(), index) != nullptr;
         }
 
+        /** Returning ``const`` BY VALUE is deliberate; do not "clean it up".
+            ``ValueView`` is one type for both read-only and mutable views, so
+            the only thing distinguishing them at an unnamed call site is the
+            cv-qualification of the prvalue. ``at`` hands back a view over the
+            ops table's ``const void *`` - always read-only - and the ``const``
+            is what steers ``at(i).as<T>()`` to the READING ``as`` overload.
+            Drop it and the non-const overload wins, routing to
+            ``checked_mutable_as<T>``, which throws "requires begin_mutation":
+            a working read becomes a runtime failure. ``begin_mutation()``
+            returns a NON-const prvalue for the same reason, so
+            ``begin_mutation().as<T>() = x`` still resolves to the mutable
+            overload (see tests/install_consumer/main.cpp).
+
+            The cost is that ``at`` results cannot be moved from, which is why
+            callers that need an owned ``ValueView`` reborrow instead. Locked in
+            by "ValueView: as<T>() on an accessor result reads, it does not
+            demand mutation" in tests/cpp/test_value.cpp. A type-level split of
+            read-only and mutable views would remove the need for this trick,
+            but that is an RFC-scale change to the value layer. */
         [[nodiscard]] const ValueView at(std::size_t index) const
         {
             const auto n = ops_->size(ops_->context, data());
