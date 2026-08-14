@@ -83,6 +83,68 @@ namespace
     const TableTypeOps extension_table_ops{&describe_extension_scalar, &emit_extension_scalar,
                                            &apply_extension_scalar};
 
+    void describe_all_null_extension_scalar(TableLayout &layout,
+                                             const TSValueTypeMetaData *schema, std::string,
+                                             std::vector<std::size_t>, std::size_t)
+    {
+        ++extension_describes;
+        layout.leaf_ts = schema;
+        layout.value_col_start = layout.keys.size();
+        layout.keys.push_back("value");
+        layout.col_metas.push_back(scalar_descriptor<Int>::value_meta());
+    }
+
+    void describe_empty_extension_scalar(TableLayout &layout, const TSValueTypeMetaData *schema,
+                                          std::string, std::vector<std::size_t>, std::size_t)
+    {
+        ++extension_describes;
+        layout.leaf_ts = schema;
+        layout.value_col_start = layout.keys.size();
+    }
+
+    void emit_presence_only_extension_scalar(const TableLayout &, const TSInputView &, Int,
+                                              DateTime now, DateTime as_of, bool,
+                                              const TableRowSink &sink, bool)
+    {
+        ++extension_emits;
+        const Value when{now};
+        const Value revision{as_of};
+        sink.cell(sink.context, 0, when.view());
+        sink.cell(sink.context, 1, revision.view());
+        sink.end_row(sink.context);
+    }
+
+    void apply_all_null_extension_scalar(const TableLayout &, const TableRowSource &source,
+                                         const TSOutputView &out)
+    {
+        ++extension_applies;
+        if (source.rows != 1)
+        {
+            throw std::logic_error("all-null extension expected one row");
+        }
+        const Value wrapped{ExtensionTableScalar{77}};
+        apply_current_value(out, wrapped.view());
+    }
+
+    void apply_empty_extension_scalar(const TableLayout &, const TableRowSource &source,
+                                      const TSOutputView &out)
+    {
+        ++extension_applies;
+        if (source.rows != 1)
+        {
+            throw std::logic_error("empty extension expected one row");
+        }
+        const Value wrapped{ExtensionTableScalar{88}};
+        apply_current_value(out, wrapped.view());
+    }
+
+    const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
+                                                     &emit_presence_only_extension_scalar,
+                                                     &apply_all_null_extension_scalar};
+    const TableTypeOps empty_extension_table_ops{&describe_empty_extension_scalar,
+                                                  &emit_presence_only_extension_scalar,
+                                                  &apply_empty_extension_scalar};
+
     [[nodiscard]] std::int64_t timestamp_at(const Frame &frame, const std::string &column,
                                             std::int64_t row)
     {
@@ -587,6 +649,55 @@ TEST_CASE("table type ops: a registered child records and replays beneath a TSD"
     CHECK(extension_describes == 1);
     CHECK(extension_emits == 3);
     CHECK(extension_applies == 3);
+}
+
+TEST_CASE("table type ops: a nested all-null child row survives persisted replay")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+    const auto *child_schema =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    extension_describes = 0;
+    extension_emits = 0;
+    extension_applies = 0;
+    register_table_type_ops(child_schema, all_null_extension_table_ops);
+
+    const Value input = dict_delta<Str, TS<ExtensionTableScalar>>(
+        {{Str{"one"}, ExtensionTableScalar{1}}, {Str{"two"}, ExtensionTableScalar{2}}});
+    const Value expected = dict_delta<Str, TS<ExtensionTableScalar>>(
+        {{Str{"one"}, ExtensionTableScalar{77}}, {Str{"two"}, ExtensionTableScalar{77}}});
+
+    (void)eval_node<NestedExtensionRecordGraph<NestedExtensionDict>>(values<Value>(input));
+    CHECK_OUTPUT(eval_node<NestedExtensionReplayGraph<NestedExtensionDict>>(),
+                 values<Value>(expected));
+
+    CHECK(extension_describes == 1);
+    CHECK(extension_emits == 2);
+    CHECK(extension_applies == 2);
+}
+
+TEST_CASE("table type ops: a nested child with no value columns survives direct apply")
+{
+    stdlib::register_standard_operators();
+    const auto *child_schema =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    extension_describes = 0;
+    extension_emits = 0;
+    extension_applies = 0;
+    register_table_type_ops(child_schema, empty_extension_table_ops);
+
+    const Value input = tsb_delta<NestedExtensionBundle>(ExtensionTableScalar{1}, Int{10});
+    const Value expected = tsb_delta<NestedExtensionBundle>(ExtensionTableScalar{88}, Int{10});
+    CHECK_OUTPUT(eval_node<NestedExtensionTableRoundTripGraph<NestedExtensionBundle>>(
+                     values<Value>(input)),
+                 values<Value>(expected));
+
+    CHECK(extension_describes == 1);
+    CHECK(extension_emits == 1);
+    CHECK(extension_applies == 1);
 }
 
 TEST_CASE("table type ops: registry reset withdraws exact-schema overrides")

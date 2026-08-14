@@ -64,6 +64,8 @@ namespace hgraph
             schema. ``ts_path`` locates the child below the structural leaf and
             ``columns`` maps the child's canonical column indexes into this
             layout. A ``no_column`` entry suppresses an unmapped child column.
+            ``presence_column`` records that the child emitted a row independently
+            of whether any projected payload cell has a value.
 
             This is plan data only: the selected child operations are reached
             through ``layout->ops`` and no registry lookup occurs during
@@ -73,6 +75,7 @@ namespace hgraph
             const TableLayout       *layout{nullptr};
             std::vector<std::size_t> ts_path{};
             std::vector<std::size_t> columns{};
+            std::size_t              presence_column{no_column};
         };
 
         struct Level

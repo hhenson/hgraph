@@ -661,11 +661,14 @@ container.
 
 Exact child strategies compose beneath built-in ``TSB`` and ``TSD`` layouts.
 The builder interns the child's own plan, projects its columns into the parent,
-and records that projection in the parent plan. Emission and application then
-delegate through the child's selected operations without another registry
-lookup. An embedded strategy must describe and emit a single row; combining a
-multi-row child with sibling structural fields has no unambiguous row product
-and is rejected while the layout is built.
+and records that projection in the parent plan. A dedicated boolean column
+records whether the child emitted a row; presence is not inferred from payload
+nullability, so strategies with no value columns and valid all-null rows retain
+their update semantics. Emission and application then delegate through the
+child's selected operations without another registry lookup. An embedded
+strategy must describe and emit a single row; combining a multi-row child with
+sibling structural fields has no unambiguous row product and is rejected while
+the layout is built.
 
 Direct tuple-row application and persisted Arrow replay both adapt their
 input to ``TableRowSource`` and call the selected ``apply`` function. This is

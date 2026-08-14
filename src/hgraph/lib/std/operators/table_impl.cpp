@@ -309,6 +309,15 @@ namespace hgraph::stdlib
                     layout.keys.push_back(name);
                     layout.col_metas.push_back(child.col_metas[column]);
                 }
+                // Payload nullability does not encode whether the child
+                // emitted a row: a valid strategy may have no value columns,
+                // or may deliberately emit an all-null row. Persist that
+                // distinction explicitly so nested apply observes the same
+                // row presence as root apply.
+                child_plan.presence_column = layout.keys.size();
+                layout.keys.push_back(
+                    fmt::format("__hgraph_child_{}_present__", layout.child_plans.size()));
+                layout.col_metas.push_back(TypeRegistry::instance().value_type("bool"));
                 layout.child_plans.push_back(std::move(child_plan));
             }
 
@@ -775,6 +784,8 @@ namespace hgraph::stdlib
                         }
                         sink.cell(sink.context, parent_column, cells[column].view());
                     }
+                    const Value present{Bool{true}};
+                    sink.cell(sink.context, plan->presence_column, present.view());
                 }
             };
 
@@ -1200,18 +1211,8 @@ namespace hgraph::stdlib
             {
                 for (const TableLayout::ChildPlan &plan : layout.child_plans)
                 {
-                    bool has_value = false;
-                    for (std::size_t column = 2; column < plan.columns.size(); ++column)
-                    {
-                        const std::size_t parent_column = plan.columns[column];
-                        if (parent_column != TableLayout::no_column &&
-                            row.at(parent_column).has_value())
-                        {
-                            has_value = true;
-                            break;
-                        }
-                    }
-                    if (!has_value)
+                    const ValueView &present = row.at(plan.presence_column);
+                    if (!present.has_value() || !present.checked_as<Bool>())
                     {
                         continue;
                     }

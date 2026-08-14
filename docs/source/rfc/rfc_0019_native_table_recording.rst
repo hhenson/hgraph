@@ -563,8 +563,10 @@ When an exact registered schema is nested below a built-in ``TSB`` or ``TSD``,
 the parent plan retains the independently interned child plan and a local-to-
 parent column projection. The parent owns structural columns and row formation;
 the child owns conversion of its value columns through the same ``emit`` and
-``apply`` operations it uses at the root. Embedded multi-row strategies are
-rejected because combining their rows with sibling structural fields would
+``apply`` operations it uses at the root. Each child projection includes an
+explicit boolean presence column, since a valid emitted row may contain only
+null payload cells or no payload columns at all. Embedded multi-row strategies
+are rejected because combining their rows with sibling structural fields would
 require a separate row-product policy.
 
 Two constraints bound the design:
