@@ -148,7 +148,7 @@ and runner messages to the configured Python ``graph_logger``; Python-authored
 ``LoggerView``. Logging no longer retrieves a Python object from copied-in
 ``GlobalState``.
 ``default_log_level`` and ``logger_formatter`` apply to mixed graphs, with
-node paths supplied through the optional native ``ContextualLogger`` contract.
+node paths supplied through the executor-selected native ``LoggerOps`` contract.
 
 The allocation/timing guard lives in ``hgraph_type_erasure_perf`` as the
 ``evaluation_profiler_disabled_cycle`` and

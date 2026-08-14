@@ -184,6 +184,8 @@ struct GraphRuntimeBaseStorage {
   /** Borrowed from executor storage; nested graphs copy their parent's pointer.
    */
   spdlog::logger *logger{nullptr};
+  /** Selected with ``logger`` and cached through nested graphs in O(1). */
+  const LoggerOps *logger_ops{nullptr};
   const TypeRealizationSnapshot *type_realization{nullptr};
 };
 
@@ -1032,6 +1034,13 @@ spdlog::logger *logger_impl(const void *context, const void *memory) noexcept {
 }
 
 template <typename Storage>
+const LoggerOps *logger_ops_impl(const void *context,
+                                 const void *memory) noexcept {
+  const auto &runtime = graph_context(context);
+  return graph_header<Storage>(runtime, memory).logger_ops;
+}
+
+template <typename Storage>
 const TypeRealizationSnapshot *
 type_realization_impl(const void *context, const void *memory) noexcept {
   return graph_header<Storage>(graph_context(context), memory).type_realization;
@@ -1400,6 +1409,7 @@ struct GraphRuntimeRegistry {
                 ? &compound_scalar_storage_impl<RootGraphRuntimeStorage>
                 : nullptr,
         .logger_impl = &logger_impl<RootGraphRuntimeStorage>,
+        .logger_ops_impl = &logger_ops_impl<RootGraphRuntimeStorage>,
     };
   }
 
@@ -1448,6 +1458,7 @@ struct GraphRuntimeRegistry {
                 ? &compound_scalar_storage_impl<NestedGraphRuntimeStorage>
                 : nullptr,
         .logger_impl = &logger_impl<NestedGraphRuntimeStorage>,
+        .logger_ops_impl = &logger_ops_impl<NestedGraphRuntimeStorage>,
     };
   }
 
@@ -1761,6 +1772,16 @@ spdlog::logger *GraphView::logger() const noexcept {
                                       : nullptr;
 }
 
+const LoggerOps *GraphView::logger_ops() const noexcept {
+  if (!valid()) {
+    return nullptr;
+  }
+  const auto &table = ops();
+  return table.logger_ops_impl != nullptr
+             ? table.logger_ops_impl(table.context, data())
+             : nullptr;
+}
+
 const TypeRealizationSnapshot *GraphView::type_realization() const noexcept {
   if (!valid()) {
     return nullptr;
@@ -1871,6 +1892,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, ExecutorPtr root_executor) {
           state.lifecycle_observers =
               &GraphExecutorView{root_executor}.lifecycle_observers();
           state.logger = GraphExecutorView{root_executor}.logger();
+          state.logger_ops = GraphExecutorView{root_executor}.logger_ops();
           state.type_realization = snapshot.get();
         });
   });
@@ -1911,6 +1933,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node) {
           state.lifecycle_observers =
               &NodeView{parent_node}.graph().lifecycle_observers();
           state.logger = NodeView{parent_node}.graph().logger();
+          state.logger_ops = NodeView{parent_node}.graph().logger_ops();
           state.type_realization = effective_snapshot;
         },
         shared_storage);
@@ -1963,6 +1986,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node,
         state.lifecycle_observers =
             &NodeView{parent_node}.graph().lifecycle_observers();
         state.logger = NodeView{parent_node}.graph().logger();
+        state.logger_ops = NodeView{parent_node}.graph().logger_ops();
         state.type_realization = effective_snapshot;
       },
       shared_storage);

@@ -806,8 +806,11 @@ a request completes the current evaluation cycle before ending the run.
 
 ``LoggerView`` borrows the executor-owned spdlog logger. Configure it with
 ``GraphExecutorBuilder::logger``; the executor retains shared ownership while
-root and nested graphs cache only the raw pointer. Injecting or writing a log
-does not add node storage or perform reference counting on the evaluation path.
+root and nested graphs cache only the raw pointer and selected ``LoggerOps``
+table. Ordinary loggers use ``plain_logger_ops()``; integrations that need node
+context may provide a static passive table alongside their logger. Injecting or
+writing a log does not add node storage, perform RTTI, or reference-count on the
+evaluation path.
 
 ``GlobalStateView`` is a borrowing **view** over the graph's shared, mutable
 ``string -> value`` store. The root graph owns the run-time state, initialized by

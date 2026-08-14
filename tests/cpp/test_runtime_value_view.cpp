@@ -237,6 +237,23 @@ TEST_CASE("Graph executor and clock runtime families use canonical records", "[t
     REQUIRE(ExecutorTypeRef::checked(generic_executor) == simulation_type);
     REQUIRE(ClockTypeRef::checked(generic_clock) == simulation_clock.type());
     REQUIRE_THROWS_AS(GraphTypeRef::checked(generic_executor), std::invalid_argument);
+
+    // Independently compiled consumers can retain an older ops-table layout.
+    // Reject those records before a view can dispatch through a shifted or
+    // missing callback slot.
+    TypeRecord stale_graph_record = *generic_graph.record();
+    stale_graph_record.ops_abi_version = GRAPH_OPS_ABI_VERSION - 1;
+    REQUIRE_THROWS_AS(
+        GraphTypeRef::checked(
+            AnyPtr::read_only(stale_graph_record, generic_graph.data())),
+        std::invalid_argument);
+
+    TypeRecord stale_executor_record = *generic_executor.record();
+    stale_executor_record.ops_abi_version = EXECUTOR_OPS_ABI_VERSION - 1;
+    REQUIRE_THROWS_AS(
+        ExecutorTypeRef::checked(
+            AnyPtr::read_only(stale_executor_record, generic_executor.data())),
+        std::invalid_argument);
 }
 
 TEST_CASE("NodeValue exposes a type-erased view over node storage")

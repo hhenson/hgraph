@@ -36,6 +36,14 @@ namespace hgraph::stdlib
             std::size_t              field_index{0};
         };
 
+        struct FromFramePlan;
+        using FromFrameRowApplication = void (*)(const FromFramePlan &plan,
+                                                  std::int64_t row,
+                                                  const TSOutputView &out);
+        void missing_from_frame_row_application(const FromFramePlan &plan,
+                                                std::int64_t row,
+                                                const TSOutputView &out);
+
         /** from_data_frame reading plan (heap handle via node State). */
         struct FromFramePlan
         {
@@ -43,7 +51,7 @@ namespace hgraph::stdlib
             std::string               dt_col{};
             TimeDelta                 offset{};
             std::int64_t              row{0};
-            TSTypeKind                out_kind{};
+            FromFrameRowApplication   apply_row{&missing_from_frame_row_application};
             const ValueTypeMetaData  *key_meta{nullptr};      // TSD key
             std::string               key_col{};
             const ValueTypeMetaData  *bundle_meta{nullptr};   // TSB(-child) value bundle

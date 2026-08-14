@@ -49,6 +49,38 @@ namespace hgraph::detail
             Ops    ops{};
         };
 
+        using TargetLinkBundleContext =
+            TargetLinkContextFor<FixedTSBDataLayout, IndexedTSDataOps>;
+
+        [[nodiscard]] std::size_t target_link_bundle_inspection_field_count(
+            const void *context) noexcept
+        {
+            return static_cast<const TargetLinkBundleContext *>(context)->layout.fields.size();
+        }
+
+        [[nodiscard]] TSDataInspectionField target_link_bundle_inspection_field_at(
+            const void *context, std::size_t index)
+        {
+            const auto *state = static_cast<const TargetLinkBundleContext *>(context);
+            if (index >= state->layout.fields.size())
+                throw std::out_of_range("target-link TSData inspection field index is out of range");
+            const auto &field = state->layout.fields[index];
+            return TSDataInspectionField{
+                .name = state->schema->fields()[index].name,
+                .data_offset = field.data_offset,
+                .type = field.type,
+            };
+        }
+
+        [[nodiscard]] const TSDataInspectionOps &target_link_bundle_inspection_ops() noexcept
+        {
+            static const TSDataInspectionOps ops{
+                .field_count_impl = &target_link_bundle_inspection_field_count,
+                .field_at_impl = &target_link_bundle_inspection_field_at,
+            };
+            return ops;
+        }
+
         struct TargetLinkDictContext final : TSInputTargetLinkContext
         {
             TSDDataLayout dict_layout{};
@@ -1395,7 +1427,7 @@ namespace hgraph::detail
         {
             if (schema.kind == TSTypeKind::TSB)
             {
-                using Context = TargetLinkContextFor<FixedTSBDataLayout, IndexedTSDataOps>;
+                using Context = TargetLinkBundleContext;
                 auto storage = make_target_link_context_storage<Context>();
                 auto *context = storage.as<Context>();
                 initialise_target_link_context(*context, schema, storage_offset);
@@ -1403,6 +1435,8 @@ namespace hgraph::detail
                 context->layout.tracking_offset = storage_offset;
                 context->ops = IndexedTSDataOps{};
                 static_cast<TSDataOps &>(context->ops) = target_link_base_ops(*context);
+                static_cast<TSDataOps &>(context->ops).inspection_ops =
+                    &target_link_bundle_inspection_ops();
                 static_cast<TSDataOps &>(context->ops).indexed_child_count_impl = &target_link_indexed_size;
                 static_cast<TSDataOps &>(context->ops).indexed_child_binding_impl = &target_link_indexed_element_binding;
                 static_cast<TSDataOps &>(context->ops).indexed_child_memory_impl = &target_link_indexed_element_memory;
@@ -1516,6 +1550,16 @@ namespace hgraph::detail
                     if (target_context == nullptr || memory == nullptr) { return; }
                     if (auto *link = target_link_storage_at(*target_context, memory); link != nullptr)
                         link->unbind_noexcept();
+                },
+                .auxiliary_dynamic_storage = [](const void *context,
+                                                const void *memory) noexcept {
+                    const auto *target_context =
+                        static_cast<const TSInputTargetLinkContext *>(context);
+                    if (target_context == nullptr || memory == nullptr)
+                        return DynamicStorageMetrics{};
+                    const auto *link = target_link_storage_at(*target_context, memory);
+                    return link != nullptr ? link->dynamic_storage_metrics()
+                                           : DynamicStorageMetrics{};
                 },
             };
             return ops;

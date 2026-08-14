@@ -494,9 +494,10 @@ global state. The process ``log::logger()`` is only the default used when a
 builder does not supply a run logger.
 
 The optional Python bridge constructs a spdlog logger whose sink owns the
-configured Python ``graph_logger``. ``ContextualLogger`` lets ``LoggerView``
-include a node path only when the destination supports it; ordinary spdlog
-loggers retain the compact path. Executor phase logs are enabled when an
+configured Python ``graph_logger``. The executor selects a passive
+``LoggerOps`` callback with that logger, so ``LoggerView`` includes a node path
+without RTTI or representation discovery at emission time; ordinary spdlog
+loggers use the canonical plain callback. Executor phase logs are enabled when an
 explicit run logger is configured, avoiding unsolicited diagnostics for pure
 C++ tests that use the process default.
 

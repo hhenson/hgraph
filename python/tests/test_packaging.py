@@ -159,8 +159,15 @@ def test_repository_enables_polars_compatibility_without_a_cpp_switch():
 
 def test_wheel_uses_shared_runtime_for_downstream_native_extensions():
     cmake_defines = load_project()["tool"]["scikit-build"]["cmake"]["define"]
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+    native_consumer = (ROOT / "tests/install_consumer/CMakeLists.txt").read_text()
 
     assert cmake_defines["HGRAPH_BUILD_SHARED"] == "ON"
+    assert "function(hgraph_link_python_embedding target)" in cmake
+    assert 'target_link_options(\\${target} PRIVATE \\"LINKER:--no-as-needed\\")' in cmake
+    assert "add_library(hgraph::pyarrow_arrow SHARED IMPORTED)" in cmake
+    assert "hgraph::pyarrow_compute hgraph::pyarrow_acero" in cmake
+    assert "hgraph_link_python_embedding(hgraph_install_consumer)" in native_consumer
 
 
 def test_source_distribution_excludes_private_release_evidence():
@@ -237,6 +244,7 @@ def test_release_workflow_targets_supported_platforms():
     assert "--exclude libhgraph_stdlib.so" in workflow
     assert "--exclude libnanobind-abi3.so" in workflow
     assert "tests/python_extension_consumer/check.py" in combined_workflow
+    assert "tests/install_consumer/check.py" in combined_workflow
     assert "libarrow-acero=25" in native_workflow
     for linux_workflow in (nightly_workflow, native_workflow):
         assert 'GCC_VERSION: "14"' in linux_workflow
@@ -264,7 +272,7 @@ def test_release_workflow_targets_supported_platforms():
     assert '- "3.12"' in test_workflow
     assert '- "3.13"' in test_workflow
     assert '- "3.14"' in test_workflow
-    assert test_workflow.count("uv run --no-sync --no-build") == 5
+    assert test_workflow.count("uv run --no-sync --no-build") == 6
 
 
 def test_platform_wheel_builds_use_stable_cacheable_paths():

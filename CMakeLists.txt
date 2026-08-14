@@ -984,6 +984,30 @@ if(HGRAPH_BUILD_SHARED AND (HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON
         "if(TARGET hgraph::options)\n"
         "  target_link_libraries(hgraph::options INTERFACE hgraph::nanobind)\n"
         "endif()\n"
+        # Extension modules resolve stable-ABI symbols from their importing
+        # interpreter. A native executable has no such host and must instead
+        # link the embedding library for the interpreter it will run. Keep
+        # that choice target-scoped so downstream extension modules remain
+        # minor-independent and manylinux builds need not provide libpython.
+        "function(hgraph_link_python_embedding target)\n"
+        "  if(NOT TARGET \"\${target}\")\n"
+        "    message(FATAL_ERROR \"hgraph_link_python_embedding requires an existing target\")\n"
+        "  endif()\n"
+        "  get_target_property(_hgraph_embedding_target_type \"\${target}\" TYPE)\n"
+        "  if(NOT _hgraph_embedding_target_type STREQUAL \"EXECUTABLE\")\n"
+        "    message(FATAL_ERROR \"hgraph_link_python_embedding is only valid for executable targets\")\n"
+        "  endif()\n"
+        "  if(NOT TARGET Python::Python)\n"
+        "    find_package(Python 3.12 COMPONENTS Interpreter Development.Embed REQUIRED)\n"
+        "  endif()\n"
+        # GNU ld normally uses --as-needed and CMake can place the direct
+        # embedding library before hgraph's transitive DSOs. Retain libpython
+        # even in that order so their stable-ABI references resolve.
+        "  if(UNIX AND NOT APPLE)\n"
+        "    target_link_options(\${target} PRIVATE \"LINKER:--no-as-needed\")\n"
+        "  endif()\n"
+        "  target_link_libraries(\${target} PRIVATE Python::Python)\n"
+        "endfunction()\n"
         "function(hgraph_add_python_module name)\n"
         "  cmake_parse_arguments(PARSE_ARGV 1 _hgraph_module\n"
         "    \"STABLE_ABI;PROTECT_STACK;LTO;NOMINSIZE;NOSTRIP\" \"\" \"\")\n"
@@ -1037,22 +1061,73 @@ elseif(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_USE_PYARROW_ARROW)
     file(APPEND "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
-        # Some public optional implementation headers use Arrow directly.
-        # Resolve only its headers here; the shared hgraph libraries already
-        # own their Arrow link dependencies.
+        # The wheel is also a native SDK. Resolve the exact Arrow runtime
+        # supplied by its pyarrow dependency and publish it through unique
+        # imported targets: a consumer that constructs Frame/Series values
+        # calls Arrow directly, so GNU ld cannot rely on the hgraph DSOs'
+        # private DT_NEEDED entries to satisfy those symbols.
         "execute_process(\n"
-        "  COMMAND \"\${Python_EXECUTABLE}\" -c \"import pathlib, pyarrow; print((pathlib.Path(pyarrow.__file__).resolve().parent / 'include').as_posix())\"\n"
-        "  OUTPUT_VARIABLE _hgraph_arrow_include\n"
+        "  COMMAND \"\${Python_EXECUTABLE}\" -c \"import pathlib, pyarrow; p = pathlib.Path(pyarrow.__file__).resolve().parent; print(p.as_posix()); print((p / 'include').as_posix())\"\n"
+        "  OUTPUT_VARIABLE _hgraph_pyarrow_info\n"
         "  OUTPUT_STRIP_TRAILING_WHITESPACE\n"
-        "  RESULT_VARIABLE _hgraph_arrow_include_result\n"
+        "  RESULT_VARIABLE _hgraph_pyarrow_info_result\n"
         ")\n"
-        "if(NOT _hgraph_arrow_include_result EQUAL 0 OR NOT EXISTS \"\${_hgraph_arrow_include}/arrow/api.h\")\n"
+        "if(NOT _hgraph_pyarrow_info_result EQUAL 0)\n"
+        "  set(hgraph_FOUND FALSE)\n"
+        "  set(hgraph_NOT_FOUND_MESSAGE \"hgraph's shared SDK requires pyarrow\")\n"
+        "  return()\n"
+        "endif()\n"
+        "string(REPLACE \"\\n\" \";\" _hgraph_pyarrow_info \"\${_hgraph_pyarrow_info}\")\n"
+        "list(GET _hgraph_pyarrow_info 0 _hgraph_pyarrow_dir)\n"
+        "list(GET _hgraph_pyarrow_info 1 _hgraph_arrow_include)\n"
+        "if(NOT EXISTS \"\${_hgraph_arrow_include}/arrow/api.h\")\n"
         "  set(hgraph_FOUND FALSE)\n"
         "  set(hgraph_NOT_FOUND_MESSAGE \"hgraph's shared SDK requires pyarrow headers\")\n"
         "  return()\n"
         "endif()\n"
+        "if(WIN32)\n"
+        "  set(_hgraph_arrow_link \"\${_hgraph_pyarrow_dir}/arrow.lib\")\n"
+        "  set(_hgraph_arrow_runtime \"\${_hgraph_pyarrow_dir}/arrow.dll\")\n"
+        "  set(_hgraph_arrow_compute_link \"\${_hgraph_pyarrow_dir}/arrow_compute.lib\")\n"
+        "  set(_hgraph_arrow_compute_runtime \"\${_hgraph_pyarrow_dir}/arrow_compute.dll\")\n"
+        "  set(_hgraph_arrow_acero_link \"\${_hgraph_pyarrow_dir}/arrow_acero.lib\")\n"
+        "  set(_hgraph_arrow_acero_runtime \"\${_hgraph_pyarrow_dir}/arrow_acero.dll\")\n"
+        "else()\n"
+        "  file(GLOB _hgraph_arrow_link LIST_DIRECTORIES false \"\${_hgraph_pyarrow_dir}/libarrow.*\")\n"
+        "  file(GLOB _hgraph_arrow_compute_link LIST_DIRECTORIES false \"\${_hgraph_pyarrow_dir}/libarrow_compute.*\")\n"
+        "  file(GLOB _hgraph_arrow_acero_link LIST_DIRECTORIES false \"\${_hgraph_pyarrow_dir}/libarrow_acero.*\")\n"
+        "  list(SORT _hgraph_arrow_link COMPARE NATURAL)\n"
+        "  list(SORT _hgraph_arrow_compute_link COMPARE NATURAL)\n"
+        "  list(SORT _hgraph_arrow_acero_link COMPARE NATURAL)\n"
+        "  list(GET _hgraph_arrow_link 0 _hgraph_arrow_link)\n"
+        "  list(GET _hgraph_arrow_compute_link 0 _hgraph_arrow_compute_link)\n"
+        "  list(GET _hgraph_arrow_acero_link 0 _hgraph_arrow_acero_link)\n"
+        "  set(_hgraph_arrow_runtime \"\${_hgraph_arrow_link}\")\n"
+        "  set(_hgraph_arrow_compute_runtime \"\${_hgraph_arrow_compute_link}\")\n"
+        "  set(_hgraph_arrow_acero_runtime \"\${_hgraph_arrow_acero_link}\")\n"
+        "endif()\n"
+        "foreach(_hgraph_arrow_file IN ITEMS \"\${_hgraph_arrow_link}\" \"\${_hgraph_arrow_runtime}\" \"\${_hgraph_arrow_compute_link}\" \"\${_hgraph_arrow_compute_runtime}\" \"\${_hgraph_arrow_acero_link}\" \"\${_hgraph_arrow_acero_runtime}\")\n"
+        "  if(NOT EXISTS \"\${_hgraph_arrow_file}\")\n"
+        "    set(hgraph_FOUND FALSE)\n"
+        "    set(hgraph_NOT_FOUND_MESSAGE \"hgraph's shared SDK requires pyarrow's Arrow, Compute, and Acero libraries\")\n"
+        "    return()\n"
+        "  endif()\n"
+        "endforeach()\n"
+        "if(NOT TARGET hgraph::pyarrow_arrow)\n"
+        "  add_library(hgraph::pyarrow_arrow SHARED IMPORTED)\n"
+        "  add_library(hgraph::pyarrow_compute SHARED IMPORTED)\n"
+        "  add_library(hgraph::pyarrow_acero SHARED IMPORTED)\n"
+        "  set_target_properties(hgraph::pyarrow_arrow PROPERTIES IMPORTED_LOCATION \"\${_hgraph_arrow_runtime}\" INTERFACE_INCLUDE_DIRECTORIES \"\${_hgraph_arrow_include}\")\n"
+        "  set_target_properties(hgraph::pyarrow_compute PROPERTIES IMPORTED_LOCATION \"\${_hgraph_arrow_compute_runtime}\" INTERFACE_INCLUDE_DIRECTORIES \"\${_hgraph_arrow_include}\")\n"
+        "  set_target_properties(hgraph::pyarrow_acero PROPERTIES IMPORTED_LOCATION \"\${_hgraph_arrow_acero_runtime}\" INTERFACE_INCLUDE_DIRECTORIES \"\${_hgraph_arrow_include}\")\n"
+        "  if(WIN32)\n"
+        "    set_target_properties(hgraph::pyarrow_arrow PROPERTIES IMPORTED_IMPLIB \"\${_hgraph_arrow_link}\")\n"
+        "    set_target_properties(hgraph::pyarrow_compute PROPERTIES IMPORTED_IMPLIB \"\${_hgraph_arrow_compute_link}\")\n"
+        "    set_target_properties(hgraph::pyarrow_acero PROPERTIES IMPORTED_IMPLIB \"\${_hgraph_arrow_acero_link}\")\n"
+        "  endif()\n"
+        "endif()\n"
         "if(TARGET hgraph::options)\n"
-        "  target_include_directories(hgraph::options INTERFACE \"\${_hgraph_arrow_include}\")\n"
+        "  target_link_libraries(hgraph::options INTERFACE hgraph::pyarrow_arrow hgraph::pyarrow_compute hgraph::pyarrow_acero)\n"
         "endif()\n"
     )
 endif()
