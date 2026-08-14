@@ -255,6 +255,10 @@ and extending as new regressions are identified:
   accepted signature spellings — strict, bare-injectable, and unannotated
   name-match (the #79 class) — and alternates attribute and dictionary-view
   access over naked ``STATE``;
+- ``realtime_default_start`` runs a bounded real-time graph and reduces its
+  nondeterministic timestamp to whether the executor started after the
+  simulation-only ``MIN_ST`` sentinel, pinning the release/0.5 default when
+  no explicit start time is supplied;
 - ``data_frame_recording`` records through the DATA_FRAME model and emits
   the frame a ``DataFrameStorage`` hands back to user code — column names,
   **timezone presentation**, and row values — so a tz-aware engine column or

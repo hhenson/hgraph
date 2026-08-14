@@ -64,7 +64,7 @@ namespace hgraph
                   graph(builder.graph_builder().make_root_graph(type.writable(executor_memory))),
                   start_time(builder.start_time()),
                   end_time(builder.end_time()),
-                  evaluation_time(builder.start_time()),
+                  evaluation_time(start_time),
                   cycle_wall_start(current_wall_time()),
                   error_capture_options(builder.error_capture_options()),
                   cleanup_on_error(builder.cleanup_on_error()),
@@ -114,7 +114,7 @@ namespace hgraph
                   graph(builder.graph_builder().make_root_graph(type.writable(executor_memory))),
                   start_time(builder.start_time()),
                   end_time(builder.end_time()),
-                  evaluation_time(builder.start_time()),
+                  evaluation_time(start_time),
                   error_capture_options(builder.error_capture_options()),
                   cleanup_on_error(builder.cleanup_on_error()),
                   phase_runner(builder.phase_runner()),
@@ -1327,6 +1327,7 @@ namespace hgraph
     GraphExecutorBuilder &GraphExecutorBuilder::start_time(DateTime start_time) noexcept
     {
         start_time_ = start_time;
+        start_time_set_ = true;
         return *this;
     }
 
@@ -1390,7 +1391,8 @@ namespace hgraph
 
     DateTime GraphExecutorBuilder::start_time() const noexcept
     {
-        return start_time_;
+        if (start_time_set_) { return start_time_; }
+        return mode_ == GraphExecutorMode::RealTime ? current_wall_time() : MIN_ST;
     }
 
     DateTime GraphExecutorBuilder::end_time() const noexcept

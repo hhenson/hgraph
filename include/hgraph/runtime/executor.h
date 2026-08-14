@@ -293,6 +293,11 @@ namespace hgraph
         GraphExecutorBuilder &label(std::string label);
         GraphExecutorBuilder &graph_builder(GraphBuilder graph_builder);
         GraphExecutorBuilder &mode(GraphExecutorMode mode) noexcept;
+        /**
+         * Set the first evaluation time explicitly. When omitted, simulation
+         * starts at MIN_ST and real-time execution captures the wall clock
+         * while constructing the executor.
+         */
         GraphExecutorBuilder &start_time(DateTime start_time) noexcept;
         GraphExecutorBuilder &end_time(DateTime end_time) noexcept;
         GraphExecutorBuilder &logger(std::shared_ptr<spdlog::logger> logger);
@@ -337,6 +342,7 @@ namespace hgraph
         std::string                     label_{};
         GraphBuilder                    graph_builder_{};
         DateTime                        start_time_{MIN_ST};
+        bool                            start_time_set_{false};
         DateTime                        end_time_{MAX_ET};
         GraphExecutorMode               mode_{GraphExecutorMode::Simulation};
         std::shared_ptr<spdlog::logger>  logger_{};

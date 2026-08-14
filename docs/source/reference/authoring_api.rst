@@ -199,7 +199,8 @@ Execution and testing
    :param graph: Decorated graph, node, or operator to evaluate.
    :param args: Positional wiring-time arguments passed to ``graph``.
    :param run_mode: Simulation or real-time evaluation mode.
-   :param start_time: First evaluation time.
+   :param start_time: First evaluation time. Defaults to ``MIN_ST`` in
+       simulation mode and current UTC time in real-time mode.
    :param end_time: Run bound, or a duration relative to the start.
    :param print_progress: Compatibility option; progress rendering is not
        performed by the runtime.
@@ -235,7 +236,8 @@ Execution and testing
 
    :param run_mode: ``EvaluationMode.SIMULATION`` or
        ``EvaluationMode.REAL_TIME``.
-   :param start_time: Optional first evaluation time.
+   :param start_time: Optional first evaluation time. Defaults to ``MIN_ST``
+       in simulation mode and current UTC time in real-time mode.
    :param end_time: Run bound, or a :class:`~datetime.timedelta`
        relative to the effective start time.
    :param trace: ``False``, ``True``, an ``EvaluationTrace``, or keyword

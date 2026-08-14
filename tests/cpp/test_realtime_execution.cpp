@@ -210,6 +210,34 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("real-time executor defaults an omitted start time to the wall clock")
+{
+    using namespace hgraph;
+
+    GraphBuilder graph_builder;
+    const DateTime before = hgraph::testing::wall_now();
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .end_time(before + TimeDelta{1'000'000});
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    const DateTime after = hgraph::testing::wall_now();
+
+    CHECK(executor.view().start_time() >= before);
+    CHECK(executor.view().start_time() <= after);
+
+    GraphExecutorBuilder explicit_builder;
+    explicit_builder.graph_builder(GraphBuilder{})
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(MIN_DT)
+        .end_time(MIN_ST);
+
+    GraphExecutorValue explicit_executor = explicit_builder.make_executor();
+    CHECK(explicit_executor.view().start_time() == MIN_DT);
+}
+
 TEST_CASE("real-time executor waits for the future scheduled time")
 {
     using namespace hgraph;

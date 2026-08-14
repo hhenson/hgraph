@@ -215,6 +215,19 @@ def test_legacy_compound_scalar_json_recipe_rejects_malformed_values():
         validate_recipe(recipe)
 
 
+def test_realtime_default_start_recipe_requires_one_boolean_probe():
+    raw = {
+        "schema_version": 1,
+        "id": "test-realtime-default-start",
+        "template": "realtime_default_start",
+        "inputs": {"probe": [1]},
+        "parameters": {},
+        "features": ["execution:real-time"],
+    }
+    with pytest.raises(RecipeError, match="one boolean probe"):
+        validate_recipe(Recipe.from_dict(raw))
+
+
 def test_recipe_fingerprint_is_independent_of_json_key_order():
     first = _scalar_recipe()
     raw = first.to_dict()

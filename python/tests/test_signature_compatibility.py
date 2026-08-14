@@ -130,8 +130,27 @@ def test_graph_configuration_resolves_relative_end_time():
         end_time=timedelta(seconds=2),
     )
     after = hg.utc_now()
+    assert before <= real_time.start_time <= after
     assert before + timedelta(seconds=2) <= real_time.end_time
     assert real_time.end_time <= after + timedelta(seconds=2)
+
+
+def test_realtime_run_defaults_start_time_to_now():
+    @hg.graph
+    def app() -> hg.TS[int]:
+        return hg.const(1)
+
+    before = hg.utc_now()
+    result = hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=timedelta(milliseconds=50),
+    )
+    after = hg.utc_now()
+
+    assert len(result) == 1
+    assert result[0][1] == 1
+    assert before <= result[0][0] <= after
 
 
 def test_graph_configuration_applies_logger_formatter_to_python_and_native_nodes(caplog):
