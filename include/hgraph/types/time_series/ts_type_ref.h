@@ -1,6 +1,7 @@
 #ifndef HGRAPH_TYPES_TIME_SERIES_TS_TYPE_REF_H
 #define HGRAPH_TYPES_TIME_SERIES_TS_TYPE_REF_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/type_pointer.h>
 
@@ -16,7 +17,7 @@ namespace hgraph
 
     inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 9;
 
-    class TSRoleTypeRef
+    class HGRAPH_EXPORT TSRoleTypeRef
     {
       public:
         constexpr TSRoleTypeRef() noexcept = default;
@@ -161,15 +162,18 @@ namespace hgraph
     using TSInputTypeRef = BasicTSTypeRef<TypeRole::Input>;
     using TSOutputTypeRef = BasicTSTypeRef<TypeRole::Output>;
 
-    [[nodiscard]] TSRoleTypeRef intern_ts_type(const TSValueTypeMetaData &schema,
-                                               TypeRole role,
-                                               const MemoryUtils::StoragePlan &plan,
-                                               const TSDataOps &ops,
-                                               std::string_view implementation_label = {});
-    [[nodiscard]] bool is_migrated_ts_root_schema(const TSValueTypeMetaData *schema) noexcept;
-    [[nodiscard]] TypeCapabilities ts_type_capabilities(TypeRole role,
-                                                        const MemoryUtils::StoragePlan &plan,
-                                                        const TSDataOps &ops);
+    [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
+        const TSValueTypeMetaData &schema,
+        TypeRole role,
+        const MemoryUtils::StoragePlan &plan,
+        const TSDataOps &ops,
+        std::string_view implementation_label = {});
+    [[nodiscard]] HGRAPH_EXPORT bool is_migrated_ts_root_schema(
+        const TSValueTypeMetaData *schema) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT TypeCapabilities ts_type_capabilities(
+        TypeRole role,
+        const MemoryUtils::StoragePlan &plan,
+        const TSDataOps &ops);
 
     template <TypeRole Role>
     [[nodiscard]] BasicTSTypeRef<Role> checked_ts_role_type(TSRoleTypeRef type,

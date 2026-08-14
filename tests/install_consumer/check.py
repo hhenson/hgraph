@@ -13,8 +13,23 @@ import tempfile
 SOURCE_DIR = Path(__file__).resolve().parent
 
 
+def hgraph_config_dir(package_prefix: Path) -> Path:
+    candidates = sorted(
+        path
+        for path in package_prefix.glob("lib*/cmake/hgraph")
+        if (path / "hgraphConfig.cmake").is_file()
+    )
+    if len(candidates) != 1:
+        raise RuntimeError(
+            "expected exactly one installed hgraph CMake package below "
+            f"{package_prefix}, found: {candidates}"
+        )
+    return candidates[0]
+
+
 def main() -> int:
     package_prefix = Path(sysconfig.get_path("purelib")).resolve()
+    config_dir = hgraph_config_dir(package_prefix)
     with tempfile.TemporaryDirectory(prefix="hgraph-install-consumer-") as directory:
         build_dir = Path(directory)
         configure = [
@@ -24,6 +39,7 @@ def main() -> int:
             "-B",
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
+            f"-Dhgraph_DIR={config_dir}",
             f"-DCMAKE_PREFIX_PATH={package_prefix}",
             f"-DPython_EXECUTABLE={sys.executable}",
         ]

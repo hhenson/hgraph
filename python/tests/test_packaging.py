@@ -61,12 +61,47 @@ def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
 def test_installed_sdk_exports_required_msvc_source_contract():
     cmake = (ROOT / "CMakeLists.txt").read_text()
     graph_wiring = (ROOT / "include/hgraph/types/graph_wiring.h").read_text()
+    graph_type_ref = (ROOT / "include/hgraph/runtime/graph_type_ref.h").read_text()
+    ts_type_ref = (ROOT / "include/hgraph/types/time_series/ts_type_ref.h").read_text()
+    ts_output = (ROOT / "include/hgraph/types/time_series/ts_output.h").read_text()
+    ts_data_ops = (ROOT / "include/hgraph/types/time_series/ts_data/ops.h").read_text()
+    ts_data_plan_factory = (
+        ROOT / "include/hgraph/types/metadata/ts_data_plan_factory.h"
+    ).read_text()
+    ts_data_plan_factory_detail = (
+        ROOT / "include/hgraph/types/metadata/ts_data_plan_factory_detail.h"
+    ).read_text()
+    any_ops = (ROOT / "include/hgraph/types/value/any_ops.h").read_text()
 
     assert "target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)" in cmake
     assert "$<INSTALL_INTERFACE:FMT_HEADER_ONLY>" in cmake
     assert "FMT_LIB_EXPORT" not in cmake
     assert "FMT_SHARED" not in cmake
     assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
+    assert "class HGRAPH_EXPORT GraphTypeRef" in graph_type_ref
+    assert "class HGRAPH_EXPORT TSRoleTypeRef" in ts_type_ref
+    assert "class HGRAPH_EXPORT TSOutput" in ts_output
+    assert "class HGRAPH_EXPORT TSDataPlanFactory" in ts_data_plan_factory
+    assert "HGRAPH_EXPORT TSRoleTypeRef tsd_value_projection_type" in ts_data_plan_factory_detail
+    assert "HGRAPH_EXPORT ValueTypeRef any_type" in any_ops
+
+    # Public passive ops tables must remain constructible by DLL consumers.
+    default_thunks = {
+        *re.findall(r"&ts_data_detail::(missing_[a-z0-9_]+)", ts_data_ops),
+        *re.findall(r"&ts_data_detail::(noop_[a-z0-9_]+)", ts_data_ops),
+        *re.findall(r"&ts_data_detail::(no_structural_delta)", ts_data_ops),
+    }
+    for thunk in default_thunks:
+        declaration = re.search(rf"[^;]*\b{re.escape(thunk)}\([^;]*;", ts_data_ops)
+        assert declaration is not None, thunk
+        assert "HGRAPH_EXPORT" in declaration.group(0), thunk
+
+
+def test_installed_consumer_resolves_the_platform_specific_cmake_config_directory():
+    check = (ROOT / "tests/install_consumer/check.py").read_text()
+
+    assert 'package_prefix.glob("lib*/cmake/hgraph")' in check
+    assert 'f"-Dhgraph_DIR={config_dir}"' in check
 
 
 def test_windows_wheel_installs_all_linked_pyarrow_runtimes():

@@ -36,64 +36,69 @@ namespace hgraph
         /** Throw the standard missing-operation exception used by default ops thunks. */
         [[noreturn]] void missing_ts_data_op(const char *name);
 
-        [[nodiscard]] const TSDataLayout *missing_layout(const void *);
-        [[nodiscard]] const TSDataTracking *missing_tracking(const void *, const void *);
-        [[nodiscard]] TSDataTracking *missing_mutable_tracking(const void *, void *);
-        [[nodiscard]] bool missing_has_current_value(const void *, const void *);
-        [[nodiscard]] bool missing_all_valid(const void *, const void *);
-        [[nodiscard]] const void *missing_value_memory(const void *, const void *);
-        [[nodiscard]] void *missing_mutable_value_memory(const void *, void *);
-        [[nodiscard]] const void *missing_delta_memory(const void *, const void *);
-        [[nodiscard]] void *missing_mutable_delta_memory(const void *, void *);
-        void noop_reset_delta(const void *, void *);
-        void noop_record_child_modified(const void *, void *, std::size_t, DateTime);
+        // These thunks are referenced by the default member initializers of
+        // public ops tables. They are consequently part of the installed DLL
+        // SDK: downstream extensions must be able to construct an ops table.
+        [[nodiscard]] HGRAPH_EXPORT const TSDataLayout *missing_layout(const void *);
+        [[nodiscard]] HGRAPH_EXPORT const TSDataTracking *missing_tracking(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT TSDataTracking *missing_mutable_tracking(const void *, void *);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_has_current_value(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_all_valid(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_value_memory(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_value_memory(const void *, void *);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_delta_memory(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_delta_memory(const void *, void *);
+        HGRAPH_EXPORT void noop_reset_delta(const void *, void *);
+        HGRAPH_EXPORT void noop_record_child_modified(const void *, void *, std::size_t, DateTime);
         [[nodiscard]] inline DynamicStorageMetrics no_dynamic_storage_metrics(const void *, const void *) noexcept
         {
             return {};
         }
-        [[nodiscard]] bool missing_copy_value_from(const void *, void *, const ValueView &, DateTime);
-        [[nodiscard]] bool missing_move_value_from(const void *, void *, ValueView, DateTime);
-        [[nodiscard]] Value missing_empty_delta(const TSRoleTypeRef &);
-        [[nodiscard]] Value missing_capture_delta(const TSInputView &);
-        [[nodiscard]] bool missing_delta_has_effect(const TSOutputView &, const ValueView &);
-        void missing_apply_delta(const TSOutputView &, const ValueView &);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_copy_value_from(const void *, void *, const ValueView &, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_move_value_from(const void *, void *, ValueView, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT Value missing_empty_delta(const TSRoleTypeRef &);
+        [[nodiscard]] HGRAPH_EXPORT Value missing_capture_delta(const TSInputView &);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_delta_has_effect(const TSOutputView &, const ValueView &);
+        HGRAPH_EXPORT void missing_apply_delta(const TSOutputView &, const ValueView &);
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, nb::handle, DateTime);
         [[nodiscard]] HGRAPH_EXPORT nb::object missing_to_python(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT nb::object missing_delta_to_python(const void *, const void *, DateTime);
 #endif
-        [[nodiscard]] std::size_t missing_indexed_size(const void *, const void *);
-        [[nodiscard]] TSRoleTypeRef missing_indexed_element_binding(const void *, const void *, std::size_t);
-        [[nodiscard]] const void *missing_indexed_element_memory(const void *, const void *, std::size_t);
-        [[nodiscard]] void *missing_mutable_indexed_element_memory(const void *, void *, std::size_t);
-        [[nodiscard]] bool noop_clear_collection(const TSDataView &, DateTime) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_indexed_size(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef missing_indexed_element_binding(
+            const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_indexed_element_memory(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_indexed_element_memory(const void *, void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT bool noop_clear_collection(const TSDataView &, DateTime) noexcept;
         [[nodiscard]] bool clear_tss_collection(const TSDataView &, DateTime);
         [[nodiscard]] bool clear_tsd_collection(const TSDataView &, DateTime);
-        [[nodiscard]] std::size_t missing_slot_size(const void *, const void *);
-        [[nodiscard]] std::size_t missing_slot_capacity(const void *, const void *);
-        [[nodiscard]] bool missing_slot_predicate(const void *, const void *, std::size_t);
-        [[nodiscard]] bool no_structural_delta(const void *, const void *, DateTime) noexcept;
-        [[nodiscard]] const void *missing_key_at_slot(const void *, const void *, std::size_t);
-        [[nodiscard]] bool missing_contains_key(const void *, const void *, const ValueView &);
-        [[nodiscard]] std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
-        [[nodiscard]] std::size_t missing_next_delta_slot(const void *, const void *, std::size_t);
-        [[nodiscard]] std::size_t missing_next_modified_slot(const void *, const void *, std::size_t);
-        [[nodiscard]] Range<ValueView> missing_value_range(const void *, const void *);
-        [[nodiscard]] KeyValueRange<ValueView, TSDataView> missing_ts_data_kv_range(const void *, const void *);
-        [[nodiscard]] Range<TSDataView> missing_ts_data_range(const void *, const void *);
-        [[nodiscard]] SlotTSDataMutationResult missing_insert_key(const void *, void *, const ValueView &,
-                                                                  DateTime);
-        [[nodiscard]] SlotTSDataMutationResult missing_insert_key_move(const void *, void *, const ValueView &,
-                                                                       DateTime);
-        [[nodiscard]] SlotTSDataMutationResult missing_remove_key(const void *, void *, const ValueView &,
-                                                                  DateTime);
-        [[nodiscard]] SlotTSDataMutationResult missing_remove_slot(const void *, void *, std::size_t,
-                                                                   DateTime);
-        [[nodiscard]] bool missing_touch_slots(const void *, void *, DateTime);
-        void missing_reserve_slots(const void *, void *, std::size_t);
-        void missing_subscribe_slot_observer(const void *, void *, SlotObserver *);
-        void missing_unsubscribe_slot_observer(const void *, void *, SlotObserver *);
-        [[nodiscard]] const void *missing_child_at_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_slot_size(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_slot_capacity(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_slot_predicate(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT bool no_structural_delta(const void *, const void *, DateTime) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_key_at_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_contains_key(const void *, const void *, const ValueView &);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_delta_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_modified_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT Range<ValueView> missing_value_range(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT KeyValueRange<ValueView, TSDataView> missing_ts_data_kv_range(
+            const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT Range<TSDataView> missing_ts_data_range(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT SlotTSDataMutationResult missing_insert_key(const void *, void *, const ValueView &,
+                                                                                DateTime);
+        [[nodiscard]] HGRAPH_EXPORT SlotTSDataMutationResult missing_insert_key_move(
+            const void *, void *, const ValueView &, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT SlotTSDataMutationResult missing_remove_key(const void *, void *, const ValueView &,
+                                                                                DateTime);
+        [[nodiscard]] HGRAPH_EXPORT SlotTSDataMutationResult missing_remove_slot(const void *, void *, std::size_t,
+                                                                                 DateTime);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_touch_slots(const void *, void *, DateTime);
+        HGRAPH_EXPORT void missing_reserve_slots(const void *, void *, std::size_t);
+        HGRAPH_EXPORT void missing_subscribe_slot_observer(const void *, void *, SlotObserver *);
+        HGRAPH_EXPORT void missing_unsubscribe_slot_observer(const void *, void *, SlotObserver *);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_child_at_slot(const void *, const void *, std::size_t);
 
         [[nodiscard]] Value empty_delta_atomic(const TSRoleTypeRef &binding);
         [[nodiscard]] Value empty_delta_tss(const TSRoleTypeRef &binding);
