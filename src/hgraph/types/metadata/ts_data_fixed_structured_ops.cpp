@@ -10,6 +10,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/ts_data_conversion.h>
 #endif
 
 #include "../time_series/ts_data/ownership.h"
@@ -305,6 +306,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 .indexed_child_memory_impl = &fixed_indexed_element_memory,
                 .mutable_indexed_child_memory_impl = &fixed_mutable_indexed_element_memory,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                .python_ops = schema->kind == TSTypeKind::TSB
+                                  ? &python_bridge::bundle_python_ts_data_ops()
+                                  : &python_bridge::list_python_ts_data_ops(),
                 .from_python_impl          = &fixed_from_python,
                 .to_python_impl            = &fixed_to_python,
                 .delta_to_python_impl      = &fixed_delta_to_python,

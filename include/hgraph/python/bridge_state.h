@@ -15,6 +15,7 @@
 namespace hgraph {
 struct ValueTypeMetaData;
 struct TSValueTypeMetaData;
+class Value;
 class ValueTypeRef;
 } // namespace hgraph
 
@@ -85,6 +86,13 @@ struct HGRAPH_LOCAL PythonValueHolder {
 using PyInferValueFn = void *; // set as Value (*)(nb::handle) by the module
 
 [[nodiscard]] HGRAPH_EXPORT PyInferValueFn &py_infer_value_slot();
+
+/** Target-directed Python value conversion installed by the extension.
+    TS authoring strategies use this for scalar/value leaves while retaining
+    all time-series shape semantics in their own erased operations. */
+using PyValueFromSchemaFn = Value (*)(nb::handle, const ValueTypeMetaData *);
+
+[[nodiscard]] HGRAPH_EXPORT PyValueFromSchemaFn &py_value_from_schema_slot();
 
 /**
  * CompoundScalar schema address -> python class (read-back

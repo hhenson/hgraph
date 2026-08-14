@@ -7,6 +7,10 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/ts_data_conversion.h>
+#endif
+
 #include <fmt/format.h>
 
 #include <algorithm>
@@ -856,6 +860,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tsw,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                    .python_ops               = &python_bridge::window_python_ts_data_ops(),
                     .from_python_impl          = &window_from_python,
                     .to_python_impl            = &window_to_python,
                     .delta_to_python_impl      = &window_delta_to_python,

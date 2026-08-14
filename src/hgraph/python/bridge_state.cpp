@@ -659,6 +659,11 @@ PyInferValueFn &py_infer_value_slot() {
   return slot;
 }
 
+PyValueFromSchemaFn &py_value_from_schema_slot() {
+  static PyValueFromSchemaFn slot = nullptr;
+  return slot;
+}
+
 nb::dict &bundle_class_registry() {
   static auto *registry = new nb::dict{};
   return *registry;
