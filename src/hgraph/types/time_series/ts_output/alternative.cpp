@@ -508,6 +508,40 @@ namespace hgraph::detail
             std::vector<FromRefEndpointPlan> children{};
         };
 
+        template <typename Element>
+        [[nodiscard]] DynamicStorageMetrics vector_dynamic_storage_metrics(
+            const std::vector<Element> &values) noexcept
+        {
+            return {
+                .live_bytes = values.size() * sizeof(Element),
+                .reserved_bytes = values.capacity() * sizeof(Element),
+            };
+        }
+
+        [[nodiscard]] DynamicStorageMetrics endpoint_schema_dynamic_storage_metrics(
+            const TSEndpointSchema &schema) noexcept
+        {
+            const auto &children = schema.children();
+            auto        result = vector_dynamic_storage_metrics(children);
+            for (const auto &child : children)
+            {
+                result += endpoint_schema_dynamic_storage_metrics(child);
+            }
+            return result;
+        }
+
+        [[nodiscard]] DynamicStorageMetrics from_ref_endpoint_plan_dynamic_storage_metrics(
+            const FromRefEndpointPlan &plan) noexcept
+        {
+            auto result = endpoint_schema_dynamic_storage_metrics(plan.schema);
+            result += vector_dynamic_storage_metrics(plan.children);
+            for (const auto &child : plan.children)
+            {
+                result += from_ref_endpoint_plan_dynamic_storage_metrics(child);
+            }
+            return result;
+        }
+
         void unbind_from_ref_peered(const FromRefEndpointPlan &,
                                     const TSDataView &target,
                                     DateTime modified_time,
@@ -843,6 +877,21 @@ namespace hgraph::detail
             std::optional<FromRefEndpointPlan>  endpoint{};
             std::vector<FromRefInteriorPlan>    children{};
         };
+
+        [[nodiscard]] DynamicStorageMetrics from_ref_interior_plan_dynamic_storage_metrics(
+            const FromRefInteriorPlan &plan) noexcept
+        {
+            auto result = vector_dynamic_storage_metrics(plan.children);
+            if (plan.endpoint.has_value())
+            {
+                result += from_ref_endpoint_plan_dynamic_storage_metrics(*plan.endpoint);
+            }
+            for (const auto &child : plan.children)
+            {
+                result += from_ref_interior_plan_dynamic_storage_metrics(child);
+            }
+            return result;
+        }
 
         /**
          * TSData binding for an interior from-REF alternative. A requested
@@ -1191,6 +1240,17 @@ namespace hgraph::detail
             const ToRefOps            *ops{nullptr};
             std::vector<ToRefPlan>      children{};
         };
+
+        [[nodiscard]] DynamicStorageMetrics to_ref_plan_dynamic_storage_metrics(
+            const ToRefPlan &plan) noexcept
+        {
+            auto result = vector_dynamic_storage_metrics(plan.children);
+            for (const auto &child : plan.children)
+            {
+                result += to_ref_plan_dynamic_storage_metrics(child);
+            }
+            return result;
+        }
 
         void populate_to_ref_data(const ToRefPlan &plan,
                                   const TSDataView &target,
@@ -1824,6 +1884,7 @@ namespace hgraph::detail
         to_ref_alternatives_.for_each([&](const AlternativeKey &, const ToRefAlternativeState &state) {
             result.live_bytes += sizeof(ToRefAlternativeState);
             result.reserved_bytes += sizeof(ToRefAlternativeState);
+            result += to_ref_plan_dynamic_storage_metrics(state.plan);
             const auto view = state.data.view();
             result += view.dynamic_storage_metrics();
             result += input_target_link_dynamic_storage_metrics(view);
@@ -1833,6 +1894,7 @@ namespace hgraph::detail
                                  state.reference_sources.size() * sizeof(TSOutputHandle);
             result.reserved_bytes += sizeof(RefLinkAlternativeState) +
                                      state.reference_sources.capacity() * sizeof(TSOutputHandle);
+            result += from_ref_endpoint_plan_dynamic_storage_metrics(state.plan);
             const auto view = state.data.view();
             result += view.dynamic_storage_metrics();
             result += input_target_link_dynamic_storage_metrics(view);
@@ -1841,6 +1903,7 @@ namespace hgraph::detail
             [&](const AlternativeKey &, const InteriorFromRefAlternativeState &state) {
                 result.live_bytes += sizeof(InteriorFromRefAlternativeState);
                 result.reserved_bytes += sizeof(InteriorFromRefAlternativeState);
+                result += from_ref_interior_plan_dynamic_storage_metrics(state.plan);
                 const auto view = state.data.view();
                 result += view.dynamic_storage_metrics();
                 result += input_target_link_dynamic_storage_metrics(view);
