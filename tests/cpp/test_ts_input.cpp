@@ -2,6 +2,7 @@
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/registry_reset.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
@@ -176,6 +177,111 @@ TEST_CASE("TSInput storage caching excludes endpoint trees with owned payloads")
     REQUIRE_FALSE(input_storage_type_is_realization_invariant(TSEndpointSchema::owned(root)));
     REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_leaf));
     REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_subtree));
+}
+
+TEST_CASE("erased TSData and target-link contexts rebuild after registry reset")
+{
+    using namespace hgraph;
+
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        CAPTURE(pass);
+        {
+            auto       &registry = TypeRegistry::instance();
+            auto       &factory = TSDataPlanFactory::instance();
+            const auto *integer = registry.register_scalar<std::int32_t>("int32");
+            const auto *scalar = registry.ts(integer);
+            const auto *set = registry.tss(integer);
+            const auto *dict = registry.tsd(integer, scalar);
+            const auto *fixed_list = registry.tsl(scalar, 2);
+            const auto *dynamic_list = registry.tsl(scalar);
+            const auto *size_window = registry.tsw(integer, 3, 1);
+            const auto *time_window = registry.tsw_duration(
+                integer, TimeDelta{10}, TimeDelta{5});
+            const auto *bundle = registry.tsb(
+                "ErasedContextResetBundle", {{"value", scalar}, {"items", fixed_list}});
+
+            // Construct and use each concrete TSData context family before
+            // reset. The second pass proves that cache teardown destroys the
+            // exact erased context and that fresh contexts can be published.
+            TSData set_data{factory.data_type_for(set)};
+            TSData dict_data{factory.data_type_for(dict)};
+            TSData dynamic_list_data{factory.data_type_for(dynamic_list)};
+            TSData size_window_data{factory.data_type_for(size_window)};
+            TSData time_window_data{factory.data_type_for(time_window)};
+            Value  key{std::int32_t{1}};
+            Value  value{std::int32_t{42}};
+            auto   set_root = set_data.view();
+            auto   dict_root = dict_data.view();
+            auto   dynamic_list_root = dynamic_list_data.view();
+            auto   size_window_root = size_window_data.view();
+            auto   time_window_root = time_window_data.view();
+            {
+                auto mutation = set_root.as_set().begin_mutation(MIN_ST);
+                REQUIRE(mutation.add(key.view()));
+            }
+            {
+                auto mutation = dict_root.as_dict().begin_mutation(MIN_ST);
+                auto child = mutation.at(key.view());
+                auto child_mutation = child.begin_mutation(MIN_ST);
+                REQUIRE(child_mutation.copy_value_from(value.view()));
+            }
+            {
+                auto mutation = size_window_root.as_window().begin_mutation(MIN_ST);
+                mutation.push(value.view());
+            }
+            {
+                auto mutation = time_window_root.as_window().begin_mutation(MIN_ST);
+                mutation.push(value.view());
+            }
+            REQUIRE(set_root.as_set().contains(key.view()));
+            REQUIRE(dict_root.as_dict().contains(key.view()));
+            REQUIRE(dynamic_list_root.schema() == dynamic_list);
+            REQUIRE(size_window_root.as_window().back().checked_as<std::int32_t>() == 42);
+            REQUIRE(time_window_root.as_window().back().checked_as<std::int32_t>() == 42);
+
+            // Base, keyed-slot, indexed, and both window target-link
+            // strategies all publish stable pointers into their erased owners.
+            TSInput scalar_input{TSInputBuilderFactory::checked_builder_for(
+                *scalar, TSEndpointSchema::peered(scalar))};
+            TSInput set_input{TSInputBuilderFactory::checked_builder_for(
+                *set, TSEndpointSchema::peered(set))};
+            TSInput dict_input{TSInputBuilderFactory::checked_builder_for(
+                *dict, TSEndpointSchema::peered(dict))};
+            TSInput dynamic_list_input{TSInputBuilderFactory::checked_builder_for(
+                *dynamic_list, TSEndpointSchema::peered(dynamic_list))};
+            TSInput size_window_input{TSInputBuilderFactory::checked_builder_for(
+                *size_window, TSEndpointSchema::peered(size_window))};
+            TSInput time_window_input{TSInputBuilderFactory::checked_builder_for(
+                *time_window, TSEndpointSchema::peered(time_window))};
+            const auto list_endpoint = TSEndpointSchema::non_peered_list(
+                fixed_list, TSEndpointSchema::peered(scalar));
+            const auto bundle_endpoint = TSEndpointSchema::non_peered(
+                bundle, {TSEndpointSchema::peered(scalar), list_endpoint});
+            TSInput bundle_input{TSInputBuilderFactory::checked_builder_for(
+                *bundle, bundle_endpoint)};
+
+            REQUIRE(scalar_input.schema() == scalar);
+            auto set_input_root = set_input.view();
+            auto dict_input_root = dict_input.view();
+            auto dynamic_list_input_root = dynamic_list_input.view();
+            auto size_window_input_root = size_window_input.view();
+            auto time_window_input_root = time_window_input.view();
+            auto bundle_input_root = bundle_input.view();
+            REQUIRE(set_input_root.as_set().is_bindable());
+            REQUIRE(dict_input_root.as_dict().is_bindable());
+            REQUIRE(dynamic_list_input_root.as_list().is_bindable());
+            REQUIRE(size_window_input_root.as_window().is_bindable());
+            REQUIRE(time_window_input_root.as_window().is_bindable());
+            auto bundle_view = bundle_input_root.as_bundle();
+            REQUIRE(bundle_view.field("value").is_bindable());
+            auto bundle_items = bundle_view.field("items");
+            auto bundle_list = bundle_items.as_list();
+            REQUIRE(bundle_list[1].is_bindable());
+        }
+
+        if (pass == 0) { reset_all_registries(); }
+    }
 }
 
 TEST_CASE("cached TSInput builders resolve owned polymorphic storage in each graph realization")

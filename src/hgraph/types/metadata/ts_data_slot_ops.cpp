@@ -997,7 +997,7 @@ namespace hgraph::ts_data_plan_factory_detail
                                            : "ts.tsd.output.root";
         }
 
-        struct SlotContextBase
+        struct SlotContextCommon
         {
             const TSValueTypeMetaData      *schema{nullptr};
             const MemoryUtils::StoragePlan *plan{nullptr};
@@ -1010,14 +1010,10 @@ namespace hgraph::ts_data_plan_factory_detail
             ValueTypeRef added_set_binding{nullptr};
             ValueTypeRef removed_set_binding{nullptr};
             TSRoleTypeRef root_type{};
-
-            virtual ~SlotContextBase() = default;
-            virtual const TSDataOps &ops_ref() const noexcept = 0;
-            virtual TSRoleTypeRef key_set_type() const noexcept { return {}; }
         };
 
         template <typename Storage>
-        struct TSSContextBase : SlotContextBase
+        struct TSSContextBase : SlotContextCommon
         {
             void initialise_tss_common(const TSValueTypeMetaData &schema_,
                                        const MemoryUtils::StoragePlan &plan_,
@@ -1053,8 +1049,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 configure_tss_ops(mutable_storage);
                 bind_tss_delta_surfaces();
             }
-
-            const TSDataOps &ops_ref() const noexcept override { return set_ops; }
 
           protected:
             void configure_tss_ops(bool mutable_storage)
@@ -1936,9 +1930,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 root_type = TSRoleTypeRef{intern_ts_type(
                     schema, role, plan, dict_ops, keyed_root_label(schema.kind, role, embedded, composite))};
             }
-
-            const TSDataOps &ops_ref() const noexcept override { return dict_ops; }
-            TSRoleTypeRef key_set_type() const noexcept override { return key_set_ts_type; }
 
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept
             {
@@ -3218,6 +3209,63 @@ namespace hgraph::ts_data_plan_factory_detail
 #endif
         };
 
+        using SlotContextOwner =
+            MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy>;
+
+        struct SlotContextEntry
+        {
+            SlotContextOwner owner;
+            const TSDataOps *result;
+
+            SlotContextEntry(SlotContextOwner owner_, const TSDataOps &result_)
+                : owner(std::move(owner_)), result(&result_)
+            {}
+
+            SlotContextEntry(const SlotContextEntry &) = delete;
+            SlotContextEntry &operator=(const SlotContextEntry &) = delete;
+            SlotContextEntry(SlotContextEntry &&) noexcept = default;
+            SlotContextEntry &operator=(SlotContextEntry &&) noexcept = default;
+        };
+
+        template <typename Context, typename... Args>
+        [[nodiscard]] SlotContextOwner make_slot_context_owner(Args &&...args)
+        {
+            const auto &context_plan = MemoryUtils::plan_for<Context>();
+            return SlotContextOwner::owning_constructed(
+                context_plan, [&](void *memory) {
+                    std::construct_at(MemoryUtils::cast<Context>(memory),
+                                      std::forward<Args>(args)...);
+                });
+        }
+
+        [[nodiscard]] SlotContextEntry make_tss_context_entry(
+            const TSValueTypeMetaData &schema,
+            const MemoryUtils::StoragePlan &plan,
+            const ValueTypeRef &key_binding,
+            TypeRole role,
+            bool embedded)
+        {
+            auto owner = make_slot_context_owner<TSSContext>(
+                schema, plan, key_binding, role, embedded);
+            auto *context = owner.as<TSSContext>();
+            return SlotContextEntry{std::move(owner), context->set_ops};
+        }
+
+        [[nodiscard]] SlotContextEntry make_tsd_context_entry(
+            const TSValueTypeMetaData &schema,
+            const MemoryUtils::StoragePlan &plan,
+            const ValueTypeRef &key_binding,
+            TSRoleTypeRef element_type,
+            TypeRole role,
+            bool embedded,
+            bool composite)
+        {
+            auto owner = make_slot_context_owner<TSDContext>(
+                schema, plan, key_binding, element_type, role, embedded, composite);
+            auto *context = owner.as<TSDContext>();
+            return SlotContextEntry{std::move(owner), context->dict_ops};
+        }
+
         struct SlotContextKey
         {
             const TSValueTypeMetaData      *schema{nullptr};
@@ -3248,7 +3296,7 @@ namespace hgraph::ts_data_plan_factory_detail
         };
 
         using SlotContextMap =
-            std::unordered_map<SlotContextKey, std::unique_ptr<SlotContextBase>, SlotContextKeyHash>;
+            std::unordered_map<SlotContextKey, SlotContextEntry, SlotContextKeyHash>;
 
         [[nodiscard]] SlotContextMap &slot_contexts() noexcept
         {
@@ -3455,25 +3503,24 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                  : TSRoleTypeRef{};
         const SlotContextKey key{
             &schema, &plan, storage_offset, key_binding, element_type, role, embedded, false};
-        if (const auto it = contexts.find(key); it != contexts.end()) { return it->second->ops_ref(); }
+        if (const auto it = contexts.find(key); it != contexts.end()) { return *it->second.result; }
 
-        std::unique_ptr<SlotContextBase> context;
-        if (schema.kind == TSTypeKind::TSS)
-        {
-            context = std::make_unique<TSSContext>(schema, plan, key_binding, role, embedded);
-        }
-        else if (schema.kind == TSTypeKind::TSD)
-        {
-            context = std::make_unique<TSDContext>(schema, plan, key_binding, element_type, role, embedded, false);
-        }
-        else
-        {
+        SlotContextEntry context = [&] {
+            if (schema.kind == TSTypeKind::TSS)
+            {
+                return make_tss_context_entry(schema, plan, key_binding, role, embedded);
+            }
+            if (schema.kind == TSTypeKind::TSD)
+            {
+                return make_tsd_context_entry(
+                    schema, plan, key_binding, element_type, role, embedded, false);
+            }
             throw std::logic_error("slot TSData ops require TSS or TSD schema");
-        }
+        }();
 
-        auto *result = context.get();
+        const auto *result = context.result;
         contexts.emplace(key, std::move(context));
-        return result->ops_ref();
+        return *result;
     }
 
     [[nodiscard]] const TSDataOps &slot_tsd_ts_data_ops(const TSValueTypeMetaData      &schema,
@@ -3514,13 +3561,13 @@ namespace hgraph::ts_data_plan_factory_detail
         auto                &contexts = slot_contexts();
         const SlotContextKey key{
             &schema, &plan, storage_offset, key_binding, element_type, storage_role, embedded, composite};
-        if (const auto it = contexts.find(key); it != contexts.end()) { return it->second->ops_ref(); }
+        if (const auto it = contexts.find(key); it != contexts.end()) { return *it->second.result; }
 
-        auto context = std::make_unique<TSDContext>(
+        auto context = make_tsd_context_entry(
             schema, plan, key_binding, element_type, storage_role, embedded, composite);
-        auto *result = context.get();
+        const auto *result = context.result;
         contexts.emplace(key, std::move(context));
-        return result->ops_ref();
+        return *result;
     }
 
     TSRoleTypeRef tsd_value_projection_type(TSRoleTypeRef element_type, TypeRole role)

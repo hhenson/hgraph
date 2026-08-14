@@ -220,6 +220,26 @@ namespace hgraph
         };
 
         /**
+         * Storage policy that always allocates the erased payload.
+         *
+         * Use this for implementation contexts whose address is published
+         * through passive operation tables. Moving the owner transfers the
+         * allocation and therefore cannot invalidate those published
+         * context/result pointers.
+         */
+        struct HeapOnlyStoragePolicy
+        {
+            static constexpr size_t inline_bytes = sizeof(void *);
+
+            [[nodiscard]] static constexpr size_t storage_alignment() noexcept { return alignof(void *); }
+
+            [[nodiscard]] static constexpr bool can_store_inline(StorageLayout, bool, bool) noexcept
+            {
+                return false;
+            }
+        };
+
+        /**
          * Description of one component inside a composite ``StoragePlan``.
          *
          * For tuples ``name`` is null and components are addressed by
@@ -764,6 +784,27 @@ namespace hgraph
                 return owner;
             }
 
+            /**
+             * Factory: allocate owning storage for a raw ``plan`` and let
+             * the caller construct the payload in-place.
+             *
+             * This is the explicit ownership path for non-default-
+             * constructible implementation contexts. The plan must describe
+             * the concrete object actually constructed by ``construct`` so
+             * its destruction hook remains exact after type erasure.
+             */
+            template <typename Construct>
+            [[nodiscard]] static ErasedOwner owning_constructed(
+                const StoragePlan &plan,
+                Construct &&construct,
+                const AllocatorOps &allocator = MemoryUtils::allocator())
+                requires std::is_void_v<Binding>
+            {
+                ErasedOwner owner;
+                owner.construct_owned_custom(plan, std::forward<Construct>(construct), allocator);
+                return owner;
+            }
+
             /** Factory: copy-construct an owner from ``src`` using ``binding``. */
             template <typename B = Binding>
                 requires(!std::is_void_v<B>)
@@ -1032,6 +1073,29 @@ namespace hgraph
 
                 auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
                 plan.copy_construct(data(), src);
+                rollback.release();
+            }
+
+            template <typename Construct>
+            void construct_owned_custom(const StoragePlan &plan,
+                                        Construct &&construct,
+                                        const AllocatorOps &allocator)
+            {
+                if (!plan.valid()) { throw std::logic_error("MemoryUtils::ErasedOwner requires a valid plan"); }
+
+                m_identity = &plan;
+                set_allocator_state(&allocator, owning_state_for(plan));
+
+                if (storage_state() == State::OwningHeap) {
+                    m_storage.ptr = tagged_allocator()->allocate_storage(plan.layout);
+                    auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                    std::forward<Construct>(construct)(data());
+                    rollback.release();
+                    return;
+                }
+
+                auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                std::forward<Construct>(construct)(data());
                 rollback.release();
             }
 
