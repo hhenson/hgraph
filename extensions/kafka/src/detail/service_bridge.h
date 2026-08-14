@@ -57,6 +57,11 @@ struct OutputLimits {
 
 class ServiceBridge {
 public:
+  struct QueuedOutput {
+    Value value{};
+    std::optional<DateTime> evaluation_time{};
+  };
+
   ServiceBridge(OutputLimits subscription, OutputLimits delivery,
                 OutputLimits event, OutputLimits subscription_control = {},
                 OutputLimits delivery_control = {},
@@ -158,8 +163,8 @@ public:
     return push_impl(channel, std::move(value), retained_bytes, true);
   }
 
-  [[nodiscard]] std::optional<Value> pop(OutputChannel channel) {
-    std::optional<Value> result;
+  [[nodiscard]] std::optional<QueuedOutput> pop(OutputChannel channel) {
+    std::optional<QueuedOutput> result;
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
@@ -178,7 +183,7 @@ public:
         --state.payload_records;
         state.payload_bytes -= item.retained_bytes;
       }
-      result.emplace(std::move(item.value));
+      result.emplace(QueuedOutput{std::move(item.value), item.evaluation_time});
 
       if (state.values.empty()) {
         state.wake_outstanding = false;
@@ -187,13 +192,14 @@ public:
     return result;
   }
 
-  [[nodiscard]] std::optional<Value> peek(OutputChannel channel) const {
+  [[nodiscard]] std::optional<QueuedOutput> peek(OutputChannel channel) const {
     std::lock_guard lock{mutex_};
     const auto &state = at(channel);
     if (state.values.empty()) {
       return std::nullopt;
     }
-    return state.values.front().value.clone();
+    const auto &item = state.values.front();
+    return QueuedOutput{item.value.clone(), item.evaluation_time};
   }
 
   [[nodiscard]] std::size_t pending(OutputChannel channel) const {
@@ -326,6 +332,7 @@ public:
       }
       QueuedValue item{std::move(value), retained_bytes, false};
       item.evaluation_time = queued_evaluation_time(channel, item.value);
+      inherit_subscription_schedule(channel, state, item);
       const auto position = insertion_point(channel, state, item);
       const bool became_head = position == state.values.begin();
       state.values.insert(position, std::move(item));
@@ -385,6 +392,7 @@ private:
       }
       QueuedValue item{std::move(value), retained_bytes, control};
       item.evaluation_time = queued_evaluation_time(channel, item.value);
+      inherit_subscription_schedule(channel, state, item);
       const auto position = insertion_point(channel, state, item);
       const bool became_head = position == state.values.begin();
       state.values.insert(position, std::move(item));
@@ -440,6 +448,32 @@ private:
     }
     return rhs.evaluation_time.has_value() &&
            *lhs.evaluation_time < *rhs.evaluation_time;
+  }
+
+  static void inherit_subscription_schedule(OutputChannel channel,
+                                            const Channel &state,
+                                            QueuedValue &item) {
+    if (channel != OutputChannel::Subscription ||
+        item.evaluation_time.has_value()) {
+      return;
+    }
+    const auto key = item.value.view().as_bundle().at("subscription_key");
+    const auto predecessor =
+        std::find_if(state.values.rbegin(), state.values.rend(),
+                     [&](const QueuedValue &queued) {
+                       return queued.value.view()
+                           .as_bundle()
+                           .at("subscription_key")
+                           .equals(key);
+                     });
+    if (predecessor != state.values.rend() &&
+        predecessor->evaluation_time.has_value()) {
+      // A real-time consumer may resume polling while its timestamped
+      // recovery tail is still waiting on graph time. Keep later lifecycle
+      // and live values behind that per-subscription tail without delaying
+      // unrelated untimed subscriptions.
+      item.evaluation_time = *predecessor->evaluation_time + MIN_TD;
+    }
   }
 
   [[nodiscard]] static std::deque<QueuedValue>::iterator
@@ -511,14 +545,6 @@ template <typename Tag>
 struct SubscriptionDrainNode {
   static constexpr auto name = "kafka_subscription_drain";
 
-  [[nodiscard]] static std::optional<DateTime>
-  evaluation_time(const Value &envelope) {
-    const auto field = envelope.view().as_bundle().at("evaluation_time");
-    return field.data() != nullptr
-               ? std::optional<DateTime>{field.checked_as<DateTime>()}
-               : std::nullopt;
-  }
-
   static void
   eval(In<"signal", TS<Int>>, Scalar<"bridge", ServiceBridgeHandle> bridge,
        SingleShotScheduler scheduler,
@@ -527,19 +553,20 @@ struct SubscriptionDrainNode {
     if (!next.has_value()) {
       return;
     }
-    const auto batch_time = evaluation_time(*next);
-    if (batch_time.has_value() && *batch_time > scheduler.now()) {
-      scheduler.schedule(*batch_time);
+    if (next->evaluation_time.has_value() &&
+        *next->evaluation_time > scheduler.now()) {
+      scheduler.schedule(*next->evaluation_time);
       return;
     }
+    const auto batch_time = next->evaluation_time;
     auto mutation = out.begin_mutation(out.evaluation_time());
     while (true) {
-      auto envelope = bridge.value().value->pop(OutputChannel::Subscription);
-      if (!envelope.has_value()) {
+      auto queued = bridge.value().value->pop(OutputChannel::Subscription);
+      if (!queued.has_value()) {
         return;
       }
 
-      const auto fields = envelope->view().as_bundle();
+      const auto fields = queued->value.view().as_bundle();
       const auto removed = fields.at("removed");
       if (removed.data() != nullptr && removed.checked_as<Bool>()) {
         static_cast<void>(mutation.erase(fields.at("subscription_key")));
@@ -571,7 +598,7 @@ struct SubscriptionDrainNode {
       if (!next.has_value()) {
         return;
       }
-      const auto next_time = evaluation_time(*next);
+      const auto next_time = next->evaluation_time;
       if (batch_time.has_value() && next_time == batch_time) {
         // Independent subscriptions may legitimately tick at the same Kafka
         // timestamp. Apply their distinct TSD keys in one graph mutation.
@@ -598,7 +625,7 @@ struct DeliveryDrainNode {
     if (!envelope.has_value()) {
       return;
     }
-    const auto fields = envelope->view().as_bundle();
+    const auto fields = envelope->value.view().as_bundle();
     auto mutation = out.begin_mutation(out.evaluation_time());
     mutation.set(fields.at("request_id"), fields.at("report"));
     if (bridge.value().value->pending(OutputChannel::Delivery) != 0) {
@@ -618,7 +645,7 @@ struct EventDrainNode {
     if (!envelope.has_value()) {
       return;
     }
-    const auto fields = envelope->view().as_bundle();
+    const auto fields = envelope->value.view().as_bundle();
     out.apply(fields.at("event"));
     if (fields.at("stop_graph").checked_as<Bool>()) {
       engine.request_stop();
