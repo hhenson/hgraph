@@ -810,7 +810,8 @@ namespace hgraph
         };
 
         using TargetLinkContext = detail::TSInputTargetLinkContext;
-        using TargetLinkContextCache = std::unordered_map<std::string, std::unique_ptr<TargetLinkContext>>;
+        using TargetLinkContextOwner = detail::TSInputTargetLinkContextOwner;
+        using TargetLinkContextCache = std::unordered_map<std::string, TargetLinkContextOwner>;
         using InputBindingContextCache = std::unordered_map<std::string, std::unique_ptr<InputBindingContext>>;
         using TSInputBuilderCache = std::unordered_map<std::string, std::unique_ptr<TSInputBuilder>>;
 
@@ -1966,7 +1967,7 @@ namespace hgraph
             auto &cache = target_link_context_cache();
             if (const auto it = cache.find(key); it != cache.end())
             {
-                return *it->second->active_ops;
+                return it->second.ops();
             }
 
             const auto *schema = endpoint_schema.schema();
@@ -1985,7 +1986,7 @@ namespace hgraph
 
             auto context = detail::target_link_context_builder_for(schema->kind)(
                 *schema, root_plan, storage_offset, *regular_layout);
-            const auto *ops = context->active_ops;
+            const auto *ops = &context.ops();
             cache.emplace(key, std::move(context));
             return *ops;
         }
@@ -2335,14 +2336,14 @@ namespace hgraph
             if (const auto it = cache.find(key); it != cache.end())
             {
                 return checked_ts_role_type(
-                    intern_ts_type(*schema, TypeRole::Input, root_plan, *it->second->active_ops),
+                    intern_ts_type(*schema, TypeRole::Input, root_plan, it->second.ops()),
                     std::integral_constant<TypeRole, TypeRole::Input>{});
             }
             const auto *layout = data_type.ops_ref().layout_impl(data_type.ops_ref().context);
             if (layout == nullptr) throw std::logic_error("scalar input type requires a resolved data layout");
             auto context = detail::target_link_context_builder_for(schema->kind)(*schema, root_plan, 0, *layout);
             const auto type = checked_ts_role_type(
-                intern_ts_type(*schema, TypeRole::Input, root_plan, *context->active_ops,
+                intern_ts_type(*schema, TypeRole::Input, root_plan, context.ops(),
                                schema->kind == TSTypeKind::REF
                                    ? std::string_view{"ts.ref.input.target"}
                                    : std::string_view{}),

@@ -41,20 +41,8 @@ namespace hgraph::ts_data_plan_factory_detail
             return seed;
         }
 
-        struct HeapOnlyTSDataStoragePolicy
-        {
-            static constexpr std::size_t inline_bytes = sizeof(void *);
-
-            [[nodiscard]] static constexpr std::size_t storage_alignment() noexcept { return alignof(void *); }
-
-            [[nodiscard]] static constexpr bool can_store_inline(MemoryUtils::StorageLayout, bool, bool) noexcept
-            {
-                return false;
-            }
-        };
-
         using TSDataErasedOwner =
-            MemoryUtils::ErasedOwner<HeapOnlyTSDataStoragePolicy, TypeRecord>;
+            MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy, TypeRecord>;
 
         struct DynamicTSLIndexEntry
         {
