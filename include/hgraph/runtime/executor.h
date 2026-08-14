@@ -34,6 +34,7 @@ namespace hgraph
     class EngineControlView;
     struct LifecycleObserver;
     class LifecycleObserverList;
+    struct LoggerOps;
     class PushQueueEngineView;
 
     /** Engine execution mode for the first-pass graph executor. */
@@ -133,6 +134,9 @@ namespace hgraph
         LifecycleObserverList *(*lifecycle_observers_impl)(const void *context, void *memory) noexcept = nullptr;
         /** Borrowed run logger; owned by the executor storage. */
         spdlog::logger *(*logger_impl)(const void *context, void *memory) noexcept = nullptr;
+        /** Non-null logger emission policy selected by the executor builder. */
+        const LoggerOps *(*logger_ops_impl)(const void *context,
+                                            const void *memory) noexcept = nullptr;
         bool (*run_logging_enabled_impl)(const void *context,
                                          const void *memory) noexcept = nullptr;
         ErrorCaptureOptions (*error_capture_options_impl)(
@@ -236,6 +240,8 @@ namespace hgraph
         [[nodiscard]] LifecycleObserverList &lifecycle_observers() const;
         /** Borrowed logger configured for this run. */
         [[nodiscard]] spdlog::logger *logger() const noexcept;
+        /** Selected passive emission policy for the run logger. */
+        [[nodiscard]] const LoggerOps *logger_ops() const noexcept;
         [[nodiscard]] bool run_logging_enabled() const noexcept;
         /** Detail included when a node exception escapes the root graph. */
         [[nodiscard]] ErrorCaptureOptions error_capture_options() const noexcept;
@@ -300,7 +306,14 @@ namespace hgraph
          */
         GraphExecutorBuilder &start_time(DateTime start_time) noexcept;
         GraphExecutorBuilder &end_time(DateTime end_time) noexcept;
-        GraphExecutorBuilder &logger(std::shared_ptr<spdlog::logger> logger);
+        /**
+         * Select the executor-owned spdlog logger and its passive emission
+         * policy. ``nullptr`` operations select ``plain_logger_ops()``. A
+         * custom table must have static (or otherwise executor-long) lifetime
+         * and may recover its concrete logger only inside its callback.
+         */
+        GraphExecutorBuilder &logger(std::shared_ptr<spdlog::logger> logger,
+                                     const LoggerOps *ops = nullptr);
         GraphExecutorBuilder &error_capture_options(ErrorCaptureOptions options) noexcept;
         GraphExecutorBuilder &cleanup_on_error(bool value) noexcept;
         /**
@@ -327,6 +340,7 @@ namespace hgraph
         [[nodiscard]] DateTime start_time() const noexcept;
         [[nodiscard]] DateTime end_time() const noexcept;
         [[nodiscard]] const std::shared_ptr<spdlog::logger> &logger() const noexcept;
+        [[nodiscard]] const LoggerOps &logger_ops() const noexcept;
         [[nodiscard]] ErrorCaptureOptions error_capture_options() const noexcept;
         [[nodiscard]] bool cleanup_on_error() const noexcept;
         [[nodiscard]] const GraphExecutorPhaseRunner &phase_runner() const noexcept;
@@ -346,6 +360,7 @@ namespace hgraph
         DateTime                        end_time_{MAX_ET};
         GraphExecutorMode               mode_{GraphExecutorMode::Simulation};
         std::shared_ptr<spdlog::logger>  logger_{};
+        const LoggerOps                 *logger_ops_{nullptr};
         ErrorCaptureOptions             error_capture_options_{};
         bool                            cleanup_on_error_{true};
         GraphExecutorPhaseRunner        phase_runner_{};

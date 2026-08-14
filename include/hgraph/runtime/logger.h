@@ -13,15 +13,25 @@
 
 namespace hgraph
 {
-    /** Optional extension implemented by run loggers that consume node context. */
-    class HGRAPH_EXPORT ContextualLogger
+    /**
+     * Passive emission policy selected together with an executor's run logger.
+     *
+     * The callback must remain valid for the executor lifetime. Custom
+     * integrations may recover their concrete logger only inside this selected
+     * boundary; ``LoggerView`` never uses RTTI to rediscover the strategy.
+     */
+    struct HGRAPH_EXPORT LoggerOps
     {
-      public:
-        virtual ~ContextualLogger() = default;
-        virtual void log_with_context(spdlog::level::level_enum level,
-                                      std::string_view message,
-                                      NodePtr node) = 0;
+        using Emit = void (*)(spdlog::logger &logger,
+                              spdlog::level::level_enum level,
+                              std::string_view message,
+                              NodePtr node);
+
+        Emit emit_impl{nullptr};
     };
+
+    /** Canonical policy that emits directly through spdlog and ignores node context. */
+    [[nodiscard]] HGRAPH_EXPORT const LoggerOps &plain_logger_ops() noexcept;
 
     /**
      * The LOGGER injectable (ruling 2026-07-04: LOGGER is a C++-native
@@ -45,8 +55,13 @@ namespace hgraph
     {
       public:
         LoggerView() noexcept = default;
-        explicit LoggerView(spdlog::logger *logger, NodePtr node = {}) noexcept
-            : logger_(logger), node_(node)
+        explicit LoggerView(spdlog::logger *logger,
+                            NodePtr node = {},
+                            const LoggerOps *ops = nullptr) noexcept
+            : logger_(logger), node_(node),
+              ops_(ops != nullptr && ops->emit_impl != nullptr
+                       ? ops
+                       : &plain_logger_ops())
         {
         }
 
@@ -119,20 +134,12 @@ namespace hgraph
 
         void emit(spdlog::level::level_enum level, std::string_view message) const
         {
-            if (node_.has_value())
-            {
-                if (auto *contextual = dynamic_cast<ContextualLogger *>(logger_))
-                {
-                    contextual->log_with_context(level, message, node_);
-                    return;
-                }
-            }
-            logger_->log(spdlog::source_loc{}, level,
-                         spdlog::string_view_t{message.data(), message.size()});
+            ops_->emit_impl(*logger_, level, message, node_);
         }
 
         spdlog::logger *logger_{nullptr};   // borrowed from executor storage
         NodePtr         node_{};
+        const LoggerOps *ops_{&plain_logger_ops()};
     };
 
     namespace log
@@ -168,7 +175,8 @@ namespace hgraph
         {
             static LoggerView get(const NodeView &node, DateTime)
             {
-                return LoggerView{node.graph().logger(), node.pointer()};
+                const auto graph = node.graph();
+                return LoggerView{graph.logger(), node.pointer(), graph.logger_ops()};
             }
         };
     }  // namespace static_node_detail

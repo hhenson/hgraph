@@ -36,6 +36,7 @@ namespace hgraph
     class RootGraphView;
     class GraphView;
     class TypeRealizationSnapshot;
+    struct LoggerOps;
     /** Parent role for a graph runtime allocation. */
     enum class GraphParentKind : std::uint8_t
     {
@@ -173,6 +174,9 @@ struct HGRAPH_EXPORT GraphEdge
                                                                   const void *memory) noexcept = nullptr;
         /** Cached borrowed pointer to the executor-owned run logger. */
         spdlog::logger *(*logger_impl)(const void *context, const void *memory) noexcept = nullptr;
+        /** Cached non-null passive emission policy for the run logger. */
+        const LoggerOps *(*logger_ops_impl)(const void *context,
+                                            const void *memory) noexcept = nullptr;
     };
 
     /** Borrowed type-erased view over graph runtime storage. */
@@ -245,6 +249,7 @@ struct HGRAPH_EXPORT GraphEdge
         [[nodiscard]] LifecycleObserverList &lifecycle_observers() const;
         /** Borrowed executor-owned logger, cached by root and nested graphs. */
         [[nodiscard]] spdlog::logger *logger() const noexcept;
+        [[nodiscard]] const LoggerOps *logger_ops() const noexcept;
         /** Closed Bundle hierarchy snapshot used by this graph instance. */
         [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
         /** Root-owned graph-local storage shared by all nested graphs. */

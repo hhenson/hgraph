@@ -993,6 +993,38 @@ namespace hgraph
             return ops;
         }
 
+        [[nodiscard]] std::size_t input_inspection_field_count(const void *context) noexcept
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            return state->schema->kind == TSTypeKind::TSB
+                       ? state->bundle_layout.fields.size()
+                       : 0;
+        }
+
+        [[nodiscard]] TSDataInspectionField input_inspection_field_at(
+            const void *context, std::size_t index)
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            if (state->schema->kind != TSTypeKind::TSB ||
+                index >= state->bundle_layout.fields.size())
+                throw std::out_of_range("input TSData inspection field index is out of range");
+            const auto &field = state->bundle_layout.fields[index];
+            return TSDataInspectionField{
+                .name = state->schema->fields()[index].name,
+                .data_offset = field.data_offset,
+                .type = field.type,
+            };
+        }
+
+        [[nodiscard]] const TSDataInspectionOps &input_inspection_ops() noexcept
+        {
+            static const TSDataInspectionOps ops{
+                .field_count_impl = &input_inspection_field_count,
+                .field_at_impl = &input_inspection_field_at,
+            };
+            return ops;
+        }
+
         [[nodiscard]] void *input_mutable_element_memory(const void *context,
                                                          void *memory,
                                                          std::size_t index) noexcept
@@ -2260,6 +2292,7 @@ namespace hgraph
                 .kind = context->schema->kind,
                 .allows_mutation = true,
                 .ownership_ops = &input_ownership_ops(),
+                .inspection_ops = &input_inspection_ops(),
                 .current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(context->schema->kind),
                 .layout_impl = &input_layout,
@@ -2729,56 +2762,7 @@ namespace hgraph
         DynamicStorageMetrics input_target_link_dynamic_storage_metrics(
             const TSDataView &view) noexcept
         {
-            if (!view.valid()) { return {}; }
-            try
-            {
-                if (const auto *link = target_link_storage(view); link != nullptr)
-                {
-                    return link->dynamic_storage_metrics();
-                }
-                if (view.schema() == nullptr) { return {}; }
-
-                DynamicStorageMetrics result{};
-                switch (view.schema()->kind)
-                {
-                    case TSTypeKind::TSB:
-                    case TSTypeKind::TSL:
-                        for (std::size_t index = 0; index < view.indexed_child_count(); ++index)
-                        {
-                            if (has_input_children(view))
-                            {
-                                auto child = input_child_projection(view, index);
-                                result += input_target_link_dynamic_storage_metrics(
-                                    child.target_link.valid() ? child.target_link : child.visible);
-                            }
-                            else
-                            {
-                                result += input_target_link_dynamic_storage_metrics(
-                                    view.indexed_child_at(index));
-                            }
-                        }
-                        break;
-                    case TSTypeKind::TSD:
-                    {
-                        auto dict = view.as_dict();
-                        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                        {
-                            if (dict.slot_occupied(slot))
-                            {
-                                result += input_target_link_dynamic_storage_metrics(dict.at_slot(slot));
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        break;
-                }
-                return result;
-            }
-            catch (...)
-            {
-                return {};
-            }
+            return owned_ts_data_auxiliary_dynamic_storage(view.borrowed_ref());
         }
 
         TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index)

@@ -67,7 +67,7 @@ namespace
         }
     };
 
-    class CapturedContextLogger final : public spdlog::logger, public ContextualLogger
+    class CapturedContextLogger final : public spdlog::logger
     {
       public:
         explicit CapturedContextLogger(
@@ -78,8 +78,15 @@ namespace
 
         void log_with_context(spdlog::level::level_enum level,
                               std::string_view message,
-                              NodePtr node) override
+                              NodePtr node)
         {
+            if (!node.has_value())
+            {
+                spdlog::logger::log(
+                    spdlog::source_loc{}, level,
+                    spdlog::string_view_t{message.data(), message.size()});
+                return;
+            }
             paths.push_back(diagnostic::node_path(NodeView{node}));
             spdlog::logger::log(
                 spdlog::source_loc{}, level,
@@ -88,6 +95,20 @@ namespace
 
         std::vector<std::string> paths;
     };
+
+    void emit_captured_context(spdlog::logger &logger,
+                               spdlog::level::level_enum level,
+                               std::string_view message,
+                               NodePtr node)
+    {
+        static_cast<CapturedContextLogger &>(logger).log_with_context(level, message, node);
+    }
+
+    const LoggerOps &captured_context_logger_ops()
+    {
+        static const LoggerOps ops{.emit_impl = &emit_captured_context};
+        return ops;
+    }
 
     struct QuietLogGraph
     {
@@ -254,17 +275,20 @@ TEST_CASE("logger: an executor-owned logger is inherited by root and nested grap
 
     GraphExecutorBuilder builder;
     builder.graph_builder(build_graph<LoggerRunGraph>())
-        .logger(run_logger)
+        .logger(run_logger, &captured_context_logger_ops())
         .start_time(MIN_ST)
         .end_time(MIN_ST + TimeDelta{10});
     GraphExecutorValue executor = builder.make_executor();
     GraphView root = executor.view().graph();
 
     CHECK(executor.view().logger() == run_logger.get());
+    CHECK(executor.view().logger_ops() == &captured_context_logger_ops());
     CHECK(root.logger() == run_logger.get());
+    CHECK(root.logger_ops() == &captured_context_logger_ops());
     GraphBuilder child_builder;
     GraphValue child = child_builder.make_nested_graph(root.node_at(0).pointer());
     CHECK(child.view().logger() == run_logger.get());
+    CHECK(child.view().logger_ops() == &captured_context_logger_ops());
 
     executor.view().run();
 
@@ -277,6 +301,18 @@ TEST_CASE("logger: an executor-owned logger is inherited by root and nested grap
     REQUIRE_FALSE(run_logger->paths.empty());
     CHECK_THAT(run_logger->paths.front(), Catch::Matchers::ContainsSubstring("logging_node"));
     CHECK_THAT(process_log.joined(), !Catch::Matchers::ContainsSubstring("tick value 7"));
+}
+
+TEST_CASE("logger: passive operations remain coupled to their explicit logger")
+{
+    GraphExecutorBuilder builder;
+    builder.logger(nullptr, &captured_context_logger_ops());
+
+    CHECK(builder.logger() == nullptr);
+    CHECK(&builder.logger_ops() == &plain_logger_ops());
+
+    const LoggerOps incomplete{};
+    CHECK_NOTHROW(LoggerView{&log::logger(), {}, &incomplete}.info("plain fallback"));
 }
 
 TEST_CASE("logger: the log_ operator formats and logs through the injectable")

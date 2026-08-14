@@ -116,6 +116,23 @@ namespace hgraph::stdlib
         // from_data_frame
         // -----------------------------------------------------------------
 
+        namespace
+        {
+            void apply_from_frame_root(const FromFramePlan &plan,
+                                       std::int64_t row,
+                                       const TSOutputView &out);
+            void apply_from_frame_dict(const FromFramePlan &plan,
+                                       std::int64_t row,
+                                       const TSOutputView &out);
+        }
+
+        void missing_from_frame_row_application(const FromFramePlan &,
+                                                std::int64_t,
+                                                const TSOutputView &)
+        {
+            throw std::logic_error("from_data_frame row application strategy was not selected");
+        }
+
         void load_from_frame(const Frame &frame, std::string_view dt_col,
                              std::string_view key_col, std::string_view value_col,
                              TimeDelta offset, DateTime start_time,
@@ -125,7 +142,6 @@ namespace hgraph::stdlib
             plan->frame    = frame;
             plan->dt_col   = std::string{dt_col};
             plan->offset   = offset;
-            plan->out_kind = out.schema()->kind;
 
             const auto add_bundle_fields = [&](const ValueTypeMetaData *bundle, const char *what) {
                 plan->bundle_meta = bundle;
@@ -143,16 +159,19 @@ namespace hgraph::stdlib
                 }
             };
 
-            switch (plan->out_kind)
+            switch (out.schema()->kind)
             {
                 case TSTypeKind::TS:
+                    plan->apply_row = &apply_from_frame_root;
                     plan->fields.push_back(
                         FieldRead{std::string{value_col}, out.schema()->value_schema, 0});
                     break;
                 case TSTypeKind::TSB:
+                    plan->apply_row = &apply_from_frame_root;
                     add_bundle_fields(out.schema()->value_schema, "from_data_frame");
                     break;
                 case TSTypeKind::TSD: {
+                    plan->apply_row = &apply_from_frame_dict;
                     plan->key_meta = out.schema()->key_type();
                     plan->key_col  = std::string{key_col};
                     const auto *child = out.schema()->element_ts();
@@ -239,6 +258,25 @@ namespace hgraph::stdlib
                 const Value cell  = frame_cell(plan.frame, field.column, field.leaf, row);
                 if (cell.has_value()) { apply_current_value(out, cell.view()); }
             }
+
+            void apply_from_frame_root(const FromFramePlan &plan,
+                                       std::int64_t row,
+                                       const TSOutputView &out)
+            {
+                apply_from_frame_leafish(plan, row, out);
+            }
+
+            void apply_from_frame_dict(const FromFramePlan &plan,
+                                       std::int64_t row,
+                                       const TSOutputView &out)
+            {
+                auto        dict     = out.as_dict();
+                auto        mutation = dict.begin_mutation(out.evaluation_time());
+                const Value key = frame_cell(plan.frame, plan.key_col, plan.key_meta, row);
+                auto        element = mutation.at(key.view());
+                apply_from_frame_leafish(
+                    plan, row, TSOutputView{out.output(), element, out.evaluation_time()});
+            }
         }  // namespace
 
         void eval_from_frame(FromFramePlan &plan, DateTime now, NodeScheduler &sched,
@@ -247,16 +285,7 @@ namespace hgraph::stdlib
             const auto rows = plan.frame.has_value() ? frame_rows(plan.frame) : 0;
             while (plan.row < rows && read_dt(plan.frame, plan.dt_col, plan.row) + plan.offset == now)
             {
-                if (plan.out_kind == TSTypeKind::TSD)
-                {
-                    auto        dict     = out.as_dict();
-                    auto        mutation = dict.begin_mutation(out.evaluation_time());
-                    const Value key = frame_cell(plan.frame, plan.key_col, plan.key_meta, plan.row);
-                    auto        element = mutation.at(key.view());
-                    apply_from_frame_leafish(
-                        plan, plan.row, TSOutputView{out.output(), element, out.evaluation_time()});
-                }
-                else { apply_from_frame_leafish(plan, plan.row, out); }
+                plan.apply_row(plan, plan.row, out);
                 ++plan.row;
             }
             if (plan.row < rows)

@@ -488,7 +488,7 @@ struct PyFastComputeStateRef {
     }
     case 'l':
       call_args.append(nb::cast(PyLogger{
-          LoggerView{node.graph().logger(), node.pointer()}, lease}));
+          LoggerView{node.graph().logger(), node.pointer(), node.graph().logger_ops()}, lease}));
       break;
     case 'n':
       call_args.append(nb::cast(PyNode{node.pointer(), scheduler, lease}));
@@ -653,7 +653,7 @@ void py_assemble_lifecycle_args(std::string_view layout,
     }
     case 'l':
       call_args.append(nb::cast(PyLogger{
-          LoggerView{node.graph().logger(), node.pointer()}, lease}));
+          LoggerView{node.graph().logger(), node.pointer(), node.graph().logger_ops()}, lease}));
       break;
     case 'n':
       call_args.append(nb::cast(PyNode{node.pointer(), scheduler, lease}));

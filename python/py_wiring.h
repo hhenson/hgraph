@@ -13,6 +13,7 @@ namespace hgraph::python_bridge
 {
     [[nodiscard]] std::shared_ptr<spdlog::logger> make_python_run_logger(
         nb::object logger, int python_level, nb::object formatter);
+    [[nodiscard]] const LoggerOps &python_run_logger_ops() noexcept;
     void add_python_lifecycle_observers(
         GraphExecutorBuilder &builder,
         std::vector<std::unique_ptr<LifecycleObserver>> &owned,
@@ -335,7 +336,8 @@ namespace hgraph::python_bridge
                 .end_time(end_time.value_or(MAX_ET))
                 .mode(realtime ? GraphExecutorMode::RealTime : GraphExecutorMode::Simulation)
                 .logger(make_python_run_logger(std::move(logger), logger_level,
-                                               std::move(logger_formatter)))
+                                               std::move(logger_formatter)),
+                        &python_run_logger_ops())
                 .error_capture_options(ErrorCaptureOptions{
                     .trace_back_depth = static_cast<std::size_t>(trace_back_depth),
                     .capture_values = capture_values,

@@ -61,6 +61,7 @@ namespace hgraph
                                       void *executor_memory)
                 : logger(builder.logger() != nullptr ? builder.logger()
                                                      : log::shared_logger()),
+                  logger_ops(&builder.logger_ops()),
                   graph(builder.graph_builder().make_root_graph(type.writable(executor_memory))),
                   start_time(builder.start_time()),
                   end_time(builder.end_time()),
@@ -85,6 +86,7 @@ namespace hgraph
 
             LifecycleObserverList lifecycle_observers{}; // declared first so it is constructed before graph
             std::shared_ptr<spdlog::logger> logger{};
+            const LoggerOps *logger_ops{&plain_logger_ops()};
             GraphValue       graph{};
             DateTime         start_time{MIN_ST};
             DateTime         end_time{MAX_ET};
@@ -111,6 +113,7 @@ namespace hgraph
                                     void *executor_memory)
                 : logger(builder.logger() != nullptr ? builder.logger()
                                                      : log::shared_logger()),
+                  logger_ops(&builder.logger_ops()),
                   graph(builder.graph_builder().make_root_graph(type.writable(executor_memory))),
                   start_time(builder.start_time()),
                   end_time(builder.end_time()),
@@ -133,6 +136,7 @@ namespace hgraph
 
             LifecycleObserverList lifecycle_observers{}; // declared first so it is constructed before graph
             std::shared_ptr<spdlog::logger> logger{};
+            const LoggerOps               *logger_ops{&plain_logger_ops()};
             GraphValue                   graph{};
             DateTime                     start_time{MIN_ST};
             DateTime                     end_time{MAX_ET};
@@ -735,6 +739,18 @@ namespace hgraph
             return realtime_storage(memory).logger.get();
         }
 
+        const LoggerOps *simulation_logger_ops_impl(const void *,
+                                                    const void *memory) noexcept
+        {
+            return simulation_storage(memory).logger_ops;
+        }
+
+        const LoggerOps *realtime_logger_ops_impl(const void *,
+                                                  const void *memory) noexcept
+        {
+            return realtime_storage(memory).logger_ops;
+        }
+
         bool simulation_run_logging_enabled_impl(const void *,
                                                  const void *memory) noexcept
         {
@@ -788,6 +804,7 @@ namespace hgraph
                 .reset_push_update_pending_impl = &simulation_reset_push_update_pending_impl,
                 .lifecycle_observers_impl = &simulation_lifecycle_observers_impl,
                 .logger_impl = &simulation_logger_impl,
+                .logger_ops_impl = &simulation_logger_ops_impl,
                 .run_logging_enabled_impl = &simulation_run_logging_enabled_impl,
                 .error_capture_options_impl = &simulation_error_capture_options_impl,
                 .cleanup_on_error_impl = &simulation_cleanup_on_error_impl,
@@ -811,6 +828,7 @@ namespace hgraph
                 .reset_push_update_pending_impl = &realtime_reset_push_update_pending_impl,
                 .lifecycle_observers_impl = &realtime_lifecycle_observers_impl,
                 .logger_impl = &realtime_logger_impl,
+                .logger_ops_impl = &realtime_logger_ops_impl,
                 .run_logging_enabled_impl = &realtime_run_logging_enabled_impl,
                 .error_capture_options_impl = &realtime_error_capture_options_impl,
                 .cleanup_on_error_impl = &realtime_cleanup_on_error_impl,
@@ -1217,6 +1235,13 @@ namespace hgraph
                    : nullptr;
     }
 
+    const LoggerOps *GraphExecutorView::logger_ops() const noexcept
+    {
+        return valid() && ops().logger_ops_impl != nullptr
+                   ? ops().logger_ops_impl(ops().context, data())
+                   : &plain_logger_ops();
+    }
+
     bool GraphExecutorView::run_logging_enabled() const noexcept
     {
         return valid() && ops().run_logging_enabled_impl != nullptr &&
@@ -1240,7 +1265,7 @@ namespace hgraph
     {
         if (!valid()) { throw std::logic_error("GraphExecutorView::run requires a live executor"); }
         const bool log_run = run_logging_enabled();
-        LoggerView run_log{log_run ? logger() : nullptr};
+        LoggerView run_log{log_run ? logger() : nullptr, {}, logger_ops()};
         run_log.debug("Starting graph run");
         auto finished = make_scope_exit<true>([&] {
             run_log.debug("Finished graph run");
@@ -1337,9 +1362,15 @@ namespace hgraph
         return *this;
     }
 
-    GraphExecutorBuilder &GraphExecutorBuilder::logger(std::shared_ptr<spdlog::logger> logger)
+    GraphExecutorBuilder &GraphExecutorBuilder::logger(std::shared_ptr<spdlog::logger> logger,
+                                                       const LoggerOps *ops)
     {
+        if (logger != nullptr && ops != nullptr && ops->emit_impl == nullptr)
+        {
+            throw std::invalid_argument("GraphExecutorBuilder logger operations require an emission callback");
+        }
         logger_ = std::move(logger);
+        logger_ops_ = logger_ != nullptr ? ops : nullptr;
         return *this;
     }
 
@@ -1403,6 +1434,11 @@ namespace hgraph
     const std::shared_ptr<spdlog::logger> &GraphExecutorBuilder::logger() const noexcept
     {
         return logger_;
+    }
+
+    const LoggerOps &GraphExecutorBuilder::logger_ops() const noexcept
+    {
+        return logger_ops_ != nullptr ? *logger_ops_ : plain_logger_ops();
     }
 
     ErrorCaptureOptions GraphExecutorBuilder::error_capture_options() const noexcept

@@ -803,6 +803,58 @@ TEST_CASE("keyed and reference role records preserve root input and projection t
     REQUIRE(label(proxy_output.as_role()) == "ts.tsd.proxy.output");
 }
 
+TEST_CASE("TSB strategies publish debugger fields through inspection operations")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    auto &factory = TSDataPlanFactory::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *bundle = registry.tsb(
+        "InspectionOpsBundle", {{"left", ts}, {"right", ts}});
+
+    TSInput owned{TSInputBuilderFactory::checked_builder_for(
+        *bundle, TSEndpointSchema::owned(bundle))};
+    TSInput composite{TSInputBuilderFactory::checked_builder_for(
+        *bundle,
+        TSEndpointSchema::non_peered(
+            bundle, {TSEndpointSchema::peered(ts),
+                     TSEndpointSchema::peered(ts)}))};
+    TSInput target{TSInputBuilderFactory::checked_builder_for(
+        *bundle, TSEndpointSchema::peered(bundle))};
+
+    const std::array<TSRoleTypeRef, 5> types{
+        factory.data_type_for(bundle).as_role(),
+        factory.output_type_for(bundle).as_role(),
+        owned.type_ref().as_role(),
+        composite.type_ref().as_role(),
+        target.type_ref().as_role(),
+    };
+    for (const auto type : types)
+    {
+        const auto &ops = type.ops_ref();
+        REQUIRE(ops.inspection_ops != nullptr);
+        REQUIRE(ops.inspection_ops->field_count_impl != nullptr);
+        REQUIRE(ops.inspection_ops->field_at_impl != nullptr);
+        REQUIRE(ops.inspection_ops->field_count_impl(ops.context) == 2);
+
+        const auto left = ops.inspection_ops->field_at_impl(ops.context, 0);
+        const auto right = ops.inspection_ops->field_at_impl(ops.context, 1);
+        CHECK(std::string{left.name} == "left");
+        CHECK(std::string{right.name} == "right");
+        CHECK(left.type.schema() == ts);
+        CHECK(right.type.schema() == ts);
+        const auto *debug = type.record()->debug;
+        REQUIRE(debug != nullptr);
+        REQUIRE(debug->field_count == 2);
+        CHECK(debug->fields[0].offset == left.data_offset);
+        CHECK(debug->fields[1].offset == right.data_offset);
+        CHECK(debug->fields[0].type == left.type.record());
+        CHECK(debug->fields[1].type == right.type.record());
+    }
+}
+
 TEST_CASE("TSD value projection preserves an independently supplied opaque operations table")
 {
     using namespace hgraph;

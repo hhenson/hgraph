@@ -7,6 +7,25 @@
 
 namespace hgraph::ts_data_detail
 {
+    namespace
+    {
+        std::size_t empty_inspection_field_count(const void *) noexcept { return 0; }
+
+        TSDataInspectionField empty_inspection_field_at(const void *, std::size_t)
+        {
+            throw std::out_of_range("TSData inspection field index is out of range");
+        }
+    }
+
+    const TSDataInspectionOps &empty_inspection_ops() noexcept
+    {
+        static const TSDataInspectionOps ops{
+            .field_count_impl = &empty_inspection_field_count,
+            .field_at_impl = &empty_inspection_field_at,
+        };
+        return ops;
+    }
+
     [[noreturn]] void missing_ts_data_op(const char *name)
     {
         throw std::logic_error(std::string{"TSDataOps is missing "} + name + " implementation");
