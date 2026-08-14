@@ -2072,6 +2072,83 @@ void test_record_time_recovery_hands_off_before_live_records() {
           "the live handoff did not follow the timestamped recovery tail");
 }
 
+void test_record_time_recovery_waits_for_independent_subscriptions() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-recovery-cohort-early"});
+  cluster.create_topic(Str{"typed-recovery-cohort-late"});
+  const DateTime early_time{
+      std::chrono::duration_cast<TimeDelta>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              wall_now().time_since_epoch())) +
+      TimeDelta{1'000'000}};
+  const DateTime late_time = early_time + TimeDelta{500'000};
+  const DateTime second_early_time = early_time + TimeDelta{1'000'000};
+  const DateTime second_late_time = early_time + TimeDelta{1'500'000};
+  // Seed the later stream first. Consumer sessions recover independently, so
+  // broker/poll timing must not let it enter the graph before the earlier
+  // stream has established the same recovery cohort's complete merge set.
+  cluster.seed_record(Str{"typed-recovery-cohort-late"}, Bytes{"late-1"},
+                      std::nullopt, {}, 0, late_time);
+  cluster.seed_record(Str{"typed-recovery-cohort-late"}, Bytes{"late-2"},
+                      std::nullopt, {}, 0, second_late_time);
+  cluster.seed_record(Str{"typed-recovery-cohort-early"}, Bytes{"early-1"},
+                      std::nullopt, {}, 0, early_time);
+  cluster.seed_record(Str{"typed-recovery-cohort-early"}, Bytes{"early-2"},
+                      std::nullopt, {}, 0, second_early_time);
+
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-recovery-cohort"})
+                          .ingress_limits(Int{2}, Int{4096})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-cohort-early"}, Int{0}}})
+          .group_id(Str{"typed-recovery-cohort-early"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-cohort-early"})
+          .build();
+  secondary_subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-cohort-late"}, Int{0}}})
+          .group_id(Str{"typed-recovery-cohort-late"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-cohort-late"})
+          .build();
+  bounded_payloads.clear();
+  multi_bounded_records.clear();
+  multi_bounded_complete_count = 0;
+
+  auto executor = start_realtime(build_graph<MultiBoundedSubscriptionGraph>(),
+                                 TimeDelta{5'000'000});
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  runner.join();
+
+  require(bounded_payloads == std::vector<Str>{Str{"early-1"}, Str{"late-1"},
+                                               Str{"early-2"}, Str{"late-2"}},
+          "an independently recovered topic was replayed before the complete "
+          "record-time cohort was available");
+  require(multi_bounded_records ==
+              std::vector<std::pair<Str, DateTime>>{
+                  {Str{"early-1"}, early_time},
+                  {Str{"late-1"}, late_time},
+                  {Str{"early-2"}, second_early_time},
+                  {Str{"late-2"}, second_late_time}},
+          "independent recovery streams did not retain their globally merged "
+          "Kafka event times");
+  require(multi_bounded_complete_count == 2,
+          "the record-time recovery cohort did not complete both streams "
+          "(completed=" +
+              std::to_string(multi_bounded_complete_count) + ")");
+}
+
 void test_graph_lifetime_stop_is_bounded_in_simulation() {
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-record-time"});
@@ -2327,6 +2404,7 @@ int main() {
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_hands_off_before_live_records();
+    test_record_time_recovery_waits_for_independent_subscriptions();
     test_graph_lifetime_stop_is_bounded_in_simulation();
     test_multiple_simulation_subscriptions_replay_at_record_time();
     test_real_broker_publish_subscribe_and_commit_round_trip();

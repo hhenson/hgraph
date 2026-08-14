@@ -6,6 +6,8 @@
   instead of serializing them in shared-drain arrival order.
 - Keep real-time live records behind their subscription's queued timestamped
   recovery tail during the recovery-to-live handoff.
+- Stage record-time recovery cohorts from independent subscriptions before
+  releasing their globally ordered records into the graph.
 
 ## 0.8.0
 

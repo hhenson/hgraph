@@ -7,6 +7,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/util/scope.h>
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -638,6 +639,12 @@ public:
   void wait_until_preloaded();
   void stop() noexcept;
   void commit(Value cursor);
+  void coordinate_record_time_recovery() noexcept {
+    record_time_recovery_participant_ = true;
+  }
+  [[nodiscard]] bool uses_record_time_recovery() const noexcept {
+    return spec_.recovery_clock == KafkaRecoveryClock::RecordTimestamp;
+  }
   [[nodiscard]] bool matches_key(const ValueView &key) const {
     return key_.view().equals(key);
   }
@@ -692,6 +699,7 @@ private:
   void emit_state(KafkaSubscriptionState state,
                   std::optional<DateTime> evaluation_time = std::nullopt);
   void complete_preload(Str error = {});
+  void abandon_record_time_recovery() noexcept;
 
   KafkaRuntime &owner_;
   Value key_{};
@@ -717,6 +725,8 @@ private:
   std::deque<BufferedRecord> recovery_records_{};
   std::size_t recovery_bytes_{};
   std::optional<DateTime> last_recovery_evaluation_time_{};
+  bool record_time_recovery_participant_{};
+  bool record_time_recovery_arrived_{};
   std::mutex preload_mutex_{};
   std::condition_variable preload_changed_{};
   bool preload_complete_{};
@@ -780,55 +790,78 @@ public:
     bridge_.value->stop();
   }
 
-  void add_subscription(Value key) {
-    SubscriptionSpec spec = parse_subscription(key.view());
-    if (spec.stop_kind == KafkaStopPositionKind::GraphLifetime) {
-      spec.stop_kind = simulation_ ? KafkaStopPositionKind::Snapshot
-                                   : KafkaStopPositionKind::Unbounded;
+  void add_subscriptions(std::vector<Value> keys) {
+    std::vector<std::unique_ptr<ConsumerSession>> additions;
+    additions.reserve(keys.size());
+    for (auto &key : keys) {
+      SubscriptionSpec spec = parse_subscription(key.view());
+      if (spec.stop_kind == KafkaStopPositionKind::GraphLifetime) {
+        spec.stop_kind = simulation_ ? KafkaStopPositionKind::Snapshot
+                                     : KafkaStopPositionKind::Unbounded;
+      }
+      const auto identity_is_live = [&](const auto &session) {
+        return session->identity() == spec.identity;
+      };
+      if (std::ranges::any_of(sessions_, identity_is_live) ||
+          std::ranges::any_of(additions, identity_is_live)) {
+        throw std::invalid_argument("Kafka subscription identity '" +
+                                    spec.identity +
+                                    "' is already live with a different key");
+      }
+      if (simulation_ &&
+          spec.recovery_clock != KafkaRecoveryClock::RecordTimestamp) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions require RecordTimestamp recovery");
+      }
+      if (simulation_ && spec.stop_kind == KafkaStopPositionKind::Unbounded) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions must have a bounded stop position");
+      }
+      if (simulation_ && spec.merge_policy !=
+                             KafkaMergePolicy::TimestampTopicPartitionOffset) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions require "
+            "TimestampTopicPartitionOffset recovery ordering");
+      }
+      if (simulation_ && spec.commit_mode == KafkaCommitMode::OnGraphDelivery) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions cannot commit on graph delivery");
+      }
+      additions.push_back(std::make_unique<ConsumerSession>(
+          *this, std::move(key), std::move(spec)));
     }
-    if (std::ranges::any_of(sessions_, [&](const auto &session) {
-          return session->identity() == spec.identity;
-        })) {
-      throw std::invalid_argument("Kafka subscription identity '" +
-                                  spec.identity +
-                                  "' is already live with a different key");
+
+    const auto record_time_participants = static_cast<std::size_t>(
+        std::ranges::count_if(additions, [](const auto &session) {
+          return session->uses_record_time_recovery();
+        }));
+    sessions_.reserve(sessions_.size() + additions.size());
+    begin_record_time_recovery(record_time_participants);
+    for (auto &session : additions) {
+      if (session->uses_record_time_recovery()) {
+        session->coordinate_record_time_recovery();
+      }
     }
-    if (simulation_ &&
-        spec.recovery_clock != KafkaRecoveryClock::RecordTimestamp) {
-      throw std::invalid_argument(
-          "Kafka simulation subscriptions require RecordTimestamp recovery");
+
+    auto rollback = make_scope_exit<true>([&] {
+      for (auto &session : additions) {
+        if (session) {
+          session->stop();
+        }
+      }
+    });
+    for (auto &session : additions) {
+      session->start();
     }
-    if (simulation_ && spec.stop_kind == KafkaStopPositionKind::Unbounded) {
-      throw std::invalid_argument(
-          "Kafka simulation subscriptions must have a bounded stop position");
-    }
-    if (simulation_ &&
-        spec.merge_policy != KafkaMergePolicy::TimestampTopicPartitionOffset) {
-      throw std::invalid_argument(
-          "Kafka simulation subscriptions require "
-          "TimestampTopicPartitionOffset recovery ordering");
-    }
-    if (simulation_ && spec.commit_mode == KafkaCommitMode::OnGraphDelivery) {
-      throw std::invalid_argument(
-          "Kafka simulation subscriptions cannot commit on graph delivery");
-    }
-    auto session =
-        std::make_unique<ConsumerSession>(*this, key.clone(), std::move(spec));
-    if (simulation_ && sessions_.size() >= simulation_ingress_slots_) {
-      // Each session buffers at most one configured ingress window before it
-      // hands recovery to the shared bridge.  Simulation must finish that
-      // finite hand-off before graph evaluation starts, so reserve one bridge
-      // window per concurrently live session instead of letting an earlier
-      // session block every later preload behind the shared queue.
-      bridge_.value->add_capacity(OutputChannel::Subscription, config_.ingress,
-                                  subscription_control_limits(config_.ingress));
-      ++simulation_ingress_slots_;
-    }
-    session->start();
     if (simulation_) {
-      session->wait_until_preloaded();
+      for (auto &session : additions) {
+        session->wait_until_preloaded();
+      }
     }
-    sessions_.push_back(std::move(session));
+    for (auto &session : additions) {
+      sessions_.push_back(std::move(session));
+    }
+    rollback.release();
   }
 
   void remove_subscription(const ValueView &key) {
@@ -975,6 +1008,12 @@ public:
                                      retained_bytes);
   }
 
+  [[nodiscard]] bool
+  recovery_ingress_can_accept(std::size_t retained_bytes) const {
+    return bridge_.value->can_accept_recovery(OutputChannel::Subscription,
+                                              retained_bytes);
+  }
+
   bool
   emit_subscription(Value key, std::optional<Value> record,
                     std::optional<Value> cursor, KafkaSubscriptionState state,
@@ -985,6 +1024,64 @@ public:
         subscription_envelope(std::move(key), std::move(record),
                               std::move(cursor), state, evaluation_time),
         retained_bytes);
+  }
+
+  bool emit_recovery_subscription(Value key, std::optional<Value> record,
+                                  std::optional<Value> cursor,
+                                  KafkaSubscriptionState state,
+                                  std::size_t retained_bytes,
+                                  std::optional<DateTime> evaluation_time) {
+    return bridge_.value->push_recovery(
+        OutputChannel::Subscription,
+        subscription_envelope(std::move(key), std::move(record),
+                              std::move(cursor), state, evaluation_time),
+        retained_bytes);
+  }
+
+  void begin_record_time_recovery(std::size_t participants) {
+    if (participants == 0) {
+      return;
+    }
+    std::lock_guard lock{recovery_mutex_};
+    if (participants > std::numeric_limits<std::size_t>::max() -
+                           record_time_recoveries_pending_) {
+      throw std::overflow_error(
+          "Kafka record-time recovery participant count overflowed");
+    }
+    bridge_.value->begin_record_time_recovery(participants);
+    record_time_recoveries_pending_ += participants;
+  }
+
+  void record_time_recovery_ready(std::optional<DateTime> tail) {
+    std::lock_guard lock{recovery_mutex_};
+    if (record_time_recoveries_pending_ == 0) {
+      throw std::logic_error(
+          "Kafka record-time recovery participant completed twice");
+    }
+    if (tail.has_value() && (!record_time_recovery_tail_.has_value() ||
+                             *tail > *record_time_recovery_tail_)) {
+      record_time_recovery_tail_ = *tail;
+    }
+    bridge_.value->complete_record_time_recovery();
+    --record_time_recoveries_pending_;
+  }
+
+  void cancel_record_time_recovery() noexcept {
+    try {
+      std::lock_guard lock{recovery_mutex_};
+      if (record_time_recoveries_pending_ == 0) {
+        return;
+      }
+      bridge_.value->complete_record_time_recovery();
+      --record_time_recoveries_pending_;
+    } catch (...) {
+    }
+  }
+
+  [[nodiscard]] std::pair<bool, std::optional<DateTime>>
+  record_time_recovery_status() const {
+    std::lock_guard lock{recovery_mutex_};
+    return {record_time_recoveries_pending_ == 0, record_time_recovery_tail_};
   }
 
   void emit_subscription_state(
@@ -1381,9 +1478,11 @@ private:
   ServiceBridgeHandle bridge_{};
   std::int64_t graph_start_ms_{};
   bool simulation_{};
-  std::size_t simulation_ingress_slots_{1};
   std::atomic<bool> accepting_{};
   std::vector<std::unique_ptr<ConsumerSession>> sessions_{};
+  mutable std::mutex recovery_mutex_{};
+  std::size_t record_time_recoveries_pending_{};
+  std::optional<DateTime> record_time_recovery_tail_{};
   rd_kafka_t *producer_{};
   std::thread producer_thread_{};
   std::mutex producer_mutex_{};
@@ -1438,6 +1537,15 @@ void ConsumerSession::stop() noexcept {
   if (thread_.joinable()) {
     thread_.join();
   }
+  abandon_record_time_recovery();
+}
+
+void ConsumerSession::abandon_record_time_recovery() noexcept {
+  if (!record_time_recovery_participant_ || record_time_recovery_arrived_) {
+    return;
+  }
+  record_time_recovery_arrived_ = true;
+  owner_.cancel_record_time_recovery();
 }
 
 void ConsumerSession::commit(Value cursor) {
@@ -1746,12 +1854,20 @@ void ConsumerSession::configure_assignment(
              });
     };
     if (starts_reached(stop_ends_)) {
-      complete_bounded();
+      if (buffers_recovery()) {
+        prepare_recovery_flush(consumer, true);
+      } else {
+        complete_bounded();
+      }
     } else if (starts_reached(recovery_ends_)) {
-      recovering_ = false;
-      live_ = true;
-      emit_state(KafkaSubscriptionState::Live);
-      complete_preload();
+      if (buffers_recovery()) {
+        prepare_recovery_flush(consumer, false);
+      } else {
+        recovering_ = false;
+        live_ = true;
+        emit_state(KafkaSubscriptionState::Live);
+        complete_preload();
+      }
     }
     if (paused_) {
       auto *assigned = rd_kafka_topic_partition_list_copy(partitions);
@@ -2208,7 +2324,12 @@ void ConsumerSession::prepare_recovery_flush(rd_kafka_t *consumer,
 void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
   while (!recovery_records_.empty()) {
     auto &front = recovery_records_.front();
-    if (!owner_.ingress_can_accept(front.retained_bytes)) {
+    const bool coordinated_record_time = record_time_recovery_participant_;
+    const bool can_accept =
+        coordinated_record_time
+            ? owner_.recovery_ingress_can_accept(front.retained_bytes)
+            : owner_.ingress_can_accept(front.retained_bytes);
+    if (!can_accept) {
       return;
     }
 
@@ -2229,16 +2350,39 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
       evaluation_time = candidate;
     }
 
-    const bool pushed = owner_.emit_subscription(
-        key_.clone(), std::move(front.record), std::move(front.cursor),
-        KafkaSubscriptionState::Recovering, front.retained_bytes,
-        evaluation_time);
+    const bool pushed =
+        coordinated_record_time
+            ? owner_.emit_recovery_subscription(
+                  key_.clone(), std::move(front.record),
+                  std::move(front.cursor), KafkaSubscriptionState::Recovering,
+                  front.retained_bytes, evaluation_time)
+            : owner_.emit_subscription(key_.clone(), std::move(front.record),
+                                       std::move(front.cursor),
+                                       KafkaSubscriptionState::Recovering,
+                                       front.retained_bytes, evaluation_time);
     if (!pushed) {
       throw std::logic_error(
           "Kafka recovery queue capacity changed after reservation");
     }
     recovery_bytes_ -= front.retained_bytes;
     recovery_records_.erase(recovery_records_.begin());
+  }
+
+  if (record_time_recovery_participant_) {
+    if (!record_time_recovery_arrived_) {
+      owner_.record_time_recovery_ready(last_recovery_evaluation_time_);
+      record_time_recovery_arrived_ = true;
+    }
+    auto [released, recovery_tail] = owner_.record_time_recovery_status();
+    if (!released) {
+      return;
+    }
+    if (recovery_tail.has_value() &&
+        (!last_recovery_evaluation_time_.has_value() ||
+         *recovery_tail > *last_recovery_evaluation_time_)) {
+      last_recovery_evaluation_time_ = *recovery_tail;
+    }
+    record_time_recovery_participant_ = false;
   }
 
   recovery_ready_ = false;
@@ -2438,7 +2582,11 @@ void ConsumerSession::check_positions(rd_kafka_t *consumer) {
       emit_state(KafkaSubscriptionState::Live);
     }
   } else if (stop_reached) {
-    complete_bounded();
+    if (buffers_recovery()) {
+      prepare_recovery_flush(consumer, true);
+    } else {
+      complete_bounded();
+    }
   }
   rd_kafka_topic_partition_list_destroy(positions);
 }
@@ -2560,8 +2708,12 @@ struct KafkaRuntimeNode {
       for (const auto key : erased.removed()) {
         runtime->remove_subscription(key);
       }
+      std::vector<Value> additions;
       for (const auto key : erased.added()) {
-        runtime->add_subscription(key.clone());
+        additions.push_back(key.clone());
+      }
+      if (!additions.empty()) {
+        runtime->add_subscriptions(std::move(additions));
       }
     }
 

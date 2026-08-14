@@ -244,6 +244,108 @@ def test_python_record_time_recovery_hands_off_before_live_records() -> None:
     assert observed[1][1] > observed[0][1]
 
 
+def test_python_record_time_recovery_waits_for_independent_topics() -> None:
+    cluster = MockCluster()
+    cluster.create_topic("python-recovery-cohort-early")
+    cluster.create_topic("python-recovery-cohort-late")
+    early_time = hg.utc_now().replace(microsecond=0) + timedelta(seconds=2)
+    late_time = early_time + timedelta(milliseconds=500)
+    second_early_time = early_time + timedelta(seconds=1)
+    second_late_time = early_time + timedelta(milliseconds=1500)
+    # Seed the later stream first so enqueue/poll arrival cannot be mistaken
+    # for the event-time order of the complete recovery cohort.
+    cluster.seed_record(
+        "python-recovery-cohort-late",
+        b"late-1",
+        timestamp_ms=int(late_time.replace(tzinfo=UTC).timestamp() * 1000),
+    )
+    cluster.seed_record(
+        "python-recovery-cohort-late",
+        b"late-2",
+        timestamp_ms=int(second_late_time.replace(tzinfo=UTC).timestamp() * 1000),
+    )
+    cluster.seed_record(
+        "python-recovery-cohort-early",
+        b"early-1",
+        timestamp_ms=int(early_time.replace(tzinfo=UTC).timestamp() * 1000),
+    )
+    cluster.seed_record(
+        "python-recovery-cohort-early",
+        b"early-2",
+        timestamp_ms=int(second_early_time.replace(tzinfo=UTC).timestamp() * 1000),
+    )
+    observed = []
+    completed = []
+
+    @hg.sink_node
+    def capture_record(
+        record: hg.TS[kafka.KafkaRecord],
+        _clock: hg.CLOCK = None,
+    ):
+        observed.append((record.value.value, _clock.evaluation_time))
+
+    @hg.sink_node
+    def capture_state(
+        state: hg.TS[kafka.KafkaSubscriptionState],
+        _api: hg.EvaluationEngineApi = None,
+    ):
+        if state.value == kafka.KafkaSubscriptionState.BOUNDED_COMPLETE:
+            completed.append(True)
+            if len(completed) == 2:
+                _api.request_engine_stop()
+
+    @hg.graph
+    def app():
+        kafka.register_kafka_service(
+            kafka.KafkaServiceConfig(
+                connection=kafka.KafkaConnectionConfig(
+                    (cluster.bootstrap_servers(),), "python-recovery-cohort"
+                ),
+                consumer_defaults=kafka.KafkaConsumerDefaults(
+                    ingress_record_limit=2,
+                    ingress_byte_limit=4096,
+                ),
+            ),
+            path="recovery-cohort",
+        )
+        for topic in (
+            "python-recovery-cohort-early",
+            "python-recovery-cohort-late",
+        ):
+            key = kafka.KafkaSubscriptionKey(
+                topics=(topic,),
+                group_id=topic,
+                assignment_mode=kafka.KafkaAssignmentMode.INDEPENDENT,
+                start_position=kafka.KafkaStartPosition.earliest(),
+                stop_position=kafka.KafkaStopPosition.snapshot(),
+                recovery_clock=kafka.KafkaRecoveryClock.RECORD_TIMESTAMP,
+                merge_policy=(
+                    kafka.KafkaMergePolicy.TIMESTAMP_TOPIC_PARTITION_OFFSET
+                ),
+                sharing_identity=topic,
+            )
+            subscription = kafka.kafka_subscribe(
+                hg.const(key, tp=hg.TS[kafka.KafkaSubscriptionKey]),
+                path="recovery-cohort",
+            )
+            capture_record(subscription["record"])
+            capture_state(subscription["state"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=second_late_time + timedelta(seconds=2),
+    )
+
+    assert observed == [
+        (b"early-1", early_time),
+        (b"late-1", late_time),
+        (b"early-2", second_early_time),
+        (b"late-2", second_late_time),
+    ]
+    assert len(completed) == 2
+
+
 def test_legacy_replay_surface_uses_the_same_native_history_session(monkeypatch) -> None:
     _use_mock_cluster_history_start(monkeypatch)
     cluster = MockCluster()
