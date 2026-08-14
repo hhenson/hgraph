@@ -727,6 +727,7 @@ private:
   std::optional<DateTime> last_recovery_evaluation_time_{};
   bool record_time_recovery_participant_{};
   bool record_time_recovery_arrived_{};
+  bool record_time_recovery_finished_{};
   std::mutex preload_mutex_{};
   std::condition_variable preload_changed_{};
   bool preload_complete_{};
@@ -1066,14 +1067,22 @@ public:
     --record_time_recoveries_pending_;
   }
 
-  void cancel_record_time_recovery() noexcept {
+  void finish_record_time_recovery() {
+    std::lock_guard lock{recovery_mutex_};
+    bridge_.value->finish_record_time_recovery();
+  }
+
+  void cancel_record_time_recovery(bool already_ready) noexcept {
     try {
       std::lock_guard lock{recovery_mutex_};
-      if (record_time_recoveries_pending_ == 0) {
-        return;
+      if (!already_ready) {
+        if (record_time_recoveries_pending_ == 0) {
+          return;
+        }
+        bridge_.value->complete_record_time_recovery();
+        --record_time_recoveries_pending_;
       }
-      bridge_.value->complete_record_time_recovery();
-      --record_time_recoveries_pending_;
+      bridge_.value->finish_record_time_recovery();
     } catch (...) {
     }
   }
@@ -1541,11 +1550,13 @@ void ConsumerSession::stop() noexcept {
 }
 
 void ConsumerSession::abandon_record_time_recovery() noexcept {
-  if (!record_time_recovery_participant_ || record_time_recovery_arrived_) {
+  if (!record_time_recovery_participant_ || record_time_recovery_finished_) {
     return;
   }
+  owner_.cancel_record_time_recovery(record_time_recovery_arrived_);
   record_time_recovery_arrived_ = true;
-  owner_.cancel_record_time_recovery();
+  record_time_recovery_finished_ = true;
+  record_time_recovery_participant_ = false;
 }
 
 void ConsumerSession::commit(Value cursor) {
@@ -1600,6 +1611,8 @@ void ConsumerSession::error_callback(rd_kafka_t *, int error, const char *,
 }
 
 void ConsumerSession::run() noexcept {
+  auto release_recovery_participation =
+      make_scope_exit<true>([this] { abandon_record_time_recovery(); });
   rd_kafka_t *consumer = nullptr;
   try {
     KafkaConfPtr conf{rd_kafka_conf_new()};
@@ -2368,7 +2381,8 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
     recovery_records_.erase(recovery_records_.begin());
   }
 
-  if (record_time_recovery_participant_) {
+  const bool coordinated_record_time = record_time_recovery_participant_;
+  if (coordinated_record_time) {
     if (!record_time_recovery_arrived_) {
       owner_.record_time_recovery_ready(last_recovery_evaluation_time_);
       record_time_recovery_arrived_ = true;
@@ -2382,7 +2396,6 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
          *recovery_tail > *last_recovery_evaluation_time_)) {
       last_recovery_evaluation_time_ = *recovery_tail;
     }
-    record_time_recovery_participant_ = false;
   }
 
   recovery_ready_ = false;
@@ -2411,6 +2424,11 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
   }
   if (bounded_after_recovery_) {
     complete_bounded();
+    if (coordinated_record_time) {
+      owner_.finish_record_time_recovery();
+      record_time_recovery_finished_ = true;
+      record_time_recovery_participant_ = false;
+    }
     return;
   }
   live_ = true;
@@ -2419,6 +2437,11 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
       last_recovery_evaluation_time_.has_value()
           ? std::optional<DateTime>{*last_recovery_evaluation_time_ + MIN_TD}
           : std::nullopt);
+  if (coordinated_record_time) {
+    owner_.finish_record_time_recovery();
+    record_time_recovery_finished_ = true;
+    record_time_recovery_participant_ = false;
+  }
   complete_preload();
 }
 
@@ -2492,8 +2515,15 @@ void ConsumerSession::process_commits(rd_kafka_t *consumer) {
 }
 
 void ConsumerSession::update_flow_control(rd_kafka_t *consumer) {
-  const bool should_pause =
-      !paused_ && !recovery_paused_ && owner_.ingress_at_high_watermark();
+  // A coordinated participant must reach its captured snapshot before the
+  // shared recovery drain can open. Its local recovery buffer is independently
+  // bounded, so another participant's already-staged records must not pause it
+  // behind the very barrier it is responsible for releasing.
+  const bool loading_coordinated_recovery =
+      record_time_recovery_participant_ && !recovery_ready_;
+  const bool should_pause = !loading_coordinated_recovery && !paused_ &&
+                            !recovery_paused_ &&
+                            owner_.ingress_at_high_watermark();
   const bool should_resume =
       paused_ && !recovery_ready_ && owner_.ingress_below_low_watermark();
   if (!should_pause && !should_resume) {

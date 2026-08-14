@@ -8,6 +8,8 @@
   recovery tail during the recovery-to-live handoff.
 - Stage record-time recovery cohorts from independent subscriptions before
   releasing their globally ordered records into the graph.
+- Keep cohort loading independent of live-ingress watermarks, release failed
+  participants, and retain bounded lifecycle capacity through preload.
 
 ## 0.8.0
 

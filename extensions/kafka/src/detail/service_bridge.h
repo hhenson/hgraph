@@ -152,8 +152,27 @@ public:
           add_saturated(state.recovery_limits.bytes,
                         multiply_saturated(state.limits.bytes, participants));
     }
+    if (record_time_recovery_controls_pending_ == 0) {
+      state.recovery_control_limits = OutputLimits{
+          add_saturated(
+              state.control_records,
+              multiply_saturated(state.control_limits.records, participants)),
+          add_saturated(
+              state.control_bytes,
+              multiply_saturated(state.control_limits.bytes, participants)),
+      };
+    } else {
+      state.recovery_control_limits.records = add_saturated(
+          state.recovery_control_limits.records,
+          multiply_saturated(state.control_limits.records, participants));
+      state.recovery_control_limits.bytes = add_saturated(
+          state.recovery_control_limits.bytes,
+          multiply_saturated(state.control_limits.bytes, participants));
+    }
     record_time_recoveries_pending_ =
         add_saturated(record_time_recoveries_pending_, participants);
+    record_time_recovery_controls_pending_ =
+        add_saturated(record_time_recovery_controls_pending_, participants);
   }
 
   void complete_record_time_recovery() {
@@ -182,6 +201,18 @@ public:
     }
   }
 
+  void finish_record_time_recovery() {
+    std::lock_guard lock{mutex_};
+    if (record_time_recovery_controls_pending_ == 0) {
+      throw std::logic_error(
+          "Kafka record-time recovery participant finished twice");
+    }
+    --record_time_recovery_controls_pending_;
+    if (record_time_recovery_controls_pending_ == 0) {
+      at(OutputChannel::Subscription).recovery_control_limits = {};
+    }
+  }
+
   void stop() noexcept {
     std::lock_guard lock{mutex_};
     accepting_ = false;
@@ -197,10 +228,12 @@ public:
       channel.recovery_records = 0;
       channel.recovery_bytes = 0;
       channel.recovery_limits = {};
+      channel.recovery_control_limits = {};
       channel.wake_outstanding = false;
       channel.sender = PushSourceSender{};
     }
     record_time_recoveries_pending_ = 0;
+    record_time_recovery_controls_pending_ = 0;
     subscription_delivered_ = {};
   }
 
@@ -468,7 +501,9 @@ private:
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
-      const auto limits = control ? state.control_limits : state.limits;
+      const auto limits = control && record_time_recovery_controls_pending_ != 0
+                              ? state.recovery_control_limits
+                              : (control ? state.control_limits : state.limits);
       const auto records =
           control ? state.control_records : state.payload_records;
       const auto bytes = control ? state.control_bytes : state.payload_bytes;
@@ -541,6 +576,7 @@ private:
     std::size_t recovery_records{};
     std::size_t recovery_bytes{};
     OutputLimits recovery_limits{};
+    OutputLimits recovery_control_limits{};
     PushSourceSender sender{};
     Int generation{};
     bool wake_outstanding{};
@@ -617,6 +653,7 @@ private:
   std::array<Channel, static_cast<std::size_t>(OutputChannel::Count)> channels_;
   bool accepting_{};
   std::size_t record_time_recoveries_pending_{};
+  std::size_t record_time_recovery_controls_pending_{};
   std::function<void(Value)> subscription_delivered_{};
 };
 
