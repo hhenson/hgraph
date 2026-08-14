@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -74,6 +75,17 @@ namespace
     struct alignas(32) OverAlignedValue
     {
         std::byte storage[32]{};
+    };
+
+    struct ExplicitContext
+    {
+        static inline int destroyed{0};
+
+        int value{0};
+
+        ExplicitContext() = delete;
+        explicit ExplicitContext(int value_) : value(value_) {}
+        ~ExplicitContext() { ++destroyed; }
     };
 
     struct LifecycleRecorder
@@ -406,6 +418,35 @@ TEST_CASE("memory utils reset destroys an erased owner exactly once", "[memory u
     owner.reset();
     REQUIRE(owner.plan() == nullptr);
     REQUIRE(TrackedValue::destroyed == 1);
+}
+
+TEST_CASE("memory utils explicitly owns a non-default context at a stable address", "[memory utils]") {
+    using ContextOwner = MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy>;
+
+    ExplicitContext::destroyed = 0;
+    const auto &plan = MemoryUtils::plan_for<ExplicitContext>();
+    auto owner = ContextOwner::owning_constructed(plan, [](void *memory) {
+        std::construct_at(MemoryUtils::cast<ExplicitContext>(memory), 42);
+    });
+
+    REQUIRE(owner.stores_heap());
+    auto *published = owner.as<ExplicitContext>();
+    REQUIRE(published->value == 42);
+
+    auto moved = std::move(owner);
+    REQUIRE_FALSE(owner.has_value());
+    REQUIRE(moved.as<ExplicitContext>() == published);
+    REQUIRE(ExplicitContext::destroyed == 0);
+
+    moved.reset();
+    REQUIRE(ExplicitContext::destroyed == 1);
+
+    REQUIRE_THROWS_AS(
+        ContextOwner::owning_constructed(plan, [](void *) {
+            throw std::runtime_error("construction failed");
+        }),
+        std::runtime_error);
+    REQUIRE(ExplicitContext::destroyed == 1);
 }
 
 TEST_CASE("memory utils supports custom inline policies and aligned heap ownership", "[memory utils]") {

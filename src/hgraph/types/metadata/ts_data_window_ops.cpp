@@ -799,8 +799,6 @@ namespace hgraph::ts_data_plan_factory_detail
             TSWDataOps                      ops{};
             IndexedValueOps                 value_ops{};
 
-            virtual ~TSWContextCommon() = default;
-
             void bind_value_surface()
             {
                 if (schema->value_schema == nullptr)
@@ -1479,6 +1477,38 @@ namespace hgraph::ts_data_plan_factory_detail
             }
         };
 
+        using WindowContextOwner =
+            MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy>;
+
+        struct WindowContextEntry
+        {
+            WindowContextOwner owner;
+            const TSWDataOps  *result;
+
+            WindowContextEntry(WindowContextOwner owner_, const TSWDataOps &result_)
+                : owner(std::move(owner_)), result(&result_)
+            {}
+
+            WindowContextEntry(const WindowContextEntry &) = delete;
+            WindowContextEntry &operator=(const WindowContextEntry &) = delete;
+            WindowContextEntry(WindowContextEntry &&) noexcept = default;
+            WindowContextEntry &operator=(WindowContextEntry &&) noexcept = default;
+        };
+
+        template <typename Context, typename... Args>
+        [[nodiscard]] WindowContextEntry make_window_context_entry(Args &&...args)
+        {
+            const auto &context_plan = MemoryUtils::plan_for<Context>();
+            auto owner = WindowContextOwner::owning_constructed(
+                context_plan, [&](void *memory) {
+                    std::construct_at(MemoryUtils::cast<Context>(memory),
+                                      std::forward<Args>(args)...);
+                });
+            auto *context = owner.template as<Context>();
+            context->bind_value_surface();
+            return WindowContextEntry{std::move(owner), context->ops};
+        }
+
         struct TSWContextKey
         {
             const TSValueTypeMetaData      *schema{nullptr};
@@ -1507,10 +1537,10 @@ namespace hgraph::ts_data_plan_factory_detail
             }
         };
 
-        [[nodiscard]] std::unordered_map<TSWContextKey, std::unique_ptr<TSWContextCommon>, TSWContextKeyHash> &
+        [[nodiscard]] std::unordered_map<TSWContextKey, WindowContextEntry, TSWContextKeyHash> &
         window_contexts() noexcept
         {
-            static std::unordered_map<TSWContextKey, std::unique_ptr<TSWContextCommon>, TSWContextKeyHash> contexts;
+            static std::unordered_map<TSWContextKey, WindowContextEntry, TSWContextKeyHash> contexts;
             return contexts;
         }
 
@@ -1639,7 +1669,7 @@ namespace hgraph::ts_data_plan_factory_detail
         auto                       &contexts = window_contexts();
         const TSWContextKey key{
             &schema, &plan, value_offset, tracking_offset, element_binding.record(), role, embedded};
-        if (const auto it = contexts.find(key); it != contexts.end()) { return it->second->ops; }
+        if (const auto it = contexts.find(key); it != contexts.end()) { return *it->second.result; }
 
         const auto *window_component = plan.find_component("window");
         if (window_component == nullptr || window_component->plan == nullptr)
@@ -1647,21 +1677,16 @@ namespace hgraph::ts_data_plan_factory_detail
             throw std::logic_error("TSDataPlanFactory: TSW TSData plan is missing window storage");
         }
 
-        std::unique_ptr<TSWContextCommon> context;
-        if (schema.is_duration_based())
-        {
-            context = std::make_unique<TimeTSWContext>(schema, *window_component->plan, time_binding,
-                                                       element_binding, value_offset, tracking_offset);
-        }
-        else
-        {
-            context = std::make_unique<SizeTSWContext>(schema, *window_component->plan, time_binding,
-                                                       element_binding, value_offset, tracking_offset);
-        }
-        auto *result = context.get();
+        WindowContextEntry context = schema.is_duration_based()
+                                         ? make_window_context_entry<TimeTSWContext>(
+                                               schema, *window_component->plan, time_binding,
+                                               element_binding, value_offset, tracking_offset)
+                                         : make_window_context_entry<SizeTSWContext>(
+                                               schema, *window_component->plan, time_binding,
+                                               element_binding, value_offset, tracking_offset);
+        const auto *result = context.result;
         contexts.emplace(key, std::move(context));
-        result->bind_value_surface();
-        return result->ops;
+        return *result;
     }
 
     void clear_window_ts_data_contexts() noexcept

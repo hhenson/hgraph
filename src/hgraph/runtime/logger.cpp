@@ -5,6 +5,27 @@
 #include <mutex>
 #include <utility>
 
+namespace hgraph
+{
+    namespace
+    {
+        void emit_plain(spdlog::logger &logger,
+                        spdlog::level::level_enum level,
+                        std::string_view message,
+                        NodePtr)
+        {
+            logger.log(spdlog::source_loc{}, level,
+                       spdlog::string_view_t{message.data(), message.size()});
+        }
+    }
+
+    const LoggerOps &plain_logger_ops() noexcept
+    {
+        static const LoggerOps ops{.emit_impl = &emit_plain};
+        return ops;
+    }
+}
+
 namespace hgraph::log
 {
     namespace

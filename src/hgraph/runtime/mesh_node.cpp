@@ -342,6 +342,7 @@ struct MeshNodeStorage final : SlotObserver {
 
 struct MeshNodeContext {
   MeshNodeSpec spec{};
+  runtime_detail::MappedChildAccessPlan access{};
   std::size_t storage_offset{0};
   ValueTypeRef key_binding{nullptr};
   MemoryUtils::StorageLayout graph_layout{};
@@ -383,11 +384,14 @@ mesh_node_contexts() noexcept {
 }
 
 [[nodiscard]] const MeshNodeContext &
-register_mesh_node_context(MeshNodeSpec spec, std::size_t storage_offset,
+register_mesh_node_context(MeshNodeSpec spec,
+                           runtime_detail::MappedChildAccessPlan access,
+                           std::size_t storage_offset,
                            const ValueTypeRef &key_binding,
                            MemoryUtils::StorageLayout graph_layout) {
   auto context = std::make_unique<MeshNodeContext>(MeshNodeContext{
       .spec = std::move(spec),
+      .access = std::move(access),
       .storage_offset = storage_offset,
       .key_binding = key_binding,
       .graph_layout = graph_layout,
@@ -580,17 +584,15 @@ void prepare_mesh_evaluation_candidates(const NodeView &view,
     input_event = true;
   }
 
-  for (const MapArgSource &arg : context.spec.args) {
-    if (arg.kind != MapArgSourceKind::OuterInput) {
+  for (const auto &arg : context.access.args) {
+    if (arg.source.kind != MapArgSourceKind::OuterInput) {
       continue;
     }
-    auto input = root_input.indexed_child_at(arg.outer_index);
+    auto input = root_input.indexed_child_at(arg.source.outer_index);
     if (!input.modified()) {
       continue;
     }
-    const auto *schema = input.schema();
-    if (schema != nullptr &&
-        (schema->kind == TSTypeKind::TSB || schema->kind == TSTypeKind::TSL)) {
+    if (arg.refreshes_projected_children) {
       // A structured forwarding boundary may preserve its root handle while
       // projected leaf endpoints move.
       storage.refresh_all_bindings = true;
@@ -701,7 +703,7 @@ void bind_instance_inputs(const NodeView &view, const MeshNodeContext &context,
                                       ? entry.key_source.view(evaluation_time)
                                       : TSOutputView{};
   runtime_detail::bind_mapped_child_inputs(
-      view, entry.graph.view(), evaluation_time, spec.child, spec.args,
+      view, entry.graph.view(), evaluation_time, spec.child, context.access,
       entry.key.view(), key_source, std::nullopt, false, sampled);
 }
 
@@ -713,7 +715,7 @@ void bind_instance_output(const NodeView &view, const MeshNodeContext &context,
                                       : TSOutputView{};
   runtime_detail::bind_mapped_child_output(
       view, entry.graph.view(), evaluation_time, spec.child.output_binding,
-      spec.args, entry.key.view(), key_source, spec.output_binding_mode);
+      context.access, entry.key.view(), key_source, spec.output_binding_mode);
 }
 
 void clear_instance_output_binding(const NodeView &view,
@@ -722,6 +724,7 @@ void clear_instance_output_binding(const NodeView &view,
                                    DateTime evaluation_time) {
   runtime_detail::clear_mapped_output_element_binding(
       view, evaluation_time, entry.key.view(),
+      context.access.output,
       context.spec.output_binding_mode);
 }
 
@@ -1089,6 +1092,7 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
         entry->settled_time = evaluation_time;
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
+            context.access.output,
             entry->key.view());
       } else {
         entry->paused = true;
@@ -1584,6 +1588,14 @@ NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
         forwarding_output_endpoint_schema(meta.output_schema->element_ts()));
   }
 
+  const TSEndpointSchema *output_element_endpoint =
+      spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement
+          ? &meta.output_endpoint_schema.child(0)
+          : nullptr;
+  auto access = runtime_detail::compile_mapped_child_access_plan(
+      spec.args, TSTypeKind::TSD, meta.input_schema, meta.output_schema,
+      output_element_endpoint);
+
   const auto key_binding =
       ValuePlanFactory::instance().type_for(meta.output_schema->key_type());
   if (!key_binding) {
@@ -1633,6 +1645,7 @@ NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
   };
   descriptor.ops.extended_view_context = &register_mesh_node_context(
       std::move(spec),
+      std::move(access),
       descriptor.storage_plan->component(mesh_storage_field_name).offset,
       key_binding, graph_layout);
 

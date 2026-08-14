@@ -810,7 +810,8 @@ namespace hgraph
         };
 
         using TargetLinkContext = detail::TSInputTargetLinkContext;
-        using TargetLinkContextCache = std::unordered_map<std::string, std::unique_ptr<TargetLinkContext>>;
+        using TargetLinkContextOwner = detail::TSInputTargetLinkContextOwner;
+        using TargetLinkContextCache = std::unordered_map<std::string, TargetLinkContextOwner>;
         using InputBindingContextCache = std::unordered_map<std::string, std::unique_ptr<InputBindingContext>>;
         using TSInputBuilderCache = std::unordered_map<std::string, std::unique_ptr<TSInputBuilder>>;
 
@@ -988,6 +989,38 @@ namespace hgraph
             static const detail::TSDataOwnershipOps ops{
                 .child_count = &input_owned_child_count,
                 .child_at = &input_owned_child_at,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] std::size_t input_inspection_field_count(const void *context) noexcept
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            return state->schema->kind == TSTypeKind::TSB
+                       ? state->bundle_layout.fields.size()
+                       : 0;
+        }
+
+        [[nodiscard]] TSDataInspectionField input_inspection_field_at(
+            const void *context, std::size_t index)
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            if (state->schema->kind != TSTypeKind::TSB ||
+                index >= state->bundle_layout.fields.size())
+                throw std::out_of_range("input TSData inspection field index is out of range");
+            const auto &field = state->bundle_layout.fields[index];
+            return TSDataInspectionField{
+                .name = state->schema->fields()[index].name,
+                .data_offset = field.data_offset,
+                .type = field.type,
+            };
+        }
+
+        [[nodiscard]] const TSDataInspectionOps &input_inspection_ops() noexcept
+        {
+            static const TSDataInspectionOps ops{
+                .field_count_impl = &input_inspection_field_count,
+                .field_at_impl = &input_inspection_field_at,
             };
             return ops;
         }
@@ -1966,7 +1999,7 @@ namespace hgraph
             auto &cache = target_link_context_cache();
             if (const auto it = cache.find(key); it != cache.end())
             {
-                return *it->second->active_ops;
+                return it->second.ops();
             }
 
             const auto *schema = endpoint_schema.schema();
@@ -1985,7 +2018,7 @@ namespace hgraph
 
             auto context = detail::target_link_context_builder_for(schema->kind)(
                 *schema, root_plan, storage_offset, *regular_layout);
-            const auto *ops = context->active_ops;
+            const auto *ops = &context.ops();
             cache.emplace(key, std::move(context));
             return *ops;
         }
@@ -2259,6 +2292,7 @@ namespace hgraph
                 .kind = context->schema->kind,
                 .allows_mutation = true,
                 .ownership_ops = &input_ownership_ops(),
+                .inspection_ops = &input_inspection_ops(),
                 .current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(context->schema->kind),
                 .layout_impl = &input_layout,
@@ -2335,14 +2369,14 @@ namespace hgraph
             if (const auto it = cache.find(key); it != cache.end())
             {
                 return checked_ts_role_type(
-                    intern_ts_type(*schema, TypeRole::Input, root_plan, *it->second->active_ops),
+                    intern_ts_type(*schema, TypeRole::Input, root_plan, it->second.ops()),
                     std::integral_constant<TypeRole, TypeRole::Input>{});
             }
             const auto *layout = data_type.ops_ref().layout_impl(data_type.ops_ref().context);
             if (layout == nullptr) throw std::logic_error("scalar input type requires a resolved data layout");
             auto context = detail::target_link_context_builder_for(schema->kind)(*schema, root_plan, 0, *layout);
             const auto type = checked_ts_role_type(
-                intern_ts_type(*schema, TypeRole::Input, root_plan, *context->active_ops,
+                intern_ts_type(*schema, TypeRole::Input, root_plan, context.ops(),
                                schema->kind == TSTypeKind::REF
                                    ? std::string_view{"ts.ref.input.target"}
                                    : std::string_view{}),
@@ -2728,56 +2762,7 @@ namespace hgraph
         DynamicStorageMetrics input_target_link_dynamic_storage_metrics(
             const TSDataView &view) noexcept
         {
-            if (!view.valid()) { return {}; }
-            try
-            {
-                if (const auto *link = target_link_storage(view); link != nullptr)
-                {
-                    return link->dynamic_storage_metrics();
-                }
-                if (view.schema() == nullptr) { return {}; }
-
-                DynamicStorageMetrics result{};
-                switch (view.schema()->kind)
-                {
-                    case TSTypeKind::TSB:
-                    case TSTypeKind::TSL:
-                        for (std::size_t index = 0; index < view.indexed_child_count(); ++index)
-                        {
-                            if (has_input_children(view))
-                            {
-                                auto child = input_child_projection(view, index);
-                                result += input_target_link_dynamic_storage_metrics(
-                                    child.target_link.valid() ? child.target_link : child.visible);
-                            }
-                            else
-                            {
-                                result += input_target_link_dynamic_storage_metrics(
-                                    view.indexed_child_at(index));
-                            }
-                        }
-                        break;
-                    case TSTypeKind::TSD:
-                    {
-                        auto dict = view.as_dict();
-                        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                        {
-                            if (dict.slot_occupied(slot))
-                            {
-                                result += input_target_link_dynamic_storage_metrics(dict.at_slot(slot));
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        break;
-                }
-                return result;
-            }
-            catch (...)
-            {
-                return {};
-            }
+            return owned_ts_data_auxiliary_dynamic_storage(view.borrowed_ref());
         }
 
         TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index)

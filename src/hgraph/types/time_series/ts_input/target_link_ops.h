@@ -6,7 +6,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 
 #include <cstddef>
-#include <memory>
+#include <utility>
 
 namespace hgraph::detail
 {
@@ -15,8 +15,6 @@ namespace hgraph::detail
 
     struct TSInputTargetLinkContext
     {
-        virtual ~TSInputTargetLinkContext() = default;
-
         const TSValueTypeMetaData *schema{nullptr};
         std::size_t                storage_offset{0};
         const TSInputTargetLinkStorageAccessOps *storage_access{
@@ -27,7 +25,36 @@ namespace hgraph::detail
         const TSInputTargetLinkIndexedAccess *indexed_access{nullptr};
     };
 
-    using TSInputTargetLinkContextBuilder = std::unique_ptr<TSInputTargetLinkContext> (*)(
+    using TSInputTargetLinkContextStorage =
+        MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy>;
+
+    /**
+     * Exact erased ownership plus the stable results published by a target-
+     * link context. The concrete storage plan owns destruction; consumers do
+     * not recover results by downcasting the erased payload.
+     */
+    struct TSInputTargetLinkContextOwner
+    {
+        TSInputTargetLinkContextStorage storage;
+        const TSInputTargetLinkContext *context_result;
+        const TSDataOps                 *ops_result;
+
+        TSInputTargetLinkContextOwner(TSInputTargetLinkContextStorage storage_,
+                                      const TSInputTargetLinkContext &context_,
+                                      const TSDataOps &ops_)
+            : storage(std::move(storage_)), context_result(&context_), ops_result(&ops_)
+        {}
+
+        TSInputTargetLinkContextOwner(const TSInputTargetLinkContextOwner &) = delete;
+        TSInputTargetLinkContextOwner &operator=(const TSInputTargetLinkContextOwner &) = delete;
+        TSInputTargetLinkContextOwner(TSInputTargetLinkContextOwner &&) noexcept = default;
+        TSInputTargetLinkContextOwner &operator=(TSInputTargetLinkContextOwner &&) noexcept = default;
+
+        [[nodiscard]] const TSInputTargetLinkContext &context() const noexcept { return *context_result; }
+        [[nodiscard]] const TSDataOps &ops() const noexcept { return *ops_result; }
+    };
+
+    using TSInputTargetLinkContextBuilder = TSInputTargetLinkContextOwner (*)(
         const TSValueTypeMetaData &schema,
         const MemoryUtils::StoragePlan &root_plan,
         std::size_t storage_offset,

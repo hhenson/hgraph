@@ -12,6 +12,7 @@
 #endif
 
 #include <array>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -48,12 +49,66 @@ namespace hgraph::detail
             Ops    ops{};
         };
 
+        using TargetLinkBundleContext =
+            TargetLinkContextFor<FixedTSBDataLayout, IndexedTSDataOps>;
+
+        [[nodiscard]] std::size_t target_link_bundle_inspection_field_count(
+            const void *context) noexcept
+        {
+            return static_cast<const TargetLinkBundleContext *>(context)->layout.fields.size();
+        }
+
+        [[nodiscard]] TSDataInspectionField target_link_bundle_inspection_field_at(
+            const void *context, std::size_t index)
+        {
+            const auto *state = static_cast<const TargetLinkBundleContext *>(context);
+            if (index >= state->layout.fields.size())
+                throw std::out_of_range("target-link TSData inspection field index is out of range");
+            const auto &field = state->layout.fields[index];
+            return TSDataInspectionField{
+                .name = state->schema->fields()[index].name,
+                .data_offset = field.data_offset,
+                .type = field.type,
+            };
+        }
+
+        [[nodiscard]] const TSDataInspectionOps &target_link_bundle_inspection_ops() noexcept
+        {
+            static const TSDataInspectionOps ops{
+                .field_count_impl = &target_link_bundle_inspection_field_count,
+                .field_at_impl = &target_link_bundle_inspection_field_at,
+            };
+            return ops;
+        }
+
         struct TargetLinkDictContext final : TSInputTargetLinkContext
         {
             TSDDataLayout dict_layout{};
             TSDDataOps    dict_ops{};
             TSSDataOps    key_set_ops{};
         };
+
+        template <typename Context>
+        [[nodiscard]] TSInputTargetLinkContextStorage make_target_link_context_storage()
+        {
+            const auto &context_plan = MemoryUtils::plan_for<Context>();
+            return TSInputTargetLinkContextStorage::owning_constructed(
+                context_plan, [](void *memory) {
+                    std::construct_at(MemoryUtils::cast<Context>(memory));
+                });
+        }
+
+        template <typename Context>
+        [[nodiscard]] TSInputTargetLinkContextOwner finish_target_link_context(
+            TSInputTargetLinkContextStorage storage, Context &context)
+        {
+            if (context.active_ops == nullptr)
+            {
+                throw std::logic_error("TSInput target-link context did not publish its operations result");
+            }
+            return TSInputTargetLinkContextOwner{
+                std::move(storage), context, *context.active_ops};
+        }
 
         [[nodiscard]] constexpr std::size_t ts_kind_index(TSTypeKind kind) noexcept
         {
@@ -1264,29 +1319,33 @@ namespace hgraph::detail
             context.storage_access = &target_link_storage_access_for(schema.kind);
         }
 
-        [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
+        [[nodiscard]] TSInputTargetLinkContextOwner
         make_base_target_link_context(const TSValueTypeMetaData &schema,
                                       const MemoryUtils::StoragePlan &,
                                       std::size_t storage_offset,
                                       const TSDataLayout &regular_layout)
         {
-            auto context = std::make_unique<TargetLinkContextFor<TSDataLayout, TSDataOps>>();
+            using Context = TargetLinkContextFor<TSDataLayout, TSDataOps>;
+            auto storage = make_target_link_context_storage<Context>();
+            auto *context = storage.as<Context>();
             initialise_target_link_context(*context, schema, storage_offset);
             context->layout = regular_layout;
             context->layout.tracking_offset = storage_offset;
             context->ops = target_link_base_ops(*context);
             context->active_layout = &context->layout;
             context->active_ops = &context->ops;
-            return context;
+            return finish_target_link_context(std::move(storage), *context);
         }
 
-        [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
+        [[nodiscard]] TSInputTargetLinkContextOwner
         make_set_target_link_context(const TSValueTypeMetaData &schema,
                                      const MemoryUtils::StoragePlan &,
                                      std::size_t storage_offset,
                                      const TSDataLayout &regular_layout)
         {
-            auto context = std::make_unique<TargetLinkContextFor<TSSDataLayout, TSSDataOps>>();
+            using Context = TargetLinkContextFor<TSSDataLayout, TSSDataOps>;
+            auto storage = make_target_link_context_storage<Context>();
+            auto *context = storage.as<Context>();
             initialise_target_link_context(*context, schema, storage_offset);
             context->layout = static_cast<const TSSDataLayout &>(regular_layout);
             context->layout.tracking_offset = storage_offset;
@@ -1297,16 +1356,17 @@ namespace hgraph::detail
             context->slot_access = &target_link_set_access;
             context->active_layout = &context->layout;
             context->active_ops = &context->ops;
-            return context;
+            return finish_target_link_context(std::move(storage), *context);
         }
 
-        [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
+        [[nodiscard]] TSInputTargetLinkContextOwner
         make_dict_target_link_context(const TSValueTypeMetaData &schema,
                                       const MemoryUtils::StoragePlan &root_plan,
                                       std::size_t storage_offset,
                                       const TSDataLayout &regular_layout)
         {
-            auto context = std::make_unique<TargetLinkDictContext>();
+            auto storage = make_target_link_context_storage<TargetLinkDictContext>();
+            auto *context = storage.as<TargetLinkDictContext>();
             initialise_target_link_context(*context, schema, storage_offset);
             context->slot_access = &target_link_dict_key_access;
 
@@ -1356,10 +1416,10 @@ namespace hgraph::detail
 
             context->active_layout = &context->dict_layout;
             context->active_ops = &context->dict_ops;
-            return context;
+            return finish_target_link_context(std::move(storage), *context);
         }
 
-        [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
+        [[nodiscard]] TSInputTargetLinkContextOwner
         make_indexed_target_link_context(const TSValueTypeMetaData &schema,
                                          const MemoryUtils::StoragePlan &,
                                          std::size_t storage_offset,
@@ -1367,12 +1427,16 @@ namespace hgraph::detail
         {
             if (schema.kind == TSTypeKind::TSB)
             {
-                auto context = std::make_unique<TargetLinkContextFor<FixedTSBDataLayout, IndexedTSDataOps>>();
+                using Context = TargetLinkBundleContext;
+                auto storage = make_target_link_context_storage<Context>();
+                auto *context = storage.as<Context>();
                 initialise_target_link_context(*context, schema, storage_offset);
                 context->layout = static_cast<const FixedTSBDataLayout &>(regular_layout);
                 context->layout.tracking_offset = storage_offset;
                 context->ops = IndexedTSDataOps{};
                 static_cast<TSDataOps &>(context->ops) = target_link_base_ops(*context);
+                static_cast<TSDataOps &>(context->ops).inspection_ops =
+                    &target_link_bundle_inspection_ops();
                 static_cast<TSDataOps &>(context->ops).indexed_child_count_impl = &target_link_indexed_size;
                 static_cast<TSDataOps &>(context->ops).indexed_child_binding_impl = &target_link_indexed_element_binding;
                 static_cast<TSDataOps &>(context->ops).indexed_child_memory_impl = &target_link_indexed_element_memory;
@@ -1385,9 +1449,11 @@ namespace hgraph::detail
                 context->indexed_access = &target_link_bundle_access;
                 context->active_layout = &context->layout;
                 context->active_ops = &context->ops;
-                return context;
+                return finish_target_link_context(std::move(storage), *context);
             }
-            auto context = std::make_unique<TargetLinkContextFor<TSDataLayout, IndexedTSDataOps>>();
+            using Context = TargetLinkContextFor<TSDataLayout, IndexedTSDataOps>;
+            auto storage = make_target_link_context_storage<Context>();
+            auto *context = storage.as<Context>();
             initialise_target_link_context(*context, schema, storage_offset);
             context->layout = regular_layout;
             context->layout.tracking_offset = storage_offset;
@@ -1408,10 +1474,10 @@ namespace hgraph::detail
                                                                      : &target_link_list_access;
             context->active_layout = &context->layout;
             context->active_ops = &context->ops;
-            return context;
+            return finish_target_link_context(std::move(storage), *context);
         }
 
-        [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
+        [[nodiscard]] TSInputTargetLinkContextOwner
         make_window_target_link_context(const TSValueTypeMetaData &schema,
                                         const MemoryUtils::StoragePlan &,
                                         std::size_t storage_offset,
@@ -1419,7 +1485,9 @@ namespace hgraph::detail
         {
             if (schema.is_duration_based())
             {
-                auto context = std::make_unique<TargetLinkContextFor<TimeTSWDataLayout, TSWDataOps>>();
+                using Context = TargetLinkContextFor<TimeTSWDataLayout, TSWDataOps>;
+                auto storage = make_target_link_context_storage<Context>();
+                auto *context = storage.as<Context>();
                 initialise_target_link_context(*context, schema, storage_offset);
                 context->layout = static_cast<const TimeTSWDataLayout &>(regular_layout);
                 context->layout.tracking_offset = storage_offset;
@@ -1434,10 +1502,12 @@ namespace hgraph::detail
                 context->ops.push_impl = &target_link_window_push;
                 context->active_layout = &context->layout;
                 context->active_ops = &context->ops;
-                return context;
+                return finish_target_link_context(std::move(storage), *context);
             }
 
-            auto context = std::make_unique<TargetLinkContextFor<SizeTSWDataLayout, TSWDataOps>>();
+            using Context = TargetLinkContextFor<SizeTSWDataLayout, TSWDataOps>;
+            auto storage = make_target_link_context_storage<Context>();
+            auto *context = storage.as<Context>();
             initialise_target_link_context(*context, schema, storage_offset);
             context->layout = static_cast<const SizeTSWDataLayout &>(regular_layout);
             context->layout.tracking_offset = storage_offset;
@@ -1452,7 +1522,7 @@ namespace hgraph::detail
             context->ops.push_impl = &target_link_window_push;
             context->active_layout = &context->layout;
             context->active_ops = &context->ops;
-            return context;
+            return finish_target_link_context(std::move(storage), *context);
         }
     }  // namespace
 
@@ -1480,6 +1550,16 @@ namespace hgraph::detail
                     if (target_context == nullptr || memory == nullptr) { return; }
                     if (auto *link = target_link_storage_at(*target_context, memory); link != nullptr)
                         link->unbind_noexcept();
+                },
+                .auxiliary_dynamic_storage = [](const void *context,
+                                                const void *memory) noexcept {
+                    const auto *target_context =
+                        static_cast<const TSInputTargetLinkContext *>(context);
+                    if (target_context == nullptr || memory == nullptr)
+                        return DynamicStorageMetrics{};
+                    const auto *link = target_link_storage_at(*target_context, memory);
+                    return link != nullptr ? link->dynamic_storage_metrics()
+                                           : DynamicStorageMetrics{};
                 },
             };
             return ops;

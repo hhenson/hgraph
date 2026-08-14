@@ -491,10 +491,17 @@ namespace hgraph::stdlib
             ankerl::unordered_dense::map<Int, std::deque<Value>> cache{};
         };
 
+        struct ThrottleReleaseOps;
+        [[nodiscard]] const ThrottleReleaseOps &throttle_ordered_release_ops() noexcept;
+
         struct ThrottleState
         {
             TimeDelta period{MIN_TD};
             bool      has_period{false};
+            // Selected once at node start from the resolved output schema.
+            // Evaluation dispatches through this passive table and never
+            // reinterprets the representation kind of the output.
+            const ThrottleReleaseOps *release_ops{&throttle_ordered_release_ops()};
             // Deltas accumulated while a throttle window is open; applied in
             // arrival order on release so container deltas MERGE (dict ticks
             // within one window emit as one combined delta).
@@ -574,6 +581,44 @@ namespace hgraph::stdlib
             bundle.set("added", added_builder.build());
             bundle.set("removed", removed_builder.build());
             return bundle.build();
+        }
+
+        struct ThrottleReleaseOps
+        {
+            bool (*release)(std::deque<Value> &pending, const TSOutputView &out){nullptr};
+        };
+
+        [[nodiscard]] inline bool throttle_release_ordered(std::deque<Value> &pending,
+                                                           const TSOutputView &out)
+        {
+            for (Value &delta : pending) { apply_delta(out, delta.view()); }
+            return true;
+        }
+
+        [[nodiscard]] inline bool throttle_release_set(std::deque<Value> &pending,
+                                                       const TSOutputView &out)
+        {
+            auto net = net_set_deltas(pending);
+            if (!net.has_value()) { return false; }
+            apply_delta(out, net->view());
+            return true;
+        }
+
+        [[nodiscard]] inline const ThrottleReleaseOps &throttle_ordered_release_ops() noexcept
+        {
+            static const ThrottleReleaseOps ops{&throttle_release_ordered};
+            return ops;
+        }
+
+        [[nodiscard]] inline const ThrottleReleaseOps &throttle_set_release_ops() noexcept
+        {
+            static const ThrottleReleaseOps ops{&throttle_release_set};
+            return ops;
+        }
+
+        [[nodiscard]] inline const ThrottleReleaseOps &throttle_release_ops_for(TSTypeKind kind) noexcept
+        {
+            return kind == TSTypeKind::TSS ? throttle_set_release_ops() : throttle_ordered_release_ops();
         }
     }  // namespace stream_impl_detail
 }  // namespace hgraph::stdlib
@@ -1493,6 +1538,15 @@ namespace hgraph::stdlib
            event. Ticks inside the window accumulate; the window closing
            releases them merged. ``delay_first_tick`` buffers the tick that
            would otherwise pass straight through on a closed window. */
+        static void start(State<stream_impl_detail::ThrottleState> state,
+                          Out<TsVar<"S">> out)
+        {
+            auto current = state.get();
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            current.release_ops = &stream_impl_detail::throttle_release_ops_for(erased.schema()->kind);
+            state.set(std::move(current));
+        }
+
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          In<"period", TS<TimeDelta>, InputValidity::Unchecked> period,
                          Scalar<"delay_first_tick", Bool> delay_first_tick,
@@ -1533,19 +1587,7 @@ namespace hgraph::stdlib
             if (scheduler.is_scheduled_now() && !current.pending.empty())
             {
                 const auto &erased = static_cast<const TSOutputView &>(out);
-                bool        emitted = true;
-                if (erased.schema()->kind == TSTypeKind::TSS)
-                {
-                    // Net the window's set deltas: an add-then-remove pair
-                    // cancels; a fully-cancelled window emits nothing.
-                    auto net = stream_impl_detail::net_set_deltas(current.pending);
-                    if (net.has_value()) { apply_delta(out, net->view()); }
-                    else { emitted = false; }
-                }
-                else
-                {
-                    for (Value &delta : current.pending) { apply_delta(out, delta.view()); }
-                }
+                const bool emitted = current.release_ops->release(current.pending, erased);
                 current.pending.clear();
                 if (emitted) { scheduler.schedule(now + current.period); }
             }

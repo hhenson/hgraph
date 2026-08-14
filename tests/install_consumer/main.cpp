@@ -131,7 +131,9 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    static_assert(TS_DATA_OPS_ABI_VERSION == 8);
+    static_assert(GRAPH_OPS_ABI_VERSION == 7);
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 9);
     static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
     static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
@@ -273,6 +275,20 @@ int main()
     ConsumerIndexedOps consumer_ops;
     static_cast<IndexedTSDataOps &>(consumer_ops) =
         static_cast<const IndexedTSDataOps &>(built_in_bundle_type.ops_ref());
+    if (consumer_ops.inspection_ops == nullptr ||
+        consumer_ops.inspection_ops->field_count_impl(consumer_ops.context) != 1)
+    {
+        throw std::runtime_error(
+            "installed TSData inspection operations are unusable");
+    }
+    const auto consumer_field =
+        consumer_ops.inspection_ops->field_at_impl(consumer_ops.context, 0);
+    if (std::string_view{consumer_field.name} != "value" ||
+        consumer_field.type.schema() != consumer_ts)
+    {
+        throw std::runtime_error(
+            "installed TSData inspection field metadata is incorrect");
+    }
     const auto consumer_type = intern_ts_type(
         *consumer_bundle, TypeRole::Data, built_in_bundle_type.checked_plan(),
         consumer_ops, "consumer.opaque.bundle.data");

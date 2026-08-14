@@ -97,18 +97,25 @@ namespace hgraph
         if (layout != nullptr && layout->value_binding && layout->delta_binding)
         {
             std::vector<DebugField> debug_fields;
-            if (schema.kind == TSTypeKind::TSB)
+            const auto *inspection = ops.inspection_ops;
+            if (inspection == nullptr || inspection->field_count_impl == nullptr ||
+                inspection->field_at_impl == nullptr)
             {
-                const auto &bundle = static_cast<const FixedTSBDataLayout &>(*layout);
-                debug_fields.reserve(bundle.fields.size());
-                for (std::size_t index = 0; index < bundle.fields.size(); ++index)
-                {
-                    debug_fields.push_back(DebugField{
-                        .name = schema.fields()[index].name,
-                        .offset = bundle.fields[index].data_offset,
-                        .type = bundle.fields[index].type.record(),
-                    });
-                }
+                throw std::invalid_argument(
+                    "intern_ts_type requires non-null TSData inspection operations");
+            }
+            const std::size_t field_count = inspection->field_count_impl(ops.context);
+            debug_fields.reserve(field_count);
+            for (std::size_t index = 0; index < field_count; ++index)
+            {
+                const auto field = inspection->field_at_impl(ops.context, index);
+                if (!field.type)
+                    throw std::logic_error("TSData inspection field has no type");
+                debug_fields.push_back(DebugField{
+                    .name = field.name,
+                    .offset = field.data_offset,
+                    .type = field.type.record(),
+                });
             }
             const TSDataTracking tracking_sample{};
             const auto *tracking_base = reinterpret_cast<const std::byte *>(&tracking_sample);

@@ -181,6 +181,7 @@ namespace hgraph
 
         struct ReduceCollectionOps
         {
+            bool (*available)(const TSInputView &input);
             bool (*reconcile)(ReduceNodeStorage &storage, TSInputView &input, bool full);
             bool (*structure_modified)(const TSInputView &input, DateTime evaluation_time);
             void (*append_modified_leaves)(const ReduceNodeStorage &storage,
@@ -189,6 +190,13 @@ namespace hgraph
             TSOutputView (*leaf_output)(TSInputView &input, TSOutputView source,
                                         std::size_t leaf, const Value &key,
                                         std::size_t source_slot);
+        };
+
+        struct ReducePublicationOps
+        {
+            void (*begin)(TSOutputView output, const TSOutputView &source,
+                          ReduceNodeStorage &storage, DateTime evaluation_time,
+                          bool sample_all);
         };
 
         [[nodiscard]] bool reconcile_dict_collection(ReduceNodeStorage &storage, TSInputView &input, bool full);
@@ -211,6 +219,7 @@ namespace hgraph
             std::size_t    storage_offset{0};
             MemoryUtils::StorageLayout graph_layout{};
             const ReduceCollectionOps *collection_ops{nullptr};
+            const ReducePublicationOps *publication_ops{nullptr};
         };
 
         // Program-lifetime, intentionally-leaked context storage — same rationale
@@ -223,13 +232,14 @@ namespace hgraph
 
         [[nodiscard]] const ReduceNodeContext &register_reduce_node_context(
             ReduceNodeSpec spec, std::size_t storage_offset, MemoryUtils::StorageLayout graph_layout,
-            const ReduceCollectionOps &collection_ops)
+            const ReduceCollectionOps &collection_ops, const ReducePublicationOps &publication_ops)
         {
             auto context = std::make_unique<ReduceNodeContext>(ReduceNodeContext{
                 .spec           = std::move(spec),
                 .storage_offset = storage_offset,
                 .graph_layout   = graph_layout,
                 .collection_ops = &collection_ops,
+                .publication_ops = &publication_ops,
             });
             const auto *result = context.get();
             reduce_node_contexts().push_back(std::move(context));
@@ -730,16 +740,28 @@ namespace hgraph
             return source.bound() ? source.view(input.evaluation_time()) : TSOutputView{};
         }
 
+        [[nodiscard]] bool dict_collection_available(const TSInputView &input)
+        {
+            return input.valid();
+        }
+
+        [[nodiscard]] bool list_collection_available(const TSInputView &input)
+        {
+            return input.bound();
+        }
+
         [[nodiscard]] const ReduceCollectionOps &reduce_collection_ops_for(
             const TSValueTypeMetaData &schema)
         {
             static const ReduceCollectionOps dict_ops{
+                .available = &dict_collection_available,
                 .reconcile = &reconcile_dict_collection,
                 .structure_modified = &dict_structure_modified,
                 .append_modified_leaves = &append_modified_dict_leaves,
                 .leaf_output = &dict_leaf_output,
             };
             static const ReduceCollectionOps list_ops{
+                .available = &list_collection_available,
                 .reconcile = &reconcile_list_collection,
                 .structure_modified = &list_structure_modified,
                 .append_modified_leaves = &append_modified_list_leaves,
@@ -748,9 +770,16 @@ namespace hgraph
             return schema.kind == TSTypeKind::TSD ? dict_ops : list_ops;
         }
 
-        void begin_reduce_publication(TSOutputView output, const TSOutputView &source,
-                                      ReduceNodeStorage &storage, DateTime evaluation_time,
-                                      bool sample_all)
+        void begin_direct_reduce_publication(TSOutputView output, const TSOutputView &source,
+                                             ReduceNodeStorage &, DateTime evaluation_time,
+                                             bool)
+        {
+            bind_reduce_output(std::move(output), source, evaluation_time);
+        }
+
+        void begin_keyed_reduce_publication(TSOutputView output, const TSOutputView &source,
+                                            ReduceNodeStorage &storage, DateTime evaluation_time,
+                                            bool sample_all)
         {
             TSOutputView resolved_source = resolve_forwarding_source(source.borrowed_ref());
             if (storage.publication_snapshot_active)
@@ -770,11 +799,7 @@ namespace hgraph
                                                                  : TSOutputHandle{};
             const bool changed = output.forwarding() && previous.bound() &&
                                  (!resolved_source.bound() || !previous.same_as(resolved_source.handle()));
-            const auto *schema = output.schema();
-            const bool keyed = schema != nullptr &&
-                               (schema->kind == TSTypeKind::TSD || schema->kind == TSTypeKind::TSS);
-
-            if (!changed || !keyed)
+            if (!changed)
             {
                 bind_reduce_output(std::move(output), source, evaluation_time);
                 return;
@@ -788,6 +813,7 @@ namespace hgraph
             }
 
             auto &snapshot = storage.publication_snapshot;
+            const auto *schema = output.schema();
             snapshot.emplace(schema);
             DateTime snapshot_time = previous_view.last_modified_time();
             if (snapshot_time == MIN_DT) { snapshot_time = evaluation_time; }
@@ -808,6 +834,16 @@ namespace hgraph
             storage.publication_snapshot_active = true;
             storage.publication_full_reconcile = true;
             storage.publication_sample_all = sample_all;
+        }
+
+        [[nodiscard]] const ReducePublicationOps &reduce_publication_ops_for(
+            const TSValueTypeMetaData &schema) noexcept
+        {
+            static const ReducePublicationOps direct_ops{&begin_direct_reduce_publication};
+            static const ReducePublicationOps keyed_ops{&begin_keyed_reduce_publication};
+            return schema.kind == TSTypeKind::TSD || schema.kind == TSTypeKind::TSS
+                       ? keyed_ops
+                       : direct_ops;
         }
 
         void finish_reduce_publication(ReduceNodeStorage &storage, DateTime evaluation_time)
@@ -1038,8 +1074,8 @@ namespace hgraph
             // changed even though the new target did not write this cycle.
             const Aggregate root   = root_aggregate(context, storage);
             TSOutputView    source = aggregate_output(view, context, storage, root, evaluation_time);
-            begin_reduce_publication(view.output(evaluation_time), source, storage, evaluation_time,
-                                     bank_changed);
+            context.publication_ops->begin(view.output(evaluation_time), source, storage,
+                                           evaluation_time, bank_changed);
             storage.published = true;
 
             // Phase 3 — stop root-first, but keep the retired graph storage
@@ -1080,7 +1116,6 @@ namespace hgraph
             {
                 zero_source = effective_output_handle(root_input.indexed_child_at(1).bound_output());
             }
-            const bool list_collection = collection_input.schema()->kind == TSTypeKind::TSL;
             const bool collection_repointed = storage.source_handles_initialised &&
                                               !collection_source.same_as(storage.collection_source);
             const bool zero_repointed = context.spec.has_zero && storage.source_handles_initialised &&
@@ -1093,8 +1128,7 @@ namespace hgraph
             storage.structural_positions.clear();
             bool structural = false;
             bool full_structure = collection_repointed || !storage.published;
-            const bool collection_available = list_collection ? collection_input.bound()
-                                                              : collection_input.valid();
+            const bool collection_available = context.collection_ops->available(collection_input);
             if (collection_available)
             {
                 if (!storage.primed || collection_repointed ||
@@ -1188,7 +1222,7 @@ namespace hgraph
             // the added/removed paths does not evaluate unaffected sibling
             // paths, so include value modifications even after a rebuild.
             if (!full_scan && collection_event &&
-                (collection_input.valid() || collection_input.schema()->kind == TSTypeKind::TSL))
+                context.collection_ops->available(collection_input))
             {
                 storage.modified_leaves.clear();
                 context.collection_ops->append_modified_leaves(
@@ -1469,6 +1503,8 @@ namespace hgraph
         const MemoryUtils::StorageLayout graph_layout = spec.child.graph_builder.nested_storage_layout();
         const ReduceCollectionOps &collection_ops =
             reduce_collection_ops_for(*descriptor.schema.input_schema->fields()[0].type);
+        const ReducePublicationOps &publication_ops =
+            reduce_publication_ops_for(*descriptor.schema.output_schema);
 
         descriptor.callbacks.stop            = &reduce_node_stop;
         descriptor.ops.evaluate_impl         = &reduce_evaluate_impl;
@@ -1476,7 +1512,7 @@ namespace hgraph
         descriptor.ops.extended_view_type_id = ReduceNodeView::node_view_type_id();
         descriptor.ops.extended_view_context = &register_reduce_node_context(
             std::move(spec), descriptor.storage_plan->component(reduce_storage_field_name).offset,
-            graph_layout, collection_ops);
+            graph_layout, collection_ops, publication_ops);
 
         return NodeBuilder::from_descriptor(std::move(descriptor));
     }

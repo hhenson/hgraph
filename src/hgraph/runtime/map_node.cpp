@@ -275,8 +275,9 @@ namespace hgraph
 
         struct MapNodeContext
         {
-            MapNodeSpec spec{};
-            std::size_t storage_offset{0};
+            MapNodeSpec                spec{};
+            runtime_detail::MappedChildAccessPlan access{};
+            std::size_t                storage_offset{0};
             MemoryUtils::StorageLayout graph_layout{};
         };
 
@@ -291,11 +292,13 @@ namespace hgraph
 
         [[nodiscard]] MapNodeContextPtr make_map_node_context(
             MapNodeSpec spec,
+            runtime_detail::MappedChildAccessPlan access,
             std::size_t storage_offset,
             MemoryUtils::StorageLayout graph_layout)
         {
             return std::make_shared<MapNodeContext>(MapNodeContext{
                 .spec           = std::move(spec),
+                .access         = std::move(access),
                 .storage_offset = storage_offset,
                 .graph_layout   = graph_layout,
             });
@@ -364,7 +367,7 @@ namespace hgraph
                                                     std::string_view stage,
                                                     std::size_t source_index)
         {
-            if (!data.valid() || data.storage_type().ops_ref().kind != TSTypeKind::TSD)
+            if (!data.valid())
             {
                 const auto *schema = data.schema();
                 const auto storage_type = data.storage_type();
@@ -435,7 +438,8 @@ namespace hgraph
         {
             if (!context.spec.child.output_binding.has_value()) { return; }
             runtime_detail::clear_mapped_output_element_binding(
-                view, evaluation_time, entry.key.view(), context.spec.output_binding_mode);
+                view, evaluation_time, entry.key.view(), context.access.output,
+                context.spec.output_binding_mode);
         }
 
         void remove_entry_at_slot(const NodeView &view, const MapNodeContext &context,
@@ -524,10 +528,10 @@ namespace hgraph
                                                 ? entry.key_source.view(evaluation_time)
                                                 : TSOutputView{};
             runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), evaluation_time,
-                                                     spec.child, spec.args, entry.key.view(), key_source,
+                                                     spec.child, context.access, entry.key.view(), key_source,
                                                      std::nullopt, false, true);
             runtime_detail::bind_mapped_child_output(view, entry.graph.view(), evaluation_time,
-                                                     spec.child.output_binding, spec.args, entry.key.view(),
+                                                     spec.child.output_binding, context.access, entry.key.view(),
                                                      key_source,
                                                      spec.output_binding_mode);
             entry.graph.view().start(evaluation_time);
@@ -840,18 +844,15 @@ namespace hgraph
             bool input_event = keys_input.modified();
             bool full_scan = storage.refresh_all_bindings || !was_primed;
 
-            for (const MapArgSource &arg : context.spec.args)
+            for (const auto &arg : context.access.args)
             {
-                if (arg.kind != MapArgSourceKind::OuterInput) { continue; }
-                auto input = root_input.indexed_child_at(arg.outer_index);
+                if (arg.source.kind != MapArgSourceKind::OuterInput) { continue; }
+                auto input = root_input.indexed_child_at(arg.source.outer_index);
                 if (input.modified())
                 {
                     input_event = true;
                     full_scan = true;
-                    const auto *schema = input.schema();
-                    if (schema != nullptr &&
-                        (schema->kind == TSTypeKind::TSB ||
-                         schema->kind == TSTypeKind::TSL))
+                    if (arg.refreshes_projected_children)
                     {
                         // A structured forwarding boundary can keep its root
                         // handle while a REF resolution changes the projected
@@ -1016,10 +1017,10 @@ namespace hgraph
                                                         ? entry->key_source.view(evaluation_time)
                                                         : TSOutputView{};
                     runtime_detail::bind_mapped_child_inputs(view, child, evaluation_time, spec.child,
-                                                             spec.args, entry->key.view(), key_source,
+                                                             context.access, entry->key.view(), key_source,
                                                              std::nullopt, silent_repoint);
                     runtime_detail::bind_mapped_child_output(view, child, evaluation_time,
-                                                             spec.child.output_binding, spec.args,
+                                                             spec.child.output_binding, context.access,
                                                              entry->key.view(), key_source,
                                                              spec.output_binding_mode, silent_repoint);
                 }
@@ -1044,6 +1045,7 @@ namespace hgraph
                     }
                     runtime_detail::finalize_mapped_child_output(
                         view, evaluation_time, spec.child.output_binding,
+                        context.access.output,
                         entry->key.view());
                 }
                 if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
@@ -1384,6 +1386,15 @@ namespace hgraph
                 forwarding_output_endpoint_schema(meta.output_schema->element_ts()));
         }
 
+        const TSEndpointSchema *output_element_endpoint =
+            meta.output_schema != nullptr &&
+                    spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement
+                ? &meta.output_endpoint_schema.child(0)
+                : nullptr;
+        auto access = runtime_detail::compile_mapped_child_access_plan(
+            spec.args, TSTypeKind::TSD, meta.input_schema, meta.output_schema,
+            output_element_endpoint);
+
         const auto *keys_schema = TypeRegistry::instance().dereference(
             meta.input_schema->fields()[*spec.keys_input_index].type);
         const ValueTypeRef key_type = ValuePlanFactory::instance().type_for(
@@ -1427,6 +1438,7 @@ namespace hgraph
         };
         MapNodeContextPtr context = make_map_node_context(
             std::move(spec),
+            std::move(access),
             descriptor.storage_plan->component(map_storage_field_name).offset,
             graph_layout);
         descriptor.ops.extended_view_context = descriptor.storage_plan;

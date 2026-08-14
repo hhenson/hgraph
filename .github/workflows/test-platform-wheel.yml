@@ -98,3 +98,6 @@ jobs:
       - name: Build installed Python extension consumer
         if: matrix.python-version == '3.12'
         run: uv run --no-sync --no-build python tests/python_extension_consumer/check.py
+      - name: Build and run installed native executable consumer
+        if: matrix.python-version == '3.12'
+        run: uv run --no-sync --no-build python tests/install_consumer/check.py

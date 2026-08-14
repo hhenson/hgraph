@@ -119,7 +119,7 @@ namespace
         nb::object formatter_;
     };
 
-    class PythonRunLogger final : public spdlog::logger, public ContextualLogger
+    class PythonRunLogger final : public spdlog::logger
     {
       public:
         explicit PythonRunLogger(std::shared_ptr<PythonLoggingSink> sink)
@@ -129,8 +129,15 @@ namespace
 
         void log_with_context(spdlog::level::level_enum level,
                               std::string_view message,
-                              NodePtr node) override
+                              NodePtr node)
         {
+            if (!node.has_value())
+            {
+                spdlog::logger::log(
+                    spdlog::source_loc{}, level,
+                    spdlog::string_view_t{message.data(), message.size()});
+                return;
+            }
             sink_->log_with_context(level, message,
                                     diagnostic::node_path(NodeView{node}));
         }
@@ -138,6 +145,17 @@ namespace
       private:
         std::shared_ptr<PythonLoggingSink> sink_;
     };
+
+    namespace
+    {
+        void emit_python_run_log(spdlog::logger &logger,
+                                 spdlog::level::level_enum level,
+                                 std::string_view message,
+                                 NodePtr node)
+        {
+            static_cast<PythonRunLogger &>(logger).log_with_context(level, message, node);
+        }
+    }
 
     class PythonLifecycleObserver final : public LifecycleObserver
     {
@@ -589,6 +607,12 @@ namespace
 
 namespace hgraph::python_bridge
 {
+    const LoggerOps &python_run_logger_ops() noexcept
+    {
+        static const LoggerOps ops{.emit_impl = &emit_python_run_log};
+        return ops;
+    }
+
     RetainedGraphRunError::RetainedGraphRunError(
         std::exception_ptr error, std::shared_ptr<PyRun> run)
         : std::runtime_error(retained_error_message(error)),

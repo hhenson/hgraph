@@ -59,8 +59,8 @@ namespace hgraph
         void missing_apply_delta(const TSOutputView &, const ValueView &);
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, nb::handle, DateTime);
-        [[nodiscard]] nb::object missing_to_python(const void *, const void *);
-        [[nodiscard]] nb::object missing_delta_to_python(const void *, const void *, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT nb::object missing_to_python(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT nb::object missing_delta_to_python(const void *, const void *, DateTime);
 #endif
         [[nodiscard]] std::size_t missing_indexed_size(const void *, const void *);
         [[nodiscard]] TSRoleTypeRef missing_indexed_element_binding(const void *, const void *, std::size_t);
@@ -126,6 +126,33 @@ namespace hgraph
 
     }  // namespace ts_data_detail
 
+    /** One debugger-visible structural field published by a TSData strategy. */
+    struct TSDataInspectionField
+    {
+        const char   *name{nullptr};
+        std::size_t   data_offset{0};
+        TSRoleTypeRef type{};
+    };
+
+    /**
+     * Cold-path data-only inspection contract for representation fields.
+     *
+     * Concrete layouts stay private to their strategy. Type interning and
+     * debugger metadata consume this table instead of downcasting the common
+     * ``TSDataLayout`` to a built-in representation.
+     */
+    struct TSDataInspectionOps
+    {
+        std::size_t (*field_count_impl)(const void *context) noexcept;
+        TSDataInspectionField (*field_at_impl)(const void *context,
+                                               std::size_t index);
+    };
+
+    namespace ts_data_detail
+    {
+        [[nodiscard]] HGRAPH_EXPORT const TSDataInspectionOps &empty_inspection_ops() noexcept;
+    }
+
     /**
      * Type-erased operation table over a TSData memory region.
      *
@@ -139,6 +166,8 @@ namespace hgraph
         TSTypeKind  kind{TSTypeKind::TS};
         bool        allows_mutation{false};
         const detail::TSDataOwnershipOps *ownership_ops{nullptr};
+        const TSDataInspectionOps *inspection_ops{
+            &ts_data_detail::empty_inspection_ops()};
         // Current-state transfer is a separately selected, non-null erased
         // policy. Semantic consumers must dispatch through it rather than
         // recover a representation from ``kind``.

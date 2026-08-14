@@ -79,6 +79,34 @@ namespace hgraph
                 return true;
             }));
         }
+
+        DynamicStorageMetrics owned_ts_data_auxiliary_dynamic_storage(
+            TSDataView root) noexcept
+        {
+            if (!root.valid()) { return {}; }
+            DynamicStorageMetrics result{};
+            static_cast<void>(fallback_on_exception(false, [&] {
+                const auto &ops = root.ops();
+                const auto *ownership = ops.ownership_ops;
+                if (ownership == nullptr) { return true; }
+                if (ownership->auxiliary_dynamic_storage != nullptr)
+                    result += ownership->auxiliary_dynamic_storage(ops.context,
+                                                                   root.data());
+                if (ownership->child_count == nullptr || ownership->child_at == nullptr)
+                    return true;
+                const auto count = ownership->child_count(ops.context, root.data());
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    const auto owned = ownership->child_at(
+                        ops.context, const_cast<void *>(root.data()), index);
+                    if (!owned.type || owned.data == nullptr) { continue; }
+                    result += owned_ts_data_auxiliary_dynamic_storage(
+                        TSDataView{owned.type, owned.data});
+                }
+                return true;
+            }));
+            return result;
+        }
     }
 
     TSDataOwnedStorage::TSDataOwnedStorage(TSRoleTypeRef type, const MemoryUtils::AllocatorOps &allocator)

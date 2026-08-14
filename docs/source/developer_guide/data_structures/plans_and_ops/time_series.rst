@@ -136,8 +136,10 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 8. ABI 8 adds recursive source-topology
-    validation to the current-state strategy table introduced by ABI 7. ABI 6
+    ``TS_DATA_OPS_ABI_VERSION`` is 9. ABI 9 adds an explicit data-only
+    inspection table for debugger-visible representation fields. ABI 8 adds
+    recursive source-topology validation to the current-state strategy table
+    introduced by ABI 7. ABI 6
     added the erased Python-conversion operations. ABI 5 added the cold-path
     dynamic-storage attribution hook used by GraphDiagnostics. ABI 4 represented
     destructive value assignment sources as writable ``ValueView`` pointers
@@ -457,11 +459,13 @@ fixed contexts return their cached fixed child types and local absolute
 addresses. Dynamic lists expose their owned child handles to this traversal;
 windows and TargetLinks are leaves. Keyed shapes coordinate child destruction
 through their slot stores. No function address or schema kind is used as a
-runtime implementation identifier. Consequently attach,
-reparent, and invalidation cannot follow a visible TargetLink projection into
-producer-owned storage. This projection is private lifecycle infrastructure;
-it adds no storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 8.
+runtime implementation identifier. Consequently attach, reparent,
+invalidation, and auxiliary-memory accounting cannot follow a visible
+TargetLink projection into producer-owned storage. The ownership table reports
+TargetLink trie/observer storage at the owning endpoint and traverses only
+owned children. This projection is private lifecycle infrastructure; it adds no
+storage-layout cost, and its ops-table ABI contribution is tracked by
+``TS_DATA_OPS_ABI_VERSION``, currently 9.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

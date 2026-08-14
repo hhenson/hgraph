@@ -201,6 +201,38 @@ namespace hgraph::ts_data_plan_factory_detail
             return ops;
         }
 
+        [[nodiscard]] static std::size_t inspection_field_count(const void *context) noexcept
+        {
+            const auto *state = static_cast<const FixedTSDataContext *>(context);
+            return state->schema->kind == TSTypeKind::TSB
+                       ? state->bundle_layout.fields.size()
+                       : 0;
+        }
+
+        [[nodiscard]] static TSDataInspectionField inspection_field_at(
+            const void *context, std::size_t index)
+        {
+            const auto *state = static_cast<const FixedTSDataContext *>(context);
+            if (state->schema->kind != TSTypeKind::TSB ||
+                index >= state->bundle_layout.fields.size())
+                throw std::out_of_range("fixed TSData inspection field index is out of range");
+            const auto &field = state->bundle_layout.fields[index];
+            return TSDataInspectionField{
+                .name = state->schema->fields()[index].name,
+                .data_offset = field.data_offset,
+                .type = field.type,
+            };
+        }
+
+        [[nodiscard]] static const TSDataInspectionOps &inspection_ops() noexcept
+        {
+            static const TSDataInspectionOps ops{
+                .field_count_impl = &inspection_field_count,
+                .field_at_impl = &inspection_field_at,
+            };
+            return ops;
+        }
+
       private:
         void init_layout_base(std::size_t value_offset, std::size_t tracking_offset) noexcept
         {
@@ -280,6 +312,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .kind                      = schema->kind,
                 .allows_mutation           = true,
                 .ownership_ops             = &ownership_ops(),
+                .inspection_ops            = &inspection_ops(),
                 .current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(schema->kind),
                 .layout_impl               = &fixed_layout,
