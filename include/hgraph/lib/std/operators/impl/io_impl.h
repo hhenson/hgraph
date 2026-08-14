@@ -54,9 +54,9 @@ namespace hgraph::stdlib
             io_write(fmt::format("{}: {}", label.value(), ts.value().to_string()), true);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"sample", Value{Int{1}}}};
+            return std::tuple{arg<"sample">(Int{1})};
         }
     };
 
@@ -264,9 +264,9 @@ namespace hgraph::stdlib
             return wire<print_sink_op>(w, fmt, Port<void>{w, std::move(packed)}, to_stdout.value());
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"__std_out__", Value{true}}};
+            return std::tuple{arg<"__std_out__">(true)};
         }
     };
 
@@ -290,9 +290,9 @@ namespace hgraph::stdlib
                                      level.value(), sample_count.value());
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"level", Value{Int{2}}}, {"sample_count", Value{Int{1}}}};
+            return std::tuple{arg<"level">(Int{2}), arg<"sample_count">(Int{1})};
         }
     };
 

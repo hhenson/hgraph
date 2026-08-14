@@ -225,9 +225,9 @@ namespace hgraph::stdlib
     template <typename L, typename R>
     struct div_numbers
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"divide_by_zero", Value{DivideByZero::Error}}};
+            return std::tuple{arg<"divide_by_zero">(DivideByZero::Error)};
         }
 
         static void eval(In<"lhs", TS<L>> lhs, In<"rhs", TS<R>> rhs,
@@ -580,9 +580,9 @@ namespace hgraph::stdlib
                 return (cmp != nullptr && cmp->valid()) || lhs->element_type == rhs;
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"cmp", Value{ValueCallable{}}}};
+                return std::tuple{arg<"cmp">(ValueCallable{})};
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs,
@@ -1387,9 +1387,9 @@ namespace hgraph::stdlib
     template <typename Civil, MonthEndPolicy Policy>
     struct apply_period_add_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"month_end_policy", Value{MonthEndPolicy::Reject}}};
+            return std::tuple{arg<"month_end_policy">(MonthEndPolicy::Reject)};
         }
 
         static bool requires_(const ResolutionMap &,
@@ -1412,9 +1412,9 @@ namespace hgraph::stdlib
     template <typename Civil, MonthEndPolicy Policy>
     struct apply_period_sub_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"month_end_policy", Value{MonthEndPolicy::Reject}}};
+            return std::tuple{arg<"month_end_policy">(MonthEndPolicy::Reject)};
         }
 
         static bool requires_(const ResolutionMap &,

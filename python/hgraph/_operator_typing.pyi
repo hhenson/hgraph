@@ -859,6 +859,9 @@ class _compare_Operator(_Protocol):
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
+    ``model`` : scalar; ``str``
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
@@ -873,8 +876,8 @@ class _compare_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str) -> None``
-    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ...) -> None``
+    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None``
+    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -882,9 +885,9 @@ class _compare_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str) -> None: ...
+    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str, model: str = ...) -> None: ...
     @_overload
-    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str = ...) -> None: ...
+    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str = ..., model: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 compare: _compare_Operator
@@ -5918,6 +5921,9 @@ class _record_Operator(_Protocol):
     ``sparse`` : scalar; ``bool``
        The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
+    ``model`` : scalar; ``str``
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
@@ -5966,9 +5972,9 @@ class _record_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ..., model: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ..., model: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ..., model: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -5976,11 +5982,11 @@ class _record_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str = ..., sparse: bool = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str = ..., sparse: bool = ..., model: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ..., model: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: _ToTableMode = ..., flush_rows: int = ..., flush_interval: _timedelta = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: _ToTableMode = ..., flush_rows: int = ..., flush_interval: _timedelta = ..., model: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator
@@ -6163,6 +6169,9 @@ class _replay_Operator(_Protocol):
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
+    ``model`` : scalar; ``str``
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
     ``partition_names`` : scalar; ``tuple[str, ...]``
        Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
 
@@ -6194,8 +6203,8 @@ class _replay_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay(key: str, recordable_id: str = ...) -> OUT``
-    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> OUT``
+    - ``replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT``
+    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., model: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -6203,9 +6212,9 @@ class _replay_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, key: str, recordable_id: str = ...) -> _WiringPort: ...
+    def __call__(self, key: str, recordable_id: str = ..., model: str = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> _WiringPort: ...
+    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., model: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay: _replay_Operator
@@ -6223,10 +6232,13 @@ class _replay_const_Operator(_Protocol):
        Wiring-time name within the current recordable context.
 
     ``recordable_id`` : scalar; ``str``
-       Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``tm`` : scalar; ``datetime``
-       The tm value used by the selected overload. Optional in overloads that show ``= ...``.
+       Latest value time eligible for the read. Optional in overloads that show ``= ...``.
+
+    ``model`` : scalar; ``str``
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -6242,14 +6254,14 @@ class _replay_const_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
+    - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ..., model: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, key: str, recordable_id: str = ..., tm: _datetime = ...) -> _WiringPort: ...
+    def __call__(self, key: str, recordable_id: str = ..., tm: _datetime = ..., model: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay_const: _replay_const_Operator

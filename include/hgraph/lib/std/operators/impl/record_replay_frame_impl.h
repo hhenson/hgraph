@@ -65,87 +65,6 @@ namespace hgraph::stdlib
             return out;
         }
 
-        /** Rename compatibility projections back to the canonical layout.
-
-            The replay machinery has one semantic column vocabulary. A
-            release/0.5 store may use configured partition/removal names and
-            a frame-valued recording may prefix its payload columns; normalize
-            those names once at start instead of teaching every row reader
-            about aliases. Missing optional as-of/removal columns remain
-            missing and are handled by replay selection/application. */
-        [[nodiscard]] inline Frame canonical_replay_frame(
-            Frame frame, const table_ts_detail::TsTableLayout &layout,
-            std::span<const std::string> stored_names)
-        {
-            std::vector<std::string> names = frame.table->ColumnNames();
-            for (std::size_t column = 0; column < layout.keys.size(); ++column)
-            {
-                const std::string &stored = stored_names[column];
-                const std::string &canonical = layout.keys[column];
-                if (stored.empty() || stored == canonical)
-                {
-                    continue;
-                }
-
-                const int source = frame.table->schema()->GetFieldIndex(stored);
-                if (source < 0)
-                {
-                    continue;
-                }
-                const int existing = frame.table->schema()->GetFieldIndex(canonical);
-                if (existing >= 0 && existing != source)
-                {
-                    throw std::runtime_error("replay: column projection '" + stored + "' -> '" +
-                                             canonical + "' collides with an existing column");
-                }
-                names[static_cast<std::size_t>(source)] = canonical;
-            }
-
-            // A frame prefix is a recording-side disambiguation aid, not
-            // part of the value schema.  Legacy replay therefore did not
-            // require callers to repeat it: frame payload columns were read
-            // positionally through the frame converter.  Preserve that
-            // contract while normalising the stored frame for the canonical
-            // row-source path.  Recorder projections always append expanded
-            // frame fields last and in schema order.
-            if (layout.is_multi_row && !layout.value_cols.empty())
-            {
-                if (names.size() < layout.value_cols.size())
-                {
-                    throw std::runtime_error(
-                        "replay: recording has fewer columns than the frame schema");
-                }
-                const std::size_t first_payload = names.size() - layout.value_cols.size();
-                for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
-                {
-                    const std::string &canonical = layout.keys[layout.value_col_start + i];
-                    if (std::find(names.begin(), names.end(), canonical) == names.end())
-                    {
-                        names[first_payload + i] = canonical;
-                    }
-                }
-            }
-            for (std::size_t lhs = 0; lhs < names.size(); ++lhs)
-            {
-                for (std::size_t rhs = lhs + 1; rhs < names.size(); ++rhs)
-                {
-                    if (names[lhs] == names[rhs])
-                    {
-                        throw std::runtime_error("replay: projected column name is not unique: '" +
-                                                 names[lhs] + "'");
-                    }
-                }
-            }
-            auto renamed = frame.table->RenameColumns(names);
-            if (!renamed.ok())
-            {
-                throw std::runtime_error("replay: failed to normalize stored columns: " +
-                                         renamed.status().ToString());
-            }
-            frame.table = *renamed;
-            return frame;
-        }
-
         /**
          * Fold the call site's choices over the wiring-time default.
          *
@@ -223,6 +142,10 @@ namespace hgraph::stdlib
             std::size_t next_segment{0};
             std::size_t total_rows{0};
             bool        segmented{false};
+            /** Exact stored name per layout column; nullopt means omitted.
+                Persisted with every completed recording frame so replay can
+                distinguish omission from a non-default optional name. */
+            std::vector<std::optional<std::string>> recording_projection{};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -269,6 +192,16 @@ namespace hgraph::stdlib
             std::int64_t                          row{0};
             /** Projection supplied by the caller, retained for every segment. */
             std::vector<std::string> source_names{};
+            /** Whether the caller NAMED the optional projections. An explicitly
+                named as-of or removed column must be found; an unnamed one may
+                legitimately be absent from the recording. */
+            bool as_of_named{false};
+            bool removes_named{false};
+            /** ``source_names`` resolved against the current segment: a stored
+                column index per layout column, ``-1`` where the recording does
+                not carry one. Recomputed per segment; the stored table's own
+                column names are never rewritten. */
+            std::vector<int> source_columns{};
             std::string              fq_key{};
             std::size_t              next_segment{0};
             DateTime                 as_of{MAX_DT};
@@ -280,8 +213,11 @@ namespace hgraph::stdlib
         {
             const table_ts_detail::TsTableLayout *layout{nullptr};
             const Frame                          *frame{nullptr};
-            std::int64_t                          first{0};
-            std::int64_t                          count{0};
+            /** Resolved stored position per layout column (see
+                ``resolve_replay_columns``). */
+            const std::vector<int> *columns{nullptr};
+            std::int64_t            first{0};
+            std::int64_t            count{0};
 
             static Value cell(const void *context, std::size_t row, std::size_t column)
             {
@@ -290,13 +226,16 @@ namespace hgraph::stdlib
                 {
                     throw std::out_of_range("replay: table column index is out of range");
                 }
-                const std::string &name = self.layout->keys[column];
-                if (self.frame->table->GetColumnByName(name) == nullptr)
+                // ``-1`` only ever reaches here for a column the recording
+                // legitimately omits - an absent as-of or removed flag -
+                // because resolution already refused a missing required one.
+                const int index = (*self.columns)[column];
+                if (index < 0)
                 {
                     return {};
                 }
-                return frame_cell(*self.frame, name, self.layout->col_metas[column],
-                                  self.first + static_cast<std::int64_t>(row));
+                return frame_cell_at(*self.frame, index, self.layout->col_metas[column],
+                                     self.first + static_cast<std::int64_t>(row));
             }
 
             [[nodiscard]] TableRowSource source() const
@@ -306,13 +245,22 @@ namespace hgraph::stdlib
             }
         };
 
-        [[nodiscard]] inline DateTime recorded_value_time(
-            const table_ts_detail::TsTableLayout &layout, const Frame &frame, std::int64_t row)
+        /** The value time of ``row``, read through the RESOLVED date column:
+            the recording may name it differently from the layout, and the
+            stored table is no longer renamed to hide that. */
+        [[nodiscard]] inline DateTime recorded_value_time(const ReplayHandle &handle,
+                                                          std::int64_t        row)
         {
-            return frame_cell(frame, layout.date_key, scalar_descriptor<DateTime>::value_meta(),
-                              row)
+            return frame_cell_at(handle.frame, handle.source_columns.front(),
+                                 scalar_descriptor<DateTime>::value_meta(), row)
                 .view()
                 .checked_as<DateTime>();
+        }
+
+        [[nodiscard]] inline Frame finish_recording_frame(RecorderHandle &handle)
+        {
+            return table_ts_detail::annotate_recording_projection(
+                handle.recorder.finish(), handle.recording_projection);
         }
 
         inline void flush_segment(RecorderHandle &handle, GlobalStateView gs)
@@ -324,17 +272,23 @@ namespace hgraph::stdlib
             }
             record_replay::store_write(
                 gs, record_replay::segment_key(handle.fq_key, handle.next_segment),
-                handle.recorder.finish());
+                finish_recording_frame(handle));
             ++handle.next_segment;
             handle.total_rows += static_cast<std::size_t>(rows);
         }
 
-        [[nodiscard]] inline Frame prepare_replay_segment(const ReplayHandle &handle, Frame frame)
+        /** Resolve the caller's projection against this segment and select the
+            rows it replays. Resolution is stored on the handle rather than
+            applied to the table: row selection is a Take, which preserves
+            column order, so the indices stay valid for the selected frame. */
+        [[nodiscard]] inline Frame prepare_replay_segment(ReplayHandle &handle, Frame frame)
         {
-            frame = canonical_replay_frame(std::move(frame), *handle.recording_layout,
-                                           handle.source_names);
+            handle.source_columns = table_ts_detail::resolve_replay_columns(
+                frame, *handle.recording_layout, handle.source_names, handle.as_of_named,
+                handle.removes_named);
             return data_frame_detail::select_replay_frame(frame, *handle.recording_layout,
-                                                          handle.as_of, handle.start_time);
+                                                          handle.source_columns, handle.as_of,
+                                                          handle.start_time);
         }
 
         [[nodiscard]] inline bool load_next_replay_segment(ReplayHandle &handle, GlobalStateView gs)
@@ -402,24 +356,25 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "record";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}},
-                    {"as_of", Value{RecordAsOf::Inherit}},
-                    {"removes", Value{RecordRemoves::Inherit}},
-                    {"partition_names", record_replay_frame_detail::empty_names()},
-                    {"removed_names", record_replay_frame_detail::empty_names()},
-                    {"date_key", Value{Str{}}},
-                    {"as_of_key", Value{Str{}}},
-                    {"frame_prefix", Value{Str{}}},
-                    {"mode", Value{ToTableMode::Tick}},
-                    {"flush_rows", Value{Int{0}}},
-                    {"flush_interval", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"recordable_id">(Str{}),
+                              arg<"as_of">(RecordAsOf::Inherit),
+                              arg<"removes">(RecordRemoves::Inherit),
+                              arg<"partition_names">(record_replay_frame_detail::empty_names()),
+                              arg<"removed_names">(record_replay_frame_detail::empty_names()),
+                              arg<"date_key">(Str{}),
+                              arg<"as_of_key">(Str{}),
+                              arg<"frame_prefix">(Str{}),
+                              arg<"mode">(ToTableMode::Tick),
+                              arg<"flush_rows">(Int{0}),
+                              arg<"flush_interval">(TimeDelta{0}),
+                              arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static void start(
@@ -431,7 +386,8 @@ namespace hgraph::stdlib
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, TraitsView traits,
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            TraitsView traits,
             GlobalStateView gs, DateTime now, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
@@ -459,9 +415,11 @@ namespace hgraph::stdlib
 
             std::vector<std::size_t> output_of_layout_column(layout.keys.size(),
                                                              RecorderHandle::dropped);
+            std::vector<std::optional<std::string>> recording_projection(layout.keys.size());
             for (std::size_t output = 0; output < columns.source.size(); ++output)
             {
                 output_of_layout_column[columns.source[output]] = output;
+                recording_projection[columns.source[output]] = columns.names[output];
             }
 
             auto handle = std::make_unique<RecorderHandle>(RecorderHandle{
@@ -471,6 +429,7 @@ namespace hgraph::stdlib
                 options.removes == TableRecordingOptions::Removes::Track, mode_value,
                 options.as_of == TableRecordingOptions::AsOf::Fixed ? options.as_of_value
                                                                     : std::optional<DateTime>{}});
+            handle->recording_projection = std::move(recording_projection);
             handle->flush_rows = flush_rows.value();
             handle->flush_interval = flush_interval.value();
             handle->last_flush = now;
@@ -511,8 +470,8 @@ namespace hgraph::stdlib
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, State<FrameRecorderState> state,
-            GlobalStateView gs, DateTime now)
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
@@ -577,7 +536,9 @@ namespace hgraph::stdlib
             }
             else
             {
-                record_replay::store_write(gs, handle->fq_key, handle->recorder.finish());
+                record_replay::store_write(
+                    gs, handle->fq_key,
+                    record_replay_frame_detail::finish_recording_frame(*handle));
             }
         }
     };
@@ -586,19 +547,20 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "replay";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}},
-                    {"partition_names", record_replay_frame_detail::empty_names()},
-                    {"removed_names", record_replay_frame_detail::empty_names()},
-                    {"date_key", Value{Str{}}},
-                    {"as_of_key", Value{Str{}}},
-                    {"frame_prefix", Value{Str{}}}};
+            return std::tuple{arg<"recordable_id">(Str{}),
+                              arg<"partition_names">(record_replay_frame_detail::empty_names()),
+                              arg<"removed_names">(record_replay_frame_detail::empty_names()),
+                              arg<"date_key">(Str{}),
+                              arg<"as_of_key">(Str{}),
+                              arg<"frame_prefix">(Str{}),
+                              arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static void start(
@@ -606,7 +568,8 @@ namespace hgraph::stdlib
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
-            Scalar<"frame_prefix", Str> frame_prefix, TraitsView traits, GlobalStateView gs,
+            Scalar<"frame_prefix", Str> frame_prefix, Scalar<"model", Str>, TraitsView traits,
+            GlobalStateView gs,
             DateTime now, State<FrameReplayState> state, SingleShotScheduler sched,
             Out<TsVar<"O">> out)
         {
@@ -642,6 +605,8 @@ namespace hgraph::stdlib
             auto handle = std::make_unique<ReplayHandle>();
             handle->recording_layout = &layout;
             handle->source_names = std::move(stored_names);
+            handle->as_of_named = !as_of_key.value().empty();
+            handle->removes_named = !replay_options.removed_names.empty();
             handle->fq_key = fq_key;
             handle->as_of = config.as_of.value_or(MAX_DT);
             handle->start_time = now;
@@ -663,7 +628,7 @@ namespace hgraph::stdlib
             if (frame_rows(handle->frame) > 0)
             {
                 sched.schedule(
-                    record_replay_frame_detail::recorded_value_time(layout, handle->frame, 0));
+                    record_replay_frame_detail::recorded_value_time(*handle, 0));
             }
             state.set(FrameReplayState{handle.release()});  // owned by node State until stop
         }
@@ -673,8 +638,9 @@ namespace hgraph::stdlib
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
-            Scalar<"frame_prefix", Str> frame_prefix, State<FrameReplayState> state,
-            NodeScheduler sched, GlobalStateView gs, DateTime now, Out<TsVar<"O">> out)
+            Scalar<"frame_prefix", Str> frame_prefix, Scalar<"model", Str>,
+            State<FrameReplayState> state, NodeScheduler sched, GlobalStateView gs, DateTime now,
+            Out<TsVar<"O">> out)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
@@ -687,8 +653,7 @@ namespace hgraph::stdlib
             const auto         rows = frame_rows(handle->frame);
             const std::int64_t first = handle->row;
             while (handle->row < rows &&
-                   record_replay_frame_detail::recorded_value_time(
-                       *handle->recording_layout, handle->frame, handle->row) == now)
+                   record_replay_frame_detail::recorded_value_time(*handle, handle->row) == now)
             {
                 ++handle->row;
             }
@@ -697,6 +662,7 @@ namespace hgraph::stdlib
                 const record_replay_frame_detail::RecordedFrameRows recorded{
                     .layout = handle->recording_layout,
                     .frame = &handle->frame,
+                    .columns = &handle->source_columns,
                     .first = first,
                     .count = handle->row - first};
                 const TableRowSource source = recorded.source();
@@ -710,8 +676,8 @@ namespace hgraph::stdlib
             }
             if (handle->frame.has_value() && handle->row < frame_rows(handle->frame))
             {
-                sched.schedule(record_replay_frame_detail::recorded_value_time(
-                    *handle->recording_layout, handle->frame, handle->row));
+                sched.schedule(
+                    record_replay_frame_detail::recorded_value_time(*handle, handle->row));
             }
         }
 
@@ -735,16 +701,16 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return !record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return !record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}}};
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"model">(Str{})};
         }
 
-        static void start(Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
-                          GlobalStateView gs, State<FrameRecorderState> state)
+        static void start(Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>,
+                          TraitsView traits, GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
             const auto config = record_replay::config(gs);
@@ -766,7 +732,8 @@ namespace hgraph::stdlib
         static void eval(In<"lhs", TsVar<"S">, InputValidity::Unchecked> lhs,
                          In<"rhs", TsVar<"S">, InputValidity::Unchecked> rhs,
                          Scalar<"recordable_id", Str>                    recordable_id,
-                         State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
+                         Scalar<"model", Str>, State<FrameRecorderState> state,
+                         GlobalStateView gs, DateTime now)
         {
             static_cast<void>(recordable_id);
             // Activation means at least one side ticked: a one-sided value IS
@@ -808,14 +775,14 @@ namespace hgraph::stdlib
         static constexpr auto name = "replay_const";
         static constexpr bool schedule_on_start = true;
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}}, {"tm", Value{MAX_DT}}};
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"tm">(MAX_DT), arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static Value const_eval(const TSValueTypeMetaData *resolved_output,
@@ -837,8 +804,8 @@ namespace hgraph::stdlib
         }
 
         static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
-                         Scalar<"tm", DateTime> tm, TraitsView traits, GlobalStateView gs,
-                         DateTime now, Out<TsVar<"O">> out)
+                         Scalar<"tm", DateTime> tm, Scalar<"model", Str>, TraitsView traits,
+                         GlobalStateView gs, DateTime now, Out<TsVar<"O">> out)
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  cutoff = tm.value() == MAX_DT ? now : tm.value();

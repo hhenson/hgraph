@@ -386,8 +386,13 @@ The Arrow data-frame record/replay backend, model
 - **``replay`` (frame backend)** — ``start`` reads the frame through the same
   graph store and resolves its columns against the output layout. ``eval``
   applies every row stamped at the current value time and schedules the next
-  group absolutely, reproducing recorded timing and gaps. Explicit replay
-  projections preserve release/0.5 partition and removal column renames.
+  group absolutely, reproducing recorded timing and gaps. Every native
+  recording frame carries its exact projection (stored names and explicit
+  omissions) in versioned Arrow schema metadata. Replay checks that descriptor
+  at start, so omitting a non-default ``as_of_key`` or ``removed_names`` cannot
+  silently discard revision or removal semantics. Unannotated release/0.5 and
+  hand-built frames remain readable by explicit names without positional or
+  type inference.
 - **``replay_const_value(fq_key, meta, tm, as_of)``** — the const read
   (Python's ``replay_const``, a plain function per the const_fn ruling):
   the last row with value-time <= ``tm`` and as-of <= ``as_of``.
@@ -396,8 +401,11 @@ The release/0.5 ``DataFrameStorage`` surface is now a compatibility adapter,
 not a second recorder. It offers the native bridge only
 ``store(key, frame)``, ``load(key)`` and ``has(key)``; Python retains ownership
 of overwrite policy and receives no native segmentation API. The production
-memory, local and S3 paths stay entirely in C++. The legacy override registry
-is translated at wiring time into explicit native record/replay options.
+memory, local and S3 paths stay entirely in C++. Store callbacks receive the
+Arrow table in the established naive-UTC Python timestamp form, never the
+optional user-facing Polars presentation, because Arrow schema metadata is part
+of the persisted recording contract. The legacy override registry is translated
+at wiring time into explicit native record/replay options.
 
 RFC 0019 completes this backend with per-record column projection,
 Tick/Sample/Snap recording, keyed frame expansion, and optional native

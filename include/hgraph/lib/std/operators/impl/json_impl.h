@@ -57,9 +57,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "to_json";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"delta", Value{Bool{false}}}};
+            return std::tuple{arg<"delta">(Bool{false})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)

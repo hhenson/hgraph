@@ -75,12 +75,10 @@ namespace hgraph::stdlib
               NonexistentTimePolicy Nonexistent>
     struct resolve_civil_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {
-                {"ambiguous", Value{AmbiguousTimePolicy::Reject}},
-                {"nonexistent", Value{NonexistentTimePolicy::Reject}},
-            };
+            return std::tuple{arg<"ambiguous">(AmbiguousTimePolicy::Reject),
+                              arg<"nonexistent">(NonexistentTimePolicy::Reject)};
         }
 
         static bool requires_(const ResolutionMap &,
@@ -244,10 +242,9 @@ namespace hgraph::stdlib
 
     struct instant_range_shift_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {
-                {"month_end_policy", Value{MonthEndPolicy::Reject}}};
+            return std::tuple{arg<"month_end_policy">(MonthEndPolicy::Reject)};
         }
 
         static void eval(
@@ -263,10 +260,9 @@ namespace hgraph::stdlib
     template <MonthEndPolicy Policy>
     struct civil_date_range_shift_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {
-                {"month_end_policy", Value{MonthEndPolicy::Reject}}};
+            return std::tuple{arg<"month_end_policy">(MonthEndPolicy::Reject)};
         }
 
         static bool requires_(const ResolutionMap &,
@@ -325,9 +321,9 @@ namespace hgraph::stdlib
     template <int Mode>
     struct quantize_instant_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"origin", Value{Instant{}}}};
+            return std::tuple{arg<"origin">(Instant{})};
         }
 
         static void eval(In<"value", TS<Instant>> value,
@@ -355,9 +351,9 @@ namespace hgraph::stdlib
 
     struct temporal_bucket_impl
     {
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"origin", Value{Instant{}}}};
+            return std::tuple{arg<"origin">(Instant{})};
         }
 
         static void eval(In<"value", TS<Instant>> value,

@@ -1294,9 +1294,9 @@ namespace
         {
             out.set(ts.value() * factor.value());
         }
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"factor", Value{Int{3}}}};
+            return std::tuple{arg<"factor">(Int{3})};
         }
     };
 
@@ -1580,9 +1580,9 @@ namespace
         {
             out.set(a.value() + b.value());
         }
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"b", Value{Int{10}}}};
+            return std::tuple{arg<"b">(Int{10})};
         }
     };
 
@@ -1596,9 +1596,9 @@ namespace
         {
             out.set(a.value() + (opt.valid() ? opt.value() : Int{0}));
         }
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"opt", Value{}}};   // Python None -> null source
+            return std::tuple{arg<"opt">(Value{})};   // Python None -> null source
         }
     };
 

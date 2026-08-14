@@ -105,12 +105,10 @@ namespace hgraph::analytics
                                              ? "hgraph.analytics.pct_change.int"
                                              : "hgraph.analytics.pct_change.float";
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {
-                    {"period", Value{Int{1}}},
-                    {"divide_by_zero", Value{stdlib::DivideByZero::Error}},
-                };
+                return std::tuple{arg<"period">(Int{1}),
+                                  arg<"divide_by_zero">(stdlib::DivideByZero::Error)};
             }
 
             static Port<TS<Float>> compose(

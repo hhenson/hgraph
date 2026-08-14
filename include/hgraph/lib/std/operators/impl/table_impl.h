@@ -41,6 +41,18 @@ namespace hgraph::stdlib
         [[nodiscard]] HGRAPH_EXPORT RecordingColumns
         recording_columns(const TsTableLayout &layout, const TableRecordingOptions &options);
 
+        /** Attach the exact recording projection to a completed frame.
+         *
+         * ``stored_names`` is indexed by layout column. ``nullopt`` records
+         * that the column was deliberately omitted. Replay uses this
+         * writer-supplied metadata to distinguish omission from a renamed
+         * optional column without inferring from position or type. Frames that
+         * predate the metadata, including hand-built Arrow inputs, retain the
+         * legacy explicit-name resolution rules.
+         */
+        [[nodiscard]] HGRAPH_EXPORT Frame annotate_recording_projection(
+            Frame frame, std::span<const std::optional<std::string>> stored_names);
+
         [[nodiscard]] HGRAPH_EXPORT const TsTableLayout &ts_table_layout(
             const TSValueTypeMetaData *ts, std::string_view date_key, std::string_view as_of_key);
         void clear_ts_table_layouts() noexcept;
@@ -85,23 +97,43 @@ namespace hgraph::stdlib
          * key, and silently building a partial one would replay ticks under a
          * key that never existed.
          */
+        /**
+         * Resolve every layout column to its position in a stored table.
+         *
+         * ``stored_names`` is the caller's projection, indexed by layout
+         * column; an empty entry means the layout's own name. The result is
+         * parallel to ``layout.keys``: a column index into ``frame``, or ``-1``
+         * for a column the recording legitimately does not carry (the as-of
+         * column under ``as_of: Omit``, a level's removed flag under
+         * ``removes: Omit``).
+         *
+         * A REQUIRED column that cannot be found throws, naming it. Replay
+         * never infers a column from position or type — see RFC 0019,
+         * *Projection is explicit or it fails*.
+         *
+         * Hgraph-produced recordings carry the exact projection in Arrow
+         * schema metadata. For those frames, the caller's projection must
+         * match even for optional columns: omitting ``as_of_key`` or
+         * ``removed_names`` cannot silently lose a column recorded under a
+         * non-default name. Unannotated legacy/hand-built frames cannot make
+         * that distinction, so ``as_of_named`` / ``removes_named`` retain the
+         * compatibility rule that only an explicitly named optional column is
+         * required.
+         *
+         * Resolving to positions rather than renaming the stored table keeps
+         * the stored names intact, so a table that genuinely contains a column
+         * called ``__key_1__`` stays readable and the caller's projection is
+         * never discarded.
+         */
+        [[nodiscard]] HGRAPH_EXPORT std::vector<int> resolve_replay_columns(
+            const Frame &frame, const TsTableLayout &layout,
+            std::span<const std::string> stored_names, bool as_of_named = false,
+            bool removes_named = false);
+
         [[nodiscard]] HGRAPH_EXPORT Value assemble_from_paths(
             const ValueTypeMetaData *meta, std::span<const std::vector<std::size_t>> paths,
             std::span<const Value> leaves);
 
-        /**
-         * Apply the recorded rows ``[first, first + count)`` as one
-         * frame-valued tick at ``out``.
-         *
-         * A ``TS[Frame[Row]]`` leaf records one row per FRAME row, so a tick is
-         * a run of recorded rows sharing a value time rather than a single row.
-         * The recorded value columns are the frame's own columns, so the tick's
-         * frame is a projection of the recording — the columns selected and the
-         * run sliced — not a cell-by-cell rebuild.
-         */
-        HGRAPH_EXPORT void apply_recorded_frame_rows(const TsTableLayout &layout,
-                                                     const Frame &recorded, std::int64_t first,
-                                                     std::int64_t count, const TSOutputView &out);
     }  // namespace table_ts_detail
 
     struct TableLayoutState
@@ -154,9 +186,9 @@ namespace hgraph::stdlib
                             .output_ts);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"mode", Value{ToTableMode::Tick}}};
+            return std::tuple{arg<"mode">(ToTableMode::Tick)};
         }
 
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, GlobalStateView gs,

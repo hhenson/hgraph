@@ -18,6 +18,8 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/value/compact_storage.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -55,6 +57,23 @@ namespace
         std::shared_ptr<arrow::Array> result;
         require_arrow(builder.Finish(&result));
         return result;
+    }
+
+    /** A ``tuple[str, ...]`` wiring argument. The rename parameters are
+        constrained to that shape, so a plain list value will not bind. */
+    [[nodiscard]] Value names_tuple(std::initializer_list<std::string_view> names)
+    {
+        const auto *meta = scalar_descriptor<HomogeneousTuple<Str>>::value_meta();
+        const auto  binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta());
+        ListBuilder builder{binding};
+        for (const std::string_view name : names)
+        {
+            Str entry{name};
+            builder.push_back(entry);
+        }
+        ListStorage storage = builder.build_storage();
+        return Value{compact_list_type(binding, *meta), &storage};
     }
 
     [[nodiscard]] bool equals(const Frame &lhs, const Frame &rhs)
@@ -204,6 +223,72 @@ namespace
             wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
                                  arg<"frame_prefix">(Str{"px_"}));
             return ts;
+        }
+    };
+
+    /** Replays a prefixed recording, supplying the same prefix it was recorded
+        with - which replay now requires rather than recovering by position. */
+    template <typename TS_>
+    struct PrefixedReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "prefixed_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                             arg<"frame_prefix">(Str{"px_"}))
+                .template as<TS_>();
+        }
+    };
+
+    /** A ``TSD[str, TS[int]]`` recording whose key column is called ``symbol``,
+        alongside an UNRELATED column that happens to be called ``__key_1__``.
+
+        That second column is the point. Replay used to normalise a stored table
+        by renaming its columns onto the layout's canonical names, which assumed
+        those names never occur as real data - so ``symbol`` -> ``__key_1__``
+        collided with a column that was none of its business, and the recording
+        became unreadable through no fault of its author. */
+    [[nodiscard]] Frame decoy_named_frame()
+    {
+        arrow::TimestampBuilder date{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                     arrow::default_memory_pool()};
+        arrow::TimestampBuilder as_of{arrow::timestamp(arrow::TimeUnit::MICRO),
+                                      arrow::default_memory_pool()};
+        arrow::StringBuilder    symbol;
+        arrow::Int64Builder     value;
+        arrow::Int64Builder     decoy;
+        for (const auto &[when, sym, item, junk] :
+             std::vector<std::tuple<DateTime, std::string, std::int64_t, std::int64_t>>{
+                 {MIN_ST, "a", 1, 111}, {MIN_ST + TimeDelta{1}, "b", 2, 222}})
+        {
+            require_arrow(date.Append(when.time_since_epoch().count()));
+            require_arrow(as_of.Append(when.time_since_epoch().count()));
+            require_arrow(symbol.Append(sym));
+            require_arrow(value.Append(item));
+            require_arrow(decoy.Append(junk));
+        }
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("__date_time__", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                           arrow::field("__as_of__", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                           arrow::field("symbol", arrow::utf8()),
+                           arrow::field("value", arrow::int64()),
+                           arrow::field("__key_1__", arrow::int64())}),
+            {finish(date), finish(as_of), finish(symbol), finish(value), finish(decoy)}, 2)};
+    }
+
+    /** Replays with the projection the recording used. */
+    template <typename TS_>
+    struct ProjectedReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "projected_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(
+                       w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                       arg<"partition_names">(names_tuple({"symbol"})))
+                .template as<TS_>();
         }
     };
 
@@ -392,16 +477,34 @@ TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
     REQUIRE(recorded.table->GetColumnByName("px_b") != nullptr);
     CHECK(recorded.table->GetColumnByName("a") == nullptr);
 
-    // And replay has to read it back WITHOUT being told the prefix: the
-    // options are not stored with the recording, which is why the value
-    // columns are resolved positionally rather than by name.
-    const auto replayed = eval_node<ReplayGraph<TS<FrameOf<Row>>>>();
+    // Replay resolves the payload by its CONFIGURED name, so it has to be given
+    // the same prefix the recording used.
+    const auto replayed = eval_node<PrefixedReplayGraph<TS<FrameOf<Row>>>>();
     REQUIRE(replayed.size() == 2);
     REQUIRE(replayed[0].has_value());
     REQUIRE(replayed[1].has_value());
     // Round-tripped under the frame's OWN names, not the prefixed ones.
     CHECK(equals(*replayed[0], first));
     CHECK(equals(*replayed[1], second));
+}
+
+TEST_CASE("partitioned record/replay: replaying without the recorded prefix fails")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<PrefixedRecordGraph<TS<FrameOf<Row>>>>(values<Frame>(row_frame({1}, {10})));
+
+    // This used to SUCCEED: the payload was recovered positionally, so a
+    // caller could omit the prefix and still get its frame back. That made a
+    // supplied frame_prefix ignorable, and position does not identify a column
+    // in general - a default recording and one with as_of omitted plus removes
+    // tracked are both four columns with different meanings at index 1. A
+    // projection that does not describe the recording is now an error naming
+    // the column it could not find, rather than a plausible-looking frame.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<TS<FrameOf<Row>>>>(),
+                      Catch::Matchers::ContainsSubstring("recording has no column 'a'") &&
+                          Catch::Matchers::ContainsSubstring("must match the one used to record"));
 }
 
 TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it "
@@ -434,4 +537,190 @@ TEST_CASE("assemble_from_paths: a nested key is rebuilt through the paths it "
     const std::vector<Value> missing{Value{Int{7}}, Value{}, Value{Int{9}}};
     CHECK_THROWS_AS(stdlib::table_ts_detail::assemble_from_paths(outer, paths, missing),
                     std::invalid_argument);
+}
+
+TEST_CASE("partitioned record/replay: a stored column named like a canonical "
+          "one does not break the projection")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    // The recording keys on `symbol` and also carries an unrelated `__key_1__`.
+    const Frame stored = decoy_named_frame();
+    // Pinned, so the case cannot quietly stop being exercised: without the
+    // decoy this test passes for the wrong reason.
+    REQUIRE(stored.table->GetColumnByName("__key_1__") != nullptr);
+    REQUIRE(stored.table->GetColumnByName("symbol") != nullptr);
+    record_replay::store_write("book.ticks", stored);
+
+    // Renaming `symbol` -> `__key_1__` collided with the decoy and made this
+    // recording unreadable. Resolving to a column INDEX instead leaves the
+    // stored names alone, so the decoy is simply a column nobody asked for.
+    const auto replayed = eval_node<ProjectedReplayGraph<PriceDict>>();
+    CHECK_OUTPUT(replayed, values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                                         dict_delta<Str, TS<Int>>({{"b"s, 2}})));
+}
+
+namespace
+{
+    /** Records with an explicit backend, whatever the graph is configured for. */
+    template <typename TS_>
+    struct LocalModelRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "local_model_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"local"}),
+                                 arg<"model">(Str{"DataFrame"}));
+            return ts;
+        }
+    };
+}  // namespace
+
+TEST_CASE("record/replay: a call selects its backend independently of the graph")
+{
+    GlobalContext context;
+    stdlib::register_standard_operators();
+    // The GRAPH is configured for the in-memory model...
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::Config{.model = std::string{record_replay::IN_MEMORY}});
+
+    // ...but this call asks for the data-frame backend. requires_ runs before
+    // the node exists, so the only way this can work is the call-site scalar -
+    // and every overload has to consult it, or the call matches several or
+    // none (see record_replay::call_model).
+    (void)eval_node<LocalModelRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+
+    // A frame reached the frame store, which only the DATA_FRAME overload
+    // writes to - the in-memory overloads record into GlobalState instead.
+    CHECK(record_replay::store_contains("local.ticks"));
+}
+
+namespace
+{
+    /** Records the as-of column under a non-default name. */
+    template <typename TS_>
+    struct RenamedAsOfRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_as_of_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"as_of_key">(Str{"revision"}));
+            return ts;
+        }
+    };
+
+    /** Replays naming an as-of column that is not in the recording. */
+    template <typename TS_>
+    struct MistypedAsOfReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mistyped_as_of_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                             arg<"as_of_key">(Str{"typo"}))
+                .template as<TS_>();
+        }
+    };
+
+    /** Records explicit removals under a non-default name. */
+    template <typename TS_>
+    struct RenamedRemovalRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_removal_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"removes">(stdlib::RecordRemoves::Track),
+                                 arg<"removed_names">(names_tuple({"gone"})));
+            return ts;
+        }
+    };
+
+    /** Replays the renamed removal projection explicitly. */
+    template <typename TS_>
+    struct RenamedRemovalReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_removal_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(
+                       w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                       arg<"removed_names">(names_tuple({"gone"})))
+                .template as<TS_>();
+        }
+    };
+}  // namespace
+
+TEST_CASE("partitioned record/replay: a mistyped as-of projection is refused, not ignored")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+    REQUIRE(record_replay::store_read("book.ticks").table->GetColumnByName("revision") != nullptr);
+
+    // The as-of column MAY be absent - a recording with as_of: Omit has none -
+    // so resolution tolerates a miss there. But naming one asserts it exists.
+    // Without that distinction this silently proceeded as though the recording
+    // carried no as-of at all, and revision selection then picks whichever row
+    // it likes among duplicate value times.
+    CHECK_THROWS_WITH(eval_node<MistypedAsOfReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("recording has no column 'typo'"));
+}
+
+TEST_CASE("partitioned record/replay: an omitted renamed as-of projection is refused")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(recorded.table->schema()->metadata() != nullptr);
+    CHECK(recorded.table->schema()
+              ->metadata()
+              ->Get("hgraph.recording.projection.column.1")
+              .ValueOr("") == "revision");
+
+    // An unnamed optional projection used to be treated as absent. The
+    // writer's metadata now proves that it is present under another name, so
+    // replay cannot silently discard revision semantics.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("stored projection names that column "
+                                                         "'revision'"));
+}
+
+TEST_CASE("partitioned record/replay: an omitted renamed removal projection is refused")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Value added = dict_delta<Str, TS<Int>>({{"a"s, 1}});
+    const Value removed = dict_delta<Str, TS<Int>>({}, {"a"s});
+    const auto  ticks = values<Value>(added, removed);
+    (void)eval_node<RenamedRemovalRecordGraph<PriceDict>>(ticks);
+
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(recorded.table->schema()->metadata() != nullptr);
+    CHECK(recorded.table->schema()
+              ->metadata()
+              ->Get("hgraph.recording.projection.column.2")
+              .ValueOr("") == "gone");
+    CHECK_OUTPUT(eval_node<RenamedRemovalReplayGraph<PriceDict>>(), ticks);
+
+    // Without the matching projection the removal flag was previously read as
+    // an omitted column, leaving the key alive and silently changing data.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("stored projection names that column "
+                                                         "'gone'"));
 }

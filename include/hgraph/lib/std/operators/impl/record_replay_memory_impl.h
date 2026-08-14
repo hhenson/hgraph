@@ -75,13 +75,18 @@ namespace hgraph::stdlib
         /** Selected under the ``IN_MEMORY_DENSE`` model. */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY_DENSE);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY_DENSE);
         }
 
         // hgraph parity: record(ts) defaults key to "out".
-        static auto defaults() { return std::tuple{arg<"key">(Str{"out"}), arg<"sparse">(Bool{false})}; }
+        static auto defaults()
+        {
+            return std::tuple{arg<"key">(Str{"out"}), arg<"sparse">(Bool{false}),
+                              arg<"model">(Str{})};
+        }
 
-        static void start(Scalar<"key", std::string> key, Scalar<"sparse", Bool>, GlobalStateView gs)
+        static void start(Scalar<"key", std::string> key, Scalar<"sparse", Bool>, Scalar<"model", Str>,
+                          GlobalStateView gs)
         {
             // Both buffer layouts are TYPED by the recorded delta schema,
             // which only eval sees - creation is lazy on the first tick (a
@@ -91,7 +96,8 @@ namespace hgraph::stdlib
         }
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Scalar<"key", std::string> key,
-                         Scalar<"sparse", Bool> sparse, GlobalStateView gs, DateTime now)
+                         Scalar<"sparse", Bool> sparse, Scalar<"model", Str>, GlobalStateView gs,
+                         DateTime now)
         {
             // Record every TICK, plus TICK-window TSW pre-validity ticks: a
             // window below its min period is invalid yet its delta stream
@@ -183,7 +189,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
         // hgraph parity: bare ``record(ts)`` records under the default
@@ -192,13 +198,14 @@ namespace hgraph::stdlib
         // or explicit ``recordable_id=`` overrides.
         static auto defaults()
         {
-            return std::tuple{arg<"key">(Str{"out"}), arg<"recordable_id">(Str{"nodes.record"})};
+            return std::tuple{arg<"key">(Str{"out"}), arg<"recordable_id">(Str{"nodes.record"}),
+                              arg<"model">(Str{})};
         }
 
         static void eval(
             In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
             Scalar<"key", Str> key,
-            Scalar<"recordable_id", Str> recordable_id,
+            Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>,
             TraitsView traits, GlobalStateView gs, DateTime now)
         {
             if (!ts.modified()) { return; }
@@ -240,17 +247,21 @@ namespace hgraph::stdlib
         /** Selected under BOTH in-memory models (replay is model-agnostic). */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY) ||
-                   record_replay::model_is(context.global_state, record_replay::IN_MEMORY_DENSE);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY) ||
+                   record_replay::call_model_is(context, record_replay::IN_MEMORY_DENSE);
         }
 
         // Absent recordable_id = the dense harness replay (plain key); a
         // non-empty recordable_id selects the sparse absolute-time read.
-        static auto defaults() { return std::tuple{arg<"recordable_id">(Str{""})}; }
+        static auto defaults()
+        {
+            return std::tuple{arg<"recordable_id">(Str{""}), arg<"model">(Str{})};
+        }
 
         static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
-                         TraitsView traits, GlobalStateView gs, NodeScheduler sched, State<Int> index,
-                         DateTime now, Out<TsVar<"S">> out)
+                         Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
+                         NodeScheduler sched, State<Int> index, DateTime now,
+                         Out<TsVar<"S">> out)
         {
             if (recordable_id.value().empty())
             {
@@ -308,13 +319,15 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
+
+        static auto defaults() { return std::tuple{arg<"model">(Str{})}; }
 
         static void eval(
             In<"lhs", TsVar<"S">, InputValidity::Unchecked> lhs,
             In<"rhs", TsVar<"S">, InputValidity::Unchecked> rhs,
-            Scalar<"recordable_id", Str> recordable_id)
+            Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>)
         {
             static_cast<void>(recordable_id);
             if (!lhs.valid() || !rhs.valid() || !lhs.value().equals(rhs.value()))

@@ -140,6 +140,26 @@ namespace hgraph::record_replay
         return config(state).model == model;
     }
 
+    std::string call_model(const OperatorCallContext &context)
+    {
+        // A call-site ``model`` wins over the graph's configuration. Reading it
+        // here rather than in each guard is what keeps the overloads mutually
+        // exclusive - they all decide against the same answer.
+        if (const Str *local = context.scalar_as<Str>("model");
+            local != nullptr && !local->empty())
+        {
+            return *local;
+        }
+        // By value: ``config`` returns a Config by value, so a view into its
+        // ``model`` would dangle the moment the temporary died.
+        return config(context.global_state).model;
+    }
+
+    bool call_model_is(const OperatorCallContext &context, std::string_view model)
+    {
+        return call_model(context) == model;
+    }
+
     const ScopeState &current_scope() noexcept
     {
         return g_scopes.empty() ? g_no_scope : g_scopes.back();

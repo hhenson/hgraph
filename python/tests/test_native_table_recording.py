@@ -11,6 +11,7 @@ which already models them.
 """
 
 import hgraph as hg
+import pytest
 
 
 def _record(ticks, tp, **config):
@@ -96,25 +97,27 @@ def test_record_accepts_tick_sample_and_snap_table_modes():
     assert _rows(snap) == 4
 
 
-def _round_trip(ticks, tp, **config):
+def _round_trip(ticks, tp, replay_config=None, **config):
     @hg.graph
     def rec(ts: tp):
         hg.record(ts, key="out", recordable_id="rt", **config)
 
     @hg.graph
     def rep() -> tp:
-        replay_config = {
-            name: config[name]
-            for name in (
-                "partition_names",
-                "removed_names",
-                "date_key",
-                "as_of_key",
-                "frame_prefix",
-            )
-            if name in config
-        }
-        return hg.replay("out", tp, recordable_id="rt", **replay_config)
+        effective_replay_config = replay_config
+        if effective_replay_config is None:
+            effective_replay_config = {
+                name: config[name]
+                for name in (
+                    "partition_names",
+                    "removed_names",
+                    "date_key",
+                    "as_of_key",
+                    "frame_prefix",
+                )
+                if name in config
+            }
+        return hg.replay("out", tp, recordable_id="rt", **effective_replay_config)
 
     with hg.GlobalState():
         hg.set_record_replay_model("DataFrame")
@@ -172,6 +175,28 @@ def test_renamed_partition_and_removal_columns_round_trip():
     ) == ticks
 
 
+def test_replay_refuses_to_omit_a_renamed_as_of_projection():
+    with pytest.raises(Exception, match="stored projection names that column 'revision'"):
+        _round_trip(
+            [1, 2],
+            hg.TS[int],
+            replay_config={},
+            as_of_key="revision",
+        )
+
+
+def test_replay_refuses_to_omit_a_renamed_removal_projection():
+    ticks = [{"a": 1.0}, {"a": hg.REMOVE}]
+    with pytest.raises(Exception, match="stored projection names that column 'gone'"):
+        _round_trip(
+            ticks,
+            hg.TSD[str, hg.TS[float]],
+            replay_config={},
+            removes=hg.RecordRemoves.TRACK,
+            removed_names=("gone",),
+        )
+
+
 # --------------------------------------------------------------------------
 # Local configuration (RFC 0019, "Configuration is local, with a global
 # default"). The options were reachable only as C++ defaults constructed
@@ -201,6 +226,12 @@ def test_the_as_of_column_can_be_omitted():
     # Dropping a column must not shift the ones after it.
     values = frame["value"]
     assert (values.to_pylist() if hasattr(values, "to_pylist") else values.to_list()) == [1, 2]
+
+
+def test_an_omitted_as_of_column_still_round_trips():
+    assert _round_trip(
+        [1, 2], hg.TS[int], as_of=hg.RecordAsOf.OMIT
+    ) == [1, 2]
 
 
 def test_explicit_track_overrides_a_fixed_graph_default():
@@ -451,3 +482,24 @@ def test_native_segmented_recording_replays_across_all_committed_frames():
 
         with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
             assert hg.eval_node(rep) == [1, 2, 3, 4, 5]
+
+
+def test_a_call_selects_its_backend_independently_of_the_graph():
+    """``requires_`` runs before the node exists, so an overload cannot read
+    node state to pick a backend - but it can read a scalar wiring argument.
+    ``model`` is that argument: the graph here is configured for the in-memory
+    model, and only the DataFrame overload writes to the frame store."""
+    @hg.graph
+    def g(ts: hg.TSD[str, hg.TS[float]]):
+        hg.record(ts, key="out", recordable_id="local", model="DataFrame")
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("InMemory")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(g, [{"a": 1.0}])
+
+        frame = hg.frame_store_read("local.out")
+
+    # A frame exists at all only because the call chose the DataFrame backend.
+    assert _rows(frame) == 1
+    assert _columns(frame) == ["__date_time__", "__as_of__", "__key_1__", "value"]

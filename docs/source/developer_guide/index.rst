@@ -26,6 +26,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    mesh
    services
    operators
+   writing_nodes
    parity_matrix
    parity_testing
    tornado_parity

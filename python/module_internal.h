@@ -132,6 +132,12 @@ namespace hgraph::python_bridge
         already accepts anything exposing ``__arrow_c_stream__``. Arrow stays
         the canonical substrate; record/replay artifacts are unaffected. */
     [[nodiscard]] bool      &polars_frames_enabled();
+    /** Canonical Arrow table before Python compatibility presentation. */
+    [[nodiscard]] nb::object frame_to_arrow_py(const Frame &frame);
+    /** Arrow table for the Python store protocol. This retains the existing
+        naive-UTC compatibility surface and schema metadata, but never applies
+        the optional Polars user presentation. */
+    [[nodiscard]] nb::object frame_to_store_py(const Frame &frame);
     [[nodiscard]] nb::object frame_to_py(const Frame &frame);
     [[nodiscard]] Value      py_arrow_to_frame(nb::handle object);
     [[nodiscard]] nb::object series_to_py(const Series &series);

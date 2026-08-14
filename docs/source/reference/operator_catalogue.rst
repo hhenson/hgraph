@@ -941,6 +941,9 @@ are fixed when the graph is built.
 ``recordable_id`` : scalar; ``str``
    Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
+``model`` : scalar; ``str``
+   Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
@@ -957,8 +960,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str) -> None
-   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ...) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None
 
 .. _python-operator-concat:
 
@@ -5788,6 +5791,9 @@ are fixed when the graph is built.
 ``sparse`` : scalar; ``bool``
    The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
+``model`` : scalar; ``str``
+   Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
 ``recordable_id`` : scalar; ``str``
    Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
@@ -5838,9 +5844,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ..., model: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ..., model: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ..., model: str = ...) -> None
 
 .. _python-operator-reduce:
 
@@ -6080,6 +6086,9 @@ are fixed when the graph is built.
 ``recordable_id`` : scalar; ``str``
    Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
+``model`` : scalar; ``str``
+   Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+
 ``partition_names`` : scalar; ``tuple[str, ...]``
    Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
 
@@ -6113,8 +6122,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay(key: str, recordable_id: str = ...) -> OUT
-   replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> OUT
+   replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT
+   replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., model: str = ...) -> OUT
 
 .. _python-operator-replay_const:
 
@@ -6135,10 +6144,13 @@ are fixed when the graph is built.
    Wiring-time name within the current recordable context.
 
 ``recordable_id`` : scalar; ``str``
-   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
 ``tm`` : scalar; ``datetime``
-   The tm value used by the selected overload. Optional in overloads that show ``= ...``.
+   Latest value time eligible for the read. Optional in overloads that show ``= ...``.
+
+``model`` : scalar; ``str``
+   Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -6156,7 +6168,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT
+   replay_const(key: str, recordable_id: str = ..., tm: datetime = ..., model: str = ...) -> OUT
 
 .. _python-operator-replay_data_frame:
 

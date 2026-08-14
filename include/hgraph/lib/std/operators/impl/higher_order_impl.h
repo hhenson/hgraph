@@ -3579,9 +3579,9 @@ namespace hgraph::stdlib
                 resolve_map_output(resolution, context);
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"__key_arg__", Value{Str{"key"}}}};
+                return std::tuple{arg<"__key_arg__">(Str{"key"})};
             }
 
             static WiringPortRef compose(Wiring &w, Scalar<"func", WiredFn> func,
@@ -3621,9 +3621,9 @@ namespace hgraph::stdlib
                 return mode.has_value() && !*mode;
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"__key_arg__", Value{Str{"key"}}}};
+                return std::tuple{arg<"__key_arg__">(Str{"key"})};
             }
 
             static void compose(Wiring &w, Scalar<"func", WiredFn> func,
@@ -3695,9 +3695,9 @@ namespace hgraph::stdlib
                 resolve_mesh_output(resolution, context);
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"__key_arg__", Value{Str{"key"}}}, {"__name__", Value{Str{""}}}};
+                return std::tuple{arg<"__key_arg__">(Str{"key"}), arg<"__name__">(Str{""})};
             }
 
             static WiringPortRef compose(Wiring &w, Scalar<"func", WiredFn> func,
@@ -4273,7 +4273,9 @@ namespace hgraph::stdlib
                 resolve_lifted_map_tsl_output(resolution, context);
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults() { return {{"__key_arg__", Value{Str{"ndx"}}}}; }
+            static auto defaults()
+            { return std::tuple{arg<"__key_arg__">(Str{"ndx"})};
+            }
 
             static auto compose(Wiring &w, Scalar<"func", WiredFn> func, VarIn<"args", TsVar<"B">> positional,
                                 Scalar<"__key_arg__", Str> key_arg, VarKwIn<"kwargs"> kwargs) {
@@ -4314,7 +4316,9 @@ namespace hgraph::stdlib
                 resolve_map_tsl_output(resolution, context);
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults() { return {{"__key_arg__", Value{Str{"ndx"}}}}; }
+            static auto defaults()
+            { return std::tuple{arg<"__key_arg__">(Str{"ndx"})};
+            }
 
             static WiringPortRef compose(Wiring &w, Scalar<"func", WiredFn> func, VarIn<"args", TsVar<"B">> positional,
                                          Scalar<"__key_arg__", Str> key_arg, VarKwIn<"kwargs"> kwargs) {
@@ -4341,7 +4345,9 @@ namespace hgraph::stdlib
                 return func != nullptr && !func->has_output;
             }
 
-            static std::vector<std::pair<std::string_view, Value>> defaults() { return {{"__key_arg__", Value{Str{"ndx"}}}}; }
+            static auto defaults()
+            { return std::tuple{arg<"__key_arg__">(Str{"ndx"})};
+            }
 
             static void compose(Wiring &w, Scalar<"func", WiredFn> func, VarIn<"args", TsVar<"B">> positional,
                                 Scalar<"__key_arg__", Str> key_arg, VarKwIn<"kwargs"> kwargs) {
