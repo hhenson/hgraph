@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 210
+     - 211
    * - Public operator groups
      - 188
    * - Public submodules
@@ -209,6 +209,7 @@ Top-level wildcard exports
    * - ``register_python_object_type``
    * - ``register_service``
    * - ``request_reply_service``
+   * - ``resolve_type_alias``
    * - ``run_graph``
    * - ``service_adaptor``
    * - ``service_adaptor_impl``
