@@ -9,6 +9,7 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
 
+#include <algorithm>
 #include <array>
 #include <compare>
 #include <cstddef>
@@ -318,18 +319,20 @@ public:
       if (retained_bytes > reserved_bytes) {
         throw std::logic_error("Kafka bridge output exceeded its reservation");
       }
-      state.values.push_back(
-          QueuedValue{std::move(value), retained_bytes, false});
       --state.reserved_records;
       state.reserved_bytes -= reserved_bytes;
       if (!accepting_) {
-        state.values.pop_back();
         return false;
       }
+      QueuedValue item{std::move(value), retained_bytes, false};
+      item.evaluation_time = queued_evaluation_time(channel, item.value);
+      const auto position = insertion_point(channel, state, item);
+      const bool became_head = position == state.values.begin();
+      state.values.insert(position, std::move(item));
       ++state.payload_records;
       state.payload_bytes += retained_bytes;
       state.retained_bytes += retained_bytes;
-      if (!state.wake_outstanding) {
+      if (!state.wake_outstanding || became_head) {
         state.wake_outstanding = true;
         generation = ++state.generation;
         wake = state.sender;
@@ -380,9 +383,12 @@ private:
         ++state.payload_records;
         state.payload_bytes += retained_bytes;
       }
-      state.values.push_back(
-          QueuedValue{std::move(value), retained_bytes, control});
-      if (!state.wake_outstanding) {
+      QueuedValue item{std::move(value), retained_bytes, control};
+      item.evaluation_time = queued_evaluation_time(channel, item.value);
+      const auto position = insertion_point(channel, state, item);
+      const bool became_head = position == state.values.begin();
+      state.values.insert(position, std::move(item));
+      if (!state.wake_outstanding || became_head) {
         state.wake_outstanding = true;
         generation = ++state.generation;
         wake = state.sender;
@@ -397,6 +403,7 @@ private:
     Value value{};
     std::size_t retained_bytes{};
     bool control{};
+    std::optional<DateTime> evaluation_time{};
   };
 
   struct Channel {
@@ -414,6 +421,39 @@ private:
     Int generation{};
     bool wake_outstanding{};
   };
+
+  [[nodiscard]] static std::optional<DateTime>
+  queued_evaluation_time(OutputChannel channel, const Value &value) {
+    if (channel != OutputChannel::Subscription) {
+      return std::nullopt;
+    }
+    const auto field = value.view().as_bundle().at("evaluation_time");
+    return field.data() != nullptr
+               ? std::optional<DateTime>{field.checked_as<DateTime>()}
+               : std::nullopt;
+  }
+
+  [[nodiscard]] static bool scheduled_before(const QueuedValue &lhs,
+                                             const QueuedValue &rhs) noexcept {
+    if (!lhs.evaluation_time.has_value()) {
+      return rhs.evaluation_time.has_value();
+    }
+    return rhs.evaluation_time.has_value() &&
+           *lhs.evaluation_time < *rhs.evaluation_time;
+  }
+
+  [[nodiscard]] static std::deque<QueuedValue>::iterator
+  insertion_point(OutputChannel channel, Channel &state,
+                  const QueuedValue &item) {
+    if (channel != OutputChannel::Subscription) {
+      return state.values.end();
+    }
+    // Recovery sessions preload independently, so enqueue order is not replay
+    // order. Untimed lifecycle/live values remain FIFO at the front; recovered
+    // values form one stable stream ordered by their graph evaluation time.
+    return std::upper_bound(state.values.begin(), state.values.end(), item,
+                            scheduled_before);
+  }
 
   [[nodiscard]] Channel &at(OutputChannel channel) {
     return channels_.at(static_cast<std::size_t>(channel));
@@ -471,6 +511,14 @@ template <typename Tag>
 struct SubscriptionDrainNode {
   static constexpr auto name = "kafka_subscription_drain";
 
+  [[nodiscard]] static std::optional<DateTime>
+  evaluation_time(const Value &envelope) {
+    const auto field = envelope.view().as_bundle().at("evaluation_time");
+    return field.data() != nullptr
+               ? std::optional<DateTime>{field.checked_as<DateTime>()}
+               : std::nullopt;
+  }
+
   static void
   eval(In<"signal", TS<Int>>, Scalar<"bridge", ServiceBridgeHandle> bridge,
        SingleShotScheduler scheduler,
@@ -479,54 +527,62 @@ struct SubscriptionDrainNode {
     if (!next.has_value()) {
       return;
     }
-    const auto next_fields = next->view().as_bundle();
-    const auto evaluation_time = next_fields.at("evaluation_time");
-    if (evaluation_time.data() != nullptr) {
-      const DateTime requested = evaluation_time.checked_as<DateTime>();
-      if (requested > scheduler.now()) {
-        scheduler.schedule(requested);
-        return;
-      }
-    }
-    auto envelope = bridge.value().value->pop(OutputChannel::Subscription);
-    if (!envelope.has_value()) {
+    const auto batch_time = evaluation_time(*next);
+    if (batch_time.has_value() && *batch_time > scheduler.now()) {
+      scheduler.schedule(*batch_time);
       return;
     }
+    auto mutation = out.begin_mutation(out.evaluation_time());
+    while (true) {
+      auto envelope = bridge.value().value->pop(OutputChannel::Subscription);
+      if (!envelope.has_value()) {
+        return;
+      }
 
-    const auto fields = envelope->view().as_bundle();
-    const auto removed = fields.at("removed");
-    if (removed.data() != nullptr && removed.checked_as<Bool>()) {
-      auto mutation = out.begin_mutation(out.evaluation_time());
-      static_cast<void>(mutation.erase(fields.at("subscription_key")));
-      if (bridge.value().value->pending(OutputChannel::Subscription) != 0) {
+      const auto fields = envelope->view().as_bundle();
+      const auto removed = fields.at("removed");
+      if (removed.data() != nullptr && removed.checked_as<Bool>()) {
+        static_cast<void>(mutation.erase(fields.at("subscription_key")));
+      } else {
+        const auto value_binding = ValuePlanFactory::instance().type_for(
+            schema_descriptor<KafkaSubscriptionOutput>::ts_meta()
+                ->value_schema);
+        BundleBuilder value{value_binding};
+        const auto record = fields.at("record");
+        const auto cursor = fields.at("cursor");
+        const auto state = fields.at("state");
+        if (record.data() != nullptr) {
+          value.set("record", record.clone());
+        }
+        if (cursor.data() != nullptr) {
+          value.set("cursor", cursor.clone());
+        }
+        if (state.data() != nullptr) {
+          value.set("state", state.clone());
+        }
+        Value update = value.build();
+        mutation.set(fields.at("subscription_key"), update.view());
+        if (cursor.data() != nullptr) {
+          bridge.value().value->subscription_delivered(cursor.clone());
+        }
+      }
+
+      next = bridge.value().value->peek(OutputChannel::Subscription);
+      if (!next.has_value()) {
+        return;
+      }
+      const auto next_time = evaluation_time(*next);
+      if (batch_time.has_value() && next_time == batch_time) {
+        // Independent subscriptions may legitimately tick at the same Kafka
+        // timestamp. Apply their distinct TSD keys in one graph mutation.
+        continue;
+      }
+      if (next_time.has_value() && *next_time > scheduler.now()) {
+        scheduler.schedule(*next_time);
+      } else {
         scheduler.schedule(MIN_TD);
       }
       return;
-    }
-    const auto value_binding = ValuePlanFactory::instance().type_for(
-        schema_descriptor<KafkaSubscriptionOutput>::ts_meta()->value_schema);
-    BundleBuilder value{value_binding};
-    const auto record = fields.at("record");
-    const auto cursor = fields.at("cursor");
-    const auto state = fields.at("state");
-    if (record.data() != nullptr) {
-      value.set("record", record.clone());
-    }
-    if (cursor.data() != nullptr) {
-      value.set("cursor", cursor.clone());
-    }
-    if (state.data() != nullptr) {
-      value.set("state", state.clone());
-    }
-    Value update = value.build();
-
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    mutation.set(fields.at("subscription_key"), update.view());
-    if (cursor.data() != nullptr) {
-      bridge.value().value->subscription_delivered(cursor.clone());
-    }
-    if (bridge.value().value->pending(OutputChannel::Subscription) != 0) {
-      scheduler.schedule(MIN_TD);
     }
   }
 };

@@ -92,6 +92,80 @@ def test_python_authoring_uses_native_record_time_simulation() -> None:
     assert evaluation_times == [record_time]
 
 
+def test_multiple_python_replays_follow_record_timestamps() -> None:
+    cluster = MockCluster()
+    cluster.create_topic("python-replay-a")
+    cluster.create_topic("python-replay-b")
+    graph_start = datetime(2026, 8, 7, 12, 30)
+    first_time = graph_start + timedelta(seconds=1)
+    second_time = graph_start + timedelta(seconds=2)
+    expected = {
+        b"a-first": first_time,
+        b"a-second": second_time,
+        b"b-first": first_time,
+        b"b-second": second_time,
+    }
+    for topic, prefix in (
+        ("python-replay-a", b"a"),
+        ("python-replay-b", b"b"),
+    ):
+        cluster.seed_record(
+            topic,
+            prefix + b"-first",
+            timestamp_ms=int(first_time.replace(tzinfo=UTC).timestamp() * 1000),
+        )
+        cluster.seed_record(
+            topic,
+            prefix + b"-second",
+            timestamp_ms=int(second_time.replace(tzinfo=UTC).timestamp() * 1000),
+        )
+
+    observed = []
+
+    @hg.sink_node
+    def capture(
+        record: hg.TS[kafka.KafkaRecord],
+        _clock: hg.CLOCK = None,
+    ):
+        observed.append((record.value.value, _clock.evaluation_time))
+
+    @hg.graph
+    def app():
+        kafka.register_kafka_service(
+            kafka.KafkaServiceConfig.from_bootstrap_servers(
+                [cluster.bootstrap_servers()], client_id="python-multi-replay"
+            ),
+            path="simulation",
+        )
+        for topic in ("python-replay-a", "python-replay-b"):
+            key = kafka.KafkaSubscriptionKey(
+                topics=(topic,),
+                group_id=topic,
+                assignment_mode=kafka.KafkaAssignmentMode.INDEPENDENT,
+                start_position=kafka.KafkaStartPosition.earliest(),
+                stop_position=kafka.KafkaStopPosition.snapshot(),
+                recovery_clock=kafka.KafkaRecoveryClock.RECORD_TIMESTAMP,
+                merge_policy=(
+                    kafka.KafkaMergePolicy.TIMESTAMP_TOPIC_PARTITION_OFFSET
+                ),
+                sharing_identity=topic,
+            )
+            subscription = kafka.kafka_subscribe(
+                hg.const(key, tp=hg.TS[kafka.KafkaSubscriptionKey]),
+                path="simulation",
+            )
+            capture(subscription["record"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.SIMULATION,
+        start_time=graph_start,
+        end_time=second_time + timedelta(seconds=1),
+    )
+
+    assert dict(observed) == expected
+
+
 def test_legacy_replay_surface_uses_the_same_native_history_session(monkeypatch) -> None:
     _use_mock_cluster_history_start(monkeypatch)
     cluster = MockCluster()
