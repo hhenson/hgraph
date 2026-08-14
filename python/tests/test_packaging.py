@@ -164,6 +164,7 @@ def test_wheel_uses_shared_runtime_for_downstream_native_extensions():
 
     assert cmake_defines["HGRAPH_BUILD_SHARED"] == "ON"
     assert "function(hgraph_link_python_embedding target)" in cmake
+    assert 'target_link_options(\\${target} PRIVATE \\"LINKER:--no-as-needed\\")' in cmake
     assert "add_library(hgraph::pyarrow_arrow SHARED IMPORTED)" in cmake
     assert "hgraph::pyarrow_compute hgraph::pyarrow_acero" in cmake
     assert "hgraph_link_python_embedding(hgraph_install_consumer)" in native_consumer

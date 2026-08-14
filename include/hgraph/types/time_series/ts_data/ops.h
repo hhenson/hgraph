@@ -59,8 +59,8 @@ namespace hgraph
         void missing_apply_delta(const TSOutputView &, const ValueView &);
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, nb::handle, DateTime);
-        [[nodiscard]] nb::object missing_to_python(const void *, const void *);
-        [[nodiscard]] nb::object missing_delta_to_python(const void *, const void *, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT nb::object missing_to_python(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT nb::object missing_delta_to_python(const void *, const void *, DateTime);
 #endif
         [[nodiscard]] std::size_t missing_indexed_size(const void *, const void *);
         [[nodiscard]] TSRoleTypeRef missing_indexed_element_binding(const void *, const void *, std::size_t);

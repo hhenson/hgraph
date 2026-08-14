@@ -1000,6 +1000,12 @@ if(HGRAPH_BUILD_SHARED AND (HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON
         "  if(NOT TARGET Python::Python)\n"
         "    find_package(Python 3.12 COMPONENTS Interpreter Development.Embed REQUIRED)\n"
         "  endif()\n"
+        # GNU ld normally uses --as-needed and CMake can place the direct
+        # embedding library before hgraph's transitive DSOs. Retain libpython
+        # even in that order so their stable-ABI references resolve.
+        "  if(UNIX AND NOT APPLE)\n"
+        "    target_link_options(\${target} PRIVATE \"LINKER:--no-as-needed\")\n"
+        "  endif()\n"
         "  target_link_libraries(\${target} PRIVATE Python::Python)\n"
         "endfunction()\n"
         "function(hgraph_add_python_module name)\n"

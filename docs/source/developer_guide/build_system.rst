@@ -129,10 +129,11 @@ the installed SDK helper::
    target_link_libraries(application PRIVATE hgraph::core)
    hgraph_link_python_embedding(application)
 
-The helper resolves ``Development.Embed`` only when called and only links the
-given executable. Do not use it for extension modules; doing so would bind an
-otherwise stable-ABI module to one Python minor. The application remains
-responsible for initializing Python before it executes Python-authored nodes.
+The helper resolves ``Development.Embed`` only when called, retains that
+library under ELF ``--as-needed`` linkage, and only links the given executable.
+Do not use it for extension modules; doing so would bind an otherwise
+stable-ABI module to one Python minor. The application remains responsible for
+initializing Python before it executes Python-authored nodes.
 The installed ``hgraph::core`` target also carries the Arrow, Compute, and
 Acero shared libraries supplied by that environment's compatible ``pyarrow``
 installation. Native code can therefore construct ``Frame`` and ``Series``
