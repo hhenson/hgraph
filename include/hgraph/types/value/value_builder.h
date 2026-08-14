@@ -318,9 +318,11 @@ namespace hgraph
         /** Build an owning list and materialise it in ``target_binding``.
 
             The accumulator always produces its compact owning value first.
-            A distinct target representation receives that value through its
-            passive ``ValueOps::move_assign_from`` contract; callers must
-            never infer a concrete target layout from ``ValueOpsKind``. */
+            A distinct target representation resolves its external owning
+            binding, whose passive ``ValueOps::move_assign_from`` contract
+            receives that value. Callers must never infer a concrete target
+            layout from ``ValueOpsKind`` or dispatch view operations against
+            the owner's memory. */
         [[nodiscard]] Value build(const ValueTypeRef &target_binding)
         {
             if (!target_binding)
@@ -328,12 +330,13 @@ namespace hgraph
                 throw std::invalid_argument(
                     "ListBuilder target binding must be bound");
             }
+            const auto owning_binding = value_owning_type(target_binding);
             Value source = build();
-            if (source.binding() == target_binding) { return source; }
+            if (source.binding() == owning_binding) { return source; }
 
-            Value result{target_binding};
-            target_binding.ops_ref().move_assign_from(
-                target_binding, const_cast<void *>(result.view().data()),
+            Value result{owning_binding};
+            owning_binding.ops_ref().move_assign_from(
+                owning_binding, const_cast<void *>(result.view().data()),
                 source.binding(), const_cast<void *>(source.view().data()));
             return result;
         }
