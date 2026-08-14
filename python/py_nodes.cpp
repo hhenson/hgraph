@@ -81,7 +81,7 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
   const bool tss = erased.schema()->kind == TSTypeKind::TSS;
   const bool has_value = tss && erased.data_view().has_current_value();
   nb::object current = tss && has_value
-                           ? value_to_py(erased.data_view().value())
+                           ? erased.data_view().value_to_python()
                            : nb::steal(PyFrozenSet_New(nullptr));
   nb::object frozenset_added;
   nb::object frozenset_removed;
@@ -1671,7 +1671,9 @@ struct type_py_node {
 
   static void eval(In<"ts", TsVar<"S">> ts, Out<TS<AnyValue>> out) {
     translate_python_error([&] {
-      nb::object value = value_to_py(ts.value());
+      // Projected structures may use non-owning ValueOps; the input's TSData
+      // conversion contract is the authoritative Python value surface.
+      nb::object value = ts.base().value_to_python();
       out.set(Value{PyObj{nb::borrow(value.type())}});
     });
   }

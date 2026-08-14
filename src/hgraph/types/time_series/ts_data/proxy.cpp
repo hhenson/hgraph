@@ -179,7 +179,12 @@ namespace hgraph
                 modified_map_ops      = map_value_ops_for<TSDProxyMapSurface::Modified>();
                 delta_bundle_ops      = IndexedValueOps{
                     {ValueOpsKind::Indexed, this, false, &delta_hash, &delta_equals, &delta_compare,
-                     &delta_to_string},
+                     &delta_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                     ,
+                     &delta_projection_to_python
+#endif
+                    },
                     &delta_size,
                     &delta_element_at,
                     &delta_element_binding,
@@ -213,6 +218,10 @@ namespace hgraph
                     .capture_delta_impl        = &ts_data_detail::capture_delta_tss,
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_tss,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tss,
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                    .to_python_impl            = &key_set_to_python,
+                    .delta_to_python_impl      = &key_set_delta_to_python,
+#endif
                 };
                 key_set_ts_ops.size_impl                      = &set_size<TSDProxySetSurface::Live>;
                 key_set_ts_ops.slot_capacity_impl             = &slot_capacity;
@@ -246,6 +255,10 @@ namespace hgraph
                 dict_base.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
                 dict_base.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                dict_base.to_python_impl = &dict_to_python;
+                dict_base.delta_to_python_impl = &dict_delta_to_python;
+#endif
                 dict_ops.structural_delta_current_impl = &structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
@@ -371,6 +384,97 @@ namespace hgraph
                 }
                 return binding;
             }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            [[nodiscard]] static nb::object delta_projection_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                return Value{ValueView{state->layout.delta_binding, memory}}.to_python();
+            }
+
+            [[nodiscard]] static nb::object key_set_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                nb::set result;
+                for (const auto key : set_range<TSDProxySetSurface::Live>(context, memory))
+                {
+                    result.add(state->layout.key_binding.ops_ref().to_python(key.data()));
+                }
+                return result;
+            }
+
+            [[nodiscard]] static nb::object key_set_delta_to_python(
+                const void *context, const void *memory, DateTime evaluation_time)
+            {
+                const auto &proxy = proxy_storage(memory);
+                if (proxy.key_set_tracking().last_modified_time != evaluation_time)
+                {
+                    return nb::none();
+                }
+                nb::dict result;
+                result[nb::str{"added"}] =
+                    set_surface_to_python<TSDProxySetSurface::Added>(context, memory);
+                result[nb::str{"removed"}] =
+                    set_surface_to_python<TSDProxySetSurface::Removed>(context, memory);
+                return result;
+            }
+
+            /** TSDProxy is a concrete TSData representation. Python export
+                therefore lives here and follows each child through its own
+                erased TSDataOps instead of leaking proxy layout to a facade. */
+            [[nodiscard]] static nb::object dict_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                const auto &proxy = proxy_storage(memory);
+                const auto dict = source_dict(memory);
+                const auto &child_ops = state->element_type.ops_ref();
+                nb::dict result;
+                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+                {
+                    if (!dict.slot_live(slot) || !proxy.has_child(slot)) { continue; }
+                    const auto key = dict.key_at_slot(slot);
+                    const auto *child = proxy.child_at_slot(slot);
+                    if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
+                    result[key.binding().ops_ref().to_python(key.data())] =
+                        child_ops.to_python_impl(child_ops.context, child);
+                }
+                return result;
+            }
+
+            [[nodiscard]] static nb::object dict_delta_to_python(
+                const void *context, const void *memory, DateTime evaluation_time)
+            {
+                const auto *state = ctx(context);
+                const auto &proxy = proxy_storage(memory);
+                if (proxy.tracking().last_modified_time != evaluation_time)
+                {
+                    return nb::none();
+                }
+                const auto dict = source_dict(memory);
+                const auto &child_ops = state->element_type.ops_ref();
+                nb::dict modified;
+                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+                {
+                    if (!slot_modified(context, memory, slot) || !proxy.has_child(slot)) { continue; }
+                    const auto key = dict.key_at_slot(slot);
+                    const auto *child = proxy.child_at_slot(slot);
+                    nb::object delta = child_ops.delta_to_python_impl(
+                        child_ops.context, child, evaluation_time);
+                    if (!delta.is_none())
+                    {
+                        modified[key.binding().ops_ref().to_python(key.data())] = std::move(delta);
+                    }
+                }
+                nb::dict result;
+                result[nb::str{"removed"}] =
+                    set_surface_to_python<TSDProxySetSurface::Removed>(context, memory);
+                result[nb::str{"modified"}] = std::move(modified);
+                return result;
+            }
+#endif
 
             static void delta_copy_construct_view(const void *context,
                                                   const ValueTypeRef &binding,

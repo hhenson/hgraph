@@ -8,6 +8,10 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/bridge_state.h>
+#endif
+
 #include "../time_series/ts_data/ownership.h"
 
 #include <fmt/format.h>
@@ -844,26 +848,10 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_value_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            if (state->schema->kind == TSTypeKind::TSB)
-            {
-                nb::dict result;
-                for (std::size_t index = 0; index < state->element_count(); ++index)
-                {
-                    const char *name = state->schema->fields()[index].name;
-                    if (name == nullptr || *name == '\0') { continue; }
-                    auto child_view = child_value_view(state, memory, index);
-                    if (!child_view.has_value()) { continue; }
-                    result[nb::str{name}] = child_view.to_python();
-                }
-                return result;
-            }
-
-            nb::list result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                result.append(child_value_view(state, memory, index).to_python());
-            }
-            return result;
+            // This is a VALUE projection, not the TSData Python surface.
+            // Materialise through the erased owning-type/copy contract so a
+            // projected child never needs ad-hoc recursive shape knowledge.
+            return Value{ValueView{state->layout_ptr()->value_binding, memory}}.to_python();
         }
 #endif
 
@@ -930,15 +918,7 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_delta_bundle_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            nb::dict    result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                if (!child_modified_for_parent_time(state, memory, index)) { continue; }
-                const char *name = state->schema->fields()[index].name;
-                if (name == nullptr || *name == '\0') { continue; }
-                result[nb::str{name}] = child_delta_view(state, memory, index).to_python();
-            }
-            return result;
+            return Value{ValueView{state->layout_ptr()->delta_binding, memory}}.to_python();
         }
 #endif
 
@@ -1238,13 +1218,7 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_delta_map_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            nb::dict    result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                if (!child_modified_for_parent_time(state, memory, index)) { continue; }
-                result[nb::int_{state->ordinal_keys[index]}] = child_delta_view(state, memory, index).to_python();
-            }
-            return result;
+            return Value{ValueView{state->layout_ptr()->delta_binding, memory}}.to_python();
         }
 #endif
 
@@ -1570,7 +1544,36 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            return state->layout_ptr()->value_binding.ops_ref().to_python(fixed_value_memory(context, memory));
+            // Python TimeSeries.value is a TSData operation. Recurse through
+            // each child's TSDataOps so nested TSL/TSD/TSB representations
+            // retain their own public Python semantics.
+            if (state->schema->kind == TSTypeKind::TSB)
+            {
+                nb::dict result;
+                for (std::size_t index = 0; index < state->element_count(); ++index)
+                {
+                    const char *name = state->schema->fields()[index].name;
+                    if (name == nullptr || *name == '\0') { continue; }
+                    const auto &ops = child_ops(state->element_type(index));
+                    const auto *child = child_data(state, memory, index);
+                    result[nb::str{name}] = ops.has_current_value_impl(ops.context, child)
+                                                ? ops.to_python_impl(ops.context, child)
+                                                : nb::none();
+                }
+                return python_bridge::materialize_tsb_python_value(
+                    state->schema, std::move(result));
+            }
+
+            nb::list result;
+            for (std::size_t index = 0; index < state->element_count(); ++index)
+            {
+                const auto &ops = child_ops(state->element_type(index));
+                const auto *child = child_data(state, memory, index);
+                result.append(ops.has_current_value_impl(ops.context, child)
+                                  ? ops.to_python_impl(ops.context, child)
+                                  : nb::none());
+            }
+            return nb::tuple(result);
         }
 
         [[nodiscard]] static nb::object fixed_delta_to_python(const void *context,
@@ -1579,7 +1582,29 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             const auto *state = ctx(context);
             if (fixed_tracking(state, memory)->last_modified_time != evaluation_time) { return nb::none(); }
-            return state->layout_ptr()->delta_binding.ops_ref().to_python(fixed_delta_memory(context, memory));
+            nb::dict result;
+            for (std::size_t index = 0; index < state->element_count(); ++index)
+            {
+                if (!child_modified_for_parent_time(state, memory, index)) { continue; }
+                const auto &ops = child_ops(state->element_type(index));
+                const auto *child = child_data(state, memory, index);
+                nb::object value = ops.delta_to_python_impl(
+                    ops.context, child, evaluation_time);
+                if (value.is_none()) { continue; }
+                if (state->schema->kind == TSTypeKind::TSB)
+                {
+                    const char *name = state->schema->fields()[index].name;
+                    if (name != nullptr && *name != '\0')
+                    {
+                        result[nb::str{name}] = std::move(value);
+                    }
+                }
+                else
+                {
+                    result[nb::int_{index}] = std::move(value);
+                }
+            }
+            return result;
         }
 
         [[nodiscard]] static bool is_python_sequence(nb::handle source)

@@ -18,6 +18,10 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/bridge_state.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -1812,28 +1816,23 @@ namespace hgraph
         [[nodiscard]] nb::object input_delta_bundle_value_to_python(const void *context, const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
-            nb::dict result;
-            for (std::size_t index = 0; index < state->children.size(); ++index)
-            {
-                if (!input_child_modified_for_parent_time(context, memory, index)) { continue; }
-                const auto *name = state->schema->fields()[index].name;
-                if (name == nullptr || *name == '\0') { continue; }
-                result[nb::str{name}] = input_child_delta_view(context, memory, index).to_python();
-            }
-            return result;
+            return Value{ValueView{state->delta_binding, memory}}.to_python();
         }
 
         [[nodiscard]] nb::object input_delta_map_value_to_python(const void *context, const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
-            const auto &delta = state->delta.list();
-            nb::dict result;
-            for (std::size_t index = 0; index < state->children.size(); ++index)
-            {
-                if (!input_child_modified_for_parent_time(context, memory, index)) { continue; }
-                result[nb::int_{delta.ordinal_keys[index]}] = input_child_delta_view(context, memory, index).to_python();
-            }
-            return result;
+            return Value{ValueView{state->delta_binding, memory}}.to_python();
+        }
+
+        [[nodiscard]] nb::object input_value_projection_to_python(const void *context,
+                                                                   const void *memory)
+        {
+            const auto *state = static_cast<const InputBindingContext *>(context);
+            // Projection storage is materialised exclusively through its
+            // erased owning-type and copy hooks. This keeps ValueOps complete
+            // without teaching the caller which structural endpoint produced it.
+            return Value{ValueView{state->value_binding, memory}}.to_python();
         }
 
         [[nodiscard]] nb::object input_delta_key_set_to_python(const void *context, const void *memory)
@@ -1882,7 +1881,8 @@ namespace hgraph
                     child_value_to_python(input_value_storage_type(context, memory, index),
                                           input_element_memory(context, memory, index));
             }
-            return result;
+            return python_bridge::materialize_tsb_python_value(
+                state->schema, std::move(result));
         }
 
         [[nodiscard]] nb::object input_tsl_to_python(const void *context, const void *memory)
@@ -1894,7 +1894,7 @@ namespace hgraph
                 result.append(child_value_to_python(input_value_storage_type(context, memory, index),
                                                     input_element_memory(context, memory, index)));
             }
-            return result;
+            return nb::tuple(result);
         }
 
         [[nodiscard]] nb::object input_to_python(const void *context, const void *memory)
@@ -2140,7 +2140,12 @@ namespace hgraph
             context->value_ops = IndexedValueOps{
                 {ValueOpsKind::Indexed, context.get(), false, &input_value_hash, &input_value_equals,
                  &input_value_compare,
-                 &input_value_to_string},
+                 &input_value_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                 ,
+                 &input_value_projection_to_python
+#endif
+                },
                 &input_indexed_size,
                 &input_value_element_at,
                 &input_value_element_binding,

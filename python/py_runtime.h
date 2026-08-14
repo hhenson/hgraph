@@ -27,58 +27,6 @@ namespace hgraph::python_bridge
         py_nodes.cpp. */
     void apply_py_result(nb::handle result, Out<TsVar<"O">> &out);
 
-    [[nodiscard]] inline nb::object materialize_tsb_value(
-        const TSValueTypeMetaData *schema,
-        nb::dict value)
-    {
-        const auto mapped = tsb_compound_value_registry().find(schema);
-        if (mapped == tsb_compound_value_registry().end()) { return value; }
-
-        const auto info = bundle_class_info_registry().find(mapped->second);
-        if (info == bundle_class_info_registry().end() || !info->second.type.is_valid())
-        {
-            throw std::logic_error("TSB CompoundScalar class registration is incomplete");
-        }
-
-        const auto &class_info = info->second;
-        nb::dict constructor_arguments;
-        nb::object result;
-        if (!class_info.requires_constructor)
-        {
-            result = nb::steal(class_info.allocator(
-                reinterpret_cast<PyTypeObject *>(class_info.type.ptr()), 0));
-            if (!result.is_valid()) { nb::raise_python_error(); }
-        }
-        for (std::size_t index = 0; index < class_info.field_names.size(); ++index)
-        {
-            const nb::handle key = class_info.field_names[index];
-            nb::object field_value = nb::borrow<nb::object>(value[key]);
-            if (class_info.requires_constructor)
-            {
-                if (class_info.constructor_fields[index])
-                {
-                    constructor_arguments[key] = field_value;
-                }
-            }
-            else if (class_info.field_overrides[index].is_valid())
-            {
-                class_info.field_overrides[index](result, field_value);
-            }
-            else if (PyObject_GenericSetAttr(result.ptr(), key.ptr(), field_value.ptr()) != 0)
-            {
-                nb::raise_python_error();
-            }
-        }
-        if (class_info.requires_constructor)
-        {
-            nb::tuple positional = nb::steal<nb::tuple>(PyTuple_New(0));
-            result = nb::steal(PyObject_Call(
-                class_info.type.ptr(), positional.ptr(), constructor_arguments.ptr()));
-            if (!result.is_valid()) { nb::raise_python_error(); }
-        }
-        return result;
-    }
-
     /** Copy a window's evaluation timestamps into the value layer's standard
         NumPy-compatible one-dimensional buffer.  The scalar binding owns the
         dtype conversion (DateTime -> datetime64[us]); the window remains the
@@ -583,21 +531,9 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object value() const
         {
             auto view = checked();
-            if (!view.valid() || !view.data_view().has_current_value()) { return nb::none(); }
-            if (view.schema() != nullptr && view.schema()->kind == TSTypeKind::TSB)
-            {
-                nb::dict value;
-                auto bundle = view.as_bundle();
-                for (std::size_t index = 0; index < view.schema()->field_count(); ++index)
-                {
-                    const auto &field = view.schema()->fields()[index];
-                    auto child = bundle.at(index);
-                    value[nb::str{field.name}] =
-                        PyOutput{TSOutputHandle{child}, now, scheduler, lease}.value();
-                }
-                return materialize_tsb_value(view.schema(), std::move(value));
-            }
-            return value_to_py(view.data_view().value());
+            // Do not add TSTypeKind branches here. Every output storage
+            // representation owns Python shaping through its TSDataOps table.
+            return !view.valid() ? nb::none() : view.data_view().value_to_python();
         }
 
         void set_value(nb::object value) const
@@ -1477,6 +1413,9 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object value() const
         {
             auto view = checked();
+            // Recordable-state TSBs use a conventional child named "value"
+            // as their editable payload view. This is navigation, not Python
+            // value shaping; all ordinary snapshots still use TSDataOps.
             if (view.schema()->kind == TSTypeKind::TSB)
             {
                 auto bundle = view.as_bundle();
@@ -1486,9 +1425,7 @@ namespace hgraph::python_bridge
                     return nb::cast(PyRecordableState{child.handle(), now, lease});
                 }
             }
-            return view.valid() && view.data_view().has_current_value()
-                       ? value_to_py(view.data_view().value())
-                       : nb::none();
+            return view.valid() ? view.data_view().value_to_python() : nb::none();
         }
 
         void set_value(nb::handle value) const
@@ -1662,13 +1599,7 @@ namespace hgraph::python_bridge
         {
             if (key_set_projection)
             {
-                nb::list items;
-                auto dict = projected_dict();
-                for (const ValueView &key : dict.keys())
-                {
-                    items.append(value_to_py(key));
-                }
-                return python_set(std::move(items), false);
+                return projected_dict().data_view().key_set().base().value_to_python();
             }
             if (python_value_ops != nullptr)
             {
@@ -1677,55 +1608,11 @@ namespace hgraph::python_bridge
                 // its common ``ts.value`` read avoids both a schema lookup and
                 // a duplicate has-current-value dispatch.
                 require_alive();
-                nb::object result = python_value_ops->to_python_impl(
+                return python_value_ops->to_python_impl(
                     python_value_ops->context, evaluation_data.data());
-                if (PySet_CheckExact(result.ptr()))
-                {
-                    return nb::steal(PyFrozenSet_New(result.ptr()));
-                }
-                return result;
             }
             const auto &v = checked();
             const auto *schema = v.schema();
-            if (schema != nullptr && schema->kind == TSTypeKind::TS)
-            {
-                // HOT PATH: atomic scalars dominate python-node reads.
-                // value_to_python() folds the has_current_value check into
-                // one ops dispatch; the invalid/None read falls out of it.
-                TSDataView data = evaluation_data.has_value()
-                                      ? TSDataView{evaluation_data}
-                                      : v.data_view().borrowed_ref();
-                if (!data.valid()) { return nb::none(); }
-                nb::object result = data.value_to_python();
-                if (PySet_CheckExact(result.ptr()))
-                {
-                    // hgraph parity: a scalar set is a FROZENSET (TSS values
-                    // stay mutable sets) - returning it to a TSS output means
-                    // replace.
-                    return nb::steal(PyFrozenSet_New(result.ptr()));
-                }
-                return result;
-            }
-            TSDataView data = evaluation_data.has_value()
-                                  ? TSDataView{evaluation_data}
-                                  : v.data_view().borrowed_ref();
-            if (!data.valid() || !data.has_current_value())
-            {
-                return nb::none();   // hgraph: invalid reads as None
-            }
-            if (schema != nullptr && schema->kind == TSTypeKind::TSL)
-            {
-                // hgraph parity: a TSL's value is a tuple of child values
-                // (invalid children read as None).
-                auto list = const_cast<TSInputView &>(v).as_list();
-                nb::list out;
-                for (auto &&[index, child] : list.items())
-                {
-                    static_cast<void>(index);
-                    out.append(child.valid() ? value_to_py(child.value()) : nb::none());
-                }
-                return nb::tuple(out);
-            }
             if (schema != nullptr && schema->kind == TSTypeKind::REF)
             {
                 // A REF input's value is the REFERENCE - TSInputView::
@@ -1733,46 +1620,17 @@ namespace hgraph::python_bridge
                 // (peered at the true upstream output).
                 return nb::cast(python_bridge::PyOpaqueRef{Value{v.reference()}, v.evaluation_time()});
             }
-            if (schema != nullptr && schema->kind == TSTypeKind::TSD)
-            {
-                // A TSD input can expose projected structural children (for
-                // example a map_ result whose values are TSBs). Those children
-                // intentionally do not require an aggregate scalar conversion
-                // op. Assemble the public aggregate through the same child
-                // views used by values[key].value so forwarding endpoints and
-                // nested structures retain their Python representation.
-                nb::dict result;
-                auto dict = const_cast<TSInputView &>(v).as_dict();
-                for (auto &&[key, child] : dict.valid_items())
-                {
-                    nb::object py_key = value_to_py(key);
-                    result[py_key] = collection_child(std::move(child), py_key).value();
-                }
-                return result;
-            }
-            if (schema != nullptr && schema->kind == TSTypeKind::TSB)
-            {
-                nb::dict result;
-                auto bundle = const_cast<TSInputView &>(v).as_bundle();
-                for (std::size_t index = 0; index < schema->field_count(); ++index)
-                {
-                    const auto &field = schema->fields()[index];
-                    auto child = bundle.at(index);
-                    result[nb::str{field.name}] =
-                        PyTimeSeries{std::move(child), lease}.value();
-                }
-                return materialize_tsb_value(schema, std::move(result));
-            }
-            return data.value_to_python();   // TS handled on the hot path above
+            // Structural shape is entirely a TSDataOps concern. The facade
+            // has one erased operation regardless of TSD/TSL/TSB nesting.
+            return v.value_to_python();
         }
 
         [[nodiscard]] nb::object delta_value() const
         {
             if (key_set_projection)
             {
-                nb::dict canonical;
-                canonical["added"]   = added();
-                canonical["removed"] = removed();
+                nb::object canonical = projected_dict().data_view().key_set().base()
+                                           .delta_value_to_python(checked().evaluation_time());
                 nb::object &shape = delta_shaper_slot();
                 return shape.is_valid() ? shape(canonical) : std::move(canonical);
             }
@@ -1791,7 +1649,9 @@ namespace hgraph::python_bridge
             // already-valid target is bound this cycle, its current value is
             // the input delta even though the target itself last ticked in an
             // earlier cycle.
-            nb::object delta = value_to_py(ts.delta_value());
+            // As with value(), representation-specific delta recursion is an
+            // erased TSData operation owned below the Python facade.
+            nb::object delta = ts.delta_value_to_python();
             nb::object &shape = delta_shaper_slot();
             return shape.is_valid() ? shape(delta) : delta;
         }

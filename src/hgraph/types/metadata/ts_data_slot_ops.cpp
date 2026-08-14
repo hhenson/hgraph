@@ -2502,7 +2502,19 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static nb::object tsd_to_python(const void *context, const void *memory)
             {
                 const auto *state = ctxd(context);
-                return state->dict_layout.value_binding.ops_ref().to_python(memory);
+                const auto &store = storage<TSDSlotStorage>(memory);
+                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
+                const auto &child_ops = state->dict_layout.element_type.ops_ref();
+                nb::dict result;
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!map_slot_in_surface<SlotMapSurface::Live>(store, slot)) { continue; }
+                    const auto *child = store.child_at_slot(slot);
+                    if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
+                    result[key_ops.to_python(store.key_at_slot(slot))] =
+                        child_ops.to_python_impl(child_ops.context, child);
+                }
+                return result;
             }
 
             [[nodiscard]] static nb::object tsd_delta_to_python(const void *context,
@@ -2514,7 +2526,25 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     return nb::none();
                 }
-                return state->dict_layout.delta_binding.ops_ref().to_python(memory);
+                const auto &store = storage<TSDSlotStorage>(memory);
+                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
+                const auto &child_ops = state->dict_layout.element_type.ops_ref();
+                nb::dict modified;
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!map_slot_in_surface<SlotMapSurface::Modified>(store, slot)) { continue; }
+                    const auto *child = store.child_at_slot(slot);
+                    nb::object delta = child_ops.delta_to_python_impl(
+                        child_ops.context, child, evaluation_time);
+                    if (!delta.is_none())
+                    {
+                        modified[key_ops.to_python(store.key_at_slot(slot))] = std::move(delta);
+                    }
+                }
+                nb::dict result;
+                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"modified"}] = std::move(modified);
+                return result;
             }
 
             [[nodiscard]] static bool tsd_from_python(const void *context,

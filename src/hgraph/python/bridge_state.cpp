@@ -676,6 +676,55 @@ std::unordered_map<const void *, const void *> &tsb_compound_value_registry() {
   return *registry;
 }
 
+nb::object materialize_tsb_python_value(const TSValueTypeMetaData *schema,
+                                        nb::dict value) {
+  const auto mapped = tsb_compound_value_registry().find(schema);
+  if (mapped == tsb_compound_value_registry().end()) {
+    return value;
+  }
+
+  const auto info = bundle_class_info_registry().find(mapped->second);
+  if (info == bundle_class_info_registry().end() ||
+      !info->second.type.is_valid()) {
+    throw std::logic_error(
+        "TSB CompoundScalar class registration is incomplete");
+  }
+
+  const auto &class_info = info->second;
+  nb::dict constructor_arguments;
+  nb::object result;
+  if (!class_info.requires_constructor) {
+    result = nb::steal(class_info.allocator(
+        reinterpret_cast<PyTypeObject *>(class_info.type.ptr()), 0));
+    if (!result.is_valid()) {
+      nb::raise_python_error();
+    }
+  }
+  for (std::size_t index = 0; index < class_info.field_names.size(); ++index) {
+    const nb::handle key = class_info.field_names[index];
+    nb::object field_value = nb::borrow<nb::object>(value[key]);
+    if (class_info.requires_constructor) {
+      if (class_info.constructor_fields[index]) {
+        constructor_arguments[key] = field_value;
+      }
+    } else if (class_info.field_overrides[index].is_valid()) {
+      class_info.field_overrides[index](result, field_value);
+    } else if (PyObject_GenericSetAttr(result.ptr(), key.ptr(),
+                                       field_value.ptr()) != 0) {
+      nb::raise_python_error();
+    }
+  }
+  if (class_info.requires_constructor) {
+    nb::tuple positional = nb::steal<nb::tuple>(PyTuple_New(0));
+    result = nb::steal(PyObject_Call(class_info.type.ptr(), positional.ptr(),
+                                     constructor_arguments.ptr()));
+    if (!result.is_valid()) {
+      nb::raise_python_error();
+    }
+  }
+  return result;
+}
+
 void register_python_bundle_binding(const ValueTypeMetaData *schema) {
   if (schema == nullptr || !schema->is_named_bundle()) {
     throw std::invalid_argument(

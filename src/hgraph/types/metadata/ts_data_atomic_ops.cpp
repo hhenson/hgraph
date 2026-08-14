@@ -379,10 +379,11 @@ namespace hgraph::ts_data_plan_factory_detail
             const void *context, const void *memory)
         {
             const auto *layout = atomic_layout(context);
+            nb::object converted;
             if constexpr (Storage !=
                           ValueStorageVariant::NativeWithPythonCache)
             {
-                return layout->value_binding.ops_ref().to_python(
+                converted = layout->value_binding.ops_ref().to_python(
                     atomic_value_memory(context, memory));
             }
             else
@@ -390,19 +391,28 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (const auto *retained = python_value(context, memory);
                     retained != nullptr && retained->has_value())
                 {
-                    return retained->get();
+                    converted = retained->get();
                 }
-                nb::object converted =
-                    layout->value_binding.ops_ref().to_python(
-                        atomic_value_memory(context, memory));
-                if (auto *cached =
-                        python_value(context, const_cast<void *>(memory));
-                    cached != nullptr)
+                else
                 {
-                    cached->set(converted);
+                    converted = layout->value_binding.ops_ref().to_python(
+                        atomic_value_memory(context, memory));
+                    if (auto *cached =
+                            python_value(context, const_cast<void *>(memory));
+                        cached != nullptr)
+                    {
+                        cached->set(converted);
+                    }
                 }
-                return converted;
             }
+            // TS[set-like] is the immutable scalar value surface; TSS owns
+            // the mutable set/delta surface. This representation choice is
+            // installed once in the atomic TSData strategy, never in a
+            // Python TimeSeries facade.
+            return entry(context).ops.kind == TSTypeKind::TS &&
+                           PySet_CheckExact(converted.ptr())
+                       ? nb::steal(PyFrozenSet_New(converted.ptr()))
+                       : std::move(converted);
         }
 
         template <ValueStorageVariant Storage>
@@ -414,8 +424,12 @@ namespace hgraph::ts_data_plan_factory_detail
             if constexpr (Storage == ValueStorageVariant::Native)
             {
                 const auto *layout = atomic_layout(context);
-                return layout->delta_binding.ops_ref().to_python(
+                nb::object converted = layout->delta_binding.ops_ref().to_python(
                     atomic_delta_memory(context, memory));
+                return entry(context).ops.kind == TSTypeKind::TS &&
+                               PySet_CheckExact(converted.ptr())
+                           ? nb::steal(PyFrozenSet_New(converted.ptr()))
+                           : std::move(converted);
             }
             else
             {

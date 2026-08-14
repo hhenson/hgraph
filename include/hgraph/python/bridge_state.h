@@ -14,6 +14,7 @@
 
 namespace hgraph {
 struct ValueTypeMetaData;
+struct TSValueTypeMetaData;
 class ValueTypeRef;
 } // namespace hgraph
 
@@ -118,6 +119,17 @@ struct HGRAPH_LOCAL NB_EXPORT_SHARED PyBundleClassInfo {
  */
 [[nodiscard]] HGRAPH_EXPORT std::unordered_map<const void *, const void *> &
 tsb_compound_value_registry();
+
+/**
+ * Restore the public Python value for a structural TSB snapshot.
+ *
+ * Concrete TSData conversion strategies call this after recursively exporting
+ * their children through child TSDataOps. Keeping the class lookup here lets
+ * the erased TSData strategy preserve CompoundScalar identity without making
+ * Python-facing TimeSeries wrappers understand TSB representation details.
+ */
+[[nodiscard]] HGRAPH_EXPORT nb::object
+materialize_tsb_python_value(const TSValueTypeMetaData *schema, nb::dict value);
 
 /**
  * Install a Python-owned canonical binding for a nominal Bundle schema.
