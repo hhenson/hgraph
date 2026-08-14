@@ -119,6 +119,27 @@ relative runtime search path to the wheel's platform-selected library directory
 (``lib`` or ``lib64``), using ``@loader_path`` on macOS and ``$ORIGIN`` on ELF
 systems.
 
+A native executable linked to the wheel's Python-enabled shared runtime has a
+different hosting contract. Extension modules obtain stable-ABI symbols from
+the interpreter that imports them, while an executable has no importing
+interpreter. Link that executable to its selected Python embedding library with
+the installed SDK helper::
+
+   add_executable(application main.cpp)
+   target_link_libraries(application PRIVATE hgraph::core)
+   hgraph_link_python_embedding(application)
+
+The helper resolves ``Development.Embed`` only when called and only links the
+given executable. Do not use it for extension modules; doing so would bind an
+otherwise stable-ABI module to one Python minor. The application remains
+responsible for initializing Python before it executes Python-authored nodes.
+The installed ``hgraph::core`` target also carries the Arrow, Compute, and
+Acero shared libraries supplied by that environment's compatible ``pyarrow``
+installation. Native code can therefore construct ``Frame`` and ``Series``
+values through the public Arrow API without relying on indirect DSO linkage;
+the same shared Arrow objects remain private implementation dependencies of
+the hgraph libraries themselves.
+
 Conan package
 -------------
 
