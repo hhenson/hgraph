@@ -290,6 +290,105 @@ namespace hgraph
             return true;
         }
 
+        [[nodiscard]] bool current_ts_schema_compatible(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source);
+
+        [[nodiscard]] bool current_ts_schema_compatible_atomic(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && source.value_schema != nullptr &&
+                   current_value_schema_compatible_atomic(target, *source.value_schema);
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_set(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source) noexcept
+        {
+            return source.kind == target.kind && source.value_schema != nullptr &&
+                   current_value_schema_compatible_set(target, *source.value_schema);
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_dict(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && target.key_type() == source.key_type() &&
+                   target.element_ts() != nullptr && source.element_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.element_ts(), *source.element_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_list(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && target.fixed_size() == source.fixed_size() &&
+                   target.element_ts() != nullptr && source.element_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.element_ts(), *source.element_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_bundle(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            if (source.kind != target.kind || target.field_count() != source.field_count())
+            {
+                return false;
+            }
+            for (std::size_t index = 0; index < target.field_count(); ++index)
+            {
+                const auto &target_field = target.fields()[index];
+                const auto &source_field = source.fields()[index];
+                const std::string_view target_name =
+                    target_field.name != nullptr ? std::string_view{target_field.name}
+                                                 : std::string_view{};
+                const std::string_view source_name =
+                    source_field.name != nullptr ? std::string_view{source_field.name}
+                                                 : std::string_view{};
+                if (target_name != source_name || target_field.type == nullptr ||
+                    source_field.type == nullptr ||
+                    !current_ts_schema_compatible(*target_field.type, *source_field.type))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_ref(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            return source.kind == target.kind && target.referenced_ts() != nullptr &&
+                   source.referenced_ts() != nullptr &&
+                   current_ts_schema_compatible(*target.referenced_ts(), *source.referenced_ts());
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible_window(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            if (!current_ts_schema_compatible_atomic(target, source) ||
+                target.is_duration_based() != source.is_duration_based())
+            {
+                return false;
+            }
+            return target.is_duration_based()
+                       ? target.time_range() == source.time_range() &&
+                             target.min_time_range() == source.min_time_range()
+                       : target.period() == source.period() &&
+                             target.min_period() == source.min_period();
+        }
+
+        [[nodiscard]] bool current_ts_schema_compatible(
+            const TSValueTypeMetaData &target,
+            const TSValueTypeMetaData &source)
+        {
+            const auto &ops = ts_current_state_detail::current_state_ops_for(target.kind);
+            return ops.reconcile_schema_compatible_impl(target, source);
+        }
+
         void apply_current_value_direct(const TSOutputView &out, const ValueView &value)
         {
             auto mutation = out.begin_mutation(out.evaluation_time());
@@ -747,6 +846,25 @@ namespace hgraph
                                     TSCurrentReconcileOptions options)
         {
             if (!should_visit_source(source, target, options)) { return; }
+            const std::size_t target_size = target.data_view().indexed_child_count();
+            const bool full = options.scope == TSCurrentReconcileScope::Full;
+
+            // A default view is the explicit "no source" sentinel used while
+            // a forwarding publication changes owners. It has no topology to
+            // traverse; a full reconciliation invalidates the current fixed
+            // or indexed state without attempting representation dispatch.
+            if (source.schema() == nullptr)
+            {
+                if (full)
+                {
+                    for (std::size_t index = 0; index < target_size; ++index)
+                    {
+                        invalidate_target(target.indexed_child_at(index));
+                    }
+                }
+                return;
+            }
+
             const std::size_t source_size = [&]() {
                 if constexpr (std::same_as<Source, TSInputView>)
                 {
@@ -757,11 +875,15 @@ namespace hgraph
                     return source.indexed_child_count();
                 }
             }();
-            const std::size_t target_size = target.data_view().indexed_child_count();
-            const bool full = options.scope == TSCurrentReconcileScope::Full;
 
-            const std::size_t visit_size = full ? source_size : source_size;
-            for (std::size_t index = 0; index < visit_size; ++index)
+            if (full && target.data_view().ops().indexed_child_growth &&
+                source_size < target_size)
+            {
+                throw std::invalid_argument(
+                    "reconcile_current_state: dynamic TSL current state cannot shrink");
+            }
+
+            for (std::size_t index = 0; index < source_size; ++index)
             {
                 auto source_child = [&]() {
                     if constexpr (std::same_as<Source, TSInputView>)
@@ -831,6 +953,14 @@ namespace hgraph
             throw std::logic_error("TSData current-state schema compatibility is not available");
         }
 
+        [[noreturn]] bool missing_reconcile_schema_compatible(
+            const TSValueTypeMetaData &,
+            const TSValueTypeMetaData &)
+        {
+            throw std::logic_error(
+                "TSData current-state topology compatibility is not available");
+        }
+
         [[noreturn]] Value missing_capture_current(const TSInputView &)
         {
             throw std::logic_error("TSData current-state capture is not available");
@@ -862,6 +992,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_atomic,
                 &capture_current_atomic,
                 &apply_current_value_direct,
                 &observable_atomic,
@@ -875,6 +1006,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_atomic,
                 &capture_current_signal,
                 &apply_current_value_direct,
                 &observable_atomic,
@@ -888,6 +1020,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_ref,
                 &capture_current_transient,
                 &apply_current_value_direct,
                 &observable_atomic,
@@ -901,6 +1034,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_atomic,
+                &current_ts_schema_compatible_window,
                 &capture_current_transient,
                 &apply_current_value_direct,
                 &observable_window,
@@ -914,6 +1048,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_set,
+                &current_ts_schema_compatible_set,
                 &capture_current_set,
                 &apply_current_value_direct,
                 &observable_set,
@@ -927,6 +1062,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_dict,
+                &current_ts_schema_compatible_dict,
                 &capture_current_dict,
                 &apply_current_value_dict,
                 &observable_dict,
@@ -940,6 +1076,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_list,
+                &current_ts_schema_compatible_list,
                 &capture_current_list,
                 &apply_current_value_list,
                 &observable_list,
@@ -953,6 +1090,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &current_value_schema_compatible_bundle,
+                &current_ts_schema_compatible_bundle,
                 &capture_current_bundle,
                 &apply_current_value_bundle,
                 &observable_bundle,
@@ -969,6 +1107,7 @@ namespace hgraph
         {
             static const TSCurrentStateOps ops{
                 &missing_schema_compatible,
+                &missing_reconcile_schema_compatible,
                 &missing_capture_current,
                 &missing_apply_current,
                 &missing_observable_delta,
@@ -1488,15 +1627,23 @@ namespace hgraph
     {
         template <typename Source>
         void validate_reconcile_source(const TSValueTypeMetaData &schema,
+                                       const TSCurrentStateOps &ops,
                                        const Source &source)
         {
-            if (!source.valid()) { return; }
             const auto *source_schema = source.schema();
-            if (source_schema == nullptr || source_schema->value_schema == nullptr ||
-                !current_value_schema_compatible(schema, *source_schema->value_schema))
+            // A default, non-live view is the contract's explicit absent
+            // source. It carries no topology and asks the selected strategy
+            // to clear/invalidate its target state.
+            if (source_schema == nullptr && !source.valid()) { return; }
+            if (source_schema == nullptr ||
+                !ops.reconcile_schema_compatible_impl(schema, *source_schema))
             {
-                throw std::invalid_argument(
-                    "reconcile_current_state requires compatible source and target schemas");
+                throw std::invalid_argument(fmt::format(
+                    "reconcile_current_state requires compatible source and target time-series topology "
+                    "(target '{}', source '{}')",
+                    schema.name(),
+                    source_schema != nullptr ? source_schema->name()
+                                             : std::string_view{"<unbound>"}));
             }
         }
     }
@@ -1509,9 +1656,9 @@ namespace hgraph
         {
             throw std::invalid_argument("reconcile_current_state requires a bound target");
         }
-        validate_reconcile_source(schema, source);
         const auto type = target.type_ref();
         const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        validate_reconcile_source(schema, ops, source);
         ops.reconcile_input_impl(target, source, options);
     }
 
@@ -1523,9 +1670,9 @@ namespace hgraph
         {
             throw std::invalid_argument("reconcile_current_state requires a bound target");
         }
-        validate_reconcile_source(schema, source);
         const auto type = target.type_ref();
         const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        validate_reconcile_source(schema, ops, source);
         ops.reconcile_data_impl(target, source, options);
     }
 }  // namespace hgraph

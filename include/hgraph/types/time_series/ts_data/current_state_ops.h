@@ -46,6 +46,14 @@ namespace hgraph
     {
         bool (*value_schema_compatible_impl)(const TSValueTypeMetaData &schema,
                                              const ValueTypeMetaData &value_schema);
+        /**
+         * True when a source TSData tree can be traversed by this target
+         * strategy. Unlike value compatibility, this preserves the complete
+         * time-series topology recursively (including collection children,
+         * fixed/dynamic list shape, window policy, and REF target shape).
+         */
+        bool (*reconcile_schema_compatible_impl)(const TSValueTypeMetaData &target,
+                                                 const TSValueTypeMetaData &source);
         Value (*capture_current_delta_impl)(const TSInputView &input);
         void (*apply_current_value_impl)(const TSOutputView &output,
                                          const ValueView &value);

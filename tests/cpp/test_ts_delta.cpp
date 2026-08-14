@@ -15,6 +15,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -246,6 +247,67 @@ TEST_CASE("current-state reconciliation preserves fixed-structure child validity
       target.view(t4), input.view(nullptr, t4),
       TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
   REQUIRE_FALSE(target.view(t4).modified());
+}
+
+TEST_CASE("current-state reconciliation rejects incompatible TS topology") {
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *text = registry.register_scalar<Str>("str");
+  const auto *list_value = registry.list(integer);
+  const auto *atomic_list = registry.ts(list_value);
+  const auto *structural_list = registry.tsl(registry.ts(integer), 0);
+
+  // These expose the same Python/current-value shape, but one is an atomic
+  // TS[List[Int]] and the other is an indexed TSL[TS[Int]]. Dispatching the
+  // target's indexed strategy over the atomic source is never valid.
+  REQUIRE(atomic_list->value_schema == structural_list->value_schema);
+  TSOutput atomic_source{atomic_list};
+  TSOutput list_target{structural_list};
+  REQUIRE_THROWS_AS(
+      reconcile_current_state(
+          list_target.view(MIN_ST), atomic_source.data_view(),
+          TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false}),
+      std::invalid_argument);
+
+  // The same distinction must be preserved recursively when the mismatched
+  // child topology is hidden below an otherwise-compatible TSD root.
+  const auto *atomic_dict = registry.tsd(text, atomic_list);
+  const auto *structural_dict = registry.tsd(text, structural_list);
+  REQUIRE(atomic_dict->value_schema == structural_dict->value_schema);
+  TSOutput nested_source{atomic_dict};
+  TSOutput nested_target{structural_dict};
+  REQUIRE_THROWS_AS(
+      reconcile_current_state(
+          nested_target.view(MIN_ST), nested_source.data_view(),
+          TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false}),
+      std::invalid_argument);
+}
+
+TEST_CASE("full current-state reconciliation rejects dynamic TSL shrink") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  using DynamicList = TSL<TS<Int>>;
+  const auto *schema = schema_descriptor<DynamicList>::ts_meta();
+  TSOutput source{schema};
+  TSOutput target{schema};
+
+  Value source_delta = list_delta<TS<Int>>({{0, 1}});
+  Value target_delta = list_delta<TS<Int>>({{0, 10}, {1, 20}});
+  apply_delta(source.view(MIN_ST), source_delta.view());
+  apply_delta(target.view(MIN_ST), target_delta.view());
+
+  const DateTime next = MIN_ST + MIN_TD;
+  REQUIRE_THROWS_AS(
+      reconcile_current_state(
+          target.view(next), source.data_view(),
+          TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false}),
+      std::invalid_argument);
+
+  // Rejection happens before any child is partially reconciled.
+  auto target_view = target.view(next);
+  auto preserved = target_view.as_list();
+  REQUIRE(preserved.size() == 2);
+  REQUIRE(preserved.at(0).value().checked_as<Int>() == 10);
+  REQUIRE(preserved.at(1).value().checked_as<Int>() == 20);
 }
 
 TEST_CASE("observable-delta policy rejects scheduling-only fixed-list invalidation") {
