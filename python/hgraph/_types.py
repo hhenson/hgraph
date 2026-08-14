@@ -1333,7 +1333,83 @@ def _compound_value_type(scalar, type_args=()):
     return meta
 
 
+@functools.cache
+def _type_alias_types():
+    """The runtime classes a PEP 695 ``type X = ...`` alias can be.
+
+    Resolved lazily: ``typing`` is imported further down this module, and a
+    client may write its aliases against ``typing_extensions`` even on a Python
+    that ships the builtin, so both are accepted when present.
+    """
+    import typing
+
+    candidates = [getattr(typing, "TypeAliasType", None)]
+    try:
+        import typing_extensions
+
+        candidates.append(getattr(typing_extensions, "TypeAliasType", None))
+    except ImportError:
+        pass
+    return tuple(dict.fromkeys(alias for alias in candidates if alias is not None))
+
+
+def resolve_type_alias(annotation):
+    """Resolve a PEP 695 ``type X = ...`` alias to the type it names.
+
+    A ``TypeAliasType`` is a distinct runtime object, not the aliased type, so
+    every annotation entry point has to look through it or the alias reaches
+    the type machinery as an unknown object. Aliases chain (``type B = A``), so
+    resolution is transitive.
+
+    A PARAMETERISED alias needs care. ``Pair[int]`` is a ``GenericAlias`` whose
+    ``__origin__`` is the alias and whose ``__args__`` are the supplied types —
+    and it also proxies ``__value__`` to the alias body, ``tuple[T, T]``. Simply
+    reading ``__value__`` would therefore silently discard the ``int`` and yield
+    a type still parameterised by a free variable. The body is re-subscripted
+    with the supplied arguments instead.
+
+    Anything that is not an alias is returned unchanged, so this is safe to
+    call on every annotation.
+    """
+    alias_types = _type_alias_types()
+    if not alias_types:
+        return annotation
+    import typing
+
+    # Chains are finite in practice; the bound stops a pathological cycle from
+    # hanging wiring rather than reporting it.
+    for _ in range(100):
+        origin = typing.get_origin(annotation)
+        if isinstance(origin, alias_types):
+            args = typing.get_args(annotation)
+            if not args:
+                annotation = origin.__value__
+                continue
+            body = origin.__value__
+            if isinstance(body, (_TsExpr, _GenericTsExpr)):
+                # An hgraph time-series body has no ``__getitem__`` to
+                # substitute through, but it carries a C++ pattern with free
+                # variables, which substitutes structurally. Resolving that to
+                # a concrete _TsExpr - rather than handing a pattern to one
+                # caller - is what makes the alias behave like the type it
+                # names EVERYWHERE: the ``_is_time_series`` predicates test for
+                # _TsExpr, so an unresolved alias was classified as a scalar
+                # and its value lifted as TS[Map[...]] instead of a TSD.
+                return _substituted_ts_alias(origin, args, annotation)
+            try:
+                annotation = body[args]
+            except TypeError:
+                return annotation
+            continue
+        if isinstance(annotation, alias_types):
+            annotation = annotation.__value__
+            continue
+        return annotation
+    raise TypeError(f"type alias {annotation!r} does not resolve (cyclic?)")
+
+
 def _value_type(scalar):
+    scalar = resolve_type_alias(scalar)
     if isinstance(scalar, _hgraph.ValueType):
         return scalar
     if isinstance(scalar, type):
@@ -1830,10 +1906,92 @@ def _type_pattern(ts):
     raise TypeError(f"expected a time-series type (TS[...] etc.), got {ts!r}")
 
 
+def _substituted_ts_alias(alias, args, annotation):
+    """A concrete ``_TsExpr`` for ``Stream[int]`` where ``type Stream[T] = TS[T]``."""
+    params = getattr(alias, "__type_params__", ())
+    if len(args) != len(params):
+        raise TypeError(
+            f"type alias {alias.__name__!r} takes {len(params)} parameter(s), "
+            f"{len(args)} given"
+        )
+    pattern = _pattern_of(alias.__value__)
+    scalars = {}
+    sizes = {}
+    for param, arg in zip(params, args):
+        if isinstance(arg, int) and not isinstance(arg, bool):
+            sizes[param.__name__] = _size_pattern(arg)   # a TSL size, not a type
+        else:
+            scalars[param.__name__] = _scalar_pattern(arg)
+    if scalars:
+        pattern = _hgraph.type_pattern_substitute_scalars(pattern, scalars)
+    if sizes:
+        pattern = _hgraph.type_pattern_substitute_sizes(pattern, sizes)
+    resolved = _hgraph.ResolutionScope().resolve_ts(pattern)
+    if resolved is None:
+        raise TypeError(f"type alias {annotation!r} does not resolve to a concrete type")
+    return _TsExpr(resolved, repr(annotation))
+
+
+def _generic_ts_alias_pattern(annotation):
+    """Pattern for a PEP 695 generic alias whose body is a TIME-SERIES type.
+
+    ``type Stream[T] = TS[T]`` used as ``Stream[int]``. The alias body is an
+    hgraph expression, not a builtin generic, so it has no ``__getitem__`` to
+    substitute through — re-subscripting it raises
+    ``'_GenericTsExpr' object is not subscriptable``. What it does carry is a
+    C++ ``TypePattern`` with free variables, which substitutes structurally.
+
+    Returns ``None`` for anything that is not such an alias, so the ordinary
+    annotation paths are untouched.
+    """
+    alias_types = _type_alias_types()
+    if not alias_types:
+        return None
+    import typing
+
+    origin = typing.get_origin(annotation)
+    if not isinstance(origin, alias_types):
+        return None
+    args = typing.get_args(annotation)
+    params = getattr(origin, "__type_params__", ())
+    if not args or not params:
+        return None
+    body = origin.__value__
+    if not isinstance(body, (_TsExpr, _GenericTsExpr)):
+        return None
+    if len(args) != len(params):
+        raise TypeError(
+            f"type alias {origin.__name__!r} takes {len(params)} parameter(s), "
+            f"{len(args)} given"
+        )
+
+    pattern = _pattern_of(body)
+    scalars = {}
+    sizes = {}
+    for param, arg in zip(params, args):
+        name = param.__name__
+        if isinstance(arg, int) and not isinstance(arg, bool):
+            # A TSL size parameter, not a scalar type.
+            sizes[name] = _size_pattern(arg)
+        else:
+            scalars[name] = _scalar_pattern(arg)
+    if scalars:
+        pattern = _hgraph.type_pattern_substitute_scalars(pattern, scalars)
+    if sizes:
+        pattern = _hgraph.type_pattern_substitute_sizes(pattern, sizes)
+    return pattern
+
+
 def _pattern_of(annotation):
     """The C++ TypePattern for ANY time-series annotation - concrete
     (_TsExpr), generic (_GenericTsExpr carries its pattern) or a bare
     sentinel. The single currency of wiring-time resolution."""
+    # A PEP 695 alias naming a time-series type (``type PriceTS = TS[float]``)
+    # reaches here as the alias object, not as the TS expression it names.
+    annotation = resolve_type_alias(annotation)
+    ts_alias = _generic_ts_alias_pattern(annotation)
+    if ts_alias is not None:
+        return ts_alias
     if isinstance(annotation, _TsExpr):
         return _hgraph.type_pattern_concrete(annotation.handle)
     if isinstance(annotation, _GenericTsExpr):

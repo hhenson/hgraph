@@ -55,6 +55,26 @@ def _annotation_type_vars(annotation):
     return []
 
 
+def _resolve_signature_aliases(sig):
+    """Normalise PEP 695 aliases in a signature, once.
+
+    Every consumer below tests the annotation it was handed - the time-series
+    predicates, value lifting, binding checks and their error text. Resolving
+    per consumer would fix whichever one was looked at and leave the rest
+    holding a raw alias, so an alias naming a TSD would still have its value
+    lifted as TS[Map[...]].
+    """
+    from .._types import resolve_type_alias
+
+    return sig.replace(
+        parameters=[
+            param.replace(annotation=resolve_type_alias(param.annotation))
+            for param in sig.parameters.values()
+        ],
+        return_annotation=resolve_type_alias(sig.return_annotation),
+    )
+
+
 def _is_time_series_annotation(annotation):
     return (
         isinstance(annotation, (_TsExpr, _ContextExpr, _GenericTsExpr))
@@ -107,7 +127,7 @@ class _PyNode:
     def __init__(self, fn, has_output, active=None, valid=None, all_valid=None,
                  resolvers=None, node_type=None, label=None, deprecated=False):
         self._wiring_signature, self._default_type_var = _default_type_var_of(
-            inspect.signature(fn, eval_str=True))
+            _resolve_signature_aliases(inspect.signature(fn, eval_str=True)))
         var_params = [p for p in self._wiring_signature.parameters.values()
                       if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
         if var_params:
