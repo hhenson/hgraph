@@ -121,11 +121,13 @@ namespace hgraph::stdlib
             std::size_t index = 0;
             for (WiringPortRef &port : positional)
             {
+                port = graph_wiring_detail::value_consumer_source(std::move(port));
                 fields.emplace_back(fmt::format("${}", index++), port.schema);
                 children.push_back(std::move(port));
             }
             for (auto &[name, port] : named)
             {
+                port = graph_wiring_detail::value_consumer_source(std::move(port));
                 fields.emplace_back(name, port.schema);
                 children.push_back(std::move(port));
             }

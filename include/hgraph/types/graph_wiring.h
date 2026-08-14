@@ -2042,6 +2042,19 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef adapt_source_for_input(
             Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source);
 
+        /**
+         * Describe a source by the value a consumer should observe rather than
+         * by any REF token used to reach that value. Variadic consumers use
+         * this before building a structural argument pack so ordinary input
+         * binding can install the same REF-transparent adaptation as a typed
+         * ``In<T>``. Dereferencing is recursive for container schemas.
+         */
+        [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
+        {
+            source.schema = TypeRegistry::instance().dereference(source.schema);
+            return source;
+        }
+
         // ---- context scopes (see *Contexts* in services.rst) ----
         // The wiring-time context stack lives on the OperatorRegistry singleton
         // (mesh-scope precedent); these free functions keep operator_dispatch.h

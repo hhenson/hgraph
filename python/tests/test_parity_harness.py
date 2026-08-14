@@ -228,6 +228,19 @@ def test_realtime_default_start_recipe_requires_one_boolean_probe():
         validate_recipe(Recipe.from_dict(raw))
 
 
+def test_value_consumer_reference_recipe_rejects_parameters():
+    raw = {
+        "schema_version": 1,
+        "id": "test-value-consumer-reference",
+        "template": "value_consumer_reference",
+        "inputs": {"lhs": [1], "rhs": [2], "choose_rhs": [True]},
+        "parameters": {"mode": "raw-reference"},
+        "features": ["reference:REF"],
+    }
+    with pytest.raises(RecipeError, match="takes no parameters"):
+        validate_recipe(Recipe.from_dict(raw))
+
+
 def test_recipe_fingerprint_is_independent_of_json_key_order():
     first = _scalar_recipe()
     raw = first.to_dict()
