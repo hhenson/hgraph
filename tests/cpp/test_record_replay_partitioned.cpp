@@ -598,3 +598,52 @@ TEST_CASE("record/replay: a call selects its backend independently of the graph"
     // writes to - the in-memory overloads record into GlobalState instead.
     CHECK(record_replay::store_contains("local.ticks"));
 }
+
+namespace
+{
+    /** Records the as-of column under a non-default name. */
+    template <typename TS_>
+    struct RenamedAsOfRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_as_of_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"as_of_key">(Str{"revision"}));
+            return ts;
+        }
+    };
+
+    /** Replays naming an as-of column that is not in the recording. */
+    template <typename TS_>
+    struct MistypedAsOfReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mistyped_as_of_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                             arg<"as_of_key">(Str{"typo"}))
+                .template as<TS_>();
+        }
+    };
+}  // namespace
+
+TEST_CASE("partitioned record/replay: a mistyped as-of projection is refused, not ignored")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+    REQUIRE(record_replay::store_read("book.ticks").table->GetColumnByName("revision") != nullptr);
+
+    // The as-of column MAY be absent - a recording with as_of: Omit has none -
+    // so resolution tolerates a miss there. But naming one asserts it exists.
+    // Without that distinction this silently proceeded as though the recording
+    // carried no as-of at all, and revision selection then picks whichever row
+    // it likes among duplicate value times.
+    CHECK_THROWS_WITH(eval_node<MistypedAsOfReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("recording has no column 'typo'"));
+}

@@ -1025,7 +1025,8 @@ namespace hgraph::stdlib
 
 
         std::vector<int> resolve_replay_columns(const Frame &frame, const TsTableLayout &layout,
-                                                std::span<const std::string> stored_names)
+                                                std::span<const std::string> stored_names,
+                                                bool as_of_named, bool removes_named)
         {
             if (!frame.has_value())
             {
@@ -1035,12 +1036,17 @@ namespace hgraph::stdlib
             // as-of is column 1 (``build_layout`` pushes date then as-of before
             // any level).
             constexpr std::size_t as_of_column = 1;
-            const auto            optional_column = [&](std::size_t column) {
-                if (column == as_of_column) { return true; }
-                return std::any_of(layout.levels.begin(), layout.levels.end(),
-                                              [column](const TsTableLayout::Level &level) {
-                                       return column == level.removed_col;
-                                              });
+            // Absent is acceptable only for a column the caller did NOT name.
+            // Naming one asserts it exists, so a miss is a mis-supplied
+            // projection - not a recording that omitted the column.
+            const auto optional_column = [&](std::size_t column) {
+                if (column == as_of_column) { return !as_of_named; }
+                const bool removed_flag =
+                    std::any_of(layout.levels.begin(), layout.levels.end(),
+                                [column](const TsTableLayout::Level &level) {
+                                    return column == level.removed_col;
+                                });
+                return removed_flag && !removes_named;
             };
 
             const auto      &schema = *frame.table->schema();

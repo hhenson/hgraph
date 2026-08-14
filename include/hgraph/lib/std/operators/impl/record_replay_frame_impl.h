@@ -188,6 +188,11 @@ namespace hgraph::stdlib
             std::int64_t                          row{0};
             /** Projection supplied by the caller, retained for every segment. */
             std::vector<std::string> source_names{};
+            /** Whether the caller NAMED the optional projections. An explicitly
+                named as-of or removed column must be found; an unnamed one may
+                legitimately be absent from the recording. */
+            bool as_of_named{false};
+            bool removes_named{false};
             /** ``source_names`` resolved against the current segment: a stored
                 column index per layout column, ``-1`` where the recording does
                 not carry one. Recomputed per segment; the stored table's own
@@ -269,7 +274,8 @@ namespace hgraph::stdlib
         [[nodiscard]] inline Frame prepare_replay_segment(ReplayHandle &handle, Frame frame)
         {
             handle.source_columns = table_ts_detail::resolve_replay_columns(
-                frame, *handle.recording_layout, handle.source_names);
+                frame, *handle.recording_layout, handle.source_names, handle.as_of_named,
+                handle.removes_named);
             return data_frame_detail::select_replay_frame(frame, *handle.recording_layout,
                                                           handle.source_columns, handle.as_of,
                                                           handle.start_time);
@@ -584,6 +590,8 @@ namespace hgraph::stdlib
             auto handle = std::make_unique<ReplayHandle>();
             handle->recording_layout = &layout;
             handle->source_names = std::move(stored_names);
+            handle->as_of_named = !as_of_key.value().empty();
+            handle->removes_named = !replay_options.removed_names.empty();
             handle->fq_key = fq_key;
             handle->as_of = config.as_of.value_or(MAX_DT);
             handle->start_time = now;

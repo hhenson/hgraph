@@ -99,6 +99,14 @@ namespace hgraph::stdlib
          * never infers a column from position or type — see RFC 0019,
          * *Projection is explicit or it fails*.
          *
+         * ``as_of_named`` / ``removes_named`` say whether the caller supplied
+         * those projections. Absence is tolerated only when they did not: an
+         * explicitly named column is an assertion that it exists, so a miss is
+         * a mis-supplied projection rather than an omitted column. Without this
+         * distinction, replaying an ``as_of``-bearing recording with the wrong
+         * ``as_of_key`` silently proceeds as though the recording had no as-of
+         * column, and revision selection picks the wrong row.
+         *
          * Resolving to positions rather than renaming the stored table keeps
          * the stored names intact, so a table that genuinely contains a column
          * called ``__key_1__`` stays readable and the caller's projection is
@@ -106,7 +114,8 @@ namespace hgraph::stdlib
          */
         [[nodiscard]] HGRAPH_EXPORT std::vector<int> resolve_replay_columns(
             const Frame &frame, const TsTableLayout &layout,
-            std::span<const std::string> stored_names);
+            std::span<const std::string> stored_names, bool as_of_named = false,
+            bool removes_named = false);
 
         [[nodiscard]] HGRAPH_EXPORT Value assemble_from_paths(
             const ValueTypeMetaData *meta, std::span<const std::vector<std::size_t>> paths,
