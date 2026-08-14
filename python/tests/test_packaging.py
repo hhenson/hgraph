@@ -79,7 +79,9 @@ def test_installed_sdk_exports_required_msvc_source_contract():
     assert "FMT_SHARED" not in cmake
     assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
     assert "class HGRAPH_EXPORT GraphTypeRef" in graph_type_ref
+    assert "friend HGRAPH_EXPORT GraphTypeRef intern_graph_type" in graph_type_ref
     assert "class HGRAPH_EXPORT TSRoleTypeRef" in ts_type_ref
+    assert "friend HGRAPH_EXPORT TSRoleTypeRef intern_ts_type" in ts_type_ref
     assert "class HGRAPH_EXPORT TSOutput" in ts_output
     assert "class HGRAPH_EXPORT TSDataPlanFactory" in ts_data_plan_factory
     assert "HGRAPH_EXPORT TSRoleTypeRef tsd_value_projection_type" in ts_data_plan_factory_detail

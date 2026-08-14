@@ -64,9 +64,10 @@ namespace hgraph
       private:
         template <TypeRole> friend class BasicTSTypeRef;
         friend struct TSParentLink;
-        friend TSRoleTypeRef intern_ts_type(const TSValueTypeMetaData &, TypeRole,
-                                            const MemoryUtils::StoragePlan &, const TSDataOps &,
-                                            std::string_view);
+        friend HGRAPH_EXPORT TSRoleTypeRef intern_ts_type(
+            const TSValueTypeMetaData &, TypeRole,
+            const MemoryUtils::StoragePlan &, const TSDataOps &,
+            std::string_view);
         explicit constexpr TSRoleTypeRef(const TypeRecord *record) noexcept : record_(record) {}
 
         const TypeRecord *record_{nullptr};

@@ -65,8 +65,9 @@ namespace hgraph
         [[nodiscard]] friend constexpr bool operator==(GraphTypeRef, GraphTypeRef) noexcept = default;
 
       private:
-        friend GraphTypeRef intern_graph_type(const GraphTypeMetaData &, const MemoryUtils::StoragePlan &,
-                                              const GraphOps &, std::string_view);
+        friend HGRAPH_EXPORT GraphTypeRef intern_graph_type(
+            const GraphTypeMetaData &, const MemoryUtils::StoragePlan &,
+            const GraphOps &, std::string_view);
         friend class GraphView;
         friend class GraphValue;
 
