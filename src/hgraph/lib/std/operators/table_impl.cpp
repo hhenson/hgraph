@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/operators/impl/table_impl.h>
 
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
@@ -529,12 +530,31 @@ namespace hgraph::stdlib
             [[nodiscard]] ValueTypeRef checked_binding(const ValueTypeMetaData *meta,
                                                        const char              *what)
             {
-                const auto binding = ValuePlanFactory::instance().type_for(meta);
+                const auto binding = value_type_for_active_realization(meta);
                 if (binding == nullptr)
                 {
                     throw std::logic_error(fmt::format("{}: schema has no value binding", what));
                 }
                 return binding;
+            }
+
+            /** Assign a semantic cell through the selected target strategy.
+                Cell schemas may be compatible without being identical (for
+                example a concrete CompoundScalar leaf assigned to its closed
+                base realization), so ``ValueView::copy_from`` is deliberately
+                too narrow here. */
+            void assign_cell(const ValueView &destination,
+                             const ValueView &source)
+            {
+                if (!destination.has_value() || !source.has_value())
+                {
+                    throw std::invalid_argument(
+                        "table cell assignment requires live values");
+                }
+                const auto target = destination.binding();
+                target.ops_ref().copy_assign_from(
+                    target, destination.mutable_data(), source.binding(),
+                    source.data());
             }
 
             /** A fresh borrow over the same binding + memory (the read views
@@ -636,7 +656,7 @@ namespace hgraph::stdlib
                     ValueView root = value.view();
                     auto      mut = root.as_tuple().begin_mutation();
                     ValueView cell = mut.at(index);
-                    cell.copy_from(leaf);
+                    assign_cell(cell, leaf);
                 }
 
                 template <typename T>
@@ -954,15 +974,12 @@ namespace hgraph::stdlib
             {
                 const auto &row_binding = checked_binding(layout.row_meta, "to_table");
                 const auto &rows_binding = checked_binding(layout.rows_meta, "to_table");
-                ListBuilder builder{row_binding};
+                ListBuilder builder{row_binding, *layout.rows_meta};
                 for (const Value &row : rows)
                 {
-                    builder.push_back_copy(row.view().data());
+                    builder.push_back(row.view());
                 }
-                Value out{rows_binding};
-                *static_cast<ListStorage *>(const_cast<void *>(out.view().data())) =
-                    builder.build_storage();
-                return out;
+                return builder.build(rows_binding);
             }
         }  // namespace
 
@@ -1151,7 +1168,7 @@ namespace hgraph::stdlib
                 {
                     // Atomic key: the single key cell IS the key value.
                     ValueView dest = key.view().begin_mutation();
-                    dest.copy_from(row.at(level.first_key_col));
+                    assign_cell(dest, row.at(level.first_key_col));
                     return key;
                 }
                 for (std::size_t i = 0; i < level.key_paths.size(); ++i)
@@ -1161,7 +1178,10 @@ namespace hgraph::stdlib
                     {
                         continue;
                     }
-                    walk_mutable(key.view().begin_mutation(), level.key_paths[i]).copy_from(cell);
+                    assign_cell(
+                        walk_mutable(key.view().begin_mutation(),
+                                     level.key_paths[i]),
+                        cell);
                 }
                 return key;
             }
@@ -1257,7 +1277,10 @@ namespace hgraph::stdlib
                         std::vector<std::size_t> full_path = column.ts_path;
                         full_path.insert(full_path.end(), column.value_path.begin(),
                                          column.value_path.end());
-                        walk_mutable(value.view().begin_mutation(), full_path).copy_from(cell);
+                        assign_cell(
+                            walk_mutable(value.view().begin_mutation(),
+                                         full_path),
+                            cell);
                         any = true;
                     }
                     if (any)
@@ -1545,7 +1568,7 @@ namespace hgraph::stdlib
                     Value cell = source.cell(source.context, row, column);
                     if (cell.has_value())
                     {
-                        tuple.at(column).copy_from(cell.view());
+                        assign_cell(tuple.at(column), cell.view());
                     }
                 }
                 return value;
