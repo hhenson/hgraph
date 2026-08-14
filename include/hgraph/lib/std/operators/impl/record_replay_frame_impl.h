@@ -142,6 +142,10 @@ namespace hgraph::stdlib
             std::size_t next_segment{0};
             std::size_t total_rows{0};
             bool        segmented{false};
+            /** Exact stored name per layout column; nullopt means omitted.
+                Persisted with every completed recording frame so replay can
+                distinguish omission from a non-default optional name. */
+            std::vector<std::optional<std::string>> recording_projection{};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -253,6 +257,12 @@ namespace hgraph::stdlib
                 .checked_as<DateTime>();
         }
 
+        [[nodiscard]] inline Frame finish_recording_frame(RecorderHandle &handle)
+        {
+            return table_ts_detail::annotate_recording_projection(
+                handle.recorder.finish(), handle.recording_projection);
+        }
+
         inline void flush_segment(RecorderHandle &handle, GlobalStateView gs)
         {
             const std::int64_t rows = handle.recorder.rows();
@@ -262,7 +272,7 @@ namespace hgraph::stdlib
             }
             record_replay::store_write(
                 gs, record_replay::segment_key(handle.fq_key, handle.next_segment),
-                handle.recorder.finish());
+                finish_recording_frame(handle));
             ++handle.next_segment;
             handle.total_rows += static_cast<std::size_t>(rows);
         }
@@ -405,9 +415,11 @@ namespace hgraph::stdlib
 
             std::vector<std::size_t> output_of_layout_column(layout.keys.size(),
                                                              RecorderHandle::dropped);
+            std::vector<std::optional<std::string>> recording_projection(layout.keys.size());
             for (std::size_t output = 0; output < columns.source.size(); ++output)
             {
                 output_of_layout_column[columns.source[output]] = output;
+                recording_projection[columns.source[output]] = columns.names[output];
             }
 
             auto handle = std::make_unique<RecorderHandle>(RecorderHandle{
@@ -417,6 +429,7 @@ namespace hgraph::stdlib
                 options.removes == TableRecordingOptions::Removes::Track, mode_value,
                 options.as_of == TableRecordingOptions::AsOf::Fixed ? options.as_of_value
                                                                     : std::optional<DateTime>{}});
+            handle->recording_projection = std::move(recording_projection);
             handle->flush_rows = flush_rows.value();
             handle->flush_interval = flush_interval.value();
             handle->last_flush = now;
@@ -523,7 +536,9 @@ namespace hgraph::stdlib
             }
             else
             {
-                record_replay::store_write(gs, handle->fq_key, handle->recorder.finish());
+                record_replay::store_write(
+                    gs, handle->fq_key,
+                    record_replay_frame_detail::finish_recording_frame(*handle));
             }
         }
     };

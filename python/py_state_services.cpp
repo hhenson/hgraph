@@ -274,7 +274,7 @@ namespace hgraph::python_bridge
                 [](void *context, std::string_view key, Frame frame, std::optional<store::Compression>) {
                     const nb::gil_scoped_acquire gil;
                     static_cast<PythonFrameStore *>(context)->impl.get().attr("store")(
-                        std::string{key}, frame_to_py(frame));
+                        std::string{key}, frame_to_store_py(frame));
                 },
                 [](void *context, std::string_view key) {
                     const nb::gil_scoped_acquire gil;

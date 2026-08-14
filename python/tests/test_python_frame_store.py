@@ -69,6 +69,45 @@ def test_the_native_recorder_writes_into_a_python_store(store):
     assert frame.num_rows == 3
 
 
+def test_python_store_preserves_projection_metadata_with_polars_presentation(store):
+    """The store protocol is internal and always receives Arrow.
+
+    User-facing Polars presentation discards Arrow schema metadata. Passing a
+    recording through that presentation would therefore erase the only
+    authoritative distinction between an omitted optional column and one
+    recorded under a non-default name. Store timestamps retain the established
+    naive-UTC Python compatibility form.
+    """
+
+    @hg.graph
+    def rep() -> hg.TS[int]:
+        return hg.replay("out", hg.TS[int], recordable_id="py")
+
+    previous = _hgraph.polars_frames()
+    _hgraph.set_polars_frames(True)
+    try:
+        with _using(store):
+            _record(store, [1, 2], hg.TS[int], as_of_key="revision")
+            frame = store.frames["py.out"]
+            assert isinstance(frame, pa.Table)
+            assert frame.schema.metadata[
+                b"hgraph.recording.projection.column.1"
+            ] == b"revision"
+            assert all(
+                field.type.tz is None
+                for field in frame.schema
+                if pa.types.is_timestamp(field.type)
+            )
+
+            with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+                with pytest.raises(
+                    Exception, match="stored projection names that column 'revision'"
+                ):
+                    hg.eval_node(rep)
+    finally:
+        _hgraph.set_polars_frames(previous)
+
+
 def test_the_run_writes_once_rather_than_per_tick(store):
     """The default accumulates and writes at stop. A write per tick is the
     O(n^2) behaviour the native recorder exists to avoid."""

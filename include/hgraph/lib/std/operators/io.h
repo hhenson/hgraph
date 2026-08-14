@@ -211,6 +211,8 @@ namespace hgraph::stdlib
         @param mode Fixed Tick, Sample, or Snap row-selection policy.
         @param flush_rows Native-store segment threshold in rows; zero disables it.
         @param flush_interval Native-store segment threshold in evaluation time; zero disables it.
+        @param model Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or
+            ``DATA_FRAME``); an empty value inherits the graph configuration.
         @return No output.
         @par Python example
         @code{.py}
@@ -230,6 +232,8 @@ namespace hgraph::stdlib
         @param date_key Stored name for the value-time column.
         @param as_of_key Stored name for the as-of column.
         @param frame_prefix Prefix used by expanded frame-valued columns.
+        @param model Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or
+            ``DATA_FRAME``); an empty value inherits the graph configuration.
         @return A source reproducing the recorded stream.
         @par Python example
         @code{.py}
@@ -243,6 +247,10 @@ namespace hgraph::stdlib
 
     /** Read the latest value recorded at or before graph start and emit it as a constant.
         @param key Wiring-time name within the current recordable context.
+        @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param tm Latest value time eligible for the read.
+        @param model Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or
+            ``DATA_FRAME``); an empty value inherits the graph configuration.
         @return A single value representing recorded state at graph start.
         @par Python example
         @code{.py}
@@ -257,6 +265,8 @@ namespace hgraph::stdlib
         @param lhs Actual or newly computed stream.
         @param rhs Expected or reference stream.
         @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param model Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or
+            ``DATA_FRAME``); an empty value inherits the graph configuration.
         @return No output.
         @par Python example
         @code{.py}

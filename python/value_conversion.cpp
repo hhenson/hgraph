@@ -580,12 +580,23 @@ namespace hgraph::python_bridge
         }
     }  // namespace
 
-    nb::object frame_to_py(const Frame &frame)
+    nb::object frame_to_arrow_py(const Frame &frame)
     {
         if (!frame.has_value()) { return nb::none(); }
         nb::object stream = nb::cast(PyArrowStream{frame});
-        nb::object table  = nb::module_::import_("pyarrow").attr("table")(stream);
-        return present_through("_present_frame", std::move(table));
+        return nb::module_::import_("pyarrow").attr("table")(stream);
+    }
+
+    nb::object frame_to_store_py(const Frame &frame)
+    {
+        if (!frame.has_value()) { return nb::none(); }
+        return present_through("_present_store_frame", frame_to_arrow_py(frame));
+    }
+
+    nb::object frame_to_py(const Frame &frame)
+    {
+        if (!frame.has_value()) { return nb::none(); }
+        return present_through("_present_frame", frame_to_arrow_py(frame));
     }
 
     Value py_arrow_to_frame(nb::handle object)

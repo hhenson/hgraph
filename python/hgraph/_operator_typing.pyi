@@ -860,7 +860,7 @@ class _compare_Operator(_Protocol):
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       The model value used by the selected overload. Optional in overloads that show ``= ...``.
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -5922,7 +5922,7 @@ class _record_Operator(_Protocol):
        The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       The model value used by the selected overload. Optional in overloads that show ``= ...``.
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
@@ -6170,7 +6170,7 @@ class _replay_Operator(_Protocol):
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       The model value used by the selected overload. Optional in overloads that show ``= ...``.
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     ``partition_names`` : scalar; ``tuple[str, ...]``
        Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
@@ -6232,13 +6232,13 @@ class _replay_const_Operator(_Protocol):
        Wiring-time name within the current recordable context.
 
     ``recordable_id`` : scalar; ``str``
-       Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``tm`` : scalar; ``datetime``
-       The tm value used by the selected overload. Optional in overloads that show ``= ...``.
+       Latest value time eligible for the read. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       The model value used by the selected overload. Optional in overloads that show ``= ...``.
+       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~

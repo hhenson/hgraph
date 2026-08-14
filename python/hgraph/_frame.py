@@ -120,6 +120,17 @@ def _present_frame(table):
     return as_user_frame(table)
 
 
+def _present_store_frame(table):
+    """Bridge hook: Arrow-only presentation for Python frame stores.
+
+    Store callbacks retain the historical naive-UTC timestamp convention and
+    all non-temporal schema metadata, including the recording projection
+    descriptor.  They deliberately bypass the optional Polars conversion,
+    which cannot preserve Arrow schema metadata.
+    """
+    return _strip_utc_timestamps(as_arrow_table(table))
+
+
 def _present_series(array):
     """Bridge hook: the outbound series presentation (called by series_to_py)."""
     if not _hgraph.polars_frames():

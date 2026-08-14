@@ -41,6 +41,18 @@ namespace hgraph::stdlib
         [[nodiscard]] HGRAPH_EXPORT RecordingColumns
         recording_columns(const TsTableLayout &layout, const TableRecordingOptions &options);
 
+        /** Attach the exact recording projection to a completed frame.
+         *
+         * ``stored_names`` is indexed by layout column. ``nullopt`` records
+         * that the column was deliberately omitted. Replay uses this
+         * writer-supplied metadata to distinguish omission from a renamed
+         * optional column without inferring from position or type. Frames that
+         * predate the metadata, including hand-built Arrow inputs, retain the
+         * legacy explicit-name resolution rules.
+         */
+        [[nodiscard]] HGRAPH_EXPORT Frame annotate_recording_projection(
+            Frame frame, std::span<const std::optional<std::string>> stored_names);
+
         [[nodiscard]] HGRAPH_EXPORT const TsTableLayout &ts_table_layout(
             const TSValueTypeMetaData *ts, std::string_view date_key, std::string_view as_of_key);
         void clear_ts_table_layouts() noexcept;
@@ -99,13 +111,14 @@ namespace hgraph::stdlib
          * never infers a column from position or type — see RFC 0019,
          * *Projection is explicit or it fails*.
          *
-         * ``as_of_named`` / ``removes_named`` say whether the caller supplied
-         * those projections. Absence is tolerated only when they did not: an
-         * explicitly named column is an assertion that it exists, so a miss is
-         * a mis-supplied projection rather than an omitted column. Without this
-         * distinction, replaying an ``as_of``-bearing recording with the wrong
-         * ``as_of_key`` silently proceeds as though the recording had no as-of
-         * column, and revision selection picks the wrong row.
+         * Hgraph-produced recordings carry the exact projection in Arrow
+         * schema metadata. For those frames, the caller's projection must
+         * match even for optional columns: omitting ``as_of_key`` or
+         * ``removed_names`` cannot silently lose a column recorded under a
+         * non-default name. Unannotated legacy/hand-built frames cannot make
+         * that distinction, so ``as_of_named`` / ``removes_named`` retain the
+         * compatibility rule that only an explicitly named optional column is
+         * required.
          *
          * Resolving to positions rather than renaming the stored table keeps
          * the stored names intact, so a table that genuinely contains a column

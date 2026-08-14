@@ -368,6 +368,41 @@ conversion and DataFrame storage metadata. Inside a Python node, declare a
 ``DataFrameStorage.write_frame`` directly; runtime code must not call
 ``GlobalState.instance()``.
 
+Individual recordings can override the graph defaults. Supply the same
+projection to ``replay``; current recordings persist this contract in Arrow
+schema metadata and reject a mismatch at graph start:
+
+.. testcode::
+
+   import hgraph as hg
+
+   @hg.graph
+   def record_prices(price: hg.TS[float]):
+       hg.record(
+           price,
+           key="price",
+           recordable_id="market",
+           as_of_key="revision",
+           model=hg.DATA_FRAME,
+       )
+
+   @hg.graph
+   def replay_prices() -> hg.TS[float]:
+       return hg.replay(
+           "price",
+           hg.TS[float],
+           recordable_id="market",
+           as_of_key="revision",
+           model=hg.DATA_FRAME,
+       )
+
+The optional ``model`` argument selects a backend for that call. Leaving it
+unset inherits the graph's ``set_record_replay_model`` configuration. The same
+rule applies to ``partition_names``, ``removed_names``, ``date_key`` and
+``frame_prefix``: replay names must match the recording names. Older 0.5 and
+hand-built frames do not carry the projection descriptor, so they continue to
+resolve explicitly supplied names without guessing from column order or type.
+
 The separate ``lower()`` frame-call interface defaults to ``date`` and
 ``as_of``; pass its ``date_col`` and ``as_of_col`` arguments when those frames
 use another convention.

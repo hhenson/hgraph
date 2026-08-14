@@ -628,6 +628,36 @@ namespace
                 .template as<TS_>();
         }
     };
+
+    /** Records explicit removals under a non-default name. */
+    template <typename TS_>
+    struct RenamedRemovalRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_removal_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"removes">(stdlib::RecordRemoves::Track),
+                                 arg<"removed_names">(names_tuple({"gone"})));
+            return ts;
+        }
+    };
+
+    /** Replays the renamed removal projection explicitly. */
+    template <typename TS_>
+    struct RenamedRemovalReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "renamed_removal_replay_graph";
+
+        static Port<TS_> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, TS_>(
+                       w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                       arg<"removed_names">(names_tuple({"gone"})))
+                .template as<TS_>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("partitioned record/replay: a mistyped as-of projection is refused, not ignored")
@@ -646,4 +676,51 @@ TEST_CASE("partitioned record/replay: a mistyped as-of projection is refused, no
     // it likes among duplicate value times.
     CHECK_THROWS_WITH(eval_node<MistypedAsOfReplayGraph<PriceDict>>(),
                       Catch::Matchers::ContainsSubstring("recording has no column 'typo'"));
+}
+
+TEST_CASE("partitioned record/replay: an omitted renamed as-of projection is refused")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(recorded.table->schema()->metadata() != nullptr);
+    CHECK(recorded.table->schema()
+              ->metadata()
+              ->Get("hgraph.recording.projection.column.1")
+              .ValueOr("") == "revision");
+
+    // An unnamed optional projection used to be treated as absent. The
+    // writer's metadata now proves that it is present under another name, so
+    // replay cannot silently discard revision semantics.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("stored projection names that column "
+                                                         "'revision'"));
+}
+
+TEST_CASE("partitioned record/replay: an omitted renamed removal projection is refused")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Value added = dict_delta<Str, TS<Int>>({{"a"s, 1}});
+    const Value removed = dict_delta<Str, TS<Int>>({}, {"a"s});
+    const auto  ticks = values<Value>(added, removed);
+    (void)eval_node<RenamedRemovalRecordGraph<PriceDict>>(ticks);
+
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(recorded.table->schema()->metadata() != nullptr);
+    CHECK(recorded.table->schema()
+              ->metadata()
+              ->Get("hgraph.recording.projection.column.2")
+              .ValueOr("") == "gone");
+    CHECK_OUTPUT(eval_node<RenamedRemovalReplayGraph<PriceDict>>(), ticks);
+
+    // Without the matching projection the removal flag was previously read as
+    // an omitted column, leaving the key alive and silently changing data.
+    CHECK_THROWS_WITH(eval_node<ReplayGraph<PriceDict>>(),
+                      Catch::Matchers::ContainsSubstring("stored projection names that column "
+                                                         "'gone'"));
 }

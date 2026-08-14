@@ -283,6 +283,24 @@ fallback is removed, and ``frame_prefix`` must be supplied to replay like every
 other projection argument. Configuration that can be ignored is configuration
 that cannot be trusted.
 
+Current native recordings make this rule enforceable for optional columns as
+well. Every completed frame carries a versioned Arrow schema-metadata entry for
+each layout column: its exact stored name, or an explicit absent marker. Replay
+therefore distinguishes ``as_of: Omit`` from an as-of column stored as
+``revision``, and ``removes: Omit`` from a removal flag stored as ``gone``. If a
+caller omits the corresponding non-default replay projection, start fails
+instead of silently dropping revision or removal semantics. The descriptor is
+written on every segment and preserved by the native file/S3 formats and the
+Python compatibility seam.
+
+An unannotated frame remains a first-class input. This includes hand-built
+Arrow tables and recordings written before the descriptor existed. Replay does
+not infer their projection: required and explicitly named optional columns must
+still resolve by name, while an unnamed optional column may be absent because
+the legacy frame contains no authoritative information with which to
+distinguish omission from a rename. Compatibility is therefore explicit and
+bounded to frames that genuinely lack writer metadata.
+
 Resolution does not rewrite the table
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -652,9 +670,11 @@ Acceptance criteria
   by the same configured name. Replaying without the prefix the recording used
   **fails**, naming the missing column, rather than recovering the columns
   positionally. A collision that survives the prefix is refused at layout time.
-* No projection argument is ever inferred. For every projection option, a
-  recording made with it and replayed without it fails at start, and the error
-  names the column that was not found.
+* No projection argument is ever inferred. Hgraph-produced frames persist the
+  exact projection, including absent optional columns. For every projection
+  option, a recording made with it and replayed without it fails at start, and
+  the error names the column that was not found. Unannotated hand-built and
+  legacy frames retain name-based compatibility without schema guessing.
 * Replay resolves layout columns to stored column indices and leaves the stored
   table's column names untouched. A stored table carrying a column literally
   named ``__date_time__`` or ``__key_1__`` is readable, and its own projection

@@ -11,10 +11,12 @@
 
 #include <arrow/table.h>
 #include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
 
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <charconv>
 #include <memory>
 #include <numeric>
 #include <span>
@@ -36,6 +38,109 @@ namespace hgraph::stdlib
 
         namespace
         {
+            inline constexpr std::string_view RECORDING_PROJECTION_VERSION_KEY{
+                "hgraph.recording.projection.version"};
+            inline constexpr std::string_view RECORDING_PROJECTION_COUNT_KEY{
+                "hgraph.recording.projection.count"};
+            inline constexpr std::string_view RECORDING_PROJECTION_COLUMN_PREFIX{
+                "hgraph.recording.projection.column."};
+            inline constexpr std::string_view RECORDING_PROJECTION_PRESENT_PREFIX{
+                "hgraph.recording.projection.present."};
+            inline constexpr std::string_view RECORDING_PROJECTION_VERSION{"1"};
+
+            [[nodiscard]] std::string projection_column_key(std::size_t column)
+            {
+                return std::string{RECORDING_PROJECTION_COLUMN_PREFIX} +
+                       std::to_string(column);
+            }
+
+            [[nodiscard]] std::string projection_present_key(std::size_t column)
+            {
+                return std::string{RECORDING_PROJECTION_PRESENT_PREFIX} +
+                       std::to_string(column);
+            }
+
+            void set_metadata(arrow::KeyValueMetadata &metadata, std::string key,
+                              std::string value)
+            {
+                const arrow::Status status = metadata.Set(std::move(key), std::move(value));
+                if (!status.ok())
+                {
+                    throw std::runtime_error("record: cannot encode projection metadata: " +
+                                             status.ToString());
+                }
+            }
+
+            /** The writer-declared projection, or nullopt for a legacy or
+                hand-built frame. The expected count bounds parsing before any
+                allocation and detects a projection for a different layout. */
+            [[nodiscard]] std::optional<std::vector<std::optional<std::string>>>
+            recording_projection(const Frame &frame, std::size_t expected_columns)
+            {
+                const auto &metadata = frame.table->schema()->metadata();
+                if (metadata == nullptr ||
+                    metadata->FindKey(std::string{RECORDING_PROJECTION_VERSION_KEY}) < 0)
+                {
+                    return std::nullopt;
+                }
+
+                const std::string version =
+                    metadata->Get(std::string{RECORDING_PROJECTION_VERSION_KEY}).ValueOr("");
+                if (version != RECORDING_PROJECTION_VERSION)
+                {
+                    throw std::runtime_error("replay: unsupported recording projection metadata "
+                                             "version '" +
+                                             version + "'");
+                }
+
+                const std::string count_text =
+                    metadata->Get(std::string{RECORDING_PROJECTION_COUNT_KEY}).ValueOr("");
+                std::size_t count{0};
+                const auto [end, error] =
+                    std::from_chars(count_text.data(), count_text.data() + count_text.size(), count);
+                if (error != std::errc{} || end != count_text.data() + count_text.size())
+                {
+                    throw std::runtime_error(
+                        "replay: recording projection metadata has an invalid column count");
+                }
+                if (count != expected_columns)
+                {
+                    throw std::runtime_error(
+                        fmt::format("replay: recording projection describes {} layout columns, "
+                                    "but the requested type requires {}",
+                                    count, expected_columns));
+                }
+
+                std::vector<std::optional<std::string>> result;
+                result.reserve(count);
+                for (std::size_t column = 0; column < count; ++column)
+                {
+                    const std::string presence_key = projection_present_key(column);
+                    const std::string presence = metadata->Get(presence_key).ValueOr("");
+                    if (presence == "0")
+                    {
+                        result.emplace_back(std::nullopt);
+                        continue;
+                    }
+                    if (presence != "1")
+                    {
+                        throw std::runtime_error("replay: recording projection metadata is "
+                                                 "missing entry '" +
+                                                 presence_key + "'");
+                    }
+                    const std::string name_key = projection_column_key(column);
+                    const auto        value = metadata->Get(name_key);
+                    if (!value.ok())
+                    {
+                        throw std::runtime_error("replay: recording projection metadata is "
+                                                 "missing entry '" +
+                                                 name_key + "'");
+                    }
+                    result.emplace_back(*value);
+                }
+                return result;
+            }
+
             // ---------------------------------------------------------------
             // Layout synthesis (interned; NO locks - the OperatorRegistry
             // precedent: wiring and evaluation are single-threaded).
@@ -754,6 +859,34 @@ namespace hgraph::stdlib
             return columns;
         }
 
+        Frame annotate_recording_projection(
+            Frame frame, std::span<const std::optional<std::string>> stored_names)
+        {
+            if (!frame.has_value())
+            {
+                throw std::invalid_argument(
+                    "record: cannot annotate the projection of an empty frame");
+            }
+            auto metadata = frame.table->schema()->metadata() != nullptr
+                                ? frame.table->schema()->metadata()->Copy()
+                                : arrow::key_value_metadata({}, {});
+            set_metadata(*metadata, std::string{RECORDING_PROJECTION_VERSION_KEY},
+                         std::string{RECORDING_PROJECTION_VERSION});
+            set_metadata(*metadata, std::string{RECORDING_PROJECTION_COUNT_KEY},
+                         std::to_string(stored_names.size()));
+            for (std::size_t column = 0; column < stored_names.size(); ++column)
+            {
+                set_metadata(*metadata, projection_present_key(column),
+                             stored_names[column].has_value() ? "1" : "0");
+                if (stored_names[column].has_value())
+                {
+                    set_metadata(*metadata, projection_column_key(column), *stored_names[column]);
+                }
+            }
+            frame.table = frame.table->ReplaceSchemaMetadata(std::move(metadata));
+            return frame;
+        }
+
         namespace
         {
             void emit_plain(const TableLayout &layout, const TSInputView &ts, Int mode,
@@ -1036,35 +1169,60 @@ namespace hgraph::stdlib
             // as-of is column 1 (``build_layout`` pushes date then as-of before
             // any level).
             constexpr std::size_t as_of_column = 1;
-            // Absent is acceptable only for a column the caller did NOT name.
-            // Naming one asserts it exists, so a miss is a mis-supplied
-            // projection - not a recording that omitted the column.
-            const auto optional_column = [&](std::size_t column) {
+            const auto is_removed_column = [&](std::size_t column) {
+                return std::any_of(layout.levels.begin(), layout.levels.end(),
+                                   [column](const TsTableLayout::Level &level) {
+                                       return column == level.removed_col;
+                                   });
+            };
+            const auto optional_unnamed = [&](std::size_t column) {
                 if (column == as_of_column) { return !as_of_named; }
-                const bool removed_flag =
-                    std::any_of(layout.levels.begin(), layout.levels.end(),
-                                [column](const TsTableLayout::Level &level) {
-                                    return column == level.removed_col;
-                                });
-                return removed_flag && !removes_named;
+                return is_removed_column(column) && !removes_named;
             };
 
             const auto      &schema = *frame.table->schema();
+            const auto       recorded = recording_projection(frame, layout.keys.size());
             std::vector<int> columns(layout.keys.size(), -1);
             for (std::size_t column = 0; column < layout.keys.size(); ++column)
             {
                 const std::string &canonical = layout.keys[column];
-                const std::string &stored =
+                const std::string &requested =
                     column < stored_names.size() && !stored_names[column].empty()
                         ? stored_names[column]
                         : canonical;
 
-                const int index = schema.GetFieldIndex(stored);
+                std::string_view stored = requested;
+                if (recorded.has_value())
+                {
+                    const std::optional<std::string> &declared = (*recorded)[column];
+                    if (!declared.has_value())
+                    {
+                        if (optional_unnamed(column)) { continue; }
+                        throw std::runtime_error(
+                            "replay: recording omits column '" + requested + "' for '" +
+                            canonical +
+                            "'; the projection supplied to replay does not match the recording");
+                    }
+                    if (*declared != requested)
+                    {
+                        throw std::runtime_error(
+                            "replay: recording has no column '" + requested + "' for '" +
+                            canonical + "'; its stored projection names that column '" + *declared +
+                            "'; the projection supplied to replay must match the one used to record");
+                    }
+                    stored = *declared;
+                }
+
+                const int index = schema.GetFieldIndex(std::string{stored});
                 if (index < 0)
                 {
-                    if (optional_column(column)) { continue; }
+                    // Only an unannotated legacy or hand-built frame reaches
+                    // this compatibility case. Current hgraph recordings say
+                    // explicitly whether the optional column was omitted.
+                    if (!recorded.has_value() && optional_unnamed(column)) { continue; }
                     throw std::runtime_error(
-                        "replay: recording has no column '" + stored + "' for '" + canonical +
+                        "replay: recording has no column '" + std::string{stored} + "' for '" +
+                        canonical +
                         "'; the projection supplied to replay must match the one used to record");
                 }
                 columns[column] = index;
