@@ -257,7 +257,10 @@ TSData implementation families
     role records. In particular the projections are named
     ``ts.tsd.key-set.{data,input,output}`` and
     ``ts.tsd.value.{data,input,output}``, so a debugger can identify topology
-    without inferring it from an ops pointer.
+    without inferring it from an ops pointer. The implementation label is part
+    of canonical record identity, so these projections retain the exact opaque
+    ops table selected for the element realization; no derived-table copy or
+    kind-based narrowing is required.
 
     Slot lifetime follows the observer protocol. Removing a key stops its
     owned child tree and marks the slot not live, but retains the constructed

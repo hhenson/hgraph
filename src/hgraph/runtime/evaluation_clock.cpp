@@ -47,10 +47,10 @@ namespace hgraph
                                  .role = TypeRole::Runtime,
                                  .plan = &plan,
                                  .ops = &ops,
-                                 .debug = nullptr},
+                                 .debug = nullptr,
+                                 .implementation_label = implementation_label},
             .ops_abi_version = CLOCK_OPS_ABI_VERSION,
             .capabilities = clock_type_capabilities(plan),
-            .implementation_label = implementation_label,
         };
         return ClockTypeRef{&TypeRecordRegistry::instance().intern(definition)};
     }

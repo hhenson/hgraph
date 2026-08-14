@@ -128,7 +128,7 @@ namespace
     };
 }
 
-TEST_CASE("TimeSeriesReference: alternative ops caches release and reseed all routes")
+TEST_CASE("TimeSeriesReference: alternative identities reseed after registry reset")
 {
     using namespace hgraph;
 
@@ -158,8 +158,14 @@ TEST_CASE("TimeSeriesReference: alternative ops caches release and reseed all ro
             ops.insert(type.record()->ops);
         };
 
-        capture(scalar_source.view(MIN_ST).binding_for(*ref));
-        capture(bundle_source.view(MIN_ST).binding_for(*requested_bundle));
+        const auto scalar_to_ref = scalar_source.view(MIN_ST).binding_for(*ref);
+        capture(scalar_to_ref);
+        REQUIRE(scalar_to_ref.type_ref().ops() ==
+                TSDataPlanFactory::instance().output_type_for(ref).ops());
+        const auto bundle_to_ref = bundle_source.view(MIN_ST).binding_for(*requested_bundle);
+        capture(bundle_to_ref);
+        REQUIRE(bundle_to_ref.type_ref().ops() ==
+                TSDataPlanFactory::instance().output_type_for(requested_bundle).ops());
         capture(scalar_ref_source.view(MIN_ST).binding_for(*ts));
         capture(dict_ref_source.view(MIN_ST).binding_for(*dict));
         capture(interior_source.view(MIN_ST).binding_for(*dict));

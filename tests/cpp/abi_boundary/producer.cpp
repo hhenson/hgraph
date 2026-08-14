@@ -33,28 +33,28 @@ namespace
     const hgraph::TypeRecord &value_record()
     {
         return hgraph::TypeRecordRegistry::instance().intern(
-            {{&value_schema, hgraph::TypeRole::Instance, &hgraph::MemoryUtils::plan_for<int>(), &value_ops, nullptr},
+            {{&value_schema, hgraph::TypeRole::Instance, &hgraph::MemoryUtils::plan_for<int>(), &value_ops, nullptr,
+              "abi.fixture.value.native"},
              1,
-             hgraph::TypeCapabilities::Mutable | hgraph::TypeCapabilities::Viewable,
-             "abi.fixture.value.native"});
+             hgraph::TypeCapabilities::Mutable | hgraph::TypeCapabilities::Viewable});
     }
 
     const hgraph::TypeRecord &graph_record()
     {
         return hgraph::TypeRecordRegistry::instance().intern(
-            {{&graph_schema, hgraph::TypeRole::Runtime, &hgraph::MemoryUtils::plan_for<int>(), &graph_ops, nullptr},
+            {{&graph_schema, hgraph::TypeRole::Runtime, &hgraph::MemoryUtils::plan_for<int>(), &graph_ops, nullptr,
+              "abi.fixture.graph.native"},
              1,
-             hgraph::TypeCapabilities::Viewable,
-             "abi.fixture.graph.native"});
+             hgraph::TypeCapabilities::Viewable});
     }
 
     const hgraph::TypeRecord &ts_input_record()
     {
         return hgraph::TypeRecordRegistry::instance().intern(
-            {{&ts_schema, hgraph::TypeRole::Input, &hgraph::MemoryUtils::plan_for<int>(), &ts_input_ops, nullptr},
+            {{&ts_schema, hgraph::TypeRole::Input, &hgraph::MemoryUtils::plan_for<int>(), &ts_input_ops, nullptr,
+              "abi.fixture.ts.input"},
              1,
-             hgraph::TypeCapabilities::Viewable,
-             "abi.fixture.ts.input"});
+             hgraph::TypeCapabilities::Viewable});
     }
 }
 

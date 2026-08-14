@@ -94,14 +94,19 @@ namespace hgraph
          */
         Range<ValueView> (*make_range)(const void *context, const void *memory) = nullptr;
         Range<ValueView> (*make_mutable_range)(const void *context, void *memory) = nullptr;
-        /** Mutable element access (LAST member: positional initializers stay
-            valid). Null = fall back to ``element_at``. A Bundle installs one
-            that MARKS the field live (field validity, core_concepts.rst) and
-            returns real memory even when unset. */
+        /** Mutable element access. Null = fall back to ``element_at``. A
+            Bundle installs one that MARKS the field live (field validity,
+            core_concepts.rst) and returns real memory even when unset. */
         void *(*mutable_element_at)(const void *context, void *memory, std::size_t index) = nullptr;
         /** Change the logical extent of bounded indexed storage. Null for
             representations whose size is structural or fixed exactly. */
         void (*resize)(const void *context, void *memory, std::size_t size) = nullptr;
+        /** Whether the element at ``index`` is logically set. This is
+            distinct from storage lifetime: representations may keep a
+            default-constructed slot for an UNSET element. Null means
+            ``element_at(...) != nullptr``, preserving the dense default. */
+        bool (*element_valid)(const void *context, const void *memory,
+                              std::size_t index) noexcept = nullptr;
     };
 
     struct ListValueOps : IndexedValueOps

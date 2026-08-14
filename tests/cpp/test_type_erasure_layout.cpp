@@ -294,7 +294,7 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     static_assert(sizeof(ValueOpsKind) == 1);
     static_assert(offsetof(ValueOps, kind) == 0);
     static_assert(std::is_same_v<decltype(VALUE_OPS_ABI_VERSION), const std::uint16_t>);
-    static_assert(VALUE_OPS_ABI_VERSION == 5);
+    static_assert(VALUE_OPS_ABI_VERSION == 6);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Invalid) == 0);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Base) == 1);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Indexed) == 2);

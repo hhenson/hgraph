@@ -5,6 +5,8 @@
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/frame_store.h>
+#include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -13,6 +15,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/table_type_ops.h>
+#include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/type_pointer.h>
@@ -257,6 +260,33 @@ int main()
     if (&table_type_ops(consumer_ts) != &consumer_table_ops)
     {
         throw std::runtime_error("installed table type-ops registration is unusable");
+    }
+
+    const auto *consumer_bundle =
+        registry.tsb("consumer::OpaqueBundle", {{"value", consumer_ts}});
+    const auto built_in_bundle_type =
+        TSDataPlanFactory::instance().data_type_for(consumer_bundle).as_role();
+    struct ConsumerIndexedOps : IndexedTSDataOps
+    {
+        std::uintptr_t extension_marker{0x48524752u};
+    };
+    ConsumerIndexedOps consumer_ops;
+    static_cast<IndexedTSDataOps &>(consumer_ops) =
+        static_cast<const IndexedTSDataOps &>(built_in_bundle_type.ops_ref());
+    const auto consumer_type = intern_ts_type(
+        *consumer_bundle, TypeRole::Data, built_in_bundle_type.checked_plan(),
+        consumer_ops, "consumer.opaque.bundle.data");
+    const auto projected_consumer_type =
+        ts_data_plan_factory_detail::tsd_value_projection_type(
+            consumer_type, TypeRole::Output);
+    if (consumer_type.ops() != &consumer_ops ||
+        projected_consumer_type.ops() != &consumer_ops ||
+        projected_consumer_type.record() == consumer_type.record() ||
+        projected_consumer_type.record()->implementation_name() !=
+            "ts.tsd.value.output")
+    {
+        throw std::runtime_error(
+            "installed opaque TS operations were not projected by identity");
     }
 
     Value extension{ConsumerExtensionScalar{17}};

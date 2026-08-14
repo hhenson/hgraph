@@ -88,10 +88,10 @@ namespace hgraph
                                  .role = TypeRole::Instance,
                                  .plan = &plan,
                                  .ops = &ops,
-                                 .debug = debug},
+                                 .debug = debug,
+                                 .implementation_label = {}},
             .ops_abi_version = VALUE_OPS_ABI_VERSION,
             .capabilities = value_type_capabilities(schema, plan, ops),
-            .implementation_label = {},
         };
         return ValueTypeRef{&TypeRecordRegistry::instance().intern(definition)};
     }

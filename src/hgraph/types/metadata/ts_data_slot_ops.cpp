@@ -956,66 +956,6 @@ namespace hgraph::ts_data_plan_factory_detail
             Modified,
         };
 
-        struct ProjectionKey
-        {
-            const TypeRecord *type_record{nullptr};
-            const TSDataOps *source_ops{nullptr};
-            const TSValueTypeMetaData *schema{nullptr};
-            TypeRole role{TypeRole::Invalid};
-            [[nodiscard]] bool operator==(const ProjectionKey &) const noexcept = default;
-        };
-
-        struct ProjectionKeyHash
-        {
-            [[nodiscard]] std::size_t operator()(const ProjectionKey &key) const noexcept
-            {
-                auto seed = combine_hash(std::hash<const TypeRecord *>{}(key.type_record),
-                                         std::hash<const TSDataOps *>{}(key.source_ops));
-                seed = combine_hash(seed, std::hash<const TSValueTypeMetaData *>{}(key.schema));
-                return combine_hash(seed, static_cast<std::size_t>(key.role));
-            }
-        };
-
-        [[nodiscard]] std::recursive_mutex &projection_mutex() noexcept
-        {
-            static std::recursive_mutex mutex;
-            return mutex;
-        }
-
-        using OwnedProjectionOps = std::unique_ptr<TSDataOps, void (*)(TSDataOps *)>;
-
-        template <typename Ops>
-        [[nodiscard]] OwnedProjectionOps copy_projection_ops(const Ops &ops)
-        {
-            return OwnedProjectionOps{
-                new Ops{ops},
-                [](TSDataOps *value) noexcept { delete static_cast<Ops *>(value); }};
-        }
-
-        [[nodiscard]] OwnedProjectionOps copy_projection_ops(const TSDataOps &ops)
-        {
-            switch (ops.kind)
-            {
-            case TSTypeKind::TSS:
-                return copy_projection_ops(static_cast<const TSSDataOps &>(ops));
-            case TSTypeKind::TSD:
-                return copy_projection_ops(static_cast<const TSDDataOps &>(ops));
-            case TSTypeKind::TSL:
-            case TSTypeKind::TSB:
-                return copy_projection_ops(static_cast<const IndexedTSDataOps &>(ops));
-            case TSTypeKind::TSW:
-                return copy_projection_ops(static_cast<const TSWDataOps &>(ops));
-            default:
-                return copy_projection_ops<TSDataOps>(ops);
-            }
-        }
-
-        [[nodiscard]] auto &projection_ops_cache() noexcept
-        {
-            static std::unordered_map<ProjectionKey, OwnedProjectionOps, ProjectionKeyHash> cache;
-            return cache;
-        }
-
         [[nodiscard]] TSRoleTypeRef intern_tsd_value_projection_type(TSRoleTypeRef element_type,
                                                                          TypeRole role)
         {
@@ -1029,21 +969,8 @@ namespace hgraph::ts_data_plan_factory_detail
             if (const auto *record = element_type.record();
                 record != nullptr && record->role == role && record->implementation_name() == label)
                 return element_type;
-            const auto &source_ops = element_type.ops_ref();
-            const ProjectionKey key{element_type.record(), &source_ops, schema, role};
-            std::lock_guard<std::recursive_mutex> lock(projection_mutex());
-            const TSDataOps *projection_ops = nullptr;
-            auto &cache = projection_ops_cache();
-            if (const auto it = cache.find(key); it != cache.end())
-                projection_ops = it->second.get();
-            if (projection_ops == nullptr)
-            {
-                auto owned_ops = copy_projection_ops(source_ops);
-                projection_ops = owned_ops.get();
-                cache.emplace(key, std::move(owned_ops));
-            }
             return TSRoleTypeRef{intern_ts_type(
-                *schema, role, element_type.checked_plan(), *projection_ops, label)};
+                *schema, role, element_type.checked_plan(), element_type.ops_ref(), label)};
         }
 
         [[nodiscard]] std::string_view keyed_root_label(TSTypeKind kind, TypeRole role,
@@ -3610,10 +3537,6 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             std::lock_guard<std::recursive_mutex> lock(slot_plan_mutex());
             custom_tsd_slot_plan_entries().clear();
-        }
-        {
-            std::lock_guard<std::recursive_mutex> lock(projection_mutex());
-            projection_ops_cache().clear();
         }
     }
 } // namespace hgraph::ts_data_plan_factory_detail

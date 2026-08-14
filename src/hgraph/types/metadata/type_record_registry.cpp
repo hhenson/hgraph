@@ -87,7 +87,7 @@ namespace hgraph
     }
 
     TypeRecordRegistry::Entry::Entry(const TypeRecordDefinition &definition)
-        : implementation_label(definition.implementation_label),
+        : implementation_label(definition.key.implementation_label),
           record(definition.key.role, definition.ops_abi_version, definition.capabilities,
                  implementation_label.empty() ? nullptr : implementation_label.c_str(), definition.key.schema,
                  definition.key.plan, definition.key.ops, definition.key.debug)
@@ -100,7 +100,8 @@ namespace hgraph
         result = combine_hash(result, std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(key.role)));
         result = combine_hash(result, std::hash<const MemoryUtils::StoragePlan *>{}(key.plan));
         result = combine_hash(result, std::hash<const void *>{}(key.ops));
-        return combine_hash(result, std::hash<const DebugDescriptor *>{}(key.debug));
+        result = combine_hash(result, std::hash<const DebugDescriptor *>{}(key.debug));
+        return combine_hash(result, std::hash<std::string_view>{}(key.implementation_label));
     }
 
     const TypeRecord &TypeRecordRegistry::intern(const TypeRecordDefinition &definition)
@@ -112,20 +113,21 @@ namespace hgraph
         {
             const Entry &entry = *found->second;
             if (entry.record.ops_abi_version != definition.ops_abi_version ||
-                entry.record.capabilities != definition.capabilities ||
-                std::string_view{entry.implementation_label} != definition.implementation_label)
+                entry.record.capabilities != definition.capabilities)
             {
                 throw std::logic_error(
                     "TypeRecordDefinition conflicts with the canonical record for its key: existing '" +
                     entry.implementation_label + "', requested '" +
-                    std::string{definition.implementation_label} + "'");
+                    std::string{definition.key.implementation_label} + "'");
             }
             return entry.record;
         }
 
         auto entry = std::make_unique<Entry>(definition);
         const TypeRecord *result = &entry->record;
-        m_entries.emplace(definition.key, std::move(entry));
+        auto owned_key = definition.key;
+        owned_key.implementation_label = entry->implementation_label;
+        m_entries.emplace(owned_key, std::move(entry));
         return *result;
     }
 

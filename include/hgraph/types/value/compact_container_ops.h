@@ -726,11 +726,17 @@ namespace hgraph
         }
         inline const void *list_element_at(const void *, const void *memory, std::size_t index)
         {
-            return static_cast<const ListStorage *>(memory)->element_at(index);
+            const auto *storage = static_cast<const ListStorage *>(memory);
+            return storage->element_set(index) ? storage->element_at(index) : nullptr;
         }
         inline ValueTypeRef list_element_binding(const void *, const void *memory, std::size_t) noexcept
         {
             return static_cast<const ListStorage *>(memory)->element_binding();
+        }
+        inline bool list_element_valid(const void *, const void *memory,
+                                       std::size_t index) noexcept
+        {
+            return static_cast<const ListStorage *>(memory)->element_set(index);
         }
 
         // ----- CyclicBuffer -----
@@ -1091,6 +1097,7 @@ namespace hgraph
                 };
                 value.dynamic_storage_metrics_impl =
                     &compact_dynamic_storage_metrics<ListStorage>;
+                value.element_valid = &container_ops_detail::list_element_valid;
                 value.accepts_source_impl = &compact_accepts_source;
                 value.copy_assign_from_impl = &compact_list_copy_assign_from;
                 value.move_assign_from_impl = &compact_list_move_assign_from;

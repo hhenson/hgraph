@@ -92,7 +92,8 @@ namespace
             require_arrow(date.Append(when.time_since_epoch().count()));
             require_arrow(as_of.Append((MIN_ST + TimeDelta{10}).time_since_epoch().count()));
         }
-        require_arrow(a.AppendValues({1, 2}));
+        require_arrow(a.Append(1));
+        require_arrow(a.AppendNull());
         require_arrow(b.AppendValues({"one", "two"}));
         return Frame{arrow::Table::Make(
             arrow::schema({arrow::field("__date_time__", arrow::timestamp(arrow::TimeUnit::MICRO)),
@@ -684,7 +685,7 @@ TEST_CASE("raw frame replay uses configured as-of and applies TSB rows")
     REQUIRE(bundle.size() == 2);
     CHECK(bundle[0]->as_bundle().at(0).checked_as<Int>() == Int{1});
     CHECK(bundle[0]->as_bundle().at(1).checked_as<Str>() == Str{"one"});
-    CHECK(bundle[1]->as_bundle().at(0).checked_as<Int>() == Int{2});
+    CHECK_FALSE(bundle[1]->as_bundle().at(0).has_value());
     CHECK(bundle[1]->as_bundle().at(1).checked_as<Str>() == Str{"two"});
 }
 

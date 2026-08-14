@@ -51,7 +51,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 5;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 6;
 
     struct ValueOps;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES

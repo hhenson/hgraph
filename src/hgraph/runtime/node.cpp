@@ -1255,10 +1255,10 @@ namespace hgraph
                                  .role = TypeRole::Runtime,
                                  .plan = &plan,
                                  .ops = &ops,
-                                 .debug = &debug},
+                                 .debug = &debug,
+                                 .implementation_label = implementation_label},
             .ops_abi_version = NODE_OPS_ABI_VERSION,
             .capabilities = node_type_capabilities(plan),
-            .implementation_label = implementation_label,
         };
         return NodeTypeRef{&TypeRecordRegistry::instance().intern(definition)};
     }

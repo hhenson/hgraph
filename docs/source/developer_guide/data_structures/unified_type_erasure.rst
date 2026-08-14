@@ -256,9 +256,15 @@ meaning:
 
 The implementation label can be null when the semantic label is sufficient.
 The schema registry owns semantic labels and the type-record registry owns
-implementation labels.  A magic value and ABI version on each independently
-addressable common record allow a debugger to reject unrelated or incompatible
-memory instead of guessing.  The schema ABI versions the schema-header layout;
+implementation labels.  Its string content is also the stable representation
+identity used by type-record interning.  Equal labels canonicalize even when
+they originate in different caller-owned strings or shared libraries; distinct
+labels permit distinct records to share the same schema, role, plan, ops, and
+debug descriptor.  This allows topological projections to reuse an opaque ops
+table without copying it merely to obtain a different pointer.  Each
+independently addressable common record has a magic value and ABI version, so a
+debugger can reject unrelated or incompatible memory instead of guessing.  The
+schema ABI versions the schema-header layout;
 the type-record ABI versions the record layout; the ops ABI versions the table
 selected by family and role.
 
@@ -651,9 +657,11 @@ Resolution should follow one visible pipeline:
 ``TypeRecordRegistry`` is the common boundary.  It validates the schema header
 and settled family-role pair, nonzero ops ABI, known capabilities, valid plan,
 and nonnull ops pointer.  Its canonical identity key is ``(schema, role, plan,
-ops, debug descriptor)``.  The ops ABI, capabilities, and implementation label
-are immutable metadata attached to that identity: a same-key disagreement is
-rejected, and a different implementation label cannot create a second record.
+ops, debug descriptor, implementation label)``.  The label is compared by
+content and copied into registry-owned storage before the key is published.
+The ops ABI and capabilities are immutable metadata attached to that identity;
+a same-key disagreement is rejected.  Different implementation labels create
+distinct records while safely sharing an opaque plan or ops table.
 
 Family factories remain responsible for family-specific policy.  A
 time-series factory knows how TSD data uses a slot store; a node factory knows

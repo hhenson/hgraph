@@ -2,6 +2,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
+#include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -232,6 +234,91 @@ TEST_CASE("value builders reject an incompatible view before changing their cont
     REQUIRE(map_value.as_map().size() == 1);
     check_event(
         map_value.as_map().at(key.view()), schemas.created, "event");
+}
+
+TEST_CASE("list builders transfer through compatible erased realizations and preserve unset elements")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = scalar_descriptor<Int>::value_meta();
+    const auto *list_meta = registry.list(int_meta);
+    const auto  element_binding = ValuePlanFactory::instance().type_for(int_meta);
+    const auto  compact_binding = compact_list_type(element_binding, *list_meta);
+
+    // Deliberately bind the same immutable List schema to the slot-backed list
+    // strategy. The shared schema makes it a compatible realization; its plan
+    // and storage layout remain distinct from compact ListStorage.
+    const auto slot_binding = intern_value_type(
+        *list_meta, mutable_list_plan(element_binding), mutable_list_ops());
+    REQUIRE(slot_binding != compact_binding);
+    REQUIRE(slot_binding.ops_ref().kind == ValueOpsKind::MutableList);
+
+    ListBuilder builder{element_binding, *list_meta};
+    builder.push_back(Int{10});
+    builder.push_back_unset();
+    builder.push_back(Int{30});
+    Value slot_value = builder.build(slot_binding);
+
+    const auto slot_list = slot_value.as_list();
+    REQUIRE(slot_list.size() == 3);
+    CHECK(slot_list.element_valid(0));
+    CHECK_FALSE(slot_list.element_valid(1));
+    CHECK(slot_list.element_valid(2));
+    CHECK(slot_list.at(0).checked_as<Int>() == Int{10});
+    CHECK(slot_list.at(1).bound());
+    CHECK_FALSE(slot_list.at(1).has_value());
+    CHECK(slot_list.at(2).checked_as<Int>() == Int{30});
+
+    Value compact_value{compact_binding};
+    compact_binding.ops_ref().copy_assign_from(
+        compact_binding, const_cast<void *>(compact_value.view().data()),
+        slot_value.binding(), slot_value.view().data());
+
+    const auto compact_list = compact_value.as_list();
+    REQUIRE(compact_list.size() == 3);
+    CHECK(compact_list.element_valid(0));
+    CHECK_FALSE(compact_list.element_valid(1));
+    CHECK(compact_list.element_valid(2));
+    CHECK(compact_list.at(0).checked_as<Int>() == Int{10});
+    CHECK(compact_list.at(1).bound());
+    CHECK_FALSE(compact_list.at(1).has_value());
+    CHECK(compact_list.at(2).checked_as<Int>() == Int{30});
+}
+
+TEST_CASE("list builders dispatch target transfer through the external owning binding")
+{
+    using namespace hgraph;
+
+    const auto schemas = polymorphic_builder_schemas();
+    const TypeRealizationOptions options{
+        .polymorphic_compound_storage =
+            PolymorphicCompoundStoragePolicy::Pooled,
+    };
+    const auto realization = TypeRealizationSnapshot::capture(
+        TypeRegistry::instance(), options);
+    TypeRealizationScope realization_scope{realization.get()};
+    CompoundScalarStorage pools = CompoundScalarStorage::make_default();
+    CompoundScalarStorageScope pool_scope{pools.view()};
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *list_schema = registry.list(schemas.event);
+    const auto  external_element = realization->type_for(schemas.event);
+    const auto  external_list = realization->type_for(list_schema);
+    const auto  graph_list = realization->graph_type_for(list_schema);
+    REQUIRE(graph_list != external_list);
+    REQUIRE(value_owning_type(graph_list) == external_list);
+
+    const Value created = created_value(*realization, schemas);
+    ListBuilder builder{external_element, *list_schema};
+    builder.push_back(created.view());
+    const Value result = builder.build(graph_list);
+
+    REQUIRE(result.binding() == external_list);
+    const auto values = result.as_list();
+    REQUIRE(values.size() == 1);
+    CHECK(values.at(0).binding() == external_element);
+    check_event(values.at(0), schemas.created, "event");
 }
 
 TEST_CASE("compact containers convert elements between polymorphic realizations")
