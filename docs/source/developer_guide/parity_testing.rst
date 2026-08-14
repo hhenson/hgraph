@@ -259,6 +259,9 @@ and extending as new regressions are identified:
   nondeterministic timestamp to whether the executor started after the
   simulation-only ``MIN_ST`` sentinel, pinning the release/0.5 default when
   no explicit start time is supplied;
+- ``value_consumer_reference`` selects a live ``REF`` and passes it to a
+  runtime value callable, pinning that variadic value consumers observe the
+  referenced value rather than the reference token;
 - ``data_frame_recording`` records through the DATA_FRAME model and emits
   the frame a ``DataFrameStorage`` hands back to user code — column names,
   **timezone presentation**, and row values — so a tz-aware engine column or

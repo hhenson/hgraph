@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "regression-value-consumer-reference",
+  "description": "A runtime value consumer receives the value selected through a REF rather than the reference token.",
+  "template": "value_consumer_reference",
+  "inputs": {
+    "lhs": [8, 4, -3],
+    "rhs": [-6, 10, 2],
+    "choose_rhs": [true, false, true]
+  },
+  "parameters": {},
+  "features": [
+    "binding:non-peered",
+    "compatibility:release-0.5",
+    "lifecycle:multi-cycle",
+    "reference:REF",
+    "shape:TS",
+    "topology:operator-composition",
+    "type:bool",
+    "type:int"
+  ]
+}

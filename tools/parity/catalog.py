@@ -1451,6 +1451,33 @@ def _operator_pipeline(hg, recipe):
     )
 
 
+def _value_consumer_reference(hg, recipe):
+    from hgraph.test import eval_node
+
+    def double(value: int) -> int:
+        return value * 2
+
+    @hg.graph
+    def parity_graph(
+        lhs: hg.TS[int],
+        rhs: hg.TS[int],
+        choose_rhs: hg.TS[bool],
+    ) -> hg.TS[int]:
+        lhs = _via_non_peered_ref(hg, lhs)
+        rhs = _via_non_peered_ref(hg, rhs)
+        choose_rhs = _via_non_peered_ref(hg, choose_rhs)
+        selected = hg.if_then_else(choose_rhs, rhs, lhs)
+        return hg.apply(double, selected)
+
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(
+        parity_graph,
+        inputs["lhs"],
+        inputs["rhs"],
+        inputs["choose_rhs"],
+    )
+
+
 def _tsd_key_set_pipeline(hg, recipe):
     from hgraph.test import eval_node
 
@@ -2655,6 +2682,21 @@ CATALOG = {
         ),
         execute=_operator_pipeline,
     ),
+    "value_consumer_reference": TemplateSpec(
+        name="value_consumer_reference",
+        required_inputs=("lhs", "rhs", "choose_rhs"),
+        features=(
+            "shape:TS",
+            "type:int",
+            "type:bool",
+            "reference:REF",
+            "binding:non-peered",
+            "topology:operator-composition",
+            "compatibility:release-0.5",
+        ),
+        operators=("apply", "if_then_else"),
+        execute=_value_consumer_reference,
+    ),
     "tsd_key_set_pipeline": TemplateSpec(
         name="tsd_key_set_pipeline",
         required_inputs=("values", "probe"),
@@ -3082,6 +3124,9 @@ def validate_recipe(recipe):
             recipe.parameters.get("format_ref", False), bool
         ):
             raise RecipeError("operator_pipeline format_ref must be a boolean")
+    elif recipe.template == "value_consumer_reference":
+        if recipe.parameters:
+            raise RecipeError("value_consumer_reference takes no parameters")
     elif recipe.template == "tsd_key_set_pipeline":
         if not isinstance(
             recipe.parameters.get("dedup_size", True), bool

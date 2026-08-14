@@ -1,6 +1,6 @@
 from typing import Callable
 
-from hgraph import apply, call, graph, round_, TS
+from hgraph import apply, call, graph, if_then_else, round_, TS
 from hgraph.test import eval_node
 
 
@@ -67,6 +67,25 @@ def test_call_passes_positional_and_keyword_arguments():
 
     eval_node(g, [1, 2], ["a", "b"])
     assert seen == [("a", 1), ("b", 2)]
+
+
+def test_apply_and_call_dereference_ref_arguments():
+    seen = []
+
+    def double(value: int) -> int:
+        return value * 2
+
+    def observe(value: int):
+        seen.append(value)
+
+    @graph
+    def g(choose_rhs: TS[bool], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        selected = if_then_else(choose_rhs, rhs, lhs)
+        call(observe, selected)
+        return apply(double, selected)
+
+    assert eval_node(g, [True, False], [8, 4], [-6, 10]) == [-12, 8]
+    assert seen == [-6, 4]
 
 
 def test_apply_preserves_keyword_named_like_an_internal_positional_field():

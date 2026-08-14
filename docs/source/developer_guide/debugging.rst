@@ -204,6 +204,18 @@ changes, into a disposable directory on that host and open a shell there:
    ssh -t hg-linux "cd '${remote_root}/repo' && exec bash"
    export REPO="$PWD"
 
+The copy intentionally excludes ``.venv``. Before running the native
+acceptance preset, recreate that repository-local environment because
+``CMakePresets.json`` selects ``.venv/bin/python`` for PyArrow discovery:
+
+.. code-block:: bash
+
+   uv venv --python 3.14 .venv
+   uv pip install --python .venv/bin/python "pyarrow>=25,<26"
+
+This bootstrap is required even when a separate disposable environment is
+created below for Python bridge or sanitizer testing.
+
 If ``hg-linux`` is unavailable, use the OrbStack VM instead. Install a current
 GCC plus Python development support there when needed. Replace the example
 checkout path below with the macOS path to the checkout; OrbStack mounts that
