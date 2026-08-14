@@ -1,7 +1,7 @@
 RFC 0019: Native Table Recording for Partitioned Time-Series
 ============================================================
 
-:Status: Proposed; reference implementation and acceptance validation complete
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-12
 :Target: Table codec, record/replay data-frame backend, and the Python data-frame adaptor
@@ -81,9 +81,10 @@ Current state
    * - ``record`` (``DATA_FRAME`` model)
      - ``record_replay_frame_impl.h``
      - Uses ``TableRecorder`` over ``TableLayout`` and writes the finished
-       frame to the graph-scoped RFC 0016 store. Partitioned frame values expand
-       to one stored row per key/frame-row pair. Optional native segmentation
-       flushes independently valid frames without changing replay semantics.
+       frame to the ``GlobalState``-scoped RFC 0016 store. Partitioned frame
+       values expand to one stored row per key/frame-row pair. Optional native
+       segmentation flushes independently valid frames without changing replay
+       semantics.
    * - Python data-frame adaptor
      - ``adaptors/data_frame``
      - A compatibility storage adapter only. It delegates complete frames
@@ -91,12 +92,11 @@ Current state
        The legacy override registry is translated to explicit native wiring
        options at the Python call boundary.
 
-The reference implementation closes that gap with an Arrow recorder driven by
+The accepted implementation closes that gap with an Arrow recorder driven by
 ``TableLayout`` rather than by a value schema. It also implements keyed frame
 expansion, native segmented flushing, and the public ``TableTypeOps`` extension
 contract described below. All eight stages and the acceptance validation are
-complete; the RFC remains Proposed until review accepts it and the pull request
-is merged.
+complete.
 
 Design
 ------
@@ -456,10 +456,11 @@ duplicated into each guard.
 Storage
 ~~~~~~~
 
-Recording writes through the graph-scoped ``store::FrameStore`` contract that
-RFC 0016 defines. The owning erased handle and its passive ops table keep the
-recorder independent of memory, filesystem, S3 and Python representations;
-none of those strategies is a public base-class implementation.
+Recording writes through the ``GlobalState``-scoped ``store::FrameStore``
+contract that RFC 0016 defines. The owning erased handle and its passive ops
+table keep the recorder independent of memory, filesystem, S3 and Python
+representations; none of those strategies is a public base-class
+implementation.
 
 ``DataFrameStorage`` is then a compatibility frame-store implementation rather
 than a parallel recording stack. The Python adaptor keeps its public surface
@@ -747,7 +748,7 @@ References
 
 * ``docs/source/developer_guide/record_replay_table.rst`` — the columnar-builder
   ruling (*I5*) this RFC finishes applying.
-* RFC 0016 — object-store frame persistence; the graph-scoped
+* RFC 0016 — object-store frame persistence; the ``GlobalState``-scoped
   ``store::FrameStore`` is the storage seam used here.
 * ``include/hgraph/types/table_type_ops.h`` — the public ``TableLayout`` and
   ``TableTypeOps`` contract.

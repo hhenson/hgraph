@@ -66,11 +66,13 @@ namespace hgraph::store
             std::string                secret_access_key{};
             std::optional<std::string> session_token{};
         };
-        /** A named profile from the shared credentials file. */
+        /** Reserved configuration spelling. The Arrow backend rejects this
+         * directly; set AWS_PROFILE and select Ambient instead. */
         struct Profile
         {
             std::string name{};
         };
+        /** Assume a role using credentials resolved from the ambient chain. */
         struct AssumeRole
         {
             std::string                role_arn{};

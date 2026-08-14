@@ -6,15 +6,25 @@
 // frame, and RFC 0001 frame metadata surviving persistence and decoding back
 // to the typed value.
 
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/record_replay.h>
+#include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 
+#if defined(HGRAPH_WITH_PARQUET)
+#include <parquet/file_reader.h>
+#endif
+
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cstdlib>
 #include <filesystem>
@@ -26,6 +36,12 @@ using namespace hgraph::store;
 
 namespace
 {
+    using FrameStoreMetaDetails =
+        Bundle<"tests.frame_store::Details", Field<"desk", Str>>;
+    using FrameStoreMeta =
+        Bundle<"tests.frame_store::Metadata", Field<"revision", Int>,
+               Field<"details", FrameStoreMetaDetails>>;
+
     [[nodiscard]] Frame make_frame(std::int64_t first = 1)
     {
         arrow::Int64Builder builder;
@@ -35,6 +51,41 @@ namespace
         REQUIRE(builder.Finish(&array).ok());
         auto schema = arrow::schema({arrow::field("value", arrow::int64())});
         return Frame{arrow::Table::Make(schema, {array})};
+    }
+
+    [[nodiscard]] Value make_metadata()
+    {
+        BundleBuilder details{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<FrameStoreMetaDetails>::value_meta())};
+        details.set(0, Value{Str{"systematic"}});
+
+        BundleBuilder metadata{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<FrameStoreMeta>::value_meta())};
+        metadata.set(0, Value{Int{7}});
+        metadata.set(1, details.build());
+        return metadata.build();
+    }
+
+    [[nodiscard]] Frame make_metadata_frame()
+    {
+        return with_frame_metadata(make_frame(), make_metadata());
+    }
+
+    void check_frame_round_trip(const FrameStore &store, std::string_view key,
+                                const Frame &expected)
+    {
+        store.write(key, expected);
+        const Frame actual = store.read(key);
+        REQUIRE(actual.has_value());
+        CHECK(actual.table->Equals(*expected.table));
+        CHECK(actual.table->schema()->Equals(*expected.table->schema(), true));
+    }
+
+    void check_typed_metadata(const Frame &frame)
+    {
+        REQUIRE(frame.has_metadata());
+        CHECK(frame_metadata(frame, scalar_descriptor<FrameStoreMeta>::value_meta()) ==
+              make_metadata());
     }
 
     /** A directory that removes itself, so a failing test leaves no litter. */
@@ -181,6 +232,10 @@ TEST_CASE("frame store: memory backend round-trips and honours immutability")
 
     store.clear();
     CHECK_FALSE(store.contains("prices"));
+
+    const Frame metadata = make_metadata_frame();
+    check_frame_round_trip(store, "metadata", metadata);
+    check_typed_metadata(store.read("metadata"));
 }
 
 TEST_CASE("frame store: a local store persists frames as files")
@@ -218,15 +273,16 @@ TEST_CASE("frame store: both formats round-trip a frame")
 {
     TempDir dir{"formats"};
 
-    auto ipc = make_frame_store(local_config(dir, Format::ArrowIpc));
-    ipc.write("ipc", make_frame());
-    CHECK(ipc.read("ipc").table->num_rows() == 2);
+    const Frame expected = make_metadata_frame();
+    auto        ipc = make_frame_store(local_config(dir, Format::ArrowIpc));
+    check_frame_round_trip(ipc, "ipc", expected);
+    check_typed_metadata(ipc.read("ipc"));
 
     if (parquet_available())
     {
         auto parquet = make_frame_store(local_config(dir, Format::Parquet));
-        parquet.write("parquet", make_frame());
-        CHECK(parquet.read("parquet").table->num_rows() == 2);
+        check_frame_round_trip(parquet, "parquet", expected);
+        check_typed_metadata(parquet.read("parquet"));
     }
     else
     {
@@ -271,6 +327,61 @@ TEST_CASE("frame store: RFC 0001 frame metadata survives persistence")
     }
 }
 
+#if defined(HGRAPH_WITH_PARQUET)
+TEST_CASE("frame store: a per-write compression override wins over the store default")
+{
+    TempDir          dir{"compression"};
+    FrameStoreConfig config = local_config(dir, Format::Parquet);
+    config.compression = Compression::None;
+    auto store = make_frame_store(config);
+
+    store.write("default", make_frame());
+    store.write("override", make_frame(), Compression::Zstd);
+
+    const auto default_reader = parquet::ParquetFileReader::OpenFile(
+        (std::filesystem::path{dir.string()} / "default").string());
+    const auto override_reader = parquet::ParquetFileReader::OpenFile(
+        (std::filesystem::path{dir.string()} / "override").string());
+    REQUIRE(default_reader->metadata()->num_row_groups() == 1);
+    REQUIRE(override_reader->metadata()->num_row_groups() == 1);
+    CHECK(default_reader->metadata()->RowGroup(0)->ColumnChunk(0)->compression() ==
+          parquet::Compression::UNCOMPRESSED);
+    CHECK(override_reader->metadata()->RowGroup(0)->ColumnChunk(0)->compression() ==
+          parquet::Compression::ZSTD);
+}
+#endif
+
+TEST_CASE("frame store: GlobalState scopes independent stores and owns their lifetime")
+{
+    auto                      first_context = std::make_shared<ProbeStore>();
+    auto                      second_context = std::make_shared<ProbeStore>();
+    const std::weak_ptr<void> first_lifetime = first_context;
+    const std::weak_ptr<void> second_lifetime = second_context;
+
+    {
+        GlobalState first_state;
+        GlobalState second_state;
+        record_replay::set_frame_store(first_state.view(),
+                                       FrameStore{first_context, probe_store_ops()});
+        record_replay::set_frame_store(second_state.view(),
+                                       FrameStore{second_context, probe_store_ops()});
+        first_context.reset();
+        second_context.reset();
+
+        record_replay::store_write(first_state.view(), "value", make_frame(10));
+        record_replay::store_write(second_state.view(), "value", make_frame(20));
+        CHECK(record_replay::store_read(first_state.view(), "value")
+                  .table->column(0)->GetScalar(0).ValueOrDie()->ToString() == "10");
+        CHECK(record_replay::store_read(second_state.view(), "value")
+                  .table->column(0)->GetScalar(0).ValueOrDie()->ToString() == "20");
+        CHECK_FALSE(first_lifetime.expired());
+        CHECK_FALSE(second_lifetime.expired());
+    }
+
+    CHECK(first_lifetime.expired());
+    CHECK(second_lifetime.expired());
+}
+
 TEST_CASE("frame store: an unbuildable configuration fails rather than degrading")
 {
     // A store that quietly fell back to memory would turn a deployment error
@@ -282,6 +393,17 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
     FrameStoreConfig no_bucket;
     no_bucket.location = S3Location{};
     CHECK_THROWS(make_frame_store(no_bucket));
+
+#if defined(HGRAPH_WITH_S3)
+    FrameStoreConfig named_profile;
+    S3Location      profile_location;
+    profile_location.bucket = "unused";
+    profile_location.credentials.source = Credentials::Profile{"research"};
+    named_profile.location = std::move(profile_location);
+    CHECK_THROWS_WITH(make_frame_store(named_profile),
+                      Catch::Matchers::ContainsSubstring("set AWS_PROFILE"));
+    finalize_s3();
+#endif
 }
 
 // The S3 backend runs against any S3-compatible endpoint, so it needs no cloud
@@ -324,24 +446,38 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
         location.credentials.source = Credentials::Explicit{key_id, secret, {}};
     }
 
-    FrameStoreConfig config;
-    config.location = location;
-    config.format = Format::Parquet;
+    const Frame expected = make_metadata_frame();
+    for (const auto format : {Format::ArrowIpc, Format::Parquet})
+    {
+        if (format == Format::Parquet && !parquet_available())
+        {
+            continue;
+        }
 
-    auto store = make_frame_store(config);
-    CHECK(store.supports_segmented_recordings());
+        FrameStoreConfig config;
+        config.location = location;
+        config.format = format;
 
-    store.write("run/prices", make_frame());
-    CHECK(store.contains("run/prices"));
-    CHECK(store.read("run/prices").table->num_rows() == 2);
-    CHECK_FALSE(store.contains("run/absent"));
+        auto store = make_frame_store(config);
+        CHECK(store.supports_segmented_recordings());
+        const std::string_view key =
+            format == Format::ArrowIpc ? "run/ipc" : "run/parquet";
+        check_frame_round_trip(store, key, expected);
+        check_typed_metadata(store.read(key));
+        CHECK_FALSE(store.contains("run/absent"));
+        CHECK_THROWS_AS(store.contains("../invalid"), std::invalid_argument);
 
-    // Immutability holds against a real object store, where an overwrite would
-    // usually destroy the previous version outright.
-    CHECK_THROWS(store.write("run/prices", make_frame(10)));
+        // Immutability holds against a real object store, where an overwrite
+        // would usually destroy the previous version outright.
+        CHECK_THROWS(store.write(key, make_frame(10)));
+        store.reset();
+    }
 
-    store.clear();
-    store.reset();
+    FrameStoreConfig cleanup_config;
+    cleanup_config.location = location;
+    auto cleanup = make_frame_store(cleanup_config);
+    cleanup.clear();
+    cleanup.reset();
     // The application owns S3 shutdown; see finalize_s3's contract.
     finalize_s3();
 }
