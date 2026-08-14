@@ -109,8 +109,6 @@ namespace hgraph::detail
                          InteriorFromRefAlternativeDelete, AlternativeKeyHash>
             interior_from_ref_alternatives_{};
     };
-
-    void clear_ts_output_alternative_type_cache() noexcept;
 }  // namespace hgraph::detail
 
 #endif  // HGRAPH_CPP_TS_OUTPUT_ALTERNATIVE_H

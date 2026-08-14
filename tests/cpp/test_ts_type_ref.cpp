@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -248,10 +249,10 @@ TEST_CASE("time-series role validation rejects common header kind mismatches")
             .plan = &ts_data.checked_plan(),
             .ops = &ts_data.ops_ref(),
             .debug = nullptr,
+            .implementation_label = {},
         },
         .ops_abi_version = TS_DATA_OPS_ABI_VERSION,
         .capabilities = ts_type_capabilities(TypeRole::Data, ts_data.checked_plan(), ts_data.ops_ref()),
-        .implementation_label = {},
     };
     const TypeRecord &malformed_record = TypeRecordRegistry::instance().intern(definition);
     const AnyPtr malformed_pointer = AnyPtr::typed_null(malformed_record);
@@ -802,7 +803,42 @@ TEST_CASE("keyed and reference role records preserve root input and projection t
     REQUIRE(label(proxy_output.as_role()) == "ts.tsd.proxy.output");
 }
 
-TEST_CASE("keyed projection ops caches release and reseed every role without stale records")
+TEST_CASE("TSD value projection preserves an independently supplied opaque operations table")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = TSDataPlanFactory::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *bundle = registry.tsb("OpaqueProjectionBundle", {{"value", ts}});
+    const auto built_in = factory.data_type_for(bundle).as_role();
+
+    struct ExtensionIndexedOps : IndexedTSDataOps
+    {
+        std::uintptr_t extension_marker{0x48524752u};
+    };
+    ExtensionIndexedOps extension_ops;
+    static_cast<IndexedTSDataOps &>(extension_ops) =
+        static_cast<const IndexedTSDataOps &>(built_in.ops_ref());
+    // Projection must preserve this independently supplied, extended table
+    // without copying or narrowing it to a built-in table layout.
+    const auto extension = intern_ts_type(
+        *bundle, TypeRole::Data, built_in.checked_plan(), extension_ops,
+        "consumer.opaque.bundle.data");
+    const auto projected = ts_data_plan_factory_detail::tsd_value_projection_type(
+        extension, TypeRole::Output);
+    const auto repeated = ts_data_plan_factory_detail::tsd_value_projection_type(
+        extension, TypeRole::Output);
+
+    REQUIRE(extension.ops() == &extension_ops);
+    REQUIRE(projected.ops() == &extension_ops);
+    REQUIRE(projected.record() != extension.record());
+    REQUIRE(projected.record() == repeated.record());
+    REQUIRE(projected.role() == TypeRole::Output);
+    REQUIRE(projected.record()->implementation_name() == "ts.tsd.value.output");
+}
+
+TEST_CASE("keyed projection identities reseed every role without stale records")
 {
     using namespace hgraph;
 
@@ -827,6 +863,7 @@ TEST_CASE("keyed projection ops caches release and reseed every role without sta
             const auto data_element_type = data_dict.layout().element_type;
             labels.emplace_back(data_element_type.record()->implementation_name());
             REQUIRE(data_element_type.role() == TypeRole::Data);
+            REQUIRE(data_element_type.ops() == factory.data_type_for(element).ops());
 
             TSOutput output{outer};
             auto output_data = output.data_view();
@@ -834,6 +871,7 @@ TEST_CASE("keyed projection ops caches release and reseed every role without sta
             const auto output_element_type = output_dict.layout().element_type;
             labels.emplace_back(output_element_type.record()->implementation_name());
             REQUIRE(output_element_type.role() == TypeRole::Output);
+            REQUIRE(output_element_type.ops() == factory.output_type_for(element).ops());
 
             const auto endpoint = TSEndpointSchema::non_peered(
                 outer, {TSEndpointSchema::peered(element)});

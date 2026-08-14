@@ -18,6 +18,9 @@ namespace hgraph
         const MemoryUtils::StoragePlan *plan{nullptr};
         const void *ops{nullptr};
         const DebugDescriptor *debug{nullptr};
+        /** Stable representation identity. Equality is by string content;
+            the registry owns the canonical copy. */
+        std::string_view implementation_label{};
 
         [[nodiscard]] constexpr bool operator==(const TypeRecordKey &) const noexcept = default;
     };
@@ -27,7 +30,6 @@ namespace hgraph
         TypeRecordKey key{};
         std::uint16_t ops_abi_version{INVALID_OPS_ABI_VERSION};
         TypeCapabilities capabilities{TypeCapabilities::None};
-        std::string_view implementation_label{};
     };
 
     class HGRAPH_EXPORT TypeRecordRegistry

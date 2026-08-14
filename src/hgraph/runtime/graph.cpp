@@ -1531,10 +1531,10 @@ GraphTypeRef intern_graph_type(const GraphTypeMetaData &schema,
                            .role = TypeRole::Runtime,
                            .plan = &plan,
                            .ops = &ops,
-                           .debug = &debug},
+                           .debug = &debug,
+                           .implementation_label = implementation_label},
       .ops_abi_version = GRAPH_OPS_ABI_VERSION,
       .capabilities = graph_type_capabilities(plan),
-      .implementation_label = implementation_label,
   };
   return GraphTypeRef{&TypeRecordRegistry::instance().intern(definition)};
 }

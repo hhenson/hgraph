@@ -12,10 +12,8 @@
 #include <algorithm>
 #include <array>
 #include <memory>
-#include <mutex>
 #include <stdexcept>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -38,90 +36,14 @@ namespace hgraph::detail
             return static_cast<std::size_t>(role);
         }
 
-        struct AlternativeTypeKey
-        {
-            const TypeRecord *record{nullptr};
-            const TSDataOps *ops{nullptr};
-            const TSValueTypeMetaData *schema{nullptr};
-            TypeRole role{TypeRole::Invalid};
-            std::string_view label{};
-            [[nodiscard]] bool operator==(const AlternativeTypeKey &) const noexcept = default;
-        };
-
-        struct AlternativeTypeKeyHash
-        {
-            [[nodiscard]] std::size_t operator()(const AlternativeTypeKey &key) const noexcept
-            {
-                auto seed = std::hash<const TypeRecord *>{}(key.record);
-                seed ^= std::hash<const TSDataOps *>{}(key.ops) + 0x9e3779b97f4a7c15ULL + (seed << 6U) +
-                        (seed >> 2U);
-                seed ^= std::hash<const TSValueTypeMetaData *>{}(key.schema) + 0x9e3779b97f4a7c15ULL +
-                        (seed << 6U) + (seed >> 2U);
-                seed ^= static_cast<std::size_t>(key.role) + 0x9e3779b97f4a7c15ULL + (seed << 6U) +
-                        (seed >> 2U);
-                return seed ^ std::hash<std::string_view>{}(key.label);
-            }
-        };
-
-        [[nodiscard]] std::recursive_mutex &alternative_type_mutex() noexcept
-        {
-            static std::recursive_mutex mutex;
-            return mutex;
-        }
-
-        using OwnedAlternativeOps = std::unique_ptr<TSDataOps, void (*)(TSDataOps *)>;
-
-        template <typename Ops>
-        [[nodiscard]] OwnedAlternativeOps copy_alternative_ops(const Ops &ops)
-        {
-            return OwnedAlternativeOps{
-                new Ops{ops},
-                [](TSDataOps *value) noexcept { delete static_cast<Ops *>(value); }};
-        }
-
-        [[nodiscard]] OwnedAlternativeOps copy_alternative_ops(const TSDataOps &ops)
-        {
-            switch (ops.kind)
-            {
-            case TSTypeKind::TSS:
-                return copy_alternative_ops(static_cast<const TSSDataOps &>(ops));
-            case TSTypeKind::TSD:
-                return copy_alternative_ops(static_cast<const TSDDataOps &>(ops));
-            case TSTypeKind::TSL:
-            case TSTypeKind::TSB:
-                return copy_alternative_ops(static_cast<const IndexedTSDataOps &>(ops));
-            case TSTypeKind::TSW:
-                return copy_alternative_ops(static_cast<const TSWDataOps &>(ops));
-            default:
-                return copy_alternative_ops<TSDataOps>(ops);
-            }
-        }
-
-        [[nodiscard]] auto &alternative_type_cache() noexcept
-        {
-            static std::unordered_map<AlternativeTypeKey, OwnedAlternativeOps, AlternativeTypeKeyHash> cache;
-            return cache;
-        }
-
         [[nodiscard]] TSRoleTypeRef alternative_type_for(TSRoleTypeRef source,
                                                              TypeRole role,
                                                              std::string_view label)
         {
             const auto *schema = source.schema();
             if (schema == nullptr || !is_migrated_ts_root_schema(schema)) { return source; }
-            const auto &source_ops = source.ops_ref();
-            const AlternativeTypeKey key{source.record(), &source_ops, schema, role, label};
-            std::lock_guard<std::recursive_mutex> lock(alternative_type_mutex());
-            auto &cache = alternative_type_cache();
-            const TSDataOps *ops = nullptr;
-            if (const auto it = cache.find(key); it != cache.end()) ops = it->second.get();
-            if (ops == nullptr)
-            {
-                auto owned_ops = copy_alternative_ops(source_ops);
-                ops = owned_ops.get();
-                cache.emplace(key, std::move(owned_ops));
-            }
-            return TSRoleTypeRef{intern_ts_type(*schema, role, source.checked_plan(), *ops, label)};
+            return TSRoleTypeRef{
+                intern_ts_type(*schema, role, source.checked_plan(), source.ops_ref(), label)};
         }
 
         [[nodiscard]] DateTime concrete_reference_time(DateTime time) noexcept
@@ -1270,12 +1192,6 @@ namespace hgraph::detail
             to_ref_populator_for(target_schema.kind)(target, source_view, target_schema, modified_time, build_context);
         }
     }  // namespace
-
-    void clear_ts_output_alternative_type_cache() noexcept
-    {
-        std::lock_guard<std::recursive_mutex> lock(alternative_type_mutex());
-        alternative_type_cache().clear();
-    }
 
     struct TSOutputAlternativeStore::ToRefAlternativeState final
     {

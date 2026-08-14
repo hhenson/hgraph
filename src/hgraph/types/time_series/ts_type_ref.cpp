@@ -129,10 +129,14 @@ namespace hgraph
                 &ops);
         }
         const TypeRecordDefinition definition{
-            .key = TypeRecordKey{.schema = &schema.header, .role = role, .plan = &plan, .ops = &ops, .debug = debug},
+            .key = TypeRecordKey{.schema = &schema.header,
+                                 .role = role,
+                                 .plan = &plan,
+                                 .ops = &ops,
+                                 .debug = debug,
+                                 .implementation_label = implementation_label},
             .ops_abi_version = TS_DATA_OPS_ABI_VERSION,
             .capabilities = ts_type_capabilities(role, plan, ops),
-            .implementation_label = implementation_label,
         };
         return TSRoleTypeRef{&TypeRecordRegistry::instance().intern(definition)};
     }

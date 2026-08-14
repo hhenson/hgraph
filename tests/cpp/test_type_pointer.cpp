@@ -52,7 +52,8 @@ namespace
                   const hgraph::DebugDescriptor *debug = nullptr)
     {
         return hgraph::TypeRecordRegistry::instance().intern(
-            {{&schema, role_for(schema.family), plan, &ops, debug}, 1, capabilities, implementation_label});
+            {{&schema, role_for(schema.family), plan, &ops, debug, implementation_label},
+             1, capabilities});
     }
 
     [[nodiscard]] hgraph::AnyPtr raw_pointer(const hgraph::TypeRecord *record, const void *data, std::uintptr_t tag)

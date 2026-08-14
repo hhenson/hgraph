@@ -424,10 +424,10 @@ TEST_CASE("ValueTypeRef is canonical by record and narrows generic pointers safe
                              .role = TypeRole::Runtime,
                              .plan = &MemoryUtils::plan_for<std::int32_t>(),
                              .ops = &foreign_ops,
-                             .debug = nullptr},
+                             .debug = nullptr,
+                             .implementation_label = {}},
         .ops_abi_version = 1,
         .capabilities = TypeCapabilities::None,
-        .implementation_label = {},
     };
     const TypeRecord &foreign_record = TypeRecordRegistry::instance().intern(foreign_definition);
     REQUIRE_THROWS_AS(ValueTypeRef::checked(AnyPtr::read_only(foreign_record, &payload)),

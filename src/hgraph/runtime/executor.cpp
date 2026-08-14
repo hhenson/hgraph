@@ -964,10 +964,10 @@ namespace hgraph
                                  .role = TypeRole::Runtime,
                                  .plan = &plan,
                                  .ops = &ops,
-                                 .debug = nullptr},
+                                 .debug = nullptr,
+                                 .implementation_label = implementation_label},
             .ops_abi_version = EXECUTOR_OPS_ABI_VERSION,
             .capabilities = executor_type_capabilities(plan),
-            .implementation_label = implementation_label,
         };
         return ExecutorTypeRef{&TypeRecordRegistry::instance().intern(definition)};
     }

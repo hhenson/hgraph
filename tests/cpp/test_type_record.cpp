@@ -42,7 +42,7 @@ namespace
                    const hgraph::MemoryUtils::StoragePlan *plan = &hgraph::MemoryUtils::plan_for<std::uint32_t>(),
                    const hgraph::DebugDescriptor *debug = nullptr)
     {
-        return {{&schema, role, plan, ops, debug}, 1, capabilities, implementation_label};
+        return {{&schema, role, plan, ops, debug, implementation_label}, 1, capabilities};
     }
 
     [[nodiscard]] constexpr hgraph::TypeRole allowed_role(hgraph::TypeFamily family)
@@ -274,12 +274,13 @@ TEST_CASE("type record common layouts are fixed", "[type-erasure][type-record]")
     STATIC_REQUIRE(std::is_standard_layout_v<TypeRecordKey>);
     STATIC_REQUIRE(std::is_trivially_copyable_v<TypeRecordKey>);
     STATIC_REQUIRE(alignof(TypeRecordKey) == alignof(void *));
-    STATIC_REQUIRE(sizeof(TypeRecordKey) == 5 * sizeof(void *));
+    STATIC_REQUIRE(sizeof(TypeRecordKey) == 5 * sizeof(void *) + sizeof(std::string_view));
     STATIC_REQUIRE(offsetof(TypeRecordKey, schema) == 0);
     STATIC_REQUIRE(offsetof(TypeRecordKey, role) == sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecordKey, plan) == 2 * sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecordKey, ops) == 3 * sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecordKey, debug) == 4 * sizeof(void *));
+    STATIC_REQUIRE(offsetof(TypeRecordKey, implementation_label) == 5 * sizeof(void *));
 
     STATIC_REQUIRE(std::is_standard_layout_v<MockSchema>);
     STATIC_REQUIRE(offsetof(MockSchema, header) == 0);
@@ -420,12 +421,20 @@ TEST_CASE("every type record key component participates in identity", "[type-era
     const auto *plan_a = &MemoryUtils::plan_for<std::uint32_t>();
     const auto *plan_b = &MemoryUtils::plan_for<std::uint64_t>();
 
-    const TypeRecordKey base{&schema_a, TypeRole::Instance, plan_a, &ops_a, debug_address(&debug_a)};
-    REQUIRE(base != TypeRecordKey{&schema_b, TypeRole::Instance, plan_a, &ops_a, debug_address(&debug_a)});
-    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Data, plan_a, &ops_a, debug_address(&debug_a)});
-    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_b, &ops_a, debug_address(&debug_a)});
-    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_a, &ops_b, debug_address(&debug_a)});
-    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_a, &ops_a, debug_address(&debug_b)});
+    const TypeRecordKey base{&schema_a, TypeRole::Instance, plan_a, &ops_a,
+                             debug_address(&debug_a), "native"};
+    REQUIRE(base != TypeRecordKey{&schema_b, TypeRole::Instance, plan_a, &ops_a,
+                                  debug_address(&debug_a), "native"});
+    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Data, plan_a, &ops_a,
+                                  debug_address(&debug_a), "native"});
+    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_b, &ops_a,
+                                  debug_address(&debug_a), "native"});
+    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_a, &ops_b,
+                                  debug_address(&debug_a), "native"});
+    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_a, &ops_a,
+                                  debug_address(&debug_b), "native"});
+    REQUIRE(base != TypeRecordKey{&schema_a, TypeRole::Instance, plan_a, &ops_a,
+                                  debug_address(&debug_a), "python"});
 
     auto &registry = TypeRecordRegistry::instance();
     const TypeRecord *schema_record = &registry.intern(definition_for(schema_a, TypeRole::Instance, &ops_a));
@@ -435,10 +444,13 @@ TEST_CASE("every type record key component participates in identity", "[type-era
     const TypeRecord *ops_record = &registry.intern(definition_for(schema_a, TypeRole::Instance, &ops_b));
     const TypeRecord *debug_record = &registry.intern(definition_for(
         schema_a, TypeRole::Instance, &ops_a, {}, TypeCapabilities::None, plan_a, debug_address(&debug_a)));
+    const TypeRecord *implementation_record =
+        &registry.intern(definition_for(schema_a, TypeRole::Instance, &ops_a, "native"));
     REQUIRE(schema_record != other_schema);
     REQUIRE(schema_record != plan_record);
     REQUIRE(schema_record != ops_record);
     REQUIRE(schema_record != debug_record);
+    REQUIRE(schema_record != implementation_record);
 }
 
 TEST_CASE("conflicting metadata preserves the canonical type record", "[type-erasure][type-record]")
@@ -462,17 +474,33 @@ TEST_CASE("conflicting metadata preserves the canonical type record", "[type-era
         conflict.capabilities = TypeCapabilities::Mutable;
         REQUIRE_THROWS_AS(registry.intern(conflict), std::logic_error);
     }
-    SECTION("implementation label")
-    {
-        auto conflict = original;
-        conflict.implementation_label = "python";
-        REQUIRE_THROWS_AS(registry.intern(conflict), std::logic_error);
-    }
-
     REQUIRE(registry.find(original.key) == record);
     REQUIRE(record->ops_abi_version == 1);
     REQUIRE(record->capabilities == TypeCapabilities::Viewable);
     REQUIRE(static_cast<bool>(record->implementation_name() == "native"));
+}
+
+TEST_CASE("implementation labels distinguish canonical type records by content",
+          "[type-erasure][type-record]")
+{
+    using namespace hgraph;
+    SchemaHeader schema{TypeFamily::Value, 1, "mock"};
+    MockOps ops{1};
+    auto &registry = TypeRecordRegistry::instance();
+
+    std::string native_label{"native"};
+    const TypeRecord &native = registry.intern(
+        definition_for(schema, TypeRole::Instance, &ops, native_label));
+    const TypeRecord &python = registry.intern(
+        definition_for(schema, TypeRole::Instance, &ops, "python"));
+    const TypeRecord &repeated_native = registry.intern(
+        definition_for(schema, TypeRole::Instance, &ops, std::string{"native"}));
+
+    REQUIRE(&native != &python);
+    REQUIRE(&native == &repeated_native);
+    REQUIRE(native.ops == python.ops);
+    REQUIRE(native.implementation_name() == "native");
+    REQUIRE(python.implementation_name() == "python");
 }
 
 TEST_CASE("type record owns implementation labels but borrows schema labels", "[type-erasure][type-record]")

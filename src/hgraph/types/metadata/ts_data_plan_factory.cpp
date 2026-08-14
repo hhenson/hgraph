@@ -6,7 +6,6 @@
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
-#include <hgraph/types/time_series/ts_output/alternative.h>
 
 #include <fmt/format.h>
 
@@ -351,7 +350,6 @@ namespace hgraph
         plan_detail::clear_window_ts_data_contexts();
         plan_detail::clear_slot_ts_data_contexts();
         clear_tsd_proxy_contexts();
-        detail::clear_ts_output_alternative_type_cache();
     }
 
     TSDataTypeRef TSDataPlanFactory::data_type_for(const TSValueTypeMetaData *schema)
