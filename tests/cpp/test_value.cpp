@@ -679,3 +679,33 @@ TEST_CASE("Value: throws when a scalar type has not been registered")
     using namespace hgraph;
     REQUIRE_THROWS_AS(Value(UnregisteredScalar{}), std::logic_error);
 }
+
+TEST_CASE("ValueView: as<T>() on an accessor result reads, it does not demand mutation")
+{
+    using namespace hgraph;
+
+    // The accessors (`at`, `field`, `front`, `back`) hand back a view over the
+    // ops table's `const void *`, so the result is READ-ONLY however it is
+    // qualified. `as<T>()` has a const/non-const overload pair, and the
+    // non-const one routes to checked_mutable_as<T>, which throws without
+    // begin_mutation. Ref-qualifying the pair keeps a prvalue on the reading
+    // overload; without that, this call compiles and then throws
+    // "checked_mutable_as<T> requires begin_mutation" - a working read turned
+    // into a runtime failure, in a header shipped to downstream consumers.
+    const auto *meta = TypeRegistry::instance().array(
+        scalar_descriptor<Int>::value_meta(), 2);
+    Value list{ValuePlanFactory::instance().type_for(meta)};
+    {
+        auto output = list.as_list().begin_mutation();
+        output.resize(2);
+        Value first{Int{11}};
+        Value second{Int{22}};
+        output.at(0).copy_from(first.view());
+        output.at(1).copy_from(second.view());
+    }
+
+    CHECK(list.as_list().at(0).as<Int>() == 11);
+    CHECK(list.as_list().at(1).as<Int>() == 22);
+    CHECK(list.as_list().front().as<Int>() == 11);
+    CHECK(list.as_list().back().as<Int>() == 22);
+}

@@ -558,7 +558,12 @@ namespace hgraph::stdlib
             }
 
             /** A fresh borrow over the same binding + memory (the read views
-                are move-only; ``at`` results are const). */
+                are move-only; ``at`` results are const).
+
+                That constness is deliberate rather than incidental - see the
+                note on ``IndexedValueView::at`` - so this is the supported way
+                to get an owned ``ValueView`` out of an accessor, not a
+                workaround to be optimised away. */
             [[nodiscard]] ValueView reborrow(const ValueView &view)
             {
                 return ValueView{view.binding(), view.data()};
