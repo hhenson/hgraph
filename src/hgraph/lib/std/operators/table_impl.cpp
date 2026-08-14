@@ -1519,9 +1519,18 @@ namespace hgraph::stdlib
 
                 static Value cell(const void *context, std::size_t row, std::size_t column)
                 {
-                    const auto     &self = *static_cast<const ValueRowSource *>(context);
-                    const ValueView row_value = self.layout->multi() ? self.value->as_list().at(row)
-                                                                     : reborrow(*self.value);
+                    const auto &self = *static_cast<const ValueRowSource *>(context);
+                    // Both arms must yield the SAME type. `at` returns a const ValueView by
+                    // value and `reborrow` a non-const one; a conditional mixing the two has
+                    // to convert one prvalue to the other's type, which needs the copy
+                    // constructor ValueView deletes. Clang, GCC and MSVC 14.51 accept it
+                    // regardless; MSVC 14.44 rejects it with C2280, so the wheel did not build
+                    // under VS 2022 17.14. Reborrowing both arms is the idiom this file
+                    // already uses for `at` results (see walk_value) and needs no constructor
+                    // at all - same-type prvalues elide.
+                    const ValueView row_value = self.layout->multi()
+                                                    ? reborrow(self.value->as_list().at(row))
+                                                    : reborrow(*self.value);
                     const ValueView item = row_value.as_tuple().at(column);
                     return item.has_value() ? Value{item} : Value{};
                 }
