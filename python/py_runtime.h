@@ -1733,6 +1733,23 @@ namespace hgraph::python_bridge
                 // (peered at the true upstream output).
                 return nb::cast(python_bridge::PyOpaqueRef{Value{v.reference()}, v.evaluation_time()});
             }
+            if (schema != nullptr && schema->kind == TSTypeKind::TSD)
+            {
+                // A TSD input can expose projected structural children (for
+                // example a map_ result whose values are TSBs). Those children
+                // intentionally do not require an aggregate scalar conversion
+                // op. Assemble the public aggregate through the same child
+                // views used by values[key].value so forwarding endpoints and
+                // nested structures retain their Python representation.
+                nb::dict result;
+                auto dict = const_cast<TSInputView &>(v).as_dict();
+                for (auto &&[key, child] : dict.valid_items())
+                {
+                    nb::object py_key = value_to_py(key);
+                    result[py_key] = collection_child(std::move(child), py_key).value();
+                }
+                return result;
+            }
             if (schema != nullptr && schema->kind == TSTypeKind::TSB)
             {
                 nb::dict result;

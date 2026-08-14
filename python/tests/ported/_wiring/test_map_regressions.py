@@ -75,6 +75,37 @@ def test_map_preserves_typed_keyed_bundle_reference_and_materialization():
     assert eval_node(materialized_app, lookups, rows) == expected
 
 
+def test_map_bundle_output_exposes_aggregate_tsd_value_to_python_nodes():
+    class Status(hg.TimeSeriesSchema):
+        value: hg.TS[int]
+        ok: hg.TS[bool]
+
+    aggregate_values = []
+    individual_values = []
+
+    @hg.graph
+    def make_status(value: hg.TS[int]) -> hg.TSB[Status]:
+        return hg.combine[hg.TSB[Status]](value=value, ok=value > 0)
+
+    @hg.sink_node
+    def observe(values: hg.TSD[str, hg.TSB[Status]]):
+        individual_values.append(values["item"].value)
+        aggregate_values.append(values.value)
+
+    @hg.graph
+    def app(
+        values: hg.TSD[str, hg.TS[int]],
+    ) -> hg.TSD[str, hg.TSB[Status]]:
+        statuses = hg.map_(make_status, values)
+        observe(statuses)
+        return statuses
+
+    expected = {"item": {"value": 1, "ok": True}}
+    assert eval_node(app, [{"item": 1}]) == [expected]
+    assert individual_values == [expected["item"]]
+    assert aggregate_values == [expected]
+
+
 def test_map_removed_typed_bundle_reference_does_not_retick_with_sibling():
     class Row(hg.TimeSeriesSchema):
         value: hg.TS[int]
