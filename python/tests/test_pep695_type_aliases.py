@@ -13,13 +13,6 @@ and ``_pattern_of`` for time-series — and each failed differently:
 
 Both now resolve through ``resolve_type_alias``.
 
-Known gap, deliberately not covered by a test here: a generic alias whose body
-is a ``TSD`` (``type StreamDict[K, V] = TSD[K, TS[V]]``) resolves its *pattern*
-correctly, but lifting a plain python value against it still goes through a
-path that does not resolve the alias — the dict arrives as ``TS[Map[str, int]]``
-rather than a ``TSD``, and binding is rejected. That needs the same resolution
-at the value-lifting entry point. The project's release suite forbids xfail
-tests, so this is recorded here rather than pinned as one.
 """
 
 from dataclasses import dataclass
@@ -181,3 +174,31 @@ def test_a_generic_alias_over_a_time_series_substitutes_structurally():
         return ts.value
 
     assert hg.eval_node(node, [7]) == [7]
+
+
+type StreamDict[K, V] = hg.TSD[K, hg.TS[V]]
+
+
+def test_a_generic_alias_over_a_tsd_lifts_a_plain_value():
+    """The case that needed resolution at the CAPTURE point.
+
+    Pattern resolution alone was not enough: the predicates deciding whether an
+    annotation is a time-series test the annotation they were handed, so a raw
+    alias was classified as a scalar and ``{"x": 1}`` was lifted to
+    ``TS[Map[str, int]]`` rather than a TSD. Resolving once where the signature
+    is captured fixes every consumer together.
+    """
+
+    @hg.compute_node
+    def node(tsd: StreamDict[str, int]) -> hg.TS[int]:
+        return len(tsd.value)
+
+    assert hg.eval_node(node, [{"x": 1}]) == [1]
+
+
+def test_an_alias_works_as_a_return_type():
+    @hg.compute_node
+    def node(ts: PriceTS) -> PriceTS:
+        return ts.value
+
+    assert hg.eval_node(node, [1.5]) == [1.5]

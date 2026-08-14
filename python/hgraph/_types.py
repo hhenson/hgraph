@@ -1385,14 +1385,20 @@ def resolve_type_alias(annotation):
             if not args:
                 annotation = origin.__value__
                 continue
+            body = origin.__value__
+            if isinstance(body, (_TsExpr, _GenericTsExpr)):
+                # An hgraph time-series body has no ``__getitem__`` to
+                # substitute through, but it carries a C++ pattern with free
+                # variables, which substitutes structurally. Resolving that to
+                # a concrete _TsExpr - rather than handing a pattern to one
+                # caller - is what makes the alias behave like the type it
+                # names EVERYWHERE: the ``_is_time_series`` predicates test for
+                # _TsExpr, so an unresolved alias was classified as a scalar
+                # and its value lifted as TS[Map[...]] instead of a TSD.
+                return _substituted_ts_alias(origin, args, annotation)
             try:
-                annotation = origin.__value__[args]
+                annotation = body[args]
             except TypeError:
-                # The body is not subscriptable - an hgraph time-series
-                # expression rather than a builtin generic. Re-subscripting is
-                # the wrong tool there; the alias is left intact so
-                # ``_pattern_of`` can substitute into its C++ pattern
-                # structurally instead.
                 return annotation
             continue
         if isinstance(annotation, alias_types):
@@ -1898,6 +1904,32 @@ def _type_pattern(ts):
     if isinstance(ts, _TsExpr):
         return _hgraph.type_pattern_concrete(ts.handle)
     raise TypeError(f"expected a time-series type (TS[...] etc.), got {ts!r}")
+
+
+def _substituted_ts_alias(alias, args, annotation):
+    """A concrete ``_TsExpr`` for ``Stream[int]`` where ``type Stream[T] = TS[T]``."""
+    params = getattr(alias, "__type_params__", ())
+    if len(args) != len(params):
+        raise TypeError(
+            f"type alias {alias.__name__!r} takes {len(params)} parameter(s), "
+            f"{len(args)} given"
+        )
+    pattern = _pattern_of(alias.__value__)
+    scalars = {}
+    sizes = {}
+    for param, arg in zip(params, args):
+        if isinstance(arg, int) and not isinstance(arg, bool):
+            sizes[param.__name__] = _size_pattern(arg)   # a TSL size, not a type
+        else:
+            scalars[param.__name__] = _scalar_pattern(arg)
+    if scalars:
+        pattern = _hgraph.type_pattern_substitute_scalars(pattern, scalars)
+    if sizes:
+        pattern = _hgraph.type_pattern_substitute_sizes(pattern, sizes)
+    resolved = _hgraph.ResolutionScope().resolve_ts(pattern)
+    if resolved is None:
+        raise TypeError(f"type alias {annotation!r} does not resolve to a concrete type")
+    return _TsExpr(resolved, repr(annotation))
 
 
 def _generic_ts_alias_pattern(annotation):
