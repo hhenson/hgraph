@@ -1,6 +1,7 @@
 #ifndef HGRAPH_RUNTIME_GRAPH_TYPE_REF_H
 #define HGRAPH_RUNTIME_GRAPH_TYPE_REF_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/type_pointer.h>
 
@@ -17,7 +18,7 @@ namespace hgraph
 
     inline constexpr std::uint16_t GRAPH_OPS_ABI_VERSION = 7;
 
-    class GraphTypeRef
+    class HGRAPH_EXPORT GraphTypeRef
     {
       public:
         constexpr GraphTypeRef() noexcept = default;
@@ -64,8 +65,9 @@ namespace hgraph
         [[nodiscard]] friend constexpr bool operator==(GraphTypeRef, GraphTypeRef) noexcept = default;
 
       private:
-        friend GraphTypeRef intern_graph_type(const GraphTypeMetaData &, const MemoryUtils::StoragePlan &,
-                                              const GraphOps &, std::string_view);
+        friend HGRAPH_EXPORT GraphTypeRef intern_graph_type(
+            const GraphTypeMetaData &, const MemoryUtils::StoragePlan &,
+            const GraphOps &, std::string_view);
         friend class GraphView;
         friend class GraphValue;
 
@@ -74,11 +76,13 @@ namespace hgraph
         const TypeRecord *record_{nullptr};
     };
 
-    [[nodiscard]] TypeCapabilities graph_type_capabilities(const MemoryUtils::StoragePlan &plan);
-    [[nodiscard]] GraphTypeRef intern_graph_type(const GraphTypeMetaData &schema,
-                                                 const MemoryUtils::StoragePlan &plan,
-                                                 const GraphOps &ops,
-                                                 std::string_view implementation_label = {});
+    [[nodiscard]] HGRAPH_EXPORT TypeCapabilities graph_type_capabilities(
+        const MemoryUtils::StoragePlan &plan);
+    [[nodiscard]] HGRAPH_EXPORT GraphTypeRef intern_graph_type(
+        const GraphTypeMetaData &schema,
+        const MemoryUtils::StoragePlan &plan,
+        const GraphOps &ops,
+        std::string_view implementation_label = {});
 
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(alignof(GraphTypeRef) == alignof(void *));

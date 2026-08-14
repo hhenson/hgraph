@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_TS_OUTPUT_H
 #define HGRAPH_CPP_ROOT_TS_OUTPUT_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
@@ -31,7 +32,7 @@ namespace hgraph
      * subscriptions are delegated to the root TSData observer set; child-level
      * subscriptions are registered on the projected child TSData views.
      */
-    class TSOutput : private TSDataParent
+    class HGRAPH_EXPORT TSOutput : private TSDataParent
     {
       public:
         TSOutput() noexcept;

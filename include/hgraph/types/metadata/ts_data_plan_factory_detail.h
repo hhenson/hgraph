@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_TS_DATA_PLAN_FACTORY_DETAIL_H
 #define HGRAPH_CPP_ROOT_TS_DATA_PLAN_FACTORY_DETAIL_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data.h>
@@ -124,8 +125,9 @@ namespace hgraph::ts_data_plan_factory_detail
                                                         TypeRole role,
                                                         bool embedded = false,
                                                         bool composite = false);
-    [[nodiscard]] TSRoleTypeRef tsd_value_projection_type(TSRoleTypeRef element_type,
-                                                             TypeRole role);
+    [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef tsd_value_projection_type(
+        TSRoleTypeRef element_type,
+        TypeRole role);
 
     void clear_fixed_ts_data_contexts() noexcept;
     void clear_dynamic_list_ts_data_contexts() noexcept;

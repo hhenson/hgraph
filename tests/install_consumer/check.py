@@ -13,17 +13,49 @@ import tempfile
 SOURCE_DIR = Path(__file__).resolve().parent
 
 
+def cmake_tool(name: str) -> str:
+    """Return the native CMake tool, bypassing pip's Python entry-point wrapper."""
+    executable = f"{name}.exe" if sys.platform == "win32" else name
+    try:
+        from cmake import CMAKE_BIN_DIR
+    except ImportError:
+        return executable
+
+    candidate = Path(CMAKE_BIN_DIR) / executable
+    if not candidate.is_file():
+        raise RuntimeError(f"CMake package does not contain {candidate}")
+    return str(candidate)
+
+
+def hgraph_config_dir(package_prefix: Path) -> Path:
+    candidates = sorted(
+        path
+        for path in package_prefix.glob("lib*/cmake/hgraph")
+        if (path / "hgraphConfig.cmake").is_file()
+    )
+    if len(candidates) != 1:
+        raise RuntimeError(
+            "expected exactly one installed hgraph CMake package below "
+            f"{package_prefix}, found: {candidates}"
+        )
+    return candidates[0]
+
+
 def main() -> int:
     package_prefix = Path(sysconfig.get_path("purelib")).resolve()
+    config_dir = hgraph_config_dir(package_prefix)
+    cmake = cmake_tool("cmake")
+    ctest = cmake_tool("ctest")
     with tempfile.TemporaryDirectory(prefix="hgraph-install-consumer-") as directory:
         build_dir = Path(directory)
         configure = [
-            "cmake",
+            cmake,
             "-S",
             str(SOURCE_DIR),
             "-B",
             str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
+            f"-Dhgraph_DIR={config_dir}",
             f"-DCMAKE_PREFIX_PATH={package_prefix}",
             f"-DPython_EXECUTABLE={sys.executable}",
         ]
@@ -33,7 +65,7 @@ def main() -> int:
             configure.extend(["-G", "Ninja"])
         subprocess.run(configure, check=True)
 
-        build = ["cmake", "--build", str(build_dir), "--parallel", "2"]
+        build = [cmake, "--build", str(build_dir), "--parallel", "2"]
         if sys.platform == "win32":
             build.extend(["--config", "Release"])
         subprocess.run(build, check=True)
@@ -53,7 +85,7 @@ def main() -> int:
             runtime_path if not existing else os.pathsep.join((runtime_path, existing))
         )
 
-        test = ["ctest", "--test-dir", str(build_dir), "--output-on-failure"]
+        test = [ctest, "--test-dir", str(build_dir), "--output-on-failure"]
         if sys.platform == "win32":
             test.extend(["--build-config", "Release"])
         subprocess.run(test, check=True, env=environment)

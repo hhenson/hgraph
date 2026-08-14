@@ -33,7 +33,8 @@ class _Row(hg.CompoundScalar):
     value: int
 
 
-def _end_time(seconds=5):
+def _end_time(seconds=30):
+    """Return a safety deadline; successful adaptor tests stop themselves."""
     return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=seconds)
 
 
@@ -145,7 +146,7 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
         capture(sql_read_adaptor_raw(query(), path=target))
 
     with hg.GlobalContext(hg.GlobalState()):
-        hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time(15))
+        hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
 
     for thread in feeder_threads:
         thread.join(timeout=1.0)

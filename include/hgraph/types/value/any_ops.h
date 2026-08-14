@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_VALUE_ANY_OPS_H
 #define HGRAPH_CPP_ROOT_VALUE_ANY_OPS_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/value/value_ops.h>
 
 namespace hgraph
@@ -17,18 +18,18 @@ namespace hgraph
      * (the embedded ``Value``'s own copy/move), so no view-copy hook is
      * installed. ``allows_mutation`` is true so the box can be reassigned.
      */
-    [[nodiscard]] const ValueOps &any_ops() noexcept;
+    [[nodiscard]] HGRAPH_EXPORT const ValueOps &any_ops() noexcept;
 
     /**
      * The canonical interned ``ValueTypeRef`` for the ``Any`` schema:
      * ``(registry.any(), plan_for<Value>, any_ops())``. Use it to construct
      * a ``Value`` whose kind is ``Any``.
      */
-    [[nodiscard]] ValueTypeRef any_type();
+    [[nodiscard]] HGRAPH_EXPORT ValueTypeRef any_type();
 
     /** Meta-preserving form: a JSON-named Any schema keeps its identity
         while sharing the Any plan + ops. */
-    [[nodiscard]] ValueTypeRef any_type(const ValueTypeMetaData &meta);
+    [[nodiscard]] HGRAPH_EXPORT ValueTypeRef any_type(const ValueTypeMetaData &meta);
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_ROOT_VALUE_ANY_OPS_H
