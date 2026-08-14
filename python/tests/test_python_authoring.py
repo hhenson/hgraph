@@ -823,6 +823,34 @@ def test_python_sink_nodes_work_as_native_keyed_map_children():
     check(lifecycle.count("stop") == 3, f"sink map stops: {lifecycle}")
 
 
+def test_python_mapped_key_source_preserves_frozenset_scalar_values():
+    observed = []
+
+    @hg.compute_node
+    def inspect_key(key: TS[frozenset[int]], value: TS[int]) -> TS[bool]:
+        mapped_key = key.value
+        observed.append(mapped_key)
+        return type(mapped_key) is frozenset and hash(mapped_key) == hash(frozenset(mapped_key))
+
+    @graph
+    def app(values: TSD[frozenset[int], TS[int]]) -> TSD[frozenset[int], TS[bool]]:
+        return hg.map_(inspect_key, values)
+
+    first = frozenset({1, 2})
+    second = frozenset({3})
+    check(
+        eval_node(app, [{first: 10, second: 20}, {first: hg.REMOVE}]) == [
+            {first: True, second: True},
+            {first: hg.REMOVE},
+        ],
+        "mapped frozenset key values remain immutable and hashable",
+    )
+    check(
+        len(observed) == 2 and all(type(value) is frozenset for value in observed),
+        f"mapped key Python values: {observed}",
+    )
+
+
 def test_python_key_only_sink_map_uses_explicit_keys():
     seen = []
 

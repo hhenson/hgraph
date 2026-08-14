@@ -405,14 +405,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     }
                 }
             }
-            // TS[set-like] is the immutable scalar value surface; TSS owns
-            // the mutable set/delta surface. This representation choice is
-            // installed once in the atomic TSData strategy, never in a
-            // Python TimeSeries facade.
-            return entry(context).ops.kind == TSTypeKind::TS &&
-                           PySet_CheckExact(converted.ptr())
-                       ? nb::steal(PyFrozenSet_New(converted.ptr()))
-                       : std::move(converted);
+            // Scalar Python representation is already owned by the selected
+            // ValueOps strategy (notably compact Set -> frozenset). Atomic
+            // TSData forwards that erased result without re-normalizing it.
+            return converted;
         }
 
         template <ValueStorageVariant Storage>
@@ -426,10 +422,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto *layout = atomic_layout(context);
                 nb::object converted = layout->delta_binding.ops_ref().to_python(
                     atomic_delta_memory(context, memory));
-                return entry(context).ops.kind == TSTypeKind::TS &&
-                               PySet_CheckExact(converted.ptr())
-                           ? nb::steal(PyFrozenSet_New(converted.ptr()))
-                           : std::move(converted);
+                return converted;
             }
             else
             {
