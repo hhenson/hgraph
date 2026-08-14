@@ -67,8 +67,14 @@ def extract_signature(fn, node_type) -> WiringNodeSignature:
     sig = inspect.signature(fn, eval_str=True)
     args, defaults, input_types = [], {}, {}
     time_series, unresolved = set(), set()
+    from ._types import resolve_type_alias
+
     for name, param in sig.parameters.items():
-        annotation = param.annotation
+        # Normalise PEP 695 aliases ONCE, here, rather than in each consumer.
+        # Everything downstream - the time-series predicates, value lifting,
+        # binding checks - tests the captured annotation, so an alias left raw
+        # is classified as a scalar and its value lifted to the wrong shape.
+        annotation = resolve_type_alias(param.annotation)
         args.append(name)
         if param.default is not inspect.Parameter.empty:
             defaults[name] = param.default
@@ -78,7 +84,7 @@ def extract_signature(fn, node_type) -> WiringNodeSignature:
             time_series.add(name)
         if _is_unresolved(annotation):
             unresolved.add(name)
-    output = sig.return_annotation
+    output = resolve_type_alias(sig.return_annotation)
     output_type = None
     if output not in (inspect.Signature.empty, None):
         output_type = output

@@ -288,7 +288,14 @@ def _to_legacy_message(record: TS[KafkaRecord]) -> TS[KafkaMessage]:
     headers = {}
     content_type = None
     for header in record.value.headers:
-        if header.name == _CONTENT_TYPE_HEADER:
+        # Matched case-INSENSITIVELY. Kafka header names are arbitrary byte
+        # strings, and producers outside hgraph commonly send ``Content-Type``.
+        # An exact-case match left such a message with content_type=None while
+        # quietly depositing the header in ``headers``, so the information
+        # survived where no consumer looks for it - and re-producing then
+        # emitted the original casing rather than the canonical one, making the
+        # round trip lossy in a way nothing reported.
+        if header.name.lower() == _CONTENT_TYPE_HEADER:
             content_type = (
                 header.value.decode("utf-8") if header.value is not None else None
             )
@@ -314,7 +321,16 @@ def _bytes_to_record(message: TS[bytes]) -> TS[KafkaProduceRecord]:
 
 @compute_node
 def _message_to_record(message: TS[KafkaMessage]) -> TS[KafkaProduceRecord]:
-    headers = [KafkaHeader(name, value) for name, value in message.value.headers.items()]
+    # ``content_type`` is the canonical carrier. A content-type entry that also
+    # sits in ``headers`` - under any casing - must not be emitted alongside it,
+    # or the record leaves with two content-type headers whose values may
+    # disagree. The field wins when set; otherwise a header-carried value passes
+    # through untouched.
+    headers = [
+        KafkaHeader(name, value)
+        for name, value in message.value.headers.items()
+        if message.value.content_type is None or name.lower() != _CONTENT_TYPE_HEADER
+    ]
     if message.value.content_type is not None:
         headers.append(
             KafkaHeader(
