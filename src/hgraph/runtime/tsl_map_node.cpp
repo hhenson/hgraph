@@ -83,6 +83,7 @@ namespace hgraph
         struct TslMapNodeContext
         {
             TslMapNodeSpec             spec{};
+            runtime_detail::MappedChildAccessPlan access{};
             std::size_t                storage_offset{0};
             MemoryUtils::StorageLayout graph_layout{};
         };
@@ -94,10 +95,13 @@ namespace hgraph
             return *contexts;
         }
 
-        [[nodiscard]] const TslMapNodeContext &register_tsl_map_node_context(TslMapNodeSpec spec, std::size_t storage_offset,
+        [[nodiscard]] const TslMapNodeContext &register_tsl_map_node_context(TslMapNodeSpec spec,
+                                                                             runtime_detail::MappedChildAccessPlan access,
+                                                                             std::size_t storage_offset,
                                                                              MemoryUtils::StorageLayout graph_layout) {
             auto        context = std::make_unique<TslMapNodeContext>(TslMapNodeContext{
                 .spec           = std::move(spec),
+                .access         = std::move(access),
                 .storage_offset = storage_offset,
                 .graph_layout   = graph_layout,
             });
@@ -191,11 +195,11 @@ namespace hgraph
 
             const TSOutputView index_source =
                 entry.index_source.bound() ? entry.index_source.view(evaluation_time) : TSOutputView{};
-            runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), evaluation_time, spec.child, spec.args,
+            runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), evaluation_time, spec.child, context.access,
                                                      entry.index.view(), index_source,
                                                      std::nullopt, false, true);
             runtime_detail::bind_mapped_child_output(view, entry.graph.view(), evaluation_time, spec.child.output_binding,
-                                                     spec.args, entry.index.view(), index_source,
+                                                     context.access, entry.index.view(), index_source,
                                                      spec.output_binding_mode);
             entry.graph.view().start(evaluation_time);
             schedule_sampled_input_consumers(entry.graph.view(), evaluation_time, spec.child.input_bindings);
@@ -210,7 +214,8 @@ namespace hgraph
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
                 const TSOutputView index_source =
                     entry->index_source.bound() ? entry->index_source.view(evaluation_time) : TSOutputView{};
-                runtime_detail::bind_mapped_child_inputs(view, entry->graph.view(), evaluation_time, spec.child, spec.args,
+                runtime_detail::bind_mapped_child_inputs(view, entry->graph.view(), evaluation_time, spec.child,
+                                                         context.access,
                                                          entry->index.view(), index_source);
             }
         }
@@ -259,6 +264,7 @@ namespace hgraph
                         runtime_detail::finalize_mapped_child_output(
                             view, evaluation_time,
                             context.spec.child.output_binding,
+                            context.access.output,
                             entry->index.view());
                     }
                 }
@@ -425,6 +431,15 @@ namespace hgraph
                     meta.output_schema->element_ts()));
         }
 
+        const TSEndpointSchema *output_element_endpoint =
+            meta.output_schema != nullptr &&
+                    spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement
+                ? &meta.output_endpoint_schema.child(0)
+                : nullptr;
+        auto access = runtime_detail::compile_mapped_child_access_plan(
+            spec.args, TSTypeKind::TSL, meta.input_schema, meta.output_schema,
+            output_element_endpoint);
+
         const GraphTypeRef child_graph_type = spec.child.graph_builder.nested_type();
         const ValueTypeRef index_type       = ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
         if (!child_graph_type || !index_type) { throw std::logic_error("tsl_map_node could not resolve debugger child types"); }
@@ -460,7 +475,8 @@ namespace hgraph
                 descriptor.storage_plan->component(tsl_map_storage_field_name).offset + entries_offset, graph_pointer_offset, true),
         };
         descriptor.ops.extended_view_context = &register_tsl_map_node_context(
-            std::move(spec), descriptor.storage_plan->component(tsl_map_storage_field_name).offset, graph_layout);
+            std::move(spec), std::move(access),
+            descriptor.storage_plan->component(tsl_map_storage_field_name).offset, graph_layout);
 
         return NodeBuilder::from_descriptor(std::move(descriptor));
     }

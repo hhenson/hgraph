@@ -522,6 +522,139 @@ TEST_CASE("TimeSeriesReference: output alternatives are keyed by starting view a
     REQUIRE(structural_ref_value.as<TimeSeriesReference>().target_schema() == structural_bundle);
 }
 
+TEST_CASE("TimeSeriesReference: to-REF metrics include compiled plan trees")
+{
+    using namespace hgraph;
+    constexpr std::size_t child_count = 64;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *ref_int  = registry.ref(ts_int);
+    const auto *source_list = registry.tsl(ts_int, child_count);
+    const auto *requested_list = registry.tsl(ref_int, child_count);
+    const auto *root = registry.tsb(
+        "TimeSeriesReferenceAlternativePlanMetricsRoot",
+        {{"scalar", ts_int}, {"wide", source_list}});
+
+    TSOutput output{*root};
+    auto     source_view = output.view(MIN_ST);
+    auto     source = source_view.as_bundle();
+
+    const auto before_scalar = output.dynamic_storage_metrics();
+    const auto scalar = source.field("scalar").binding_for(*ref_int);
+    const auto after_scalar = output.dynamic_storage_metrics();
+    const auto scalar_data = scalar.data_view().dynamic_storage_metrics();
+
+    const auto before_wide = after_scalar;
+    const auto wide = source.field("wide").binding_for(*requested_list);
+    const auto after_wide = output.dynamic_storage_metrics();
+    const auto wide_data = wide.data_view().dynamic_storage_metrics();
+
+    const auto scalar_non_data_live =
+        (after_scalar.live_bytes - before_scalar.live_bytes) - scalar_data.live_bytes;
+    const auto scalar_non_data_reserved =
+        (after_scalar.reserved_bytes - before_scalar.reserved_bytes) - scalar_data.reserved_bytes;
+    const auto wide_non_data_live =
+        (after_wide.live_bytes - before_wide.live_bytes) - wide_data.live_bytes;
+    const auto wide_non_data_reserved =
+        (after_wide.reserved_bytes - before_wide.reserved_bytes) - wide_data.reserved_bytes;
+
+    // Both alternatives own the same state type. The wide alternative also
+    // owns one compiled child-plan entry per fixed-list element, which must be
+    // visible independently of the TSData storage those plans operate on.
+    CHECK(wide_non_data_live > scalar_non_data_live);
+    CHECK(wide_non_data_reserved > scalar_non_data_reserved);
+}
+
+TEST_CASE("TimeSeriesReference: from-REF metrics include endpoint plan and schema trees")
+{
+    using namespace hgraph;
+    constexpr std::size_t child_count = 64;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *ref_int  = registry.ref(ts_int);
+    const auto *list     = registry.tsl(ts_int, child_count);
+    const auto *ref_list = registry.ref(list);
+    const auto *root = registry.tsb(
+        "TimeSeriesReferenceFromRefPlanMetricsRoot",
+        {{"scalar", ref_int}, {"wide", ref_list}});
+
+    TSOutput output{*root};
+    auto     source_view = output.view(MIN_ST);
+    auto     source = source_view.as_bundle();
+
+    const auto before_scalar = output.dynamic_storage_metrics();
+    const auto scalar = source.field("scalar").binding_for(*ts_int);
+    const auto after_scalar = output.dynamic_storage_metrics();
+    const auto scalar_data = scalar.data_view().dynamic_storage_metrics();
+
+    const auto before_wide = after_scalar;
+    const auto wide = source.field("wide").binding_for(*list);
+    const auto after_wide = output.dynamic_storage_metrics();
+    const auto wide_data = wide.data_view().dynamic_storage_metrics();
+
+    const auto scalar_non_data_live =
+        (after_scalar.live_bytes - before_scalar.live_bytes) - scalar_data.live_bytes;
+    const auto scalar_non_data_reserved =
+        (after_scalar.reserved_bytes - before_scalar.reserved_bytes) - scalar_data.reserved_bytes;
+    const auto wide_non_data_live =
+        (after_wide.live_bytes - before_wide.live_bytes) - wide_data.live_bytes;
+    const auto wide_non_data_reserved =
+        (after_wide.reserved_bytes - before_wide.reserved_bytes) - wide_data.reserved_bytes;
+
+    // Fixed structural dereferencing copies the endpoint-schema topology and
+    // compiles a matching endpoint plan. Both independently own vector trees.
+    CHECK(wide_non_data_live > scalar_non_data_live);
+    CHECK(wide_non_data_reserved > scalar_non_data_reserved);
+}
+
+TEST_CASE("TimeSeriesReference: interior from-REF metrics include compiled plan trees")
+{
+    using namespace hgraph;
+    constexpr std::size_t child_count = 64;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *ref_int  = registry.ref(ts_int);
+    const auto *narrow_source = registry.tsl(ref_int, 1);
+    const auto *narrow_requested = registry.tsl(ts_int, 1);
+    const auto *wide_source = registry.tsl(ref_int, child_count);
+    const auto *wide_requested = registry.tsl(ts_int, child_count);
+    const auto *root = registry.tsb(
+        "TimeSeriesReferenceInteriorFromRefPlanMetricsRoot",
+        {{"narrow", narrow_source}, {"wide", wide_source}});
+
+    TSOutput output{*root};
+    auto     source_view = output.view(MIN_ST);
+    auto     source = source_view.as_bundle();
+
+    const auto before_narrow = output.dynamic_storage_metrics();
+    const auto narrow = source.field("narrow").binding_for(*narrow_requested);
+    const auto after_narrow = output.dynamic_storage_metrics();
+    const auto narrow_data = narrow.data_view().dynamic_storage_metrics();
+
+    const auto before_wide = after_narrow;
+    const auto wide = source.field("wide").binding_for(*wide_requested);
+    const auto after_wide = output.dynamic_storage_metrics();
+    const auto wide_data = wide.data_view().dynamic_storage_metrics();
+
+    const auto narrow_non_data_live =
+        (after_narrow.live_bytes - before_narrow.live_bytes) - narrow_data.live_bytes;
+    const auto narrow_non_data_reserved =
+        (after_narrow.reserved_bytes - before_narrow.reserved_bytes) - narrow_data.reserved_bytes;
+    const auto wide_non_data_live =
+        (after_wide.live_bytes - before_wide.live_bytes) - wide_data.live_bytes;
+    const auto wide_non_data_reserved =
+        (after_wide.reserved_bytes - before_wide.reserved_bytes) - wide_data.reserved_bytes;
+
+    CHECK(wide_non_data_live > narrow_non_data_live);
+    CHECK(wide_non_data_reserved > narrow_non_data_reserved);
+}
+
 TEST_CASE("TimeSeriesReference: to-REF alternative stores fixed list children through TSData")
 {
     using namespace hgraph;
