@@ -166,6 +166,84 @@ def test_multiple_python_replays_follow_record_timestamps() -> None:
     assert dict(observed) == expected
 
 
+def test_python_record_time_recovery_hands_off_before_live_records() -> None:
+    cluster = MockCluster()
+    cluster.create_topic("python-record-time-live")
+    history_time = hg.utc_now().replace(microsecond=0) + timedelta(seconds=3)
+    cluster.seed_record(
+        "python-record-time-live",
+        b"history",
+        timestamp_ms=int(history_time.replace(tzinfo=UTC).timestamp() * 1000),
+    )
+    recovery_started = threading.Event()
+    live_seeded = threading.Event()
+    observed = []
+
+    def seed_live() -> None:
+        if recovery_started.wait(5.0):
+            cluster.seed_record("python-record-time-live", b"live")
+            live_seeded.set()
+
+    @hg.sink_node
+    def capture_state(state: hg.TS[kafka.KafkaSubscriptionState]):
+        if state.value == kafka.KafkaSubscriptionState.RECOVERING:
+            recovery_started.set()
+
+    @hg.sink_node
+    def capture_record(
+        record: hg.TS[kafka.KafkaRecord],
+        _clock: hg.CLOCK = None,
+        _api: hg.EvaluationEngineApi = None,
+    ):
+        observed.append((record.value.value, _clock.evaluation_time))
+        if len(observed) == 2:
+            _api.request_engine_stop()
+
+    @hg.graph
+    def app():
+        kafka.register_kafka_service(
+            kafka.KafkaServiceConfig.from_bootstrap_servers(
+                [cluster.bootstrap_servers()],
+                client_id="python-record-time-live",
+            ),
+            path="record-time-live",
+        )
+        key = kafka.KafkaSubscriptionKey(
+            topics=("python-record-time-live",),
+            group_id="python-record-time-live",
+            assignment_mode=kafka.KafkaAssignmentMode.INDEPENDENT,
+            start_position=kafka.KafkaStartPosition.earliest(),
+            stop_position=kafka.KafkaStopPosition.unbounded(),
+            commit_mode=kafka.KafkaCommitMode.NONE,
+            recovery_clock=kafka.KafkaRecoveryClock.RECORD_TIMESTAMP,
+            merge_policy=kafka.KafkaMergePolicy.TIMESTAMP_TOPIC_PARTITION_OFFSET,
+            sharing_identity="python-record-time-live",
+        )
+        subscription = kafka.kafka_subscribe(
+            hg.const(key, tp=hg.TS[kafka.KafkaSubscriptionKey]),
+            path="record-time-live",
+        )
+        capture_state(subscription["state"])
+        capture_record(subscription["record"])
+
+    producer = threading.Thread(target=seed_live)
+    producer.start()
+    try:
+        hg.run_graph(
+            app,
+            run_mode=hg.EvaluationMode.REAL_TIME,
+            end_time=history_time + timedelta(seconds=5),
+        )
+    finally:
+        producer.join(timeout=6.0)
+
+    assert not producer.is_alive()
+    assert live_seeded.is_set()
+    assert [value for value, _ in observed] == [b"history", b"live"]
+    assert observed[0][1] == history_time
+    assert observed[1][1] > observed[0][1]
+
+
 def test_legacy_replay_surface_uses_the_same_native_history_session(monkeypatch) -> None:
     _use_mock_cluster_history_start(monkeypatch)
     cluster = MockCluster()

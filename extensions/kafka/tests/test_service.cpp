@@ -184,6 +184,7 @@ inline SenderLatch subscription_commit_sender{};
 inline GenerationLatch subscription_generations{};
 inline CountLatch stale_commit_events{};
 inline CountLatch graph_lifetime_live{};
+inline CountLatch record_time_recovery_started{};
 
 inline Value service_config{};
 inline Value subscription_key{};
@@ -222,6 +223,7 @@ inline std::vector<KafkaSubscriptionState> bounded_states{};
 inline std::vector<Str> bounded_payloads{};
 inline std::vector<DateTime> bounded_evaluation_times{};
 inline std::vector<std::pair<Str, DateTime>> multi_bounded_records{};
+inline std::vector<std::pair<Str, DateTime>> recovery_live_records{};
 inline std::size_t multi_bounded_complete_count{};
 inline std::vector<Int> backlog_offsets{};
 inline std::vector<Str> backlog_events{};
@@ -475,6 +477,45 @@ struct GraphLifetimeSubscriptionGraph {
         w, subscription_key.clone());
     static_cast<void>(wire<GraphLifetimeSubscriptionCapture>(
         w, subscribe(w, path, key)));
+  }
+};
+
+struct RecordTimeRecoveryLiveCapture {
+  static constexpr auto name = "kafka_record_time_recovery_live_capture";
+
+  static void
+  eval(NodeView node,
+       In<"subscription", KafkaSubscriptionOutput, InputValidity::Unchecked>
+           subscription) {
+    auto state = subscription.template field<"state">();
+    if (state.valid() && state.modified() &&
+        state.value() == KafkaSubscriptionState::Recovering) {
+      record_time_recovery_started.publish();
+    }
+    auto record = subscription.template field<"record">();
+    if (!record.valid() || !record.modified()) {
+      return;
+    }
+    const auto fields = record.base().value().as_bundle();
+    recovery_live_records.emplace_back(
+        fields.at("value").checked_as<Bytes>().data,
+        node.graph().evaluation_time());
+    if (recovery_live_records.size() == 2) {
+      node.graph().executor().request_stop();
+    }
+  }
+};
+
+struct RecordTimeRecoveryLiveGraph {
+  static constexpr auto name = "kafka_record_time_recovery_live_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("record-time-recovery-live");
+    register_service(w, path, production_config.clone());
+    auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, subscription_key.clone());
+    static_cast<void>(
+        wire<RecordTimeRecoveryLiveCapture>(w, subscribe(w, path, key)));
   }
 };
 
@@ -1982,6 +2023,55 @@ void test_record_time_recovery_is_deterministically_merged() {
       "record-time recovery did not emit records on increasing graph times");
 }
 
+void test_record_time_recovery_hands_off_before_live_records() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-record-time-live"});
+  const DateTime history_time{
+      std::chrono::duration_cast<TimeDelta>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              wall_now().time_since_epoch())) +
+      TimeDelta{2'000'000}};
+  cluster.seed_record(Str{"typed-record-time-live"}, Bytes{"history"},
+                      std::nullopt, {}, 0, history_time);
+
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-record-time-live-subscriber"})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-record-time-live"}, Int{0}}})
+          .group_id(Str{"typed-record-time-live-group"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Unbounded))
+          .commit_mode(KafkaCommitMode::None)
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-record-time-live-subscription"})
+          .build();
+  record_time_recovery_started.reset();
+  recovery_live_records.clear();
+
+  auto executor = start_realtime(build_graph<RecordTimeRecoveryLiveGraph>(),
+                                 TimeDelta{8'000'000});
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  require(record_time_recovery_started.await(1),
+          "record-time subscription did not enter recovery");
+  cluster.seed_record(Str{"typed-record-time-live"}, Bytes{"live"});
+  runner.join();
+
+  require(recovery_live_records.size() == 2,
+          "record-time handoff did not deliver history and live records");
+  require(recovery_live_records[0].first == Str{"history"} &&
+              recovery_live_records[1].first == Str{"live"},
+          "a live record overtook timestamped recovery");
+  require(recovery_live_records[0].second == history_time,
+          "record-time history did not retain its Kafka timestamp");
+  require(recovery_live_records[1].second > recovery_live_records[0].second,
+          "the live handoff did not follow the timestamped recovery tail");
+}
+
 void test_graph_lifetime_stop_is_bounded_in_simulation() {
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-record-time"});
@@ -2236,6 +2326,7 @@ int main() {
     test_independent_assignment_reads_every_partition();
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
+    test_record_time_recovery_hands_off_before_live_records();
     test_graph_lifetime_stop_is_bounded_in_simulation();
     test_multiple_simulation_subscriptions_replay_at_record_time();
     test_real_broker_publish_subscribe_and_commit_round_trip();
