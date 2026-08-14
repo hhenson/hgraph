@@ -16,6 +16,8 @@ Both now resolve through ``resolve_type_alias``.
 
 from dataclasses import dataclass
 
+import pytest
+
 
 import hgraph as hg
 
@@ -153,3 +155,38 @@ def test_a_deep_alias_chain_resolves():
         return ts.value
 
     assert hg.eval_node(node, [9]) == [9]
+
+
+type Stream[T] = hg.TS[T]
+type StreamDict[K, V] = hg.TSD[K, hg.TS[V]]
+
+
+def test_a_generic_alias_over_a_time_series_substitutes_structurally():
+    """`type Stream[T] = TS[T]` used as `Stream[int]`.
+
+    The alias body is an hgraph expression, not a builtin generic, so it has no
+    ``__getitem__`` to substitute through - re-subscripting raised
+    ``'_GenericTsExpr' object is not subscriptable``. What it does carry is a
+    C++ TypePattern with free variables, which substitutes structurally.
+    """
+
+    @hg.compute_node
+    def node(ts: Stream[int]) -> hg.TS[int]:
+        return ts.value
+
+    assert hg.eval_node(node, [7]) == [7]
+
+
+@pytest.mark.xfail(
+    reason="Pattern resolution succeeds, but lifting a plain python value against "
+    "the alias still goes through a path that does not resolve it: the dict is "
+    "lifted to TS[Map[str,int]] rather than a TSD, so binding is rejected. Needs "
+    "the same resolution at the value-lifting entry point.",
+    strict=True,
+)
+def test_a_generic_alias_over_a_tsd_binds_a_plain_value():
+    @hg.compute_node
+    def node(tsd: StreamDict[str, int]) -> hg.TS[int]:
+        return len(tsd.value)
+
+    assert hg.eval_node(node, [{"x": 1}]) == [1]
