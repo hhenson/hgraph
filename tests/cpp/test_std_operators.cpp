@@ -2968,6 +2968,25 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Str>(Str{"1"}, Str{"2"}, Str{}, Str{"4"}, Str{}),
                      values<TimeDelta>(MIN_TD * 2, none, none, none, none)),
                  values<Str>(Str{"1"}, none, Str{}, none, Str{}));
+    // TSS selects its netting release strategy once when the node starts.
+    // Opposing changes within a window cancel, including a completely
+    // cancelled window which must not publish an empty delta.
+    CHECK_OUTPUT((eval_node<stdlib::throttle, TSS<Int>>(
+                     values<Value>(set_delta<Int>({1, 2}, {}),
+                                   set_delta<Int>({3}, {}),
+                                   set_delta<Int>({}, {2}),
+                                   set_delta<Int>({5}, {1}),
+                                   set_delta<Int>({1}, {}),
+                                   set_delta<Int>({6}, {}),
+                                   set_delta<Int>({}, {6})),
+                     values<TimeDelta>(MIN_TD * 2, none, none, none, none, none, none))),
+                 values<Value>(set_delta<Int>({1, 2}, {}),
+                               none,
+                               set_delta<Int>({3}, {2}),
+                               none,
+                               set_delta<Int>({5}, {}),
+                               none,
+                               none));
 
     CHECK_OUTPUT(eval_node<stdlib::take>(values<Int>(1, 2, 3, 4, 5), Int{3}),
                  values<Int>(1, 2, 3, none, none));
