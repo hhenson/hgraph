@@ -659,6 +659,14 @@ time-series schema before wiring. The registry selects it while building the
 interned layout; evaluation performs no lookup and holds no strategy-specific
 container.
 
+Exact child strategies compose beneath built-in ``TSB`` and ``TSD`` layouts.
+The builder interns the child's own plan, projects its columns into the parent,
+and records that projection in the parent plan. Emission and application then
+delegate through the child's selected operations without another registry
+lookup. An embedded strategy must describe and emit a single row; combining a
+multi-row child with sibling structural fields has no unambiguous row product
+and is rejected while the layout is built.
+
 Direct tuple-row application and persisted Arrow replay both adapt their
 input to ``TableRowSource`` and call the selected ``apply`` function. This is
 the important inverse guarantee: an extension does not acquire a separate

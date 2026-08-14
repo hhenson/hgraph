@@ -252,6 +252,66 @@ namespace hgraph::stdlib
                 }
             }
 
+            /** Compose an exact child override into the structural plan.
+
+                Built-in children describe directly into their parent as
+                before. A registered child is first built as its own canonical
+                layout, then its value columns are projected into the parent.
+                Evaluation can consequently invoke the already-selected child
+                ops without consulting the registry or assuming its value
+                representation. */
+            void describe_child(TableLayout &layout, const TSValueTypeMetaData *schema,
+                                std::string prefix, std::vector<std::size_t> ts_path,
+                                std::size_t level_no)
+            {
+                const TableTypeOps &selected = table_type_ops(schema);
+                const TableTypeOps &builtin = builtin_table_type_ops(schema);
+                if (&selected == &builtin)
+                {
+                    selected.describe(layout, schema, std::move(prefix), std::move(ts_path),
+                                      level_no);
+                    return;
+                }
+
+                const TsTableLayout &child =
+                    ts_table_layout(schema, layout.date_key, layout.as_of_key);
+                if (child.multi())
+                {
+                    throw std::invalid_argument(
+                        "to_table: a registered multi-row child strategy cannot be embedded "
+                        "inside a structural table layout");
+                }
+                if (child.keys.size() < 2 || child.keys.size() != child.col_metas.size())
+                {
+                    throw std::logic_error(
+                        "to_table: registered child strategy produced an invalid table layout");
+                }
+
+                begin_leaf(layout, schema);
+                TableLayout::ChildPlan child_plan{
+                    .layout = &child,
+                    .ts_path = std::move(ts_path),
+                    .columns = std::vector<std::size_t>(child.keys.size(), TableLayout::no_column),
+                };
+                // Every canonical layout starts with its bitemporal pair. They
+                // map to the parent's pair for apply, while nested emission
+                // suppresses the child's duplicate delivery.
+                child_plan.columns[0] = 0;
+                child_plan.columns[1] = 1;
+                for (std::size_t column = 2; column < child.keys.size(); ++column)
+                {
+                    const std::string &local_name = child.keys[column];
+                    const std::string name =
+                        prefix.empty()
+                            ? local_name
+                            : local_name == "value" ? prefix : prefix + "." + local_name;
+                    child_plan.columns[column] = layout.keys.size();
+                    layout.keys.push_back(name);
+                    layout.col_metas.push_back(child.col_metas[column]);
+                }
+                layout.child_plans.push_back(std::move(child_plan));
+            }
+
             void describe_tsd(TableLayout &layout, const TSValueTypeMetaData *schema, std::string,
                               std::vector<std::size_t>, std::size_t           level_no)
             {
@@ -278,7 +338,7 @@ namespace hgraph::stdlib
                               });
                 layout.levels.push_back(std::move(level));
                 const auto *child = schema->element_ts();
-                builtin_table_type_ops(child).describe(layout, child, "", {}, level_no + 1);
+                describe_child(layout, child, "", {}, level_no + 1);
             }
 
             void describe_tsb(TableLayout &layout, const TSValueTypeMetaData *schema,
@@ -296,8 +356,7 @@ namespace hgraph::stdlib
                     const std::string child_prefix =
                         prefix.empty() ? std::string{name != nullptr ? name : ""}
                                        : prefix + "." + (name != nullptr ? name : "");
-                    builtin_table_type_ops(child).describe(
-                        layout, child, child_prefix, std::move(child_path), level_no);
+                    describe_child(layout, child, child_prefix, std::move(child_path), level_no);
                 }
             }
 
@@ -311,6 +370,7 @@ namespace hgraph::stdlib
                                   TableLayout::Column entry;
                                   entry.name = suffix.empty() ? "value" : suffix;
                                   entry.leaf = leaf;
+                                  entry.column = layout.keys.size();
                                   entry.ts_path = ts_path;
                                   entry.value_path = std::move(value_path);
                                   layout.keys.push_back(entry.name);
@@ -343,6 +403,7 @@ namespace hgraph::stdlib
                     TableLayout::Column entry;
                     entry.name = column.name;
                     entry.leaf = column.leaf_meta;
+                    entry.column = layout.keys.size();
                     entry.value_path = column.path;
                     layout.keys.push_back(column.name);
                     layout.col_metas.push_back(column.leaf_meta);
@@ -622,8 +683,118 @@ namespace hgraph::stdlib
                     {
                         continue;
                     }
-                    sink.cell(sink.context, layout.value_col_start + i,
+                    sink.cell(sink.context, column.column,
                               walk_value(node.value(), column.value_path));
+                }
+            }
+
+            [[nodiscard]] TSInputView child_input(const TSInputView &root,
+                                                  std::span<const std::size_t> path)
+            {
+                TSInputView child = root.borrowed_ref();
+                for (const std::size_t index : path)
+                {
+                    auto bundle = child.as_bundle();
+                    child = bundle.at(index);
+                }
+                return child;
+            }
+
+            /** Capture one registered child's local row before projecting it
+                into its structural parent. Capturing keeps an invalid custom
+                multi-row implementation from partially mutating the parent's
+                row before the contract violation is diagnosed. */
+            struct ChildRowCapture
+            {
+                const TableLayout::ChildPlan *plan{nullptr};
+                std::vector<Value>             cells{};
+                std::vector<bool>              written{};
+                std::size_t                    rows{0};
+
+                explicit ChildRowCapture(const TableLayout::ChildPlan &plan_)
+                    : plan{&plan_}, cells(plan_.columns.size()),
+                      written(plan_.columns.size(), false)
+                {
+                }
+
+                static void cell(void *context, std::size_t column, const ValueView &value)
+                {
+                    auto &self = *static_cast<ChildRowCapture *>(context);
+                    if (self.rows != 0)
+                    {
+                        throw std::invalid_argument(
+                            "to_table: a registered child strategy emitted more than one row");
+                    }
+                    if (column >= self.cells.size())
+                    {
+                        throw std::out_of_range(
+                            "to_table: a registered child strategy emitted an unknown column");
+                    }
+                    if (column < 2)
+                    {
+                        return;  // the structural parent owns the bitemporal pair
+                    }
+                    if (self.written[column])
+                    {
+                        throw std::invalid_argument(
+                            "to_table: a registered child strategy emitted a column twice");
+                    }
+                    self.cells[column] = value.has_value() ? Value{value} : Value{};
+                    self.written[column] = true;
+                }
+
+                static void end_row(void *context)
+                {
+                    auto &self = *static_cast<ChildRowCapture *>(context);
+                    ++self.rows;
+                    if (self.rows > 1)
+                    {
+                        throw std::invalid_argument(
+                            "to_table: a registered child strategy emitted more than one row");
+                    }
+                }
+
+                [[nodiscard]] RowSink sink()
+                {
+                    return RowSink{.context = this, .cell = &cell, .end_row = &end_row};
+                }
+
+                void deliver(const RowSink &sink) const
+                {
+                    if (rows != 1)
+                    {
+                        throw std::invalid_argument(
+                            "to_table: a registered child strategy must emit exactly one row");
+                    }
+                    for (std::size_t column = 2; column < cells.size(); ++column)
+                    {
+                        const std::size_t parent_column = plan->columns[column];
+                        if (parent_column == TableLayout::no_column || !cells[column].has_value())
+                        {
+                            continue;
+                        }
+                        sink.cell(sink.context, parent_column, cells[column].view());
+                    }
+                }
+            };
+
+            void write_child_cells(const RowSink &sink, const TsTableLayout &layout,
+                                   const TSInputView &leaf, Int mode, DateTime now,
+                                   DateTime as_of, bool emit_removals,
+                                   bool reject_empty_frames)
+            {
+                for (const TableLayout::ChildPlan &plan : layout.child_plans)
+                {
+                    TSInputView child = child_input(leaf, plan.ts_path);
+                    if ((mode == kModeTick && !child.modified()) || !child.valid())
+                    {
+                        continue;
+                    }
+                    ChildRowCapture capture{plan};
+                    const RowSink   child_sink = capture.sink();
+                    plan.layout->ops->emit(*plan.layout, child, mode, now, as_of, emit_removals,
+                                           child_sink, reject_empty_frames);
+                    capture.deliver(sink);
                 }
             }
 
@@ -655,7 +826,7 @@ namespace hgraph::stdlib
                         const Value cell = frame_cell(frame, column.name, column.leaf, r);
                         if (cell.has_value())
                         {
-                            sink.cell(sink.context, layout.value_col_start + i, cell.view());
+                            sink.cell(sink.context, column.column, cell.view());
                         }
                     }
                     sink.end_row(sink.context);
@@ -681,6 +852,10 @@ namespace hgraph::stdlib
                     sink.cell(sink.context, 1, scalars.as_of.view());
                     deliver_keys(sink, scalars, chain);
                     write_value_cells(sink, layout, ts, mode);
+                    write_child_cells(sink, layout, ts, mode,
+                                      scalars.now.view().checked_as<DateTime>(),
+                                      scalars.as_of.view().checked_as<DateTime>(), emit_removals,
+                                      reject_empty_frames);
                     sink.end_row(sink.context);
                     return;
                 }
@@ -890,12 +1065,15 @@ namespace hgraph::stdlib
         namespace
         {
             void emit_plain(const TableLayout &layout, const TSInputView &ts, Int mode,
-                            DateTime now, DateTime as_of, bool, const TableRowSink &sink, bool)
+                            DateTime now, DateTime as_of, bool emit_removals,
+                            const TableRowSink &sink, bool reject_empty_frames)
             {
                 const RowScalars scalars{now, as_of};
                 sink.cell(sink.context, 0, scalars.now.view());
                 sink.cell(sink.context, 1, scalars.as_of.view());
                 write_value_cells(sink, layout, ts, mode);
+                write_child_cells(sink, layout, ts, mode, now, as_of, emit_removals,
+                                  reject_empty_frames);
                 sink.end_row(sink.context);
             }
 
@@ -977,6 +1155,74 @@ namespace hgraph::stdlib
                 return key;
             }
 
+            [[nodiscard]] TSOutputView child_output(const TSOutputView &root,
+                                                    std::span<const std::size_t> path)
+            {
+                TSOutputView child = root.borrowed_ref();
+                for (const std::size_t index : path)
+                {
+                    child = child.indexed_child_at(index);
+                }
+                return child;
+            }
+
+            struct ChildRowSource
+            {
+                const TableLayout::ChildPlan *plan{nullptr};
+                const TupleView              *row{nullptr};
+
+                static Value cell(const void *context, std::size_t row_index,
+                                  std::size_t column)
+                {
+                    const auto &self = *static_cast<const ChildRowSource *>(context);
+                    if (row_index != 0 || column >= self.plan->columns.size())
+                    {
+                        throw std::out_of_range(
+                            "from_table: registered child row or column is out of range");
+                    }
+                    const std::size_t parent_column = self.plan->columns[column];
+                    if (parent_column == TableLayout::no_column)
+                    {
+                        return {};
+                    }
+                    const ValueView value = self.row->at(parent_column);
+                    return value.has_value() ? Value{value} : Value{};
+                }
+
+                [[nodiscard]] TableRowSource source() const
+                {
+                    return TableRowSource{.context = this, .rows = 1, .cell = &cell};
+                }
+            };
+
+            void apply_child_plans(const TsTableLayout &layout, const TupleView &row,
+                                   const TSOutputView &out)
+            {
+                for (const TableLayout::ChildPlan &plan : layout.child_plans)
+                {
+                    bool has_value = false;
+                    for (std::size_t column = 2; column < plan.columns.size(); ++column)
+                    {
+                        const std::size_t parent_column = plan.columns[column];
+                        if (parent_column != TableLayout::no_column &&
+                            row.at(parent_column).has_value())
+                        {
+                            has_value = true;
+                            break;
+                        }
+                    }
+                    if (!has_value)
+                    {
+                        continue;
+                    }
+
+                    const ChildRowSource projection{.plan = &plan, .row = &row};
+                    const TableRowSource source = projection.source();
+                    TSOutputView child = child_output(out, plan.ts_path);
+                    plan.layout->ops->apply(*plan.layout, source, child);
+                }
+            }
+
             void apply_leaf_row(const TsTableLayout &layout, const TupleView &row,
                                 const TSOutputView &out)
             {
@@ -985,7 +1231,7 @@ namespace hgraph::stdlib
                     layout.value_cols.front().value_path.empty() &&
                     layout.value_cols.front().ts_path.empty())
                 {
-                    const ValueView &cell = row.at(layout.value_col_start);
+                    const ValueView &cell = row.at(layout.value_cols.front().column);
                     if (cell.has_value())
                     {
                         apply_current_value(out, cell);
@@ -995,27 +1241,30 @@ namespace hgraph::stdlib
 
                 // Compound leaf: rebuild a (possibly partial) value and apply
                 // it as the tick's delta (unset fields stay unset).
-                Value value{checked_binding(leaf_ts->value_schema, "from_table")};
-                bool  any = false;
-                for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
+                if (!layout.value_cols.empty())
                 {
-                    const auto      &column = layout.value_cols[i];
-                    const ValueView &cell = row.at(layout.value_col_start + i);
-                    if (!cell.has_value())
+                    Value value{checked_binding(leaf_ts->value_schema, "from_table")};
+                    bool  any = false;
+                    for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
                     {
-                        continue;
+                        const auto      &column = layout.value_cols[i];
+                        const ValueView &cell = row.at(column.column);
+                        if (!cell.has_value())
+                        {
+                            continue;
+                        }
+                        std::vector<std::size_t> full_path = column.ts_path;
+                        full_path.insert(full_path.end(), column.value_path.begin(),
+                                         column.value_path.end());
+                        walk_mutable(value.view().begin_mutation(), full_path).copy_from(cell);
+                        any = true;
                     }
-                    std::vector<std::size_t> full_path = column.ts_path;
-                    full_path.insert(full_path.end(), column.value_path.begin(),
-                                     column.value_path.end());
-                    walk_mutable(value.view().begin_mutation(), full_path).copy_from(cell);
-                    any = true;
+                    if (any)
+                    {
+                        apply_delta(out, value.view());
+                    }
                 }
-                if (!any)
-                {
-                    return;
-                }
-                apply_delta(out, value.view());
+                apply_child_plans(layout, row, out);
             }
 
             void apply_partition_row(const TsTableLayout &layout, std::size_t level_index,

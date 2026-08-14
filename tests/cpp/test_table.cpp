@@ -386,6 +386,48 @@ namespace
                 .as<TS<ExtensionTableScalar>>();
         }
     };
+
+    using NestedExtensionBundle =
+        UnNamedTSB<Field<"custom", TS<ExtensionTableScalar>>, Field<"regular", TS<Int>>>;
+    using NestedExtensionDict = TSD<Str, TS<ExtensionTableScalar>>;
+
+    template <typename Schema>
+    struct NestedExtensionTableRoundTripGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "nested_extension_table_round_trip_graph";
+
+        static Port<Schema> compose(Wiring &w, Port<Schema> ts)
+        {
+            auto rows = wire<stdlib::to_table>(w, ts);
+            return wire<stdlib::from_table, Schema>(w, rows).template as<Schema>();
+        }
+    };
+
+    template <typename Schema>
+    struct NestedExtensionRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "nested_extension_record_graph";
+
+        static Port<Schema> compose(Wiring &w, Port<Schema> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"values"},
+                                 arg<"recordable_id">(Str{"nested_extension"}));
+            return ts;
+        }
+    };
+
+    template <typename Schema>
+    struct NestedExtensionReplayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "nested_extension_replay_graph";
+
+        static Port<Schema> compose(Wiring &w)
+        {
+            return wire<stdlib::replay, Schema>(
+                       w, Str{"values"}, arg<"recordable_id">(Str{"nested_extension"}))
+                .template as<Schema>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("table operators: to_table emits one bitemporal tuple row per tick")
@@ -495,6 +537,56 @@ TEST_CASE("table type ops: stored replay dispatches through the extension "
     CHECK(extension_describes == 1);
     CHECK(extension_emits == 2);
     CHECK(extension_applies == 2);
+}
+
+TEST_CASE("table type ops: a registered child composes beneath a TSB")
+{
+    stdlib::register_standard_operators();
+    const auto *child_schema =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    extension_describes = 0;
+    extension_emits = 0;
+    extension_applies = 0;
+    register_table_type_ops(child_schema, extension_table_ops);
+
+    const Value first = tsb_delta<NestedExtensionBundle>(ExtensionTableScalar{1}, Int{10});
+    const Value second = tsb_delta<NestedExtensionBundle>(ExtensionTableScalar{3}, Int{30});
+    CHECK_OUTPUT(
+        eval_node<NestedExtensionTableRoundTripGraph<NestedExtensionBundle>>(
+            values<Value>(first, none, second)),
+        values<Value>(first, none, second));
+
+    CHECK(extension_describes == 1);
+    CHECK(extension_emits == 2);
+    CHECK(extension_applies == 2);
+}
+
+TEST_CASE("table type ops: a registered child records and replays beneath a TSD")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+    const auto *child_schema =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    extension_describes = 0;
+    extension_emits = 0;
+    extension_applies = 0;
+    register_table_type_ops(child_schema, extension_table_ops);
+
+    const Value first = dict_delta<Str, TS<ExtensionTableScalar>>(
+        {{Str{"one"}, ExtensionTableScalar{1}}, {Str{"two"}, ExtensionTableScalar{2}}});
+    const Value second = dict_delta<Str, TS<ExtensionTableScalar>>(
+        {{Str{"one"}, ExtensionTableScalar{4}}});
+    const auto expected = values<Value>(first, second);
+
+    (void)eval_node<NestedExtensionRecordGraph<NestedExtensionDict>>(expected);
+    CHECK_OUTPUT(eval_node<NestedExtensionReplayGraph<NestedExtensionDict>>(), expected);
+
+    CHECK(extension_describes == 1);
+    CHECK(extension_emits == 3);
+    CHECK(extension_applies == 3);
 }
 
 TEST_CASE("table type ops: registry reset withdraws exact-schema overrides")
