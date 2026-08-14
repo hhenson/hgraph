@@ -138,16 +138,18 @@ namespace hgraph
 
         /** The port a value consumer should observe: the ref is followed
             (recursively, for container schemas) unless the parameter asked for
-            a reference. */
+            a reference. ``S = void`` is an argument that declares nothing at
+            all - a bare ``**kwargs`` entry - which by the rule is a value.
+
+            This is the ONE place the rule is decided. Everything that binds
+            arguments routes through it rather than dereferencing by hand, so
+            there is a single answer to change rather than a set to keep in
+            step. */
         template <typename S>
         [[nodiscard]] inline WiringPortRef value_argument(WiringPortRef port)
         {
             if constexpr (declares_reference<S>::value) { return port; }
-            else
-            {
-                port.schema = TypeRegistry::instance().dereference(port.schema);
-                return port;
-            }
+            else { return graph_wiring_detail::value_consumer_source(std::move(port)); }
         }
     }  // namespace operator_dispatch_detail
 

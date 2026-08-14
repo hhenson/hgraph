@@ -128,15 +128,25 @@ explicit request. Dereferencing there would strip it and leave output resolution
 describing a reference the implementation never receives — the rule's own
 failure mode, inverted.
 
-.. note::
+**If you replace ``OperatorImpl::wire``, you own the rule.** An overload may
+substitute a hand-written wire closure for the generated one — ``apply_`` does,
+because the resolved output schema has to reach the packed runtime node. That
+closure receives the raw ``WiringArg`` span, so ``operator_dispatch`` never
+binds its arguments and nothing applies the rule for it. Call
+``operator_dispatch_detail::value_argument`` on what the signature it stands in
+for declares:
 
-   ``log_`` / ``print_`` and ``format_`` still call
-   ``graph_wiring_detail::value_consumer_source`` explicitly, and removing
-   those calls fails ``logger: packed value consumers dereference reference
-   arguments``. They declare the same ``VarIn`` / ``VarKwIn`` selectors the
-   rule covers, so *why* the rule does not reach them is not yet established —
-   do not assume it is a separate binding path until that is traced. Until it
-   is understood, a consumer that packs ports itself must dereference them.
+.. code-block:: cpp
+
+   // apply_value_callable_signature declares VarIn<"args", TsVar<"S">>.
+   using apply_args = VarIn<"args", TsVar<"S">>;
+   positional.push_back(
+       operator_dispatch_detail::value_argument<apply_args::schema_type>(as_port(args[index])));
+
+This is the only category of exemption. ``log_`` / ``print_`` / ``format_``
+declare ordinary ``VarIn`` / ``VarKwIn`` selectors and are covered — they each
+used to dereference by hand, and those calls were removed once the rule was
+structural.
 
 Structure-preserving packing is different: ``tsb_itemwise`` and the
 ``map_`` / ``switch_`` / ``mesh_`` machinery pass references deliberately —
