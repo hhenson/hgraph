@@ -206,10 +206,23 @@ namespace hgraph
         [[nodiscard]] ValueView delta_value(DateTime evaluation_time) const;
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-        /** Current value converted by the TSData binding's type-erased Python export op. */
+        /**
+         * Export the current value through this live representation's
+         * type-erased TSDataOps table.
+         *
+         * Structural implementations must recursively invoke child TSDataOps
+         * and produce the complete public Python shape. Callers must not
+         * switch on TSTypeKind and reconstruct that shape themselves.
+         */
         [[nodiscard]] nb::object value_to_python() const;
 
-        /** Delta value for ``evaluation_time`` converted by the TSData binding's type-erased Python export op. */
+        /**
+         * Export the delta for ``evaluation_time`` through this live
+         * representation's type-erased TSDataOps table.
+         *
+         * As with value_to_python(), recursive shape conversion belongs to
+         * the concrete TSData strategy, not its Python-facing caller.
+         */
         [[nodiscard]] nb::object delta_value_to_python(DateTime evaluation_time) const;
 #endif
 

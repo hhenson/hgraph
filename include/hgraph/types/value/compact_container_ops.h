@@ -568,12 +568,18 @@ namespace hgraph
             }
             const auto element_binding = storage->element_binding();
             const auto &ops = element_binding.ops_ref();
-            nb::set result;
+            nb::list items;
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
-                result.add(ops.to_python(storage->element_at(i)));
+                items.append(ops.to_python(storage->element_at(i)));
             }
-            return result;
+            // A compact Set is the value-layer realization of Python's
+            // immutable frozenset scalar. This concrete ValueOps strategy must
+            // establish that public representation itself; TSData strategies
+            // and Python facades consume the erased result unchanged. Slot-
+            // backed TSS collections install different ValueOps and retain
+            // their collection-specific mutable set surface.
+            return nb::steal(PyFrozenSet_New(items.ptr()));
         }
 
         void set_from_python(const void *, const ValueTypeRef &binding, void *memory, nb::handle source);

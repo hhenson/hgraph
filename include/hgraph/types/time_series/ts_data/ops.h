@@ -194,6 +194,9 @@ namespace hgraph
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
         bool indexed_child_growth{false};
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+        // Required for every representation that can reach a Python-authored
+        // node. Structural strategies recurse through each child's TSDataOps;
+        // Python facades must never reconstruct shapes by switching on kind.
         bool (*from_python_impl)(const void *context, void *memory, nb::handle source,
                                  DateTime modified_time) = &ts_data_detail::missing_from_python;
         nb::object (*to_python_impl)(const void *context,

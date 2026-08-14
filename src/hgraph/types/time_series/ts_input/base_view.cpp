@@ -495,6 +495,42 @@ namespace hgraph
         throw std::logic_error("TSInputView::delta_value requires a live input view");
     }
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+    nb::object TSInputView::value_to_python() const
+    {
+        const auto &data = data_view();
+        return data.valid() ? data.value_to_python() : nb::none();
+    }
+
+    nb::object TSInputView::delta_value_to_python() const
+    {
+        const auto &data = data_view();
+        if (!data.valid()) { return nb::none(); }
+
+        // Sampled target rebinds carry the modification on the input link,
+        // not on the already-valid target. In that case the input delta is
+        // the target's current value, exported by the target TSData strategy.
+        if (is_target_position())
+        {
+            const auto *link = detail::target_link_storage(data_.raw_data);
+            if (link != nullptr && link->tracking.last_modified_time > data.last_modified_time())
+            {
+                return data.value_to_python();
+            }
+        }
+
+        nb::object delta = data.delta_value_to_python(evaluation_time_);
+        if (!delta.is_none()) { return delta; }
+
+        const auto *view_schema = schema();
+        if (view_schema != nullptr && view_schema->kind == TSTypeKind::TS && modified())
+        {
+            return data.value_to_python();
+        }
+        return nb::none();
+    }
+#endif
+
     DynamicStorageMetrics TSInputView::dynamic_storage_metrics() const noexcept
     {
         return input_ != nullptr ? input_->dynamic_storage_metrics() : DynamicStorageMetrics{};

@@ -404,6 +404,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     .indexed_child_memory_impl = &dynamic_indexed_element_memory,
                     .mutable_indexed_child_memory_impl = &dynamic_mutable_indexed_element_memory,
                     .indexed_child_growth      = true,
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                    .to_python_impl            = &dynamic_to_python,
+                    .delta_to_python_impl      = &dynamic_delta_to_python,
+#endif
                 };
                 ops.size_impl                   = &dynamic_indexed_size;
                 ops.modified_index_count_impl   = &dynamic_modified_index_count;
@@ -418,7 +422,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 value_list_ops = IndexedValueOps{
                     {ValueOpsKind::Indexed, this, false, &dynamic_value_hash, &dynamic_value_equals,
                      &dynamic_value_compare,
-                     &dynamic_value_to_string},
+                     &dynamic_value_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                     ,
+                     &dynamic_value_projection_to_python
+#endif
+                    },
                     &dynamic_value_size,
                     &dynamic_value_element_at,
                     &dynamic_value_element_binding,
@@ -433,7 +442,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 delta_map_ops = MapValueOps{
                     {{ValueOpsKind::Map, this, false, &dynamic_delta_map_hash, &dynamic_delta_map_equals,
                       &dynamic_delta_map_compare,
-                      &dynamic_delta_map_to_string},
+                      &dynamic_delta_map_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                      ,
+                      &dynamic_delta_projection_to_python
+#endif
+                     },
                      &dynamic_delta_map_size,
                      &dynamic_delta_map_key_at_index,
                      &dynamic_delta_map_key_binding,
@@ -454,7 +468,12 @@ namespace hgraph::ts_data_plan_factory_detail
 
                 delta_key_set_ops = SetValueOps{
                     {{ValueOpsKind::Set, this, false, &dynamic_delta_key_set_hash, &dynamic_delta_key_set_equals,
-                      &dynamic_delta_key_set_compare, &dynamic_delta_key_set_to_string},
+                      &dynamic_delta_key_set_compare, &dynamic_delta_key_set_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                      ,
+                      &dynamic_delta_key_set_projection_to_python
+#endif
+                     },
                      &dynamic_delta_map_size,
                      &dynamic_delta_map_key_at_index,
                      &dynamic_delta_map_key_binding,
@@ -471,6 +490,71 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return static_cast<const DynamicTSLContext *>(context);
             }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            [[nodiscard]] static nb::object dynamic_value_projection_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                return Value{ValueView{state->list_layout.value_binding, memory}}.to_python();
+            }
+
+            [[nodiscard]] static nb::object dynamic_delta_projection_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                return Value{ValueView{state->list_layout.delta_binding, memory}}.to_python();
+            }
+
+            [[nodiscard]] static nb::object dynamic_delta_key_set_projection_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                return Value{ValueView{state->delta_key_set_binding, memory}}.to_python();
+            }
+
+            /** Dynamic TSL Python export is a TSData strategy. It deliberately
+                recurses through child TSDataOps; the public facade must never
+                infer this representation from TSTypeKind. */
+            [[nodiscard]] static nb::object dynamic_to_python(const void *context,
+                                                               const void *memory)
+            {
+                const auto *state = ctx(context);
+                const auto &store = storage(memory);
+                const auto &ops = child_ops(state->element_type);
+                nb::list result;
+                for (std::size_t index = 0; index < store.size(); ++index)
+                {
+                    const auto *child = store.child_memory(index);
+                    result.append(ops.has_current_value_impl(ops.context, child)
+                                      ? ops.to_python_impl(ops.context, child)
+                                      : nb::none());
+                }
+                return nb::tuple(result);
+            }
+
+            [[nodiscard]] static nb::object dynamic_delta_to_python(
+                const void *context, const void *memory, DateTime evaluation_time)
+            {
+                const auto *state = ctx(context);
+                const auto &store = storage(memory);
+                if (store.tracking().last_modified_time != evaluation_time)
+                {
+                    return nb::none();
+                }
+                const auto &ops = child_ops(state->element_type);
+                nb::dict result;
+                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
+                {
+                    const auto index = store.modified_index_at(ordinal);
+                    const auto *child = store.child_memory(index);
+                    nb::object value = ops.delta_to_python_impl(
+                        ops.context, child, evaluation_time);
+                    if (!value.is_none()) { result[nb::int_{index}] = std::move(value); }
+                }
+                return result;
+            }
+#endif
 
             [[nodiscard]] static const TSDataLayout *dynamic_layout(const void *context) noexcept
             {

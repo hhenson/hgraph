@@ -119,7 +119,12 @@ namespace hgraph::runtime_detail
                     {
                         return nb::none();
                     }
-                    return context->layout.value_binding.ops_ref().to_python(storage->key->view().data());
+                    // This synthetic TSData strategy must preserve the scalar
+                    // ValueOps result unchanged. Representation policy (for
+                    // example compact Set -> frozenset) belongs to ValueOps,
+                    // never to this source or a Python facade.
+                    return context->layout.value_binding.ops_ref().to_python(
+                        storage->key->view().data());
                 },
                 .delta_to_python_impl      = [](const void *ctx, const void *memory, DateTime evaluation_time) -> nb::object {
                     const auto *context = static_cast<const Context *>(ctx);
@@ -129,7 +134,8 @@ namespace hgraph::runtime_detail
                     {
                         return nb::none();
                     }
-                    return context->layout.delta_binding.ops_ref().to_python(storage->key->view().data());
+                    return context->layout.delta_binding.ops_ref().to_python(
+                        storage->key->view().data());
                 },
 #endif
             };

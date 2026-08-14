@@ -166,6 +166,24 @@ the edited documentation, commands, links, or configuration directly.
 - Publish explicit data-only inspection views when debugger metadata needs
   representation details. Debuggers must not infer private implementation
   member layouts or decode standard-library containers.
+- Public Python scalar representation policy belongs in the concrete
+  `ValueOps` strategy. For example, compact Set values export `frozenset`
+  directly from their erased `to_python` operation; atomic TS storage,
+  synthetic mapped-key sources, and structural collection strategies consume
+  that result without re-normalizing it. Collection-specific shapes such as a
+  TSS value or delta remain the responsibility of their `TSDataOps` strategy.
+- Python time-series value and delta export must dispatch through the live
+  endpoint's `TSDataOps` table. Python-facing wrappers must not branch on
+  `TSTypeKind` to assemble TSD, TSL, TSB, or other runtime value shapes.
+  Representation-specific recursion and Python shaping belong in the concrete
+  TSData strategy that installs the erased operation. Synthetic bridge-only
+  projections must likewise have one explicitly documented erased strategy,
+  not an accumulating chain of facade special cases.
+- Every TSData representation that can reach a Python-authored node must
+  install working `to_python_impl` and `delta_to_python_impl` operations and
+  recursively invoke child `TSDataOps` for structural children. Tests must
+  exercise aggregate `.value` and `.delta_value`, not only individual child
+  access, including nested projected structures and CompoundScalar-backed TSBs.
 
 ## Test Guidelines
 
