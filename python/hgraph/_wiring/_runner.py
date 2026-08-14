@@ -58,7 +58,8 @@ class GraphConfiguration:
 
     :param run_mode: ``EvaluationMode.SIMULATION`` or
         ``EvaluationMode.REAL_TIME``.
-    :param start_time: Optional first evaluation time.
+    :param start_time: Optional first evaluation time. Defaults to ``MIN_ST``
+        in simulation mode and current UTC time in real-time mode.
     :param end_time: Run bound, or a :class:`~datetime.timedelta`
         relative to the effective start time.
     :param trace: ``False``, ``True``, an ``EvaluationTrace``, or keyword
@@ -95,12 +96,18 @@ class GraphConfiguration:
             logger_formatter=None,
             cleanup_on_error=True):
         self.run_mode = run_mode
+        if start_time is None:
+            start_time = (
+                utc_now()
+                if run_mode == EvaluationMode.REAL_TIME
+                else _hgraph.MIN_ST
+            )
         self.start_time = start_time
         if isinstance(end_time, timedelta):
             relative_start = (
                 utc_now()
                 if run_mode == EvaluationMode.REAL_TIME
-                else start_time if start_time is not None else _hgraph.MIN_ST
+                else self.start_time
             )
             end_time = relative_start + end_time
         self.end_time = end_time
@@ -230,7 +237,8 @@ def run_graph(
     :param graph: Decorated graph, node, or operator to evaluate.
     :param args: Positional wiring-time arguments passed to ``graph``.
     :param run_mode: Simulation or real-time evaluation mode.
-    :param start_time: First evaluation time.
+    :param start_time: First evaluation time. Defaults to ``MIN_ST`` in
+        simulation mode and current UTC time in real-time mode.
     :param end_time: Run bound, or a duration relative to the start.
     :param print_progress: Compatibility option; progress rendering is not
         performed by the runtime.

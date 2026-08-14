@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "regression-realtime-default-start",
+  "description": "A real-time run with no explicit start begins at wall-clock UTC rather than MIN_ST.",
+  "template": "realtime_default_start",
+  "inputs": {
+    "probe": [true]
+  },
+  "parameters": {},
+  "features": [
+    "shape:TS",
+    "type:bool",
+    "execution:real-time",
+    "clock:wall-time",
+    "compatibility:release-0.5"
+  ]
+}

@@ -714,6 +714,43 @@ def _lifecycle_state(hg, recipe):
 
 
 # --------------------------------------------------------------------------
+# Real-time configuration: an omitted start captures wall-clock UTC rather
+# than inheriting the simulation-only MIN_ST sentinel.
+
+def _validate_realtime_default_start(recipe):
+    if recipe.parameters:
+        raise RecipeError("realtime_default_start takes no parameters")
+    probe = recipe.inputs["probe"]
+    if len(probe) != 1 or not isinstance(probe[0], bool):
+        raise RecipeError("realtime_default_start requires one boolean probe")
+
+
+def _realtime_default_start(hg, recipe):
+    from datetime import timedelta
+
+    probe = decoded_inputs(hg, recipe)["probe"][0]
+
+    @hg.compute_node
+    def started_after_simulation_sentinel(
+        value: hg.TS[bool], _api: hg.EvaluationEngineApi = None,
+    ) -> hg.TS[bool]:
+        return value.value and _api.start_time > hg.MIN_ST
+
+    @hg.graph
+    def parity_graph() -> hg.TS[bool]:
+        return started_after_simulation_sentinel(hg.const(probe))
+
+    result = hg.evaluate_graph(
+        parity_graph,
+        config=hg.GraphConfiguration(
+            run_mode=hg.EvaluationMode.REAL_TIME,
+            end_time=timedelta(milliseconds=50),
+        ),
+    )
+    return [value for _, value in result]
+
+
+# --------------------------------------------------------------------------
 # Deeply nested higher-order structures: map_/mesh_ over a CHURNING key set,
 # a per-key switch_ FLIPPING branches (nested graphs start/stop), services
 # (request-reply / subscription) and adaptors living INSIDE those branches,
@@ -2889,6 +2926,19 @@ CATALOG = {
         operators=(),
         execute=_lifecycle_state,
     ),
+    "realtime_default_start": TemplateSpec(
+        name="realtime_default_start",
+        required_inputs=("probe",),
+        features=(
+            "shape:TS",
+            "type:bool",
+            "execution:real-time",
+            "clock:wall-time",
+            "compatibility:release-0.5",
+        ),
+        operators=("const",),
+        execute=_realtime_default_start,
+    ),
     "nested_higher_order": TemplateSpec(
         name="nested_higher_order",
         required_inputs=None,
@@ -2968,6 +3018,8 @@ def validate_recipe(recipe):
         _validate_collection_size(recipe)
     elif recipe.template == "lifecycle_state":
         _validate_lifecycle_state(recipe)
+    elif recipe.template == "realtime_default_start":
+        _validate_realtime_default_start(recipe)
     elif recipe.template == "nested_higher_order":
         _validate_nested_higher_order(recipe)
     elif recipe.template == "data_frame_recording":

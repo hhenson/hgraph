@@ -332,7 +332,6 @@ namespace hgraph::python_bridge
 
             GraphExecutorBuilder eb;
             eb.graph_builder(std::move(builder))
-                .start_time(start_time.value_or(MIN_ST))
                 .end_time(end_time.value_or(MAX_ET))
                 .mode(realtime ? GraphExecutorMode::RealTime : GraphExecutorMode::Simulation)
                 .logger(make_python_run_logger(std::move(logger), logger_level,
@@ -342,6 +341,7 @@ namespace hgraph::python_bridge
                     .capture_values = capture_values,
                 })
                 .cleanup_on_error(cleanup_on_error);
+            if (start_time.has_value()) { eb.start_time(*start_time); }
             if (requires_phase_runner)
             {
                 eb.phase_runner(&py_run_executor_phase);
