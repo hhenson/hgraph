@@ -1,10 +1,10 @@
 RFC 0016: Object-Store Frame Persistence
 ========================================
 
-:Status: Proposed; reference implementation in progress
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-10
-:Target: Next hgraph minor release
+:Target: 0.8.x
 
 Summary
 -------
@@ -21,10 +21,10 @@ carrying frame-level metadata, and the contract below is stated so that use is
 expressible without a private extension to it.
 
 The filesystem layer this builds on is in the ``libarrow`` hgraph already
-links. Arrow IPC is too. **Parquet is not** — it lives in a separate
-``libparquet`` that no configuration currently links, and the Conan build
-disables it outright. That is a real dependency task, not a free one, and it is
-planned below rather than assumed away.
+links. Arrow IPC is too. Parquet lives in the separate ``libparquet`` library,
+so the build discovers and links it as an explicit optional capability rather
+than assuming it accompanies Arrow. The lean Conan package keeps that optional
+dependency, and Arrow's substantially larger S3 dependency tree, disabled.
 
 Scope
 -----
@@ -162,12 +162,14 @@ checks report absence; writes fail explicitly rather than silently losing
 data. Concrete strategies and their containers are private to implementation
 files.
 
-**Registration is scoped to the graph run, not the process.** ``GlobalState``
-is already owned by one graph instance and copied into and back from that run.
-The process store in ``record_replay.cpp`` is only a fallback and cannot
-represent a graph-selected destination. The precedent is
+**Registration is scoped to ``GlobalState``, not the process.** A
+``GlobalState`` belongs to the graph instance to which it is bound and may span
+several runs of that graph. It is copied into execution and back to its caller,
+so the owning erased handle deliberately shares one store context across those
+copies and runs. The process store in ``record_replay.cpp`` is only a fallback
+and cannot represent a graph-selected destination. The precedent is
 ``set_config(GlobalStateView, ...)``; the selected store follows the same
-graph-scoped ownership.
+state-scoped ownership.
 
 .. code-block:: cpp
 
@@ -179,8 +181,8 @@ graph-scoped ownership.
 
     namespace hgraph::record_replay
     {
-        /** Register for the active run; the store is owned by GlobalState and
-            released with it. Mirrors set_config's scoping. */
+        /** Register for the GlobalState scope; the store is owned by that
+            state and released with it. Mirrors set_config's scoping. */
         HGRAPH_EXPORT void set_frame_store(
             GlobalStateView state, store::FrameStore store);
     }
@@ -241,17 +243,24 @@ Credentials are explicit about the ambient case rather than silent about it:
             std::string secret_access_key;
             std::optional<std::string> session_token{};
         };
-        /** A named profile from the shared credentials file. */
+        /** Reserved spelling. The Arrow backend rejects this directly; use
+            AWS_PROFILE with Ambient instead. */
         struct Profile { std::string name; };
-        /** Assume a role, refreshed by the SDK. */
+        /** Assume a role from the ambient source credentials, refreshed by
+            the SDK. */
         struct AssumeRole { std::string role_arn; std::optional<std::string> session_name; };
 
         std::variant<Ambient, Explicit, Profile, AssumeRole> source{Ambient{}};
     };
 
-``Ambient`` is the default, so the common deployment configures nothing. An
-application that must not read ambient credentials states another alternative
-and gets a hard failure rather than an accidental fallback.
+``Ambient`` is the default, so the common deployment configures nothing.
+``Explicit`` never consults the ambient chain. ``AssumeRole`` uses the ambient
+chain for its source credentials, which is the contract of Arrow's
+``FromAssumeRole`` provider. Arrow exposes no named-profile factory without
+requiring AWS SDK headers in hgraph's public build, so ``Profile`` is retained
+as a reserved configuration spelling but rejected explicitly; applications
+select a profile through ``AWS_PROFILE`` and ``Ambient``. No alternative
+silently falls back to a different credential mode.
 
 Python compatibility contract
 -----------------------------
@@ -351,7 +360,7 @@ format needs, verified against the repository and the bundled Arrow build:
      - Parquet
    * - Library
      - ``libarrow`` — already linked
-     - ``libparquet`` — **linked by nothing today**
+     - ``libparquet`` — linked when discovered
    * - Symbols
      - ``arrow::ipc::MakeFileWriter`` / ``RecordBatchFileReader::Open``
      - ``parquet::arrow::WriteTable`` / ``parquet::arrow::FileReader``
@@ -363,30 +372,22 @@ format needs, verified against the repository and the bundled Arrow build:
      - ``conanfile.py`` sets ``arrow.parquet = False``
 
 ``arrow::fs`` is likewise present in the pyarrow build — S3, local and the
-filesystem headers are all there, confirmed by symbol inspection — but the
-Conan configuration enables neither Parquet nor S3, so both need turning on
-there.
+filesystem headers are all there, confirmed by symbol inspection. The accepted
+build integration:
 
-Enabling Parquet therefore means, in order:
+* creates the imported ``Parquet::parquet_shared`` target beside the existing
+  ``Arrow::``/``ArrowCompute::``/``ArrowAcero::`` targets when the pyarrow
+  distribution supplies it;
+* links and exports the available format libraries through the installed SDK;
+* stages the Parquet runtime beside the Python extension on Windows and audits
+  the wheel so a missing runtime fails packaging rather than first use; and
+* enables S3 when the selected Arrow distribution exposes its filesystem
+  implementation.
 
-* flip ``arrow.parquet`` in ``conanfile.py``, and enable Arrow's S3 support in
-  the same place, so the Conan configuration can build this at all;
-* add an imported ``Parquet::parquet_shared`` target beside the existing
-  ``Arrow::``/``ArrowCompute::``/``ArrowAcero::`` ones, discovered from the same
-  pyarrow directory in the pyarrow configuration;
-* link it, and export it through ``hgraph::options`` for installed consumers as
-  the Arrow targets already are;
-* stage ``parquet.dll`` beside the extension on Windows. The build tree already
-  needs this for the Arrow DLLs — ``$<TARGET_RUNTIME_DLLS:_hgraph>`` covers a
-  newly linked library automatically, but the wheel's ``install(FILES ...)``
-  list is explicit and must gain the Parquet runtime;
-* extend ``tools/audit_distribution.py`` and the installed-SDK consumer test so
-  a wheel missing the Parquet runtime fails in CI rather than at first use.
-
-The pyarrow build now discovers and stages Parquet when it is present. Conan
-still disables it, so Parquet remains a build capability rather than a promise
-of every installation; requesting it from a build without support fails
-loudly.
+The lean Conan package deliberately keeps Arrow's optional Parquet and S3
+dependency trees disabled. Those are build capabilities rather than promises
+of every installation. Requesting an unavailable capability fails loudly
+instead of selecting another format or location.
 
 Runtime and lifecycle
 ---------------------
@@ -462,18 +463,18 @@ the endpoint differing from AWS.
 The test is a hidden Catch2 case (``[.s3]``), so it does not run, and does not
 fail, in a checkout without an endpoint; it is requested by tag. That is
 preferred to reporting skipped, because ``catch_discover_tests`` surfaces a
-skip as a CTest failure. CI can gain an S3 leg by running MinIO as a service
-container and invoking the tag.
+skip as a CTest failure. The Linux native CI job starts MinIO and invokes the
+tag explicitly, covering both formats available in that build.
 
 Compatibility and migration
 ---------------------------
 
-Selecting the ``DATA_FRAME`` model creates a graph-owned native memory store
-unless the graph already has another store. A custom C++ store supplies an
-owned context plus a static ``FrameStoreOps`` table and installs the resulting
-handle either on the graph or as the process fallback. A borrowed raw context
-is deliberately no longer accepted: the graph copy-in/copy-out lifecycle must
-not be able to outlive a store representation.
+Selecting the ``DATA_FRAME`` model creates a ``GlobalState``-owned native
+memory store unless that state already has another store. A custom C++ store
+supplies an owned context plus a static ``FrameStoreOps`` table and installs
+the resulting handle either in ``GlobalState`` or as the process fallback. A
+borrowed raw context is deliberately no longer accepted: the state
+copy-in/copy-out lifecycle must not be able to outlive a store representation.
 
 Nothing about the wire format of ``Frame`` changes. Persisted files are
 ordinary Parquet or Arrow IPC and are not versioned by hgraph beyond the RFC
@@ -588,47 +589,68 @@ Parquet store raises rather than silently changing format.
 Acceptance criteria and test plan
 ---------------------------------
 
-* The default ``DATA_FRAME`` location is a graph-owned in-memory store; the full
-  existing record/replay suite passes unchanged with no destination
-  configuration.
-* Round trip through each backend — memory, local filesystem, S3 — for both
-  formats, asserting frame equality including schema.
-* RFC 0001 metadata survives every backend/format combination, and decodes
-  back to the typed value — including a composite field carried as JSON.
+* The default ``DATA_FRAME`` location is a ``GlobalState``-owned in-memory
+  store; the full existing record/replay suite passes unchanged with no
+  destination configuration.
+* Memory retains the exact frame, and each serialising backend — local
+  filesystem and S3 — round-trips every format available in its build,
+  asserting frame equality including schema.
+* RFC 0001 metadata survives memory and every serialising backend/format
+  combination, and decodes back to the typed value — including a composite
+  field carried as JSON.
 * A write to an existing key is rejected under the default immutable setting,
   and succeeds when the store opts out.
 * A key rejected by validation is rejected identically by every backend,
   including memory.
 * A per-write compression override takes effect over the store default.
-* Credential alternatives select as declared: ``Ambient`` resolves through the
-  chain, ``Explicit``/``Profile``/``AssumeRole`` do not consult it, and a
-  missing credential fails loudly.
+* Credential alternatives select as declared: ``Ambient`` uses Arrow's
+  standard chain, ``Explicit`` uses only its supplied values, ``AssumeRole``
+  uses the ambient source provider, and ``Profile`` fails with the documented
+  ``AWS_PROFILE`` guidance rather than silently choosing another mode.
 * A failing store surfaces the error rather than degrading to memory.
 * S3 coverage runs against a local S3-compatible endpoint via
   ``endpoint_override``, so it needs no cloud account. This is what makes the
   S3 path testable in CI rather than only in deployment.
 * C++ tests for each backend, per AGENTS.md, with Python tests covering only
   the narrow compatibility bridge.
-* Two runs configured with different destinations do not disturb each other's
-  store, and a store released with its GlobalState leaves no live backend.
+* Two ``GlobalState`` scopes configured with different destinations do not
+  disturb each other's store, and a store released with its state leaves no
+  live backend.
 * The installed-SDK consumer test links and uses whichever format libraries the
   build claims to support.
 
-Implementation status
----------------------
+Reference implementation validation
+-----------------------------------
 
-Native memory and local-filesystem stores, format handling, key validation,
-immutable writes and graph-scoped ownership are implemented. S3 remains
-build-option dependent. RFC 0019 consumes this graph-scoped store; segmented
-recordings remain deferred to its step 7.
+The accepted implementation provides native memory, local-filesystem and
+build-option-dependent S3 stores; Arrow IPC and build-option-dependent Parquet;
+format-preserving RFC 0001 metadata; key validation; immutable writes;
+per-write compression overrides; and ``GlobalState``-scoped ownership. RFC
+0019 consumes this store and implements native segmented recording over its
+immutable object operations. The Python compatibility bridge remains limited
+to atomic ``store``/``load``/``has`` calls.
+
+The ordinary native suite covers memory, local persistence, both formats,
+typed metadata recovery, compression selection, state isolation and lifetime,
+failure propagation, and the installed type-erased SDK contract. The hidden
+S3 conformance case runs against MinIO in Linux CI and covers the same frame,
+schema, typed metadata, key-validation and immutability contract through the
+real Arrow S3 filesystem.
+
+Closure validation on 2026-08-14 passed all 1,582 tests from a fresh macOS
+native preset. The hidden S3 case then passed 27 assertions against MinIO,
+covering Arrow IPC and Parquet. A stable-ABI wheel built with Python 3.12 and
+installed into a fresh Python 3.14 environment passed all 2,139 non-WIP tests
+(9 skipped), and the complete Sphinx build passed with warnings treated as
+errors.
 
 References
 ----------
 
 * :doc:`rfc_0001_typed_frame_metadata` — frame-level metadata this must
   preserve.
-* :doc:`../developer_guide/record_replay_table` — the graph-scoped frame-store
-  seam and the ``DATA_FRAME`` backend.
+* :doc:`../developer_guide/record_replay_table` — the
+  ``GlobalState``-scoped frame-store seam and the ``DATA_FRAME`` backend.
 * :doc:`../developer_guide/extension_policy` — core versus extension ownership.
 * Apache Arrow C++ ``arrow::fs`` filesystem layer, and the Parquet
   ``ARROW:schema`` key-value convention.

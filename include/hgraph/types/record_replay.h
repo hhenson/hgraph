@@ -153,8 +153,9 @@ namespace hgraph::record_replay
     /** The active process fallback store. */
     [[nodiscard]] HGRAPH_EXPORT const store::FrameStore &frame_store();
 
-    /** Install a configured store for one graph run. ``GlobalState`` owns a
-        copy of the erased handle and therefore shares its context. */
+    /** Install a configured store for one ``GlobalState`` scope. The state
+        owns a copy of the erased handle and therefore shares its context
+        across every graph run bound to that state. */
     HGRAPH_EXPORT void set_frame_store(GlobalStateView state, store::FrameStore frame_store);
 
     /** Remove the graph-selected store; subsequent operations use the process
@@ -169,9 +170,10 @@ namespace hgraph::record_replay
     [[nodiscard]] HGRAPH_EXPORT Frame store_read(std::string_view key);
     [[nodiscard]] HGRAPH_EXPORT bool  store_contains(std::string_view key);
 
-    /** Graph-scoped store operations. A store installed in ``state`` wins;
-        otherwise these use the process-lifetime fallback above. Runtime nodes
-        use these overloads so storage follows the graph that selected it. */
+    /** GlobalState-scoped store operations. A store installed in ``state``
+        wins; otherwise these use the process-lifetime fallback above. Runtime
+        nodes use these overloads so storage follows the graph state that
+        selected it. */
     HGRAPH_EXPORT void store_write(GlobalStateView state, std::string_view key, Frame frame);
     [[nodiscard]] HGRAPH_EXPORT Frame store_read(GlobalStateView state, std::string_view key);
     [[nodiscard]] HGRAPH_EXPORT bool  store_contains(GlobalStateView state, std::string_view key);
