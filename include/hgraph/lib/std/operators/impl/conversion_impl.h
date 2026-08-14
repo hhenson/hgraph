@@ -1586,10 +1586,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_map_zip";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -1879,10 +1879,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_collection";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -1960,10 +1960,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_map";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -2007,10 +2007,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_tsd";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -2067,10 +2067,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_tss";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -2188,10 +2188,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_tsd_zip";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -2263,10 +2263,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_tsd_from_map";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}};
+            return std::tuple{arg<"reset">(Value{})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -2321,10 +2321,10 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "collect_tsd_from_tsd";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
             // None defaults: null sources - the inputs stay unwired.
-            return {{"reset", Value{}}, {"exclude", Value{}}};
+            return std::tuple{arg<"reset">(Value{}), arg<"exclude">(Value{})};
         }
 
         static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)

@@ -164,9 +164,9 @@ namespace hgraph::stdlib
                             .output_ts);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"mode", Value{ToTableMode::Tick}}};
+            return std::tuple{arg<"mode">(ToTableMode::Tick)};
         }
 
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, GlobalStateView gs,

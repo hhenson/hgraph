@@ -51,9 +51,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "eq_numeric_epsilon";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"epsilon", Value{Float{1e-10}}}};
+            return std::tuple{arg<"epsilon">(Float{1e-10})};
         }
 
         static void eval(In<"lhs", TS<L>> lhs, In<"rhs", TS<R>> rhs, Scalar<"epsilon", Float> epsilon,
@@ -275,9 +275,9 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = Min ? "min_nonstrict" : "max_nonstrict";
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"__strict__", Value{Bool{true}}}};
+                return std::tuple{arg<"__strict__">(Bool{true})};
             }
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -312,9 +312,9 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = Min ? "min_multi" : "max_multi";
 
-            static std::vector<std::pair<std::string_view, Value>> defaults()
+            static auto defaults()
             {
-                return {{"__strict__", Value{Bool{true}}}};
+                return std::tuple{arg<"__strict__">(Bool{true})};
             }
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)

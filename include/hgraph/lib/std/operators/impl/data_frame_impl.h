@@ -241,12 +241,12 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "from_data_frame";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"dt_col", Value{Str{"date"}}},
-                    {"key_col", Value{Str{"key"}}},
-                    {"value_col", Value{Str{"value"}}},
-                    {"offset", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"dt_col">(Str{"date"}),
+                              arg<"key_col">(Str{"key"}),
+                              arg<"value_col">(Str{"value"}),
+                              arg<"offset">(TimeDelta{0})};
         }
 
         static void start(Scalar<"df", Frame> df, Scalar<"dt_col", Str> dt_col,
@@ -288,12 +288,12 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "from_data_frame_batches";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"dt_col", Value{Str{"date"}}},
-                    {"key_col", Value{Str{"key"}}},
-                    {"value_col", Value{Str{"value"}}},
-                    {"offset", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"dt_col">(Str{"date"}),
+                              arg<"key_col">(Str{"key"}),
+                              arg<"value_col">(Str{"value"}),
+                              arg<"offset">(TimeDelta{0})};
         }
 
         static void eval(In<"frames", TS<Frame>, InputValidity::Unchecked> frames,
@@ -349,9 +349,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "replay_data_frame";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"as_of_time", Value{MAX_DT}}};
+            return std::tuple{arg<"as_of_time">(MAX_DT)};
         }
 
         static void start(Scalar<"data_frame", Frame> data_frame,
@@ -396,11 +396,11 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "to_data_frame";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"dt_col", Value{Str{"date"}}},
-                    {"key_col", Value{Str{"key"}}},
-                    {"value_col", Value{Str{"value"}}}};
+            return std::tuple{arg<"dt_col">(Str{"date"}),
+                              arg<"key_col">(Str{"key"}),
+                              arg<"value_col">(Str{"value"})};
         }
 
         static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
@@ -854,9 +854,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "convert_tsd_to_frame";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"mapping", data_frame_impl_detail::empty_str_map()}};
+            return std::tuple{arg<"mapping">(data_frame_impl_detail::empty_str_map())};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
@@ -898,9 +898,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "convert_frame_to_frame";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"mapping", data_frame_impl_detail::empty_str_map()}};
+            return std::tuple{arg<"mapping">(data_frame_impl_detail::empty_str_map())};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)

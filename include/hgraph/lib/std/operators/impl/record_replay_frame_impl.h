@@ -340,19 +340,19 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "record";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}},
-                    {"as_of", Value{RecordAsOf::Inherit}},
-                    {"removes", Value{RecordRemoves::Inherit}},
-                    {"partition_names", record_replay_frame_detail::empty_names()},
-                    {"removed_names", record_replay_frame_detail::empty_names()},
-                    {"date_key", Value{Str{}}},
-                    {"as_of_key", Value{Str{}}},
-                    {"frame_prefix", Value{Str{}}},
-                    {"mode", Value{ToTableMode::Tick}},
-                    {"flush_rows", Value{Int{0}}},
-                    {"flush_interval", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"recordable_id">(Str{}),
+                              arg<"as_of">(RecordAsOf::Inherit),
+                              arg<"removes">(RecordRemoves::Inherit),
+                              arg<"partition_names">(record_replay_frame_detail::empty_names()),
+                              arg<"removed_names">(record_replay_frame_detail::empty_names()),
+                              arg<"date_key">(Str{}),
+                              arg<"as_of_key">(Str{}),
+                              arg<"frame_prefix">(Str{}),
+                              arg<"mode">(ToTableMode::Tick),
+                              arg<"flush_rows">(Int{0}),
+                              arg<"flush_interval">(TimeDelta{0})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -524,14 +524,14 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "replay";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}},
-                    {"partition_names", record_replay_frame_detail::empty_names()},
-                    {"removed_names", record_replay_frame_detail::empty_names()},
-                    {"date_key", Value{Str{}}},
-                    {"as_of_key", Value{Str{}}},
-                    {"frame_prefix", Value{Str{}}}};
+            return std::tuple{arg<"recordable_id">(Str{}),
+                              arg<"partition_names">(record_replay_frame_detail::empty_names()),
+                              arg<"removed_names">(record_replay_frame_detail::empty_names()),
+                              arg<"date_key">(Str{}),
+                              arg<"as_of_key">(Str{}),
+                              arg<"frame_prefix">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -676,9 +676,9 @@ namespace hgraph::stdlib
             return !record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}}};
+            return std::tuple{arg<"recordable_id">(Str{})};
         }
 
         static void start(Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
@@ -746,9 +746,9 @@ namespace hgraph::stdlib
         static constexpr auto name = "replay_const";
         static constexpr bool schedule_on_start = true;
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"recordable_id", Value{Str{}}}, {"tm", Value{MAX_DT}}};
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"tm">(MAX_DT)};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)

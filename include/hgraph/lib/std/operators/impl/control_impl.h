@@ -619,9 +619,9 @@ namespace hgraph::stdlib
             }
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"tick_once_only", Value{Bool{false}}}};
+            return std::tuple{arg<"tick_once_only">(Bool{false})};
         }
     };
 

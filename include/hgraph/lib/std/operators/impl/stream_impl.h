@@ -1181,9 +1181,10 @@ namespace hgraph::stdlib
             if (emitted < max_ticks.value()) { scheduler.schedule(delay.value()); }
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"initial_delay", Value{true}}, {"max_ticks", Value{std::numeric_limits<Int>::max()}}};
+            return std::tuple{arg<"initial_delay">(true),
+                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
         }
     };
 
@@ -1247,9 +1248,10 @@ namespace hgraph::stdlib
                 delay, nullptr, initial_delay.value(), max_ticks.value(), scheduler, ticks, now, out);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"initial_delay", Value{true}}, {"max_ticks", Value{std::numeric_limits<Int>::max()}}};
+            return std::tuple{arg<"initial_delay">(true),
+                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
         }
     };
 
@@ -1263,9 +1265,10 @@ namespace hgraph::stdlib
                                                  scheduler, ticks, now, out);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"initial_delay", Value{true}}, {"max_ticks", Value{std::numeric_limits<Int>::max()}}};
+            return std::tuple{arg<"initial_delay">(true),
+                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
         }
     };
 
@@ -1341,9 +1344,9 @@ namespace hgraph::stdlib
             state.set(std::move(current));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"buffer_length", Value{std::numeric_limits<Int>::max()}}};
+            return std::tuple{arg<"buffer_length">(std::numeric_limits<Int>::max())};
         }
     };
 
@@ -1427,9 +1430,9 @@ namespace hgraph::stdlib
             state.set(std::move(current));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"min_window_period", Value{Int{0}}}};
+            return std::tuple{arg<"min_window_period">(Int{0})};
         }
     };
 
@@ -1466,9 +1469,9 @@ namespace hgraph::stdlib
             state.set(std::move(current));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"min_window_period", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"min_window_period">(TimeDelta{0})};
         }
     };
 
@@ -1525,9 +1528,9 @@ namespace hgraph::stdlib
             state.set(std::move(current));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"buffer_length", Value{std::numeric_limits<Int>::max()}}};
+            return std::tuple{arg<"buffer_length">(std::numeric_limits<Int>::max())};
         }
     };
 
@@ -1597,9 +1600,9 @@ namespace hgraph::stdlib
             state.set(std::move(current));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"delay_first_tick", Value{false}}};
+            return std::tuple{arg<"delay_first_tick">(false)};
         }
     };
 
@@ -1736,9 +1739,9 @@ namespace hgraph::stdlib
             return wire<div_>(w, wire<sub_>(w, current, safe_delayed), capped);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"min_window_period", Value{Int{0}}}};
+            return std::tuple{arg<"min_window_period">(Int{0})};
         }
     };
 
@@ -1780,9 +1783,9 @@ namespace hgraph::stdlib
             return wire<div_>(w, wire<convert, TS<Float>>(w, wire<sub_>(w, current, delayed)), denom);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"min_window_period", Value{TimeDelta{0}}}};
+            return std::tuple{arg<"min_window_period">(TimeDelta{0})};
         }
     };
 
@@ -1845,9 +1848,9 @@ namespace hgraph::stdlib
            emitted value count as duplicates. The default matches upstream's
            float overload (abs_tol=1e-15), so a plain ``dedup(TS[float])``
            is tolerance-based, not exact (parity issue #69). */
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"abs_tol", Value{Float{1e-15}}}};
+            return std::tuple{arg<"abs_tol">(Float{1e-15})};
         }
 
         static void eval(In<"ts", TS<Float>> ts, In<"abs_tol", TS<Float>> abs_tol,

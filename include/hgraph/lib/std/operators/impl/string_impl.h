@@ -372,9 +372,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "join_multi";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"__strict__", Value{Bool{false}}}};
+            return std::tuple{arg<"__strict__">(Bool{false})};
         }
 
         static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
@@ -418,9 +418,9 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "join_tuple";
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"__strict__", Value{Bool{false}}}};
+            return std::tuple{arg<"__strict__">(Bool{false})};
         }
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
@@ -469,9 +469,9 @@ namespace hgraph::stdlib
             out.set(joined);
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"__strict__", Value{Bool{false}}}};
+            return std::tuple{arg<"__strict__">(Bool{false})};
         }
     };
 
@@ -569,9 +569,9 @@ namespace hgraph::stdlib
                                                      arg<"__strict__">(strict.value()));
         }
 
-        static std::vector<std::pair<std::string_view, Value>> defaults()
+        static auto defaults()
         {
-            return {{"__sample__", Value{Int{-1}}}, {"__strict__", Value{Bool{true}}}};
+            return std::tuple{arg<"__sample__">(Int{-1}), arg<"__strict__">(Bool{true})};
         }
     };
 
