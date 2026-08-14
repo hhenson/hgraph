@@ -104,6 +104,8 @@ def test_installed_consumer_resolves_the_platform_specific_cmake_config_director
 
     assert 'package_prefix.glob("lib*/cmake/hgraph")' in check
     assert 'f"-Dhgraph_DIR={config_dir}"' in check
+    assert 'cmake = cmake_tool("cmake")' in check
+    assert 'ctest = cmake_tool("ctest")' in check
 
 
 def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
