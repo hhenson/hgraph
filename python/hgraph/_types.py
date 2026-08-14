@@ -1333,7 +1333,66 @@ def _compound_value_type(scalar, type_args=()):
     return meta
 
 
+@functools.cache
+def _type_alias_types():
+    """The runtime classes a PEP 695 ``type X = ...`` alias can be.
+
+    Resolved lazily: ``typing`` is imported further down this module, and a
+    client may write its aliases against ``typing_extensions`` even on a Python
+    that ships the builtin, so both are accepted when present.
+    """
+    import typing
+
+    candidates = [getattr(typing, "TypeAliasType", None)]
+    try:
+        import typing_extensions
+
+        candidates.append(getattr(typing_extensions, "TypeAliasType", None))
+    except ImportError:
+        pass
+    return tuple(dict.fromkeys(alias for alias in candidates if alias is not None))
+
+
+def resolve_type_alias(annotation):
+    """Resolve a PEP 695 ``type X = ...`` alias to the type it names.
+
+    A ``TypeAliasType`` is a distinct runtime object, not the aliased type, so
+    every annotation entry point has to look through it or the alias reaches
+    the type machinery as an unknown object. Aliases chain (``type B = A``), so
+    resolution is transitive.
+
+    A PARAMETERISED alias needs care. ``Pair[int]`` is a ``GenericAlias`` whose
+    ``__origin__`` is the alias and whose ``__args__`` are the supplied types —
+    and it also proxies ``__value__`` to the alias body, ``tuple[T, T]``. Simply
+    reading ``__value__`` would therefore silently discard the ``int`` and yield
+    a type still parameterised by a free variable. The body is re-subscripted
+    with the supplied arguments instead.
+
+    Anything that is not an alias is returned unchanged, so this is safe to
+    call on every annotation.
+    """
+    alias_types = _type_alias_types()
+    if not alias_types:
+        return annotation
+    import typing
+
+    # Chains are finite in practice; the bound stops a pathological cycle from
+    # hanging wiring rather than reporting it.
+    for _ in range(100):
+        origin = typing.get_origin(annotation)
+        if isinstance(origin, alias_types):
+            args = typing.get_args(annotation)
+            annotation = origin.__value__[args] if args else origin.__value__
+            continue
+        if isinstance(annotation, alias_types):
+            annotation = annotation.__value__
+            continue
+        return annotation
+    raise TypeError(f"type alias {annotation!r} does not resolve (cyclic?)")
+
+
 def _value_type(scalar):
+    scalar = resolve_type_alias(scalar)
     if isinstance(scalar, _hgraph.ValueType):
         return scalar
     if isinstance(scalar, type):
@@ -1834,6 +1893,9 @@ def _pattern_of(annotation):
     """The C++ TypePattern for ANY time-series annotation - concrete
     (_TsExpr), generic (_GenericTsExpr carries its pattern) or a bare
     sentinel. The single currency of wiring-time resolution."""
+    # A PEP 695 alias naming a time-series type (``type PriceTS = TS[float]``)
+    # reaches here as the alias object, not as the TS expression it names.
+    annotation = resolve_type_alias(annotation)
     if isinstance(annotation, _TsExpr):
         return _hgraph.type_pattern_concrete(annotation.handle)
     if isinstance(annotation, _GenericTsExpr):

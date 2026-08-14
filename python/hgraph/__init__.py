@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from ._operator_groups import OPERATOR_OVERRIDE_NAMES as _OPERATOR_OVERRIDE_NAMES
 from ._types import Series
+from ._types import resolve_type_alias
 from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, REQUIRED, SCALAR, SCALAR_1, SCALAR_2, TSW, KeyValue, AUTO_RESOLVE, with_signature,
                      KEYABLE_SCALAR, TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2, OUT, SIZE,
                      NUMBER, NUMBER_2,
@@ -156,7 +157,7 @@ __all__ = [
     "WiringPort", "CmpResult", "DivideByZero", "RecordAsOf", "RecordRemoves", "NodeError", "exception_time_series", "try_except", "lift", "lower",
     "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "Traits", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
     "MIN_ST", "MIN_TD", "MIN_DT", "MAX_DT", "MAX_ET", "IN_MEMORY", "IN_MEMORY_DENSE", "DATA_FRAME",
-    "default_path",
+    "default_path", "resolve_type_alias",
     "utc_now", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "EvaluationClock", "TSW_OUT", "get_context", "equal_lambdas", "is_feature_enabled",
     "GlobalContext", "GlobalState", "set_as_of", "set_table_schema_date_key", "set_table_schema_as_of_key",
     "set_pooled_compound_scalar_storage", "set_record_replay_config", "set_time_zone_provider", "frame_store_contains", "frame_store_read", "evaluate_const",
