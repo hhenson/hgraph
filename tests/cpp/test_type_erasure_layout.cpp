@@ -42,10 +42,10 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<NodeTypeRef>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 6);
+    static_assert(GRAPH_OPS_ABI_VERSION == 7);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 4);
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
     static_assert(sizeof(ClockTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ClockTypeRef>);
     static_assert(sizeof(ValueView) == sizeof(void *) * 2);

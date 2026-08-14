@@ -83,6 +83,12 @@ and nodes:
     paths. Simulation and realtime modes are executor schema kinds and select
     separate plans and implementation records.
 
+The current graph ops ABI is 7 and the executor ops ABI is 5. These versions
+include the passive logger-policy projections used by graph and executor
+views. Consumers must validate the corresponding ``TypeRecord`` ABI before
+dispatching through either table; records built against earlier layouts are
+rejected rather than interpreted as the current table.
+
 ``EvaluationClockView``
     A read-only ``ClockPtr`` projection over executor storage. Simulation,
     realtime, and test clocks share one semantic clock schema while their
