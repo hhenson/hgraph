@@ -22,6 +22,14 @@ namespace hgraph
         struct TSDataOwnershipOps;
     }
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+    namespace python_bridge
+    {
+        struct PythonTSDataOps;
+        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &missing_python_ts_data_ops() noexcept;
+    }
+#endif
+
     namespace ts_data_detail
     {
         /** Throw the standard missing-operation exception used by default ops thunks. */
@@ -194,6 +202,10 @@ namespace hgraph
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
         bool indexed_child_growth{false};
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+        // Python authoring is a separately selected erased policy.  It must
+        // remain non-null so callers dispatch without kind/null branching.
+        const python_bridge::PythonTSDataOps *python_ops{
+            &python_bridge::missing_python_ts_data_ops()};
         // Required for every representation that can reach a Python-authored
         // node. Structural strategies recurse through each child's TSDataOps;
         // Python facades must never reconstruct shapes by switching on kind.

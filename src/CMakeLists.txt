@@ -91,7 +91,10 @@ set(HGRAPH_RUNTIME_SOURCES
 )
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
-    list(APPEND HGRAPH_RUNTIME_SOURCES hgraph/python/bridge_state.cpp)
+    list(APPEND HGRAPH_RUNTIME_SOURCES
+        hgraph/python/bridge_state.cpp
+        hgraph/python/impl/ts_data_conversion.cpp
+    )
 endif()
 
 set(HGRAPH_WIRING_SOURCES

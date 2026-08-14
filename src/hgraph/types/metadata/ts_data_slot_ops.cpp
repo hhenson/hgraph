@@ -14,6 +14,10 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/ts_data_conversion.h>
+#endif
+
 #include <sul/dynamic_bitset.hpp>
 
 #include <algorithm>
@@ -1152,6 +1156,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tss,
                     .clear_collection_impl     = &ts_data_detail::clear_tss_collection,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                    .python_ops               = &python_bridge::set_python_ts_data_ops(),
                     .from_python_impl          = &tss_from_python,
                     .to_python_impl            = &tss_to_python,
                     .delta_to_python_impl      = &tss_delta_to_python,
@@ -2114,6 +2119,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
                 base_ops.clear_collection_impl = &ts_data_detail::clear_tsd_collection;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                base_ops.python_ops = &python_bridge::dict_python_ts_data_ops();
                 base_ops.from_python_impl = &tsd_from_python;
                 base_ops.to_python_impl = &tsd_to_python;
                 base_ops.delta_to_python_impl = &tsd_delta_to_python;

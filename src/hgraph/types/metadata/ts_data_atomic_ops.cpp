@@ -5,6 +5,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #endif
 
@@ -71,6 +72,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                 .apply_delta_impl          = &ts_data_detail::apply_delta_atomic,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                .python_ops = kind == TSTypeKind::REF
+                                  ? &python_bridge::ref_python_ts_data_ops()
+                                  : &python_bridge::atomic_python_ts_data_ops(),
                 .from_python_impl =
                     value_storage == ValueStorageVariant::PythonOnly
                         ? &atomic_from_python<

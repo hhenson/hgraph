@@ -8,6 +8,10 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/ts_data_conversion.h>
+#endif
+
 #include "../time_series/ts_data/ownership.h"
 
 #include <fmt/format.h>
@@ -405,6 +409,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_indexed_child_memory_impl = &dynamic_mutable_indexed_element_memory,
                     .indexed_child_growth      = true,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                    .python_ops               = &python_bridge::list_python_ts_data_ops(),
+                    .from_python_impl          = &dynamic_from_python,
                     .to_python_impl            = &dynamic_to_python,
                     .delta_to_python_impl      = &dynamic_delta_to_python,
 #endif
@@ -553,6 +559,96 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (!value.is_none()) { result[nb::int_{index}] = std::move(value); }
                 }
                 return result;
+            }
+
+            /** Import current/replacement values through the child strategies.
+                Dynamic TSL cannot shrink because its delta model has no index
+                removal. A mapping is a sparse replacement/update; a sequence
+                covers consecutive indices and may grow the list. */
+            [[nodiscard]] static bool dynamic_from_python(
+                const void *context, void *memory, nb::handle source,
+                DateTime modified_time)
+            {
+                if (memory == nullptr)
+                {
+                    throw std::logic_error(
+                        "dynamic TSL from_python requires live storage");
+                }
+                if (source.is_none())
+                {
+                    throw std::invalid_argument(
+                        "dynamic TSL from_python requires a non-None source");
+                }
+                if (modified_time == MIN_DT)
+                {
+                    throw std::invalid_argument(
+                        "dynamic TSL from_python requires a concrete evaluation time");
+                }
+
+                const auto *state = ctx(context);
+                auto &target = storage(memory);
+                const auto &ops = child_ops(state->element_type);
+                const bool first_for_parent =
+                    target.tracking().last_modified_time != modified_time;
+                bool touched = false;
+
+                const auto update = [&](std::size_t index, nb::handle item) {
+                    target.ensure_size(index + 1, state->element_type);
+                    void *child = target.child_memory(index);
+                    if (!ops.from_python_impl(ops.context, child, item,
+                                              modified_time))
+                    {
+                        return;
+                    }
+                    auto *tracking =
+                        ops.mutable_tracking_impl(ops.context, child);
+                    if (tracking == nullptr ||
+                        !tracking->record_modified(modified_time))
+                    {
+                        throw std::logic_error(
+                            "dynamic TSL child reported an invalid modification");
+                    }
+                    target.record_child_modified(index, modified_time);
+                    touched = true;
+                };
+
+                if (nb::isinstance<nb::dict>(source))
+                {
+                    for (auto [key, item] : nb::cast<nb::dict>(source))
+                    {
+                        if (item.is_none()) { continue; }
+                        const auto index = nb::cast<std::int64_t>(key);
+                        if (index < 0)
+                        {
+                            throw std::out_of_range(
+                                "dynamic TSL from_python index must be non-negative");
+                        }
+                        update(static_cast<std::size_t>(index), item);
+                    }
+                    return first_for_parent && touched;
+                }
+
+                if (nb::isinstance<nb::str>(source) ||
+                    !nb::isinstance<nb::sequence>(source))
+                {
+                    throw std::invalid_argument(
+                        "dynamic TSL from_python expects a mapping or sequence");
+                }
+                const auto source_size = static_cast<std::size_t>(nb::len(source));
+                if (source_size < target.size())
+                {
+                    throw std::invalid_argument(
+                        "dynamic TSL from_python cannot shrink because TSL delta "
+                        "has no removal surface");
+                }
+                std::size_t index = 0;
+                for (nb::handle item : source)
+                {
+                    if (!item.is_none()) { update(index, item); }
+                    ++index;
+                }
+                target.ensure_size(source_size, state->element_type);
+                return first_for_parent && touched;
             }
 #endif
 

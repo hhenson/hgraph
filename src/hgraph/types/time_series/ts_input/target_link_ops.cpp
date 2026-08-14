@@ -5,6 +5,11 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/types/metadata/ts_data_plan_factory.h>
+#endif
+
 #include <array>
 #include <stdexcept>
 #include <utility>
@@ -1093,6 +1098,63 @@ namespace hgraph::detail
             ::hgraph::apply_delta(target_link_delta_target(out_ops.context, out), delta);
         }
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+        [[nodiscard]] TSRoleTypeRef target_link_canonical_data_type(
+            TSRoleTypeRef type)
+        {
+            if (type.schema() == nullptr)
+            {
+                throw std::logic_error(
+                    "target-link Python conversion requires a resolved schema");
+            }
+            return TSDataPlanFactory::instance()
+                .data_type_for(type.schema())
+                .as_role();
+        }
+
+        [[nodiscard]] const python_bridge::PythonTSDataOps &
+        target_link_python_ops_for(TSRoleTypeRef type)
+        {
+            return *type.ops_ref().python_ops;
+        }
+
+        [[nodiscard]] bool target_link_requires_authored_delta(
+            TSRoleTypeRef type, nanobind::handle source)
+        {
+            const auto canonical = target_link_canonical_data_type(type);
+            return target_link_python_ops_for(canonical)
+                .requires_authored_delta_impl(canonical, source);
+        }
+
+        [[nodiscard]] Value target_link_delta_from_python(
+            TSRoleTypeRef type, nanobind::handle source, bool authored)
+        {
+            const auto canonical = target_link_canonical_data_type(type);
+            return target_link_python_ops_for(canonical)
+                .delta_from_python_impl(canonical, source, authored);
+        }
+
+        void target_link_apply_python_result(const TSOutputView &output,
+                                             nanobind::handle result)
+        {
+            const auto &ops = output.data_view().ops();
+            python_bridge::apply_python_result(
+                target_link_delta_target(ops.context, output), result);
+        }
+
+        [[nodiscard]] const python_bridge::PythonTSDataOps &
+        target_link_python_ts_data_ops() noexcept
+        {
+            static const python_bridge::PythonTSDataOps ops{
+                .requires_authored_delta_impl =
+                    &target_link_requires_authored_delta,
+                .delta_from_python_impl = &target_link_delta_from_python,
+                .apply_result_impl = &target_link_apply_python_result,
+            };
+            return ops;
+        }
+#endif
+
         /**
          * Child-modification notifications for children reached THROUGH a
          * link view: ``at_slot``/child projections stamp the accessing view
@@ -1155,6 +1217,7 @@ namespace hgraph::detail
                 .delta_has_effect_impl     = &target_link_delta_has_effect_op,
                 .apply_delta_impl          = &target_link_apply_delta_op,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+                .python_ops               = &target_link_python_ts_data_ops(),
                 .to_python_impl            = &target_link_to_python,
                 .delta_to_python_impl      = &target_link_delta_to_python,
 #endif
