@@ -221,6 +221,7 @@ inline std::vector<Int> bounded_offsets{};
 inline std::vector<KafkaSubscriptionState> bounded_states{};
 inline std::vector<Str> bounded_payloads{};
 inline std::vector<DateTime> bounded_evaluation_times{};
+inline std::vector<std::pair<Str, DateTime>> multi_bounded_records{};
 inline std::size_t multi_bounded_complete_count{};
 inline std::vector<Int> backlog_offsets{};
 inline std::vector<Str> backlog_events{};
@@ -530,7 +531,10 @@ struct MultiBoundedSubscriptionCapture {
     if (record.valid() && record.modified()) {
       const auto fields = record.base().value().as_bundle();
       if (present(fields.at("value"))) {
-        bounded_payloads.push_back(fields.at("value").checked_as<Bytes>().data);
+        const auto payload = fields.at("value").checked_as<Bytes>().data;
+        bounded_payloads.push_back(payload);
+        multi_bounded_records.emplace_back(payload,
+                                           node.graph().evaluation_time());
       }
     }
     auto state = subscription.template field<"state">();
@@ -2022,7 +2026,7 @@ void test_graph_lifetime_stop_is_bounded_in_simulation() {
       "graph-lifetime simulation did not use Kafka record time as the historical graph time");
 }
 
-void test_multiple_simulation_subscriptions_preload_before_graph_drain() {
+void test_multiple_simulation_subscriptions_replay_at_record_time() {
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-preload-a"});
   cluster.create_topic(Str{"simulation-preload-b"});
@@ -2068,6 +2072,7 @@ void test_multiple_simulation_subscriptions_preload_before_graph_drain() {
           .sharing_identity(Str{"simulation-preload-b"})
           .build();
   bounded_payloads.clear();
+  multi_bounded_records.clear();
   multi_bounded_complete_count = 0;
 
   static_cast<void>(run_graph(build_graph<MultiBoundedSubscriptionGraph>(),
@@ -2079,6 +2084,21 @@ void test_multiple_simulation_subscriptions_preload_before_graph_drain() {
   require(bounded_payloads == expected_payloads,
           "multiple simulation subscriptions did not preload before the "
           "graph began draining their shared ingress queue");
+  std::ranges::sort(multi_bounded_records, {},
+                    &decltype(multi_bounded_records)::value_type::first);
+  require(multi_bounded_records.size() == 16,
+          "multiple simulation subscriptions did not replay every "
+          "timestamped record");
+  for (const auto &[payload, evaluation_time] : multi_bounded_records) {
+    const auto separator = payload.find('-');
+    require(separator != Str::npos,
+            "timestamp replay test produced an unexpected payload");
+    const auto offset =
+        static_cast<Int>(std::stoll(payload.substr(separator + 1)));
+    require(evaluation_time == record_time + offset * MIN_TD,
+            "multiple simulation subscriptions replayed '" + payload +
+                "' at drain time instead of its Kafka record timestamp");
+  }
   require(multi_bounded_complete_count == 2,
           "simulation did not complete both bounded subscriptions");
 }
@@ -2217,7 +2237,7 @@ int main() {
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
     test_graph_lifetime_stop_is_bounded_in_simulation();
-    test_multiple_simulation_subscriptions_preload_before_graph_drain();
+    test_multiple_simulation_subscriptions_replay_at_record_time();
     test_real_broker_publish_subscribe_and_commit_round_trip();
     std::cout << "hgraph-kafka service tests passed\n";
     return 0;

@@ -3,7 +3,23 @@ from contextlib import nullcontext
 
 import pytest
 
-from hgraph import LOGGER, compute_node, graph, TSL, TS, Size, debug_print, log_, print_, assert_, NodeException, DebugContext, null_sink
+from hgraph import (
+    LOGGER,
+    DebugContext,
+    NodeException,
+    Size,
+    TS,
+    TSL,
+    assert_,
+    combine,
+    compute_node,
+    debug_print,
+    graph,
+    if_then_else,
+    log_,
+    null_sink,
+    print_,
+)
 # deviation: hgraph.nodes internals are flat here
 from hgraph.nodes import tsl_to_tsd
 from hgraph.test import eval_node
@@ -145,6 +161,25 @@ def test_log_sample(caplog):
     assert "Sample output d" not in caplog.text
 
 
+def test_log_and_print_dereference_ref_arguments(caplog, capsys):
+    @graph
+    def main(choose_rhs: TS[bool], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        selected = if_then_else(choose_rhs, rhs, lhs)
+        details = combine(selected=selected)
+        log_("Selected {} details {}", selected, details, level=logging.ERROR)
+        print_("Selected {} details {}", selected, details)
+        return selected
+
+    with caplog.at_level(logging.ERROR, logger="hgraph"):
+        assert eval_node(main, [True], [8], [-6]) == [-6]
+
+    assert "Selected -6 details {selected: -6}" in caplog.text
+    assert "TimeSeriesReference" not in caplog.text
+    stdout = capsys.readouterr().out
+    assert "Selected -6 details {selected: -6}" in stdout
+    assert "TimeSeriesReference" not in stdout
+
+
 def test_debug_print_sample(capsys):
     @graph
     def main(ts: TS[int]):
@@ -162,6 +197,16 @@ def test_assert():
 
     with pytest.raises(NodeException, match="assertion 3 2"):
         eval_node(main, [True, None, False], [1, 2, 3, 4])
+
+
+def test_formatted_assert_dereferences_ref_arguments():
+    @graph
+    def main(condition: TS[bool], choose_rhs: TS[bool], lhs: TS[int], rhs: TS[int]):
+        selected = if_then_else(choose_rhs, rhs, lhs)
+        assert_(condition, "selected {}", selected)
+
+    with pytest.raises(NodeException, match="selected -6"):
+        eval_node(main, [False], [True], [8], [-6])
 
 
 def test_custom_label(capsys):

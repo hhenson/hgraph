@@ -689,7 +689,8 @@ private:
       const rd_kafka_topic_partition_list_t *positions,
       const std::vector<PositionBoundary> &boundaries) const noexcept;
   void complete_bounded();
-  void emit_state(KafkaSubscriptionState state);
+  void emit_state(KafkaSubscriptionState state,
+                  std::optional<DateTime> evaluation_time = std::nullopt);
   void complete_preload(Str error = {});
 
   KafkaRuntime &owner_;
@@ -986,13 +987,14 @@ public:
         retained_bytes);
   }
 
-  void emit_subscription_state(Value key,
-                               KafkaSubscriptionState state) noexcept {
+  void emit_subscription_state(
+      Value key, KafkaSubscriptionState state,
+      std::optional<DateTime> evaluation_time = std::nullopt) noexcept {
     try {
       if (!bridge_.value->push_control(
               OutputChannel::Subscription,
               subscription_envelope(std::move(key), std::nullopt, std::nullopt,
-                                    state, std::nullopt),
+                                    state, evaluation_time),
               512)) {
         emit_event(
             KafkaSeverity::Fatal, Str{"consumer"},
@@ -2021,7 +2023,11 @@ void ConsumerSession::complete_bounded() {
   bounded_complete_ = true;
   recovering_ = false;
   live_ = false;
-  emit_state(KafkaSubscriptionState::BoundedComplete);
+  emit_state(
+      KafkaSubscriptionState::BoundedComplete,
+      last_recovery_evaluation_time_.has_value()
+          ? std::optional<DateTime>{*last_recovery_evaluation_time_ + MIN_TD}
+          : std::nullopt);
   complete_preload();
   // BoundedComplete is queued behind any final record/cursor. Keep the
   // consumer owner alive until ordinary subscription or graph teardown
@@ -2264,7 +2270,11 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
     return;
   }
   live_ = true;
-  emit_state(KafkaSubscriptionState::Live);
+  emit_state(
+      KafkaSubscriptionState::Live,
+      last_recovery_evaluation_time_.has_value()
+          ? std::optional<DateTime>{*last_recovery_evaluation_time_ + MIN_TD}
+          : std::nullopt);
   complete_preload();
 }
 
@@ -2433,8 +2443,9 @@ void ConsumerSession::check_positions(rd_kafka_t *consumer) {
   rd_kafka_topic_partition_list_destroy(positions);
 }
 
-void ConsumerSession::emit_state(KafkaSubscriptionState state) {
-  owner_.emit_subscription_state(key_.clone(), state);
+void ConsumerSession::emit_state(KafkaSubscriptionState state,
+                                 std::optional<DateTime> evaluation_time) {
+  owner_.emit_subscription_state(key_.clone(), state, evaluation_time);
 }
 
 struct KafkaRuntimeHandle {

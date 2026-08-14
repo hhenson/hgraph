@@ -154,6 +154,80 @@ namespace
             return text;
         }
     };
+
+    using LoggedReferenceBundle =
+        UnNamedTSB<Field<"selected", REF<TS<Int>>>>;
+
+    struct LogReferenceArgumentsGraph
+    {
+        static constexpr auto name = "log_reference_arguments_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> choose_minimum,
+                                     Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto minimum = wire<stdlib::min_>(w, lhs, rhs);
+            auto maximum = wire<stdlib::max_>(w, lhs, rhs);
+            auto selected = wire<stdlib::if_then_else>(w, choose_minimum,
+                                                       minimum, maximum);
+            auto bundled = stdlib::to_tsb<LoggedReferenceBundle>(w, selected);
+            wire<stdlib::log_>(w, Str{"selected {}"}, selected,
+                               arg<"level">(Int{40}));
+            wire<stdlib::log_>(w, Str{"bundled {}"}, bundled,
+                               arg<"level">(Int{40}));
+            return lhs;
+        }
+    };
+
+    struct DoubleLoggedValue
+    {
+        static constexpr auto name = "double_logged_value";
+        [[nodiscard]] static Int apply(Int value) { return value * 2; }
+    };
+
+    struct CaptureLoggedValue
+    {
+        static constexpr auto name = "capture_logged_value";
+        inline static Int captured = 0;
+
+        [[nodiscard]] static Int apply(Int value)
+        {
+            captured = value;
+            return value;
+        }
+    };
+
+    struct ApplyReferenceArgumentGraph
+    {
+        static constexpr auto name = "apply_reference_argument_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> choose_minimum,
+                                     Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(
+                w, choose_minimum, wire<stdlib::min_>(w, lhs, rhs),
+                wire<stdlib::max_>(w, lhs, rhs));
+            auto callable = wire<stdlib::const_, TS<ValueCallable>>(
+                w, value_fn<DoubleLoggedValue>());
+            return wire<stdlib::apply_op, TS<Int>>(w, callable, selected);
+        }
+    };
+
+    struct CallReferenceArgumentGraph
+    {
+        static constexpr auto name = "call_reference_argument_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> choose_minimum,
+                                     Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(
+                w, choose_minimum, wire<stdlib::min_>(w, lhs, rhs),
+                wire<stdlib::max_>(w, lhs, rhs));
+            auto callable = wire<stdlib::const_, TS<ValueCallable>>(
+                w, value_fn<CaptureLoggedValue>());
+            wire<stdlib::call_op>(w, callable, selected);
+            return lhs;
+        }
+    };
 }  // namespace
 
 TEST_CASE("logger: the LoggerView injectable logs from start and eval hooks")
@@ -262,6 +336,31 @@ TEST_CASE("logger: log_ sample_count emits every nth evaluation")
     CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("sampled b"));
     CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("sampled d"));
     CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("sampled e"));
+}
+
+TEST_CASE("logger: packed value consumers dereference reference arguments")
+{
+    stdlib::register_standard_operators();
+    CapturedLog captured;
+
+    CHECK_OUTPUT(eval_node<LogReferenceArgumentsGraph>(
+                     values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Int>(8));
+
+    const std::string all = captured.joined();
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("selected -6"));
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("bundled {selected: -6}"));
+    CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("TimeSeriesReference"));
+
+    CHECK_OUTPUT(eval_node<ApplyReferenceArgumentGraph>(
+                     values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Int>(-12));
+
+    CaptureLoggedValue::captured = 0;
+    CHECK_OUTPUT(eval_node<CallReferenceArgumentGraph>(
+                     values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Int>(8));
+    CHECK(CaptureLoggedValue::captured == -6);
 }
 
 TEST_CASE("logger: reset_logger drops the cached logger and rebuilds the default")
