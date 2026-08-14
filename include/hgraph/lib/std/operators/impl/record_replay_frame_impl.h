@@ -352,7 +352,8 @@ namespace hgraph::stdlib
                               arg<"frame_prefix">(Str{}),
                               arg<"mode">(ToTableMode::Tick),
                               arg<"flush_rows">(Int{0}),
-                              arg<"flush_interval">(TimeDelta{0})};
+                              arg<"flush_interval">(TimeDelta{0}),
+                              arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -369,7 +370,8 @@ namespace hgraph::stdlib
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, TraitsView traits,
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            TraitsView traits,
             GlobalStateView gs, DateTime now, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
@@ -449,8 +451,8 @@ namespace hgraph::stdlib
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
             Scalar<"frame_prefix", Str> frame_prefix, Scalar<"mode", ToTableMode> mode,
             Scalar<"flush_rows", Int>           flush_rows,
-            Scalar<"flush_interval", TimeDelta> flush_interval, State<FrameRecorderState> state,
-            GlobalStateView gs, DateTime now)
+            Scalar<"flush_interval", TimeDelta> flush_interval, Scalar<"model", Str>,
+            State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
@@ -531,7 +533,8 @@ namespace hgraph::stdlib
                               arg<"removed_names">(record_replay_frame_detail::empty_names()),
                               arg<"date_key">(Str{}),
                               arg<"as_of_key">(Str{}),
-                              arg<"frame_prefix">(Str{})};
+                              arg<"frame_prefix">(Str{}),
+                              arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -544,7 +547,8 @@ namespace hgraph::stdlib
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
-            Scalar<"frame_prefix", Str> frame_prefix, TraitsView traits, GlobalStateView gs,
+            Scalar<"frame_prefix", Str> frame_prefix, Scalar<"model", Str>, TraitsView traits,
+            GlobalStateView gs,
             DateTime now, State<FrameReplayState> state, SingleShotScheduler sched,
             Out<TsVar<"O">> out)
         {
@@ -611,8 +615,9 @@ namespace hgraph::stdlib
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
-            Scalar<"frame_prefix", Str> frame_prefix, State<FrameReplayState> state,
-            NodeScheduler sched, GlobalStateView gs, DateTime now, Out<TsVar<"O">> out)
+            Scalar<"frame_prefix", Str> frame_prefix, Scalar<"model", Str>,
+            State<FrameReplayState> state, NodeScheduler sched, GlobalStateView gs, DateTime now,
+            Out<TsVar<"O">> out)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
@@ -678,11 +683,11 @@ namespace hgraph::stdlib
 
         static auto defaults()
         {
-            return std::tuple{arg<"recordable_id">(Str{})};
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"model">(Str{})};
         }
 
-        static void start(Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
-                          GlobalStateView gs, State<FrameRecorderState> state)
+        static void start(Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>,
+                          TraitsView traits, GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
             const auto config = record_replay::config(gs);
@@ -704,7 +709,8 @@ namespace hgraph::stdlib
         static void eval(In<"lhs", TsVar<"S">, InputValidity::Unchecked> lhs,
                          In<"rhs", TsVar<"S">, InputValidity::Unchecked> rhs,
                          Scalar<"recordable_id", Str>                    recordable_id,
-                         State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
+                         Scalar<"model", Str>, State<FrameRecorderState> state,
+                         GlobalStateView gs, DateTime now)
         {
             static_cast<void>(recordable_id);
             // Activation means at least one side ticked: a one-sided value IS
@@ -748,7 +754,7 @@ namespace hgraph::stdlib
 
         static auto defaults()
         {
-            return std::tuple{arg<"recordable_id">(Str{}), arg<"tm">(MAX_DT)};
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"tm">(MAX_DT), arg<"model">(Str{})};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -775,8 +781,8 @@ namespace hgraph::stdlib
         }
 
         static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
-                         Scalar<"tm", DateTime> tm, TraitsView traits, GlobalStateView gs,
-                         DateTime now, Out<TsVar<"O">> out)
+                         Scalar<"tm", DateTime> tm, Scalar<"model", Str>, TraitsView traits,
+                         GlobalStateView gs, DateTime now, Out<TsVar<"O">> out)
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  cutoff = tm.value() == MAX_DT ? now : tm.value();

@@ -560,3 +560,41 @@ TEST_CASE("partitioned record/replay: a stored column named like a canonical "
     CHECK_OUTPUT(replayed, values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
                                          dict_delta<Str, TS<Int>>({{"b"s, 2}})));
 }
+
+namespace
+{
+    /** Records with an explicit backend, whatever the graph is configured for. */
+    template <typename TS_>
+    struct LocalModelRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "local_model_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"local"}),
+                                 arg<"model">(Str{"DataFrame"}));
+            return ts;
+        }
+    };
+}  // namespace
+
+TEST_CASE("record/replay: a call selects its backend independently of the graph")
+{
+    GlobalContext context;
+    stdlib::register_standard_operators();
+    // The GRAPH is configured for the in-memory model...
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::Config{.model = std::string{record_replay::IN_MEMORY}});
+
+    // ...but this call asks for the data-frame backend. requires_ runs before
+    // the node exists, so the only way this can work is the call-site scalar -
+    // and every overload has to consult it, or the call matches several or
+    // none (see record_replay::call_model).
+    (void)eval_node<LocalModelRecordGraph<PriceDict>>(
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
+
+    // A frame reached the frame store, which only the DATA_FRAME overload
+    // writes to - the in-memory overloads record into GlobalState instead.
+    CHECK(record_replay::store_contains("local.ticks"));
+}

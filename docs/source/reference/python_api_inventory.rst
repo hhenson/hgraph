@@ -669,7 +669,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`replay_const <python-operator-replay_const>`
-     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
+     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ..., model: str = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`replay_data_frame <python-operator-replay_data_frame>`
      - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT``

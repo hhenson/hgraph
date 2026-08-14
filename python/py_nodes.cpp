@@ -1610,9 +1610,12 @@ struct harness_replay {
                    Scalar<"recordable_id", Str> recordable_id,
                    TraitsView traits, GlobalStateView gs, NodeScheduler sched,
                    State<Int> index, DateTime now, Out<TsVar<"S">> out) {
+    // The harness never selects a backend: it is the dense in-memory path by
+    // construction, so it forwards an empty model ("use the graph's").
     stdlib::replay_impl::eval(
-        std::move(key), std::move(recordable_id), std::move(traits),
-        std::move(gs), std::move(sched), std::move(index), now, std::move(out));
+        std::move(key), std::move(recordable_id), Scalar<"model", Str>{Str{}},
+        std::move(traits), std::move(gs), std::move(sched), std::move(index), now,
+        std::move(out));
   }
 };
 
@@ -1624,7 +1627,7 @@ struct harness_record {
   static void start(Scalar<"key", std::string> key,
                     Scalar<"sparse", Bool> sparse, GlobalStateView gs) {
     stdlib::dense_record_impl::start(std::move(key), std::move(sparse),
-                                     std::move(gs));
+                                     Scalar<"model", Str>{Str{}}, std::move(gs));
   }
 
   static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
@@ -1632,7 +1635,8 @@ struct harness_record {
                    Scalar<"sparse", Bool> sparse, GlobalStateView gs,
                    DateTime now) {
     stdlib::dense_record_impl::eval(std::move(ts), std::move(key),
-                                    std::move(sparse), std::move(gs), now);
+                                    std::move(sparse), Scalar<"model", Str>{Str{}},
+                                    std::move(gs), now);
   }
 };
 

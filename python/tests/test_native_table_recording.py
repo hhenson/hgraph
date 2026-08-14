@@ -451,3 +451,24 @@ def test_native_segmented_recording_replays_across_all_committed_frames():
 
         with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
             assert hg.eval_node(rep) == [1, 2, 3, 4, 5]
+
+
+def test_a_call_selects_its_backend_independently_of_the_graph():
+    """``requires_`` runs before the node exists, so an overload cannot read
+    node state to pick a backend - but it can read a scalar wiring argument.
+    ``model`` is that argument: the graph here is configured for the in-memory
+    model, and only the DataFrame overload writes to the frame store."""
+    @hg.graph
+    def g(ts: hg.TSD[str, hg.TS[float]]):
+        hg.record(ts, key="out", recordable_id="local", model="DataFrame")
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("InMemory")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(g, [{"a": 1.0}])
+
+        frame = hg.frame_store_read("local.out")
+
+    # A frame exists at all only because the call chose the DataFrame backend.
+    assert _rows(frame) == 1
+    assert _columns(frame) == ["__date_time__", "__as_of__", "__key_1__", "value"]

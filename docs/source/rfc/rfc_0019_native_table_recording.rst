@@ -419,10 +419,21 @@ This also answers where per-key options live: they do not live anywhere. They
 are an argument at the call site, so two recordings in one graph differ by
 being called differently rather than by a registry keyed on name.
 
-Backend selection remains graph-scoped. Overloads guard on the model through
-``requires_`` against the graph's wiring state; an individual ``record`` call
-does not select a different backend. Per-record arguments control row shape,
-names, mode, and native flush policy only.
+Backend selection is local too, which is not obvious: overloads guard on the
+model through ``requires_``, which runs before the node exists — but
+``OperatorCallContext::scalar`` exposes scalar wiring arguments by name, so a
+``model`` argument at the call site is readable there. ``record`` and
+``replay`` therefore take ``model``, defaulting to empty, meaning "use the
+graph's". The model does not have to stay graph-scoped for dispatch to work.
+
+The constraint this creates is that the guards must remain **mutually
+exclusive**. Every record/replay overload resolves through one function,
+``record_replay::call_model``, which returns the call-site model if one was
+supplied and the graph's otherwise. If one overload consulted the override and
+another read the configuration directly, a call supplying it would match
+several overloads or none, and overload resolution would report the symptom
+without the cause. That is why the resolution point is shared rather than
+duplicated into each guard.
 
 Storage
 ~~~~~~~
@@ -655,6 +666,10 @@ Acceptance criteria
 * Two ``record`` calls in one graph with different per-record options produce
   differently-shaped recordings, and a call with no options matches the
   graph-scoped defaults.
+* Selecting the backend through a local ``model`` argument dispatches to the
+  same overload the equivalent graph configuration would, and a call with no
+  ``model`` follows the graph. Every record/replay overload resolves the model
+  through one function, so a call supplying ``model`` matches exactly one.
 * ``date_key`` and ``as_of_key`` may be renamed per recording and replayed
   through the corresponding projection without changing graph configuration.
 * A statically registered exact-schema ``TableTypeOps`` controls describe,
