@@ -1,6 +1,7 @@
 #include <hgraph/lib/std/operators/impl/data_frame_impl.h>
 
 #include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
@@ -27,12 +28,29 @@ namespace hgraph::stdlib
             [[nodiscard]] ValueTypeRef checked_binding(const ValueTypeMetaData *meta,
                                                                   const char              *what)
             {
-                const auto binding = ValuePlanFactory::instance().type_for(meta);
+                const auto binding = value_type_for_active_realization(meta);
                 if (binding == nullptr)
                 {
                     throw std::logic_error(fmt::format("{}: schema has no value binding", what));
                 }
                 return binding;
+            }
+
+            /** Assign a cell through the selected destination strategy.
+                Compatible realized values need not have identical schemas or
+                storage plans. */
+            void assign_cell(const ValueView &destination,
+                             const ValueView &source)
+            {
+                if (!destination.has_value() || !source.has_value())
+                {
+                    throw std::invalid_argument(
+                        "data-frame cell assignment requires live values");
+                }
+                const auto target = destination.binding();
+                target.ops_ref().copy_assign_from(
+                    target, destination.mutable_data(), source.binding(),
+                    source.data());
             }
 
             [[nodiscard]] const ValueTypeMetaData *datetime_meta()
@@ -68,7 +86,7 @@ namespace hgraph::stdlib
                 ValueView root = row.view().begin_mutation();
                 auto      mut  = root.as_bundle().begin_mutation();
                 ValueView dest = mut.at(index);
-                dest.copy_from(cell);
+                assign_cell(dest, cell);
             }
 
             void set_bundle_field(Value &row, std::size_t index, const Value &cell)
@@ -349,7 +367,10 @@ namespace hgraph::stdlib
                     if (columns[column] < 0) { continue; }
                     Value cell = frame_cell_at(frame, columns[column],
                                                layout.col_metas[column], row);
-                    if (cell.has_value()) { tuple.at(column).copy_from(cell.view()); }
+                    if (cell.has_value())
+                    {
+                        assign_cell(tuple.at(column), cell.view());
+                    }
                 }
                 return value;
             }
@@ -366,16 +387,14 @@ namespace hgraph::stdlib
 
                 const auto row_binding =
                     checked_binding(layout.row_meta, "replay_data_frame");
-                ListBuilder builder{row_binding};
+                ListBuilder builder{row_binding, *layout.rows_meta};
                 for (const ReplayCandidate &candidate : candidates)
                 {
                     Value row = read_table_row(layout, frame, columns, candidate.row);
-                    builder.push_back_copy(row.view().data());
+                    builder.push_back(row.view());
                 }
-                Value rows{checked_binding(layout.rows_meta, "replay_data_frame")};
-                *static_cast<ListStorage *>(
-                    const_cast<void *>(rows.view().data())) = builder.build_storage();
-                return rows;
+                return builder.build(
+                    checked_binding(layout.rows_meta, "replay_data_frame"));
             }
         }  // namespace
 
@@ -831,7 +850,7 @@ namespace hgraph::stdlib
                         ValueView root = key.view().begin_mutation();
                         auto      mut  = root.as_tuple().begin_mutation();
                         ValueView dest = mut.at(i);
-                        dest.copy_from(cell.view());
+                        assign_cell(dest, cell.view());
                     }
                 }
                 else
@@ -840,7 +859,7 @@ namespace hgraph::stdlib
                         frame_cell(frame, plan.key_cols.front().column, plan.key_cols.front().leaf, r);
                     if (!cell.has_value()) { continue; }
                     ValueView dest = key.view().begin_mutation();
-                    dest.copy_from(cell.view());
+                    assign_cell(dest, cell.view());
                 }
 
                 auto bucket = std::find_if(buckets.begin(), buckets.end(), [&](const auto &entry) {

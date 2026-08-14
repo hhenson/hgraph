@@ -39,17 +39,14 @@ namespace hgraph
             ListBuilder builder{state.element_binding};
             const ValueView source_view{source, src};
             const auto values = source_view.as_list();
-            const auto *source_storage =
-                source.ops_ref().kind == ValueOpsKind::List ? static_cast<const ListStorage *>(src) : nullptr;
             for (std::size_t index = 0; index < values.size(); ++index)
             {
-                const auto child = values.at(index);
-                if (!child.has_value() || (source_storage != nullptr && !source_storage->element_set(index)))
+                if (!values.element_valid(index))
                 {
                     builder.push_back_unset();
                     continue;
                 }
-                builder.push_back(child);
+                builder.push_back(values.at(index));
             }
             *static_cast<ListStorage *>(dst) = builder.build_storage();
         }

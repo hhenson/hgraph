@@ -336,6 +336,11 @@ namespace hgraph
         {
             return static_cast<const MutableListStorage *>(memory)->element_binding();
         }
+        inline bool list_element_valid(const void *, const void *memory,
+                                       std::size_t index) noexcept
+        {
+            return static_cast<const MutableListStorage *>(memory)->element_set(index);
+        }
         inline std::size_t list_hash(const void *, const void *memory)
         {
             const auto *storage = static_cast<const MutableListStorage *>(memory);
@@ -557,6 +562,7 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<MutableListStorage>;
+            value.element_valid = &list_element_valid;
             value.accepts_source_impl = &accepts_container_source;
             value.copy_assign_from_impl = &list_copy_assign_from;
             value.move_assign_from_impl = &list_move_assign_from;

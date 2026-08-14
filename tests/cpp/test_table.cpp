@@ -3,6 +3,7 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/registry_reset.h>
@@ -28,6 +29,13 @@ struct ExtensionTableScalar
     bool         operator==(const ExtensionTableScalar &) const = default;
 };
 
+namespace polymorphic_table_repro
+{
+    struct Event
+    {
+    };
+}
+
 namespace hgraph::static_schema_detail
 {
     template <>
@@ -36,6 +44,31 @@ namespace hgraph::static_schema_detail
         static constexpr std::string_view value{"tests.ExtensionTableScalar"};
     };
 }  // namespace hgraph::static_schema_detail
+
+namespace hgraph
+{
+    template <>
+    struct scalar_descriptor<polymorphic_table_repro::Event>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.table", "Event",
+                {{"event_id", registry.value_type("str")}}, {}, true);
+        }
+    };
+}
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<polymorphic_table_repro::Event>>
+        : bundle_ts_harness<TS<polymorphic_table_repro::Event>>
+    {
+    };
+}
 
 namespace
 {
@@ -82,6 +115,44 @@ namespace
 
     const TableTypeOps extension_table_ops{&describe_extension_scalar, &emit_extension_scalar,
                                            &apply_extension_scalar};
+
+    void describe_polymorphic_event(TableLayout &layout,
+                                    const TSValueTypeMetaData *schema,
+                                    std::string, std::vector<std::size_t>,
+                                    std::size_t)
+    {
+        layout.leaf_ts = schema;
+        layout.value_col_start = layout.keys.size();
+        layout.keys.push_back("event");
+        layout.col_metas.push_back(schema->value_schema);
+        layout.value_cols.push_back(
+            TableLayout::Column{.name = "event", .leaf = schema->value_schema});
+    }
+
+    void emit_polymorphic_event(const TableLayout &layout, const TSInputView &ts,
+                                Int, DateTime now, DateTime as_of, bool,
+                                const TableRowSink &sink, bool)
+    {
+        const Value when{now};
+        const Value revision{as_of};
+        sink.cell(sink.context, 0, when.view());
+        sink.cell(sink.context, 1, revision.view());
+        sink.cell(sink.context, layout.value_col_start, ts.value());
+        sink.end_row(sink.context);
+    }
+
+    void apply_polymorphic_event(const TableLayout &layout,
+                                 const TableRowSource &source,
+                                 const TSOutputView &out)
+    {
+        const Value cell =
+            source.cell(source.context, 0, layout.value_col_start);
+        apply_current_value(out, cell.view());
+    }
+
+    const TableTypeOps polymorphic_event_table_ops{
+        &describe_polymorphic_event, &emit_polymorphic_event,
+        &apply_polymorphic_event};
 
     void describe_all_null_extension_scalar(TableLayout &layout,
                                              const TSValueTypeMetaData *schema, std::string,
@@ -452,6 +523,8 @@ namespace
     using NestedExtensionBundle =
         UnNamedTSB<Field<"custom", TS<ExtensionTableScalar>>, Field<"regular", TS<Int>>>;
     using NestedExtensionDict = TSD<Str, TS<ExtensionTableScalar>>;
+    using PolymorphicTableEvent = polymorphic_table_repro::Event;
+    using PolymorphicTableDict = TSD<Str, TS<PolymorphicTableEvent>>;
 
     template <typename Schema>
     struct NestedExtensionTableRoundTripGraph
@@ -462,6 +535,20 @@ namespace
         {
             auto rows = wire<stdlib::to_table>(w, ts);
             return wire<stdlib::from_table, Schema>(w, rows).template as<Schema>();
+        }
+    };
+
+    struct PolymorphicTableRoundTripGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "polymorphic_table_round_trip_graph";
+
+        static Port<PolymorphicTableDict>
+        compose(Wiring &w, Port<PolymorphicTableDict> ts)
+        {
+            auto rows = wire<stdlib::to_table>(w, ts);
+            return wire<stdlib::from_table, PolymorphicTableDict>(w, rows)
+                .as<PolymorphicTableDict>();
         }
     };
 
@@ -553,6 +640,85 @@ TEST_CASE("table operators: to_table -> from_table round-trips through a graph")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<TableRoundTripGraph>(values<Float>(1.5, none, -0.25)),
                  values<Float>(1.5, none, -0.25));
+}
+
+TEST_CASE("table operators materialise polymorphic row lists through the active realization")
+{
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *event = scalar_descriptor<PolymorphicTableEvent>::value_meta();
+    const auto *created = registry.bundle(
+        "tests.table", "CreateEvent",
+        {{"event_id", registry.value_type("str")},
+         {"payload", registry.value_type("str")}},
+        {event});
+    register_table_type_ops(
+        TypeRegistry::instance().ts(event), polymorphic_event_table_ops);
+
+    for (const bool pooled : {false, true})
+    {
+        INFO("table row realization " << (pooled ? "pooled" : "inline"));
+        GlobalState graph_state;
+        if (pooled)
+        {
+            set_pooled_compound_scalar_storage(graph_state.view());
+        }
+        GlobalContext graph_context{graph_state};
+
+        const TypeRealizationOptions options{
+            .polymorphic_compound_storage =
+                pooled ? PolymorphicCompoundStoragePolicy::Pooled
+                       : PolymorphicCompoundStoragePolicy::Inline,
+        };
+        const auto realization =
+            TypeRealizationSnapshot::capture(registry, options);
+        TypeRealizationScope scope{realization.get()};
+
+        BundleBuilder created_builder{
+            realization->exact_type_for(created)};
+        created_builder.set("event_id", Value{Str{"created"}});
+        created_builder.set("payload", Value{Str{"payload"}});
+        Value concrete = created_builder.build();
+
+        const auto event_binding = realization->type_for(event);
+        Value event_value{event_binding};
+        event_binding.ops_ref().copy_assign_from(
+            event_binding,
+            event_value.begin_mutation().mutable_data(),
+            concrete.binding(), concrete.view().data());
+
+        const auto key_binding =
+            realization->type_for(scalar_descriptor<Str>::value_meta());
+        SetBuilder removed{key_binding};
+        MapBuilder modified{key_binding, event_binding};
+        const Value key{Str{"order"}};
+        modified.set_item(key.view(), event_value.view());
+
+        const auto *delta_schema =
+            ts_type<PolymorphicTableDict>()->delta_value_schema;
+        BundleBuilder delta{realization->type_for(delta_schema)};
+        delta.set("removed", removed.build());
+        delta.set("modified", modified.build());
+
+        const auto actual =
+            eval_node<PolymorphicTableRoundTripGraph>(
+                values<Value>(delta.build()));
+        REQUIRE(actual.size() == 1);
+        REQUIRE(actual.front().has_value());
+        const auto output_modified =
+            actual.front()->as_bundle().field("modified").as_map();
+        REQUIRE(output_modified.size() == 1);
+        const auto round_tripped =
+            output_modified.at(key.view()).concrete();
+        REQUIRE(round_tripped.schema() == created);
+        CHECK(round_tripped.as_bundle()
+                  .field("event_id")
+                  .checked_as<Str>() == Str{"created"});
+        CHECK(round_tripped.as_bundle()
+                  .field("payload")
+                  .checked_as<Str>() == Str{"payload"});
+    }
 }
 
 TEST_CASE("table type ops: an extension supplies describe emit and apply once "
