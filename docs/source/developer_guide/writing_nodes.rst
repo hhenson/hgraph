@@ -88,6 +88,51 @@ build the real empty container:
    // tuple[str, ...] meaning "rename nothing".
    arg<"partition_names">(empty_names())
 
+A generic time-series parameter binds the DEREFERENCED type
+-------------------------------------------------------------
+
+``REF`` is always explicit. A parameter declared as a generic time-series —
+``TIME_SERIES_TYPE``, ``TsVar<"S">``, or an unconstrained ``**kwargs`` — binds
+the type with every reference followed, recursively through container schemas.
+A consumer that wants the reference token itself says so: ``REF[TS[int]]``,
+``REF[TIME_SERIES_TYPE]``.
+
+.. code-block:: cpp
+
+   In<"ts", TsVar<"S">>        // the VALUE, however many refs reach it
+   In<"ts", REF<TsVar<"S">>>   // the reference token
+
+**Why.** A reference is a routing detail — how a value is reached, not what it
+is. An operator that consumes values (formats, serialises, compares, records)
+and is handed a ref token produces *plausible nonsense* rather than failing:
+``log_`` printed the token, and ``combine[TS[JSON]]`` serialised ``"<ref>"``
+where the value belonged. Nothing raises, and the output looks like data.
+
+**Where the rule is applied.** At the point arguments are BOUND, not in each
+consumer:
+
+* ordinary inputs — ``adapt_source_for_input`` installs the adaptation;
+* variadic tails and ``**kwargs`` — ``operator_dispatch_detail::value_argument``
+  dereferences unless the declared schema is ``REF<...>``.
+
+Putting it there is what keeps it from being rediscovered one operator at a
+time. Two consumers had already been fixed individually before the rule was
+made structural, and a third (``combine[TS[JSON]]``) was still wrong.
+
+.. note::
+
+   ``log_`` / ``print_`` and ``format_`` still call
+   ``graph_wiring_detail::value_consumer_source`` explicitly, and removing
+   those calls fails ``logger: packed value consumers dereference reference
+   arguments``. They reach their arguments through a binding path the rule
+   above does not cover. That second path should be brought under the same
+   rule; until it is, a consumer that packs ports itself must dereference them.
+
+Structure-preserving packing is different: ``tsb_itemwise`` and the
+``map_`` / ``switch_`` / ``mesh_`` machinery pass references deliberately —
+they route values rather than consuming them — so they are *not* covered by
+this rule.
+
 Guard overloads through one resolution point
 --------------------------------------------
 

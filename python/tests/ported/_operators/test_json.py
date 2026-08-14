@@ -27,3 +27,22 @@ def test_json_decode():
     assert eval_node(g) == [
         {'a': 1, 'b': 'test', 'c': 3.14, 'd': 1}
     ]
+
+
+def test_combine_json_dereferences_reference_arguments():
+    """A JSON object serialises the VALUES it is given.
+
+    ``if_then_else`` publishes a REFERENCE, and ``combine[TS[JSON]]`` packs its
+    keyword arguments into a structural bundle. Before the deref rule was
+    applied where variadic and keyword arguments are BOUND, the ref token
+    reached the encoder and serialised as ``"<ref>"`` instead of the value it
+    names - the same defect as the logging one, in a different consumer.
+    """
+    from hgraph import TS, JSON, combine, graph, if_then_else
+    from hgraph.test import eval_node
+
+    @graph
+    def g(choose: TS[bool], lhs: TS[int], rhs: TS[int]) -> TS[JSON]:
+        return combine[TS[JSON]](v=if_then_else(choose, lhs, rhs))
+
+    assert eval_node(g, [True], [8], [-6]) == [{"v": 8}]
