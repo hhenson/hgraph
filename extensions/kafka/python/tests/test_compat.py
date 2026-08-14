@@ -189,3 +189,70 @@ def test_released_producer_batching_defaults_map_to_typed_native_options() -> No
     assert config.producer.linger_ms == 25
     assert config.producer.batch_record_limit == 1_000
     assert config.consumer_defaults.failure_policy.name == "STOP_GRAPH"
+
+
+def _consume(headers, payload=b'{"a": 1}'):
+    """Run the ingest projection over one record's headers."""
+    from hgraph_kafka import KafkaHeader, KafkaRecord, KafkaTimestampType
+    from hgraph_kafka.compat import _to_legacy_message
+
+    record = KafkaRecord(
+        topic="t", partition=0, offset=0, timestamp=None,
+        timestamp_type=KafkaTimestampType.NOT_AVAILABLE,
+        key=None, value=payload,
+        headers=tuple(KafkaHeader(name, value) for name, value in headers),
+    )
+    return hg.eval_node(_to_legacy_message, [record])[-1]
+
+
+def _produce(message):
+    """Run the publish projection over one message."""
+    from hgraph_kafka.compat import _message_to_record
+
+    return hg.eval_node(_message_to_record, [message])[-1]
+
+
+def test_content_type_is_recognised_whatever_its_casing() -> None:
+    """Kafka header names are arbitrary byte strings, and producers outside
+    hgraph commonly send ``Content-Type``. Matching exact-case left the value
+    in ``headers`` where no consumer looks for it."""
+    for name in ("content-type", "Content-Type", "CONTENT-TYPE"):
+        message = _consume([(name, b"application/json"), ("trace", b"7")])
+        assert message.content_type == "application/json", name
+        # ...and it is NOT also left in the generic header bag.
+        assert dict(message.headers) == {"trace": b"7"}, name
+
+
+def test_a_json_payload_without_a_content_type_header_is_untouched() -> None:
+    """Nothing in the Kafka path inspects the content type: the payload is
+    opaque bytes either way, so a JSON body with no header still arrives whole.
+    Decoding is the consumer's business."""
+    message = _consume([("trace", b"7")])
+    assert message.content_type is None
+    assert message.payload == b'{"a": 1}'
+
+
+def test_content_type_round_trips_under_its_canonical_name() -> None:
+    """Consume then re-produce: the header comes back once, lower-cased."""
+    record = _produce(_consume([("Content-Type", b"application/json")]))
+    assert [(h.name, h.value) for h in record.headers] == [
+        ("content-type", b"application/json")
+    ]
+
+
+def test_a_content_type_header_and_field_do_not_both_publish() -> None:
+    """The field is the canonical carrier. Emitting both would put two
+    content-type headers on the record, with values free to disagree."""
+    message = KafkaMessage(
+        payload=b"{}",
+        content_type="application/json",
+        headers=frozendict({"Content-Type": b"text/csv", "trace": b"7"}),
+    )
+    record = _produce(message)
+    names = [h.name for h in record.headers]
+    assert names.count("content-type") == 1
+    assert "Content-Type" not in names
+    assert dict((h.name, h.value) for h in record.headers) == {
+        "trace": b"7",
+        "content-type": b"application/json",
+    }
