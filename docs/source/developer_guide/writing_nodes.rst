@@ -112,21 +112,31 @@ where the value belonged. Nothing raises, and the output looks like data.
 consumer:
 
 * ordinary inputs — ``adapt_source_for_input`` installs the adaptation;
-* variadic tails and ``**kwargs`` — ``operator_dispatch_detail::value_argument``
-  dereferences unless the declared schema is ``REF<...>``.
+* variadic tails — ``operator_dispatch_detail::value_argument`` dereferences
+  unless the declared schema is ``REF<...>``;
+* an UNTYPED ``VarKwIn<Name>`` — nothing in a bare collector could ask for a
+  reference, so every collected port is dereferenced.
 
 Putting it there is what keeps it from being rediscovered one operator at a
 time. Two consumers had already been fixed individually before the rule was
 made structural, and a third (``combine[TS[JSON]]``) was still wrong.
+
+A **typed** ``VarKwIn<Name, Schema>`` is the exception, and for the same reason
+the rule exists: the declaration wins. Its pack schema has already been matched
+at dispatch against the supplied keywords, so a ``REF`` field in that pack is an
+explicit request. Dereferencing there would strip it and leave output resolution
+describing a reference the implementation never receives — the rule's own
+failure mode, inverted.
 
 .. note::
 
    ``log_`` / ``print_`` and ``format_`` still call
    ``graph_wiring_detail::value_consumer_source`` explicitly, and removing
    those calls fails ``logger: packed value consumers dereference reference
-   arguments``. They reach their arguments through a binding path the rule
-   above does not cover. That second path should be brought under the same
-   rule; until it is, a consumer that packs ports itself must dereference them.
+   arguments``. They declare the same ``VarIn`` / ``VarKwIn`` selectors the
+   rule covers, so *why* the rule does not reach them is not yet established —
+   do not assume it is a separate binding path until that is traced. Until it
+   is understood, a consumer that packs ports itself must dereference them.
 
 Structure-preserving packing is different: ``tsb_itemwise`` and the
 ``map_`` / ``switch_`` / ``mesh_`` machinery pass references deliberately —

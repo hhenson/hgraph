@@ -457,6 +457,23 @@ namespace
             return wire<stdlib::cmp_>(w, decoded, eager).as<TS<stdlib::CmpResult>>();
         }
     };
+
+    // if_then_else publishes a REFERENCE, and combine_json packs its keyword
+    // arguments into a structural bundle it then serializes. Wired natively,
+    // so the deref rule is exercised through C++ dispatch rather than only
+    // through the Python bridge.
+    struct CombineJsonReferenceGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "combine_json_reference_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Bool>> choose_lhs, Port<TS<Int>> lhs,
+                                     Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(w, choose_lhs, lhs, rhs);
+            auto combined = wire<stdlib::combine_json>(w, arg<"v">(selected));
+            return wire<stdlib::json_encode, TS<Str>>(w, combined).as<TS<Str>>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("json operators: to_json serializes per tick")
@@ -520,6 +537,20 @@ TEST_CASE("dynamic json operators: equality is semantic not raw string equality"
                      values<Str>(Str{"{\"a\":1,\"b\":[2,3]}"}),
                      values<Str>(Str{"{ \"b\" : [2, 3], \"a\" : 1 }"})),
                  values<Bool>(true));
+}
+
+TEST_CASE("dynamic json operators: combine serializes the value behind a reference")
+{
+    stdlib::register_standard_operators();
+    // Without the deref rule the ref token reaches the encoder: natively that
+    // raises "JSON tree: unsupported node content", while the same graph
+    // through the Python bridge silently serialized "<ref>" (see
+    // python/tests/ported/_operators/test_json.py). Same defect, and only one
+    // of the two ends up looking like data - which is why both are covered.
+    CHECK_OUTPUT(eval_node<CombineJsonReferenceGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Str>(Str{"{\"v\": 8}"}));
+    CHECK_OUTPUT(eval_node<CombineJsonReferenceGraph>(values<Bool>(false), values<Int>(8), values<Int>(-6)),
+                 values<Str>(Str{"{\"v\": -6}"}));
 }
 
 TEST_CASE("dynamic json operators: equality is independent of lazy or eager storage")

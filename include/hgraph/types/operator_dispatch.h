@@ -1621,16 +1621,29 @@ namespace hgraph
                         {
                             using KW = std::tuple_element_t<lay::total - 1, params_tuple>;
                             KW collected{};
-                            // Keyword arguments carry no declared schema, so
-                            // there is nothing that could ask for a reference:
-                            // a consumer of **kwargs always wants the values.
-                            collected.ports.reserve(kwargs.size());
-                            for (const auto &entry : kwargs)
+                            if constexpr (std::is_void_v<typename KW::pack_schema>)
                             {
-                                auto value = entry;
-                                value.second.schema =
-                                    TypeRegistry::instance().dereference(value.second.schema);
-                                collected.ports.push_back(std::move(value));
+                                // An UNTYPED collector declares no schema, so
+                                // nothing in it could ask for a reference: a
+                                // consumer of bare **kwargs wants the values.
+                                collected.ports.reserve(kwargs.size());
+                                for (const auto &entry : kwargs)
+                                {
+                                    auto value          = entry;
+                                    value.second.schema = TypeRegistry::instance().dereference(value.second.schema);
+                                    collected.ports.push_back(std::move(value));
+                                }
+                            }
+                            else
+                            {
+                                // A TYPED collector's pack schema is the
+                                // declaration, and dispatch has already matched
+                                // it against the supplied schemas. Rewriting the
+                                // ports here would violate it — a REF field in
+                                // the pack would be silently stripped, leaving
+                                // output resolution describing a reference the
+                                // implementation never receives.
+                                collected.ports.assign(kwargs.begin(), kwargs.end());
                             }
                             return invoke(std::forward<decltype(tail_args)>(tail_args)..., std::move(collected));
                         }
