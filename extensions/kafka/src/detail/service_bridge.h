@@ -60,6 +60,7 @@ public:
   struct QueuedOutput {
     Value value{};
     std::optional<DateTime> evaluation_time{};
+    bool recovery_blocked{};
   };
 
   ServiceBridge(OutputLimits subscription, OutputLimits delivery,
@@ -119,6 +120,99 @@ public:
     accepting_ = true;
   }
 
+  void begin_record_time_recovery(std::size_t participants) {
+    if (participants == 0) {
+      return;
+    }
+    std::lock_guard lock{mutex_};
+    auto &state = at(OutputChannel::Subscription);
+    const auto add_saturated = [](std::size_t value,
+                                  std::size_t increment) noexcept {
+      constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+      return increment > maximum - value ? maximum : value + increment;
+    };
+    const auto multiply_saturated = [](std::size_t value,
+                                       std::size_t multiplier) noexcept {
+      constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+      return value != 0 && multiplier > maximum / value ? maximum
+                                                        : value * multiplier;
+    };
+    if (record_time_recoveries_pending_ == 0) {
+      state.recovery_limits = OutputLimits{
+          add_saturated(state.recovery_records,
+                        multiply_saturated(state.limits.records, participants)),
+          add_saturated(state.recovery_bytes,
+                        multiply_saturated(state.limits.bytes, participants)),
+      };
+    } else {
+      state.recovery_limits.records =
+          add_saturated(state.recovery_limits.records,
+                        multiply_saturated(state.limits.records, participants));
+      state.recovery_limits.bytes =
+          add_saturated(state.recovery_limits.bytes,
+                        multiply_saturated(state.limits.bytes, participants));
+    }
+    if (record_time_recovery_controls_pending_ == 0) {
+      state.recovery_control_limits = OutputLimits{
+          add_saturated(
+              state.control_records,
+              multiply_saturated(state.control_limits.records, participants)),
+          add_saturated(
+              state.control_bytes,
+              multiply_saturated(state.control_limits.bytes, participants)),
+      };
+    } else {
+      state.recovery_control_limits.records = add_saturated(
+          state.recovery_control_limits.records,
+          multiply_saturated(state.control_limits.records, participants));
+      state.recovery_control_limits.bytes = add_saturated(
+          state.recovery_control_limits.bytes,
+          multiply_saturated(state.control_limits.bytes, participants));
+    }
+    record_time_recoveries_pending_ =
+        add_saturated(record_time_recoveries_pending_, participants);
+    record_time_recovery_controls_pending_ =
+        add_saturated(record_time_recovery_controls_pending_, participants);
+  }
+
+  void complete_record_time_recovery() {
+    PushSourceSender wake;
+    Int generation{};
+    {
+      std::lock_guard lock{mutex_};
+      if (record_time_recoveries_pending_ == 0) {
+        throw std::logic_error(
+            "Kafka record-time recovery participant completed twice");
+      }
+      --record_time_recoveries_pending_;
+      if (record_time_recoveries_pending_ != 0) {
+        return;
+      }
+      auto &state = at(OutputChannel::Subscription);
+      state.recovery_limits = {};
+      if (accepting_ && !state.values.empty()) {
+        state.wake_outstanding = true;
+        generation = ++state.generation;
+        wake = state.sender;
+      }
+    }
+    if (wake.valid()) {
+      wake.send(generation);
+    }
+  }
+
+  void finish_record_time_recovery() {
+    std::lock_guard lock{mutex_};
+    if (record_time_recovery_controls_pending_ == 0) {
+      throw std::logic_error(
+          "Kafka record-time recovery participant finished twice");
+    }
+    --record_time_recovery_controls_pending_;
+    if (record_time_recovery_controls_pending_ == 0) {
+      at(OutputChannel::Subscription).recovery_control_limits = {};
+    }
+  }
+
   void stop() noexcept {
     std::lock_guard lock{mutex_};
     accepting_ = false;
@@ -131,9 +225,15 @@ public:
       channel.control_bytes = 0;
       channel.reserved_records = 0;
       channel.reserved_bytes = 0;
+      channel.recovery_records = 0;
+      channel.recovery_bytes = 0;
+      channel.recovery_limits = {};
+      channel.recovery_control_limits = {};
       channel.wake_outstanding = false;
       channel.sender = PushSourceSender{};
     }
+    record_time_recoveries_pending_ = 0;
+    record_time_recovery_controls_pending_ = 0;
     subscription_delivered_ = {};
   }
 
@@ -155,12 +255,17 @@ public:
 
   [[nodiscard]] bool push(OutputChannel channel, Value value,
                           std::size_t retained_bytes) {
-    return push_impl(channel, std::move(value), retained_bytes, false);
+    return push_impl(channel, std::move(value), retained_bytes, false, false);
+  }
+
+  [[nodiscard]] bool push_recovery(OutputChannel channel, Value value,
+                                   std::size_t retained_bytes) {
+    return push_impl(channel, std::move(value), retained_bytes, false, true);
   }
 
   [[nodiscard]] bool push_control(OutputChannel channel, Value value,
                                   std::size_t retained_bytes) {
-    return push_impl(channel, std::move(value), retained_bytes, true);
+    return push_impl(channel, std::move(value), retained_bytes, true, false);
   }
 
   [[nodiscard]] std::optional<QueuedOutput> pop(OutputChannel channel) {
@@ -170,6 +275,10 @@ public:
       auto &state = at(channel);
       if (state.values.empty()) {
         state.wake_outstanding = false;
+        return std::nullopt;
+      }
+      if (state.values.front().recovery &&
+          record_time_recoveries_pending_ != 0) {
         return std::nullopt;
       }
 
@@ -183,7 +292,12 @@ public:
         --state.payload_records;
         state.payload_bytes -= item.retained_bytes;
       }
-      result.emplace(QueuedOutput{std::move(item.value), item.evaluation_time});
+      if (item.recovery) {
+        --state.recovery_records;
+        state.recovery_bytes -= item.retained_bytes;
+      }
+      result.emplace(
+          QueuedOutput{std::move(item.value), item.evaluation_time, false});
 
       if (state.values.empty()) {
         state.wake_outstanding = false;
@@ -199,7 +313,8 @@ public:
       return std::nullopt;
     }
     const auto &item = state.values.front();
-    return QueuedOutput{item.value.clone(), item.evaluation_time};
+    return QueuedOutput{item.value.clone(), item.evaluation_time,
+                        item.recovery && record_time_recoveries_pending_ != 0};
   }
 
   [[nodiscard]] std::size_t pending(OutputChannel channel) const {
@@ -260,6 +375,10 @@ public:
         --state.payload_records;
         state.payload_bytes -= item->retained_bytes;
       }
+      if (item->recovery) {
+        --state.recovery_records;
+        state.recovery_bytes -= item->retained_bytes;
+      }
       item = state.values.erase(item);
     }
     if (state.values.empty()) {
@@ -291,6 +410,17 @@ public:
                state.limits.bytes -
                    std::min(state.payload_bytes + state.reserved_bytes,
                             state.limits.bytes);
+  }
+
+  [[nodiscard]] bool can_accept_recovery(OutputChannel channel,
+                                         std::size_t retained_bytes) const {
+    std::lock_guard lock{mutex_};
+    const auto &state = at(channel);
+    return accepting_ && record_time_recoveries_pending_ != 0 &&
+           state.recovery_records < state.recovery_limits.records &&
+           retained_bytes <=
+               state.recovery_limits.bytes -
+                   std::min(state.recovery_bytes, state.recovery_limits.bytes);
   }
 
   [[nodiscard]] bool reserve(OutputChannel channel,
@@ -364,22 +494,35 @@ public:
 
 private:
   [[nodiscard]] bool push_impl(OutputChannel channel, Value value,
-                               std::size_t retained_bytes, bool control) {
+                               std::size_t retained_bytes, bool control,
+                               bool recovery) {
     PushSourceSender wake;
     Int generation{};
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
-      const auto limits = control ? state.control_limits : state.limits;
+      const auto limits = control && record_time_recovery_controls_pending_ != 0
+                              ? state.recovery_control_limits
+                              : (control ? state.control_limits : state.limits);
       const auto records =
           control ? state.control_records : state.payload_records;
       const auto bytes = control ? state.control_bytes : state.payload_bytes;
-      if (!accepting_ || limits.records == 0 || limits.bytes == 0 ||
-          records + (control ? 0 : state.reserved_records) >= limits.records ||
-          retained_bytes >
-              limits.bytes -
-                  std::min(bytes + (control ? 0 : state.reserved_bytes),
-                           limits.bytes)) {
+      const bool recovery_full =
+          recovery &&
+          (record_time_recoveries_pending_ == 0 ||
+           state.recovery_records >= state.recovery_limits.records ||
+           retained_bytes >
+               state.recovery_limits.bytes -
+                   std::min(state.recovery_bytes, state.recovery_limits.bytes));
+      const bool ordinary_full =
+          !recovery &&
+          (limits.records == 0 || limits.bytes == 0 ||
+           records + (control ? 0 : state.reserved_records) >= limits.records ||
+           retained_bytes >
+               limits.bytes -
+                   std::min(bytes + (control ? 0 : state.reserved_bytes),
+                            limits.bytes));
+      if (!accepting_ || recovery_full || ordinary_full) {
         return false;
       }
       state.retained_bytes += retained_bytes;
@@ -390,7 +533,11 @@ private:
         ++state.payload_records;
         state.payload_bytes += retained_bytes;
       }
-      QueuedValue item{std::move(value), retained_bytes, control};
+      if (recovery) {
+        ++state.recovery_records;
+        state.recovery_bytes += retained_bytes;
+      }
+      QueuedValue item{std::move(value), retained_bytes, control, recovery};
       item.evaluation_time = queued_evaluation_time(channel, item.value);
       inherit_subscription_schedule(channel, state, item);
       const auto position = insertion_point(channel, state, item);
@@ -411,6 +558,7 @@ private:
     Value value{};
     std::size_t retained_bytes{};
     bool control{};
+    bool recovery{};
     std::optional<DateTime> evaluation_time{};
   };
 
@@ -425,6 +573,10 @@ private:
     std::size_t control_bytes{};
     std::size_t reserved_records{};
     std::size_t reserved_bytes{};
+    std::size_t recovery_records{};
+    std::size_t recovery_bytes{};
+    OutputLimits recovery_limits{};
+    OutputLimits recovery_control_limits{};
     PushSourceSender sender{};
     Int generation{};
     bool wake_outstanding{};
@@ -500,6 +652,8 @@ private:
   mutable std::mutex mutex_{};
   std::array<Channel, static_cast<std::size_t>(OutputChannel::Count)> channels_;
   bool accepting_{};
+  std::size_t record_time_recoveries_pending_{};
+  std::size_t record_time_recovery_controls_pending_{};
   std::function<void(Value)> subscription_delivered_{};
 };
 
@@ -551,6 +705,9 @@ struct SubscriptionDrainNode {
        Out<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>> out) {
     auto next = bridge.value().value->peek(OutputChannel::Subscription);
     if (!next.has_value()) {
+      return;
+    }
+    if (next->recovery_blocked) {
       return;
     }
     if (next->evaluation_time.has_value() &&
