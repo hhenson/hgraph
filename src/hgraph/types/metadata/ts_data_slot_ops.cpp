@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include "../time_series/ts_data/ownership.h"
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/value_slot_store.h>
@@ -1137,6 +1138,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context                   = this,
                     .kind                      = TSTypeKind::TSS,
                     .allows_mutation           = mutable_storage,
+                    .current_state_ops =
+                        &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSS),
                     .layout_impl               = &tss_layout,
                     .tracking_impl             = &tss_tracking,
                     .mutable_tracking_impl     = &tss_mutable_tracking,
@@ -2113,6 +2116,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.reset_delta_impl = &tsd_reset_delta;
                 base_ops.record_child_modified_impl = &tsd_record_child_modified;
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
+                base_ops.current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
                 base_ops.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 base_ops.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 base_ops.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;

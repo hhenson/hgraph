@@ -659,47 +659,11 @@ namespace hgraph::stdlib
                     const auto &erased = static_cast<const TSOutputView &>(out);
                     if (erased.data_view().last_modified_time() < ts.base().last_modified_time())
                     {
-                        if (erased.schema()->kind == TSTypeKind::TSD)
-                        {
-                            // Dict resync honours per-child TS-VALIDITY (a
-                            // created-but-never-ticked element - e.g. an
-                            // empty-REF map child - is NOT part of the value;
-                            // the raw value memory cannot tell).
-                            auto dict_out = erased.data_view().as_dict();
-                            auto mutation = dict_out.begin_mutation(erased.evaluation_time());
-                            auto dict_in  = ts.base().as_dict();
-                            std::vector<Value> live;
-                            for (auto &&[key, child] : dict_in.valid_items())
-                            {
-                                live.emplace_back(key);
-                                // READ-side compare first (the flip lesson):
-                                // an unchanged entry must not re-record.
-                                if (dict_out.contains(key))
-                                {
-                                    auto current = dict_out.at(key);
-                                    if (current.has_current_value() && current.value().equals(child.value()))
-                                    {
-                                        continue;
-                                    }
-                                }
-                                auto element = mutation.at(key);
-                                apply_current_value(
-                                    TSOutputView{erased.output(), element, erased.evaluation_time()},
-                                    child.value());
-                            }
-                            std::vector<Value> removals;
-                            for (const auto key : mutation.keys())
-                            {
-                                bool present = false;
-                                for (const Value &kept : live)
-                                {
-                                    if (kept.view().equals(key)) { present = true; break; }
-                                }
-                                if (!present) { removals.emplace_back(key); }
-                            }
-                            for (const Value &key : removals) { static_cast<void>(mutation.erase(key.view())); }
-                        }
-                        else { out.apply(ts.value()); }
+                        // Full resync preserves structural child validity;
+                        // the current-state policy owns each representation.
+                        reconcile_current_state(
+                            erased, ts.base(),
+                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
                     }
                 }
                 else if (ts.modified())
@@ -709,26 +673,15 @@ namespace hgraph::stdlib
                     apply_delta(out, capture_delta(ts.base()).view());
                 }
             }
-            else if (condition_true && was_true && ts.modified() && ts.base().schema() != nullptr &&
-                     (ts.base().schema()->kind == TSTypeKind::TSS ||
-                      ts.base().schema()->kind == TSTypeKind::TSD))
+            else if (condition_true && was_true && ts.modified())
             {
-                // Structural REF unbinds are invalid current values with a
-                // removal delta over the previously published key set.
-                bool has_removal = false;
-                if (ts.base().schema()->kind == TSTypeKind::TSS)
+                // Invalid structural removals and pre-valid window ticks are
+                // representation-owned observable events.
+                Value delta = capture_delta(ts.base());
+                if (delta_is_observable(ts.base(), delta.view()))
                 {
-                    const auto input = ts.base().as_set();
-                    const auto removed = input.removed();
-                    has_removal = removed.begin() != removed.end();
+                    apply_delta(out, delta.view());
                 }
-                else
-                {
-                    const auto input = ts.base().as_dict();
-                    const auto removed = input.removed_keys();
-                    has_removal = removed.begin() != removed.end();
-                }
-                if (has_removal) { apply_delta(out, capture_delta(ts.base()).view()); }
             }
             last_condition.set(condition_true);
         }

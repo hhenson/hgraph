@@ -6,6 +6,7 @@
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
@@ -2258,6 +2259,8 @@ namespace hgraph
                 .kind = context->schema->kind,
                 .allows_mutation = true,
                 .ownership_ops = &input_ownership_ops(),
+                .current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(context->schema->kind),
                 .layout_impl = &input_layout,
                 .tracking_impl = &input_tracking,
                 .mutable_tracking_impl = &input_mutable_tracking,

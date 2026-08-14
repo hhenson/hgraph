@@ -9,6 +9,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/utils/value_slot_store.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
@@ -204,6 +205,8 @@ namespace hgraph
                     .context                   = this,
                     .kind                      = TSTypeKind::TSS,
                     .allows_mutation           = false,
+                    .current_state_ops =
+                        &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSS),
                     .layout_impl               = &ts_layout,
                     .tracking_impl             = &key_set_tracking,
                     .mutable_tracking_impl     = &mutable_key_set_tracking,
@@ -251,6 +254,8 @@ namespace hgraph
                 dict_base.has_current_value_impl = &has_current_value;
                 dict_base.all_valid_impl = &all_valid;
                 dict_base.ownership_ops = &ownership_ops();
+                dict_base.current_state_ops =
+                    &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
                 dict_base.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 dict_base.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;

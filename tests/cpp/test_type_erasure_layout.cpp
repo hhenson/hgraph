@@ -76,7 +76,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
-    static_assert(TS_DATA_OPS_ABI_VERSION == 6);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 7);
     static_assert(sizeof(TSRoleTypeRef) == sizeof(void *));
     static_assert(sizeof(TSDataObserverSet) == sizeof(void *));
     static_assert(sizeof(TSData) == sizeof(void *) * 3);

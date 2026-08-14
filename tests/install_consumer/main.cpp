@@ -128,7 +128,7 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    static_assert(TS_DATA_OPS_ABI_VERSION == 6);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 7);
     static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
     static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));

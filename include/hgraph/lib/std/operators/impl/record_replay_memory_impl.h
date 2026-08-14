@@ -99,42 +99,12 @@ namespace hgraph::stdlib
                          Scalar<"sparse", Bool> sparse, Scalar<"model", Str>, GlobalStateView gs,
                          DateTime now)
         {
-            // Record every TICK, plus TICK-window TSW pre-validity ticks: a
-            // window below its min period is invalid yet its delta stream
-            // already flows (hgraph records those). Invalid structural
-            // collection unbinds are also recorded when they carry a real
-            // removal delta over a previously published key set.
             if (!ts.modified()) { return; }
-            if (!ts.valid())
-            {
-                const auto *schema = ts.base().schema();
-                const bool tick_window = schema->kind == TSTypeKind::TSW && !schema->data.tsw.is_duration_based;
-                bool structural_removal = false;
-                if (schema->kind == TSTypeKind::TSS)
-                {
-                    const auto input = ts.base().as_set();
-                    const auto removed = input.removed();
-                    structural_removal = removed.begin() != removed.end();
-                }
-                else if (schema->kind == TSTypeKind::TSD)
-                {
-                    const auto input = ts.base().as_dict();
-                    const auto removed = input.removed_keys();
-                    structural_removal = removed.begin() != removed.end();
-                }
-                if (!structural_removal && !tick_window) { return; }
-            }
             // The canonical per-tick delta, rebuilt as an owned value-layer Value (the
             // runtime's transient delta storage omits copy hooks).
             Value delta = capture_delta(ts.base());
             const auto *schema = ts.base().schema();
-            if (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0 && delta.view().as_map().empty())
-            {
-                // A fixed structural list can remain historically valid after every
-                // routed REF leaf silently unbinds. Its parent may be scheduled, but
-                // the empty map is not a tick and must remain a dense-buffer hole.
-                return;
-            }
+            if (!delta_is_observable(ts.base(), delta.view())) { return; }
             if (sparse.value())
             {
                 // SPARSE (the harness's __elide__): TYPED (time, delta)

@@ -9,6 +9,7 @@
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -17,6 +18,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -166,6 +168,112 @@ template <typename Graph, typename Seed> auto run_graph(Seed seed) {
   return ex;
 }
 } // namespace
+
+TEST_CASE("TSData realizations select a non-missing current-state policy") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const std::array schemas{
+      schema_descriptor<TS<Int>>::ts_meta(),
+      schema_descriptor<TSS<Int>>::ts_meta(),
+      schema_descriptor<TSD<Int, TS<Int>>>::ts_meta(),
+      schema_descriptor<TSL<TS<Int>, 2>>::ts_meta(),
+      schema_descriptor<TSL<TS<Int>>>::ts_meta(),
+      schema_descriptor<TSW<Int, 3, 1>>::ts_meta(),
+      schema_descriptor<Quote>::ts_meta(),
+      schema_descriptor<REF<TS<Int>>>::ts_meta(),
+      schema_descriptor<SIGNAL>::ts_meta(),
+  };
+
+  for (const auto *schema : schemas) {
+    CAPTURE(schema->name());
+    const auto type = TSDataPlanFactory::instance().data_type_for(schema);
+    REQUIRE(type);
+    REQUIRE(type.ops_ref().current_state_ops != nullptr);
+    REQUIRE(type.ops_ref().current_state_ops !=
+            &ts_current_state_detail::missing_current_state_ops());
+  }
+}
+
+TEST_CASE("current-state reconciliation preserves fixed-structure child validity") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const auto *schema = schema_descriptor<Quote>::ts_meta();
+  TSOutput source{schema};
+  TSOutput target{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+
+  Value first = tsb_delta<Quote>(1, std::nullopt);
+  apply_delta(source.view(MIN_ST), first.view());
+  reconcile_current_state(
+      target.view(MIN_ST), input.view(nullptr, MIN_ST),
+      TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
+
+  auto initial_view = target.view(MIN_ST);
+  auto initial = initial_view.as_bundle();
+  REQUIRE(initial.at(0).valid());
+  REQUIRE(initial.at(0).value().checked_as<Int>() == 1);
+  REQUIRE_FALSE(initial.at(1).valid());
+
+  const DateTime t2 = MIN_ST + MIN_TD;
+  Value second = tsb_delta<Quote>(std::nullopt, 2);
+  apply_delta(source.view(t2), second.view());
+  reconcile_current_state(
+      target.view(t2), input.view(nullptr, t2),
+      TSCurrentReconcileOptions{TSCurrentReconcileScope::Incremental, false});
+  auto updated_view = target.view(t2);
+  auto updated = updated_view.as_bundle();
+  REQUIRE(updated.at(0).value().checked_as<Int>() == 1);
+  REQUIRE(updated.at(1).value().checked_as<Int>() == 2);
+
+  const DateTime t3 = t2 + MIN_TD;
+  {
+    auto source_view = source.view(t3);
+    auto source_bundle = source_view.as_bundle();
+    auto child = source_bundle.at(0);
+    auto mutation = child.begin_mutation(t3);
+    REQUIRE(mutation.invalidate());
+  }
+  reconcile_current_state(
+      target.view(t3), input.view(nullptr, t3),
+      TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
+  auto invalidated_view = target.view(t3);
+  auto invalidated = invalidated_view.as_bundle();
+  REQUIRE_FALSE(invalidated.at(0).valid());
+  REQUIRE(invalidated.at(1).value().checked_as<Int>() == 2);
+
+  const DateTime t4 = t3 + MIN_TD;
+  reconcile_current_state(
+      target.view(t4), input.view(nullptr, t4),
+      TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
+  REQUIRE_FALSE(target.view(t4).modified());
+}
+
+TEST_CASE("observable-delta policy rejects scheduling-only fixed-list invalidation") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  using One = TSL<TS<Int>, 1>;
+  const auto *schema = schema_descriptor<One>::ts_meta();
+  TSOutput source{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+
+  Value first = list_delta<TS<Int>>({{0, 1}});
+  apply_delta(source.view(MIN_ST), first.view());
+
+  const DateTime t2 = MIN_ST + MIN_TD;
+  {
+    auto source_view = source.view(t2);
+    auto source_list = source_view.as_list();
+    auto child = source_list.at(0);
+    auto mutation = child.begin_mutation(t2);
+    REQUIRE(mutation.invalidate());
+  }
+  auto source_input = input.view(nullptr, t2);
+  REQUIRE(source_input.modified());
+  Value delta = capture_delta(source_input);
+  REQUIRE(delta.view().as_map().empty());
+  REQUIRE_FALSE(delta_is_observable(source_input, delta.view()));
+}
 
 TEST_CASE(
     "ts_delta: capture_delta matches ts_delta<S>::capture for a scalar TS") {
@@ -324,6 +432,13 @@ TEST_CASE("TSD output slots use the graph's closed Bundle realization") {
   const auto captured_request = modified.at(key.view()).concrete();
   REQUIRE(captured_request.schema() == leaf);
   REQUIRE(captured_request.as_bundle()["body"].checked_as<Str>() == "payload");
+
+  const Value current = capture_current_delta(input.view(nullptr, MIN_ST));
+  const auto current_modified =
+      current.view().as_bundle()["modified"].as_map();
+  const auto current_request = current_modified.at(key.view()).concrete();
+  REQUIRE(current_request.schema() == leaf);
+  REQUIRE(current_request.as_bundle()["body"].checked_as<Str>() == "payload");
 }
 
 TEST_CASE("apply_current_value accepts a concrete closed Bundle alternative") {

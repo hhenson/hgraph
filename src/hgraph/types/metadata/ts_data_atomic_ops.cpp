@@ -1,5 +1,6 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 
+#include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/value.h>
 
@@ -43,6 +44,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .context                   = &layout,
                 .kind                      = kind,
                 .allows_mutation           = true,
+                .current_state_ops         = &ts_current_state_detail::current_state_ops_for(kind),
                 .layout_impl               = &atomic_layout,
                 .tracking_impl             = &atomic_tracking,
                 .mutable_tracking_impl     = &atomic_mutable_tracking,

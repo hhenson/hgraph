@@ -792,16 +792,9 @@ namespace hgraph
             DateTime snapshot_time = previous_view.last_modified_time();
             if (snapshot_time == MIN_DT) { snapshot_time = evaluation_time; }
             auto snapshot_view = snapshot->view(snapshot_time);
-            if (schema->kind == TSTypeKind::TSD)
-            {
-                auto mutation = snapshot_view.as_dict().begin_mutation(snapshot_time);
-                static_cast<void>(mutation.copy_value_from(previous_view.value()));
-            }
-            else
-            {
-                auto mutation = snapshot_view.as_set().begin_mutation(snapshot_time);
-                static_cast<void>(mutation.copy_value_from(previous_view.value()));
-            }
+            reconcile_current_state(
+                snapshot_view, previous_view.data_view(),
+                TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
 
             // First move the forwarding endpoint to an equal, stable snapshot
             // without publishing a second transition. The snapshot is updated
@@ -815,107 +808,6 @@ namespace hgraph
             storage.publication_snapshot_active = true;
             storage.publication_full_reconcile = true;
             storage.publication_sample_all = sample_all;
-        }
-
-        void update_reduce_dict_publication(TSDOutputView snapshot, const TSOutputView &source,
-                                            DateTime evaluation_time, bool full_reconcile,
-                                            bool sample_all)
-        {
-            auto mutation = snapshot.begin_mutation(evaluation_time);
-            if (!source.valid())
-            {
-                mutation.clear();
-                return;
-            }
-
-            auto source_dict = source.as_dict();
-            if (full_reconcile)
-            {
-                std::vector<Value> removed_keys;
-                removed_keys.reserve(snapshot.size());
-                for (const ValueView &key : snapshot.keys())
-                {
-                    if (!source_dict.contains(key))
-                    {
-                        removed_keys.push_back(value_impl::graph_local_value(key));
-                    }
-                }
-                for (const Value &key : removed_keys)
-                {
-                    static_cast<void>(mutation.erase(key.view()));
-                }
-                for (auto &&[key, child] : source_dict.items())
-                {
-                    if (!child.valid()) { continue; }
-                    const bool changed = !mutation.contains(key) || !mutation.at(key).valid() ||
-                                         !mutation.at(key).value().equals(child.value());
-                    if (sample_all)
-                    {
-                        auto child_mutation = mutation.at(key).begin_mutation(evaluation_time);
-                        static_cast<void>(child_mutation.copy_value_from(child.value()));
-                        child_mutation.mark_modified();
-                    }
-                    else if (changed) { mutation.set(key, child.value()); }
-                }
-                return;
-            }
-
-            for (const ValueView &key : source_dict.removed_keys())
-            {
-                static_cast<void>(mutation.erase(key));
-            }
-            for (auto &&[key, child] : source_dict.modified_items())
-            {
-                if (!child.valid()) { continue; }
-                const bool changed = !mutation.contains(key) || !mutation.at(key).valid() ||
-                                     !mutation.at(key).value().equals(child.value());
-                if (changed) { mutation.set(key, child.value()); }
-            }
-        }
-
-        void update_reduce_set_publication(TSSOutputView snapshot, const TSOutputView &source,
-                                           DateTime evaluation_time, bool full_reconcile,
-                                           bool sample_all)
-        {
-            auto mutation = snapshot.begin_mutation(evaluation_time);
-            if (!source.valid())
-            {
-                mutation.clear();
-                return;
-            }
-
-            auto source_set = source.as_set();
-            if (full_reconcile)
-            {
-                std::vector<Value> removed_keys;
-                removed_keys.reserve(snapshot.size());
-                for (const ValueView &key : snapshot.values())
-                {
-                    if (!source_set.contains(key))
-                    {
-                        removed_keys.push_back(value_impl::graph_local_value(key));
-                    }
-                }
-                for (const Value &key : removed_keys)
-                {
-                    static_cast<void>(mutation.remove(key.view()));
-                }
-                for (const ValueView &key : source_set.values())
-                {
-                    if (!mutation.contains(key)) { static_cast<void>(mutation.add(key)); }
-                }
-                if (sample_all) { mutation.touch(); }
-                return;
-            }
-
-            for (const ValueView &key : source_set.removed())
-            {
-                static_cast<void>(mutation.remove(key));
-            }
-            for (const ValueView &key : source_set.added())
-            {
-                if (!mutation.contains(key)) { static_cast<void>(mutation.add(key)); }
-            }
         }
 
         void finish_reduce_publication(ReduceNodeStorage &storage, DateTime evaluation_time)
@@ -933,18 +825,14 @@ namespace hgraph
                                       : TSOutputView{};
 
             auto snapshot_view = snapshot->view(evaluation_time);
-            if (snapshot_view.schema()->kind == TSTypeKind::TSD)
-            {
-                update_reduce_dict_publication(snapshot_view.as_dict(), source, evaluation_time,
-                                               storage.publication_full_reconcile,
-                                               storage.publication_sample_all);
-            }
-            else
-            {
-                update_reduce_set_publication(snapshot_view.as_set(), source, evaluation_time,
-                                              storage.publication_full_reconcile,
-                                              storage.publication_sample_all);
-            }
+            reconcile_current_state(
+                snapshot_view,
+                source.bound() ? source.data_view().borrowed_ref() : TSDataView{},
+                TSCurrentReconcileOptions{
+                    storage.publication_full_reconcile
+                        ? TSCurrentReconcileScope::Full
+                        : TSCurrentReconcileScope::Incremental,
+                    storage.publication_sample_all});
             storage.publication_full_reconcile = false;
             storage.publication_sample_all = false;
         }
