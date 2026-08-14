@@ -559,6 +559,16 @@ resulting Plan. The selected ops pointer is stored in that plan, so direct
 ``from_table`` and stored replay use the same ``TableRowSource`` contract.
 Default and unsupported states use a canonical non-null no-op table.
 
+When an exact registered schema is nested below a built-in ``TSB`` or ``TSD``,
+the parent plan retains the independently interned child plan and a local-to-
+parent column projection. The parent owns structural columns and row formation;
+the child owns conversion of its value columns through the same ``emit`` and
+``apply`` operations it uses at the root. Each child projection includes an
+explicit boolean presence column, since a valid emitted row may contain only
+null payload cells or no payload columns at all. Embedded multi-row strategies
+are rejected because combining their rows with sibling structural fields would
+require a separate row-product policy.
+
 Two constraints bound the design:
 
 * **Ops resolve at BUILD time into the Plan, never per tick.** The per-tick
@@ -693,7 +703,8 @@ Acceptance criteria
 * ``date_key`` and ``as_of_key`` may be renamed per recording and replayed
   through the corresponding projection without changing graph configuration.
 * A statically registered exact-schema ``TableTypeOps`` controls describe,
-  emit, direct apply, and persisted replay through one non-null passive table.
+  emit, direct apply, and persisted replay through one non-null passive table,
+  both at the root and beneath built-in ``TSB``/``TSD`` structure.
 * The installed SDK can include ``table_type_ops.h``, register an operation
   table, and consume the canonical no-op table without depending on private
   representation headers.

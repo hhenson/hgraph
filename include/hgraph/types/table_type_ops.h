@@ -46,12 +46,36 @@ namespace hgraph
     /** Interned table plan for one resolved time-series schema. */
     struct TableLayout
     {
+        static constexpr std::size_t no_column = static_cast<std::size_t>(-1);
+
         struct Column
         {
             std::string              name{};
             const ValueTypeMetaData *leaf{nullptr};
+            std::size_t              column{no_column};
             std::vector<std::size_t> ts_path{};
             std::vector<std::size_t> value_path{};
+        };
+
+        /** A registered child strategy composed into a built-in structural
+            layout.
+
+            ``layout`` is the independently interned plan for that exact child
+            schema. ``ts_path`` locates the child below the structural leaf and
+            ``columns`` maps the child's canonical column indexes into this
+            layout. A ``no_column`` entry suppresses an unmapped child column.
+            ``presence_column`` records that the child emitted a row independently
+            of whether any projected payload cell has a value.
+
+            This is plan data only: the selected child operations are reached
+            through ``layout->ops`` and no registry lookup occurs during
+            evaluation. */
+        struct ChildPlan
+        {
+            const TableLayout       *layout{nullptr};
+            std::vector<std::size_t> ts_path{};
+            std::vector<std::size_t> columns{};
+            std::size_t              presence_column{no_column};
         };
 
         struct Level
@@ -67,6 +91,7 @@ namespace hgraph
         const TableTypeOps                    *ops{&empty_table_type_ops()};
         std::vector<Level>                     levels{};
         std::vector<Column>                    value_cols{};
+        std::vector<ChildPlan>                 child_plans{};
         std::size_t                            value_col_start{0};
         bool                                   is_multi_row{false};
         const TableConverter                  *frame_converter{nullptr};
@@ -123,8 +148,11 @@ namespace hgraph
         ``describe`` contributes structural/value columns and may recursively
         resolve child schemas. ``emit`` and ``apply`` are parked in the plan,
         so evaluation performs no registry lookup or kind switch. Extensions
-        can register an exact schema before wiring; the function table and its
-        referenced code must have static lifetime. */
+        can register an exact schema before wiring. When that schema appears
+        below a built-in TSB or TSD, the layout builder composes its independently
+        interned plan as a ``ChildPlan`` and evaluation delegates through the
+        same operation table. The function table and its referenced code must
+        have static lifetime. */
     struct TableTypeOps
     {
         using Describe = void (*)(TableLayout &layout, const TSValueTypeMetaData *schema,
