@@ -2660,7 +2660,7 @@ namespace hgraph::stdlib
                          State<convert_detail::EmitQueueState> state,
                          Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (ts.modified())
             {
                 const TSInputView &tsl = ts;
@@ -2679,7 +2679,6 @@ namespace hgraph::stdlib
                 static_cast<void>(mutation.move_value_from(std::move(next)));
                 if (!current.buffer.empty()) { scheduler.schedule(MIN_TD); }
             }
-            state.set(std::move(current));
         }
     };
 
@@ -2718,7 +2717,7 @@ namespace hgraph::stdlib
                          State<convert_detail::EmitQueueState> state,
                          Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (ts.modified())
             {
                 if (ts.base().schema()->kind == TSTypeKind::TSS)
@@ -2745,7 +2744,6 @@ namespace hgraph::stdlib
                 static_cast<void>(mutation.move_value_from(std::move(next)));
                 if (!current.buffer.empty()) { scheduler.schedule(MIN_TD); }
             }
-            state.set(std::move(current));
         }
     };
 
@@ -2795,7 +2793,7 @@ namespace hgraph::stdlib
             // makes it STRUCTURAL (per-field write). Both the decision and
             // the bundle binding are output-schema facts, fixed at wiring.
             const auto *out_schema = static_cast<const TSOutputView &>(out).schema();
-            auto        current    = state.get();
+            auto        &current    = state.modify();
             current.compact        = out_schema->value_schema != nullptr &&
                               out_schema->value_schema->value_kind() == ValueTypeKind::Bundle;
             for (std::size_t index = 0; current.compact && index < out_schema->field_count(); ++index)
@@ -2811,7 +2809,6 @@ namespace hgraph::stdlib
                 // external realization of the bundle here, once.
                 current.bundle_binding = value_type_for_active_realization(out_schema->value_schema);
             }
-            state.set(std::move(current));
         }
 
         static void eval(In<"ts", TsVar<"S">> ts,
@@ -2819,7 +2816,7 @@ namespace hgraph::stdlib
                          State<convert_detail::EmitQueueState> state,
                          Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (ts.modified())
             {
                 const auto *surface = ts.base().schema();
@@ -2895,7 +2892,6 @@ namespace hgraph::stdlib
                 }
                 if (!current.buffer.empty()) { scheduler.schedule(MIN_TD); }
             }
-            state.set(std::move(current));
         }
     };
 

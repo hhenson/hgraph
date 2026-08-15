@@ -441,7 +441,7 @@ namespace hgraph::stdlib
                          Out<REF<TsVar<"S">>> out)
         {
             static_cast<void>(values);   // wake-up only; reads go through the references
-            auto current = state.get();
+            auto &current = state.modify();
             control_impl_detail::ensure_race_state_size(current, ts.size());
 
             for (std::size_t i = 0; i < ts.size(); ++i)
@@ -482,8 +482,6 @@ namespace hgraph::stdlib
                 current.winner = winner;
             }
             else { current.winner = control_impl_detail::no_race_winner; }
-
-            state.set(std::move(current));
         }
     };
 

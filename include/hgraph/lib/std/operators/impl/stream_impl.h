@@ -744,7 +744,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::DeltaQueueState> state,
                          Out<TsVar<"S">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             current.buffer.push_back(capture_delta(ts.base()));
 
             const auto delay = static_cast<std::size_t>(period.value());
@@ -755,7 +755,6 @@ namespace hgraph::stdlib
                 apply_delta(out, delta.view());
             }
 
-            state.set(std::move(current));
         }
     };
 
@@ -772,7 +771,7 @@ namespace hgraph::stdlib
                          Out<TsVar<"S">> out)
         {
             const auto now     = static_cast<const TSOutputView &>(out).evaluation_time();
-            auto       current = state.get();
+            auto       &current = state.modify();
 
             if (ts.modified() && ts.valid())
             {
@@ -788,7 +787,6 @@ namespace hgraph::stdlib
                 apply_delta(out, delta.view());
             }
 
-            state.set(std::move(current));
         }
     };
 
@@ -806,7 +804,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::LagProxyState> state,
                          Out<TsVar<"S">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (ts.modified() && ts.valid())
             {
                 lag_c.make_active();
@@ -821,7 +819,6 @@ namespace hgraph::stdlib
                 }
                 if (current.cache.empty()) { lag_c.make_passive(); }
             }
-            state.set(std::move(current));
         }
     };
 
@@ -999,7 +996,7 @@ namespace hgraph::stdlib
                          Out<TsVar<"S">> out)
         {
             const auto now     = static_cast<const TSOutputView &>(out).evaluation_time();
-            auto       current = state.get();
+            auto       &current = state.modify();
 
             if (ts.modified() && ts.valid())
             {
@@ -1014,7 +1011,6 @@ namespace hgraph::stdlib
                 apply_delta(out, delta.view());
             }
 
-            state.set(std::move(current));
         }
     };
 
@@ -1307,7 +1303,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::DeltaQueueState> state,
                          Out<TsVar<"S">> out)
         {
-            auto       current        = state.get();
+            auto       &current        = state.modify();
             const bool keep_newest    = buffer_length.value() < 0;
             const auto limit          = static_cast<std::size_t>(
                 keep_newest ? -buffer_length.value() : buffer_length.value());
@@ -1339,7 +1335,6 @@ namespace hgraph::stdlib
             }
 
             if (condition_true && !current.buffer.empty()) { scheduler.schedule(MIN_TD); }
-            state.set(std::move(current));
         }
 
         static auto defaults()
@@ -1413,7 +1408,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::TimedDeltaQueueState> state,
                          DateTime now, Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             current.buffer.emplace_back(now, Value{ts.base().value()});
             while (current.buffer.size() > static_cast<std::size_t>(period.value()))
             {
@@ -1425,7 +1420,6 @@ namespace hgraph::stdlib
             {
                 stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current.buffer);
             }
-            state.set(std::move(current));
         }
 
         static auto defaults()
@@ -1452,7 +1446,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::TimedDeltaQueueState> state,
                          DateTime now, Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             current.buffer.emplace_back(now, Value{ts.base().value()});
             while (!current.buffer.empty() && current.buffer.front().first < now - period.value())
             {
@@ -1464,7 +1458,6 @@ namespace hgraph::stdlib
             {
                 stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current.buffer);
             }
-            state.set(std::move(current));
         }
 
         static auto defaults()
@@ -1495,7 +1488,7 @@ namespace hgraph::stdlib
                          State<stream_impl_detail::DeltaQueueState> state,
                          Out<TsVar<"__out__">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (ts.modified() && ts.valid())
             {
                 if (current.buffer.size() >= static_cast<std::size_t>(buffer_length.value()))
@@ -1523,7 +1516,6 @@ namespace hgraph::stdlib
                     static_cast<void>(mutation.move_value_from(std::move(result)));
                 }
             }
-            state.set(std::move(current));
         }
 
         static auto defaults()
@@ -1541,10 +1533,9 @@ namespace hgraph::stdlib
         static void start(State<stream_impl_detail::ThrottleState> state,
                           Out<TsVar<"S">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             const auto &erased = static_cast<const TSOutputView &>(out);
             current.release_ops = &stream_impl_detail::throttle_release_ops_for(erased.schema()->kind);
-            state.set(std::move(current));
         }
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
@@ -1555,7 +1546,7 @@ namespace hgraph::stdlib
                          DateTime now,
                          Out<TsVar<"S">> out)
         {
-            auto current = state.get();
+            auto &current = state.modify();
             if (period.modified() && period.valid())
             {
                 stream_impl_detail::require_positive(period.value(), "period");
@@ -1592,7 +1583,6 @@ namespace hgraph::stdlib
                 if (emitted) { scheduler.schedule(now + current.period); }
             }
 
-            state.set(std::move(current));
         }
 
         static auto defaults()

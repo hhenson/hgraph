@@ -232,7 +232,7 @@ namespace hgraph::stdlib
             State<record_replay_memory_detail::SparseRecordState> state, DateTime now)
         {
             if (!ts.modified()) { return; }
-            const auto resolved = state.get();
+            const auto &resolved = state.ref();
             Value delta = capture_delta(ts.base());
             ValueView buffer = gs.get(resolved.fq_key);
             if (!buffer.valid())
@@ -299,7 +299,7 @@ namespace hgraph::stdlib
                          DateTime now, Out<TsVar<"S">> out)
         {
             static_cast<void>(traits);
-            auto state = cursor.get();
+            auto &state = cursor.modify();
             if (recordable_id.value().empty())
             {
                 // DENSE cycle-aligned (harness): plain key, index by cycle.
@@ -317,7 +317,6 @@ namespace hgraph::stdlib
                     }
                 }
                 state.index = i + 1;
-                cursor.set(std::move(state));
                 if (i + 1 < size) { sched.schedule(MIN_TD); }  // re-arm for the next cycle
                 return;
             }
@@ -338,7 +337,6 @@ namespace hgraph::stdlib
                 ++current;
             }
             state.index = static_cast<Int>(current);
-            cursor.set(std::move(state));
             if (current < entries.size())
             {
                 const auto next = entries.at(current).as_indexed_view();
