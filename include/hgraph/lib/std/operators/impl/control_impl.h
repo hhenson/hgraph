@@ -567,20 +567,22 @@ namespace hgraph::stdlib
     {
         using output_schema = UnNamedTSB<Field<"true", REF<TsVar<"S">>>, Field<"false", REF<TsVar<"S">>>>;
 
+        static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                          State<TimeSeriesReference> empty)
+        {
+            // Built once at start; the per-tick path publishes by
+            // copy_value_from — no reference wrapping, no registry lookups
+            // (the 2026-07-02 lock-free ruling). Schema compatibility is
+            // wiring's guarantee: the ts input and both output fields share
+            // one TsVar.
+            empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
+        }
+
         static void eval(In<"condition", TS<Bool>> condition,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
                          State<TimeSeriesReference> empty,
                          Out<output_schema> out)
         {
-            // The empty reference is built once and held in node state; the
-            // per-tick path publishes by copy_value_from — no reference
-            // wrapping, no registry lookups (the 2026-07-02 lock-free
-            // ruling). Schema compatibility is wiring's guarantee: the ts
-            // input and both output fields share one TsVar.
-            if (empty.get().target_schema() == nullptr)
-            {
-                empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
-            }
             const auto publish = [](const TSOutputView &field_out, const ValueView &reference) {
                 auto mutation = field_out.begin_mutation(field_out.evaluation_time());
                 static_cast<void>(mutation.copy_value_from(reference));
@@ -597,17 +599,19 @@ namespace hgraph::stdlib
 
     struct route_by_index_ref_impl
     {
+        static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                          State<TimeSeriesReference> empty)
+        {
+            // Same contract as if_ref_impl: state-held empty reference,
+            // per-tick copy_value_from only.
+            empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
+        }
+
         static void eval(In<"index", TS<Int>> index,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
                          State<TimeSeriesReference> empty,
                          Out<TSL<REF<TsVar<"S">>, SIZE<"N">>> out)
         {
-            // Same contract as if_ref_impl: state-held empty reference,
-            // per-tick copy_value_from only.
-            if (empty.get().target_schema() == nullptr)
-            {
-                empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
-            }
             const Int selected_index = index.value();
             for (std::size_t i = 0; i < out.size(); ++i)
             {
