@@ -146,6 +146,11 @@ namespace hgraph::stdlib
                 Persisted with every completed recording frame so replay can
                 distinguish omission from a non-default optional name. */
             std::vector<std::optional<std::string>> recording_projection{};
+            /** Start-resolved table layout: interned with a stable address;
+                re-deriving it per tick rebuilds the layout key (two string
+                allocations) and probes the cache (lock-free per-tick ruling:
+                plan discovery is start work). */
+            const table_ts_detail::TsTableLayout *layout{nullptr};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -430,6 +435,7 @@ namespace hgraph::stdlib
                 options.as_of == TableRecordingOptions::AsOf::Fixed ? options.as_of_value
                                                                     : std::optional<DateTime>{}});
             handle->recording_projection = std::move(recording_projection);
+            handle->layout = &layout;
             handle->flush_rows = flush_rows.value();
             handle->flush_interval = flush_interval.value();
             handle->last_flush = now;
@@ -487,12 +493,11 @@ namespace hgraph::stdlib
             static_cast<void>(mode);
             static_cast<void>(flush_rows);
             static_cast<void>(flush_interval);
-            const auto as_of_cell = state.get().handle->fixed_as_of.value_or(now);
+            static_cast<void>(gs);
             using namespace table_ts_detail;
-            auto       *handle = state.get().handle;
-            const auto &layout =
-                ts_table_layout(ts.base().schema(), record_replay::config(gs).date_key,
-                                record_replay::config(gs).as_of_key);
+            auto       *handle     = state.get().handle;
+            const auto  as_of_cell = handle->fixed_as_of.value_or(now);
+            const auto &layout     = *handle->layout;
             record_replay_frame_detail::RecordingSink recording{.handle = handle};
             try
             {
@@ -726,6 +731,7 @@ namespace hgraph::stdlib
                 {},
                 false,
                 ToTableMode::Tick});
+            handle->fixed_as_of = config.as_of;  // run-fixed; eval reads the handle
             state.set(FrameRecorderState{handle.release()});  // owned by node State until stop
         }
 
@@ -738,9 +744,11 @@ namespace hgraph::stdlib
             static_cast<void>(recordable_id);
             // Activation means at least one side ticked: a one-sided value IS
             // a mismatch (one series produced where the other did not).
-            const bool  equal = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
-            const auto  as_of = record_replay::config(gs).as_of.value_or(now);
-            auto       &recorder = state.get().handle->recorder;
+            static_cast<void>(gs);
+            const bool  equal  = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
+            auto       *handle = state.get().handle;
+            const auto  as_of  = handle->fixed_as_of.value_or(now);
+            auto       &recorder = handle->recorder;
             const Value when{now};
             const Value as_of_value{as_of};
             const Value result{Bool{equal}};

@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_MEMORY_IMPL_H
 
 #include <hgraph/lib/std/operators/io.h>              // record / replay / compare markers
+#include <hgraph/lib/std/value_util.h>                // ResolvedBindings (start-cached)
 #include <hgraph/lib/testing/record_replay_buffer.h>  // cycle-aligned buffer-format helpers
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -59,7 +60,42 @@ namespace hgraph::stdlib
             return ":memory:" + record_replay::fq_recordable_id(traits, recordable_id) +
                    "." + std::string{key};
         }
+
+        /** sparse_record's start-resolved recording plan: the fq key string
+            and the delta binding (binding resolution locks the realization
+            snapshot's counted mutex — start work, not per-tick work). */
+        struct SparseRecordState
+        {
+            std::string  fq_key{};
+            ValueTypeRef delta_binding{nullptr};
+        };
+
+        /** replay's cursor plus the start-resolved sparse fq key. */
+        struct ReplayCursorState
+        {
+            Int         index{0};
+            std::string fq_key{};
+        };
     }  // namespace record_replay_memory_detail
+}  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::record_replay_memory_detail::SparseRecordState>
+    {
+        static constexpr std::string_view value{"stdlib.sparse_record_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::record_replay_memory_detail::ReplayCursorState>
+    {
+        static constexpr std::string_view value{"stdlib.replay_cursor_state"};
+    };
+}  // namespace hgraph::static_schema_detail
+
+namespace hgraph::stdlib
+{
 
     /**
      * DENSE cycle-aligned record (the testing harness recorder). A single erased
@@ -85,32 +121,36 @@ namespace hgraph::stdlib
                               arg<"model">(Str{})};
         }
 
-        static void start(Scalar<"key", std::string> key, Scalar<"sparse", Bool>, Scalar<"model", Str>,
-                          GlobalStateView gs)
+        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                          Scalar<"key", std::string> key, Scalar<"sparse", Bool>, Scalar<"model", Str>,
+                          GlobalStateView gs, State<ResolvedBindings> bindings)
         {
-            // Both buffer layouts are TYPED by the recorded delta schema,
-            // which only eval sees - creation is lazy on the first tick (a
-            // never-ticking recording reads back empty either way). A seeded
-            // state may contain the prior run's result under this key.
+            // Both buffer layouts are TYPED by the recorded delta schema;
+            // resolve its binding here (the lookup locks the realization
+            // snapshot's counted mutex). Buffer creation stays lazy on the
+            // first tick (a never-ticking recording reads back empty either
+            // way). A seeded state may contain the prior run's result under
+            // this key.
+            bindings.set(ResolvedBindings{
+                .primary = testing::recording_binding_for(ts.base().schema()->delta_value_schema)});
             gs.erase(key.value());
         }
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Scalar<"key", std::string> key,
                          Scalar<"sparse", Bool> sparse, Scalar<"model", Str>, GlobalStateView gs,
-                         DateTime now)
+                         State<ResolvedBindings> bindings, DateTime now)
         {
             if (!ts.modified()) { return; }
             // The canonical per-tick delta, rebuilt as an owned value-layer Value (the
             // runtime's transient delta storage omits copy hooks).
             Value delta = capture_delta(ts.base());
-            const auto *schema = ts.base().schema();
             if (!delta_is_observable(ts.base(), delta.view())) { return; }
             if (sparse.value())
             {
                 // SPARSE (the harness's __elide__): TYPED (time, delta)
                 // tuple entries in evaluation order - one entry per tick
                 // regardless of the gap, no Any boxing.
-                const auto delta_binding = testing::recording_binding_for(schema->delta_value_schema);
+                const auto delta_binding = bindings.get().primary;
                 ValueView buffer = gs.get(key.value());
                 if (!buffer.valid())
                 {
@@ -124,7 +164,7 @@ namespace hgraph::stdlib
             // DENSE: a TYPED List<delta_schema>; skipped cycles are UNSET
             // elements (element validity) - one default-constructed slot per
             // hole instead of a boxed Any.
-            const auto delta_binding = testing::recording_binding_for(schema->delta_value_schema);
+            const auto delta_binding = bindings.get().primary;
             ValueView buffer = gs.get(key.value());
             if (!buffer.valid())
             {
@@ -172,27 +212,37 @@ namespace hgraph::stdlib
                               arg<"model">(Str{})};
         }
 
+        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                          Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+                          Scalar<"model", Str>, TraitsView traits,
+                          State<record_replay_memory_detail::SparseRecordState> state)
+        {
+            state.set(record_replay_memory_detail::SparseRecordState{
+                .fq_key = record_replay_memory_detail::memory_recording_key(
+                    traits, recordable_id.value(), key.value()),
+                .delta_binding = testing::recording_binding_for(
+                    ts.base().schema()->delta_value_schema)});
+        }
+
         static void eval(
             In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
             Scalar<"key", Str> key,
             Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>,
-            TraitsView traits, GlobalStateView gs, DateTime now)
+            TraitsView traits, GlobalStateView gs,
+            State<record_replay_memory_detail::SparseRecordState> state, DateTime now)
         {
             if (!ts.modified()) { return; }
-            const std::string fq_key = record_replay_memory_detail::memory_recording_key(
-                traits, recordable_id.value(), key.value());
+            const auto resolved = state.get();
             Value delta = capture_delta(ts.base());
-            const auto delta_binding =
-                testing::recording_binding_for(ts.base().schema()->delta_value_schema);
-            ValueView buffer = gs.get(fq_key);
+            ValueView buffer = gs.get(resolved.fq_key);
             if (!buffer.valid())
             {
-                gs.set(fq_key, testing::make_sparse_buffer(delta_binding));
-                buffer = gs.get(fq_key);
+                gs.set(resolved.fq_key, testing::make_sparse_buffer(resolved.delta_binding));
+                buffer = gs.get(resolved.fq_key);
             }
             auto mutation = buffer.as_list().begin_mutation();
             Value entry = testing::make_sparse_entry(
-                delta_binding, now, std::move(delta));
+                resolved.delta_binding, now, std::move(delta));
             mutation.push_back(entry.view());
         }
     };
@@ -228,18 +278,35 @@ namespace hgraph::stdlib
             return std::tuple{arg<"recordable_id">(Str{""}), arg<"model">(Str{})};
         }
 
+        static void start(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+                          Scalar<"model", Str>, TraitsView traits,
+                          State<record_replay_memory_detail::ReplayCursorState> cursor)
+        {
+            // The sparse fq key is wiring-fixed; build the string once.
+            auto current = cursor.get();
+            if (!recordable_id.value().empty())
+            {
+                current.fq_key = record_replay_memory_detail::memory_recording_key(
+                    traits, recordable_id.value(), key.value());
+            }
+            cursor.set(std::move(current));
+        }
+
         static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
                          Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
-                         NodeScheduler sched, State<Int> index, DateTime now,
-                         Out<TsVar<"S">> out)
+                         NodeScheduler sched,
+                         State<record_replay_memory_detail::ReplayCursorState> cursor,
+                         DateTime now, Out<TsVar<"S">> out)
         {
+            static_cast<void>(traits);
+            auto state = cursor.get();
             if (recordable_id.value().empty())
             {
                 // DENSE cycle-aligned (harness): plain key, index by cycle.
                 const ValueView buffer = gs.get(key.value());
                 if (!buffer.valid()) { return; }  // nothing seeded under this key
                 const auto list = buffer.as_list();
-                const auto i    = index.get();
+                const auto i    = state.index;
                 const auto size = static_cast<Int>(list.size());
                 if (i < size)
                 {
@@ -249,19 +316,18 @@ namespace hgraph::stdlib
                         apply_delta(out, delta->view());
                     }
                 }
-                index.set(i + 1);
+                state.index = i + 1;
+                cursor.set(std::move(state));
                 if (i + 1 < size) { sched.schedule(MIN_TD); }  // re-arm for the next cycle
                 return;
             }
             // SPARSE absolute-time (:memory:): (time, delta) entries, replayed at
             // their recorded times (component recover / cross-run reads).
-            const std::string fq_key = record_replay_memory_detail::memory_recording_key(
-                traits, recordable_id.value(), key.value());
-            const ValueView buffer = gs.get(fq_key);
+            const ValueView buffer = gs.get(state.fq_key);
             if (!buffer.valid()) { return; }
 
             const auto entries = buffer.as_list();
-            std::size_t current = static_cast<std::size_t>(index.get());
+            std::size_t current = static_cast<std::size_t>(state.index);
             while (current < entries.size())
             {
                 const auto entry = entries.at(current).as_indexed_view();
@@ -271,7 +337,8 @@ namespace hgraph::stdlib
                 apply_delta(out, entry.at(1));
                 ++current;
             }
-            index.set(static_cast<Int>(current));
+            state.index = static_cast<Int>(current);
+            cursor.set(std::move(state));
             if (current < entries.size())
             {
                 const auto next = entries.at(current).as_indexed_view();
@@ -311,5 +378,15 @@ namespace hgraph::stdlib
         harness backend and the sparse absolute-time backend). */
     void register_record_replay_memory_operators();
 }  // namespace hgraph::stdlib
+
+namespace hgraph
+{
+    // The replay cursor state is also instantiated by the Python module's
+    // harness wrappers; keep one exported plan/ops address.
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::record_replay_memory_detail::ReplayCursorState>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &
+    ops_for<stdlib::record_replay_memory_detail::ReplayCursorState>() noexcept;
+}  // namespace hgraph
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_MEMORY_IMPL_H

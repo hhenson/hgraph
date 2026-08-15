@@ -54,22 +54,24 @@ namespace hgraph::stdlib
         }
 
         /** A ``arrow::Datum`` for one operand: the Series' array, or a scalar
-            built from an ``int``/``float`` TS value. */
+            built from an ``int``/``float`` TS value. Discriminates by the
+            value's OWN ops table (``try_as`` is an ops-pointer compare — all
+            ``Series[T]`` metas share the base series ops), so the per-tick
+            path never consults the registry (lock-free per-tick ruling). */
         [[nodiscard]] inline arrow::Datum operand_datum(const TSInputView &input)
         {
-            const auto *schema = input.schema();
-            if (is_series_value(schema->value_schema))
+            const auto value = input.value();
+            if (const auto *series = value.try_as<Series>())
             {
-                return arrow::Datum{input.value().checked_as<Series>().array};
+                return arrow::Datum{series->array};
             }
-            auto &registry = TypeRegistry::instance();
-            if (schema->value_schema == registry.value_type("int"))
+            if (const auto *as_int = value.try_as<Int>())
             {
-                return arrow::Datum{arrow::MakeScalar(static_cast<std::int64_t>(input.value().checked_as<Int>()))};
+                return arrow::Datum{arrow::MakeScalar(static_cast<std::int64_t>(*as_int))};
             }
-            if (schema->value_schema == registry.value_type("float"))
+            if (const auto *as_float = value.try_as<Float>())
             {
-                return arrow::Datum{arrow::MakeScalar(input.value().checked_as<Float>())};
+                return arrow::Datum{arrow::MakeScalar(*as_float)};
             }
             throw std::invalid_argument("series operator operand must be a Series, int or float");
         }
@@ -101,9 +103,10 @@ namespace hgraph::stdlib
             }
             auto scalar = series.array->GetScalar(index);
             if (!scalar.ok()) { throw std::runtime_error("Series element read failed"); }
-            auto  &registry = TypeRegistry::instance();
+            // Generation-cached scalar binding: no registry mutex per tick.
+            const auto *float_meta = TypeRegistry::instance().scalar_type<Float>().schema();
             Value  result;
-            if (erased.schema()->value_schema == registry.value_type("float"))
+            if (erased.schema()->value_schema == float_meta)
             {
                 auto v = arrow::compute::Cast(arrow::Datum{*scalar}, arrow::float64());
                 if (!v.ok()) { throw std::runtime_error("Series element cast failed"); }

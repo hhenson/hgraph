@@ -1440,15 +1440,24 @@ struct harness_replay {
   // the empty recordable_id selects the unified replay's dense path.
   static auto defaults() { return std::tuple{arg<"recordable_id">(Str{""})}; }
 
+  static void start(Scalar<"key", std::string> key,
+                    Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
+                    State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor) {
+    stdlib::replay_impl::start(std::move(key), std::move(recordable_id),
+                               Scalar<"model", Str>{Str{}}, std::move(traits),
+                               std::move(cursor));
+  }
+
   static void eval(Scalar<"key", std::string> key,
                    Scalar<"recordable_id", Str> recordable_id,
                    TraitsView traits, GlobalStateView gs, NodeScheduler sched,
-                   State<Int> index, DateTime now, Out<TsVar<"S">> out) {
+                   State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor,
+                   DateTime now, Out<TsVar<"S">> out) {
     // The harness never selects a backend: it is the dense in-memory path by
     // construction, so it forwards an empty model ("use the graph's").
     stdlib::replay_impl::eval(
         std::move(key), std::move(recordable_id), Scalar<"model", Str>{Str{}},
-        std::move(traits), std::move(gs), std::move(sched), std::move(index), now,
+        std::move(traits), std::move(gs), std::move(sched), std::move(cursor), now,
         std::move(out));
   }
 };
@@ -1458,19 +1467,23 @@ struct harness_record {
 
   static auto defaults() { return std::tuple{arg<"sparse">(Bool{false})}; }
 
-  static void start(Scalar<"key", std::string> key,
-                    Scalar<"sparse", Bool> sparse, GlobalStateView gs) {
-    stdlib::dense_record_impl::start(std::move(key), std::move(sparse),
-                                     Scalar<"model", Str>{Str{}}, std::move(gs));
+  static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                    Scalar<"key", std::string> key,
+                    Scalar<"sparse", Bool> sparse, GlobalStateView gs,
+                    State<stdlib::ResolvedBindings> bindings) {
+    stdlib::dense_record_impl::start(std::move(ts), std::move(key), std::move(sparse),
+                                     Scalar<"model", Str>{Str{}}, std::move(gs),
+                                     std::move(bindings));
   }
 
   static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                    Scalar<"key", std::string> key,
                    Scalar<"sparse", Bool> sparse, GlobalStateView gs,
+                   State<stdlib::ResolvedBindings> bindings,
                    DateTime now) {
     stdlib::dense_record_impl::eval(std::move(ts), std::move(key),
                                     std::move(sparse), Scalar<"model", Str>{Str{}},
-                                    std::move(gs), now);
+                                    std::move(gs), std::move(bindings), now);
   }
 };
 

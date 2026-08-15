@@ -55,7 +55,10 @@ namespace hgraph::stdlib
 
             [[nodiscard]] const ValueTypeMetaData *datetime_meta()
             {
-                return TypeRegistry::instance().value_type("datetime");
+                // Generation-cached: read_dt runs per replayed ROW, and the
+                // name lookup took the registry mutex plus a string
+                // allocation every call (lock-free per-tick ruling).
+                return TypeRegistry::instance().scalar_type<DateTime>().schema();
             }
 
             [[nodiscard]] DateTime read_dt(const Frame &frame, const std::string &dt_col,

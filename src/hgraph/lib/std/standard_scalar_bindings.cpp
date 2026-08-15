@@ -3,6 +3,8 @@
 #include <hgraph/lib/std/operators/higher_order.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/lib/std/operators/table.h>
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/lib/std/value_util.h>
 
 namespace hgraph
 {
@@ -21,6 +23,8 @@ namespace hgraph
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordAsOf);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordRemoves);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::ToTableMode);
+    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::ResolvedBindings);
+    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::record_replay_memory_detail::ReplayCursorState);
 
 #undef HGRAPH_DEFINE_STDLIB_SCALAR_BINDING
 }  // namespace hgraph

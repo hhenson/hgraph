@@ -139,6 +139,9 @@ namespace hgraph::stdlib
     struct TableLayoutState
     {
         const table_ts_detail::TsTableLayout *layout{nullptr};
+        /** Start-resolved run-fixed as-of override; reading it per tick from
+            GlobalState copies the whole Config (three heap strings). */
+        std::optional<DateTime> fixed_as_of{};
     };
 }  // namespace hgraph::stdlib
 
@@ -195,8 +198,10 @@ namespace hgraph::stdlib
                           State<TableLayoutState> state)
         {
             const auto config = record_replay::config(gs);
-            state.set(TableLayoutState{&table_ts_detail::ts_table_layout(
-                ts.base().schema(), config.date_key, config.as_of_key)});
+            state.set(TableLayoutState{
+                .layout = &table_ts_detail::ts_table_layout(ts.base().schema(), config.date_key,
+                                                            config.as_of_key),
+                .fixed_as_of = config.as_of});
         }
 
         static void eval(In<"ts", TsVar<"S">>                                  ts,
@@ -208,10 +213,12 @@ namespace hgraph::stdlib
             {
                 return;
             }  // a mode tick alone emits nothing
+            static_cast<void>(gs);
             const Int mode_value =
                 mode.valid() ? static_cast<Int>(mode.value()) : table_ts_detail::kToTableModeTick;
-            const auto as_of = record_replay::config(gs).as_of.value_or(now);
-            table_ts_detail::emit_rows(*state.get().layout, ts.base(), mode_value, now, as_of,
+            const auto resolved = state.get();
+            const auto as_of    = resolved.fixed_as_of.value_or(now);
+            table_ts_detail::emit_rows(*resolved.layout, ts.base(), mode_value, now, as_of,
                                        static_cast<const TSOutputView &>(out));
         }
     };

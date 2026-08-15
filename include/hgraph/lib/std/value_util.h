@@ -231,4 +231,14 @@ namespace hgraph::static_schema_detail
     };
 }  // namespace hgraph::static_schema_detail
 
+namespace hgraph
+{
+    // ResolvedBindings backs node State across the runtime, the Python
+    // module, and extensions; keep one exported plan/ops address (see the
+    // standard-scalar-binding note in type_registry.h).
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::ResolvedBindings>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::ResolvedBindings>() noexcept;
+}  // namespace hgraph
+
 #endif  // HGRAPH_LIB_STD_VALUE_UTIL_H
