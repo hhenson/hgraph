@@ -44,6 +44,31 @@ namespace
             wire<stdlib::dense_record_impl>(w, wire<stdlib::take>(w, x, Int{2}), Str{"out"});
         }
     };
+
+    /** The resettable form: replay "x" + reset "reset" -> take(ts, reset, N). */
+    template <Int Count>
+    struct TakeResetRestoreGraph
+    {
+        static constexpr auto name = "audit_take_reset_restore_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto x     = wire<stdlib::replay_impl, TS<Int>>(w, Str{"x"});
+            auto reset = wire<stdlib::replay_impl, TS<Int>>(w, Str{"reset"});
+            wire<stdlib::dense_record_impl>(w, wire<stdlib::take>(w, x, reset, Int{Count}),
+                                            Str{"out"});
+        }
+    };
+
+    [[nodiscard]] NodeView find_recordable_node(const GraphView &graph)
+    {
+        for (std::size_t index = 0; index < graph.node_count(); ++index)
+        {
+            auto node = graph.node_at(index);
+            if (node.has_recordable_state()) { return node; }
+        }
+        return {};
+    }
 }  // namespace
 
 TEST_CASE("audit: eq_ over TSDs stays silent until a source ticks")
@@ -94,16 +119,7 @@ TEST_CASE("audit: a restored take counter derives passivation at start")
     // the start hook must derive passivation from the restored state — the
     // pre-fix node forwarded indefinitely (take_reset) or leaked one tick
     // (take).
-    NodeView take_node;
-    for (std::size_t index = 0; index < graph.node_count(); ++index)
-    {
-        auto node = graph.node_at(index);
-        if (node.has_recordable_state())
-        {
-            take_node = std::move(node);
-            break;
-        }
-    }
+    NodeView take_node = find_recordable_node(graph);
     REQUIRE(take_node.valid());
     Out<TS<Int>>{take_node.recordable_state(MIN_ST), MIN_ST}.set(Int{2});
 
@@ -127,16 +143,7 @@ TEST_CASE("audit: a partially consumed restored take forwards only the remainder
     MockRootGraph root{gb, MIN_ST, MAX_ET};
     auto          graph = root.graph();
 
-    NodeView take_node;
-    for (std::size_t index = 0; index < graph.node_count(); ++index)
-    {
-        auto node = graph.node_at(index);
-        if (node.has_recordable_state())
-        {
-            take_node = std::move(node);
-            break;
-        }
-    }
+    NodeView take_node = find_recordable_node(graph);
     REQUIRE(take_node.valid());
     Out<TS<Int>>{take_node.recordable_state(MIN_ST), MIN_ST}.set(Int{1});
 
@@ -148,4 +155,60 @@ TEST_CASE("audit: a partially consumed restored take forwards only the remainder
 
     // One of two already consumed: exactly one further tick forwards.
     CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"), values<Int>(10));
+}
+
+TEST_CASE("audit: a restored take(reset) counter re-arms on reset only")
+{
+    stdlib::register_standard_operators();
+
+    GraphBuilder gb = build_graph<TakeResetRestoreGraph<2>>();
+    // x ticks every cycle; reset ticks at t1 only.
+    set_replay_values<Int>(gb.global_state(), "x", values<Int>(10, 11, 12, 13, 14));
+    set_replay_values<Int>(gb.global_state(), "reset", values<Int>(none, 1, none, none, none));
+
+    MockRootGraph root{gb, MIN_ST, MAX_ET};
+    auto          graph = root.graph();
+
+    NodeView take_node = find_recordable_node(graph);
+    REQUIRE(take_node.valid());
+    // Restored EXHAUSTED: forwards nothing until the reset re-arms; the
+    // reset cycle itself forwards (reset+tick together = cleared before the
+    // new tick, the documented convention), then exactly one more — the
+    // pre-fix == guard forwarded indefinitely.
+    Out<TS<Int>>{take_node.recordable_state(MIN_ST), MIN_ST}.set(Int{2});
+
+    graph.start(MIN_ST);
+    for (int cycle = 0; cycle < 5; ++cycle) { graph.evaluate(MIN_ST + cycle * MIN_TD); }
+    graph.stop();
+
+    CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"),
+                 values<Int>(none, 11, 12));
+}
+
+TEST_CASE("audit: a reset does not resurrect a zero-count take")
+{
+    stdlib::register_standard_operators();
+
+    GraphBuilder gb = build_graph<TakeResetRestoreGraph<0>>();
+    set_replay_values<Int>(gb.global_state(), "x", values<Int>(10, 11, 12));
+    set_replay_values<Int>(gb.global_state(), "reset", values<Int>(none, 1, none));
+
+    MockRootGraph root{gb, MIN_ST, MAX_ET};
+    auto          graph = root.graph();
+
+    graph.start(MIN_ST);
+    for (int cycle = 0; cycle < 3; ++cycle) { graph.evaluate(MIN_ST + cycle * MIN_TD); }
+    graph.stop();
+
+    // Nothing can ever emit; the reset must not reactivate the source input
+    // (the pre-fix eval re-armed it and then returned on the zero-count
+    // guard, leaving a permanently scheduled node).
+    CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"), values<Int>());
+}
+
+TEST_CASE("audit: zero-count take emits nothing through public wiring")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<stdlib::take>(values<Int>(1, 2, 3), Int{0}),
+                 values<Int>(none, none, none));
 }
