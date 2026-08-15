@@ -1,8 +1,10 @@
 #ifndef HGRAPH_LIB_STD_VALUE_UTIL_H
 #define HGRAPH_LIB_STD_VALUE_UTIL_H
 
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -48,6 +50,56 @@ namespace hgraph::stdlib
         ValueTypeRef secondary{nullptr};
         ValueTypeRef result{nullptr};
     };
+
+    /** Resolve the ResolvedBindings for a scalar-map output: key/value
+        bindings + the interned compact map type. start-hook only. */
+    [[nodiscard]] inline ResolvedBindings resolve_map_bindings(const ValueTypeMetaData *key,
+                                                               const ValueTypeMetaData *value)
+    {
+        const auto k = value_type_for_active_realization(key);
+        const auto v = value_type_for_active_realization(value);
+        return ResolvedBindings{.primary = k, .secondary = v, .result = compact_map_type(k, v)};
+    }
+
+    /** Resolve the ResolvedBindings for a scalar-list/tuple output. */
+    [[nodiscard]] inline ResolvedBindings resolve_list_bindings(const ValueTypeMetaData *list_meta)
+    {
+        const auto element = value_type_for_active_realization(list_meta->element_type);
+        return ResolvedBindings{.primary = element,
+                                .result  = compact_list_type(element, *list_meta)};
+    }
+
+    /** Resolve the ResolvedBindings for a scalar-set output. */
+    [[nodiscard]] inline ResolvedBindings resolve_set_bindings(const ValueTypeMetaData *element_meta)
+    {
+        const auto element = value_type_for_active_realization(element_meta);
+        return ResolvedBindings{.primary = element, .result = compact_set_type(element)};
+    }
+
+    /** Lock-free per-tick construction from start-resolved bindings — the
+        builders' own ``build()`` re-interns the result type per call. */
+    [[nodiscard]] inline MapBuilder map_builder_for(const ResolvedBindings &bindings)
+    {
+        return MapBuilder{bindings.primary, bindings.secondary};
+    }
+
+    [[nodiscard]] inline Value finish_map(MapBuilder &builder, const ResolvedBindings &bindings)
+    {
+        MapStorage storage = builder.build_storage();
+        return Value{bindings.result, &storage};
+    }
+
+    [[nodiscard]] inline Value finish_list(ListBuilder &builder, const ResolvedBindings &bindings)
+    {
+        ListStorage storage = builder.build_storage();
+        return Value{bindings.result, &storage};
+    }
+
+    [[nodiscard]] inline Value finish_set(SetBuilder &builder, const ResolvedBindings &bindings)
+    {
+        SetStorage storage = builder.build_storage();
+        return Value{bindings.result, &storage};
+    }
 
     template <typename T>
     [[nodiscard]] ValueTypeRef scalar_value_binding()

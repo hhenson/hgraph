@@ -216,10 +216,10 @@ def _str_pulse(cycles: int) -> TS[str]:
 def _churn_tsd_pulse(cycles: int) -> TSD[int, TS[int]]:
     # A rotating key insert + removal per cycle, so key-set-shaped outputs
     # (keys_, set conversions) re-emit every cycle rather than settling.
-    from hgraph import REMOVE
+    from hgraph import REMOVE_IF_EXISTS
 
     for i in range(cycles):
-        yield MIN_TD, {i % 3: i, (i + 1) % 3: REMOVE}
+        yield MIN_TD, {i % 3: i, (i + 1) % 3: REMOVE_IF_EXISTS}
 
 
 def _convert_ts_to_set_graph(cycles: int):
@@ -296,13 +296,7 @@ def _still_locking(reason):
 _LOCK_MATRIX = [
     pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
     pytest.param(_collect_tuple_graph, id="collect_tuple"),
-    pytest.param(
-        _keys_tsd_graph,
-        id="keys_tsd_as_set",
-        marks=_still_locking(
-            "keys_tsd_as_set resolves its set builder per tick"
-        ),
-    ),
+    pytest.param(_keys_tsd_graph, id="keys_tsd_as_set"),
     pytest.param(
         _getitem_tsd_graph,
         id="getitem_tsd_by_key",
