@@ -2,15 +2,24 @@
 
 #include <arrow/compute/initialize.h>
 
+#include <stdexcept>
+
 namespace hgraph::stdlib
 {
     void register_series_operators()
     {
         // Arrow requires the compute module to be initialised before any
-        // CallFunction (the built-in kernels register here).
+        // CallFunction (the built-in kernels register here). Fail HERE, at
+        // registration, rather than surfacing as confusing per-tick
+        // CallFunction errors later.
         static const bool initialised = [] {
             const auto status = arrow::compute::Initialize();
-            return status.ok();
+            if (!status.ok())
+            {
+                throw std::runtime_error("arrow compute initialisation failed: " +
+                                         status.ToString());
+            }
+            return true;
         }();
         static_cast<void>(initialised);
 

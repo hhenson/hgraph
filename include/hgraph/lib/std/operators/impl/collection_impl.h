@@ -356,6 +356,11 @@ namespace hgraph::stdlib
                              In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> rhs,
                              Out<TS<Bool>> out)
             {
+                // Upstream eq_tsds is a validity-gated compute node: until a
+                // side has VALIDATED (ticked, possibly to empty) there is
+                // nothing to compare. Without this gate the start-time
+                // evaluation compared two empty views and emitted true.
+                if (!lhs.valid() && !rhs.valid()) { return; }
                 out.set(tsd_equal(lhs, rhs));
             }
         };
@@ -1909,8 +1914,10 @@ namespace hgraph::stdlib
                     }
                 }
                 // A DISJOINT first tick still validates (emits the empty
-                // dict) - touch LAST per the write discipline.
-                mutation.touch();
+                // dict) - touch LAST per the write discipline, but only to
+                // validate: an unconditional touch re-ticked the output
+                // (empty delta) on every upstream tick (audit 2026-08-15).
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 
@@ -2762,8 +2769,10 @@ namespace hgraph::stdlib
             // Touch LAST: the once-per-time notification rides the FIRST
             // record - it must carry the real slot changes (derived
             // structures such as the from-REF proxy sync on it); the trailing
-            // touch only validates an otherwise-empty tick.
-            mutation.touch();
+            // touch ONLY validates an otherwise-empty first tick — repeated
+            // unconditional touches woke every consumer per cycle (audit
+            // 2026-08-15).
+            if (!out.valid()) { mutation.touch(); }
         }
 
         /** combine_tsd(keys TSL[TS[K]], values TSL[REF[V]]): zip valid key
@@ -3007,7 +3016,7 @@ namespace hgraph::stdlib
                                                 .begin_mutation(erased.evaluation_time());
                     static_cast<void>(element_mutation.copy_value_from(item_list.at(index)));
                 }
-                mutation.touch();   // LAST (see publish_tsd_refs)
+                if (!erased.valid()) { mutation.touch(); }  // LAST (see publish_tsd_refs)
             }
         };
 

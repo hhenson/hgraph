@@ -673,9 +673,20 @@ struct getattr_tsd {
       const TimeSeriesReference reference = child.reference();
       const TimeSeriesReference projected = field_item(reference, field);
       auto element = mutation.at(key);
+      TSOutputView element_out{erased.output(), element, erased.evaluation_time()};
+      // Same-reference dedup (the sibling projections' contract): an
+      // element VALUE tick reaches this eval, but re-publishing an
+      // unchanged reference would re-notify every downstream REF
+      // consumer into a rebind for nothing.
+      if (element_out.data_view().has_current_value()) {
+        if (const auto *current =
+                element_out.value().try_as<TimeSeriesReference>();
+            current != nullptr && *current == projected) {
+          continue;
+        }
+      }
       auto element_mutation =
-          TSOutputView{erased.output(), element, erased.evaluation_time()}
-              .begin_mutation(erased.evaluation_time());
+          element_out.begin_mutation(erased.evaluation_time());
       static_cast<void>(element_mutation.move_value_from(
           Value{resolved.binding, &projected}));
     }

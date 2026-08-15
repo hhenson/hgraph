@@ -1603,12 +1603,20 @@ namespace hgraph::stdlib
 
     struct take_impl
     {
+        /* Forward the first ``count`` ticks, then PASSIVATE the input (the
+           documented contract, matching take_reset): without it the node is
+           scheduled on every source tick forever, doing nothing. */
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count, State<Int> seen, Out<TsVar<"S">> out)
         {
-            if (count.value() <= 0) { return; }
-            const Int index = seen.get();
-            if (index < count.value()) { out.apply(ts.value()); }
-            seen.set(index + 1);
+            if (count.value() <= 0)
+            {
+                ts.make_passive();
+                return;
+            }
+            const Int index = seen.get() + 1;
+            seen.set(index);
+            if (index >= count.value()) { ts.make_passive(); }
+            out.apply(ts.value());
         }
     };
 

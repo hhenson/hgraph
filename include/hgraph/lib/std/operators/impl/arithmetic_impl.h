@@ -1170,9 +1170,20 @@ namespace hgraph::stdlib
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {
-                (void)default_value;
-                container_numeric_agg_impl<Agg, true, Kind, Element>::do_eval(
-                    ts.base().value(), static_cast<const TSOutputView &>(out));
+                // An EMPTY container emits the supplied default — the same
+                // contract as the extremum siblings. (This overload used to
+                // accept default_value only to win overload resolution and
+                // then discard it; audit 2026-08-15.)
+                const auto  container = ts.base().value();
+                const auto &out_view  = static_cast<const TSOutputView &>(out);
+                const auto  stats = numeric_container_stats<Agg, Element, Kind>::collect(container);
+                if (stats.count == 0)
+                {
+                    const TSInputView &fallback = default_value.base();
+                    publish_default_if_valid(&fallback, out_view);
+                    return;
+                }
+                container_numeric_agg_impl<Agg, true, Kind, Element>::do_eval(container, out_view);
             }
         };
 

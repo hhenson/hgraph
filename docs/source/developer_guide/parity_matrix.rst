@@ -205,6 +205,12 @@ Standing residue is limited to recorded deviations:
   ``test_to_table_dispatch`` (upstream ``_impl`` internals; behaviour covered
   through the public surface). Mapped children now publish the final validity
   of projected EMPTY-REF terminals and the corresponding test executes.
+- **Float ``eq_`` / ``ne_`` asymmetry (upstream parity, kept)** — upstream
+  0.5 gives ``eq_`` over floats an epsilon overload (``1e-10``) but ``ne_``
+  only the exact generic ``__ne__`` form, so for ``|lhs−rhs| < 1e-10`` both
+  ``eq_`` and ``ne_`` are true. The native library reproduces this exactly
+  (``eq_numeric_epsilon`` vs the exact lifted ``ne_``); flagged by the
+  2026-08-15 std-operator audit and deliberately retained as parity.
 
 Expanded upstream ``all``-suite audit (2026-08-05)
 --------------------------------------------------
