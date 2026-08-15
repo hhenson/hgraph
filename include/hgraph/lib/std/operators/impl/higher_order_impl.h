@@ -358,6 +358,10 @@ namespace hgraph::stdlib
             bind_graph_output(resolution, kernel->output_schema());
         }
 
+        /* Cost: O(N) kernel applications per tick (full recompute of the
+           fixed TSL fold — no modified gating), O(1) retained. Auto-selected
+           over the incremental combiner tree (nested_graphs.rst) for fixed
+           sizes, trading per-tick work for zero nested-graph machinery. */
         struct reduce_lifted_tsl
         {
             static constexpr auto name = "reduce_lifted_tsl";
@@ -3563,7 +3567,7 @@ namespace hgraph::stdlib
 
         struct map_impl_tsd
         {
-            static constexpr auto name = "map_impl";
+            static constexpr auto name = "map_tsd";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -3601,7 +3605,7 @@ namespace hgraph::stdlib
 
         struct map_sink_impl_tsd
         {
-            static constexpr auto name = "map_sink_impl";
+            static constexpr auto name = "map_sink_tsd";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -3680,7 +3684,7 @@ namespace hgraph::stdlib
 
         struct mesh_impl_tsd
         {
-            static constexpr auto name = "mesh_impl";
+            static constexpr auto name = "mesh_tsd";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -3886,10 +3890,14 @@ namespace hgraph::stdlib
                         }
                     }
 
+                    // Scratch hoisted out of the element loop: one reusable
+                    // buffer instead of an allocation per element per tick on
+                    // the fast path (audit 2026-08-15).
+                    std::vector<ValueView> values;
+                    values.reserve(multiplexed.size());
                     for (std::size_t i = 0; i < runtime_size; ++i)
                     {
-                        std::vector<ValueView> values;
-                        values.reserve(multiplexed.size());
+                        values.clear();
                         bool ready = true;
                         bool input_modified = false;
                         for (std::size_t arg = 0; arg < multiplexed.size(); ++arg)
@@ -4301,7 +4309,7 @@ namespace hgraph::stdlib
          */
         struct map_impl_tsl
         {
-            static constexpr auto name = "map_impl";
+            static constexpr auto name = "map_tsl";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context) {
                 const auto *collection = first_map_collection(context);
@@ -4336,7 +4344,7 @@ namespace hgraph::stdlib
         /** Outputless ``map_`` over fixed or dynamic TSLs. */
         struct map_sink_impl_tsl
         {
-            static constexpr auto name = "map_sink_impl";
+            static constexpr auto name = "map_sink_tsl";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context) {
                 const auto *collection = first_map_collection(context);

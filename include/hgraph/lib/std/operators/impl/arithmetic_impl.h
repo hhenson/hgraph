@@ -411,36 +411,65 @@ namespace hgraph::stdlib
             }
         };
 
-        /** Running mean (population) over one series. */
+        /** Running mean (population) over one series.
+
+            Strategy: the online recurrence (prior + (x−prior)/n) — better
+            float behaviour than sum/count for long streams and immune to
+            integer-sum overflow. No wiring-time strategy enum is exposed:
+            upstream 0.5 offers exactly this form (audit 2026-08-15).
+
+            The tick count is LOOPBACK state (it decides every later tick's
+            weight), so it is RecordableState: a replay restore that reset it
+            to zero silently re-weighted the stream (audit 2026-08-15). A
+            restored count resumes exactly; an invalid one starts at zero. */
         template <typename T>
         struct running_mean_impl
         {
             static constexpr auto name = "mean_unary";
 
-            static void eval(In<"ts", TS<T>> ts, State<Int> count, Out<TS<Float>> out)
+            static void eval(In<"ts", TS<T>> ts, RecordableState<TS<Int>> count, Out<TS<Float>> out)
             {
-                const Int   n     = count.get() + 1;
+                const Int   n = (count.valid() ? count.value().checked_as<Int>() : Int{0}) + 1;
                 const Float prior = out.valid() ? out.value().checked_as<Float>() : 0.0;
                 count.set(n);
                 out.set(prior + (static_cast<Float>(ts.value()) - prior) / static_cast<Float>(n));
             }
         };
 
-        /** Running population std / var (Welford). */
+        /** The Welford accumulator as a recordable structured schema. The
+            TSB name is process-global, so it carries the reserved __hgraph
+            prefix (the json-lazy convention) instead of squatting on a name
+            a downstream schema could plausibly use. */
+        using AggMomentsState = TSB<"__hgraph_agg_moments",
+                                    Field<"count", TS<Int>>,
+                                    Field<"mean", TS<Float>>,
+                                    Field<"m2", TS<Float>>>;
+
+        /** Running population std / var (Welford). Sufficient statistics are
+            loopback state — recordable so replay resumes them (see mean). */
         template <typename T, bool Std>
         struct running_moments_impl
         {
             static constexpr auto name = Std ? "std_unary" : "var_unary";
 
-            static void eval(In<"ts", TS<T>> ts, State<AggMoments> state, Out<TS<Float>> out)
+            static void eval(In<"ts", TS<T>> ts, RecordableState<AggMomentsState> state,
+                             Out<TS<Float>> out)
             {
-                AggMoments  m     = state.get();
+                AggMoments m{};
+                if (const auto count_field = state.template field<"count">(); count_field.valid())
+                {
+                    m.count = count_field.value().checked_as<Int>();
+                    m.mean  = state.template field<"mean">().value().checked_as<Float>();
+                    m.m2    = state.template field<"m2">().value().checked_as<Float>();
+                }
                 const Float value = static_cast<Float>(ts.value());
                 m.count += 1;
                 const Float delta = value - m.mean;
                 m.mean += delta / static_cast<Float>(m.count);
                 m.m2 += delta * (value - m.mean);
-                state.set(m);
+                state.template field<"count">().set(m.count);
+                state.template field<"mean">().set(m.mean);
+                state.template field<"m2">().set(m.m2);
                 const Float variance = m.count > 0 ? m.m2 / static_cast<Float>(m.count) : 0.0;
                 out.set(Std ? std::sqrt(variance) : variance);
             }
@@ -1170,9 +1199,20 @@ namespace hgraph::stdlib
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {
-                (void)default_value;
-                container_numeric_agg_impl<Agg, true, Kind, Element>::do_eval(
-                    ts.base().value(), static_cast<const TSOutputView &>(out));
+                // An EMPTY container emits the supplied default — the same
+                // contract as the extremum siblings. (This overload used to
+                // accept default_value only to win overload resolution and
+                // then discard it; audit 2026-08-15.)
+                const auto  container = ts.base().value();
+                const auto &out_view  = static_cast<const TSOutputView &>(out);
+                const auto  stats = numeric_container_stats<Agg, Element, Kind>::collect(container);
+                if (stats.count == 0)
+                {
+                    const TSInputView &fallback = default_value.base();
+                    publish_default_if_valid(&fallback, out_view);
+                    return;
+                }
+                container_numeric_agg_impl<Agg, true, Kind, Element>::do_eval(container, out_view);
             }
         };
 

@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <hgraph/lib/std/lifted_kernels.h>
+#include <hgraph/lib/std/value_util.h>              // ResolvedBindings + finish_* helpers
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/conversion.h>
@@ -37,6 +38,30 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+namespace hgraph::stdlib
+{
+    namespace collection_impl_detail
+    {
+        /** Two-level map kernels (partition / flip_keys / uncollapse) cache
+            the inner AND outer map bindings; single-level kernels use inner
+            only. Resolved once in start (lock-free per-tick ruling). */
+        struct MapKernelBindings
+        {
+            ResolvedBindings inner{};
+            ResolvedBindings outer{};
+        };
+    }  // namespace collection_impl_detail
+}  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::collection_impl_detail::MapKernelBindings>
+    {
+        static constexpr std::string_view value{"stdlib.map_kernel_bindings"};
+    };
+}  // namespace hgraph::static_schema_detail
 
 namespace hgraph::stdlib
 {
@@ -106,15 +131,21 @@ namespace hgraph::stdlib
                 return schema != nullptr && schema->key_type() == element->element_type;
             }
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
-                             Out<TS<ScalarVar<"S">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"S">>> out)
             {
-                const TSDInputView &dict   = ts;
-                const auto         &erased = static_cast<const TSOutputView &>(out);
-                const auto *out_meta = erased.schema()->value_schema;
-                SetBuilder builder{value_type_for_active_realization(out_meta->element_type)};
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_set_bindings(meta->element_type));
+            }
+
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
+                             State<ResolvedBindings> bindings, Out<TS<ScalarVar<"S">>> out)
+            {
+                const TSDInputView &dict     = ts;
+                const auto         &erased   = static_cast<const TSOutputView &>(out);
+                const auto          resolved = bindings.get();
+                SetBuilder builder{resolved.primary};
                 for (const auto key : dict.keys()) { (void)builder.insert(key); }
-                Value set = builder.build();
+                Value set = finish_set(builder, resolved);
                 if (erased.data_view().has_current_value() && erased.value().equals(set.view())) { return; }
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
                 static_cast<void>(mutation.move_value_from(std::move(set)));
@@ -137,18 +168,24 @@ namespace hgraph::stdlib
                 return value == element;
             }
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts, Out<TSS<ScalarVar<"E">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
-                const TSDInputView  &dict    = ts;
-                TSSOutputView       &erased  = out;
                 // TSS value schema = Set[element]; the element binding builds it.
-                const auto *element_meta = erased.schema()->value_schema->element_type;
-                SetBuilder union_builder{value_type_for_active_realization(element_meta)};
+                TSSOutputView &erased = out;
+                bindings.set(resolve_set_bindings(erased.schema()->value_schema->element_type));
+            }
+
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
+                             State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
+            {
+                const TSDInputView  &dict     = ts;
+                const auto           resolved = bindings.get();
+                SetBuilder union_builder{resolved.primary};
                 for (auto &&[key, child] : dict.items())
                 {
                     if (child.valid()) { (void)union_builder.insert(child.value()); }
                 }
-                Value current = union_builder.build();
+                Value current = finish_set(union_builder, resolved);
                 auto  current_set = current.view().as_set();
 
                 std::vector<Value> removed;
@@ -318,6 +355,11 @@ namespace hgraph::stdlib
                              In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> rhs,
                              Out<TS<Bool>> out)
             {
+                // Upstream eq_tsds is a validity-gated compute node: until a
+                // side has VALIDATED (ticked, possibly to empty) there is
+                // nothing to compare. Without this gate the start-time
+                // evaluation compared two empty views and emitted true.
+                if (!lhs.valid() && !rhs.valid()) { return; }
                 out.set(tsd_equal(lhs, rhs));
             }
         };
@@ -1126,15 +1168,22 @@ namespace hgraph::stdlib
                 resolution.bind_ts("__out__", registry.tsd(registry.tuple(keys), registry.ref(leaf)));
             }
 
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                const auto *tuple_meta = static_cast<const TSOutputView &>(out).schema()->key_type();
+                bindings.set(ResolvedBindings{
+                    .primary = value_type_for_active_realization(tuple_meta)});
+            }
+
             static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
-                             Out<TsVar<"__out__">> out)
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
                 const auto &erased   = static_cast<const TSOutputView &>(out);
                 auto        dict_out = erased.data_view().as_dict();
                 const auto  evaluation_time = erased.evaluation_time();
                 auto        mutation = dict_out.begin_mutation(evaluation_time);
                 const auto *tuple_meta = erased.schema()->key_type();
-                const auto tuple_binding = value_type_for_active_realization(tuple_meta);
+                const auto tuple_binding = bindings.get().primary;
                 const std::size_t depth = tuple_meta->field_count;
 
                 // Removed SUBTREES erase every output tuple-key with the
@@ -1864,8 +1913,10 @@ namespace hgraph::stdlib
                     }
                 }
                 // A DISJOINT first tick still validates (emits the empty
-                // dict) - touch LAST per the write discipline.
-                mutation.touch();
+                // dict) - touch LAST per the write discipline, but only to
+                // validate: an unconditional touch re-ticked the output
+                // (empty delta) on every upstream tick (audit 2026-08-15).
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 
@@ -1975,7 +2026,7 @@ namespace hgraph::stdlib
         /** ``union(*ts)`` — n-ary TSS union, folded pairwise at wiring time. */
         struct union_tss_fold
         {
-            static constexpr auto name = "union_impl";
+            static constexpr auto name = "union_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2002,7 +2053,7 @@ namespace hgraph::stdlib
         /** ``intersection(*ts)`` — n-ary TSS intersection, folded pairwise at wiring time. */
         struct intersection_tss_fold
         {
-            static constexpr auto name = "intersection_impl";
+            static constexpr auto name = "intersection_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2029,7 +2080,7 @@ namespace hgraph::stdlib
         /** ``difference(lhs, rhs)`` — binary TSS set difference. */
         struct difference_tss_fold
         {
-            static constexpr auto name = "difference_impl";
+            static constexpr auto name = "difference_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2055,7 +2106,7 @@ namespace hgraph::stdlib
         /** ``symmetric_difference(*ts)`` — n-ary TSS symmetric difference, folded pairwise. */
         struct symmetric_difference_tss_fold
         {
-            static constexpr auto name = "symmetric_difference_impl";
+            static constexpr auto name = "symmetric_difference_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2094,20 +2145,6 @@ namespace hgraph::stdlib
             return ts_map_value_schema(ts);
         }
 
-        [[nodiscard]] inline ValueTypeRef map_scalar_type(const ValueTypeMetaData *key,
-                                                                        const ValueTypeMetaData *value)
-        {
-            const auto *meta = TypeRegistry::instance().map(key, value);
-            return value_type_for_active_realization(meta);
-        }
-
-        [[nodiscard]] inline MapBuilder make_map_builder(const ValueTypeMetaData *key,
-                                                         const ValueTypeMetaData *value)
-        {
-            return MapBuilder{value_type_for_active_realization(key),
-                              value_type_for_active_realization(value)};
-        }
-
         inline void publish_value(const TSOutputView &out, Value &&value)
         {
             auto mutation = out.begin_mutation(out.evaluation_time());
@@ -2138,13 +2175,20 @@ namespace hgraph::stdlib
                 bind_local_output(resolution, registry.ts(registry.set(map_meta->key_type)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_set_bindings(meta->element_type));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
+                             Out<TsVar<"O">> out)
             {
                 auto map = ts.base().value().as_map();
-                const auto *key_meta = ts.base().schema()->value_schema->key_type;
-                SetBuilder builder{value_type_for_active_realization(key_meta)};
+                const auto resolved = bindings.get();
+                SetBuilder builder{resolved.primary};
                 for (const auto key : map.keys()) { builder.insert(key); }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_set(builder, resolved));
             }
         };
 
@@ -2168,16 +2212,22 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.list(map_meta->element_type, 0, true)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_list_bindings(meta));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
+                             Out<TsVar<"O">> out)
             {
                 auto map = ts.base().value().as_map();
-                const auto *value_meta = ts.base().schema()->value_schema->element_type;
                 const auto *output_meta =
                     static_cast<const TSOutputView &>(out).schema()->value_schema;
-                ListBuilder builder{
-                    value_type_for_active_realization(value_meta), *output_meta};
+                const auto resolved = bindings.get();
+                ListBuilder builder{resolved.primary, *output_meta};
                 for (const auto [key, item] : map) { builder.push_back(item); }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_list(builder, resolved));
             }
         };
 
@@ -2204,19 +2254,25 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(keys->element_type, ts->element_type)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, In<"new_keys", TsVar<"K">> new_keys, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, In<"new_keys", TsVar<"K">> new_keys,
+                             State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
                 auto data = ts.base().value().as_map();
                 auto mapping = new_keys.base().value().as_map();
-                const auto *ts_meta = ts.base().schema()->value_schema;
-                const auto *key_meta = new_keys.base().schema()->value_schema;
-                auto builder = make_map_builder(key_meta->element_type, ts_meta->element_type);
+                const auto resolved = bindings.get();
+                auto builder = map_builder_for(resolved);
                 for (const auto [key, item] : data)
                 {
                     if (!mapping.contains(key)) { continue; }
                     builder.set_item(mapping.at(key), item);
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved));
             }
         };
 
@@ -2240,13 +2296,20 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(ts->element_type, ts->key_type)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
+                             Out<TsVar<"O">> out)
             {
                 auto map = ts.base().value().as_map();
-                const auto *meta = ts.base().schema()->value_schema;
-                auto builder = make_map_builder(meta->element_type, meta->key_type);
+                const auto resolved = bindings.get();
+                auto builder = map_builder_for(resolved);
                 for (const auto [key, item] : map) { builder.set_item(item, key); }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved));
             }
         };
 
@@ -2274,13 +2337,23 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(parts->element_type, inner)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, In<"partitions", TsVar<"P">> partitions, Out<TsVar<"O">> out)
+            static void start(State<collection_impl_detail::MapKernelBindings> bindings,
+                              Out<TsVar<"O">> out)
+            {
+                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                const auto *inner_meta = out_meta->element_type;
+                bindings.set(collection_impl_detail::MapKernelBindings{
+                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
+                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, In<"partitions", TsVar<"P">> partitions,
+                             State<collection_impl_detail::MapKernelBindings> bindings,
+                             Out<TsVar<"O">> out)
             {
                 auto data = ts.base().value().as_map();
                 auto labels = partitions.base().value().as_map();
-                const auto *ts_meta = ts.base().schema()->value_schema;
-                const auto *part_meta = partitions.base().schema()->value_schema;
-                const auto *inner_meta = TypeRegistry::instance().map(ts_meta->key_type, ts_meta->element_type);
+                const auto resolved = bindings.get();
 
                 // label -> inner builder (ordered by first appearance)
                 std::vector<std::pair<Value, MapBuilder>> groups;
@@ -2295,19 +2368,18 @@ namespace hgraph::stdlib
                     }
                     if (group == nullptr)
                     {
-                        groups.emplace_back(Value{label},
-                                            make_map_builder(ts_meta->key_type, ts_meta->element_type));
+                        groups.emplace_back(Value{label}, map_builder_for(resolved.inner));
                         group = &groups.back().second;
                     }
                     group->set_item(key, item);
                 }
-                auto builder = make_map_builder(part_meta->element_type, inner_meta);
+                auto builder = map_builder_for(resolved.outer);
                 for (auto &[label, inner] : groups)
                 {
-                    Value built = inner.build();
+                    Value built = finish_map(inner, resolved.inner);
                     builder.set_item(label.view(), built.view());
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved.outer));
             }
         };
 
@@ -2341,11 +2413,21 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(inner->key_type, flipped_inner)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<collection_impl_detail::MapKernelBindings> bindings,
+                              Out<TsVar<"O">> out)
             {
-                const auto *meta  = ts.base().schema()->value_schema;
-                const auto *inner = nested_map_meta(meta);
-                const auto *flipped_inner = TypeRegistry::instance().map(meta->key_type, inner->element_type);
+                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                const auto *inner_meta = out_meta->element_type;
+                bindings.set(collection_impl_detail::MapKernelBindings{
+                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
+                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts,
+                             State<collection_impl_detail::MapKernelBindings> bindings,
+                             Out<TsVar<"O">> out)
+            {
+                const auto resolved = bindings.get();
 
                 std::vector<std::pair<Value, MapBuilder>> groups;
                 const auto outer_values = ts.base().value().as_map();
@@ -2361,20 +2443,19 @@ namespace hgraph::stdlib
                         }
                         if (group == nullptr)
                         {
-                            groups.emplace_back(Value{inner_key},
-                                                make_map_builder(meta->key_type, inner->element_type));
+                            groups.emplace_back(Value{inner_key}, map_builder_for(resolved.inner));
                             group = &groups.back().second;
                         }
                         group->set_item(outer_key, item);
                     }
                 }
-                auto builder = make_map_builder(inner->key_type, flipped_inner);
+                auto builder = map_builder_for(resolved.outer);
                 for (auto &[label, group] : groups)
                 {
-                    Value built = group.build();
+                    Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved.outer));
             }
         };
 
@@ -2401,14 +2482,26 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(pair, inner->element_type)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<collection_impl_detail::MapKernelBindings> bindings,
+                              Out<TsVar<"O">> out)
             {
-                const auto *meta  = ts.base().schema()->value_schema;
-                const auto *inner = nested_map_meta(meta);
-                const auto *pair  = TypeRegistry::instance().tuple({meta->key_type, inner->key_type});
-                const auto pair_binding = value_type_for_active_realization(pair);
+                // inner.primary carries the pair-tuple binding; outer is the
+                // output map. Both wiring-fixed (the pair IS the out key).
+                const auto *out_meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(collection_impl_detail::MapKernelBindings{
+                    .inner = ResolvedBindings{
+                        .primary = value_type_for_active_realization(out_meta->key_type)},
+                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+            }
 
-                auto builder = make_map_builder(pair, inner->element_type);
+            static void eval(In<"ts", TsVar<"S">> ts,
+                             State<collection_impl_detail::MapKernelBindings> bindings,
+                             Out<TsVar<"O">> out)
+            {
+                const auto resolved     = bindings.get();
+                const auto pair_binding = resolved.inner.primary;
+
+                auto builder = map_builder_for(resolved.outer);
                 const auto outer_values = ts.base().value().as_map();
                 for (const auto [outer_key, inner_value] : outer_values)
                 {
@@ -2422,7 +2515,7 @@ namespace hgraph::stdlib
                         builder.set_item(pair_key.view(), item);
                     }
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved.outer));
             }
         };
 
@@ -2450,12 +2543,21 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(ts->key_type->fields[0].type, inner)), "O");
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out)
+            static void start(State<collection_impl_detail::MapKernelBindings> bindings,
+                              Out<TsVar<"O">> out)
             {
-                const auto *meta  = ts.base().schema()->value_schema;
-                const auto *outer_meta = meta->key_type->fields[0].type;
-                const auto *inner_key  = meta->key_type->fields[1].type;
-                const auto *inner_map  = TypeRegistry::instance().map(inner_key, meta->element_type);
+                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                const auto *inner_meta = out_meta->element_type;
+                bindings.set(collection_impl_detail::MapKernelBindings{
+                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
+                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts,
+                             State<collection_impl_detail::MapKernelBindings> bindings,
+                             Out<TsVar<"O">> out)
+            {
+                const auto resolved = bindings.get();
 
                 std::vector<std::pair<Value, MapBuilder>> groups;
                 const auto values = ts.base().value().as_map();
@@ -2470,18 +2572,18 @@ namespace hgraph::stdlib
                     }
                     if (group == nullptr)
                     {
-                        groups.emplace_back(Value{outer}, make_map_builder(inner_key, meta->element_type));
+                        groups.emplace_back(Value{outer}, map_builder_for(resolved.inner));
                         group = &groups.back().second;
                     }
                     group->set_item(pair.at(1), item);
                 }
-                auto builder = make_map_builder(outer_meta, inner_map);
+                auto builder = map_builder_for(resolved.outer);
                 for (auto &[label, group] : groups)
                 {
-                    Value built = group.build();
+                    Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved.outer));
             }
         };
         /** combine_map from a single (key, value) TS pair. */
@@ -2507,13 +2609,21 @@ namespace hgraph::stdlib
                 bind_local_output(resolution, registry.ts(registry.map(keys, values)), "O");
             }
 
-            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+            }
+
+            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
+                             State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
                 auto key = keys.base().value();
                 auto item = values.base().value();
-                auto builder = make_map_builder(key.schema(), item.schema());
+                const auto resolved = bindings.get();
+                auto builder = map_builder_for(resolved);
                 builder.set_item(key, item);
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved));
             }
         };
 
@@ -2541,7 +2651,14 @@ namespace hgraph::stdlib
                     resolution, registry.ts(registry.map(keys->element_type, values->element_type)), "O");
             }
 
-            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+            }
+
+            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
+                             State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
                 auto key_list  = keys.base().value().as_indexed_view();
                 auto item_list = values.base().value().as_indexed_view();
@@ -2549,14 +2666,13 @@ namespace hgraph::stdlib
                 {
                     throw std::invalid_argument("combine_map: keys and values must have the same length");
                 }
-                const auto *keys_meta   = keys.base().schema()->value_schema;
-                const auto *values_meta = values.base().schema()->value_schema;
-                auto builder = make_map_builder(keys_meta->element_type, values_meta->element_type);
+                const auto resolved = bindings.get();
+                auto builder = map_builder_for(resolved);
                 for (std::size_t index = 0; index < key_list.size(); ++index)
                 {
                     builder.set_item(key_list.at(index), item_list.at(index));
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved));
             }
         };
 
@@ -2589,10 +2705,17 @@ namespace hgraph::stdlib
                        keys->fixed_size() != 0;
             }
 
-            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values, Out<TsVar<"O">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *out_meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                auto builder = make_map_builder(out_meta->key_type, out_meta->element_type);
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+            }
+
+            static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
+                             State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+            {
+                const auto resolved = bindings.get();
+                auto builder = map_builder_for(resolved);
                 const auto  size = keys.base().schema()->fixed_size();
                 for (std::size_t index = 0; index < size; ++index)
                 {
@@ -2601,7 +2724,7 @@ namespace hgraph::stdlib
                     if (!key_child.valid() || !item_child.valid()) { continue; }
                     builder.set_item(key_child.value(), item_child.value());
                 }
-                publish_value(static_cast<const TSOutputView &>(out), builder.build());
+                publish_value(static_cast<const TSOutputView &>(out), finish_map(builder, resolved));
             }
         };
         // ----- combine_tsd (hgraph's combine[TSD] family) -----------------
@@ -2645,8 +2768,10 @@ namespace hgraph::stdlib
             // Touch LAST: the once-per-time notification rides the FIRST
             // record - it must carry the real slot changes (derived
             // structures such as the from-REF proxy sync on it); the trailing
-            // touch only validates an otherwise-empty tick.
-            mutation.touch();
+            // touch ONLY validates an otherwise-empty first tick — repeated
+            // unconditional touches woke every consumer per cycle (audit
+            // 2026-08-15).
+            if (!out.valid()) { mutation.touch(); }
         }
 
         /** combine_tsd(keys TSL[TS[K]], values TSL[REF[V]]): zip valid key
@@ -2890,7 +3015,7 @@ namespace hgraph::stdlib
                                                 .begin_mutation(erased.evaluation_time());
                     static_cast<void>(element_mutation.copy_value_from(item_list.at(index)));
                 }
-                mutation.touch();   // LAST (see publish_tsd_refs)
+                if (!erased.valid()) { mutation.touch(); }  // LAST (see publish_tsd_refs)
             }
         };
 
@@ -2906,12 +3031,6 @@ namespace hgraph::stdlib
                 return nullptr;
             }
             return schema->value_schema;
-        }
-
-        [[nodiscard]] inline ListBuilder make_list_builder(const ValueTypeMetaData *list_meta)
-        {
-            return ListBuilder{
-                value_type_for_active_realization(list_meta->element_type), *list_meta};
         }
 
         /** mul_(tuple, n): python tuple repetition. */
@@ -2933,11 +3052,19 @@ namespace hgraph::stdlib
                 bind_output(resolution, TypeRegistry::instance().ts(list));
             }
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<Int>> rhs, Out<TsVar<"__out__">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_list_bindings(meta));
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<Int>> rhs,
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
                 const auto  value = lhs.base().value();
                 auto        items = value.as_indexed_view();
-                auto        builder = make_list_builder(value.schema());
+                const auto  resolved = bindings.get();
+                ListBuilder builder{resolved.primary, *value.schema()};
                 const auto  repeats = rhs.value();
                 for (Int r = 0; r < repeats; ++r)
                 {
@@ -2948,7 +3075,7 @@ namespace hgraph::stdlib
                 }
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(builder.build()));
+                static_cast<void>(mutation.move_value_from(finish_list(builder, resolved)));
             }
         };
 
@@ -3198,15 +3325,23 @@ namespace hgraph::stdlib
                 bind_output(resolution, TypeRegistry::instance().ts(list));
             }
 
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_list_bindings(meta));
+            }
+
             static void eval(In<"lhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> lhs,
                              In<"rhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> rhs,
-                             Scalar<"__strict__", Bool> strict, Out<TsVar<"__out__">> out)
+                             Scalar<"__strict__", Bool> strict,
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
                 if (strict.value() && (!lhs.valid() || !rhs.valid())) { return; }
                 if (!lhs.valid() && !rhs.valid()) { return; }
                 const auto *list_meta =
                     static_cast<const TSOutputView &>(out).schema()->value_schema;
-                auto builder = make_list_builder(list_meta);
+                const auto  resolved = bindings.get();
+                ListBuilder builder{resolved.primary, *list_meta};
                 const auto push_all = [&](const ValueView &value) {
                     auto items = value.as_indexed_view();
                     for (std::size_t index = 0; index < items.size(); ++index)
@@ -3218,7 +3353,7 @@ namespace hgraph::stdlib
                 if (rhs.valid()) { push_all(rhs.base().value()); }
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(builder.build()));
+                static_cast<void>(mutation.move_value_from(finish_list(builder, resolved)));
             }
         };
 
@@ -3242,12 +3377,19 @@ namespace hgraph::stdlib
                 bind_output(resolution, TypeRegistry::instance().ts(list));
             }
 
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_list_bindings(meta));
+            }
+
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"E">>> rhs,
-                             Out<TsVar<"__out__">> out)
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
                 const auto value = lhs.base().value();
                 auto       items = value.as_indexed_view();
-                auto       builder = make_list_builder(value.schema());
+                const auto resolved = bindings.get();
+                ListBuilder builder{resolved.primary, *value.schema()};
                 for (std::size_t index = 0; index < items.size(); ++index)
                 {
                     builder.push_back(items.at(index));
@@ -3255,7 +3397,7 @@ namespace hgraph::stdlib
                 builder.push_back(rhs.base().value());
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(builder.build()));
+                static_cast<void>(mutation.move_value_from(finish_list(builder, resolved)));
             }
         };
 
@@ -3279,20 +3421,27 @@ namespace hgraph::stdlib
                 bind_output(resolution, TypeRegistry::instance().ts(list));
             }
 
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                bindings.set(resolve_list_bindings(meta));
+            }
+
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"E">>> rhs,
-                             Out<TsVar<"__out__">> out)
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
                 const auto value  = lhs.base().value();
                 auto       items  = value.as_indexed_view();
                 const auto needle = rhs.base().value();
-                auto builder = make_list_builder(value.schema());
+                const auto resolved = bindings.get();
+                ListBuilder builder{resolved.primary, *value.schema()};
                 for (std::size_t index = 0; index < items.size(); ++index)
                 {
                     if (!items.at(index).equals(needle)) { builder.push_back(items.at(index)); }
                 }
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(builder.build()));
+                static_cast<void>(mutation.move_value_from(finish_list(builder, resolved)));
             }
         };
 
@@ -3300,8 +3449,10 @@ namespace hgraph::stdlib
             value from field ports by NAME - valid inputs set their fields,
             the rest stay UNSET (CS IS a Bundle value; py from_ts wires a
             structural TSB into this node). */
-        template <bool Strict>
-        void combine_cs_from_fields_eval(const TSInputView &fields, const TSOutputView &erased)
+        /** start-resolved target/assembly bindings for combine_cs: the
+            exact_type_for lookup locks the realization snapshot's mutex, so
+            it runs once per node lifetime (lock-free per-tick ruling). */
+        inline ResolvedBindings resolve_cs_bindings(const TSOutputView &erased)
         {
             const auto *target = erased.schema()->value_schema;
             const auto *snapshot = active_type_realization();
@@ -3313,6 +3464,18 @@ namespace hgraph::stdlib
             const auto assembly_binding = policy_materialization
                                               ? BundleBuilder::assembly_type(target_binding)
                                               : target_binding;
+            return ResolvedBindings{.primary = target_binding, .result = assembly_binding};
+        }
+
+        template <bool Strict>
+        void combine_cs_from_fields_eval(const TSInputView &fields, const ResolvedBindings &resolved,
+                                         const TSOutputView &erased)
+        {
+            const auto *target = erased.schema()->value_schema;
+            const auto target_binding = resolved.primary;
+            const bool policy_materialization =
+                target_binding.ops_ref().has_source_materialization_policy();
+            const auto assembly_binding = resolved.result;
             BundleBuilder builder{assembly_binding};
 
             const auto *input_schema = fields.schema();
@@ -3369,9 +3532,16 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields";
 
-            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Out<TsVar<"__out__">> out)
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<true>(ts, static_cast<const TSOutputView &>(out));
+                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+            }
+
+            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                combine_cs_from_fields_eval<true>(ts, bindings.get(),
+                                                  static_cast<const TSOutputView &>(out));
             }
         };
 
@@ -3380,11 +3550,17 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields_lenient";
 
+            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+            }
+
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                              Scalar<"__strict__", Bool>,
-                             Out<TsVar<"__out__">> out)
+                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<false>(ts, static_cast<const TSOutputView &>(out));
+                combine_cs_from_fields_eval<false>(ts, bindings.get(),
+                                                   static_cast<const TSOutputView &>(out));
             }
         };
 
@@ -3770,7 +3946,10 @@ namespace hgraph::stdlib
             static Value merge(const ValueView &orig, const ValueView &delta)
             {
                 const auto *meta = orig.schema();
-                BundleBuilder builder{value_type_for_active_realization(meta)};
+                // The original value already carries its realized binding —
+                // reuse it (lock-free) instead of re-realizing the schema at
+                // every recursion level on every tick.
+                BundleBuilder builder{orig.binding()};
                 auto orig_fields  = orig.as_indexed_view();
                 auto delta_fields = delta.as_indexed_view();
                 for (std::size_t index = 0; index < meta->field_count; ++index)

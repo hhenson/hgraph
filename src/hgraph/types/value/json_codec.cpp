@@ -3,6 +3,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value_builder.h>
@@ -1853,7 +1854,10 @@ namespace hgraph
         // independent graph engines may start concurrently, so protect the
         // process-wide interning table. A recursive mutex is required because
         // compound converter synthesis recursively interns child schemas.
-        std::recursive_mutex g_converters_mutex;
+        // Counted: this is type-system machinery, so acquisitions must show
+        // up in type_system_lock_count() — a per-tick caller is a ruling
+        // violation the snapshot invariant test has to be able to see.
+        TypeSystemRecursiveMutex g_converters_mutex;
         std::unordered_map<const ValueTypeMetaData *, std::unique_ptr<JsonConverter>> g_converters;
 
         [[nodiscard]] AtomicTag atomic_tag_for(const ValueTypeMetaData *meta)

@@ -1587,6 +1587,26 @@ namespace hgraph
 
         [[nodiscard]] value_type get() const { return view_.template checked_as<TValue>(); }
 
+        /** Borrowed read — no copy. Valid until the next set()/modify().
+            Prefer this over get() when the state holds owning containers:
+            get() deep-copies the whole value out per call. */
+        [[nodiscard]] const value_type &ref() const
+        {
+            return view_.template checked_as<TValue>();
+        }
+
+        /** In-place mutation: a typed reference into the state storage.
+            The heavy-state alternative to the get()/set() round trip, which
+            deep-copies the whole value out and back — an O(buffer) per-tick
+            copy for every node holding a deque/vector in state (std-operator
+            audit 2026-08-15). The reference stays valid for the remainder of
+            the current hook invocation. */
+        [[nodiscard]] value_type &modify()
+        {
+            auto mutation = view_.begin_mutation();
+            return mutation.template checked_mutable_as<TValue>();
+        }
+
         template <typename U>
         void set(U &&value)
         {

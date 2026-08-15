@@ -2,6 +2,7 @@
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value_builder.h>
@@ -893,7 +894,9 @@ namespace hgraph
             }
         };
 
-        std::mutex g_converters_mutex;
+        // Counted: type-system machinery — per-tick acquisitions must be
+        // visible to the type_system_lock_count() enforcement.
+        TypeSystemMutex g_converters_mutex;
         std::unordered_map<ConverterKey, std::unique_ptr<TableConverter>, ConverterKeyHash> g_converters;
 
         [[nodiscard]] const TableConverter *build_converter(const ValueTypeMetaData *meta,

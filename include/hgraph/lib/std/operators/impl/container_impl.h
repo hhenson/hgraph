@@ -3,6 +3,7 @@
 
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -20,6 +21,39 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace hgraph::stdlib {
+namespace container_impl_detail {
+/** getitem_tsd_by_key node state: the sticky forwarding slot plus the
+    start-resolved dereferenced element schema (the dereference locks the
+    registry, so it must not run per key tick). */
+struct GetItemTsdKeyState {
+  Int pending_slot{0};
+  const TSValueTypeMetaData *target{nullptr};
+  ValueTypeRef ref_binding{nullptr};
+};
+
+/** Field-projection node state: the start-resolved field index and the
+    bindings the projection publishes through (lock-free per-tick ruling). */
+struct FieldProjectionState {
+  ValueTypeRef binding{nullptr};
+  ValueTypeRef result{nullptr};
+  Int field{-1};
+};
+} // namespace container_impl_detail
+} // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail {
+template <>
+struct scalar_name<stdlib::container_impl_detail::GetItemTsdKeyState> {
+  static constexpr std::string_view value{"stdlib.getitem_tsd_key_state"};
+};
+
+template <>
+struct scalar_name<stdlib::container_impl_detail::FieldProjectionState> {
+  static constexpr std::string_view value{"stdlib.field_projection_state"};
+};
+} // namespace hgraph::static_schema_detail
 
 namespace hgraph::stdlib {
 using namespace hgraph::operator_type_resolution;
@@ -604,11 +638,26 @@ struct getattr_tsd {
   }
 
   static void
-  eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"S">>, InputValidity::Unchecked> ts,
-       Scalar<"attr", Str> attr, Out<TsVar<"__out__">> out) {
+  start(In<"ts", TSD<ScalarVar<"K">, TsVar<"S">>, InputValidity::Unchecked> ts,
+        Scalar<"attr", Str> attr,
+        State<container_impl_detail::FieldProjectionState> state) {
+    // Resolved once: the bundle dereference + field-name scan lock/walk the
+    // registry, and Value{TimeSeriesReference} resolves the scalar binding
+    // through the registry per construction (lock-free per-tick ruling).
     const auto *bundle_schema = element_bundle_schema(ts.base().schema());
-    const auto field = *container_impl_detail::find_tsb_field_index(
-        *bundle_schema, attr.value());
+    state.set(container_impl_detail::FieldProjectionState{
+        .binding = TypeRegistry::instance().scalar_type<TimeSeriesReference>(),
+        .field = static_cast<Int>(*container_impl_detail::find_tsb_field_index(
+            *bundle_schema, attr.value()))});
+  }
+
+  static void
+  eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"S">>, InputValidity::Unchecked> ts,
+       Scalar<"attr", Str> /*resolved in start*/,
+       State<container_impl_detail::FieldProjectionState> state,
+       Out<TsVar<"__out__">> out) {
+    const auto resolved = state.get();
+    const auto field = static_cast<std::size_t>(resolved.field);
 
     const auto &erased = static_cast<const TSOutputView &>(out);
     auto dict_out = erased.data_view().as_dict();
@@ -622,12 +671,24 @@ struct getattr_tsd {
       // The child's OWN reference (input machinery: ref-element
       // values pass through; plain elements produce peered refs).
       const TimeSeriesReference reference = child.reference();
+      const TimeSeriesReference projected = field_item(reference, field);
       auto element = mutation.at(key);
+      TSOutputView element_out{erased.output(), element, erased.evaluation_time()};
+      // Same-reference dedup (the sibling projections' contract): an
+      // element VALUE tick reaches this eval, but re-publishing an
+      // unchanged reference would re-notify every downstream REF
+      // consumer into a rebind for nothing.
+      if (element_out.data_view().has_current_value()) {
+        if (const auto *current =
+                element_out.value().try_as<TimeSeriesReference>();
+            current != nullptr && *current == projected) {
+          continue;
+        }
+      }
       auto element_mutation =
-          TSOutputView{erased.output(), element, erased.evaluation_time()}
-              .begin_mutation(erased.evaluation_time());
+          element_out.begin_mutation(erased.evaluation_time());
       static_cast<void>(element_mutation.move_value_from(
-          Value{field_item(reference, field)}));
+          Value{resolved.binding, &projected}));
     }
   }
 };
@@ -809,26 +870,51 @@ struct getattr_ts_tuple_bundle {
                                           /*variadic_tuple=*/true)));
   }
 
-  static void emit(const TSInputView &ts, std::string_view field_name,
-                   const ValueView *fallback, const TSOutputView &out) {
-    const auto value = ts.value();
-    const auto *element_meta = value.schema()->element_type;
+  static void resolve_projection(
+      const TSValueTypeMetaData *input_schema, const TSOutputView &out,
+      std::string_view field_name,
+      State<container_impl_detail::FieldProjectionState> &state) {
+    // Field index (on the INPUT element bundle), the field binding, and the
+    // interned list result type are wiring-fixed; the binding resolutions
+    // lock type-system mutexes.
+    const auto *list_meta = out.schema()->value_schema;
+    const auto *element_meta = input_schema->value_schema->element_type;
     const auto index = getattr_ts_bundle::field_index(element_meta, field_name);
     if (!index.has_value()) {
       return;
     }
-    const auto field_binding = value_type_for_active_realization(
-        element_meta->fields[*index].type);
-    if (field_binding == nullptr) {
+    const auto field_binding =
+        value_type_for_active_realization(element_meta->fields[*index].type);
+    state.set(container_impl_detail::FieldProjectionState{
+        .binding = field_binding,
+        .result = compact_list_type(field_binding, *list_meta),
+        .field = static_cast<Int>(*index)});
+  }
+
+  static void start(In<"ts", TS<ScalarVar<"S">>, InputValidity::Unchecked> ts,
+                    Scalar<"attr", Str> attr,
+                    State<container_impl_detail::FieldProjectionState> state,
+                    Out<TsVar<"__out__">> out) {
+    resolve_projection(ts.base().schema(),
+                       static_cast<const TSOutputView &>(out), attr.value(),
+                       state);
+  }
+
+  static void emit(const TSInputView &ts,
+                   const container_impl_detail::FieldProjectionState &resolved,
+                   const ValueView *fallback, const TSOutputView &out) {
+    if (resolved.field < 0 || resolved.binding == nullptr) {
       return;
     }
+    const auto value = ts.value();
+    const auto index = static_cast<std::size_t>(resolved.field);
 
-    ListBuilder builder{field_binding, *out.schema()->value_schema};
+    ListBuilder builder{resolved.binding, *out.schema()->value_schema};
     auto list = value.as_indexed_view();
     for (std::size_t i = 0; i < list.size(); ++i) {
       const ValueView &element = list.at(i);
       auto fields = element.as_indexed_view();
-      const ValueView &field = fields.at(*index);
+      const ValueView &field = fields.at(index);
       if (field.has_value()) {
         builder.push_back(field);
       } else if (fallback != nullptr) {
@@ -837,13 +923,16 @@ struct getattr_ts_tuple_bundle {
         builder.push_back_unset();
       }
     }
+    ListStorage storage = builder.build_storage();
     auto mutation = out.data_view().begin_mutation(out.evaluation_time());
-    static_cast<void>(mutation.move_value_from(builder.build()));
+    static_cast<void>(
+        mutation.move_value_from(Value{resolved.result, &storage}));
   }
 
-  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> attr,
+  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> /*resolved in start*/,
+                   State<container_impl_detail::FieldProjectionState> state,
                    Out<TsVar<"__out__">> out) {
-    emit(ts.base(), attr.value(), nullptr,
+    emit(ts.base(), state.get(), nullptr,
          static_cast<const TSOutputView &>(out));
   }
 };
@@ -872,11 +961,21 @@ struct getattr_ts_tuple_bundle_default {
     getattr_ts_tuple_bundle::resolve_default_types(resolution, context);
   }
 
-  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> attr,
+  static void start(In<"ts", TS<ScalarVar<"S">>, InputValidity::Unchecked> ts,
+                    Scalar<"attr", Str> attr,
+                    State<container_impl_detail::FieldProjectionState> state,
+                    Out<TsVar<"__out__">> out) {
+    getattr_ts_tuple_bundle::resolve_projection(
+        ts.base().schema(), static_cast<const TSOutputView &>(out),
+        attr.value(), state);
+  }
+
+  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> /*resolved in start*/,
                    Scalar<"default", ScalarVar<"D">> fallback,
+                   State<container_impl_detail::FieldProjectionState> state,
                    Out<TsVar<"__out__">> out) {
     const ValueView value = fallback.value();
-    getattr_ts_tuple_bundle::emit(ts.base(), attr.value(), &value,
+    getattr_ts_tuple_bundle::emit(ts.base(), state.get(), &value,
                                   static_cast<const TSOutputView &>(out));
   }
 };
@@ -971,7 +1070,9 @@ struct setattr_ts_bundle {
     const auto source = ts.base().value();
     const auto *meta = source.schema();
     auto fields = source.as_indexed_view();
-    BundleBuilder builder{value_type_for_active_realization(meta)};
+    // The source value carries its realized binding — reuse it lock-free
+    // instead of re-realizing the schema per tick.
+    BundleBuilder builder{source.binding()};
     const auto target = getattr_ts_bundle::field_index(meta, attr.value());
     for (std::size_t index = 0; index < meta->field_count; ++index) {
       if (target.has_value() && index == *target) {
@@ -1096,34 +1197,45 @@ struct getitem_tsd_by_key {
            time_series_schema_as<AnyTSD>(context.args[0]) != nullptr;
   }
 
+  static void start(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>,
+                       InputActivity::Structural, InputValidity::Unchecked>
+                        ts,
+                    State<container_impl_detail::GetItemTsdKeyState> state) {
+    // The dereference locks the registry; the element schema is wiring-fixed.
+    const auto *schema =
+        TypeRegistry::instance().dereference(ts.base().schema());
+    auto current = state.get();
+    current.target = schema != nullptr ? schema->element_ts() : nullptr;
+    current.ref_binding =
+        TypeRegistry::instance().scalar_type<TimeSeriesReference>();
+    state.set(current);
+  }
+
   static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>,
                       InputActivity::Structural, InputValidity::Unchecked>
                        ts,
                    In<"key", TS<ScalarVar<"K">>> key,
-                   State<Int> pending_slot,
+                   State<container_impl_detail::GetItemTsdKeyState> state,
                    Out<REF<TsVar<"V">>> out) {
-    const auto *schema =
-        TypeRegistry::instance().dereference(ts.base().schema());
-    const auto *target = schema != nullptr ? schema->element_ts() : nullptr;
-    TimeSeriesReference reference{target};
+    auto current = state.get();
+    TimeSeriesReference reference{current.target};
     auto &dict = static_cast<TSDInputView &>(ts);
     const std::size_t slot = dict.find_slot(key.base().value());
 
     const auto release_pending = [&] {
-      const auto encoded = pending_slot.get();
-      if (encoded <= 0) {
+      if (current.pending_slot <= 0) {
         return;
       }
-      const auto previous = static_cast<std::size_t>(encoded - 1);
+      const auto previous = static_cast<std::size_t>(current.pending_slot - 1);
       if (dict.slot_occupied(previous)) {
         auto child = dict.at_slot(previous);
         child.make_passive();
       }
-      pending_slot.set(Int{0});
+      current.pending_slot = 0;
     };
 
-    const auto encoded = pending_slot.get();
-    if (encoded > 0 && static_cast<std::size_t>(encoded - 1) != slot) {
+    if (current.pending_slot > 0 &&
+        static_cast<std::size_t>(current.pending_slot - 1) != slot) {
       release_pending();
     }
 
@@ -1138,17 +1250,25 @@ struct getitem_tsd_by_key {
         auto position = child.bound_output();
         if (position.bound() && position.forwarding()) {
           child.make_active();
-          pending_slot.set(static_cast<Int>(slot + 1));
+          current.pending_slot = static_cast<Int>(slot + 1);
         }
-      } else if (pending_slot.get() > 0) {
+      } else if (current.pending_slot > 0) {
         child.make_passive();
-        pending_slot.set(Int{0});
+        current.pending_slot = 0;
       }
     }
+    state.set(current);
 
     if (!out.valid() ||
         !(out.value().checked_as<TimeSeriesReference>() == reference)) {
-      out.set(reference);
+      // Publish through the cached scalar binding: Out<REF>::set would
+      // normalize (two registry dereferences) per change, and the key can
+      // change the selected reference every cycle. Schema compatibility is
+      // wiring's guarantee — the reference targets the dict's own element.
+      const auto &erased = static_cast<const TSOutputView &>(out);
+      auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+      static_cast<void>(
+          mutation.move_value_from(Value{current.ref_binding, &reference}));
     }
   }
 };

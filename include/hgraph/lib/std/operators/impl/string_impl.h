@@ -3,6 +3,7 @@
 
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/string.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
@@ -173,12 +174,85 @@ namespace hgraph::stdlib
         }
     }  // namespace string_impl_detail
 
+    namespace string_impl_detail
+    {
+        /** Compiled regex cached across ticks (heap handle via node State;
+            ``std::regex`` construction is parse + NFA build — orders of
+            magnitude dearer than the match). Recompiles only when the
+            pattern CHANGES, which is the operator's documented contract. */
+        struct CompiledPattern
+        {
+            Str        pattern{};
+            std::regex regex{};
+        };
+
+        struct CompiledPatternState
+        {
+            CompiledPattern *handle{nullptr};
+        };
+
+        /** Node-state pair for match_: the start-resolved bindings and the
+            cached compiled pattern (one state slot per node). */
+        struct MatchNodeState
+        {
+            ResolvedBindings     bindings{};
+            CompiledPatternState compiled{};
+        };
+
+        [[nodiscard]] inline const std::regex &compiled_regex(CompiledPatternState &state,
+                                                              const Str &pattern)
+        {
+            if (state.handle == nullptr)
+            {
+                state.handle = new CompiledPattern{pattern, std::regex{pattern}};
+            }
+            else if (state.handle->pattern != pattern)
+            {
+                state.handle->regex   = std::regex{pattern};
+                state.handle->pattern = pattern;
+            }
+            return state.handle->regex;
+        }
+
+        inline void free_compiled_pattern(CompiledPatternState &state)
+        {
+            delete state.handle;
+            state.handle = nullptr;
+        }
+    }  // namespace string_impl_detail
+}  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::string_impl_detail::CompiledPatternState>
+    {
+        static constexpr std::string_view value{"stdlib.compiled_pattern_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::string_impl_detail::MatchNodeState>
+    {
+        static constexpr std::string_view value{"stdlib.match_node_state"};
+    };
+}  // namespace hgraph::static_schema_detail
+
+namespace hgraph::stdlib
+{
     struct replace_impl
     {
-        static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
-                         Out<TS<Str>> out)
+        static void stop(State<string_impl_detail::CompiledPatternState> compiled)
         {
-            out.set(std::regex_replace(s.value(), std::regex{pattern.value()}, repl.value()));
+            string_impl_detail::free_compiled_pattern(compiled.modify());
+        }
+
+        static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
+                         State<string_impl_detail::CompiledPatternState> compiled, Out<TS<Str>> out)
+        {
+            out.set(std::regex_replace(
+                s.value(),
+                string_impl_detail::compiled_regex(compiled.modify(), pattern.value()),
+                repl.value()));
         }
     };
 
@@ -203,32 +277,58 @@ namespace hgraph::stdlib
             resolution.bind_ts("O", result_schema());
         }
 
-        static void eval(In<"pattern", TS<Str>> pattern, In<"s", TS<Str>> s, Out<TsVar<"O">> out)
+        static void start(State<string_impl_detail::MatchNodeState> state, Out<TsVar<"O">> out)
         {
+            // Element/Bool bindings + the interned groups list type are
+            // wiring-fixed; each resolution locks a type-system mutex
+            // (lock-free per-tick ruling).
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            auto        bundle = erased.as_bundle();
+            const auto *groups_meta = bundle.at(1).schema()->value_schema;
+            const auto  element = ValuePlanFactory::instance().type_for(groups_meta->element_type);
+            auto       &current = state.modify();
+            current.bindings = ResolvedBindings{
+                .primary   = element,
+                .secondary = TypeRegistry::instance().scalar_type<Bool>(),
+                .result    = compact_list_type(element)};
+        }
+
+        static void stop(State<string_impl_detail::MatchNodeState> state)
+        {
+            string_impl_detail::free_compiled_pattern(state.modify().compiled);
+        }
+
+        static void eval(In<"pattern", TS<Str>> pattern, In<"s", TS<Str>> s,
+                         State<string_impl_detail::MatchNodeState> state,
+                         Out<TsVar<"O">> out)
+        {
+            auto       &current = state.modify();
             const Str   value = s.value();
             std::smatch match;
-            const bool  is_match = std::regex_search(value, match, std::regex{pattern.value()});
+            const bool  is_match = std::regex_search(
+                value, match, string_impl_detail::compiled_regex(current.compiled, pattern.value()));
+            const auto &resolved = current.bindings;
 
             const auto &erased = static_cast<const TSOutputView &>(out);
             auto        bundle = erased.as_bundle();
             {
+                const Bool flag_value{is_match};
                 auto flag = bundle.at(0);
                 auto mutation = flag.begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(Value{Bool{is_match}}));
+                static_cast<void>(mutation.move_value_from(Value{resolved.secondary, &flag_value}));
             }
             if (!is_match) { return; }
 
-            const auto *groups_meta = bundle.at(1).schema()->value_schema;
-            const auto element_binding = ValuePlanFactory::instance().type_for(groups_meta->element_type);
-            ListBuilder builder{element_binding};
+            ListBuilder builder{resolved.primary};
             for (std::size_t i = 1; i < match.size(); ++i)
             {
                 const Str group = match[i].str();
                 builder.push_back(group);
             }
+            ListStorage storage = builder.build_storage();
             auto groups = bundle.at(1);
             auto mutation = groups.begin_mutation(erased.evaluation_time());
-            static_cast<void>(mutation.move_value_from(builder.build()));
+            static_cast<void>(mutation.move_value_from(Value{resolved.result, &storage}));
         }
     };
 
@@ -281,10 +381,33 @@ namespace hgraph::stdlib
             resolution.bind_ts("O", registry.ts(registry.list(scalar_descriptor<Str>::value_meta(), 0, true)));
         }
 
-        static void eval(In<"s", TS<Str>> s, Scalar<"separator", Str> separator, Out<TsVar<"O">> out)
+        static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+        {
+            // All three output shapes' bindings are wiring-fixed; the plan
+            // factory lookups lock (lock-free per-tick ruling).
+            const auto *value_meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+            if (value_meta->value_kind() == ValueTypeKind::Tuple)
+            {
+                bindings.set(ResolvedBindings{
+                    .primary = ValuePlanFactory::instance().type_for(value_meta)});
+            }
+            else
+            {
+                const auto element = ValuePlanFactory::instance().type_for(value_meta->element_type);
+                bindings.set(ResolvedBindings{
+                    .primary = element,
+                    .result  = value_meta->fixed_size == 0
+                                   ? compact_list_type(element)
+                                   : ValuePlanFactory::instance().type_for(value_meta)});
+            }
+        }
+
+        static void eval(In<"s", TS<Str>> s, Scalar<"separator", Str> separator,
+                         State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto *value_meta = erased.schema()->value_schema;
+            const auto  resolved = bindings.get();
             const auto  fixed = value_meta->value_kind() == ValueTypeKind::Tuple
                                     ? static_cast<std::size_t>(value_meta->field_count)
                                     : static_cast<std::size_t>(value_meta->fixed_size);
@@ -305,11 +428,10 @@ namespace hgraph::stdlib
             Value result;
             if (fixed == 0)
             {
-                const auto element_binding =
-                    ValuePlanFactory::instance().type_for(value_meta->element_type);
-                ListBuilder builder{element_binding};
+                ListBuilder builder{resolved.primary};
                 for (const Str &part : parts) { builder.push_back(part); }
-                result = builder.build();
+                ListStorage storage = builder.build_storage();
+                result = Value{resolved.result, &storage};
             }
             else
             {
@@ -319,7 +441,7 @@ namespace hgraph::stdlib
                 }
                 if (value_meta->value_kind() == ValueTypeKind::Tuple)
                 {
-                    BundleBuilder builder{ValuePlanFactory::instance().type_for(value_meta)};
+                    BundleBuilder builder{resolved.primary};
                     for (std::size_t index = 0; index < fixed; ++index)
                     {
                         builder.set(index, Value{parts[index]});
@@ -328,14 +450,10 @@ namespace hgraph::stdlib
                 }
                 else
                 {
-                    const auto binding = ValuePlanFactory::instance().type_for(value_meta);
-                    result = Value{binding};
+                    result = Value{resolved.result};
                     auto mutation = result.begin_mutation();
                     auto *base = static_cast<std::byte *>(mutation.mutable_data());
-                    const auto stride = ValuePlanFactory::instance()
-                                            .type_for(value_meta->element_type)
-                                            .checked_plan()
-                                            .layout.size;
+                    const auto stride = resolved.primary.checked_plan().layout.size;
                     for (std::size_t index = 0; index < fixed; ++index)
                     {
                         *reinterpret_cast<Str *>(base + index * stride) = parts[index];
@@ -477,7 +595,7 @@ namespace hgraph::stdlib
 
     struct format_bundle_impl
     {
-        static constexpr auto name = "format";
+        static constexpr auto name = "format_args";
 
         static void eval(In<"fmt", TS<Str>> fmt,
                          In<"__args__", Kwargs<>, InputValidity::Unchecked> args,
@@ -502,7 +620,7 @@ namespace hgraph::stdlib
 
     struct format_no_args_impl
     {
-        static constexpr auto name = "format";
+        static constexpr auto name = "format_no_args";
 
         static void eval(In<"fmt", TS<Str>> fmt, Scalar<"__sample__", Int> sample, Scalar<"__strict__", Bool> strict,
                          State<Int> count, Out<TS<Str>> out)

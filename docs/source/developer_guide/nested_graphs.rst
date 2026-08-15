@@ -291,7 +291,10 @@ Element access works on any source kind: a peered output path, a structural
 child, or a **sub-graph boundary** (so ``reduce`` composes inside a sub-graph
 ``compose`` over a boundary TSL). Compatible scalar lifted kernels retain a
 single-node fast path for fixed ``TSL`` inputs; all other associative forms use
-the runtime tree below.
+the runtime tree below. The fast path is a **full O(N) recompute per tick**
+(no modified gating) with O(1) retained state, whereas the tree is incremental
+with up to N−1 live combiners — the fast path trades per-tick work for zero
+nested-graph machinery, which wins at the fixed sizes it is selected for.
 
 Tests: ``tests/cpp/test_reduce.cpp`` (including a user overload gated on the
 wired function's identity, mirroring ``release/0.5``'s ``test_map_overload``).

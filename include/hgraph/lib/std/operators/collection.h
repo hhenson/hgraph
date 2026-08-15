@@ -139,7 +139,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         by_identifier = hg.rekey(by_symbol, symbol_to_id)
-        @endcode */
+        @endcode
+        @note Cost: O(n) rebuild per tick (scalar-map form); delta-driven for TSD. */
     struct rekey : Operator<"rekey", In<"ts", TsVar<"S">>, In<"new_keys", TsVar<"K">>, Out<TsVar<"O">>>
     {
     };
@@ -153,7 +154,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         symbols_by_sector = hg.flip(sector_by_symbol, unique=False)
-        @endcode */
+        @endcode
+        @note Cost: O(n) rebuild per tick. */
     struct flip : Operator<"flip", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
@@ -166,7 +168,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         prices_by_sector = hg.partition(prices, sector_by_symbol)
-        @endcode */
+        @endcode
+        @note Cost: O(n×groups) per tick. */
     struct partition : Operator<"partition", In<"ts", TsVar<"S">>, In<"partitions", TsVar<"P">>, Out<TsVar<"O">>>
     {
     };
@@ -239,7 +242,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         by_metric_then_symbol = hg.flip_keys(by_symbol_then_metric)
-        @endcode */
+        @endcode
+        @note Cost: O(outer×inner) rebuild per tick. */
     struct flip_keys : Operator<"flip_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
@@ -257,7 +261,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         flat = hg.collapse_keys(nested)
-        @endcode */
+        @endcode
+        @note Cost: O(total entries) per tick (delta-driven for TSD). */
     struct collapse_keys : Operator<"collapse_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
@@ -269,7 +274,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         nested = hg.uncollapse_keys(flat, remove_empty=True)
-        @endcode */
+        @endcode
+        @note Cost: O(n) regroup per tick. */
     struct uncollapse_keys : Operator<"uncollapse_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };

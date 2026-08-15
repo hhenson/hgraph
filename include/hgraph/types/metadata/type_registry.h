@@ -20,6 +20,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_ops.h>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -668,7 +669,9 @@ namespace hgraph
         std::vector<std::unique_ptr<TSFieldMetaData[]>> ts_field_storage_;
         std::vector<std::unique_ptr<BundleHierarchyMetaData>> bundle_hierarchy_storage_;
         std::uint64_t bundle_hierarchy_generation_{0};
-        std::uint64_t reset_generation_{0};
+        // Atomic so per-tick generation-checked caches can validate
+        // without touching the registry mutex; written under mutex_ on reset.
+        std::atomic<std::uint64_t> reset_generation_{0};
 
         // Identity caches: thin wrappers over InternTable that own the
         // metadata. Equivalent keys always return the same canonical pointer.
@@ -748,10 +751,31 @@ namespace hgraph
     template <typename T>
     [[nodiscard]] inline ValueTypeRef TypeRegistry::scalar_type() const
     {
-        const std::lock_guard lock(mutex_);
-        const ValueTypeMetaData *meta = scalar_cache_.find(std::string{typeid(T).name()});
-        if (meta == nullptr) { return {}; }
-        return ValuePlanFactory::instance().find_type(meta);
+        // Generation-checked per-thread cache. ``Value{T}`` construction
+        // sits on per-tick paths (JSON atomic reads, reference publication),
+        // and the uncached lookup takes the registry AND plan-factory
+        // mutexes plus a typeid-string allocation. Only a successful
+        // resolution is cached (pre-registration probes stay correct), and
+        // the reset generation invalidates it — a registry reset frees the
+        // interned records the cache points at (test-only; see the header
+        // preamble).
+        struct Cached
+        {
+            std::uint64_t generation{0};
+            ValueTypeRef  binding{nullptr};
+        };
+        thread_local Cached cached{};
+        const auto current = reset_generation();
+        if (cached.binding.bound() && cached.generation == current) { return cached.binding; }
+        ValueTypeRef resolved{};
+        {
+            const std::lock_guard lock(mutex_);
+            const ValueTypeMetaData *meta = scalar_cache_.find(std::string{typeid(T).name()});
+            if (meta == nullptr) { return {}; }
+            resolved = ValuePlanFactory::instance().find_type(meta);
+        }
+        if (resolved.bound()) { cached = {current, resolved}; }
+        return resolved;
     }
 
     // Standard scalar plans and value-operation tables must have exactly one

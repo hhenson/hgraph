@@ -184,6 +184,22 @@ namespace
         }
     };
 
+    // The heavy-state accessors: modify() mutates the stored value in place
+    // (no get()/set() deep-copy round trip); ref() is the borrowed read.
+    struct ModifyingTotal
+    {
+        static constexpr auto name = "modifying_total";
+
+        static void start(State<Int> state) { state.set(Int{0}); }
+
+        static void eval(In<"value", TS<Int>> value, State<Int> state, Out<TS<Int>> out)
+        {
+            Int &total = state.modify();
+            total += value.value();
+            out.set(state.ref());
+        }
+    };
+
     using LastSeenState = TSB<"LastSeenState", Field<"last", TS<Int>>>;
 
     using ClockSnapshot = TSB<"ClockSnapshot",
@@ -653,6 +669,13 @@ TEST_CASE("static node: State<Int> persists through public eval_node wiring")
     using namespace hgraph;
 
     CHECK_OUTPUT(testing::eval_node<RunningTotal>({1, 2, 3}), {1, 3, 6});
+}
+
+TEST_CASE("static node: State modify() mutates in place and ref() borrows")
+{
+    using namespace hgraph;
+
+    CHECK_OUTPUT(testing::eval_node<ModifyingTotal>({1, 2, 3}), {1, 3, 6});
 }
 
 TEST_CASE("static node: EvaluationClockView is injected as a read-only clock view")

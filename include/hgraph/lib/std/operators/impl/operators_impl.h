@@ -9,7 +9,7 @@
  * This header aggregates the implementation families for internal registration code and
  * implementation-level tests.
  *
- * Only a subset is implemented so far (scalar arithmetic / comparison / logical,
+ * The full operator catalogue registers through this umbrella.
  * string, collection, stream basics, date components, ``const_`` / ``zero_`` /
  * ``debug_print`` / ``null_sink``); further families gain an ``impl/<family>_impl.h``
  * and a registration call as their implementations land. See

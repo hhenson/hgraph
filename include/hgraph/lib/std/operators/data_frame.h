@@ -68,7 +68,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         positions = hg.replay_data_frame[TSD[str, TS[float]]](frame, as_of_time=cutoff)
-        @endcode */
+        @endcode
+        @note Retained memory: the whole decoded tick list is held for the run. */
     struct replay_data_frame
         : Operator<"replay_data_frame", Scalar<"data_frame", Frame>,
                    Scalar<"as_of_time", DateTime>, Out<TsVar<"O">>>
@@ -99,7 +100,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         by_symbol = hg.group_by(rows, by="symbol")
-        @endcode */
+        @endcode
+        @note Cost: O(rows×groups) per tick (linear bucket probe). */
     struct group_by
         : Operator<"group_by", In<"ts", TS<ScalarVar<"F">>>, Scalar<"by", ScalarVar<"B">>, Out<TsVar<"__out__">>>
     {
@@ -113,7 +115,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         ranked = hg.sorted_(rows, by="price", descending=True)
-        @endcode */
+        @endcode
+        @note Cost: a full sort per tick. */
     struct sorted_
         : Operator<"sorted_", In<"ts", TS<FrameOf<ScalarVar<"R">>>>, Scalar<"by", Str>,
                    Scalar<"descending", Bool>, Out<TS<FrameOf<ScalarVar<"R">>>>>
@@ -147,7 +150,8 @@ namespace hgraph::stdlib
             @par Python example
             @code{.py}
             enriched = hg.join(trades, instruments, on="instrument_id", how="left")
-            @endcode */
+            @endcode
+            @note Cost: a full arrow hash join per tick. */
         struct join
             : Operator<"join", In<"lhs", TS<FrameOf<ScalarVar<"L">>>>,
                        In<"rhs", TS<FrameOf<ScalarVar<"R">>>>,

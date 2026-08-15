@@ -231,6 +231,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
 
 hgraph_add_test_objects(hgraph_stdlib_test_objects
     lift/test_lift.cpp
+    test_audit_behavior.cpp
     test_collection_nodes.cpp
     test_const_eval.cpp
     test_data_frame_operators.cpp

@@ -41,7 +41,8 @@ namespace hgraph::stdlib
         @code{.py}
         previous = hg.lag(price, 1)
         delayed = hg.lag(price, timedelta(seconds=5))
-        @endcode */
+        @endcode
+        @note Cost: O(delta) per tick; retains up to ``period`` pending deltas. */
     struct lag : Operator<"lag", In<"ts", TsVar<"S">>, Scalar<"period", Int>, Out<TsVar<"S">>>
     {
     };
@@ -159,7 +160,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         limited = hg.throttle(updates, timedelta(milliseconds=100))
-        @endcode */
+        @endcode
+        @note Cost: O(delta) per tick; retains the pending deltas of one period. */
     struct throttle : Operator<"throttle", In<"ts", TsVar<"S">>, In<"period", TS<TimeDelta>>, Out<TsVar<"S">>>
     {
     };
@@ -198,7 +200,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         recent = hg.window(price, 20)
-        @endcode */
+        @endcode
+        @note Cost: O(W) per tick (the value/time bundle is rebuilt) and O(W) retained in private state. Deprecated-parity shape — prefer ``to_window``, whose TSW substrate appends/evicts in O(1). */
     struct window : Operator<"window", In<"ts", TsVar<"S">>, Scalar<"period", Int>, Out<TsVar<"O">>>
     {
     };
@@ -216,7 +219,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
-        @endcode */
+        @endcode
+        @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels. */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", Int>,
                                 Scalar<"min_window_period", Int>, Out<TsVar<"O">>>
     {
