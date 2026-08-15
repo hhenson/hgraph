@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -1410,9 +1412,9 @@ namespace hgraph
             return contexts;
         }
 
-        [[nodiscard]] std::recursive_mutex &tsd_proxy_context_mutex() noexcept
+        [[nodiscard]] TypeSystemRecursiveMutex &tsd_proxy_context_mutex() noexcept
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
 
@@ -1420,7 +1422,7 @@ namespace hgraph
                                                                    TSRoleTypeRef element_type,
                                                                    TypeRole role)
         {
-            std::lock_guard<std::recursive_mutex> lock(tsd_proxy_context_mutex());
+            std::lock_guard lock(tsd_proxy_context_mutex());
             auto &contexts = tsd_proxy_contexts();
             const TSDProxyContextKey key{&schema, element_type, role};
             if (const auto it = contexts.find(key); it != contexts.end()) { return *it->second; }
@@ -2082,7 +2084,7 @@ namespace hgraph
 
     void clear_tsd_proxy_contexts() noexcept
     {
-        std::lock_guard<std::recursive_mutex> lock(tsd_proxy_context_mutex());
+        std::lock_guard lock(tsd_proxy_context_mutex());
         tsd_proxy_contexts().clear();
     }
 

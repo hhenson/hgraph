@@ -24,6 +24,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -239,9 +241,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return entries;
         }
 
-        [[nodiscard]] std::recursive_mutex &dynamic_list_plan_mutex() noexcept
+        [[nodiscard]] TypeSystemRecursiveMutex &dynamic_list_plan_mutex() noexcept
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
 
@@ -1507,9 +1509,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return contexts;
         }
 
-        [[nodiscard]] std::recursive_mutex &dynamic_list_context_mutex() noexcept
+        [[nodiscard]] TypeSystemRecursiveMutex &dynamic_list_context_mutex() noexcept
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
     }  // namespace
@@ -1527,7 +1529,7 @@ namespace hgraph::ts_data_plan_factory_detail
             throw std::logic_error("TSDataPlanFactory: dynamic list storage requires dynamic TSL schema");
         }
 
-        std::lock_guard<std::recursive_mutex> lock(dynamic_list_plan_mutex());
+        std::lock_guard lock(dynamic_list_plan_mutex());
         auto                                 &entries = dynamic_list_plan_entries();
         if (const auto it = entries.find(&schema); it != entries.end()) { return it->second->root_plan; }
 
@@ -1569,7 +1571,7 @@ namespace hgraph::ts_data_plan_factory_detail
         if (element_type.role() != role)
             throw std::invalid_argument("dynamic TSL element role must match the parent role");
 
-        std::lock_guard<std::recursive_mutex> lock(dynamic_list_context_mutex());
+        std::lock_guard lock(dynamic_list_context_mutex());
         auto                                 &contexts = dynamic_list_contexts();
         const DynamicListContextKey key{&schema, &plan, storage_offset, element_type.record(), role, embedded};
         if (const auto it = contexts.find(key); it != contexts.end()) { return it->second->ops; }
@@ -1584,11 +1586,11 @@ namespace hgraph::ts_data_plan_factory_detail
     void clear_dynamic_list_ts_data_contexts() noexcept
     {
         {
-            std::lock_guard<std::recursive_mutex> lock(dynamic_list_context_mutex());
+            std::lock_guard lock(dynamic_list_context_mutex());
             dynamic_list_contexts().clear();
         }
         {
-            std::lock_guard<std::recursive_mutex> lock(dynamic_list_plan_mutex());
+            std::lock_guard lock(dynamic_list_plan_mutex());
             dynamic_list_plan_entries().clear();
         }
     }

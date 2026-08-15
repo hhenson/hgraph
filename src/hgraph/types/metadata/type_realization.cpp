@@ -26,6 +26,8 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -758,7 +760,7 @@ struct TypeRealizationSnapshot::Impl {
       parents{};
   std::unordered_map<const ValueTypeMetaData *, bool> abstract_bundles{};
   std::unordered_map<const ValueTypeMetaData *, bool> polymorphic_bases{};
-  mutable std::mutex mutex{};
+  mutable TypeSystemMutex mutex{};
   mutable std::unordered_map<const ValueTypeMetaData *,
                              std::vector<const ValueTypeMetaData *>>
       closures{};
@@ -1282,8 +1284,8 @@ struct SnapshotKeyHash {
   }
 };
 
-std::mutex &snapshot_mutex() {
-  static auto *value = new std::mutex();
+TypeSystemMutex &snapshot_mutex() {
+  static auto *value = new TypeSystemMutex();
   return *value;
 }
 

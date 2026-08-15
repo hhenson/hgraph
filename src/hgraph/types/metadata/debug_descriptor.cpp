@@ -7,6 +7,8 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -305,7 +307,7 @@ namespace hgraph
                 return *result;
             }
 
-            mutable std::mutex mutex_{};
+            mutable TypeSystemMutex mutex_{};
             std::unordered_map<DescriptorKey, std::unique_ptr<DescriptorEntry>, DescriptorKeyHash> entries_{};
         };
 

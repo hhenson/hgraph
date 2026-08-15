@@ -4,7 +4,9 @@
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
+#include <hgraph/types/time_series/ts_data/dict_view.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
+#include <hgraph/types/time_series/ts_data/set_view.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
@@ -15,8 +17,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace hgraph::python_bridge
 {
@@ -166,6 +170,15 @@ namespace hgraph::python_bridge
                 mutation.move_value_from(Value{std::move(reference)}));
         }
 
+        [[nodiscard]] bool is_removed_marker(nb::handle item)
+        {
+            return removed_class_slot().is_valid()
+                       ? nb::isinstance(item, removed_class_slot())
+                       : (nb::hasattr(item, "item") &&
+                          nb::cast<std::string>(item.type().attr("__name__")) ==
+                              "Removed");
+        }
+
         [[nodiscard]] Value set_delta_from_parts(TSRoleTypeRef type,
                                                  nb::handle add_from,
                                                  nb::handle remove_from)
@@ -180,13 +193,7 @@ namespace hgraph::python_bridge
             {
                 for (nb::handle item : add_from)
                 {
-                    const bool is_removed =
-                        removed_class_slot().is_valid()
-                            ? nb::isinstance(item, removed_class_slot())
-                            : (nb::hasattr(item, "item") &&
-                               nb::cast<std::string>(item.type().attr("__name__")) ==
-                                   "Removed");
-                    if (is_removed)
+                    if (is_removed_marker(item))
                     {
                         Value value = value_from_python(
                             item.attr("item"), schema.value_schema->element_type);
@@ -237,45 +244,109 @@ namespace hgraph::python_bridge
             return set_delta_from_parts(type, source, nb::handle{});
         }
 
-        [[nodiscard]] bool set_delta_changes_valid_output(
-            const TSOutputView &output, const ValueView &delta)
-        {
-            if (!output.valid()) { return true; }
-            const auto set = output.as_set();
-            const auto bundle = delta.as_bundle();
-            const auto added = bundle.at("added").as_indexed_view();
-            for (std::size_t index = 0; index < added.size(); ++index)
-            {
-                if (!set.contains(added.at(index))) { return true; }
-            }
-            const auto removed = bundle.at("removed").as_indexed_view();
-            for (std::size_t index = 0; index < removed.size(); ++index)
-            {
-                if (set.contains(removed.at(index))) { return true; }
-            }
-            return false;
-        }
-
         void apply_set_result(const TSOutputView &output, nb::handle result)
         {
-            Value delta;
+            if (nb::isinstance<nb::dict>(result) && nb::len(result) != 0)
+            {
+                throw nb::type_error(
+                    "a dict is not a TSS value/delta: use a set, set_delta(...), "
+                    "or Removed(...) markers ({} is accepted as the empty set)");
+            }
+            const auto &layout = static_cast<const TSSDataLayout &>(
+                layout_of(output.storage_type(), "TSS apply result"));
+            auto set_out = output.as_set();
+
+            // The per-tick path: element conversion binds through the layout's
+            // wiring-resolved key binding — no registry access, no builders.
+            std::vector<Value> to_add;
+            std::vector<Value> to_remove;
+            const auto convert = [&](nb::handle item) {
+                Value value{layout.key_binding};
+                value.view().assign_from_python(item);
+                return value;
+            };
+
             if (PyFrozenSet_CheckExact(result.ptr()) != 0)
             {
-                nb::object current = output.valid()
-                                         ? output.data_view().value_to_python()
-                                         : nb::steal<nb::object>(
-                                               PyFrozenSet_New(nullptr));
-                nb::object added = result.attr("difference")(current);
-                nb::object removed = current.attr("difference")(result);
-                delta = set_delta_from_parts(output.storage_type(), added,
-                                             removed);
+                // Class identity selects semantics: a frozenset is the FULL
+                // membership, so additions are result-minus-current and
+                // removals current-minus-result.
+                for (nb::handle item : result)
+                {
+                    Value value = convert(item);
+                    if (!set_out.contains(value.view()))
+                    {
+                        to_add.push_back(std::move(value));
+                    }
+                }
+                for (const auto &key : set_out.values())
+                {
+                    const nb::object obj = key.to_python();
+                    const int held = PySet_Contains(result.ptr(), obj.ptr());
+                    if (held == -1) { throw nb::python_error(); }
+                    if (held == 0) { to_remove.push_back(convert(obj)); }
+                }
             }
             else
             {
-                delta = build_delta(output.storage_type(), result, false);
+                nb::handle add_from = result;
+                nb::handle remove_from{};
+                nb::object added_part;
+                nb::object removed_part;
+                if (set_delta_class_slot().is_valid() &&
+                    nb::isinstance(result, set_delta_class_slot()))
+                {
+                    added_part = result.attr("added");
+                    removed_part = result.attr("removed");
+                    add_from = added_part;
+                    remove_from = removed_part;
+                }
+                if (add_from.is_valid())
+                {
+                    for (nb::handle item : add_from)
+                    {
+                        if (is_removed_marker(item))
+                        {
+                            to_remove.push_back(convert(item.attr("item")));
+                        }
+                        else { to_add.push_back(convert(item)); }
+                    }
+                }
+                if (remove_from.is_valid())
+                {
+                    for (nb::handle item : remove_from)
+                    {
+                        to_remove.push_back(convert(item));
+                    }
+                }
             }
-            if (!set_delta_changes_valid_output(output, delta.view())) { return; }
-            apply_delta(output, delta.view());
+
+            // The has-effect gate (was set_delta_changes_valid_output): a
+            // valid set only ticks when membership actually changes; a fresh
+            // one validates on any result, including an explicitly empty one.
+            bool changes = !output.valid();
+            for (auto it = to_add.begin(); !changes && it != to_add.end(); ++it)
+            {
+                changes = !set_out.contains(it->view());
+            }
+            for (auto it = to_remove.begin(); !changes && it != to_remove.end();
+                 ++it)
+            {
+                changes = set_out.contains(it->view());
+            }
+            if (!changes) { return; }
+
+            auto mutation = set_out.begin_mutation(output.evaluation_time());
+            for (const auto &value : to_remove)
+            {
+                static_cast<void>(mutation.remove(value.view()));
+            }
+            for (const auto &value : to_add)
+            {
+                static_cast<void>(mutation.add(value.view()));
+            }
+            // Touch LAST (the empty-tick validation rule, as apply_delta_tss).
+            mutation.touch();
         }
 
         [[nodiscard]] bool dict_requires_authored(TSRoleTypeRef type,
@@ -380,6 +451,84 @@ namespace hgraph::python_bridge
             return bundle.build();
         }
 
+        void apply_dict_result(const TSOutputView &output, nb::handle result)
+        {
+            if (!nb::isinstance<nb::dict>(result))
+            {
+                throw nb::type_error("a TSD delta must be a mapping");
+            }
+            const auto type = output.storage_type();
+            const auto &layout = static_cast<const TSDDataLayout &>(
+                layout_of(type, "TSD apply result"));
+            auto dict_out = output.as_dict();
+            const auto evaluation_time = output.evaluation_time();
+
+            const nb::dict source = nb::cast<nb::dict>(result);
+            if (source.size() == 0)
+            {
+                // The empty-tick validation rule (see delta_has_effect_tsd):
+                // {} validates a fresh TSD and is a no-op on a valid one.
+                if (!output.valid())
+                {
+                    dict_out.begin_mutation(evaluation_time).touch();
+                }
+                return;
+            }
+
+            // The per-tick path: every type decision below was resolved when
+            // the plan was built. The layout carries the key binding, the
+            // element role carries the child ops, and the sentinels are
+            // pointer identities — nothing here may consult a registry.
+            const auto &child_ops = python_ops_for(layout.element_type);
+            const nb::handle strict_sentinel = removed_sentinel_slot();
+            const nb::handle lenient_sentinel = remove_if_exists_sentinel_slot();
+            Value key_scratch{layout.key_binding};
+
+            std::optional<TSDDataMutationView> mutation;
+            const auto ensure_mutation = [&]() -> TSDDataMutationView & {
+                if (!mutation)
+                {
+                    mutation.emplace(dict_out.begin_mutation(evaluation_time));
+                    mutation->reserve(source.size());
+                }
+                return *mutation;
+            };
+
+            for (auto [key, item] : source)
+            {
+                if (item.is_none()) { continue; }
+                key_scratch.view().assign_from_python(key);
+                const auto key_view = key_scratch.view();
+                if (strict_sentinel.is_valid() && item.is(strict_sentinel))
+                {
+                    if (!ensure_mutation().erase(key_view))
+                    {
+                        throw std::runtime_error(
+                            "REMOVE: key not present in TSD (use REMOVE_IF_EXISTS "
+                            "to remove-if-present)");
+                    }
+                }
+                else if (lenient_sentinel.is_valid() && item.is(lenient_sentinel))
+                {
+                    // A lenient removal of an absent key is not an effect: it
+                    // must not begin a mutation on an otherwise untouched
+                    // output (delta_has_effect_tsd's rule).
+                    if (!mutation && !dict_out.contains(key_view)) { continue; }
+                    static_cast<void>(ensure_mutation().erase(key_view));
+                }
+                else
+                {
+                    auto child = ensure_mutation().at(key_view);
+                    child_ops.apply_result_impl(
+                        TSOutputView{output.output(), child, evaluation_time},
+                        item);
+                }
+            }
+            // Touch LAST, only when something applied — mirrors
+            // apply_delta_tsd's trailing touch behind the has-effect gate.
+            if (mutation) { mutation->touch(); }
+        }
+
         [[nodiscard]] TSRoleTypeRef list_element_type(TSRoleTypeRef type,
                                                       const char *operation)
         {
@@ -468,6 +617,36 @@ namespace hgraph::python_bridge
                 ++index;
             }
             return builder.build();
+        }
+
+        void apply_list_result(const TSOutputView &output, nb::handle result)
+        {
+            const auto type = output.storage_type();
+            const auto child_type = list_element_type(type, "TSL apply result");
+            const auto &child_ops = python_ops_for(child_type);
+            auto list_out = output.as_list();
+            // No parent touch: a TSL delta is only its children's changes
+            // (mirrors apply_delta_tsl).
+            if (nb::isinstance<nb::dict>(result))
+            {
+                for (auto [key, item] : nb::cast<nb::dict>(result))
+                {
+                    if (item.is_none()) { continue; }
+                    const auto index = nb::cast<std::int64_t>(key);
+                    child_ops.apply_result_impl(
+                        list_out.at(static_cast<std::size_t>(index)), item);
+                }
+                return;
+            }
+            std::size_t index = 0;
+            for (nb::handle item : result)
+            {
+                if (!item.is_none())
+                {
+                    child_ops.apply_result_impl(list_out.at(index), item);
+                }
+                ++index;
+            }
         }
 
         [[nodiscard]] nb::object bundle_field_source(nb::handle source,
@@ -614,7 +793,7 @@ namespace hgraph::python_bridge
         static const PythonTSDataOps ops{
             .requires_authored_delta_impl = &dict_requires_authored,
             .delta_from_python_impl = &dict_delta_from_python,
-            .apply_result_impl = &apply_delta_result,
+            .apply_result_impl = &apply_dict_result,
         };
         return ops;
     }
@@ -624,7 +803,7 @@ namespace hgraph::python_bridge
         static const PythonTSDataOps ops{
             .requires_authored_delta_impl = &list_requires_authored,
             .delta_from_python_impl = &list_delta_from_python,
-            .apply_result_impl = &apply_delta_result,
+            .apply_result_impl = &apply_list_result,
         };
         return ops;
     }

@@ -497,9 +497,9 @@ namespace hgraph
         /** Per-enum ValueOps: Int ops with member-aware rendering and the
             python conversion hooks; ``context`` = the enum meta. Cleared on
             registry reset (metas are re-interned, pointers reuse). */
-        std::mutex &enum_ops_mutex()
+        TypeSystemMutex &enum_ops_mutex()
         {
-            static std::mutex m;
+            static TypeSystemMutex m;
             return m;
         }
 
@@ -544,7 +544,7 @@ namespace hgraph
 
         const ValueOps &enum_ops_for(const ValueTypeMetaData *meta)
         {
-            std::lock_guard<std::mutex> lock(enum_ops_mutex());
+            std::lock_guard lock(enum_ops_mutex());
             auto [it, fresh] = enum_ops_store().try_emplace(meta);
             if (fresh)
             {
@@ -563,7 +563,7 @@ namespace hgraph
 
         void clear_enum_ops() noexcept
         {
-            std::lock_guard<std::mutex> lock(enum_ops_mutex());
+            std::lock_guard lock(enum_ops_mutex());
             enum_ops_store().clear();
         }
     }  // namespace

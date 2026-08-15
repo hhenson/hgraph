@@ -1696,7 +1696,7 @@ array_indexed_ops_cache() noexcept {
 }
 
 struct OwnedValueCache {
-  std::mutex mutex{};
+  TypeSystemMutex mutex{};
   std::unordered_map<const ValueTypeMetaData *, const OwnedValueEntry *>
       entries{};
   std::vector<std::unique_ptr<OwnedValueEntry>> storage{};
@@ -1792,7 +1792,7 @@ struct RealizedCompositeEntry {
 };
 
 struct RealizedCompositeCache {
-  std::mutex mutex{};
+  TypeSystemMutex mutex{};
   std::unordered_map<RealizedCompositeKey, const RealizedCompositeEntry *,
                      RealizedCompositeKeyHash>
       entries{};
@@ -2256,7 +2256,7 @@ struct PythonRetainedBindingEntry {
 };
 
 struct PythonRetainedBindings {
-  std::mutex mutex{};
+  TypeSystemMutex mutex{};
   std::unordered_map<const ValueTypeMetaData *, PythonRetainedBindingEntry *>
       current{};
   std::vector<std::unique_ptr<PythonRetainedBindingEntry>> immortal{};
@@ -2320,7 +2320,7 @@ void ValuePlanFactory::register_atomic(const ValueTypeMetaData *schema,
       intern_atomic_debug_descriptor(*schema, *plan, atomic_kind);
   const ValueTypeRef type = intern_value_type(*schema, *plan, *ops, &debug);
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   if (const auto it = cache_.find(schema); it != cache_.end()) {
     if (it->second == plan) {
       const auto type_it = type_cache_.find(schema);
@@ -2376,7 +2376,7 @@ void ValuePlanFactory::register_type(ValueTypeRef type) {
     }
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   if (const auto it = type_cache_.find(schema); it != type_cache_.end()) {
     if (it->second == type) {
       return;
@@ -2404,7 +2404,7 @@ ValuePlanFactory::plan_for(const ValueTypeMetaData *schema) {
   }
 
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard lock(mutex_);
     if (const auto it = cache_.find(schema); it != cache_.end()) {
       return it->second;
     }
@@ -2419,7 +2419,7 @@ ValuePlanFactory::find(const ValueTypeMetaData *schema) const {
     return nullptr;
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   const auto it = cache_.find(schema);
   return it == cache_.end() ? nullptr : it->second;
 }
@@ -2430,7 +2430,7 @@ ValueTypeRef ValuePlanFactory::type_for(const ValueTypeMetaData *schema) {
   }
 
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard lock(mutex_);
     if (const auto it = type_cache_.find(schema); it != type_cache_.end()) {
       return it->second;
     }
@@ -2519,7 +2519,7 @@ ValuePlanFactory::find_type(const ValueTypeMetaData *schema) const {
     return {};
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   const auto it = type_cache_.find(schema);
   return it == type_cache_.end() ? ValueTypeRef{} : it->second;
 }
@@ -2584,7 +2584,7 @@ ValueTypeRef ValuePlanFactory::projected_composite_type_for(
 }
 
 void ValuePlanFactory::reset() noexcept {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   cache_.clear();
   type_cache_.clear();
   clear_structured_indexed_ops();
@@ -2598,7 +2598,7 @@ const MemoryUtils::StoragePlan *
 ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
   if (schema->is_owned()) {
     const auto *plan = &owned_value_entry(*schema).plan;
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard lock(mutex_);
     const auto [it, _] = cache_.emplace(schema, plan);
     return it->second;
   }
@@ -2701,7 +2701,7 @@ ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
     throw std::logic_error("ValuePlanFactory: unhandled ValueTypeKind");
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   const auto it = cache_.find(schema);
   if (it != cache_.end()) {
     return it->second;
@@ -2714,7 +2714,7 @@ ValueTypeRef
 ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
   if (schema->is_owned()) {
     const auto type = owned_value_entry(*schema).binding;
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard lock(mutex_);
     const auto [it, _] = type_cache_.emplace(schema, type);
     cache_.try_emplace(schema, type.plan());
     return it->second;
@@ -2849,7 +2849,7 @@ ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
         "ValuePlanFactory: unhandled ValueTypeKind while synthesising binding");
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard lock(mutex_);
   const auto it = type_cache_.find(schema);
   if (it != type_cache_.end()) {
     return it->second;

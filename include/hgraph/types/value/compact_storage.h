@@ -3,6 +3,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_ops.h>
 #include <hgraph/util/scope.h>
@@ -1201,7 +1202,7 @@ namespace hgraph
         template <typename Key, typename State, typename KeyHash = std::hash<Key>>
         struct CompactContainerPlanRegistry
         {
-            std::mutex                                                              mutex{};
+            TypeSystemMutex                                                         mutex{};
             std::unordered_map<Key, const MemoryUtils::StoragePlan *, KeyHash>      cache{};
             std::vector<std::unique_ptr<State>>                                     states{};
             std::vector<std::unique_ptr<MemoryUtils::StoragePlan>>                  plans{};
@@ -1211,12 +1212,12 @@ namespace hgraph
                                                                  PlanFactory &&plan_factory)
             {
                 {
-                    std::lock_guard<std::mutex> lock(mutex);
+                    std::lock_guard lock(mutex);
                     if (auto it = cache.find(key); it != cache.end()) { return *it->second; }
                 }
                 auto state = state_factory();
                 auto plan  = plan_factory(*state);
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard lock(mutex);
                 if (auto it = cache.find(key); it != cache.end()) { return *it->second; }
                 const auto *result = plan.get();
                 states.push_back(std::move(state));
@@ -1227,7 +1228,7 @@ namespace hgraph
 
             void clear() noexcept
             {
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard lock(mutex);
                 cache.clear();
                 plans.clear();
                 states.clear();

@@ -4,6 +4,7 @@
 #include <hgraph/hgraph_export.h>
 
 #include <cstddef>
+#include <cstdint>
 
 namespace hgraph
 {
@@ -23,6 +24,13 @@ namespace hgraph
         std::size_t graph_runtime_types{0};
         std::size_t executor_runtime_types{0};
         std::size_t type_records{0};
+        /**
+         * Process-lifetime count of type-system lock acquisitions
+         * (see hgraph::type_system_lock_count). Wiring moves it; evaluation
+         * of a wired graph must not: an N-cycle and a 2N-cycle run of the
+         * same graph leave identical deltas here.
+         */
+        std::uint64_t type_system_lock_acquisitions{0};
 
         [[nodiscard]] constexpr bool operator==(
             const RuntimeRegistrySnapshot &) const noexcept = default;

@@ -29,6 +29,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -848,9 +850,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return entries;
         }
 
-        [[nodiscard]] std::recursive_mutex &slot_plan_mutex() noexcept
+        [[nodiscard]] TypeSystemRecursiveMutex &slot_plan_mutex() noexcept
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
 
@@ -3304,9 +3306,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return contexts;
         }
 
-        [[nodiscard]] std::recursive_mutex &slot_context_mutex() noexcept
+        [[nodiscard]] TypeSystemRecursiveMutex &slot_context_mutex() noexcept
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
 
@@ -3401,7 +3403,7 @@ namespace hgraph::ts_data_plan_factory_detail
             throw std::logic_error("TSDataPlanFactory: slot key binding has the wrong schema");
         }
 
-        std::lock_guard<std::recursive_mutex> lock(slot_plan_mutex());
+        std::lock_guard lock(slot_plan_mutex());
         auto &entries = custom_tsd_slot_plan_entries();
         const TSDSlotPlanKey key{&schema, key_binding, {}};
         if (const auto it = entries.find(key); it != entries.end()) { return it->second->root_plan; }
@@ -3465,7 +3467,7 @@ namespace hgraph::ts_data_plan_factory_detail
         }
         const TSDSlotPlanKey key{&schema, key_binding, element_type};
 
-        std::lock_guard<std::recursive_mutex> lock(slot_plan_mutex());
+        std::lock_guard lock(slot_plan_mutex());
         auto &entries = custom_tsd_slot_plan_entries();
         if (const auto it = entries.find(key); it != entries.end()) { return it->second->root_plan; }
 
@@ -3497,7 +3499,7 @@ namespace hgraph::ts_data_plan_factory_detail
             throw std::logic_error("slot TSData currently expects the storage object at the root");
         }
 
-        std::lock_guard<std::recursive_mutex> lock(slot_context_mutex());
+        std::lock_guard lock(slot_context_mutex());
         auto                       &contexts = slot_contexts();
         const auto element_type = schema.kind == TSTypeKind::TSD ? element_type_for(schema, role)
                                                                  : TSRoleTypeRef{};
@@ -3557,7 +3559,7 @@ namespace hgraph::ts_data_plan_factory_detail
             throw std::logic_error("slot TSD element binding has the wrong schema");
         }
 
-        std::lock_guard<std::recursive_mutex> lock(slot_context_mutex());
+        std::lock_guard lock(slot_context_mutex());
         auto                &contexts = slot_contexts();
         const SlotContextKey key{
             &schema, &plan, storage_offset, key_binding, element_type, storage_role, embedded, composite};
@@ -3578,11 +3580,11 @@ namespace hgraph::ts_data_plan_factory_detail
     void clear_slot_ts_data_contexts() noexcept
     {
         {
-            std::lock_guard<std::recursive_mutex> lock(slot_context_mutex());
+            std::lock_guard lock(slot_context_mutex());
             slot_contexts().clear();
         }
         {
-            std::lock_guard<std::recursive_mutex> lock(slot_plan_mutex());
+            std::lock_guard lock(slot_plan_mutex());
             custom_tsd_slot_plan_entries().clear();
         }
     }

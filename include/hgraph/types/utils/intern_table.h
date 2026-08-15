@@ -4,6 +4,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -54,13 +56,13 @@ namespace hgraph
          */
         template <typename Factory> [[nodiscard]] const Value &intern(Key key, Factory &&factory) {
             {
-                std::lock_guard<std::mutex> lock(m_mutex);
+                std::lock_guard lock(m_mutex);
                 if (const auto it = m_cache.find(key); it != m_cache.end()) { return *it->second; }
             }
 
             auto value = std::make_unique<Value>(std::forward<Factory>(factory)());
 
-            std::lock_guard<std::mutex> lock(m_mutex);
+            std::lock_guard lock(m_mutex);
             if (const auto it = m_cache.find(key); it != m_cache.end()) { return *it->second; }
 
             const Value *result = value.get();
@@ -83,7 +85,7 @@ namespace hgraph
          * when the key is not present.
          */
         [[nodiscard]] const Value *find(const Key &key) const noexcept {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            std::lock_guard lock(m_mutex);
             const auto                  it = m_cache.find(key);
             return it == m_cache.end() ? nullptr : it->second;
         }
@@ -94,13 +96,13 @@ namespace hgraph
          * ``intern`` / ``emplace`` / ``find`` become invalid.
          */
         void clear() noexcept {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            std::lock_guard lock(m_mutex);
             m_cache.clear();
             m_storage.clear();
         }
 
       private:
-        mutable std::mutex                                        m_mutex;
+        mutable TypeSystemMutex                                   m_mutex;
         std::unordered_map<Key, const Value *, KeyHash, KeyEqual> m_cache{};
         std::vector<std::unique_ptr<Value>>                       m_storage{};
     };

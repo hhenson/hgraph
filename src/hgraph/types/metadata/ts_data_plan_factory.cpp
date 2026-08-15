@@ -314,7 +314,7 @@ namespace hgraph
         }
 
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = cache_.find(schema); it != cache_.end())
             {
                 return it->second;
@@ -331,14 +331,14 @@ namespace hgraph
             return nullptr;
         }
 
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         const auto                  it = cache_.find(schema);
         return it == cache_.end() ? nullptr : it->second;
     }
 
     void TSDataPlanFactory::reset() noexcept
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         clear_debug_descriptors(TypeFamily::TimeSeries);
         cache_.clear();
         data_type_cache_.clear();
@@ -356,14 +356,14 @@ namespace hgraph
     {
         if (!migrated_root(schema)) throw std::invalid_argument("data_type_for requires a migrated TS schema");
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = data_type_cache_.find(schema); it != data_type_cache_.end()) return it->second;
         }
         if (plan_detail::is_dynamic_list_ts_data(*schema) || plan_detail::is_window_ts_data(*schema))
         {
             const auto storage_type = plan_detail::standalone_ts_storage_type(*schema, TypeRole::Data);
             const auto type = TSDataTypeRef::checked(storage_type);
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return data_type_cache_.try_emplace(schema, type).first->second;
         }
         const auto *plan = plan_for(schema);
@@ -373,7 +373,7 @@ namespace hgraph
             const auto &ops = plan_detail::slot_ts_data_ops(*schema, *plan, 0, TypeRole::Data);
             const auto type = TSDataTypeRef::checked(intern_ts_type(
                 *schema, TypeRole::Data, *plan, ops, root_label(schema->kind, TypeRole::Data)));
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return data_type_cache_.try_emplace(schema, type).first->second;
         }
         if (fixed_root(schema))
@@ -385,7 +385,7 @@ namespace hgraph
             const auto storage_type = plan_detail::embedded_ts_storage_type(
                 *schema, TypeRole::Data, *plan, value->offset, aux->offset, true);
             const auto type = TSDataTypeRef::checked(storage_type);
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return data_type_cache_.try_emplace(schema, type).first->second;
         }
         const auto value_type = ValuePlanFactory::instance().type_for(schema->value_schema);
@@ -400,7 +400,7 @@ namespace hgraph
                                                    *schema, TypeRole::Data, *plan, ops,
                                                    root_label(schema->kind, TypeRole::Data)),
                                                std::integral_constant<TypeRole, TypeRole::Data>{});
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         return data_type_cache_.try_emplace(schema, type).first->second;
     }
 
@@ -408,14 +408,14 @@ namespace hgraph
     {
         if (!migrated_root(schema)) throw std::invalid_argument("output_type_for requires a migrated TS schema");
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = output_type_cache_.find(schema); it != output_type_cache_.end()) return it->second;
         }
         if (plan_detail::is_dynamic_list_ts_data(*schema) || plan_detail::is_window_ts_data(*schema))
         {
             const auto storage_type = plan_detail::standalone_ts_storage_type(*schema, TypeRole::Output);
             const auto type = TSOutputTypeRef::checked(storage_type);
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return output_type_cache_.try_emplace(schema, type).first->second;
         }
         if (fixed_root(schema))
@@ -428,7 +428,7 @@ namespace hgraph
             const auto storage_type = plan_detail::embedded_ts_storage_type(
                 *schema, TypeRole::Output, *plan, value->offset, aux->offset, true);
             const auto type = TSOutputTypeRef::checked(storage_type);
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return output_type_cache_.try_emplace(schema, type).first->second;
         }
         if (slot_root(schema))
@@ -438,7 +438,7 @@ namespace hgraph
             const auto &ops = plan_detail::slot_ts_data_ops(*schema, *plan, 0, TypeRole::Output);
             const auto type = TSOutputTypeRef::checked(intern_ts_type(
                 *schema, TypeRole::Output, *plan, ops, root_label(schema->kind, TypeRole::Output)));
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             return output_type_cache_.try_emplace(schema, type).first->second;
         }
         const auto data_type = data_type_for(schema);
@@ -446,7 +446,7 @@ namespace hgraph
             intern_ts_type(*schema, TypeRole::Output, data_type.checked_plan(), data_type.ops_ref(),
                            root_label(schema->kind, TypeRole::Output)),
             std::integral_constant<TypeRole, TypeRole::Output>{});
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         return output_type_cache_.try_emplace(schema, type).first->second;
     }
 
@@ -614,14 +614,14 @@ namespace hgraph
 
     TSDataTypeRef TSDataPlanFactory::find_data_type(const TSValueTypeMetaData *schema) const noexcept
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         const auto it = data_type_cache_.find(schema);
         return it == data_type_cache_.end() ? TSDataTypeRef{} : it->second;
     }
 
     TSOutputTypeRef TSDataPlanFactory::find_output_type(const TSValueTypeMetaData *schema) const noexcept
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         const auto it = output_type_cache_.find(schema);
         return it == output_type_cache_.end() ? TSOutputTypeRef{} : it->second;
     }
@@ -636,7 +636,7 @@ namespace hgraph
         {
             const auto *plan = plan_detail::synthesise_dynamic_list_plan(*schema);
 
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = cache_.find(schema); it != cache_.end())
             {
                 return it->second;
@@ -648,7 +648,7 @@ namespace hgraph
         {
             const auto *plan = plan_detail::synthesise_fixed_plan(*schema);
 
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = cache_.find(schema); it != cache_.end())
             {
                 return it->second;
@@ -660,7 +660,7 @@ namespace hgraph
         {
             const auto *plan = plan_detail::synthesise_window_plan(*schema);
 
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = cache_.find(schema); it != cache_.end())
             {
                 return it->second;
@@ -672,7 +672,7 @@ namespace hgraph
         {
             const auto *plan = plan_detail::synthesise_slot_plan(*schema);
 
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard lock(mutex_);
             if (const auto it = cache_.find(schema); it != cache_.end())
             {
                 return it->second;
@@ -697,7 +697,7 @@ namespace hgraph
         builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>());
         const auto *plan = &builder.build();
 
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         if (const auto it = cache_.find(schema); it != cache_.end())
         {
             return it->second;

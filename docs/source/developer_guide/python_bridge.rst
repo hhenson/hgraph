@@ -383,6 +383,46 @@ Value and reference crossings
   over value kinds in the bridge (ruling 2026-07-07). If a new value kind
   needs conversion, extend its ops, not ``value_conversion.cpp``.
 
+Per-tick application is registry-free (ruling 2026-08-15)
+---------------------------------------------------------
+
+Type resolution is what wiring is for. When a Python node's result is applied
+to a time-series output (``apply_python_result`` →
+``PythonTSDataOps.apply_result_impl``), the per-kind implementation consumes
+the Python object in a **single fused pass** against bindings that wiring
+already resolved onto the TSData layout (``TSDataLayout.value_binding`` /
+``delta_binding``, ``TSSDataLayout.key_binding``, the TSD layout's key and
+element bindings), recursing through child kinds' ``apply_result_impl``. It
+must not build an intermediate delta ``Value``, must not call the
+schema-directed ``py_to_value_as`` hook, and must not consult
+``TypeRegistry`` / ``ValuePlanFactory`` / ``TypeRealizationSnapshot`` — those
+are wiring-time machinery behind mutexes (the 2026-07-02 lock-free ruling).
+The 0.8.15 regression (2–3x on every TSD workload) was exactly this flaw:
+routing the per-tick apply through the generic delta pipeline re-resolved
+type bindings per key per tick under the registry mutexes.
+
+``delta_from_python`` (the materialised delta-``Value`` pipeline) still
+exists for consumers that need a delta *object* — record/replay ingest,
+current-state transfer — and remains builder-based; it is not the per-tick
+apply path.
+
+**Enforcement**: every type-system mutex is a ``TypeSystemMutex``
+(``types/utils/counted_mutex.h``), counted in ``type_system_lock_count()``
+and surfaced as ``RuntimeRegistrySnapshot.type_system_lock_acquisitions``.
+``python/tests/test_registry_snapshot.py`` asserts that warm runs of the same
+generator-driven graph at different cycle counts acquire identical lock
+counts. Known, deliberate exceptions the test does not cover:
+
+- ``eval_node``'s own harness (input injection and per-tick output recording)
+  converts through delta values each tick — test tooling, not the production
+  path.
+- Keyed-collection *lifecycle* events (a ``map_`` child graph created or
+  destroyed on key churn) run build machinery; the cost is per key event, not
+  per cycle.
+- ``apply_ref_result`` still converts through ``py_to_value_as`` when a
+  Python node writes a ``REF`` value directly (rare; not observed on any
+  benchmarked path).
+
 Platform notes
 --------------
 
