@@ -6,6 +6,7 @@ from hgraph import (
     eval_node,
     generator,
     graph,
+    if_,
     map_,
     null_sink,
     register_adaptor,
@@ -133,6 +134,35 @@ def test_wired_evaluation_acquires_no_type_system_locks():
     short_graph = _dense_sink_graph(6)
     long_graph = _dense_sink_graph(24)
     # Warm every wiring/interning cache; a cold first run may intern.
+    _lock_delta_for(short_graph, 6)
+    _lock_delta_for(long_graph, 24)
+
+    short_delta = _lock_delta_for(short_graph, 6)
+    long_delta = _lock_delta_for(long_graph, 24)
+
+    assert long_delta == short_delta
+
+
+@generator
+def _int_pulse(cycles: int) -> TS[int]:
+    for i in range(cycles):
+        yield MIN_TD, i
+
+
+def _ref_route_sink_graph(cycles: int):
+    @graph
+    def _g():
+        source = _int_pulse(cycles)
+        null_sink(if_(source % 2 == 0, source).true)
+
+    return _g
+
+
+def test_reference_routing_acquires_no_type_system_locks():
+    """if_ routes references every cycle; the empty reference is state-held,
+    so steady-state routing must not touch a type-system mutex."""
+    short_graph = _ref_route_sink_graph(6)
+    long_graph = _ref_route_sink_graph(24)
     _lock_delta_for(short_graph, 6)
     _lock_delta_for(long_graph, 24)
 

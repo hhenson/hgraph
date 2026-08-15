@@ -569,19 +569,29 @@ namespace hgraph::stdlib
 
         static void eval(In<"condition", TS<Bool>> condition,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                         State<TimeSeriesReference> empty,
                          Out<output_schema> out)
         {
-            const TimeSeriesReference empty = TimeSeriesReference::empty(ts.base().schema()->referenced_ts());
-            if (condition.value())
+            // The empty reference is built once and held in node state; the
+            // per-tick path publishes by copy_value_from — no reference
+            // wrapping, no registry lookups (the 2026-07-02 lock-free
+            // ruling). Schema compatibility is wiring's guarantee: the ts
+            // input and both output fields share one TsVar.
+            if (empty.get().target_schema() == nullptr)
             {
-                out.template field<"true">().set(ts.valid() ? ts.value() : empty);
-                out.template field<"false">().set(empty);
+                empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
             }
-            else
-            {
-                out.template field<"false">().set(ts.valid() ? ts.value() : empty);
-                out.template field<"true">().set(empty);
-            }
+            const auto publish = [](const TSOutputView &field_out, const ValueView &reference) {
+                auto mutation = field_out.begin_mutation(field_out.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(reference));
+            };
+            const auto true_out   = out.template field<"true">();
+            const auto false_out  = out.template field<"false">();
+            const auto &selected   = condition.value() ? true_out : false_out;
+            const auto &deselected = condition.value() ? false_out : true_out;
+            if (ts.valid()) { publish(selected, ts.base().value()); }
+            else { publish(selected, empty.view()); }
+            publish(deselected, empty.view());
         }
     };
 
@@ -589,17 +599,24 @@ namespace hgraph::stdlib
     {
         static void eval(In<"index", TS<Int>> index,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                         State<TimeSeriesReference> empty,
                          Out<TSL<REF<TsVar<"S">>, SIZE<"N">>> out)
         {
-            const TimeSeriesReference empty = TimeSeriesReference::empty(ts.base().schema()->referenced_ts());
-            const Int                 selected_index = index.value();
+            // Same contract as if_ref_impl: state-held empty reference,
+            // per-tick copy_value_from only.
+            if (empty.get().target_schema() == nullptr)
+            {
+                empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
+            }
+            const Int selected_index = index.value();
             for (std::size_t i = 0; i < out.size(); ++i)
             {
-                if (selected_index >= 0 && static_cast<std::size_t>(selected_index) == i && ts.valid())
-                {
-                    out[i].set(ts.value());
-                }
-                else { out[i].set(empty); }
+                const bool routed = selected_index >= 0 &&
+                                    static_cast<std::size_t>(selected_index) == i && ts.valid();
+                const auto element = out[i];
+                auto mutation = element.begin_mutation(element.evaluation_time());
+                if (routed) { static_cast<void>(mutation.copy_value_from(ts.base().value())); }
+                else { static_cast<void>(mutation.copy_value_from(empty.view())); }
             }
         }
     };
