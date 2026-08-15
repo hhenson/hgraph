@@ -409,9 +409,19 @@ apply path.
 **Enforcement**: every type-system mutex is a ``TypeSystemMutex``
 (``types/utils/counted_mutex.h``), counted in ``type_system_lock_count()``
 and surfaced as ``RuntimeRegistrySnapshot.type_system_lock_acquisitions``.
+This includes the codec converter-interning mutexes (``json_codec.cpp``,
+``table_codec.cpp``) — converter synthesis is type-system machinery, and an
+uncounted mutex there hid the JSON operators' per-tick converter lookups from
+the counter until the 2026-08-15 std-operator audit.
 ``python/tests/test_registry_snapshot.py`` asserts that warm runs of the same
 generator-driven graph at different cycle counts acquire identical lock
-counts. Known, deliberate exceptions the test does not cover:
+counts, and extends the same N-vs-2N invariant across an **operator-family
+lock matrix** (``test_operator_family_lock_matrix``): one graph per operator
+group the audit found (or cleared of) acquiring locks per tick. Families that
+still violate the ruling are marked ``xfail(strict=True)``, so fixing an
+operator forces the marker's removal in the same change; passing families are
+permanent regression guards. Known, deliberate exceptions the test does not
+cover:
 
 - ``eval_node``'s own harness (input injection and per-tick output recording)
   converts through delta values each tick — test tooling, not the production

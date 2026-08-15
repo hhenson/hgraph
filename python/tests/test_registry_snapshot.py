@@ -1,19 +1,35 @@
+from typing import Set, Tuple
+
+import pytest
+
 from hgraph import (
     MIN_ST,
     MIN_TD,
     TS,
     TSD,
+    TSS,
+    collect,
+    convert,
+    eq_,
     eval_node,
+    from_json,
     generator,
     graph,
     if_,
+    keys_,
     map_,
+    match_,
+    nothing,
     null_sink,
+    race,
     register_adaptor,
     run_graph,
     service_adaptor,
     service_adaptor_impl,
+    to_json,
 )
+from hgraph import OUT
+
 from hgraph.debug import RuntimeRegistrySnapshot, runtime_registry_snapshot
 
 
@@ -163,6 +179,183 @@ def test_reference_routing_acquires_no_type_system_locks():
     so steady-state routing must not touch a type-system mutex."""
     short_graph = _ref_route_sink_graph(6)
     long_graph = _ref_route_sink_graph(24)
+    _lock_delta_for(short_graph, 6)
+    _lock_delta_for(long_graph, 24)
+
+    short_delta = _lock_delta_for(short_graph, 6)
+    long_delta = _lock_delta_for(long_graph, 24)
+
+    assert long_delta == short_delta
+
+
+# ---------------------------------------------------------------------------
+# Operator-family lock matrix (audit 2026-08-15).
+#
+# One family per operator group the audit found acquiring type-system locks
+# per tick. The invariant is the same N-vs-2N equality as above; families
+# that still violate the ruling carry xfail(strict=True), so fixing the
+# operator forces the marker's removal in the same change (an XPASS under
+# strict is a failure). The matrix is the enforcement the audit found
+# missing: the original test wired only two graphs.
+# ---------------------------------------------------------------------------
+
+
+@generator
+def _tuple_pulse(cycles: int) -> TS[Tuple[int, ...]]:
+    for i in range(cycles):
+        yield MIN_TD, (i, i + 1)
+
+
+@generator
+def _str_pulse(cycles: int) -> TS[str]:
+    for i in range(cycles):
+        yield MIN_TD, f"value-{i}"
+
+
+@generator
+def _churn_tsd_pulse(cycles: int) -> TSD[int, TS[int]]:
+    # A rotating key insert + removal per cycle, so key-set-shaped outputs
+    # (keys_, set conversions) re-emit every cycle rather than settling.
+    from hgraph import REMOVE
+
+    for i in range(cycles):
+        yield MIN_TD, {i % 3: i, (i + 1) % 3: REMOVE}
+
+
+def _convert_ts_to_set_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(convert[TS[Set[int]]](_int_pulse(cycles)))
+
+    return _g
+
+
+def _collect_tuple_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(collect[TS[Tuple[int, ...]]](_int_pulse(cycles)))
+
+    return _g
+
+
+def _keys_tsd_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(keys_[OUT : TS[Set[int]]](_churn_tsd_pulse(cycles)))
+
+    return _g
+
+
+def _getitem_tsd_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(_dense_tsd_pulse(cycles)[_int_pulse(cycles) % 2])
+
+    return _g
+
+
+def _eq_tuple_graph(cycles: int):
+    @graph
+    def _g():
+        source = _tuple_pulse(cycles)
+        null_sink(eq_(source, source))
+
+    return _g
+
+
+def _match_str_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(match_("value-([0-9]+)", _str_pulse(cycles)).is_match)
+
+    return _g
+
+
+def _json_roundtrip_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(from_json[TS[int]](to_json(_int_pulse(cycles))))
+
+    return _g
+
+
+def _race_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(race(_int_pulse(cycles), nothing[TS[int]]()))
+
+    return _g
+
+
+def _still_locking(reason):
+    return pytest.mark.xfail(
+        strict=True, reason=f"audit 2026-08-15: {reason}"
+    )
+
+
+_LOCK_MATRIX = [
+    pytest.param(
+        _convert_ts_to_set_graph,
+        id="convert_ts_to_set",
+        marks=_still_locking(
+            "conversion kernels resolve builder bindings per tick"
+        ),
+    ),
+    pytest.param(
+        _collect_tuple_graph,
+        id="collect_tuple",
+        marks=_still_locking(
+            "collect kernels resolve builder bindings per tick"
+        ),
+    ),
+    pytest.param(
+        _keys_tsd_graph,
+        id="keys_tsd_as_set",
+        marks=_still_locking(
+            "keys_tsd_as_set resolves its set builder per tick"
+        ),
+    ),
+    pytest.param(
+        _getitem_tsd_graph,
+        id="getitem_tsd_by_key",
+        marks=_still_locking(
+            "getitem_tsd_by_key dereferences the dict schema per key tick"
+        ),
+    ),
+    pytest.param(
+        _eq_tuple_graph,
+        id="eq_tuple_fallback",
+        marks=_still_locking(
+            "eq_ container fallback probes TypeRegistry::json() per tick"
+        ),
+    ),
+    pytest.param(
+        _match_str_graph,
+        id="match_str",
+        marks=_still_locking(
+            "match_ resolves its groups binding (and regex) per tick"
+        ),
+    ),
+    pytest.param(
+        _json_roundtrip_graph,
+        id="json_roundtrip",
+        marks=_still_locking(
+            "from_json resolves converters under g_converters_mutex per tick"
+        ),
+    ),
+    # race_ is deliberately unmarked: its Out<REF>::set locks fire on winner/
+    # reference CHANGES, which this stable-winner driver never produces, so
+    # the family holds as a steady-state guard while the rebind-path fix
+    # lands in the race_ rework.
+    pytest.param(_race_graph, id="race_ref"),
+]
+
+
+@pytest.mark.parametrize("builder", _LOCK_MATRIX)
+def test_operator_family_lock_matrix(builder):
+    short_graph = builder(6)
+    long_graph = builder(24)
+    # Warm every wiring/interning cache; a cold first run may intern.
     _lock_delta_for(short_graph, 6)
     _lock_delta_for(long_graph, 24)
 
