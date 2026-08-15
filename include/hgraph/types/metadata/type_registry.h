@@ -22,6 +22,8 @@
 
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <optional>
 #include <span>
 #include <string>
@@ -660,7 +662,7 @@ namespace hgraph
         };
 
         // Auxiliary memory referenced by metadata (canonical labels, TS display names, field arrays).
-        mutable std::recursive_mutex mutex_;
+        mutable TypeSystemRecursiveMutex mutex_;
         std::vector<std::unique_ptr<std::string>> name_storage_;
         std::vector<std::unique_ptr<ValueFieldMetaData[]>> value_field_storage_;
         std::vector<std::unique_ptr<TSFieldMetaData[]>> ts_field_storage_;

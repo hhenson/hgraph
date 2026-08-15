@@ -25,6 +25,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1881,9 +1883,9 @@ namespace hgraph::ts_data_plan_factory_detail
         return contexts;
     }
 
-    [[nodiscard]] std::mutex &fixed_ts_data_context_mutex() noexcept
+    [[nodiscard]] TypeSystemMutex &fixed_ts_data_context_mutex() noexcept
     {
-        static std::mutex mutex;
+        static TypeSystemMutex mutex;
         return mutex;
     }
 
@@ -1895,7 +1897,7 @@ namespace hgraph::ts_data_plan_factory_detail
                                                             std::vector<TSRoleTypeRef> element_types,
                                                             std::vector<std::size_t> element_data_offsets)
     {
-        std::lock_guard<std::mutex> lock(fixed_ts_data_context_mutex());
+        std::lock_guard lock(fixed_ts_data_context_mutex());
         auto                       &contexts = fixed_ts_data_contexts();
         const FixedTSDataContextKey key{&schema, &plan, role, value_offset, aux_offset, tracking_offset};
         if (const auto it = contexts.find(key); it != contexts.end())
@@ -1927,7 +1929,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
     void clear_fixed_ts_data_contexts() noexcept
     {
-        std::lock_guard<std::mutex> lock(fixed_ts_data_context_mutex());
+        std::lock_guard lock(fixed_ts_data_context_mutex());
         fixed_ts_data_contexts().clear();
     }
 } // namespace hgraph::ts_data_plan_factory_detail

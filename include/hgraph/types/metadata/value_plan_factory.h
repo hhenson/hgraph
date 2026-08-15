@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <span>
 #include <unordered_map>
 
@@ -196,7 +198,7 @@ namespace hgraph
         const MemoryUtils::StoragePlan *synthesise(const ValueTypeMetaData *schema);
         ValueTypeRef synthesise_type(const ValueTypeMetaData *schema);
 
-        mutable std::mutex                                                              mutex_;
+        mutable TypeSystemMutex                                                         mutex_;
         std::unordered_map<const ValueTypeMetaData *, const MemoryUtils::StoragePlan *> cache_;
         std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>                  type_cache_;
     };

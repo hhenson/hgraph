@@ -179,7 +179,12 @@ ctest --test-dir build --output-on-failure
   `shared_ptr`-free. **Build-time machinery** (interning, plan/ops-synthesis caches,
   registries) MAY use mutexes to guard shared resources — that is sanctioned, not
   drift. Push-source senders + the real-time executor CV remain the only
-  cross-thread runtime boundary.
+  cross-thread runtime boundary. **Enforced** (2026-08-15): every type-system mutex
+  is a counted `TypeSystemMutex` (`types/utils/counted_mutex.h`), surfaced as
+  `RuntimeRegistrySnapshot.type_system_lock_acquisitions`;
+  `python/tests/test_registry_snapshot.py` asserts evaluation leaves it unchanged.
+  Record deliberate exceptions in `python_bridge.rst` ("Per-tick application is
+  registry-free"), don't quietly re-introduce per-tick locks.
 - **Ops tables**: structs of fn-ptrs, first param = the structure's memory; metadata
   (header) separate from operations (`*_ops`).
 - **Lifetime**: builders are build-time only; no `shared_ptr` for builder lifetime in

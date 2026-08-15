@@ -31,6 +31,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/temporal.cpp
     hgraph/types/time_zone_provider.cpp
     hgraph/types/type_pointer.cpp
+    hgraph/types/utils/counted_mutex.cpp
     hgraph/types/utils/stable_slot_store.cpp
     hgraph/types/utils/slot_observer.cpp
     hgraph/types/metadata/debug_descriptor.cpp

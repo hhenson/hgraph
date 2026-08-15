@@ -1037,7 +1037,9 @@ namespace hgraph::python_bridge
         .def_ro("graph_programs", &RuntimeRegistrySnapshot::graph_programs)
         .def_ro("graph_runtime_types", &RuntimeRegistrySnapshot::graph_runtime_types)
         .def_ro("executor_runtime_types", &RuntimeRegistrySnapshot::executor_runtime_types)
-        .def_ro("type_records", &RuntimeRegistrySnapshot::type_records);
+        .def_ro("type_records", &RuntimeRegistrySnapshot::type_records)
+        .def_ro("type_system_lock_acquisitions",
+                &RuntimeRegistrySnapshot::type_system_lock_acquisitions);
     m.def("runtime_registry_snapshot", &runtime_registry_snapshot,
           "Capture cold-path process-lifetime runtime registry cardinalities.");
 

@@ -28,6 +28,7 @@ add_library(hgraph_abi_boundary_producer SHARED
     abi_boundary/producer.cpp
     ${PROJECT_SOURCE_DIR}/src/hgraph/types/type_pointer.cpp
     ${PROJECT_SOURCE_DIR}/src/hgraph/types/metadata/type_record_registry.cpp
+    ${PROJECT_SOURCE_DIR}/src/hgraph/types/utils/counted_mutex.cpp
 )
 
 target_link_libraries(hgraph_abi_boundary_producer

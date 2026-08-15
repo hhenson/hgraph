@@ -5,6 +5,8 @@
 
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -67,7 +69,7 @@ namespace hgraph
 
         TypeRecordRegistry() = default;
 
-        mutable std::mutex m_mutex;
+        mutable TypeSystemMutex m_mutex;
         std::unordered_map<TypeRecordKey, std::unique_ptr<Entry>, KeyHash> m_entries;
     };
 } // namespace hgraph

@@ -30,6 +30,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -821,9 +823,9 @@ namespace hgraph
             return cache;
         }
 
-        [[nodiscard]] std::mutex &target_link_context_cache_mutex()
+        [[nodiscard]] TypeSystemMutex &target_link_context_cache_mutex()
         {
-            static std::mutex mutex;
+            static TypeSystemMutex mutex;
             return mutex;
         }
 
@@ -833,9 +835,9 @@ namespace hgraph
             return cache;
         }
 
-        [[nodiscard]] std::recursive_mutex &input_binding_context_cache_mutex()
+        [[nodiscard]] TypeSystemRecursiveMutex &input_binding_context_cache_mutex()
         {
-            static std::recursive_mutex mutex;
+            static TypeSystemRecursiveMutex mutex;
             return mutex;
         }
 
@@ -845,9 +847,9 @@ namespace hgraph
             return cache;
         }
 
-        [[nodiscard]] std::mutex &input_builder_cache_mutex()
+        [[nodiscard]] TypeSystemMutex &input_builder_cache_mutex()
         {
-            static std::mutex mutex;
+            static TypeSystemMutex mutex;
             return mutex;
         }
 

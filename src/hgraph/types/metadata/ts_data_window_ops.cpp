@@ -20,6 +20,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+
+#include <hgraph/types/utils/counted_mutex.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -761,9 +763,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return entries;
         }
 
-        [[nodiscard]] std::mutex &window_plan_mutex() noexcept
+        [[nodiscard]] TypeSystemMutex &window_plan_mutex() noexcept
         {
-            static std::mutex mutex;
+            static TypeSystemMutex mutex;
             return mutex;
         }
 
@@ -1544,9 +1546,9 @@ namespace hgraph::ts_data_plan_factory_detail
             return contexts;
         }
 
-        [[nodiscard]] std::mutex &window_context_mutex() noexcept
+        [[nodiscard]] TypeSystemMutex &window_context_mutex() noexcept
         {
-            static std::mutex mutex;
+            static TypeSystemMutex mutex;
             return mutex;
         }
     } // namespace
@@ -1578,7 +1580,7 @@ namespace hgraph::ts_data_plan_factory_detail
         const auto time_binding = window_time_binding();
         const WindowPlanKey key{&schema, element_binding.record()};
 
-        std::lock_guard<std::mutex> lock(window_plan_mutex());
+        std::lock_guard lock(window_plan_mutex());
         auto                       &entries = window_plan_entries();
         if (const auto it = entries.find(key); it != entries.end()) { return it->second->root_plan; }
 
@@ -1665,7 +1667,7 @@ namespace hgraph::ts_data_plan_factory_detail
         }
         const auto time_binding = window_time_binding();
 
-        std::lock_guard<std::mutex> lock(window_context_mutex());
+        std::lock_guard lock(window_context_mutex());
         auto                       &contexts = window_contexts();
         const TSWContextKey key{
             &schema, &plan, value_offset, tracking_offset, element_binding.record(), role, embedded};
@@ -1692,11 +1694,11 @@ namespace hgraph::ts_data_plan_factory_detail
     void clear_window_ts_data_contexts() noexcept
     {
         {
-            std::lock_guard<std::mutex> lock(window_context_mutex());
+            std::lock_guard lock(window_context_mutex());
             window_contexts().clear();
         }
         {
-            std::lock_guard<std::mutex> lock(window_plan_mutex());
+            std::lock_guard lock(window_plan_mutex());
             window_plan_entries().clear();
         }
     }
