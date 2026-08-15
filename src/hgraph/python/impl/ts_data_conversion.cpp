@@ -738,6 +738,48 @@ namespace hgraph::python_bridge
             return builder.build();
         }
 
+        void apply_bundle_result(const TSOutputView &output, nb::handle result)
+        {
+            // Mapping sources apply per field with DELTA semantics: each named
+            // child receives the item through its own erased apply, so nested
+            // collections keep delta/REMOVE behaviour at every level.
+            // Sequences and registered CompoundScalar snapshots are whole-value
+            // shapes and keep replacement semantics.
+            if (!nb::isinstance<nb::dict>(result))
+            {
+                apply_replacement_result(output, result);
+                return;
+            }
+            const auto type = output.storage_type();
+            const auto &schema = schema_of(type, "TSB apply result");
+            const auto &layout = static_cast<const FixedTSBDataLayout &>(
+                layout_of(type, "TSB apply result"));
+            auto bundle_out = output.as_bundle();
+            for (auto [key, item] : nb::cast<nb::dict>(result))
+            {
+                if (item.is_none()) { continue; }
+                const auto name = nb::cast<std::string>(key);
+                std::size_t index = schema.field_count();
+                for (std::size_t candidate = 0; candidate < schema.field_count();
+                     ++candidate)
+                {
+                    const char *field_name = schema.fields()[candidate].name;
+                    if (field_name != nullptr && name == field_name)
+                    {
+                        index = candidate;
+                        break;
+                    }
+                }
+                if (index == schema.field_count())
+                {
+                    throw std::invalid_argument(
+                        "TSB apply result names unknown field '" + name + "'");
+                }
+                python_ops_for(layout.field(index).type)
+                    .apply_result_impl(bundle_out.at(index), item);
+            }
+        }
+
         void apply_delta_result(const TSOutputView &output, nb::handle result)
         {
             Value delta = delta_from_python(output.storage_type(), result);
@@ -813,7 +855,7 @@ namespace hgraph::python_bridge
         static const PythonTSDataOps ops{
             .requires_authored_delta_impl = &bundle_requires_authored,
             .delta_from_python_impl = &bundle_delta_from_python,
-            .apply_result_impl = &apply_replacement_result,
+            .apply_result_impl = &apply_bundle_result,
         };
         return ops;
     }
