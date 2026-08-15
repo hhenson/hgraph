@@ -174,12 +174,85 @@ namespace hgraph::stdlib
         }
     }  // namespace string_impl_detail
 
+    namespace string_impl_detail
+    {
+        /** Compiled regex cached across ticks (heap handle via node State;
+            ``std::regex`` construction is parse + NFA build — orders of
+            magnitude dearer than the match). Recompiles only when the
+            pattern CHANGES, which is the operator's documented contract. */
+        struct CompiledPattern
+        {
+            Str        pattern{};
+            std::regex regex{};
+        };
+
+        struct CompiledPatternState
+        {
+            CompiledPattern *handle{nullptr};
+        };
+
+        /** Node-state pair for match_: the start-resolved bindings and the
+            cached compiled pattern (one state slot per node). */
+        struct MatchNodeState
+        {
+            ResolvedBindings     bindings{};
+            CompiledPatternState compiled{};
+        };
+
+        [[nodiscard]] inline const std::regex &compiled_regex(CompiledPatternState &state,
+                                                              const Str &pattern)
+        {
+            if (state.handle == nullptr)
+            {
+                state.handle = new CompiledPattern{pattern, std::regex{pattern}};
+            }
+            else if (state.handle->pattern != pattern)
+            {
+                state.handle->regex   = std::regex{pattern};
+                state.handle->pattern = pattern;
+            }
+            return state.handle->regex;
+        }
+
+        inline void free_compiled_pattern(CompiledPatternState &state)
+        {
+            delete state.handle;
+            state.handle = nullptr;
+        }
+    }  // namespace string_impl_detail
+}  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::string_impl_detail::CompiledPatternState>
+    {
+        static constexpr std::string_view value{"stdlib.compiled_pattern_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::string_impl_detail::MatchNodeState>
+    {
+        static constexpr std::string_view value{"stdlib.match_node_state"};
+    };
+}  // namespace hgraph::static_schema_detail
+
+namespace hgraph::stdlib
+{
     struct replace_impl
     {
-        static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
-                         Out<TS<Str>> out)
+        static void stop(State<string_impl_detail::CompiledPatternState> compiled)
         {
-            out.set(std::regex_replace(s.value(), std::regex{pattern.value()}, repl.value()));
+            string_impl_detail::free_compiled_pattern(compiled.modify());
+        }
+
+        static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
+                         State<string_impl_detail::CompiledPatternState> compiled, Out<TS<Str>> out)
+        {
+            out.set(std::regex_replace(
+                s.value(),
+                string_impl_detail::compiled_regex(compiled.modify(), pattern.value()),
+                repl.value()));
         }
     };
 
@@ -204,7 +277,7 @@ namespace hgraph::stdlib
             resolution.bind_ts("O", result_schema());
         }
 
-        static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+        static void start(State<string_impl_detail::MatchNodeState> state, Out<TsVar<"O">> out)
         {
             // Element/Bool bindings + the interned groups list type are
             // wiring-fixed; each resolution locks a type-system mutex
@@ -213,19 +286,28 @@ namespace hgraph::stdlib
             auto        bundle = erased.as_bundle();
             const auto *groups_meta = bundle.at(1).schema()->value_schema;
             const auto  element = ValuePlanFactory::instance().type_for(groups_meta->element_type);
-            bindings.set(ResolvedBindings{
+            auto       &current = state.modify();
+            current.bindings = ResolvedBindings{
                 .primary   = element,
                 .secondary = TypeRegistry::instance().scalar_type<Bool>(),
-                .result    = compact_list_type(element)});
+                .result    = compact_list_type(element)};
+        }
+
+        static void stop(State<string_impl_detail::MatchNodeState> state)
+        {
+            string_impl_detail::free_compiled_pattern(state.modify().compiled);
         }
 
         static void eval(In<"pattern", TS<Str>> pattern, In<"s", TS<Str>> s,
-                         State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
+                         State<string_impl_detail::MatchNodeState> state,
+                         Out<TsVar<"O">> out)
         {
+            auto       &current = state.modify();
             const Str   value = s.value();
             std::smatch match;
-            const bool  is_match = std::regex_search(value, match, std::regex{pattern.value()});
-            const auto  resolved = bindings.get();
+            const bool  is_match = std::regex_search(
+                value, match, string_impl_detail::compiled_regex(current.compiled, pattern.value()));
+            const auto &resolved = current.bindings;
 
             const auto &erased = static_cast<const TSOutputView &>(out);
             auto        bundle = erased.as_bundle();
@@ -513,7 +595,7 @@ namespace hgraph::stdlib
 
     struct format_bundle_impl
     {
-        static constexpr auto name = "format";
+        static constexpr auto name = "format_args";
 
         static void eval(In<"fmt", TS<Str>> fmt,
                          In<"__args__", Kwargs<>, InputValidity::Unchecked> args,
@@ -538,7 +620,7 @@ namespace hgraph::stdlib
 
     struct format_no_args_impl
     {
-        static constexpr auto name = "format";
+        static constexpr auto name = "format_no_args";
 
         static void eval(In<"fmt", TS<Str>> fmt, Scalar<"__sample__", Int> sample, Scalar<"__strict__", Bool> strict,
                          State<Int> count, Out<TS<Str>> out)

@@ -2027,7 +2027,7 @@ namespace hgraph::stdlib
         /** ``union(*ts)`` — n-ary TSS union, folded pairwise at wiring time. */
         struct union_tss_fold
         {
-            static constexpr auto name = "union_impl";
+            static constexpr auto name = "union_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2054,7 +2054,7 @@ namespace hgraph::stdlib
         /** ``intersection(*ts)`` — n-ary TSS intersection, folded pairwise at wiring time. */
         struct intersection_tss_fold
         {
-            static constexpr auto name = "intersection_impl";
+            static constexpr auto name = "intersection_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2081,7 +2081,7 @@ namespace hgraph::stdlib
         /** ``difference(lhs, rhs)`` — binary TSS set difference. */
         struct difference_tss_fold
         {
-            static constexpr auto name = "difference_impl";
+            static constexpr auto name = "difference_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {
@@ -2107,7 +2107,7 @@ namespace hgraph::stdlib
         /** ``symmetric_difference(*ts)`` — n-ary TSS symmetric difference, folded pairwise. */
         struct symmetric_difference_tss_fold
         {
-            static constexpr auto name = "symmetric_difference_impl";
+            static constexpr auto name = "symmetric_difference_fold";
 
             static bool requires_(const ResolutionMap &, OperatorCallContext context)
             {

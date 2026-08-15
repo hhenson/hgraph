@@ -675,7 +675,7 @@ Accepted native overloads
 ``collapse_keys``
 -----------------
 
-Flatten both key levels of a nested dictionary into tuple keys.
+Flatten both key levels of a nested dictionary into tuple keys. @note Cost: O(total entries) per tick (delta-driven for TSD).
 
 Python exposure: lazy native operator proxy.
 
@@ -1049,7 +1049,7 @@ Accepted native overloads
 ``contains_``
 -------------
 
-Test membership of an item in the current collection value. Call the operator directly because Python's ``in`` syntax coerces its result to a scalar boolean and cannot represent a wiring port.
+Test membership of an item in the current collection value. Call the operator directly because Python's ``in`` syntax coerces its result to a scalar boolean and cannot represent a wiring port. @note Cost: O(n) scan per tick for list/tuple inputs; O(1) for sets/dicts.
 
 Python exposure: lazy native operator proxy.
 
@@ -1519,7 +1519,7 @@ Accepted native overloads
 ``dispatch_``
 -------------
 
-``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph.
+``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note Retained memory: the frozen selection table is O(∏ per-argument closed-union alternatives) — multiplicative per dispatch argument.
 
 Python entry point: ``dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs)`` (explicit helper).
 
@@ -2139,7 +2139,7 @@ Accepted native overloads
 ``flip``
 --------
 
-Invert a keyed dictionary so each value becomes a key. Duplicate values require ``unique=False``, which collects their original keys in a time-series set instead of choosing one arbitrarily.
+Invert a keyed dictionary so each value becomes a key. Duplicate values require ``unique=False``, which collects their original keys in a time-series set instead of choosing one arbitrarily. @note Cost: O(n) rebuild per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -2180,7 +2180,7 @@ Accepted native overloads
 ``flip_keys``
 -------------
 
-Swap outer and inner keys of a nested keyed dictionary while preserving values.
+Swap outer and inner keys of a nested keyed dictionary while preserving values. @note Cost: O(outer×inner) rebuild per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -2752,7 +2752,7 @@ Accepted native overloads
 ``group_by``
 ------------
 
-Partition each frame into a keyed dictionary of frames by one or more columns.
+Partition each frame into a keyed dictionary of frames by one or more columns. @note Cost: O(rows×groups) per tick (linear bucket probe).
 
 Python exposure: lazy native operator proxy.
 
@@ -3041,7 +3041,7 @@ Accepted native overloads
 ``index_of``
 ------------
 
-Locate an item within an ordered collection.
+Locate an item within an ordered collection. @note Cost: O(n) scan per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -3268,7 +3268,7 @@ Accepted native overloads
 ``join``
 --------
 
-Join two frames by equality of one or more key columns. This is part of the public ``join`` overload family alongside string joining.
+Join two frames by equality of one or more key columns. This is part of the public ``join`` overload family alongside string joining. @note Cost: a full arrow hash join per tick.
 
 Join current string inputs with a fixed separator.
 
@@ -3595,7 +3595,7 @@ Accepted native overloads
 ``lag``
 -------
 
-Delay every input tick by a tick count or elapsed duration. Tick-count lag replays the value after that many later source ticks; duration lag schedules it for ``input_time + period``.
+Delay every input tick by a tick count or elapsed duration. Tick-count lag replays the value after that many later source ticks; duration lag schedules it for ``input_time + period``. @note Cost: O(delta) per tick; retains up to ``period`` pending deltas.
 
 Python exposure: lazy native operator proxy.
 
@@ -5077,7 +5077,7 @@ Accepted native overloads
 ``partition``
 -------------
 
-Partition a keyed dictionary into nested dictionaries using a live key-to-group map. Mapping changes move an entry between partitions without changing its inner key.
+Partition a keyed dictionary into nested dictionaries using a live key-to-group map. Mapping changes move an entry between partitions without changing its inner key. @note Cost: O(n×groups) per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -5987,7 +5987,7 @@ Accepted native overloads
 ``rekey``
 ---------
 
-Replace input dictionary keys according to a live key mapping. Entries without a usable target key are omitted; mapping changes move the corresponding current value to its new key.
+Replace input dictionary keys according to a live key mapping. Entries without a usable target key are omitted; mapping changes move the corresponding current value to its new key. @note Cost: O(n) rebuild per tick (scalar-map form); delta-driven for TSD.
 
 Python exposure: lazy native operator proxy.
 
@@ -6175,7 +6175,7 @@ Accepted native overloads
 ``replay_data_frame``
 ---------------------
 
-Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas.
+Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas. @note Retained memory: the whole decoded tick list is held for the run.
 
 Python exposure: lazy native operator proxy.
 
@@ -6700,7 +6700,7 @@ Accepted native overloads
 ``sorted_``
 -----------
 
-Order rows in each frame by one column.
+Order rows in each frame by one column. @note Cost: a full sort per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -7388,7 +7388,7 @@ Accepted native overloads
 ``throttle``
 ------------
 
-Limit output frequency while preserving the latest pending source value. Unlike ``hgraph_analytics.resample``, no output is produced during an interval with no source tick.
+Limit output frequency while preserving the latest pending source value. Unlike ``hgraph_analytics.resample``, no output is produced during an interval with no source tick. @note Cost: O(delta) per tick; retains the pending deltas of one period.
 
 Python exposure: lazy native operator proxy.
 
@@ -7665,7 +7665,7 @@ Accepted native overloads
 ``to_window``
 -------------
 
-Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period.
+Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (min_/max_/sum_/mean/std) recompute in O(W) per window tick — recorded beside their kernels.
 
 Python exposure: lazy native operator proxy.
 
@@ -7833,7 +7833,7 @@ Accepted native overloads
 ``uncollapse_keys``
 -------------------
 
-Expand tuple keys into the two levels of a nested keyed dictionary.
+Expand tuple keys into the two levels of a nested keyed dictionary. @note Cost: O(n) regroup per tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -8139,7 +8139,7 @@ Accepted native overloads
 ``window``
 ----------
 
-Retain a trailing tick-count or time-duration buffer and expose both values and their evaluation timestamps. Tick windows use a circular buffer; duration windows evict entries older than the requested horizon.
+Retain a trailing tick-count or time-duration buffer and expose both values and their evaluation timestamps. Tick windows use a circular buffer; duration windows evict entries older than the requested horizon. @note Cost: O(W) per tick (the value/time bundle is rebuilt) and O(W) retained in private state. Deprecated-parity shape — prefer ``to_window``, whose TSW substrate appends/evicts in O(1).
 
 Python exposure: lazy native operator proxy.
 

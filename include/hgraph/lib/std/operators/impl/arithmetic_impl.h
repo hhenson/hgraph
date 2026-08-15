@@ -413,6 +413,11 @@ namespace hgraph::stdlib
 
         /** Running mean (population) over one series.
 
+            Strategy: the online recurrence (prior + (x−prior)/n) — better
+            float behaviour than sum/count for long streams and immune to
+            integer-sum overflow. No wiring-time strategy enum is exposed:
+            upstream 0.5 offers exactly this form (audit 2026-08-15).
+
             The tick count is LOOPBACK state (it decides every later tick's
             weight), so it is RecordableState: a replay restore that reset it
             to zero silently re-weighted the stream (audit 2026-08-15). A

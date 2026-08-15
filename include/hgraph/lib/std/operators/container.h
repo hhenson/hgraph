@@ -68,7 +68,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         subscribed = hg.contains_(subscriptions, symbol)
-        @endcode */
+        @endcode
+        @note Cost: O(n) scan per tick for list/tuple inputs; O(1) for sets/dicts. */
     struct contains_ : Operator<"contains_", In<"ts", TsVar<"S">>, In<"item", TsVar<"I">>, Out<TS<Bool>>>
     {
     };
@@ -91,7 +92,8 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         position = hg.index_of(priority_order, symbol)
-        @endcode */
+        @endcode
+        @note Cost: O(n) scan per tick. */
     struct index_of : Operator<"index_of", In<"ts", TsVar<"S">>, In<"item", TsVar<"I">>, Out<TS<Int>>>
     {
     };

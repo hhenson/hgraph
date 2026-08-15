@@ -279,7 +279,12 @@ namespace hgraph::stdlib
             parameter selected at node-selection time (requires_ gates on the
             element meta) - the per-tick path never branches on type. */
         template <bool Mean, typename T>
-        struct tsw_numeric_aggregate_impl
+        /* Cost (audit 2026-08-15): O(W) full-window recompute per window tick,
+       O(1) retained beyond the TSW's own O(W). The window view exposes the
+       evicted element, so an O(1) sufficient-statistics form is possible —
+       kept as recompute deliberately: bit-exact results for Float without a
+       compensation scheme, and Int gains nothing measurable at benchmark W. */
+    struct tsw_numeric_aggregate_impl
         {
             static constexpr auto name = Mean ? (std::same_as<T, Int> ? "mean_tsw_int" : "mean_tsw_float")
                                               : (std::same_as<T, Int> ? "sum_tsw_int" : "sum_tsw_float");
@@ -734,6 +739,7 @@ namespace hgraph::stdlib
 
     struct lag_tick_impl
     {
+        static constexpr auto name = "lag_tick";
         static void start(Scalar<"period", Int> period)
         {
             stream_impl_detail::require_positive(period.value(), "period");
@@ -798,6 +804,7 @@ namespace hgraph::stdlib
         cache fills and drains (upstream's make_active/make_passive dance). */
     struct lag_proxy_node_impl
     {
+        static constexpr auto name = "lag_tsd_proxy";
         static void eval(In<"ts", TsVar<"S">, InputActivity::Active, InputValidity::Unchecked> ts,
                          In<"c", TS<Int>, InputActivity::Passive> c,
                          In<"lag_c", TS<Int>, InputActivity::Passive, InputValidity::Unchecked> lag_c,
@@ -1618,7 +1625,10 @@ namespace hgraph::stdlib
             const Int index = stream_impl_detail::recorded_index(seen) + 1;
             seen.set(index);
             if (index >= count.value()) { ts.make_passive(); }
-            out.apply(ts.value());
+            // Gap-free forwarding from the source's first tick: the DELTA is
+            // sufficient (a whole-value apply re-published unchanged
+            // container entries every forwarded tick — the filter_ rule).
+            apply_delta(out, capture_delta(ts.base()).view());
         }
     };
 
@@ -1628,7 +1638,17 @@ namespace hgraph::stdlib
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index >= count.value()) { out.apply(ts.value()); }
+            if (index == count.value())
+            {
+                // First forwarded tick after the dropped prefix: whole-value
+                // sync (the prefix's deltas were skipped).
+                out.apply(ts.value());
+            }
+            else if (index > count.value())
+            {
+                // Contiguous thereafter: the delta is sufficient.
+                apply_delta(out, capture_delta(ts.base()).view());
+            }
             seen.set(index + 1);
         }
     };

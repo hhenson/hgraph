@@ -263,16 +263,16 @@ TEST_CASE("higher-order child compilation inherits wiring observers and paths")
         observer.nested_entries, "observer_nested", &WiringScopeEvent::label);
     REQUIRE(child_scope != observer.nested_entries.end());
     CHECK(child_scope->path == std::vector<std::string>{
-                                   "observer_map_graph", "map_impl", "observer_nested"});
+                                   "observer_map_graph", "map_tsd", "observer_nested"});
     const WiringScopeEvent &child_node = node_event(observer, "observed_int");
     CHECK(child_node.path == std::vector<std::string>{
-                                 "observer_map_graph", "map_impl", "observer_nested",
+                                 "observer_map_graph", "map_tsd", "observer_nested",
                                  "observed_int"});
     CHECK(std::ranges::any_of(
         observer.resolutions, [](const WiringResolutionEvent &event) {
             return event.operator_name == "observed" &&
                    event.path == std::vector<std::string>{
-                                     "observer_map_graph", "map_impl", "observer_nested"};
+                                     "observer_map_graph", "map_tsd", "observer_nested"};
         }));
 }
 

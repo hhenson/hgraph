@@ -271,7 +271,7 @@ namespace hgraph::stdlib
      * @code{.py}
      * result = hg.dispatch_(price_operator, instrument, market)
      * @endcode
-     */
+        @note Retained memory: the frozen selection table is O(∏ per-argument closed-union alternatives) — multiplicative per dispatch argument. */
     struct dispatch_ : Operator<"dispatch_",
                                 Scalar<"cases", DispatchCases>,
                                 VarIn<"ts", TsVar<"TS">>,

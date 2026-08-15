@@ -127,10 +127,12 @@ namespace hgraph::stdlib
         division (int/int -> float, hgraph semantics), so both operands cast
         to float first. Handles Series (+) Series and Series (+) scalar (and
         scalar first) - at least one operand is a Series. */
-    template <fixed_string FnName, bool Div>
+    template <fixed_string FnName, bool Div, fixed_string DisplayName = FnName>
     struct series_binary_impl
     {
-        static constexpr const char *name = FnName.value;
+        // Diagnostic name identifies the SERIES specialization; FnName stays
+        // the arrow compute function it invokes.
+        static constexpr const char *name = DisplayName.value;
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {

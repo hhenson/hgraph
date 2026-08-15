@@ -803,7 +803,7 @@ class _cmp__Operator(_Protocol):
 cmp_: _cmp__Operator
 
 class _collapse_keys_Operator(_Protocol):
-    """Flatten both key levels of a nested dictionary into tuple keys.
+    """Flatten both key levels of a nested dictionary into tuple keys. @note Cost: O(total entries) per tick (delta-driven for TSD).
 
     Parameters
     ~~~~~~~~~~
@@ -981,7 +981,7 @@ class _const_Operator(_Protocol):
 const: _const_Operator
 
 class _contains__Operator(_Protocol):
-    """Test membership of an item in the current collection value. Call the operator directly because Python's ``in`` syntax coerces its result to a scalar boolean and cannot represent a wiring port.
+    """Test membership of an item in the current collection value. Call the operator directly because Python's ``in`` syntax coerces its result to a scalar boolean and cannot represent a wiring port. @note Cost: O(n) scan per tick for list/tuple inputs; O(1) for sets/dicts.
 
     Parameters
     ~~~~~~~~~~
@@ -1873,7 +1873,7 @@ class _filter_frame_Operator(_Protocol):
 filter_frame: _filter_frame_Operator
 
 class _flip_Operator(_Protocol):
-    """Invert a keyed dictionary so each value becomes a key. Duplicate values require ``unique=False``, which collects their original keys in a time-series set instead of choosing one arbitrarily.
+    """Invert a keyed dictionary so each value becomes a key. Duplicate values require ``unique=False``, which collects their original keys in a time-series set instead of choosing one arbitrarily. @note Cost: O(n) rebuild per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -1919,7 +1919,7 @@ class _flip_Operator(_Protocol):
 flip: _flip_Operator
 
 class _flip_keys_Operator(_Protocol):
-    """Swap outer and inner keys of a nested keyed dictionary while preserving values.
+    """Swap outer and inner keys of a nested keyed dictionary while preserving values. @note Cost: O(outer×inner) rebuild per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -2568,7 +2568,7 @@ class _getitem__Operator(_Protocol):
 getitem_: _getitem__Operator
 
 class _group_by_Operator(_Protocol):
-    """Partition each frame into a keyed dictionary of frames by one or more columns.
+    """Partition each frame into a keyed dictionary of frames by one or more columns. @note Cost: O(rows×groups) per tick (linear bucket probe).
 
     Parameters
     ~~~~~~~~~~
@@ -2891,7 +2891,7 @@ class _if_true_Operator(_Protocol):
 if_true: _if_true_Operator
 
 class _index_of_Operator(_Protocol):
-    """Locate an item within an ordered collection.
+    """Locate an item within an ordered collection. @note Cost: O(n) scan per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -3141,7 +3141,7 @@ class _isoweekday_Operator(_Protocol):
 isoweekday: _isoweekday_Operator
 
 class _join_Operator(_Protocol):
-    """Join two frames by equality of one or more key columns. This is part of the public ``join`` overload family alongside string joining.
+    """Join two frames by equality of one or more key columns. This is part of the public ``join`` overload family alongside string joining. @note Cost: a full arrow hash join per tick.
 
     Join current string inputs with a fixed separator.
 
@@ -3494,7 +3494,7 @@ class _keys__Operator(_Protocol):
 keys_: _keys__Operator
 
 class _lag_Operator(_Protocol):
-    """Delay every input tick by a tick count or elapsed duration. Tick-count lag replays the value after that many later source ticks; duration lag schedules it for ``input_time + period``.
+    """Delay every input tick by a tick count or elapsed duration. Tick-count lag replays the value after that many later source ticks; duration lag schedules it for ``input_time + period``. @note Cost: O(delta) per tick; retains up to ``period`` pending deltas.
 
     Parameters
     ~~~~~~~~~~
@@ -5114,7 +5114,7 @@ class _or__Operator(_Protocol):
 or_: _or__Operator
 
 class _partition_Operator(_Protocol):
-    """Partition a keyed dictionary into nested dictionaries using a live key-to-group map. Mapping changes move an entry between partitions without changing its inner key.
+    """Partition a keyed dictionary into nested dictionaries using a live key-to-group map. Mapping changes move an entry between partitions without changing its inner key. @note Cost: O(n×groups) per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -6068,7 +6068,7 @@ class _reduce_tsd_with_race_Operator(_Protocol):
 reduce_tsd_with_race: _reduce_tsd_with_race_Operator
 
 class _rekey_Operator(_Protocol):
-    """Replace input dictionary keys according to a live key mapping. Entries without a usable target key are omitted; mapping changes move the corresponding current value to its new key.
+    """Replace input dictionary keys according to a live key mapping. Entries without a usable target key are omitted; mapping changes move the corresponding current value to its new key. @note Cost: O(n) rebuild per tick (scalar-map form); delta-driven for TSD.
 
     Parameters
     ~~~~~~~~~~
@@ -6267,7 +6267,7 @@ class _replay_const_Operator(_Protocol):
 replay_const: _replay_const_Operator
 
 class _replay_data_frame_Operator(_Protocol):
-    """Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas.
+    """Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas. @note Retained memory: the whole decoded tick list is held for the run.
 
     Parameters
     ~~~~~~~~~~
@@ -6832,7 +6832,7 @@ class _slice__Operator(_Protocol):
 slice_: _slice__Operator
 
 class _sorted__Operator(_Protocol):
-    """Order rows in each frame by one column.
+    """Order rows in each frame by one column. @note Cost: a full sort per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -7556,7 +7556,7 @@ class _temporal_round_Operator(_Protocol):
 temporal_round: _temporal_round_Operator
 
 class _throttle_Operator(_Protocol):
-    """Limit output frequency while preserving the latest pending source value. Unlike ``hgraph_analytics.resample``, no output is produced during an interval with no source tick.
+    """Limit output frequency while preserving the latest pending source value. Unlike ``hgraph_analytics.resample``, no output is produced during an interval with no source tick. @note Cost: O(delta) per tick; retains the pending deltas of one period.
 
     Parameters
     ~~~~~~~~~~
@@ -7850,7 +7850,7 @@ class _to_table_Operator(_Protocol):
 to_table: _to_table_Operator
 
 class _to_window_Operator(_Protocol):
-    """Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period.
+    """Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (min_/max_/sum_/mean/std) recompute in O(W) per window tick — recorded beside their kernels.
 
     Parameters
     ~~~~~~~~~~
@@ -7987,7 +7987,7 @@ class _type__Operator(_Protocol):
 type_: _type__Operator
 
 class _uncollapse_keys_Operator(_Protocol):
-    """Expand tuple keys into the two levels of a nested keyed dictionary.
+    """Expand tuple keys into the two levels of a nested keyed dictionary. @note Cost: O(n) regroup per tick.
 
     Parameters
     ~~~~~~~~~~
@@ -8321,7 +8321,7 @@ class _weekday_Operator(_Protocol):
 weekday: _weekday_Operator
 
 class _window_Operator(_Protocol):
-    """Retain a trailing tick-count or time-duration buffer and expose both values and their evaluation timestamps. Tick windows use a circular buffer; duration windows evict entries older than the requested horizon.
+    """Retain a trailing tick-count or time-duration buffer and expose both values and their evaluation timestamps. Tick windows use a circular buffer; duration windows evict entries older than the requested horizon. @note Cost: O(W) per tick (the value/time bundle is rebuilt) and O(W) retained in private state. Deprecated-parity shape — prefer ``to_window``, whose TSW substrate appends/evicts in O(1).
 
     Parameters
     ~~~~~~~~~~
