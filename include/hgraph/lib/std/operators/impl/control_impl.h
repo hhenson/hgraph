@@ -567,39 +567,60 @@ namespace hgraph::stdlib
     {
         using output_schema = UnNamedTSB<Field<"true", REF<TsVar<"S">>>, Field<"false", REF<TsVar<"S">>>>;
 
+        static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                          State<TimeSeriesReference> empty)
+        {
+            // Built once at start; the per-tick path publishes by
+            // copy_value_from — no reference wrapping, no registry lookups
+            // (the 2026-07-02 lock-free ruling). Schema compatibility is
+            // wiring's guarantee: the ts input and both output fields share
+            // one TsVar.
+            empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
+        }
+
         static void eval(In<"condition", TS<Bool>> condition,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                         State<TimeSeriesReference> empty,
                          Out<output_schema> out)
         {
-            const TimeSeriesReference empty = TimeSeriesReference::empty(ts.base().schema()->referenced_ts());
-            if (condition.value())
-            {
-                out.template field<"true">().set(ts.valid() ? ts.value() : empty);
-                out.template field<"false">().set(empty);
-            }
-            else
-            {
-                out.template field<"false">().set(ts.valid() ? ts.value() : empty);
-                out.template field<"true">().set(empty);
-            }
+            const auto publish = [](const TSOutputView &field_out, const ValueView &reference) {
+                auto mutation = field_out.begin_mutation(field_out.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(reference));
+            };
+            const auto true_out   = out.template field<"true">();
+            const auto false_out  = out.template field<"false">();
+            const auto &selected   = condition.value() ? true_out : false_out;
+            const auto &deselected = condition.value() ? false_out : true_out;
+            if (ts.valid()) { publish(selected, ts.base().value()); }
+            else { publish(selected, empty.view()); }
+            publish(deselected, empty.view());
         }
     };
 
     struct route_by_index_ref_impl
     {
+        static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                          State<TimeSeriesReference> empty)
+        {
+            // Same contract as if_ref_impl: state-held empty reference,
+            // per-tick copy_value_from only.
+            empty.set(TimeSeriesReference::empty(ts.base().schema()->referenced_ts()));
+        }
+
         static void eval(In<"index", TS<Int>> index,
                          In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                         State<TimeSeriesReference> empty,
                          Out<TSL<REF<TsVar<"S">>, SIZE<"N">>> out)
         {
-            const TimeSeriesReference empty = TimeSeriesReference::empty(ts.base().schema()->referenced_ts());
-            const Int                 selected_index = index.value();
+            const Int selected_index = index.value();
             for (std::size_t i = 0; i < out.size(); ++i)
             {
-                if (selected_index >= 0 && static_cast<std::size_t>(selected_index) == i && ts.valid())
-                {
-                    out[i].set(ts.value());
-                }
-                else { out[i].set(empty); }
+                const bool routed = selected_index >= 0 &&
+                                    static_cast<std::size_t>(selected_index) == i && ts.valid();
+                const auto element = out[i];
+                auto mutation = element.begin_mutation(element.evaluation_time());
+                if (routed) { static_cast<void>(mutation.copy_value_from(ts.base().value())); }
+                else { static_cast<void>(mutation.copy_value_from(empty.view())); }
             }
         }
     };

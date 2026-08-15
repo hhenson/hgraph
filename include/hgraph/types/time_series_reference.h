@@ -9,6 +9,7 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace hgraph
@@ -187,6 +188,20 @@ namespace hgraph
         const TSValueTypeMetaData       *target_schema_{nullptr};
         Storage                          storage_{};
     };
+
+    namespace static_schema_detail
+    {
+        template <typename T>
+        struct scalar_name;
+
+        /** Names the registered scalar so ``State<TimeSeriesReference>`` (and
+            other static-schema uses) resolve to the runtime registration. */
+        template <>
+        struct scalar_name<TimeSeriesReference>
+        {
+            static constexpr std::string_view value{"TimeSeriesReference"};
+        };
+    }  // namespace static_schema_detail
 }  // namespace hgraph
 
 namespace std
