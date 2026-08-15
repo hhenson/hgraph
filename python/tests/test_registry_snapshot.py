@@ -287,12 +287,6 @@ def _race_graph(cycles: int):
     return _g
 
 
-def _still_locking(reason):
-    return pytest.mark.xfail(
-        strict=True, reason=f"audit 2026-08-15: {reason}"
-    )
-
-
 _LOCK_MATRIX = [
     pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
     pytest.param(_collect_tuple_graph, id="collect_tuple"),
@@ -300,13 +294,7 @@ _LOCK_MATRIX = [
     pytest.param(_getitem_tsd_graph, id="getitem_tsd_by_key"),
     pytest.param(_eq_tuple_graph, id="eq_tuple_fallback"),
     pytest.param(_match_str_graph, id="match_str"),
-    pytest.param(
-        _json_roundtrip_graph,
-        id="json_roundtrip",
-        marks=_still_locking(
-            "from_json resolves converters under g_converters_mutex per tick"
-        ),
-    ),
+    pytest.param(_json_roundtrip_graph, id="json_roundtrip"),
     # race_ is deliberately unmarked: its Out<REF>::set locks fire on winner/
     # reference CHANGES, which this stable-winner driver never produces, so
     # the family holds as a steady-state guard while the rebind-path fix

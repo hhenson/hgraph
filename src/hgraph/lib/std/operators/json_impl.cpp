@@ -54,11 +54,33 @@ namespace hgraph::stdlib::json_tree
         }
     }  // namespace
 
-    const ValueTypeMetaData *json_meta() { return TypeRegistry::instance().json(); }
+    const ValueTypeMetaData *json_meta()
+    {
+        // Generation-checked per-thread cache: per-tick callers stay off the
+        // registry mutex, and a (test-only) registry reset invalidates the
+        // interned pointer this holds.
+        thread_local const ValueTypeMetaData *meta{nullptr};
+        thread_local std::uint64_t generation{0};
+        const auto current = TypeRegistry::instance().reset_generation();
+        if (meta == nullptr || generation != current)
+        {
+            meta       = TypeRegistry::instance().json();
+            generation = current;
+        }
+        return meta;
+    }
 
     ValueTypeRef json_value_binding()
     {
-        return ValuePlanFactory::instance().type_for(json_meta());
+        thread_local ValueTypeRef binding{nullptr};
+        thread_local std::uint64_t generation{0};
+        const auto current = TypeRegistry::instance().reset_generation();
+        if (!binding.bound() || generation != current)
+        {
+            binding    = ValuePlanFactory::instance().type_for(json_meta());
+            generation = current;
+        }
+        return binding;
     }
 
     bool is_json_ts(const TSValueTypeMetaData *ts) noexcept
@@ -117,7 +139,18 @@ namespace hgraph::stdlib::json_tree
 
     const ValueTypeMetaData *json_lazy_meta()
     {
-        return TypeRegistry::instance().register_scalar<JsonValue>("__hgraph_json_lazy");
+        // register_scalar is idempotent but takes the registry mutex and
+        // re-registers the plan per call; generation-checked so a registry
+        // reset re-registers.
+        thread_local const ValueTypeMetaData *meta{nullptr};
+        thread_local std::uint64_t generation{0};
+        const auto current = TypeRegistry::instance().reset_generation();
+        if (meta == nullptr || generation != current)
+        {
+            meta       = TypeRegistry::instance().register_scalar<JsonValue>("__hgraph_json_lazy");
+            generation = current;
+        }
+        return meta;
     }
 
     const JsonValue *try_lazy(const ValueView &value)
@@ -170,9 +203,8 @@ namespace hgraph::stdlib::json_tree
             [&](ListView values) { return indexed_to_node(values); },
             [&](TupleView values) { return indexed_to_node(values); },
             [](MapView values) {
-                MapBuilder entries{ValuePlanFactory::instance().type_for(
-                                       scalar_descriptor<Str>::value_meta()),
-                                   json_value_binding()};
+                const ValueTypeRef str_binding = TypeRegistry::instance().scalar_type<Str>();
+                MapBuilder entries{str_binding, json_value_binding()};
                 for (const auto [key, item] : values)
                 {
                     Value       key_text;
@@ -646,13 +678,75 @@ namespace hgraph::stdlib
 {
     namespace json_ts_detail
     {
+        /** One node per TS-shape level: every converter the walkers need,
+            resolved once at start (converter lookup takes the counted
+            converter-interning mutex). ``children``: TSD/TSL hold the single
+            (uniform) element plan; TSB holds one per field. */
+        struct TsJsonPlan
+        {
+            const JsonConverter      *value{nullptr};    // leaf / whole-value
+            const JsonConverter      *element{nullptr};  // TSS element
+            const JsonConverter      *delta{nullptr};    // TSL index-map delta
+            const JsonConverter      *key{nullptr};      // TSD key
+            const ValueTypeMetaData  *key_meta{nullptr};
+            std::vector<std::unique_ptr<TsJsonPlan>> children{};
+        };
+
+        TsJsonPlan *build_ts_json_plan(const TSValueTypeMetaData *schema)
+        {
+            auto plan = std::make_unique<TsJsonPlan>();
+            switch (schema->kind)
+            {
+                case TSTypeKind::TSD: {
+                    const auto *dict = time_series_schema_as<AnyTSD>(schema);
+                    plan->key_meta   = dict->key_type();
+                    plan->key        = &json_converter(plan->key_meta);
+                    plan->children.emplace_back(build_ts_json_plan(dict->element_ts()));
+                    break;
+                }
+                case TSTypeKind::TSS: {
+                    plan->value   = &json_converter(schema->value_schema);
+                    plan->element = &json_converter(schema->value_schema->element_type);
+                    break;
+                }
+                case TSTypeKind::TSL: {
+                    const auto *list = time_series_schema_as<AnyTSL>(schema);
+                    plan->value      = &json_converter(schema->value_schema);
+                    plan->delta      = &json_converter(schema->delta_value_schema);
+                    plan->children.emplace_back(build_ts_json_plan(list->element_ts()));
+                    break;
+                }
+                case TSTypeKind::TSB: {
+                    // write_ts_delta recurses the fields; apply_ts_json
+                    // treats a TSB as a whole-value leaf — carry both.
+                    const auto *bundle = time_series_schema_as<AnyTSB>(schema);
+                    plan->value        = &json_converter(schema->value_schema);
+                    for (std::size_t index = 0; index < bundle->field_count(); ++index)
+                    {
+                        plan->children.emplace_back(
+                            build_ts_json_plan(bundle->fields()[index].type));
+                    }
+                    break;
+                }
+                default: {
+                    plan->value = &json_converter(schema->value_schema);
+                    break;
+                }
+            }
+            return plan.release();
+        }
+
+        void free_ts_json_plan(TsJsonPlan *plan) noexcept { delete plan; }
+
         namespace
         {
-            void write_json_key(const ValueView &key, std::string &out)
+            void write_json_key(const JsonConverter &converter, const ValueView &key,
+                                std::string &out)
             {
                 // Keys are STRINGIFIED (python json.dumps): a Str renders as
                 // its JSON string; other scalars render then quote.
-                std::string rendered = to_json_string(key);
+                std::string rendered;
+                converter.write(key, rendered);
                 if (!rendered.empty() && rendered.front() == '"') { out += rendered; }
                 else
                 {
@@ -669,7 +763,7 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
-        void write_ts_delta(const TSInputView &ts, std::string &out)
+        void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out)
         {
             visit(
                 ts,
@@ -679,20 +773,20 @@ namespace hgraph::stdlib
                     for (const ValueView key : dict.removed_keys())
                     {
                         write_separator(first, out);
-                        write_json_key(key, out);
+                        write_json_key(*plan.key, key, out);
                         out += ": null";
                     }
                     for (auto &&[key, child] : dict.modified_items())
                     {
                         write_separator(first, out);
-                        write_json_key(key, out);
+                        write_json_key(*plan.key, key, out);
                         out += ": ";
-                        write_ts_delta(child, out);
+                        write_ts_delta(child, *plan.children[0], out);
                     }
                     out.push_back('}');
                 },
                 [&](TSSInputView set) {
-                    const auto &element = json_converter(set.schema()->value_schema->element_type);
+                    const auto &element = *plan.element;
                     std::string added;
                     std::string removed;
                     bool        any_added   = false;
@@ -736,7 +830,7 @@ namespace hgraph::stdlib
                         if (!child.modified()) { continue; }
                         write_separator(first, out);
                         out += fmt::format("\"{}\": ", index);
-                        write_ts_delta(child, out);
+                        write_ts_delta(child, *plan.children[0], out);
                     }
                     out.push_back('}');
                 },
@@ -749,16 +843,15 @@ namespace hgraph::stdlib
                         if (!child.modified()) { continue; }
                         write_separator(first, out);
                         out += fmt::format("\"{}\": ", bundle.schema()->fields()[index].name);
-                        write_ts_delta(child, out);
+                        write_ts_delta(child, *plan.children[index], out);
                     }
                     out.push_back('}');
                 },
-                [&](TSInputView leaf) {
-                    json_converter(leaf.schema()->value_schema).write(leaf.value(), out);
-                });
+                [&](TSInputView leaf) { plan.value->write(leaf.value(), out); });
         }
 
-        void apply_ts_json(const TSOutputView &out, json_fragment::Cursor &cursor)
+        void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan,
+                           json_fragment::Cursor &cursor)
         {
             visit(
                 out,
@@ -769,13 +862,14 @@ namespace hgraph::stdlib
                     }
                     auto mutation = dict.begin_mutation(dict.evaluation_time());
                     if (json_fragment::consume(cursor, '}')) { return; }
-                    const auto *key_meta   = dict.schema()->key_type();
-                    const bool  string_key = key_meta == scalar_descriptor<Str>::value_meta();
+                    const bool string_key =
+                        plan.key_meta == scalar_descriptor<Str>::value_meta();
                     while (true)
                     {
                         const std::string key_text = json_fragment::parse_string(cursor);
                         const Value       key =
-                            string_key ? Value{Str{key_text}} : from_json_string(key_meta, key_text);
+                            string_key ? Value{Str{key_text}}
+                                       : from_json_string(*plan.key, key_text);
                         if (!json_fragment::consume(cursor, ':'))
                         {
                             json_fragment::fail(cursor, "expected ':' after a TSD key");
@@ -786,7 +880,7 @@ namespace hgraph::stdlib
                             auto element = mutation.at(key.view());
                             apply_ts_json(
                                 TSOutputView{dict.base().output(), element, dict.evaluation_time()},
-                                cursor);
+                                *plan.children[0], cursor);
                         }
                         if (json_fragment::consume(cursor, ',')) { continue; }
                         if (json_fragment::consume(cursor, '}')) { break; }
@@ -797,8 +891,7 @@ namespace hgraph::stdlib
                     if (json_fragment::peek(cursor) == '[')
                     {
                         // A bare array replaces the whole membership.
-                        const Value parsed =
-                            json_fragment::parse_value(json_converter(set.schema()->value_schema), cursor);
+                        const Value parsed = json_fragment::parse_value(*plan.value, cursor);
                         apply_current_value(set.base(), parsed.view());
                         return;
                     }
@@ -807,7 +900,7 @@ namespace hgraph::stdlib
                         json_fragment::fail(cursor, "expected '{' or '[' for a TSS");
                     }
                     auto        mutation = set.begin_mutation(set.evaluation_time());
-                    const auto &element  = json_converter(set.schema()->value_schema->element_type);
+                    const auto &element  = *plan.element;
                     if (json_fragment::consume(cursor, '}')) { return; }
                     while (true)
                     {
@@ -836,20 +929,17 @@ namespace hgraph::stdlib
                 [&](TSLOutputView list) {
                     if (json_fragment::peek(cursor) == '[')
                     {
-                        const Value parsed =
-                            json_fragment::parse_value(json_converter(list.schema()->value_schema), cursor);
+                        const Value parsed = json_fragment::parse_value(*plan.value, cursor);
                         apply_current_value(list.base(), parsed.view());
                         return;
                     }
                     // The index-object form IS the canonical TSL delta (an
                     // index map); its converter reads quoted keys.
-                    const Value parsed =
-                        json_fragment::parse_value(json_converter(list.schema()->delta_value_schema), cursor);
+                    const Value parsed = json_fragment::parse_value(*plan.delta, cursor);
                     apply_delta(list.base(), parsed.view());
                 },
                 [&](TSOutputView leaf) {
-                    const Value parsed =
-                        json_fragment::parse_value(json_converter(leaf.schema()->value_schema), cursor);
+                    const Value parsed = json_fragment::parse_value(*plan.value, cursor);
                     apply_current_value(leaf, parsed.view());
                 });
         }

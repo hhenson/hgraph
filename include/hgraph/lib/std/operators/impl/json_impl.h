@@ -28,6 +28,20 @@ namespace hgraph::static_schema_detail
     };
 }  // namespace hgraph::static_schema_detail
 
+namespace hgraph::stdlib::json_ts_detail
+{
+    struct TsJsonPlanState;
+}
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::json_ts_detail::TsJsonPlanState>
+    {
+        static constexpr std::string_view value{"stdlib.ts_json_plan_state"};
+    };
+}  // namespace hgraph::static_schema_detail
+
 namespace hgraph::stdlib
 {
     using namespace hgraph::operator_type_resolution;
@@ -42,15 +56,32 @@ namespace hgraph::stdlib
      */
     namespace json_ts_detail
     {
+        /** Start-resolved converter plan mirroring the TS shape. Converter
+            lookup takes the (counted) converter-interning mutex, so nodes
+            resolve every converter their shape needs ONCE in ``start`` and
+            the per-tick walkers read plan pointers (lock-free per-tick
+            ruling). Owned via the pointer-in-State lifecycle: built in
+            ``start``, freed in ``stop``. */
+        struct TsJsonPlan;
+
+        struct TsJsonPlanState
+        {
+            TsJsonPlan *plan{nullptr};
+        };
+
+        [[nodiscard]] TsJsonPlan *build_ts_json_plan(const TSValueTypeMetaData *schema);
+        void free_ts_json_plan(TsJsonPlan *plan) noexcept;
+
         /** hgraph's FRIENDLY JSON delta form, recursively over the TS shape:
             TSD = {key: child-delta | null}, TSS = {added/removed arrays,
             empty sides omitted}, TSL = {index: child-delta}, TSB = modified
             fields, leaves = the value. */
-        void write_ts_delta(const TSInputView &ts, std::string &out);
+        void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out);
 
         /** The inverse: parse ``cursor`` per the OUTPUT's TS shape and apply
             (a leading '[' on TSS/TSL is a whole-value replacement). */
-        void apply_ts_json(const TSOutputView &out, json_fragment::Cursor &cursor);
+        void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan,
+                           json_fragment::Cursor &cursor);
     }  // namespace json_ts_detail
 
     struct to_json_value_impl
@@ -94,11 +125,26 @@ namespace hgraph::stdlib
             return delta != nullptr && *delta;
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"delta", Bool> delta, Out<TS<Str>> out)
+        static void start(In<"ts", TsVar<"S">> ts, State<json_ts_detail::TsJsonPlanState> plan)
+        {
+            plan.set(json_ts_detail::TsJsonPlanState{
+                json_ts_detail::build_ts_json_plan(ts.base().schema())});
+        }
+
+        static void stop(State<json_ts_detail::TsJsonPlanState> plan)
+        {
+            auto current = plan.get();
+            json_ts_detail::free_ts_json_plan(current.plan);
+            current.plan = nullptr;
+            plan.set(current);
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"delta", Bool> delta,
+                         State<json_ts_detail::TsJsonPlanState> plan, Out<TS<Str>> out)
         {
             static_cast<void>(delta);   // resolved at wiring; always true here
             std::string text;
-            json_ts_detail::write_ts_delta(ts.base(), text);
+            json_ts_detail::write_ts_delta(ts.base(), *plan.get().plan, text);
             out.set(std::move(text));
         }
     };
@@ -113,11 +159,27 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "from_json";
 
-        static void eval(In<"ts", TS<Str>> ts, Out<TsVar<"O">> out)
+        static void start(State<json_ts_detail::TsJsonPlanState> plan, Out<TsVar<"O">> out)
+        {
+            plan.set(json_ts_detail::TsJsonPlanState{json_ts_detail::build_ts_json_plan(
+                static_cast<const TSOutputView &>(out).schema())});
+        }
+
+        static void stop(State<json_ts_detail::TsJsonPlanState> plan)
+        {
+            auto current = plan.get();
+            json_ts_detail::free_ts_json_plan(current.plan);
+            current.plan = nullptr;
+            plan.set(current);
+        }
+
+        static void eval(In<"ts", TS<Str>> ts, State<json_ts_detail::TsJsonPlanState> plan,
+                         Out<TsVar<"O">> out)
         {
             const Str &text = ts.value();
             json_fragment::Cursor cursor{std::string_view{text}, 0};
-            json_ts_detail::apply_ts_json(static_cast<const TSOutputView &>(out), cursor);
+            json_ts_detail::apply_ts_json(static_cast<const TSOutputView &>(out), *plan.get().plan,
+                                          cursor);
         }
     };
 

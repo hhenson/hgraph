@@ -460,8 +460,7 @@ namespace hgraph
 
     std::uint64_t TypeRegistry::reset_generation() const noexcept
     {
-        const std::lock_guard lock(mutex_);
-        return reset_generation_;
+        return reset_generation_.load(std::memory_order_acquire);
     }
 
     BundleHierarchySnapshot TypeRegistry::bundle_hierarchy_snapshot() const
@@ -699,7 +698,7 @@ namespace hgraph
         // interning by schema pointer now holds keys that a later interning
         // can reuse. Caches above stdlib in the link order cannot be cleared
         // from reset_all_registries(); they compare this instead.
-        ++reset_generation_;
+        reset_generation_.fetch_add(1, std::memory_order_acq_rel);
 
         // Reset singletons that don't fit any of the keyed caches.
         signal_meta_.reset();
