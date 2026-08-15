@@ -45,8 +45,12 @@ namespace hgraph::stdlib
         {
             if (!input.valid()) { return false; }
             // Borrow — a non-peered reference owns a vector of children, so a
-            // by-value bind would deep-copy per candidate per tick.
-            const TimeSeriesReference &ref = input.value().checked_as<TimeSeriesReference>();
+            // by-value bind would deep-copy per candidate per tick. The view
+            // is named so the borrow visibly outlives it (GCC's
+            // -Wdangling-reference cannot see that checked_as points into the
+            // endpoint's storage, not the view handle).
+            const auto value = input.value();
+            const TimeSeriesReference &ref = value.checked_as<TimeSeriesReference>();
             return ref.is_valid(input.evaluation_time());
         }
 
