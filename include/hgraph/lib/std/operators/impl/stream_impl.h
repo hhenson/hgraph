@@ -1614,15 +1614,30 @@ namespace hgraph::stdlib
         /* Forward the first ``count`` ticks, then PASSIVATE the input (the
            documented contract, matching take_reset): without it the node is
            scheduled on every source tick forever, doing nothing. */
+        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
+        {
+            // Passivation is DERIVED from the recordable counter: activation
+            // is not recorded, so a restored (recovered) exhausted take must
+            // come up passive rather than forwarding again.
+            if (count.value() <= 0 ||
+                stream_impl_detail::recorded_index(seen) >= count.value())
+            {
+                ts.make_passive();
+            }
+        }
+
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
-            if (count.value() <= 0)
+            const Int index = stream_impl_detail::recorded_index(seen) + 1;
+            if (count.value() <= 0 || index > count.value())
             {
+                // Exhausted (a restored counter can arrive here before the
+                // start-derived passivation lands): never forward past count.
                 ts.make_passive();
                 return;
             }
-            const Int index = stream_impl_detail::recorded_index(seen) + 1;
             seen.set(index);
             if (index >= count.value()) { ts.make_passive(); }
             // Gap-free forwarding from the source's first tick: the DELTA is
@@ -1657,6 +1672,18 @@ namespace hgraph::stdlib
     {
         /* ``take(ts, reset, count)``: forward the first ``count`` ticks, then
            passivate ts; a reset tick re-arms the counter and reactivates. */
+        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
+        {
+            // Same derivation as take: a restored exhausted counter comes up
+            // passive; a later reset tick re-arms via make_active in eval.
+            if (count.value() <= 0 ||
+                stream_impl_detail::recorded_index(seen) >= count.value())
+            {
+                ts.make_passive();
+            }
+        }
+
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          In<"reset", SIGNAL, InputValidity::Unchecked> reset,
                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
@@ -1668,8 +1695,15 @@ namespace hgraph::stdlib
             }
             if (!ts.modified() || count.value() <= 0) { return; }
             const Int index = stream_impl_detail::recorded_index(seen) + 1;
+            if (index > count.value())
+            {
+                // A restored counter at (or past) count: >= keeps the guard
+                // exact where the old == test forwarded indefinitely.
+                ts.make_passive();
+                return;
+            }
             seen.set(index);
-            if (index == count.value()) { ts.make_passive(); }
+            if (index >= count.value()) { ts.make_passive(); }
             out.apply(ts.value());
         }
     };

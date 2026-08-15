@@ -436,8 +436,11 @@ namespace hgraph::stdlib
             }
         };
 
-        /** The Welford accumulator as a recordable structured schema. */
-        using AggMomentsState = TSB<"AggMomentsState",
+        /** The Welford accumulator as a recordable structured schema. The
+            TSB name is process-global, so it carries the reserved __hgraph
+            prefix (the json-lazy convention) instead of squatting on a name
+            a downstream schema could plausibly use. */
+        using AggMomentsState = TSB<"__hgraph_agg_moments",
                                     Field<"count", TS<Int>>,
                                     Field<"mean", TS<Float>>,
                                     Field<"m2", TS<Float>>>;
