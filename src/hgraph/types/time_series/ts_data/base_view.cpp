@@ -400,6 +400,18 @@ void *TSDataMutationView::mutable_data() const {
 
 ValueView TSDataMutationView::value() const { return view().value(); }
 
+ValueView TSDataMutationView::mutable_value() const {
+  require_active_mutation();
+  const auto &table = ops();
+  if (!table.direct_native_value) {
+    return {};
+  }
+  const auto *data_layout = table.layout_impl(table.context);
+  return ValueView{data_layout->value_binding,
+                   table.mutable_value_memory_impl(table.context,
+                                                   storage_.data())};
+}
+
 ValueView TSDataMutationView::delta_value(DateTime evaluation_time) const {
   return view().delta_value(evaluation_time);
 }

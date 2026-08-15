@@ -1643,10 +1643,12 @@ namespace hgraph::stdlib
             }
             seen.set(index);
             if (index >= limit) { ts.make_passive(); }
-            // Gap-free forwarding from the source's first tick: the DELTA is
-            // sufficient (a whole-value apply re-published unchanged
-            // container entries every forwarded tick — the filter_ rule).
-            apply_delta(out, capture_delta(ts.base()).view());
+            // Gap-free forwarding from the source's first tick: containers
+            // forward the DELTA (a whole-value apply re-published unchanged
+            // entries — the filter_ rule); a scalar's delta IS its value, so
+            // the owned-delta materialization would be pure overhead there.
+            if (ts.base().schema()->kind == TSTypeKind::TS) { out.apply(ts.value()); }
+            else { apply_delta(out, capture_delta(ts.base()).view()); }
         }
     };
 
@@ -1664,8 +1666,10 @@ namespace hgraph::stdlib
             }
             else if (index > count.value())
             {
-                // Contiguous thereafter: the delta is sufficient.
-                apply_delta(out, capture_delta(ts.base()).view());
+                // Contiguous thereafter: containers forward the delta; a
+                // scalar's delta is its value (see take).
+                if (ts.base().schema()->kind == TSTypeKind::TS) { out.apply(ts.value()); }
+                else { apply_delta(out, capture_delta(ts.base()).view()); }
             }
             seen.set(index + 1);
         }
