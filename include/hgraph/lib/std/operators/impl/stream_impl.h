@@ -665,12 +665,12 @@ namespace hgraph::stdlib
 
         struct tick_count_impl
         {
-            static void eval(In<"ts", SIGNAL> ts, State<Int> count, Out<TS<Int>> out)
+            static void eval(In<"ts", SIGNAL> ts, Out<TS<Int>> out)
             {
                 static_cast<void>(ts);
-                const Int next = count.get() + 1;
-                count.set(next);
-                out.set(next);
+                // The output IS the count — replay/restore resumes it for
+                // free (the sum_unary pattern; audit 2026-08-15).
+                out.set((out.valid() ? out.value().checked_as<Int>() : Int{0}) + 1);
             }
         };
     }  // namespace stream_impl_detail
@@ -1591,19 +1591,31 @@ namespace hgraph::stdlib
         }
     };
 
+    namespace stream_impl_detail
+    {
+        /** Stream position counters are LOOPBACK state — they decide which
+            future ticks pass — so they are RecordableState: replay restarting
+            them at zero changed which ticks passed (audit 2026-08-15). */
+        [[nodiscard]] inline Int recorded_index(const RecordableState<TS<Int>> &seen)
+        {
+            return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
+        }
+    }  // namespace stream_impl_detail
+
     struct take_impl
     {
         /* Forward the first ``count`` ticks, then PASSIVATE the input (the
            documented contract, matching take_reset): without it the node is
            scheduled on every source tick forever, doing nothing. */
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count, State<Int> seen, Out<TsVar<"S">> out)
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
+                         RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             if (count.value() <= 0)
             {
                 ts.make_passive();
                 return;
             }
-            const Int index = seen.get() + 1;
+            const Int index = stream_impl_detail::recorded_index(seen) + 1;
             seen.set(index);
             if (index >= count.value()) { ts.make_passive(); }
             out.apply(ts.value());
@@ -1612,9 +1624,10 @@ namespace hgraph::stdlib
 
     struct drop_impl
     {
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count, State<Int> seen, Out<TsVar<"S">> out)
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
+                         RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
-            const Int index = seen.get();
+            const Int index = stream_impl_detail::recorded_index(seen);
             if (index >= count.value()) { out.apply(ts.value()); }
             seen.set(index + 1);
         }
@@ -1626,7 +1639,7 @@ namespace hgraph::stdlib
            passivate ts; a reset tick re-arms the counter and reactivates. */
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          In<"reset", SIGNAL, InputValidity::Unchecked> reset,
-                         Scalar<"count", Int> count, State<Int> seen, Out<TsVar<"S">> out)
+                         Scalar<"count", Int> count, RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             if (reset.modified())
             {
@@ -1634,7 +1647,7 @@ namespace hgraph::stdlib
                 ts.make_active();
             }
             if (!ts.modified() || count.value() <= 0) { return; }
-            const Int index = seen.get() + 1;
+            const Int index = stream_impl_detail::recorded_index(seen) + 1;
             seen.set(index);
             if (index == count.value()) { ts.make_passive(); }
             out.apply(ts.value());
@@ -1646,10 +1659,10 @@ namespace hgraph::stdlib
         /* ``drop(ts, period)``: drop ticks until ``period`` has elapsed since
            the first tick, then forward the rest. */
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"period", TimeDelta> period,
-                         State<DateTime> first, DateTime now, Out<TsVar<"S">> out)
+                         RecordableState<TS<DateTime>> first, DateTime now, Out<TsVar<"S">> out)
         {
-            if (first.get() == MIN_DT) { first.set(now); }
-            if (now - first.get() > period.value()) { out.apply(ts.value()); }
+            if (!first.valid()) { first.set(now); }
+            if (now - first.value().checked_as<DateTime>() > period.value()) { out.apply(ts.value()); }
         }
     };
 
@@ -1660,10 +1673,10 @@ namespace hgraph::stdlib
             stream_impl_detail::require_positive(step_size.value(), "step_size");
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"step_size", Int> step_size, State<Int> seen,
-                         Out<TsVar<"S">> out)
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"step_size", Int> step_size,
+                         RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
-            const Int index = seen.get();
+            const Int index = stream_impl_detail::recorded_index(seen);
             if (index % step_size.value() == 0) { out.apply(ts.value()); }
             seen.set(index + 1);
         }
@@ -1677,9 +1690,10 @@ namespace hgraph::stdlib
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"start", Int> start, Scalar<"stop", Int> stop,
-                         Scalar<"step_size", Int> step_size, State<Int> seen, Out<TsVar<"S">> out)
+                         Scalar<"step_size", Int> step_size, RecordableState<TS<Int>> seen,
+                         Out<TsVar<"S">> out)
         {
-            const Int index = seen.get();
+            const Int index = stream_impl_detail::recorded_index(seen);
             seen.set(index + 1);
 
             if (start.value() < 0) { return; }
