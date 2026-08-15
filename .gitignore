@@ -9,7 +9,8 @@
 /docs/_build/
 /REVIEW.md
 
-.claude/
+.claude/*
+!.claude/skills
 benchmarks/.venv-upstream*/
 benchmarks/.venv-hg-cpp*/
 benchmarks/.venv-release*/

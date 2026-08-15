@@ -216,6 +216,10 @@ Injectable parameters
 Injectables are runtime services rather than time-series edges. Declare them
 as parameters with a ``None`` default; graph callers do not supply them.
 
+Python ``@graph`` functions are the wiring-time exception: they support only
+``GlobalState`` and ``LOGGER``. The other injectables below are available only
+to node callbacks because graphs do not exist at runtime.
+
 .. list-table::
    :header-rows: 1
    :widths: 28 72

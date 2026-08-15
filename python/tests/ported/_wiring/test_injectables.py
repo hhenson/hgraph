@@ -1,4 +1,6 @@
 # Ported from release/0.5:hgraph_unit_tests/_wiring/test_injectables.py
+import logging
+
 import pytest
 
 from hgraph import (
@@ -83,6 +85,54 @@ def test_global_state_injectable_for_graph():
         result = evaluate_graph(read_from_state, GraphConfiguration())
 
     assert [v for _, v in result] == [42]
+
+
+def test_logger_injectable_for_graph(caplog):
+    selected = []
+    logger = logging.getLogger("hgraph.test.graph-injectable")
+
+    @graph
+    def log_wiring_choice(_logger: LOGGER = None) -> TS[int]:
+        selected.append(_logger)
+        _logger.info("selected graph wiring strategy: compact")
+        return const(42)
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        result = evaluate_graph(
+            log_wiring_choice,
+            GraphConfiguration(graph_logger=logger, default_log_level=logging.INFO),
+        )
+
+    assert selected == [logger]
+    assert [v for _, v in result] == [42]
+    assert "selected graph wiring strategy: compact" in caplog.text
+
+
+def test_graph_rejects_runtime_injectables():
+    with pytest.raises(TypeError, match="supports only GlobalState and LOGGER"):
+        @graph
+        def invalid_graph(engine: EvaluationEngineApi = None) -> TS[int]:
+            return const(1)
+
+
+def test_graph_injectables_must_default_to_none():
+    with pytest.raises(TypeError, match="must default to None"):
+        @graph
+        def invalid_graph(_logger: LOGGER) -> TS[int]:
+            return const(1)
+
+
+def test_graph_injectables_cannot_be_supplied():
+    @graph
+    def inner(_logger: LOGGER = None) -> TS[int]:
+        return const(1)
+
+    @graph
+    def outer() -> TS[int]:
+        return inner(logging.getLogger("not-an-injected-logger"))
+
+    with pytest.raises(TypeError, match="injectable '_logger' cannot be supplied"):
+        evaluate_graph(outer, GraphConfiguration())
 
 
 def test_node_self_injectable_is_native_and_call_scoped():
