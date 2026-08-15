@@ -179,7 +179,6 @@ namespace hgraph::stdlib
                              State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
                 const TSDInputView  &dict     = ts;
-                TSSOutputView       &erased   = out;
                 const auto           resolved = bindings.get();
                 SetBuilder union_builder{resolved.primary};
                 for (auto &&[key, child] : dict.items())

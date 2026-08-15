@@ -226,9 +226,9 @@ namespace hgraph::stdlib
 
         static void eval(
             In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
-            Scalar<"key", Str> key,
-            Scalar<"recordable_id", Str> recordable_id, Scalar<"model", Str>,
-            TraitsView traits, GlobalStateView gs,
+            Scalar<"key", Str> /*resolved in start*/,
+            Scalar<"recordable_id", Str> /*resolved in start*/, Scalar<"model", Str>,
+            TraitsView /*resolved in start*/, GlobalStateView gs,
             State<record_replay_memory_detail::SparseRecordState> state, DateTime now)
         {
             if (!ts.modified()) { return; }

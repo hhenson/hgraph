@@ -220,7 +220,7 @@ namespace hgraph::stdlib
         @code{.py}
         recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
         @endcode
-        @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (min_/max_/sum_/mean/std) recompute in O(W) per window tick — recorded beside their kernels. */
+        @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels. */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", Int>,
                                 Scalar<"min_window_period", Int>, Out<TsVar<"O">>>
     {

@@ -7665,7 +7665,7 @@ Accepted native overloads
 ``to_window``
 -------------
 
-Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (min_/max_/sum_/mean/std) recompute in O(W) per window tick — recorded beside their kernels.
+Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period. @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels.
 
 Python exposure: lazy native operator proxy.
 

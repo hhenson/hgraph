@@ -191,12 +191,11 @@ def test_reference_routing_acquires_no_type_system_locks():
 # ---------------------------------------------------------------------------
 # Operator-family lock matrix (audit 2026-08-15).
 #
-# One family per operator group the audit found acquiring type-system locks
-# per tick. The invariant is the same N-vs-2N equality as above; families
-# that still violate the ruling carry xfail(strict=True), so fixing the
-# operator forces the marker's removal in the same change (an XPASS under
-# strict is a failure). The matrix is the enforcement the audit found
-# missing: the original test wired only two graphs.
+# One family per operator group the audit found (or cleared of) acquiring
+# type-system locks per tick. The invariant is the same N-vs-2N equality as
+# above; every family is an ACTIVE assertion and a permanent regression
+# guard. The matrix is the enforcement the audit found missing: the original
+# test wired only two graphs.
 # ---------------------------------------------------------------------------
 
 

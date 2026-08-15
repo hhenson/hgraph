@@ -653,7 +653,7 @@ struct getattr_tsd {
 
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"S">>, InputValidity::Unchecked> ts,
-       Scalar<"attr", Str> attr,
+       Scalar<"attr", Str> /*resolved in start*/,
        State<container_impl_detail::FieldProjectionState> state,
        Out<TsVar<"__out__">> out) {
     const auto resolved = state.get();
@@ -929,7 +929,7 @@ struct getattr_ts_tuple_bundle {
         mutation.move_value_from(Value{resolved.result, &storage}));
   }
 
-  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> attr,
+  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> /*resolved in start*/,
                    State<container_impl_detail::FieldProjectionState> state,
                    Out<TsVar<"__out__">> out) {
     emit(ts.base(), state.get(), nullptr,
@@ -970,7 +970,7 @@ struct getattr_ts_tuple_bundle_default {
         attr.value(), state);
   }
 
-  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> attr,
+  static void eval(In<"ts", TS<ScalarVar<"S">>> ts, Scalar<"attr", Str> /*resolved in start*/,
                    Scalar<"default", ScalarVar<"D">> fallback,
                    State<container_impl_detail::FieldProjectionState> state,
                    Out<TsVar<"__out__">> out) {
