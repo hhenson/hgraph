@@ -294,20 +294,8 @@ def _still_locking(reason):
 
 
 _LOCK_MATRIX = [
-    pytest.param(
-        _convert_ts_to_set_graph,
-        id="convert_ts_to_set",
-        marks=_still_locking(
-            "conversion kernels resolve builder bindings per tick"
-        ),
-    ),
-    pytest.param(
-        _collect_tuple_graph,
-        id="collect_tuple",
-        marks=_still_locking(
-            "collect kernels resolve builder bindings per tick"
-        ),
-    ),
+    pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
+    pytest.param(_collect_tuple_graph, id="collect_tuple"),
     pytest.param(
         _keys_tsd_graph,
         id="keys_tsd_as_set",

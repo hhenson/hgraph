@@ -25,6 +25,30 @@ namespace hgraph::stdlib
      * immutable compact ``Value`` containers with the standard value-layer schema.
      */
 
+    /**
+     * Wiring-resolved value bindings cached on node ``State`` by ``start``
+     * hooks. Resolving a binding consults the plan factory / realization
+     * snapshot behind a counted type-system mutex, so it must happen once
+     * per node lifetime, never in ``eval`` (lock-free per-tick ruling
+     * 2026-07-02; std-operator audit 2026-08-15). ``start`` and ``eval``
+     * run under the same ``TypeRealizationScope``, so a start-resolved
+     * binding is exactly the binding ``eval`` would have resolved.
+     *
+     * ``primary``/``secondary`` meaning is the owning node's: a collection
+     * kernel caches its element binding in ``primary``; a map kernel caches
+     * key in ``primary`` and element in ``secondary``. ``result`` caches the
+     * interned result type (``compact_set_type`` / ``compact_list_type`` /
+     * ``compact_map_type``) so eval publishes via ``build_storage()`` +
+     * ``Value{result, &storage}`` — the builders' plain ``build()`` re-interns
+     * the result type per call, which is itself a type-system lock.
+     */
+    struct ResolvedBindings
+    {
+        ValueTypeRef primary{nullptr};
+        ValueTypeRef secondary{nullptr};
+        ValueTypeRef result{nullptr};
+    };
+
     template <typename T>
     [[nodiscard]] ValueTypeRef scalar_value_binding()
     {
@@ -144,5 +168,15 @@ namespace hgraph::stdlib
         return make_queue<std::remove_cv_t<T>>(values.begin(), values.end(), max_capacity);
     }
 }  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    /** Names the opaque scalar backing ``State<ResolvedBindings>``. */
+    template <>
+    struct scalar_name<stdlib::ResolvedBindings>
+    {
+        static constexpr std::string_view value{"ResolvedBindings"};
+    };
+}  // namespace hgraph::static_schema_detail
 
 #endif  // HGRAPH_LIB_STD_VALUE_UTIL_H
