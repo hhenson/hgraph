@@ -287,6 +287,19 @@ def _race_graph(cycles: int):
     return _g
 
 
+def _race_rebind_graph(cycles: int):
+    # The winner flips every cycle (if_ re-routes the reference between the
+    # true/false fields), so this drives race_'s publish-on-change path —
+    # the one that used Out<REF>::set's normalize locks before the rework.
+    @graph
+    def _g():
+        source = _int_pulse(cycles)
+        routed = if_(source % 2 == 0, source)
+        null_sink(race(routed.true, routed.false))
+
+    return _g
+
+
 _LOCK_MATRIX = [
     pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
     pytest.param(_collect_tuple_graph, id="collect_tuple"),
@@ -295,11 +308,9 @@ _LOCK_MATRIX = [
     pytest.param(_eq_tuple_graph, id="eq_tuple_fallback"),
     pytest.param(_match_str_graph, id="match_str"),
     pytest.param(_json_roundtrip_graph, id="json_roundtrip"),
-    # race_ is deliberately unmarked: its Out<REF>::set locks fire on winner/
-    # reference CHANGES, which this stable-winner driver never produces, so
-    # the family holds as a steady-state guard while the rebind-path fix
-    # lands in the race_ rework.
+    # Steady-state guard: a stable winner must publish nothing.
     pytest.param(_race_graph, id="race_ref"),
+    pytest.param(_race_rebind_graph, id="race_ref_rebind"),
 ]
 
 

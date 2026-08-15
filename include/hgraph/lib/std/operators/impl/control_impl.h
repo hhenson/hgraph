@@ -44,7 +44,9 @@ namespace hgraph::stdlib
         [[nodiscard]] inline bool ref_input_valid(const TSInputView &input)
         {
             if (!input.valid()) { return false; }
-            const TimeSeriesReference ref = input.value().checked_as<TimeSeriesReference>();
+            // Borrow — a non-peered reference owns a vector of children, so a
+            // by-value bind would deep-copy per candidate per tick.
+            const TimeSeriesReference &ref = input.value().checked_as<TimeSeriesReference>();
             return ref.is_valid(input.evaluation_time());
         }
 
@@ -466,7 +468,17 @@ namespace hgraph::stdlib
 
             if (winner != control_impl_detail::no_race_winner)
             {
-                if (winner != current.winner || ts[winner].modified()) { out.set(ts[winner].value()); }
+                if (winner != current.winner || ts[winner].modified())
+                {
+                    // Publish the winner's reference VIEW (the if_/route_
+                    // pattern): Out<REF>::set would copy the reference twice
+                    // and normalize under two registry locks per change.
+                    // Schema compatibility is wiring's guarantee — every
+                    // candidate was adapted to the same REF schema.
+                    const auto &erased   = static_cast<const TSOutputView &>(out);
+                    auto        mutation = erased.begin_mutation(erased.evaluation_time());
+                    static_cast<void>(mutation.copy_value_from(ts[winner].base().value()));
+                }
                 current.winner = winner;
             }
             else { current.winner = control_impl_detail::no_race_winner; }
