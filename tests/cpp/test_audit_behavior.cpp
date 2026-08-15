@@ -32,8 +32,9 @@ namespace
         return Value{compact_list_type(binding, *meta), &storage};
     }
 
-    /** replay "x" -> take(2) -> record "out": the graph the restored-state
-        regression drives directly (start/evaluate on the mock root). */
+    /** replay "x" -> take(N) -> record "out": the graph the restored-state
+        regressions drive directly (start/evaluate on the mock root). */
+    template <Int Count>
     struct TakeRestoreGraph
     {
         static constexpr auto name = "audit_take_restore_graph";
@@ -41,7 +42,7 @@ namespace
         static void compose(Wiring &w)
         {
             auto x = wire<stdlib::replay_impl, TS<Int>>(w, Str{"x"});
-            wire<stdlib::dense_record_impl>(w, wire<stdlib::take>(w, x, Int{2}), Str{"out"});
+            wire<stdlib::dense_record_impl>(w, wire<stdlib::take>(w, x, Int{Count}), Str{"out"});
         }
     };
 
@@ -59,6 +60,14 @@ namespace
                                             Str{"out"});
         }
     };
+
+    /** The take node's ``ts`` input — child 0 of its input bundle. */
+    [[nodiscard]] bool ts_input_active(const NodeView &node, DateTime when)
+    {
+        auto root   = node.input(when);
+        auto bundle = root.as_bundle();
+        return bundle[0].active();
+    }
 
     [[nodiscard]] NodeView find_recordable_node(const GraphView &graph)
     {
@@ -108,7 +117,7 @@ TEST_CASE("audit: a restored take counter derives passivation at start")
 {
     stdlib::register_standard_operators();
 
-    GraphBuilder gb = build_graph<TakeRestoreGraph>();
+    GraphBuilder gb = build_graph<TakeRestoreGraph<2>>();
     set_replay_values<Int>(gb.global_state(), "x", values<Int>(10, 11, 12));
 
     MockRootGraph root{gb, MIN_ST, MAX_ET};
@@ -124,6 +133,8 @@ TEST_CASE("audit: a restored take counter derives passivation at start")
     Out<TS<Int>>{take_node.recordable_state(MIN_ST), MIN_ST}.set(Int{2});
 
     graph.start(MIN_ST);
+    // The start hook derived passivation from the restored counter.
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST));
     graph.evaluate(MIN_ST);
     graph.evaluate(MIN_ST + MIN_TD);
     graph.evaluate(MIN_ST + 2 * MIN_TD);
@@ -137,7 +148,7 @@ TEST_CASE("audit: a partially consumed restored take forwards only the remainder
 {
     stdlib::register_standard_operators();
 
-    GraphBuilder gb = build_graph<TakeRestoreGraph>();
+    GraphBuilder gb = build_graph<TakeRestoreGraph<2>>();
     set_replay_values<Int>(gb.global_state(), "x", values<Int>(10, 11, 12));
 
     MockRootGraph root{gb, MIN_ST, MAX_ET};
@@ -178,7 +189,10 @@ TEST_CASE("audit: a restored take(reset) counter re-arms on reset only")
     Out<TS<Int>>{take_node.recordable_state(MIN_ST), MIN_ST}.set(Int{2});
 
     graph.start(MIN_ST);
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST));
     for (int cycle = 0; cycle < 5; ++cycle) { graph.evaluate(MIN_ST + cycle * MIN_TD); }
+    // Re-exhausted after forwarding count more: passive again.
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST + 4 * MIN_TD));
     graph.stop();
 
     CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"),
@@ -196,19 +210,47 @@ TEST_CASE("audit: a reset does not resurrect a zero-count take")
     MockRootGraph root{gb, MIN_ST, MAX_ET};
     auto          graph = root.graph();
 
+    NodeView take_node = find_recordable_node(graph);
+    REQUIRE(take_node.valid());
+
     graph.start(MIN_ST);
-    for (int cycle = 0; cycle < 3; ++cycle) { graph.evaluate(MIN_ST + cycle * MIN_TD); }
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST));
+    graph.evaluate(MIN_ST);
+    graph.evaluate(MIN_ST + MIN_TD);   // the reset cycle
+    // THE regression: the pre-fix eval re-armed ts here and then returned on
+    // the zero-count guard, leaving the node permanently scheduled. Empty
+    // output alone cannot distinguish that — the input must stay passive.
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST + MIN_TD));
+    graph.evaluate(MIN_ST + 2 * MIN_TD);
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST + 2 * MIN_TD));
     graph.stop();
 
-    // Nothing can ever emit; the reset must not reactivate the source input
-    // (the pre-fix eval re-armed it and then returned on the zero-count
-    // guard, leaving a permanently scheduled node).
     CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"), values<Int>());
 }
 
-TEST_CASE("audit: zero-count take emits nothing through public wiring")
+TEST_CASE("audit: zero-count take passivates at start and emits nothing")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::take>(values<Int>(1, 2, 3), Int{0}),
                  values<Int>(none, none, none));
+
+    // The passivation itself (empty output alone also held pre-fix, when the
+    // node stayed scheduled on every source tick doing nothing).
+    GraphBuilder gb = build_graph<TakeRestoreGraph<0>>();
+    set_replay_values<Int>(gb.global_state(), "x", values<Int>(10, 11));
+
+    MockRootGraph root{gb, MIN_ST, MAX_ET};
+    auto          graph = root.graph();
+
+    NodeView take_node = find_recordable_node(graph);
+    REQUIRE(take_node.valid());
+
+    graph.start(MIN_ST);
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST));
+    graph.evaluate(MIN_ST);
+    graph.evaluate(MIN_ST + MIN_TD);
+    CHECK_FALSE(ts_input_active(take_node, MIN_ST + MIN_TD));
+    graph.stop();
+
+    CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"), values<Int>());
 }
