@@ -32,8 +32,16 @@ In this example we are using the :func:`add_ <hgraph.add_>` library node. This d
 Note, the signature structure is the same for nodes, this allows for nodes and graph to be interchanged, that is the
 user may start with a node based implementation of some logic and then re-factor the logic into a graph, or vice-versa.
 
-The graph signature does not support property injection, that is the use of injectables (such as loggers, state, etc.)
-are not supported in the graph signature. These are only for use in nodes.
+Graph functions run only at wiring time. Their signatures therefore support
+only the two wiring-time injectables: ``GlobalState`` and ``LOGGER``. Both must
+default to ``None`` and callers must not supply them. ``LOGGER`` is the graph
+logger selected by ``GraphConfiguration`` and is useful for describing wiring
+choices. ``GlobalState`` exposes graph-scoped wiring configuration and seed
+values.
+
+Runtime injectables such as ``STATE``, ``SCHEDULER``, ``CLOCK``,
+``EvaluationEngineApi``, ``Traits`` and ``NODE`` are node-only. Put behavior
+that needs those services in a node and compose that node from the graph.
 
 Composition
 -----------
@@ -151,4 +159,3 @@ function, make use of it in the graph and write logic that can be extended by th
 
 .. note:: It is not possible to pass a time-series function (or make use of one) inside of a node decorated
           function. Only graph decorated functions can accept time-series functions as inputs.
-

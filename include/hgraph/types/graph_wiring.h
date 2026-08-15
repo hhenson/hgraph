@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_GRAPH_WIRING_H
 
 #include <hgraph/runtime/graph.h>                       // GraphBuilder, GraphEdge
+#include <hgraph/runtime/logger.h>                      // wiring-time LoggerView
 #include <hgraph/runtime/node.h>                        // NodeBuilder, NodeTypeRef
 #include <hgraph/types/call_args.h>                     // NamedArg / arg<"name">(...)
 #include <hgraph/types/metadata/type_realization.h>     // graph-scoped closed-union value bindings
@@ -1123,6 +1124,12 @@ namespace hgraph
         [[nodiscard]] GlobalStateView global_state() noexcept;
         /** State visible to operator resolution; sub-graphs read the active root seed. */
         [[nodiscard]] GlobalStateView operator_state() noexcept;
+        /**
+         * Wiring-time logger for graph composition diagnostics. The returned
+         * view has no node context; runtime value logging belongs in a node or
+         * logging operator.
+         */
+        [[nodiscard]] LoggerView logger() const;
 
         /** Add a borrowed wiring observer. It must outlive this wiring and its children. */
         void add_wiring_observer(WiringObserver *observer);

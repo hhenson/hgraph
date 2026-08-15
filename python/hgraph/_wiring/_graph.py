@@ -1,6 +1,7 @@
 """_GraphFn/@graph, graph-fn wrapping (the borrowed-wiring re-entry),
 signature auto-resolution and @component."""
 import inspect
+import logging
 from collections.abc import Mapping
 
 import _hgraph
@@ -9,12 +10,22 @@ from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
 from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, _wiring_stack, wire)
-from ._markers import _INJECTABLE_MARKERS, _annotation_ts_kind
+from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
+                       _StateExpr, _annotation_ts_kind)
 from ._node import (_PyNode, _is_time_series_annotation,
                     _lift_time_series_argument, _warn_deprecated)
 from ._operator import _register_overload, _run_requires
 from ._resolution import _apply_resolvers
-from ._state import GlobalState
+from ._state import GlobalState, _GRAPH_LOGGER_KEY
+
+
+_GRAPH_INJECTABLES = frozenset((GlobalState, LOGGER))
+
+
+def _is_injectable_annotation(annotation):
+    return (annotation in _INJECTABLE_MARKERS or
+            isinstance(annotation, (_StateExpr, _RecordableStateExpr)))
+
 
 def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
     """Erase a Python @graph function into a WiredFn: the wrapper runs the
@@ -394,6 +405,17 @@ class _GraphFn:
         self._label = label
         self._deprecated = deprecated
         self._wired_fn_cache = {}
+        for param in self._signature.parameters.values():
+            if not _is_injectable_annotation(param.annotation):
+                continue
+            if param.annotation not in _GRAPH_INJECTABLES:
+                raise TypeError(
+                    f"@graph '{self.__name__}' supports only GlobalState and LOGGER "
+                    f"injectables; '{param.name}' uses {param.annotation!r}")
+            if param.default is not None:
+                raise TypeError(
+                    f"injectable parameter '{param.name}' of '{self.__name__}' "
+                    "must default to None")
         out = self._signature.return_annotation
         if isinstance(out, type):
             from .._types import TimeSeriesSchema
@@ -486,8 +508,16 @@ class _GraphFn:
         bound = self._signature.bind_partial(*args, **kwargs)
         context_scope = _hgraph.ResolutionScope()
         for param in self._signature.parameters.values():
-            if param.annotation is GlobalState and param.name not in bound.arguments:
-                bound.arguments[param.name] = GlobalState.instance()
+            if param.annotation in _GRAPH_INJECTABLES:
+                if param.name in bound.arguments:
+                    raise TypeError(
+                        f"{self.__name__}: injectable '{param.name}' cannot be supplied")
+                if param.annotation is GlobalState:
+                    bound.arguments[param.name] = GlobalState.instance()
+                else:
+                    logger = GlobalState.instance().get(_GRAPH_LOGGER_KEY)
+                    bound.arguments[param.name] = (
+                        logger if logger is not None else logging.getLogger("hgraph"))
             value = bound.arguments.get(param.name)
             if isinstance(param.annotation, _ContextExpr):
                 requirement = value if param.name in bound.arguments else param.default

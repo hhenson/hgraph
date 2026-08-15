@@ -2454,6 +2454,8 @@ GlobalStateView Wiring::operator_state() noexcept {
   return global_state();
 }
 
+LoggerView Wiring::logger() const { return LoggerView{&log::logger()}; }
+
 void Wiring::apply_service_rank_dependencies() {
   for (const auto &client : impl_->service_client_ranks) {
     auto anchor_it = impl_->service_rank_anchors.find(client.path);

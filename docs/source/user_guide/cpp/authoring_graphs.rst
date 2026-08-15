@@ -1358,6 +1358,25 @@ Each built graph gets its own copy seeded with the wiring-time entries, so the
 builder stays reusable. Values are heterogeneous (a mutable ``Map<string, Any>``
 under the hood). This is the store the testing toolkit's replay/record use.
 
+Wiring-time logging
+~~~~~~~~~~~~~~~~~~~
+
+A ``compose`` body may log type resolution, policy selection and other wiring
+choices through ``Wiring::logger()``. These messages are emitted while the
+graph is being built and must describe decisions that are fixed when
+``compose`` returns:
+
+.. code-block:: cpp
+
+   static void compose(Wiring &w)
+   {
+       w.logger().info("selected compact quote graph");
+       // wire the selected nodes and sub-graphs...
+   }
+
+Use a node ``LoggerView`` injectable or the ``log_`` operator for runtime
+values. A graph never executes again to observe ticks.
+
 Opt-in polymorphic compound-scalar pooling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

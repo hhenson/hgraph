@@ -67,6 +67,16 @@ namespace
         }
     };
 
+    struct WiringLoggingGraph
+    {
+        static constexpr auto name = "wiring_logging_graph";
+
+        static void compose(Wiring &w)
+        {
+            w.logger().info("selected wiring strategy {}", "typed");
+        }
+    };
+
     class CapturedContextLogger final : public spdlog::logger
     {
       public:
@@ -262,6 +272,16 @@ TEST_CASE("logger: the LoggerView injectable logs from start and eval hooks")
     CHECK_THAT(all, Catch::Matchers::ContainsSubstring("logging node started"));
     CHECK_THAT(all, Catch::Matchers::ContainsSubstring("tick value 7"));
     CHECK_THAT(all, Catch::Matchers::ContainsSubstring("tick value 9"));
+}
+
+TEST_CASE("logger: graphs log wiring-time choices through Wiring")
+{
+    CapturedLog captured;
+
+    static_cast<void>(build_graph<WiringLoggingGraph>());
+
+    CHECK_THAT(captured.joined(),
+               Catch::Matchers::ContainsSubstring("selected wiring strategy typed"));
 }
 
 TEST_CASE("logger: an executor-owned logger is inherited by root and nested graphs")
