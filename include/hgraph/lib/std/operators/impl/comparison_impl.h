@@ -116,10 +116,19 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "eq_any";
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<Bool>> out)
+            static void start(In<"lhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> lhs,
+                              State<Bool> is_json)
             {
-                if (json_tree::is_json_ts(lhs.base().schema()))
+                // is_json_ts probes TypeRegistry::json() behind the counted
+                // registry mutex; the schema is wiring-fixed, so resolve the
+                // branch once (lock-free per-tick ruling).
+                is_json.set(Bool{json_tree::is_json_ts(lhs.base().schema())});
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<Bool> is_json, Out<TS<Bool>> out)
+            {
+                if (is_json.get())
                 {
                     out.set(json_tree::equals(lhs.base().value(), rhs.base().value()));
                     return;
@@ -132,10 +141,19 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "ne_any";
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<Bool>> out)
+            static void start(In<"lhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> lhs,
+                              State<Bool> is_json)
             {
-                if (json_tree::is_json_ts(lhs.base().schema()))
+                // is_json_ts probes TypeRegistry::json() behind the counted
+                // registry mutex; the schema is wiring-fixed, so resolve the
+                // branch once (lock-free per-tick ruling).
+                is_json.set(Bool{json_tree::is_json_ts(lhs.base().schema())});
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<Bool> is_json, Out<TS<Bool>> out)
+            {
+                if (is_json.get())
                 {
                     out.set(!json_tree::equals(lhs.base().value(), rhs.base().value()));
                     return;
@@ -148,10 +166,19 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "cmp_any";
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<CmpResult>> out)
+            static void start(In<"lhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> lhs,
+                              State<Bool> is_json)
             {
-                if (json_tree::is_json_ts(lhs.base().schema()))
+                // is_json_ts probes TypeRegistry::json() behind the counted
+                // registry mutex; the schema is wiring-fixed, so resolve the
+                // branch once (lock-free per-tick ruling).
+                is_json.set(Bool{json_tree::is_json_ts(lhs.base().schema())});
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<Bool> is_json, Out<TS<CmpResult>> out)
+            {
+                if (is_json.get())
                 {
                     if (json_tree::equals(lhs.base().value(), rhs.base().value()))
                     {

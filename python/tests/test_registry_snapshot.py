@@ -297,27 +297,9 @@ _LOCK_MATRIX = [
     pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
     pytest.param(_collect_tuple_graph, id="collect_tuple"),
     pytest.param(_keys_tsd_graph, id="keys_tsd_as_set"),
-    pytest.param(
-        _getitem_tsd_graph,
-        id="getitem_tsd_by_key",
-        marks=_still_locking(
-            "getitem_tsd_by_key dereferences the dict schema per key tick"
-        ),
-    ),
-    pytest.param(
-        _eq_tuple_graph,
-        id="eq_tuple_fallback",
-        marks=_still_locking(
-            "eq_ container fallback probes TypeRegistry::json() per tick"
-        ),
-    ),
-    pytest.param(
-        _match_str_graph,
-        id="match_str",
-        marks=_still_locking(
-            "match_ resolves its groups binding (and regex) per tick"
-        ),
-    ),
+    pytest.param(_getitem_tsd_graph, id="getitem_tsd_by_key"),
+    pytest.param(_eq_tuple_graph, id="eq_tuple_fallback"),
+    pytest.param(_match_str_graph, id="match_str"),
     pytest.param(
         _json_roundtrip_graph,
         id="json_roundtrip",
