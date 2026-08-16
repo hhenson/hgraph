@@ -210,6 +210,9 @@ unset(_hgraph_web_saved_build_shared_libs)
 unset(_hgraph_web_saved_build_testing)
 
 add_library(hgraph_web
+    src/asio_server.cpp
+    src/curl_client.cpp
+    src/detail/route_table.cpp
     src/service.cpp
     src/value_builders.cpp
     src/testing/fake_transport.cpp
@@ -228,6 +231,16 @@ target_compile_features(hgraph_web PUBLIC cxx_std_23)
 # session (all PRIVATE; RFC 0024).
 target_link_libraries(hgraph_web
     PUBLIC hgraph::core
+    # The fetched transport libraries are build-tree targets outside this
+    # project's export set, so they must not leak into the installed
+    # interface.  Beast/Asio are header-only (compiled into these objects); a
+    # SHARED hgraph_web links curl/nghttp2/OpenSSL in.  A STATIC install
+    # instead needs system curl and OpenSSL at the consumer's final link —
+    # the package config records that (the CI SDK consumer uses the shared
+    # leg; wheels are always shared).
+    PRIVATE $<BUILD_INTERFACE:${HGRAPH_WEB_BOOST_TARGETS}>
+            $<BUILD_INTERFACE:${HGRAPH_WEB_CURL_TARGET}>
+            OpenSSL::SSL OpenSSL::Crypto
 )
 target_include_directories(hgraph_web
     PUBLIC

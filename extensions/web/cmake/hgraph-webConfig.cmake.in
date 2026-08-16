@@ -3,9 +3,17 @@
 include(CMakeFindDependencyMacro)
 find_dependency(hgraph CONFIG)
 
-# nghttp2, curl, and Boost are PRIVATE to the extension and arrive with their
-# translation units (RFC 0024, packaging). Their find_dependency calls land in
-# the same change as the transports that link them.
+# A STATIC hgraph::web archive references OpenSSL and libcurl symbols at the
+# consumer's final link; Beast/Asio are header-only and already compiled into
+# the archive (RFC 0024, packaging).  A SHARED hgraph::web carries them.
+get_target_property(_hgraph_web_type hgraph::web TYPE)
+if(_hgraph_web_type STREQUAL "STATIC_LIBRARY")
+    # OpenSSL travels in the export set as a LINK_ONLY imported reference;
+    # curl was confined to the build tree and is re-supplied here.
+    find_dependency(OpenSSL)
+    find_dependency(CURL)
+    target_link_libraries(hgraph::web INTERFACE CURL::libcurl)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/hgraphWebTargets.cmake")
 

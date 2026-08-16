@@ -86,6 +86,14 @@ namespace hgraph::web
         using output_schema = TS<WebClientStats>;
     };
 
+    /** Register one lazy, path-bound production web server implementation.
+     * No socket is bound and no thread is started until the graph starts. */
+    HGRAPH_WEB_EXPORT void register_server(Wiring &w, service::ServicePath path, Value server_config);
+
+    /** Register one lazy, path-bound production web client implementation.
+     * No connection is made and no thread is started until the graph starts. */
+    HGRAPH_WEB_EXPORT void register_client(Wiring &w, service::ServicePath path, Value client_config);
+
     // Wiring sugar over the descriptors above.  Server and client
     // implementations are registered by the transport translation units (or
     // by testing::register_fake_server / register_fake_client); the calls

@@ -4,8 +4,25 @@ add_executable(hgraph_web_tests
 add_executable(hgraph_web_service_tests
     test_service.cpp
 )
+add_executable(hgraph_web_route_table_tests
+    test_route_table.cpp
+)
+add_executable(hgraph_web_loopback_tests
+    test_loopback.cpp
+)
+add_executable(hgraph_web_client_loopback_tests
+    test_client_loopback.cpp
+)
+# The loopback oracle is an independent Beast synchronous client, so this
+# test target reaches the (otherwise PRIVATE) header-only Boost targets.
+target_link_libraries(hgraph_web_loopback_tests
+    PRIVATE ${HGRAPH_WEB_BOOST_TARGETS})
+# The route table is an implementation detail of the extension, so its header
+# is reached the same way the extension's own sources reach it.
+target_include_directories(hgraph_web_route_table_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
-foreach(target hgraph_web_tests hgraph_web_service_tests)
+foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_link_libraries(${target} PRIVATE hgraph::web)
 
