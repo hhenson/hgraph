@@ -18,6 +18,7 @@ namespace hgraph
     {
         struct TSInputChildProjection;
         struct TSInputTargetActiveNode;
+        struct TSInputTargetLinkStorage;
         struct TSInputViewOps;
 
         /**
@@ -281,6 +282,15 @@ namespace hgraph
             void make_passive(TSInput *input) const;
             [[nodiscard]] bool active(const TSInput *input) const;
 
+            /** Link storage behind ``raw_data``, resolved once per cursor.
+                The pointer targets planned input memory — address-stable for
+                the storage's lifetime (rebinds mutate its contents in place)
+                — so the flag-dispatch + storage-access hop that
+                ``detail::target_link_storage`` pays is a per-cursor cost,
+                not a per-read one (access-path audit O7, 2026-08-16). */
+            [[nodiscard]] const detail::TSInputTargetLinkStorage *link_storage() const noexcept;
+
+            mutable const detail::TSInputTargetLinkStorage *link_storage_{nullptr};
             mutable TSDataView value_data{};
             TSDataView         raw_data{};
             // A TU-local sentinel denotes a target-link root; real pointers

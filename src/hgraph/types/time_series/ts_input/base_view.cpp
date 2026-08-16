@@ -40,8 +40,15 @@ namespace hgraph
     {
         InputDataCursor cursor{value_data.borrowed_ref(), raw_data.borrowed_ref(), target_node,
                                Classification::Known};
-        cursor.route_node = route_node;
+        cursor.route_node   = route_node;
+        cursor.link_storage_ = link_storage_;
         return cursor;
+    }
+
+    const detail::TSInputTargetLinkStorage *TSInputView::InputDataCursor::link_storage() const noexcept
+    {
+        if (link_storage_ == nullptr) { link_storage_ = detail::target_link_storage(raw_data); }
+        return link_storage_;
     }
 
     bool TSInputView::InputDataCursor::has_storage() const noexcept
@@ -141,7 +148,7 @@ namespace hgraph
         {
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
             if (is_target_root() && raw_data.modified(evaluation_time)) { return true; }   // rebind (sampled)
-            const auto *link = detail::target_link_storage(raw_data);
+            const auto *link = link_storage();
             if (link != nullptr && link->sampled_structural_transition() &&
                 link->structural_transition_time() == evaluation_time)
             {
@@ -378,7 +385,7 @@ namespace hgraph
         if (!is_target_position()) { return {}; }
 
         const auto *schema = detail::target_link_schema(data_.raw_data);
-        const auto *link = detail::target_link_storage(data_.raw_data);
+        const auto *link = data_.link_storage();
         if (schema == nullptr || link == nullptr) { return {}; }
         return link->resolved_target_at_path(*schema, data_.target_path_node()).view(evaluation_time_);
     }
@@ -478,7 +485,7 @@ namespace hgraph
             // cycle.
             if (is_target_position())
             {
-                const auto *link = detail::target_link_storage(data_.raw_data);
+                const auto *link = data_.link_storage();
                 if (link != nullptr && link->tracking.last_modified_time > data.last_modified_time())
                 {
                     return data.value();
@@ -519,7 +526,7 @@ namespace hgraph
         // the target's current value, exported by the target TSData strategy.
         if (is_target_position())
         {
-            const auto *link = detail::target_link_storage(data_.raw_data);
+            const auto *link = data_.link_storage();
             if (link != nullptr && link->tracking.last_modified_time > data.last_modified_time())
             {
                 return data.value_to_python();
@@ -564,7 +571,7 @@ namespace hgraph
         if (is_target_position())
         {
             const auto *target_schema = detail::target_link_schema(data_.raw_data);
-            const auto *link = detail::target_link_storage(data_.raw_data);
+            const auto *link = data_.link_storage();
             if (target_schema == nullptr || link == nullptr)
             {
                 throw std::logic_error("TSInputView::reference requires target-link storage");
@@ -746,7 +753,7 @@ namespace hgraph
     bool TSInputView::sampled_structural_transition() const noexcept
     {
         if (!data_.is_target_position() || evaluation_time_ == MIN_DT) { return false; }
-        const auto *link = detail::target_link_storage(data_.raw_data);
+        const auto *link = data_.link_storage();
         return link != nullptr && link->sampled_structural_transition() &&
                link->structural_transition_time() == evaluation_time_;
     }
@@ -763,7 +770,7 @@ namespace hgraph
         // resolved-source fast path and descendants resolve through the path.
         if (data_.is_target_root())
         {
-            const auto *link = detail::target_link_storage(data_.raw_data);
+            const auto *link = data_.link_storage();
             if (link != nullptr && link->structural_transition_time() == evaluation_time_)
             {
                 return data_.raw_data.borrowed_ref();

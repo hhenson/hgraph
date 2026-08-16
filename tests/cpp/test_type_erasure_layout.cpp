@@ -96,14 +96,17 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(sizeof(TSOutputView) == sizeof(void *) * 4);
     // 8 -> 9 words (RFC 0008 stage 5 amendment): the input cursor carries a
     // non-owning prepared-route pointer (null outside the prepared path).
-    static_assert(sizeof(TSInputView) == sizeof(void *) * 9);
+    // 9 -> 10 words (access-path audit O7): the cursor caches the resolved
+    // link-storage pointer, turning the per-read flag-dispatch + storage
+    // access hop into a per-cursor cost.
+    static_assert(sizeof(TSInputView) == sizeof(void *) * 10);
     static_assert(sizeof(IndexedTSDataView) == sizeof(void *) * 2);
     static_assert(sizeof(TSBDataView) == sizeof(void *) * 2);
     static_assert(sizeof(TSLDataView) == sizeof(void *) * 2);
     static_assert(sizeof(TSBOutputView) == sizeof(void *) * 4);
     static_assert(sizeof(TSLOutputView) == sizeof(void *) * 4);
-    static_assert(sizeof(TSBInputView) == sizeof(void *) * 9);
-    static_assert(sizeof(TSLInputView) == sizeof(void *) * 9);
+    static_assert(sizeof(TSBInputView) == sizeof(void *) * 10);
+    static_assert(sizeof(TSLInputView) == sizeof(void *) * 10);
     static_assert(sizeof(TSOutput) == sizeof(void *) * 5);
     static_assert(sizeof(TSInput) == sizeof(void *) * 7);
     static_assert(sizeof(FixedTSDataFieldLayout) == sizeof(void *) * 3);
