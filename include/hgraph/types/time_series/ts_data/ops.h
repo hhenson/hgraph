@@ -190,6 +190,10 @@ namespace hgraph
         // fragile ownership-ops pointer-identity comparison (audit finding,
         // 2026-08-16).
         bool        is_target_link{false};
+        // True only for non-peered structural INPUT binding tables. The
+        // discriminator input_context_for keys on — the same pointer-identity
+        // cure as is_target_link (audit O9, 2026-08-16).
+        bool        is_input_binding{false};
         const detail::TSDataOwnershipOps *ownership_ops{nullptr};
         const TSDataInspectionOps *inspection_ops{
             &ts_data_detail::empty_inspection_ops()};

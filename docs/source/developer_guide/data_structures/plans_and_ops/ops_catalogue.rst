@@ -391,7 +391,7 @@ context is the interned per-shape layout/context object; generic policy
    * - identity / policy
      - ``kind`` · ``context`` · ``allows_mutation`` ·
        ``indexed_child_growth`` · ``direct_native_value`` ·
-       ``is_target_link``
+       ``is_target_link`` · ``is_input_binding``
    * - sub-tables
      - ``ownership_ops`` (nullable) · ``inspection_ops`` ·
        ``current_state_ops`` · ``python_ops``

@@ -275,7 +275,13 @@ namespace hgraph
             return holds_alternative<T>() ? static_cast<const T *>(data()) : nullptr;
         }
 
-        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only views. */
+        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only
+            views. The atomic-kind gate is load-bearing: interning does not
+            enforce schema-kind/ops agreement, so a record can pair a
+            non-Atomic schema with ``ops_for<T>`` and ops-address identity
+            alone would hand out a wrongly-typed pointer (P1 review finding
+            on #491). ``holds_alternative`` runs the kind test exactly once
+            here — there was never a duplicate to remove. */
         template <typename T>
         [[nodiscard]] T *try_mutable_as() noexcept
         {
@@ -289,7 +295,9 @@ namespace hgraph
         {
             if (!valid()) { throw std::logic_error("checked_as<T> on invalid ValueView"); }
             if (!is_atomic()) { throw std::logic_error("checked_as<T> on non-atomic ValueView"); }
-            if (!holds_alternative<T>()) { throw std::logic_error("checked_as<T> type mismatch"); }
+            // Atomicity just proved; the ops-address compare alone settles T
+            // (audit O8 — holds_alternative would re-run is_atomic).
+            if (type().ops() != &ops_for<T>()) { throw std::logic_error("checked_as<T> type mismatch"); }
             return *static_cast<const T *>(data());
         }
         template <typename T>
@@ -298,7 +306,7 @@ namespace hgraph
             if (!valid()) { throw std::logic_error("checked_mutable_as<T> on invalid ValueView"); }
             if (!mutable_payload()) { throw std::logic_error("checked_mutable_as<T> requires begin_mutation"); }
             if (!is_atomic()) { throw std::logic_error("checked_mutable_as<T> on non-atomic ValueView"); }
-            if (!holds_alternative<T>()) { throw std::logic_error("checked_mutable_as<T> type mismatch"); }
+            if (type().ops() != &ops_for<T>()) { throw std::logic_error("checked_mutable_as<T> type mismatch"); }
             return *static_cast<T *>(const_cast<void *>(data()));
         }
 

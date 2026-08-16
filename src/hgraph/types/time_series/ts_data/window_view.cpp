@@ -352,10 +352,8 @@ namespace hgraph
         {
             throw std::logic_error("TSWDataMutationView::push allows only one window tick per evaluation time");
         }
-        if (ops.push_impl == nullptr)
-        {
-            throw std::logic_error("TSWDataMutationView::push is not supported by this TSW ops");
-        }
+        // push_impl defaults to a named throwing thunk (never null since the
+        // TSW defaults hardening) — the null test was dead.
         ops.push_impl(ops.context, mutation_.mutable_data(ops), source, current_mutation_time());
         mutation_.mark_modified(ops);
         cleared_ = false;
@@ -367,10 +365,6 @@ namespace hgraph
         if (mutation_.modified(ops, current_mutation_time()))
         {
             throw std::logic_error("TSWDataMutationView::clear allows only one reset per evaluation time");
-        }
-        if (ops.clear_impl == nullptr)
-        {
-            throw std::logic_error("TSWDataMutationView::clear is not supported by this TSW ops");
         }
         ops.clear_impl(ops.context, mutation_.mutable_data(ops), current_mutation_time());
         mutation_.mark_modified(ops);
