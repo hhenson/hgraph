@@ -223,13 +223,15 @@ the lifted kernels read through it and fall back to the erased
 read-side twin, skipping the two transient value views, the
 ``concrete()`` projection, and the per-read ``checked_as`` ceremony).
 
-The mutation is closed by calling ``end_mutation()`` on the mutable
-view. For the current scalar value-layer ops this is a no-op; the
-method exists so the same view contract can be used by slot-store-
-backed time-series ops, where close-time hooks update delta state.
-Those future mutable views should also provide RAII closure so a
-mutation is not left dangling if a caller forgets to close it
-explicitly or an exception unwinds the stack.
+Mutation closure is owned by the layer that opened it. Value-layer
+mutation views are transient — dropping the view ends the scope; there
+is no close call (an earlier no-op ``end_mutation()`` placeholder was
+removed as dead API). The time-series layer closes mutations through
+``TSDataMutationView``'s RAII scope, whose commit path performs the
+modification recording and parent notification. The pointer-level
+``AnyPtr::end_mutation`` / ``TypedPtr::end_mutation`` downgrade
+(Mutation back to Writable) remains for callers that hold tagged
+pointers across a scope boundary.
 
 .. note::
 
@@ -279,9 +281,9 @@ The base specialised views never expose mutation methods other than
 the explicit transition call. Mutation goes through a separate
 **mutable** view obtained from the read-only/writable view by calling
 ``begin_mutation()`` (see *Read-Only and Mutable Views* above). The
-mutable view is closed with ``end_mutation()`` and is the only place
-per-element ``set`` / ``insert`` / ``remove`` / ``push_back`` style
-operations exist. Compact value-layer container storage does not allow
+mutable view is the only place per-element ``set`` / ``insert`` /
+``remove`` / ``push_back`` style operations exist, and its scope ends
+when the view is dropped. Compact value-layer container storage does not allow
 that transition; replacement happens at the ``Value`` level
 (whole-container copy/move or ``from_python()``).
 

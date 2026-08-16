@@ -50,18 +50,6 @@ namespace hgraph
             }
             *static_cast<ListStorage *>(dst) = builder.build_storage();
         }
-
-        void compact_list_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
-                                           void *src)
-        {
-            if (binding == source)
-            {
-                binding.move_assign_at(dst, src);
-                return;
-            }
-            compact_list_copy_assign_from(context, binding, dst, source, src);
-        }
-
         void compact_set_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
                                           const void *src)
         {
@@ -79,18 +67,6 @@ namespace hgraph
             }
             *static_cast<SetStorage *>(dst) = builder.build_storage();
         }
-
-        void compact_set_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
-                                          void *src)
-        {
-            if (binding == source)
-            {
-                binding.move_assign_at(dst, src);
-                return;
-            }
-            compact_set_copy_assign_from(context, binding, dst, source, src);
-        }
-
         void compact_map_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
                                           const void *src)
         {
@@ -113,18 +89,6 @@ namespace hgraph
             }
             *static_cast<MapStorage *>(dst) = builder.build_storage();
         }
-
-        void compact_map_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
-                                          void *src)
-        {
-            if (binding == source)
-            {
-                binding.move_assign_at(dst, src);
-                return;
-            }
-            compact_map_copy_assign_from(context, binding, dst, source, src);
-        }
-
         void compact_cyclic_buffer_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
                                                     const void *src)
         {
@@ -143,18 +107,6 @@ namespace hgraph
             }
             *static_cast<CyclicBufferStorage *>(dst) = builder.build_storage();
         }
-
-        void compact_cyclic_buffer_move_assign_from(const void *context, ValueTypeRef binding, void *dst,
-                                                    ValueTypeRef source, void *src)
-        {
-            if (binding == source)
-            {
-                binding.move_assign_at(dst, src);
-                return;
-            }
-            compact_cyclic_buffer_copy_assign_from(context, binding, dst, source, src);
-        }
-
         void compact_queue_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
                                             const void *src)
         {
@@ -172,17 +124,6 @@ namespace hgraph
                 builder.push(values.at(index));
             }
             *static_cast<QueueStorage *>(dst) = builder.build_storage();
-        }
-
-        void compact_queue_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
-                                            void *src)
-        {
-            if (binding == source)
-            {
-                binding.move_assign_at(dst, src);
-                return;
-            }
-            compact_queue_copy_assign_from(context, binding, dst, source, src);
         }
     } // namespace container_ops_detail
 
@@ -526,10 +467,6 @@ namespace hgraph
             *static_cast<MapStorage *>(memory) = builder.build_storage();
         }
 
-        void map_key_adapter_from_python(const void *, const ValueTypeRef &, void *, nb::handle)
-        {
-            throw std::logic_error("Map key-set adapter is read-only and cannot load from Python");
-        }
     }  // namespace container_ops_detail
 #endif
 }  // namespace hgraph
