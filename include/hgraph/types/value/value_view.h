@@ -262,16 +262,18 @@ namespace hgraph
             return holds_alternative<T>() ? static_cast<const T *>(data()) : nullptr;
         }
 
-        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only views.
-            The ops-address identity subsumes the kind test — a table equal to
-            ``ops_for<T>`` is atomic by construction — so the probe is one
-            compare plus the access-mode check (audit O8). */
+        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only
+            views. The atomic-kind gate is load-bearing: interning does not
+            enforce schema-kind/ops agreement, so a record can pair a
+            non-Atomic schema with ``ops_for<T>`` and ops-address identity
+            alone would hand out a wrongly-typed pointer (P1 review finding
+            on #491). ``holds_alternative`` runs the kind test exactly once
+            here — there was never a duplicate to remove. */
         template <typename T>
         [[nodiscard]] T *try_mutable_as() noexcept
         {
-            return valid() && type().ops() == &ops_for<T>() && mutable_payload()
-                       ? static_cast<T *>(const_cast<void *>(data()))
-                       : nullptr;
+            return holds_alternative<T>() && mutable_payload() ? static_cast<T *>(const_cast<void *>(data()))
+                                                               : nullptr;
         }
 
         /** ``checked_as<T>`` throws when the view is invalid, non-atomic, or T doesn't match. */
