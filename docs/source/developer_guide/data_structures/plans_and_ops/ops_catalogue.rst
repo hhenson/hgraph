@@ -171,6 +171,18 @@ The two tag bits on every typed pointer encode
   must perform the explicit** ``begin_mutation()`` **re-tag or they
   silently never engage** (this was the PR #479 review finding; the
   engagement probe in ``tests/cpp/test_audit_behavior.cpp`` pins it).
+- **One validation per mutation scope** (access-path audit,
+  2026-08-16): ``TSDataMutationView`` proves liveness, concrete time,
+  the record's ``Mutable`` capability, and ``allows_mutation`` once at
+  construction; its storage and time are immutable thereafter, so every
+  downstream write entry point trusts the scope (the facts stay
+  debug-asserted). Callers that have just proved a transition legal use
+  the trusted re-tags (``begin_mutation_trusted`` on ``AnyPtr`` /
+  ``TypedPtr`` / ``ValueView``) instead of the checked transitions,
+  which re-walk ``TypeRecord::valid()``. Note the premise is scoped,
+  not absolute: Output-role records with ``allows_mutation == false``
+  exist (the TSD key-set projection, the TSD proxy, mapped key
+  sources), which is why the scope opening still validates.
 
 Value-layer ops
 ---------------

@@ -427,7 +427,7 @@ ValueView TSDataMutationView::mutable_value() const {
   if (!writable.can_begin_mutation()) {
     return {};
   }
-  return writable.begin_mutation();
+  return writable.begin_mutation_trusted();
 }
 
 ValueView TSDataMutationView::delta_value(DateTime evaluation_time) const {
@@ -443,10 +443,9 @@ void TSDataMutationView::mark_modified() { mark_modified(ops()); }
 bool TSDataMutationView::copy_value_from(const ValueView &source) {
   require_active_mutation();
 
-  auto current = view();
-  const auto &table = current.ops();
+  const auto &table = ops();
   const bool newly_modified = table.copy_value_from_impl(
-      table.context, current.mutable_data(), source, mutation_time_);
+      table.context, storage_.data(), source, mutation_time_);
   if (newly_modified) {
     // The modification may already be recorded for this cycle — e.g.
     // the storage was structurally created earlier in the same dict
@@ -471,10 +470,9 @@ bool TSDataMutationView::move_value_from(ValueView source) {
         "TSDataMutationView::move_value_from requires writable source storage");
   }
 
-  auto current = view();
-  const auto &table = current.ops();
+  const auto &table = ops();
   const bool newly_modified = table.move_value_from_impl(
-      table.context, current.mutable_data(), std::move(source), mutation_time_);
+      table.context, storage_.data(), std::move(source), mutation_time_);
   if (newly_modified) {
     // The modification may already be recorded for this cycle — e.g.
     // the storage was structurally created earlier in the same dict
@@ -502,7 +500,7 @@ bool TSDataMutationView::invalidate() {
         ownership->child_count(table.context, current.data());
     for (std::size_t index = 0; index < children; ++index) {
       const auto child_ref =
-          ownership->child_at(table.context, current.mutable_data(), index);
+          ownership->child_at(table.context, storage_.data(), index);
       if (!child_ref.type || child_ref.data == nullptr) {
         continue;
       }
@@ -520,7 +518,7 @@ bool TSDataMutationView::invalidate() {
   }
 
   auto &state =
-      *table.mutable_tracking_impl(table.context, current.mutable_data());
+      *table.mutable_tracking_impl(table.context, storage_.data());
   state.observers.notify(mutation_time_);
   state.parent.notify_child_modified(mutation_time_);
   state.last_modified_time = MIN_DT;
@@ -534,10 +532,9 @@ bool TSDataMutationView::from_python(nb::handle source) {
     return false;
   }
 
-  auto current = view();
-  const auto &table = current.ops();
+  const auto &table = ops();
   const bool newly_modified = table.from_python_impl(
-      table.context, current.mutable_data(), source, mutation_time_);
+      table.context, storage_.data(), source, mutation_time_);
   if (newly_modified && !record_modified_local()) {
     throw std::logic_error("TSDataMutationView::from_python reported a new "
                            "modification that was already recorded");
@@ -551,11 +548,27 @@ bool TSDataMutationView::from_python(nb::handle source) {
 #endif
 
 void TSDataMutationView::validate_mutation_view() const {
+  // The one validation per mutation scope (audit 2026-08-16). Everything a
+  // write used to re-derive per call — liveness, concrete time, the record's
+  // Mutable capability, the ops table's allows_mutation — is proven here
+  // once; storage_ and mutation_time_ are immutable for the view's
+  // lifetime, so downstream entry points assert instead of re-checking.
   if (mutation_time_ == MIN_DT) {
     throw std::invalid_argument(
         "TSDataMutationView requires a concrete evaluation time");
   }
-  (void)view().mutable_data();
+  if (!storage_.has_value()) {
+    throw std::logic_error("TSData mutation requires an active mutation scope");
+  }
+  const auto type = storage_.type_ref();
+  if (type && !has_capability(type.capabilities(), TypeCapabilities::Mutable)) {
+    throw std::logic_error(
+        "TSDataView::mutable_data requires a mutable time-series role");
+  }
+  if (!storage_.ops().allows_mutation) {
+    throw std::logic_error(
+        "TSDataView::mutable_data requires mutable TSData ops");
+  }
 }
 
 bool TSDataMutationView::record_modified_local() const {

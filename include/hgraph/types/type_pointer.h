@@ -78,6 +78,16 @@ namespace hgraph
 
         [[nodiscard]] AnyPtr as_read_only() const;
         [[nodiscard]] AnyPtr begin_mutation() const;
+        /** Mutation re-tag with no revalidation, for callers that just
+            proved the transition is legal (a live Writable pointer whose
+            record carries Mutable). ``begin_mutation()`` walks
+            ``TypeRecord::valid()`` twice — via ``valid()`` and again inside
+            ``capabilities()`` — re-deriving intern-time facts on every
+            typed write (audit 2026-08-16). */
+        [[nodiscard]] constexpr AnyPtr begin_mutation_trusted() const noexcept
+        {
+            return AnyPtr(record(), data_, AccessMode::Mutation);
+        }
         [[nodiscard]] AnyPtr end_mutation() const;
         [[nodiscard]] void *mutable_data() const;
 
@@ -233,6 +243,11 @@ namespace hgraph
 
         [[nodiscard]] TypedPtr as_read_only() const { return TypedPtr(value_.as_read_only(), UncheckedTag{}); }
         [[nodiscard]] TypedPtr begin_mutation() const { return TypedPtr(value_.begin_mutation(), UncheckedTag{}); }
+        /** See ``AnyPtr::begin_mutation_trusted``. */
+        [[nodiscard]] constexpr TypedPtr begin_mutation_trusted() const noexcept
+        {
+            return TypedPtr(value_.begin_mutation_trusted(), UncheckedTag{});
+        }
         [[nodiscard]] TypedPtr end_mutation() const { return TypedPtr(value_.end_mutation(), UncheckedTag{}); }
         [[nodiscard]] void *mutable_data() const { return value_.mutable_data(); }
 

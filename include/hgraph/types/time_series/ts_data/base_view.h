@@ -6,6 +6,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <stdexcept>
@@ -374,6 +375,10 @@ namespace hgraph
         /** True when the underlying TSData was modified at ``evaluation_time``. */
         [[nodiscard]] bool modified(DateTime evaluation_time) const;
 
+        /** True when this scope's storage was modified at the scope's own
+            mutation time (the niladic form the root-mutation API carried). */
+        [[nodiscard]] bool modified() const { return modified(mutation_time_); }
+
         /**
          * Mark this TSData node as modified and notify its parent once.
          *
@@ -411,10 +416,8 @@ namespace hgraph
         [[nodiscard]] void *mutable_data(const TSDataOps &table) const
         {
             require_active_mutation();
-            if (!table.allows_mutation)
-            {
-                throw std::logic_error("TSData mutation requires mutable TSData ops");
-            }
+            assert(table.allows_mutation);
+            static_cast<void>(table);
             return storage_.data();
         }
 
@@ -430,12 +433,15 @@ namespace hgraph
             if (record_modified_local(table)) { notify_parent_modified(table); }
         }
 
-        void require_active_mutation() const
+        void require_active_mutation() const noexcept
         {
-            if (mutation_time_ == MIN_DT || !storage_.has_value())
-            {
-                throw std::logic_error("TSData mutation requires an active mutation scope");
-            }
+            // One validation per mutation scope (audit 2026-08-16):
+            // validate_mutation_view proved liveness, time, and mutability at
+            // construction, and both facts are immutable for the view's
+            // lifetime (only a move clears them, and a moved-from mutation
+            // view must not be used). Downstream entry points trust the
+            // scope; the facts stay debug-asserted.
+            assert(mutation_time_ != MIN_DT && storage_.has_value());
         }
 
         void validate_mutation_view() const;

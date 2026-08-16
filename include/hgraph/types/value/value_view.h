@@ -164,6 +164,19 @@ namespace hgraph
             return ValueView{pointer_.begin_mutation(), TrustedPointer{}};
         }
 
+        /**
+         * Trusted Mutation re-tag for a caller that has just proved
+         * ``can_begin_mutation()`` on this view: skips the checked
+         * transition's duplicate validity walk (which re-runs
+         * ``TypeRecord::valid()`` twice through ``AnyPtr``); the same facts
+         * are debug-asserted. Never call without the proof.
+         */
+        [[nodiscard]] ValueView begin_mutation_trusted() const noexcept
+        {
+            assert(can_begin_mutation());
+            return ValueView{pointer_.begin_mutation_trusted(), TrustedPointer{}};
+        }
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         /**
          * Assign this view's storage FROM a python object through the
