@@ -446,6 +446,11 @@ namespace hgraph
         if (state.record_modified(mutation_time)) { state.parent.notify_child_modified(mutation_time); }
     }
 
+    TSParentLink TSParentLink::parent_link() const
+    {
+        return has_ts_data_parent() ? parent_tracking().parent : TSParentLink{};
+    }
+
     std::vector<std::size_t> TSParentLink::path_from_root() const
     {
         std::vector<std::size_t> reversed_path;

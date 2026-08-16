@@ -161,6 +161,12 @@ namespace hgraph
         void make_passive(const std::vector<std::size_t> &path);
         [[nodiscard]] bool active(const std::vector<std::size_t> &path) const noexcept;
 
+        /** Allocation-free twin of ``active(path)``: walks the parent chain
+            recursively and descends the activity trie on the unwind, so the
+            per-call ``path_from_root()`` vector disappears from the hot
+            activity probe (access-path audit deferred item, 2026-08-16). */
+        [[nodiscard]] bool active(const TSParentLink &leaf_link) const noexcept;
+
         const TSInputBuilder             *builder_{nullptr};
         const TSValueTypeMetaData        *schema_{nullptr};
         TSData                            data_{};

@@ -258,7 +258,7 @@ namespace hgraph
     bool TSInputView::InputDataCursor::active(const TSInput *input) const
     {
         if (is_target_position()) { return detail::target_link_active(raw_data, target_path_node()); }
-        return input != nullptr && value_data.valid() && input->active(value_data.path_from_root());
+        return input != nullptr && value_data.valid() && input->active(value_data.tracking().parent);
     }
 
     TSInputView::TSInputView(TSInput                  *input,
