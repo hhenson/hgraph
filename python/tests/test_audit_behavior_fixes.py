@@ -58,3 +58,25 @@ def test_container_mean_honours_default_when_empty():
 def test_container_sum_with_default_still_sums_when_non_empty():
     assert eval_node(_sum_default, [(1, 2, 3)]) == [6]
     assert eval_node(_mean_default, [(2.0, 4.0)]) == [3.0]
+
+
+def test_passive_read_follows_reference_retarget():
+    """Pin for the passive-trust work (access-path ledger, deferred item 1):
+    a PASSIVE input reading through an if_-routed reference must follow
+    every retarget — whichever resolution path (full walk today, trusted
+    handle after the trie maintains passive nodes) serves the read."""
+    from hgraph import TS, graph, if_, sample, eval_node
+
+    @graph
+    def g(cond: TS[bool], value: TS[int], sig: TS[bool]) -> TS[int]:
+        routed = if_(cond, value)
+        return sample(sig, routed.true)
+
+    # cond flips the .true branch's binding between samples; the sampled
+    # (passive) read must reflect the CURRENT binding each time.
+    assert eval_node(
+        g,
+        [True, None, False, None, True, None],
+        [1, 2, 3, 4, 5, 6],
+        [None, True, None, True, None, True],
+    ) == [None, 2, None, None, None, 6]
