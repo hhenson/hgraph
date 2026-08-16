@@ -212,6 +212,12 @@ namespace hgraph
         std::function<void(const NodeView &, DateTime)> start{};
         std::function<void(const NodeView &, DateTime)> evaluate{};
         std::function<void(const NodeView &, DateTime)> stop{};
+        /** True when ``evaluate`` performs its own input-validity gating on
+            the selector views it builds anyway. The generic
+            ``ready_to_evaluate`` slot pass is skipped for such nodes — it
+            would build and resolve every slot view a second time per tick
+            (access-path audit O4, 2026-08-16). */
+        bool input_validity_in_evaluate{false};
     };
 
     struct HGRAPH_EXPORT NodeStorageField
