@@ -22,12 +22,6 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#if defined(__GNUC__) && !defined(__clang__)
-// GCC's -Wmaybe-uninitialized fires falsely on the std::optional-held
-// scalar tuple that static_node.h instantiates for this TU's runtime node;
-// the member is written before every read.
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
 
 #include <atomic>
 #include <chrono>

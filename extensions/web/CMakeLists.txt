@@ -67,6 +67,9 @@ set(_hgraph_web_saved_build_testing ${BUILD_TESTING})
 set(BUILD_SHARED_LIBS OFF)
 set(BUILD_STATIC_LIBS ON)
 set(BUILD_TESTING OFF)
+# The static transport archives link into a shared Python module on ELF
+# wheels, so every fetched object must be position independent.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Sibling dependencies (Arrow, the AWS SDK) import system curl and friends at
 # the root scope, so a bare TARGET check would adopt whatever they found.
@@ -269,6 +272,14 @@ if(MSVC)
     target_compile_options(hgraph_web PRIVATE /W4 /permissive- /bigobj)
 else()
     target_compile_options(hgraph_web PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC's -Wmaybe-uninitialized fires falsely on the std::optional-held
+    # scalar tuple the static-node machinery instantiates for the server
+    # runtime node; it is a middle-end diagnostic, so the suppression must
+    # be a compile flag — diagnostic pragmas do not reach it.
+    set_source_files_properties(src/asio_server.cpp PROPERTIES
+        COMPILE_OPTIONS "-Wno-maybe-uninitialized")
 endif()
 
 if(MSVC AND OPENSSL_USE_STATIC_LIBS)
