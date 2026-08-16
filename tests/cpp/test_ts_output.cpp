@@ -288,7 +288,7 @@ TEST_CASE("TSOutput owns root TSData and exposes TS validity")
 
     Value forty_two{42};
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.current_mutation_time() == t1);
         REQUIRE(mutation.copy_value_from(forty_two.view()));
         REQUIRE(mutation.modified());
@@ -319,7 +319,7 @@ TEST_CASE("TSOutput move mutation moves an owned value without copy assignment")
     Value source{MoveTrackedScalar{42}};
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.move_value_from(std::move(source)));
         REQUIRE(mutation.modified());
     }
@@ -345,14 +345,14 @@ TEST_CASE("TSOutput move mutation uses writable borrowed views but rejects read-
     const MoveTrackedScalar read_only_source{91};
 
     {
-        auto mutation = output.begin_mutation(MIN_ST);
+        auto mutation = output.view(MIN_ST).begin_mutation(MIN_ST);
         ValueView read_only{binding, static_cast<const void *>(&read_only_source)};
         REQUIRE_THROWS_AS(mutation.move_value_from(std::move(read_only)), std::invalid_argument);
     }
 
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(MIN_ST);
+        auto mutation = output.view(MIN_ST).begin_mutation(MIN_ST);
         ValueView writable{binding, static_cast<void *>(&source)};
         REQUIRE(mutation.move_value_from(std::move(writable)));
     }
@@ -383,7 +383,7 @@ TEST_CASE("TSOutput fixed TSB move mutation moves owned child fields")
 
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.move_value_from(std::move(source)));
         REQUIRE(mutation.modified());
     }
@@ -417,7 +417,7 @@ TEST_CASE("TSOutput dynamic TSL move mutation moves owned child fields")
 
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.move_value_from(std::move(source)));
         REQUIRE(mutation.modified());
     }
@@ -452,7 +452,7 @@ TEST_CASE("TSOutput TSW move mutation moves owned list elements")
 
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.move_value_from(std::move(source)));
         REQUIRE(mutation.modified());
     }
@@ -495,13 +495,13 @@ TEST_CASE("TSOutput TSS move mutation moves owned keys without removal copies")
     const auto t1 = MIN_ST;
     const auto t2 = t1 + TimeDelta{1};
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(initial.view()));
     }
 
     TSSMoveTrackedKey::reset_counts();
     {
-        auto mutation = output.begin_mutation(t2);
+        auto mutation = output.view(t2).begin_mutation(t2);
         REQUIRE(mutation.move_value_from(std::move(source)));
         REQUIRE(mutation.modified());
     }
@@ -555,9 +555,13 @@ TEST_CASE("TSOutput TSD move mutation moves keys and child values without remova
     TSSMoveTrackedKey::reset_counts();
     MoveTrackedScalar::reset_counts();
     {
-        auto mutation = output.begin_mutation(t2);
+        // Whole-dict move goes through the typed container mutation (the
+        // removed root-mutation shim used to forward TSD roots here).
+        auto output_view = output.view(t2);
+        auto dict        = output_view.as_dict();
+        auto mutation    = dict.begin_mutation(t2);
         REQUIRE(mutation.move_value_from(std::move(source)));
-        REQUIRE(mutation.modified());
+        REQUIRE(output.view(t2).modified());
     }
 
     Value key10{TSSMoveTrackedKey{10}};
@@ -670,7 +674,7 @@ TEST_CASE("TSOutputHandle stores output identity without evaluation time")
 
     Value value{7};
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 
@@ -720,7 +724,7 @@ TEST_CASE("TSOutput non-peered TSD can hold forwarding value slots")
     Value      two{2};
 
     {
-        auto mutation = source.begin_mutation(t1);
+        auto mutation = source.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     {
@@ -741,7 +745,7 @@ TEST_CASE("TSOutput non-peered TSD can hold forwarding value slots")
     const auto subscribed_count = source.data_view().observer_count();
 
     {
-        auto mutation = source.begin_mutation(t2);
+        auto mutation = source.view(t2).begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(two.view()));
     }
 
@@ -896,7 +900,7 @@ TEST_CASE("TSOutput REF stores TimeSeriesReference as value and delta")
     Value                     wrapped{reference};
 
     {
-        auto mutation = ref_output.begin_mutation(t1);
+        auto mutation = ref_output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(wrapped.view()));
     }
 
@@ -961,7 +965,7 @@ TEST_CASE("TSOutput slot deltas are reclaimed lazily on the next mutation")
     REQUIRE(output.view(t3).modified());
     REQUIRE(output.view(t3).valid());
     REQUIRE(range_count(set.removed()) == 0);
-    REQUIRE_THROWS_AS(output.begin_mutation(MIN_DT), std::invalid_argument);
+    REQUIRE_THROWS_AS(output.view(MIN_DT).begin_mutation(MIN_DT), std::invalid_argument);
 }
 
 TEST_CASE("forwarding TSS outputs preserve slot observer remove and erase protocol across rebinds")
@@ -1116,7 +1120,7 @@ TEST_CASE("sampled forwarding rebind publishes a valid-to-invalid transition")
     const auto t2 = t1 + TimeDelta{1};
 
     Value value{11};
-    REQUIRE(valid_source.begin_mutation(t1).copy_value_from(value.view()));
+    REQUIRE(valid_source.view(t1).begin_mutation(t1).copy_value_from(value.view()));
     forwarding.view(t1).bind_forwarding_target(valid_source.view(t1));
     REQUIRE(forwarding.view(t1).valid());
 
@@ -1182,14 +1186,14 @@ TEST_CASE("TSOutput root parent is reattached after copy and move")
 
     TSOutput source{*ts_int};
     {
-        auto mutation = source.begin_mutation(t1);
+        auto mutation = source.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(one.view()));
     }
 
     TSOutput copied{source};
     REQUIRE(copied.data_view().has_parent());
     {
-        auto mutation = copied.begin_mutation(t2);
+        auto mutation = copied.view(t2).begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(two.view()));
     }
     REQUIRE(copied.view(t2).modified());
@@ -1197,7 +1201,7 @@ TEST_CASE("TSOutput root parent is reattached after copy and move")
     TSOutput moved{std::move(copied)};
     REQUIRE(moved.data_view().has_parent());
     {
-        auto mutation = moved.begin_mutation(t3);
+        auto mutation = moved.view(t3).begin_mutation(t3);
         REQUIRE(mutation.copy_value_from(three.view()));
     }
     REQUIRE(moved.view(t3).modified());
@@ -1375,7 +1379,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     REQUIRE(observed.observer_count() == 2);
 
     {
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(one.view()));
     }
 
@@ -1384,7 +1388,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     CHECK(observed.observer_count() == 1);
 
     {
-        auto mutation = output.begin_mutation(t2);
+        auto mutation = output.view(t2).begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(two.view()));
     }
 
@@ -1403,7 +1407,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     observed.subscribe(&after_removed);
 
     {
-        auto mutation = output.begin_mutation(t3);
+        auto mutation = output.view(t3).begin_mutation(t3);
         REQUIRE(mutation.copy_value_from(three.view()));
     }
 
@@ -1427,7 +1431,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     observed.subscribe(&adding);
 
     {
-        auto mutation = output.begin_mutation(t4);
+        auto mutation = output.view(t4).begin_mutation(t4);
         REQUIRE(mutation.copy_value_from(four.view()));
     }
 
@@ -1436,7 +1440,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     CHECK(observed.observer_count() == 2);
 
     {
-        auto mutation = output.begin_mutation(t5);
+        auto mutation = output.view(t5).begin_mutation(t5);
         REQUIRE(mutation.copy_value_from(five.view()));
     }
 
@@ -1460,7 +1464,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     observed.subscribe(&replaced);
 
     {
-        auto mutation = output.begin_mutation(t6);
+        auto mutation = output.view(t6).begin_mutation(t6);
         REQUIRE(mutation.copy_value_from(six.view()));
     }
 
@@ -1470,7 +1474,7 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     CHECK(observed.observer_count() == 1);
 
     {
-        auto mutation = output.begin_mutation(t7);
+        auto mutation = output.view(t7).begin_mutation(t7);
         REQUIRE(mutation.copy_value_from(seven.view()));
     }
 

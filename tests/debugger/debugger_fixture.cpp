@@ -208,7 +208,7 @@ int main()
     tsb_builder.set("number", Value{std::int32_t{12}});
     tsb_builder.set("enabled", Value{true});
     {
-        auto mutation = fixture_tsb_output.begin_mutation(MIN_ST);
+        auto mutation = fixture_tsb_output.view(MIN_ST).begin_mutation(MIN_ST);
         static_cast<void>(mutation.copy_value_from(tsb_builder.build().view()));
     }
     fixture_tsb_view = fixture_tsb_output.view(MIN_ST);

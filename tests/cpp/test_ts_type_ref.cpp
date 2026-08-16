@@ -98,7 +98,7 @@ namespace
     void set_scalar_output(hgraph::TSOutput &output, std::int32_t value, hgraph::DateTime time)
     {
         hgraph::Value stored{value};
-        REQUIRE(output.begin_mutation(time).copy_value_from(stored.view()));
+        REQUIRE(output.view(time).begin_mutation(time).copy_value_from(stored.view()));
     }
 
     void set_list_output(hgraph::TSOutput &output, std::size_t index, std::int32_t value, hgraph::DateTime time)
@@ -1152,7 +1152,7 @@ TEST_CASE("scalar output and peered input preserve binding, timing, and subscrip
 
     Value one{std::int32_t{1}};
     {
-        auto mutation = first.begin_mutation(MIN_ST);
+        auto mutation = first.view(MIN_ST).begin_mutation(MIN_ST);
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     REQUIRE(in.value().checked_as<std::int32_t>() == 1);
@@ -1188,7 +1188,7 @@ TEST_CASE("scalar output invalidation detaches passive inputs and supports rebin
     TSOutput replacement{schema};
     Value value{std::int32_t{42}};
     {
-        auto mutation = replacement.begin_mutation(MIN_ST + TimeDelta{1});
+        auto mutation = replacement.view(MIN_ST + TimeDelta{1}).begin_mutation(MIN_ST + TimeDelta{1});
         REQUIRE(mutation.copy_value_from(value.view()));
     }
     in.bind_output(replacement.view(MIN_ST + TimeDelta{1}));
@@ -1222,7 +1222,7 @@ TEST_CASE("scalar output invalidation preserves active topology without scheduli
     Value one{std::int32_t{1}};
     Value two{std::int32_t{2}};
     {
-        auto mutation = replacement.begin_mutation(MIN_ST + TimeDelta{1});
+        auto mutation = replacement.view(MIN_ST + TimeDelta{1}).begin_mutation(MIN_ST + TimeDelta{1});
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     in.bind_output(replacement.view(MIN_ST + TimeDelta{1}));
@@ -1231,7 +1231,7 @@ TEST_CASE("scalar output invalidation preserves active topology without scheduli
 
     scheduling.notifications.clear();
     {
-        auto mutation = replacement.begin_mutation(MIN_ST + TimeDelta{2});
+        auto mutation = replacement.view(MIN_ST + TimeDelta{2}).begin_mutation(MIN_ST + TimeDelta{2});
         REQUIRE(mutation.copy_value_from(two.view()));
     }
     REQUIRE(scheduling.notifications == std::vector<DateTime>{MIN_ST + TimeDelta{2}});
@@ -1241,7 +1241,7 @@ TEST_CASE("scalar output invalidation preserves active topology without scheduli
     REQUIRE(replacement.data_view().observer_count() == 1);
     scheduling.notifications.clear();
     {
-        auto mutation = replacement.begin_mutation(MIN_ST + TimeDelta{3});
+        auto mutation = replacement.view(MIN_ST + TimeDelta{3}).begin_mutation(MIN_ST + TimeDelta{3});
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     REQUIRE(scheduling.notifications.empty());
@@ -1375,7 +1375,7 @@ TEST_CASE("scalar input teardown and move keep producer subscriptions coherent")
         REQUIRE(output.data_view().observer_count() == 1);
 
         Value value{std::int32_t{7}};
-        auto mutation = output.begin_mutation(t1);
+        auto mutation = output.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(value.view()));
         REQUIRE(scheduling.notifications == std::vector<DateTime>{t1});
     }
@@ -1383,7 +1383,7 @@ TEST_CASE("scalar input teardown and move keep producer subscriptions coherent")
     REQUIRE(output.data_view().observer_count() == 0);
     Value value{std::int32_t{8}};
     {
-        auto mutation = output.begin_mutation(t2);
+        auto mutation = output.view(t2).begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 }
@@ -1398,7 +1398,7 @@ TEST_CASE("scalar output copy and move replacement invalidate published bindings
 
     TSOutput source{schema};
     {
-        auto mutation = source.begin_mutation(MIN_ST);
+        auto mutation = source.view(MIN_ST).begin_mutation(MIN_ST);
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     TSInput source_input = scalar_input(schema);
@@ -1417,7 +1417,7 @@ TEST_CASE("scalar output copy and move replacement invalidate published bindings
 
     TSOutput replacement{schema};
     {
-        auto mutation = replacement.begin_mutation(MIN_ST + TimeDelta{1});
+        auto mutation = replacement.view(MIN_ST + TimeDelta{1}).begin_mutation(MIN_ST + TimeDelta{1});
         REQUIRE(mutation.copy_value_from(two.view()));
     }
     TSInput replacement_input = scalar_input(schema);
@@ -1432,7 +1432,7 @@ TEST_CASE("scalar output copy and move replacement invalidate published bindings
 
     TSOutput copy_source{schema};
     {
-        auto mutation = copy_source.begin_mutation(MIN_ST + TimeDelta{2});
+        auto mutation = copy_source.view(MIN_ST + TimeDelta{2}).begin_mutation(MIN_ST + TimeDelta{2});
         REQUIRE(mutation.copy_value_from(one.view()));
     }
     TSInput copy_source_input = scalar_input(schema);
@@ -1570,7 +1570,7 @@ TEST_CASE("scalar SIGNAL role storage preserves typed-null and tick delta semant
 
     Value tick{true};
     {
-        auto mutation = output.begin_mutation(MIN_ST);
+        auto mutation = output.view(MIN_ST).begin_mutation(MIN_ST);
         REQUIRE(mutation.copy_value_from(tick.view()));
     }
     REQUIRE(output.view(MIN_ST).valid());

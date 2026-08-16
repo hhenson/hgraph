@@ -857,7 +857,7 @@ int main()
 
     TSOutput scalar_output{*ts_int};
     {
-        auto mutation = scalar_output.begin_mutation(MIN_ST);
+        auto mutation = scalar_output.view(MIN_ST).begin_mutation(MIN_ST);
         if (!mutation.move_value_from(Value{Int{43}}))
         {
             throw std::runtime_error("scalar TS setup failed");
@@ -884,7 +884,7 @@ int main()
     bundle_builder.set("right", Value{Int{53}});
     TSOutput bundle_output{*bundle_meta};
     {
-        auto mutation = bundle_output.begin_mutation(MIN_ST);
+        auto mutation = bundle_output.view(MIN_ST).begin_mutation(MIN_ST);
         if (!mutation.move_value_from(bundle_builder.build()))
         {
             throw std::runtime_error("composite TS setup failed");
@@ -1021,7 +1021,7 @@ int main()
     Value dynamic_source = dynamic_source_builder.build();
     TSOutput dynamic_output{dynamic_list_meta};
     {
-        auto mutation = dynamic_output.begin_mutation(MIN_ST);
+        auto mutation = dynamic_output.view(MIN_ST).begin_mutation(MIN_ST);
         if (!mutation.copy_value_from(dynamic_source.view()))
             throw std::runtime_error("dynamic TSL setup failed");
     }
@@ -1040,8 +1040,9 @@ int main()
         "dynamic_tsl_construct_grow_four", 1000, samples, warmup,
         [&] {
             TSOutput output{dynamic_list_meta};
-            auto mutation = output.begin_mutation(
-                MIN_ST + TimeDelta{static_cast<TimeDelta::rep>(++dynamic_construct_time)});
+            const auto mutation_time =
+                MIN_ST + TimeDelta{static_cast<TimeDelta::rep>(++dynamic_construct_time)};
+            auto mutation = output.view(mutation_time).begin_mutation(mutation_time);
             if (!mutation.copy_value_from(dynamic_source.view()))
                 throw std::runtime_error("dynamic TSL construct/grow failed");
             return static_cast<std::uint64_t>(output.data_view().indexed_child_count());

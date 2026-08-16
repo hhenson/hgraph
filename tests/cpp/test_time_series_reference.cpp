@@ -62,7 +62,7 @@ namespace
     void set_output_value(hgraph::TSOutput &output, int value, hgraph::DateTime time)
     {
         hgraph::Value stored{value};
-        auto          mutation = output.begin_mutation(time);
+        auto mutation = output.view(time).begin_mutation(time);
         REQUIRE(mutation.copy_value_from(stored.view()));
     }
 
@@ -71,7 +71,7 @@ namespace
                               hgraph::DateTime time)
     {
         hgraph::Value stored{std::move(reference)};
-        auto          mutation = output.begin_mutation(time);
+        auto mutation = output.view(time).begin_mutation(time);
         REQUIRE(mutation.copy_value_from(stored.view()));
     }
 
@@ -390,7 +390,7 @@ TEST_CASE("TimeSeriesReference: target link negotiates output as REF alternative
     Value    value{17};
     const auto t1 = MIN_ST;
     {
-        auto mutation = target.begin_mutation(t1);
+        auto mutation = target.view(t1).begin_mutation(t1);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 
@@ -414,7 +414,7 @@ TEST_CASE("TimeSeriesReference: target link negotiates output as REF alternative
     Value next_value{18};
     const auto t2 = t1 + TimeDelta{1};
     {
-        auto mutation = target.begin_mutation(t2);
+        auto mutation = target.view(t2).begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(next_value.view()));
     }
 
@@ -445,7 +445,7 @@ TEST_CASE("TimeSeriesReference: to-REF alternative samples at bind time and igno
     TSOutput target{*ts_int};
     {
         Value value{17};
-        auto  mutation = target.begin_mutation(MIN_ST);
+        auto mutation = target.view(MIN_ST).begin_mutation(MIN_ST);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 
@@ -466,7 +466,7 @@ TEST_CASE("TimeSeriesReference: to-REF alternative samples at bind time and igno
     const auto source_tick_time = bind_time + TimeDelta{1};
     {
         Value value{18};
-        auto  mutation = target.begin_mutation(source_tick_time);
+        auto mutation = target.view(source_tick_time).begin_mutation(source_tick_time);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 

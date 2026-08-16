@@ -67,7 +67,7 @@ namespace
     void set_output(hgraph::TSOutput &output, int value, hgraph::DateTime time)
     {
         hgraph::Value wrapped{value};
-        auto mutation = output.begin_mutation(time);
+        auto mutation = output.view(time).begin_mutation(time);
         REQUIRE(mutation.copy_value_from(wrapped.view()));
     }
 
