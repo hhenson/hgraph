@@ -108,6 +108,12 @@ Terminology
 ``input watermark``
    The greatest journal sequence whose effect is included in a checkpoint.
 
+``non-binding run contract``
+   The run-manifest fields other than the concrete ``BindingManifest`` values:
+   graph identity, executor semantics, logical bounds, seeds, and other
+   reproducibility inputs.  These fields remain exact even when a checkpoint
+   permits contract-compatible resource substitution.
+
 ``semantic state``
    State which changes future graph outputs and cannot be reconstructed from
    checkpointed values and immutable configuration alone.
@@ -138,7 +144,9 @@ A checkpointable deterministic run must satisfy all of:
 * every dynamic graph owner can capture and restore its live slot topology;
 * every external sink declares replay suppression, idempotency, or transactional
   checkpoint coordination; and
-* the graph, binding, extension, and run manifests are serializable and exact.
+* the graph, extension, and non-binding run contract are serializable and
+  exact, and every binding declares whether checkpoint attachment requires
+  ``Contract`` or ``Reproducible`` compatibility from RFC 0022.
 
 Determinism is a contract, not something core can prove for arbitrary user
 code.  A node or extension which reads an undeclared process resource may still
@@ -330,7 +338,9 @@ application code against live node views:
 
 1. Rebuild the graph through ordinary wiring and resolve external binding
    descriptors without starting delivery.
-2. Validate graph and run manifests exactly.
+2. Validate the graph manifest and non-binding run contract exactly, then
+   validate each restored binding at the ``Contract`` or ``Reproducible``
+   level recorded by the checkpoint.
 3. Allocate root/static storage and establish static edge ownership.
 4. Enter restore mode and reconstruct dynamic child slots in parent-before-child
    order.
@@ -407,11 +417,21 @@ The journal begins with an image for every boundary input or with an explicit
 invalid/empty declaration.  Subsequent entries use RFC 0017 canonical deltas.
 An input schema or graph manifest mismatch is an attach error.
 
+Entries are packed into immutable, content-addressed segments.  Each segment
+manifest records its inclusive sequence range, payload object id and checksum,
+and the preceding segment-manifest id.  Its id therefore selects one exact
+parent-linked journal lineage; recovery never discovers a journal by listing
+all objects bearing the run id or by selecting every segment whose sequence
+number falls in a range.  Objects written by a fenced writer may remain until
+garbage collection, but they are unreachable from the selected lineage and
+cannot introduce a duplicate sequence during recovery.
+
 For recoverable mode, a canonical input event is durable before its output
 mutation becomes visible to the graph.  Backends may batch/group-commit several
-events, but the graph cannot advance their durable watermark until the batch is
-committed.  A lower-durability diagnostic recording mode may acknowledge
-earlier, but it cannot be advertised as recoverable.
+events, but the graph cannot advance their durable watermark until the segment
+and the run-head update selecting that segment are both committed.  A
+lower-durability diagnostic recording mode may acknowledge earlier, but it
+cannot be advertised as recoverable.
 
 Replay replaces external source publication.  It applies all entries sharing a
 cycle under the recorded engine time and preserves the recorded source/ordinal
@@ -444,24 +464,31 @@ objects:
 
 .. code-block:: text
 
-   CheckpointManifest
-     format version
+   CheckpointEnvelope
      checkpoint id
-     parent checkpoint id (optional)
-     run/version id
-     graph manifest descriptor + id
-     run manifest descriptor + id
-     checkpoint engine time and cycle id
-     last applied input sequence
-     endpoint/node/topology part index
-     part schema descriptors, sizes, and checksums
-     completion metadata
+     manifest: CheckpointManifest
+       format version
+       parent checkpoint id (optional)
+       run/version id
+       graph manifest descriptor + id
+       source run manifest descriptor + id (provenance)
+       binding compatibility requirement per external binding
+       checkpoint engine time and cycle id
+       last applied input sequence
+       input-journal lineage root + head ids
+       endpoint/node/topology part index
+       part schema descriptors, sizes, and checksums
+       completion metadata
 
-The checkpoint id is a digest of the canonical manifest excluding mutable
-publication metadata.  Each part is addressed by digest and may be shared with
-an earlier checkpoint when unchanged.  A checkpoint manifest is logically
-complete even when most of its parts are inherited/reused.  Readers never have
-to guess whether an omitted endpoint means unchanged, invalid, or forgotten.
+The checkpoint id is the digest of the canonical inner
+``CheckpointManifest``.  The envelope's checkpoint-id field is omitted from the
+digest input by construction.  Decoders recompute and verify it; there is no
+self-referential fixed-point requirement.  Publication metadata outside the
+immutable descriptor does not contribute to the id.  Each part is addressed by
+digest and may be shared with an earlier checkpoint when unchanged.  A
+checkpoint manifest is logically complete even when most of its parts are
+inherited/reused.  Readers never have to guess whether an omitted endpoint
+means unchanged, invalid, or forgotten.
 
 An initial implementation may write a complete physical image every time.
 Incremental physical checkpoints follow without changing restore semantics:
@@ -471,9 +498,12 @@ Incremental physical checkpoints follow without changing restore semantics:
 * a new manifest references old unchanged objects and new changed objects; and
 * periodic compaction may publish a physically self-contained checkpoint.
 
-Input-log segments identify their inclusive sequence range and engine-time
-bounds.  A checkpoint's watermark must be durable in the journal before the
-checkpoint manifest becomes complete.
+Input-log segment manifests identify their inclusive sequence range,
+engine-time bounds, payload digest, and parent segment.  The checkpoint's
+journal head transitively selects every exact segment through its watermark;
+the head's ending sequence must equal ``last applied input sequence``.  That
+lineage must already be durably published before the checkpoint manifest
+becomes complete.
 
 Durable checkpoint store
 ------------------------
@@ -501,34 +531,56 @@ Arrow frames are interoperable analytical objects; checkpoint objects are
 versioned binary state and atomic lineage references.
 
 Store implementations guarantee whole-object visibility.  They do not provide
-a multi-object transaction.  The writer obtains equivalent semantics by:
+a multi-object transaction.  A named run reference points to an immutable
+``RunHeadManifest`` containing the run id, previous published-head id, selected
+journal-lineage head and last sequence, and latest complete checkpoint id.  The
+run reference never points directly to an unqualified segment or checkpoint.
 
-1. writing content-addressed state parts and journal segments;
-2. writing the immutable checkpoint manifest last; and
-3. conditionally advancing a named run head to that manifest.
+Journal publication is:
 
-A crash before step 2 leaves unreachable objects, never a partial checkpoint.
-A crash before step 3 leaves a complete checkpoint discoverable by id but not
-the run's published head.  Garbage collection removes unreachable objects only
-after a retention grace period.
+1. write the content-addressed payload and segment manifest, whose parent is the
+   journal head in the expected published run head;
+2. write a new immutable ``RunHeadManifest`` selecting that segment and
+   retaining the latest complete checkpoint; and
+3. conditionally advance the named run reference from the expected published
+   head to the new one.
 
-The conditional head update provides writer fencing.  Concurrent writers from
-the same expected head cannot both publish divergent successors without the
-loser observing failure and choosing a new run/version.  RFC 0021's version and
-continued-recording model is revised to use these run ids, parent links, and
-published heads.
+Only step 3 advances the graph's durable input watermark.  Concurrent writers
+from the same expected head cannot publish different journal successors: the
+loser is fenced and must stop or choose a new run/version.  Its immutable
+objects are unreachable and ignored by recovery.
+
+Checkpoint publication first writes the content-addressed state parts and then
+the immutable checkpoint manifest, which references the journal head at the
+captured cut.  The run publisher then writes and conditionally publishes a new
+``RunHeadManifest`` that retains the current selected journal head and points to
+the new checkpoint.  The captured journal head must be an ancestor of that
+current head, allowing journal publication to continue while checkpoint bytes
+are encoded.  A single per-run publisher serializes these metadata updates; a
+CAS retry may rebase only onto a descendant in the same selected journal
+lineage.
+
+A crash before an immutable manifest write leaves unreachable objects, never a
+partial checkpoint or journal.  A crash before the run-reference CAS leaves a
+complete object discoverable by id but outside the selected run lineage.
+Garbage collection removes unreachable objects only after a retention grace
+period.  RFC 0021's version and continued-recording model is revised to use
+these run ids, parent links, and published heads.
 
 Recovery selection and retention
 --------------------------------
 
-Normal recovery selects the latest published complete checkpoint whose graph
-and run manifests validate, then applies journal entries in
-``(checkpoint_watermark, target_watermark]``.  "Latest" is published lineage
-order, not wall-clock time or the maximum engine time.
+Normal recovery starts from one named run reference and follows only its
+``RunHeadManifest`` ancestry.  It selects the latest referenced complete
+checkpoint whose graph, non-binding run contract, and binding requirements
+validate, then follows the selected parent-linked journal lineage and applies
+entries in ``(checkpoint_watermark, target_watermark]``.  Prefix listing is
+never a recovery-selection mechanism.  "Latest" is published lineage order,
+not wall-clock time or the maximum engine time.
 
 Retention is manifest reachability:
 
-* retain every published run head required by policy;
+* retain every published run-head manifest required by policy;
 * retain checkpoint manifests reachable from those heads;
 * retain every state part and journal segment referenced by those manifests;
 * do not delete deltas following a checkpoint until a retained successor covers
@@ -664,11 +716,14 @@ The feature is additive.  Existing component record/replay, ``FrameStore``,
 table recordings, and JSON serialization retain their contracts.  A component
 may continue to record/compare selected values inside a checkpointed graph.
 
-The initial restore contract is exact graph/run manifest equality.  Checkpoint
-format version, graph migration, endpoint schema migration, and recording/run
-lineage are distinct version axes.  A future migration names exact source and
-target manifest ids and transforms a decoded checkpoint before quiet import.
-There is no implicit widening or best-effort partial restore.
+The initial restore contract requires exact graph identity and exact equality
+for non-binding run semantics.  The checkpoint records whether each external
+binding requires RFC 0022 ``Contract`` or ``Reproducible`` compatibility; a
+replacement locator is accepted only at the former level.  Checkpoint format
+version, graph migration, endpoint schema migration, and recording/run lineage
+are distinct version axes.  A future migration names exact source and target
+manifest ids and transforms a decoded checkpoint before quiet import.  There
+is no implicit schema widening or best-effort partial restore.
 
 RFC 0017 stream images remain appropriate for convergence of one transported
 endpoint.  Graph checkpoint images add runtime metadata and binding topology;
@@ -756,8 +811,16 @@ Acceptance criteria
 * Multiple input ports at the same engine time replay in the same cycle and
   deterministic ordinal order.  A missing, duplicate-unequal, or corrupt entry
   is refused.
+* Two writers attempting different journal successors from the same published
+  run head produce one selected successor.  Recovery follows only that exact
+  segment lineage and ignores the fenced writer's unreachable objects.
 * Loading a checkpoint at watermark ``N`` and replaying ``N+1..M`` agrees with
   replaying the journal from its initial images through ``M``.
+* A checkpoint id is reproducible by encoding its canonical manifest with the
+  id field omitted; altering any included field changes the verified id.
+* A contract-compatible replacement binding with a different resource locator
+  attaches when the checkpoint requires ``Contract`` compatibility and is
+  rejected when it requires ``Reproducible`` compatibility.
 * Each source replay/live handoff has no lost or duplicated boundary event,
   including concurrent real-time ingress during checkpoint persistence.
 * Crash injection before every part, manifest, and head write exposes either
