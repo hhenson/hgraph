@@ -430,6 +430,14 @@ was in, rather than in an equivalent-looking one. That is a larger piece of work
 and belongs in its own RFC; it is recorded here because it is the reason to
 preserve holes rather than compact, and that decision has to be made now.
 
+That graph-level contract is proposed by
+:doc:`rfc_0022_serializable_graph_manifest` and
+:doc:`rfc_0023_graph_checkpoint_recovery`. This RFC remains responsible for
+canonical schema descriptors, value images, and time-series delta framing.
+The checkpoint RFC adds graph topology, owned endpoint metadata, schedules,
+recordable state, references, and restore lifecycle; those are not extensions
+to the endpoint transport frame defined here.
+
 Schema identity
 ---------------
 
@@ -736,6 +744,10 @@ References
   transport shape.
 * RFC 0015 — Kafka extension API; the first test bed.
 * RFC 0016 — object-store frame persistence; a delta-log consumer.
+* :doc:`rfc_0022_serializable_graph_manifest` — graph, binding, and run
+  identity.
+* :doc:`rfc_0023_graph_checkpoint_recovery` — running-graph checkpoint and
+  restore semantics.
 * ``include/hgraph/types/time_series/ts_delta.h`` — the delta model this codec
   encodes.
 * ``include/hgraph/types/value/json_codec.h`` — the converter pattern mirrored
