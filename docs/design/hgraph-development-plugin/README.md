@@ -57,6 +57,16 @@ into three outputs, while dim cobalt branches terminate as time-faded dangling
 edges. The coral active path remains traceable from its input through the
 directed acyclic topology.
 
+## 08 — Transforming joins
+
+![Transforming joins](08-transforming-joins.png)
+
+Three grounded input colours converge and terminate at a violet transformation
+node, from which a new violet result emerges. A separate violet split preserves
+that result's identity, while a later join consumes violet and retained input
+branches to produce a single gold result. The topology therefore reduces three
+inputs to two outputs and distinguishes computation from paths merely touching.
+
 ## Generation notes
 
 All concepts were generated with the built-in image tool using the active logo
