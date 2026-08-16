@@ -1708,7 +1708,9 @@ owned_value_cache() noexcept {
 
 [[nodiscard]] const OwnedValueEntry &
 owned_value_entry(const ValueTypeMetaData &schema) {
-  return *owned_value_cache().intern(
+  // intern_serialized: the entry ctor interns a TypeRecord pointing at
+  // itself, so a racing loser must never be constructed and destroyed.
+  return *owned_value_cache().intern_serialized(
       &schema, [&] { return std::make_unique<OwnedValueEntry>(schema); });
 }
 
@@ -1783,12 +1785,14 @@ struct RealizedCompositeCache {
   [[nodiscard]] ValueTypeRef get(const ValueTypeMetaData &schema,
                                  std::vector<ValueTypeRef> fields) {
     RealizedCompositeKey key{&schema, std::move(fields)};
+    // intern_serialized: the entry ctor interns a TypeRecord pointing at
+    // itself, so a racing loser must never be constructed and destroyed.
     return table
-        .intern(key,
-                [&] {
-                  return std::make_unique<RealizedCompositeEntry>(schema,
-                                                                  key.fields);
-                })
+        .intern_serialized(key,
+                           [&] {
+                             return std::make_unique<RealizedCompositeEntry>(
+                                 schema, key.fields);
+                           })
         ->binding;
   }
 
@@ -2245,9 +2249,12 @@ python_retained_bindings() noexcept {
 
 [[nodiscard]] ValueTypeRef
 python_retained_binding_for(const ValueTypeMetaData *schema) {
+  // intern_serialized: the entry ctor interns a TypeRecord pointing at
+  // itself, so a racing loser must never be constructed and destroyed.
   return python_retained_bindings()
-      .intern(schema,
-              [&] { return std::make_unique<PythonRetainedBindingEntry>(schema); })
+      .intern_serialized(
+          schema,
+          [&] { return std::make_unique<PythonRetainedBindingEntry>(schema); })
       ->binding;
 }
 
