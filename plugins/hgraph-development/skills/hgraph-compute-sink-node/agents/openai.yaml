@@ -1,0 +1,4 @@
+interface:
+  display_name: "HGraph Compute and Sink Nodes"
+  short_description: "Build efficient C++ compute and sink nodes"
+  default_prompt: "Use $hgraph-compute-sink-node to implement or review this HGraph C++ compute or sink node."

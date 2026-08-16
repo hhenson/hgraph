@@ -83,3 +83,5 @@ against a real runtime by `sphinx-build -b doctest`, which needs an importable
 - [`CLAUDE.md`](CLAUDE.md) — the operational working guide: the enforced
   design-first workflow (docs change in the same commit as code), guardrails,
   architecture map, and current state.
+- [`plugins/hgraph-development/`](plugins/hgraph-development/) — installable
+  hgraph development skills for downstream Codex and Claude projects.

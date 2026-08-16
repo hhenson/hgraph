@@ -1,0 +1,4 @@
+interface:
+  display_name: "HGraph Graph Authoring"
+  short_description: "Compose typed HGraph behavior at wiring time"
+  default_prompt: "Use $hgraph-write-graphs to implement or review this HGraph graph composition."
