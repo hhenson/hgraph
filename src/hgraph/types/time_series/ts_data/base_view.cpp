@@ -354,6 +354,11 @@ void TSDataView::bind_parent(const TSDataView &parent,
     throw std::logic_error(
         "TSDataView child requires mutable parent TSData ops");
   }
+  // NOTE (audit O10, falsified 2026-08-16): skipping this store when the
+  // existing link already matches segfaults map/context wiring — slot
+  // stores run destroy-only lifecycles, so a reused slot's tracking bytes
+  // are not safe to probe before the re-stamp. The unconditional store is
+  // load-bearing; do not "optimise" it again without a failing test first.
   mutable_tracking().parent =
       TSParentLink{parent.storage_type(), parent.data(), child_id};
 }

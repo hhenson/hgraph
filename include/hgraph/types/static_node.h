@@ -1313,18 +1313,30 @@ namespace hgraph
         /** Add ``key`` to the set; returns whether the set delta changed. */
         bool add(const TValue &key) const
         {
-            auto mutation = TSSOutputView::begin_mutation(evaluation_time());
+            auto &mutation = this->mutation();
             return mutation.add(ValueView{mutation.layout().key_binding, &key});
         }
         /** Remove ``key`` from the set; returns whether the set delta changed. */
         bool remove(const TValue &key) const
         {
-            auto mutation = TSSOutputView::begin_mutation(evaluation_time());
+            auto &mutation = this->mutation();
             return mutation.remove(ValueView{mutation.layout().key_binding, &key});
         }
         /** Remove all elements. */
-        void clear() const { TSSOutputView::begin_mutation(evaluation_time()).clear(); }
+        void clear() const { this->mutation().clear(); }
         // modified() / valid() / evaluation_time() inherited from TSSOutputView.
+
+      private:
+        /** One mutation scope per selector (audit O3): scope validation and
+            the container-kind revalidation run once per invocation instead of
+            per call; marking is idempotent and the scope has no close action,
+            so holding it across the eval is semantics-identical. */
+        [[nodiscard]] TSSDataMutationView &mutation() const
+        {
+            if (!mutation_) { mutation_.emplace(TSSOutputView::begin_mutation(evaluation_time())); }
+            return *mutation_;
+        }
+        mutable std::optional<TSSDataMutationView> mutation_{};
     };
 
     /**
@@ -1396,8 +1408,8 @@ namespace hgraph
 
         [[nodiscard]] Out<TValueSchema> at(const TKey &key) const
         {
-            auto mutation = TSDOutputView::begin_mutation(evaluation_time());
-            auto child    = mutation.at(ValueView{mutation.layout().key_binding, &key});
+            auto &mutation = this->mutation();
+            auto  child    = mutation.at(ValueView{mutation.layout().key_binding, &key});
             return Out<TValueSchema>{TSOutputView{base().output(), child, evaluation_time()}, evaluation_time()};
         }
         [[nodiscard]] Out<TValueSchema> operator[](const TKey &key) const { return at(key); }
@@ -1413,12 +1425,12 @@ namespace hgraph
         /** Remove ``key`` if it is live; same-cycle additions are cancelled by the slot protocol. */
         [[nodiscard]] bool erase(const TKey &key) const
         {
-            auto mutation = TSDOutputView::begin_mutation(evaluation_time());
+            auto &mutation = this->mutation();
             return mutation.erase(ValueView{mutation.layout().key_binding, &key});
         }
 
         /** Remove every live entry while retaining slots until normal end-of-cycle cleanup. */
-        void clear() const { TSDOutputView::begin_mutation(evaluation_time()).clear(); }
+        void clear() const { this->mutation().clear(); }
 
         [[nodiscard]] Range<Out<TValueSchema>> values() const
         {
@@ -1497,6 +1509,18 @@ namespace hgraph
             return KeyValueRange<ValueView, Out<TValueSchema>>{.context = nullptr, .memory = nullptr, .limit = 0,
                                                                .predicate = nullptr, .projector = nullptr};
         }
+
+      private:
+        /** One mutation scope per selector (audit O3): scope validation and
+            the container-kind revalidation run once per invocation instead of
+            per call; marking is idempotent and the scope has no close action,
+            so holding it across the eval is semantics-identical. */
+        [[nodiscard]] TSDDataMutationView &mutation() const
+        {
+            if (!mutation_) { mutation_.emplace(TSDOutputView::begin_mutation(evaluation_time())); }
+            return *mutation_;
+        }
+        mutable std::optional<TSDDataMutationView> mutation_{};
     };
 
     /**
