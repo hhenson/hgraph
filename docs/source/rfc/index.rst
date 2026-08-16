@@ -37,3 +37,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0021_recording_versions
    rfc_0022_serializable_graph_manifest
    rfc_0023_graph_checkpoint_recovery
+   rfc_0024_web_extension_api
