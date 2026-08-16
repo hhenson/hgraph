@@ -175,7 +175,6 @@ namespace hgraph::ts_data_detail
         {
             return {};
         }
-        void sentinel_slot_observer(const void *, void *, SlotObserver *) noexcept {}
         TSRoleTypeRef sentinel_child_binding_at_slot(const void *, const void *, std::size_t) noexcept
         {
             return {};
@@ -203,8 +202,9 @@ namespace hgraph::ts_data_detail
             table.make_values_range_impl          = &sentinel_value_range;
             table.make_added_values_range_impl    = &sentinel_value_range;
             table.make_removed_values_range_impl  = &sentinel_value_range;
-            table.subscribe_slot_observer_impl    = &sentinel_slot_observer;
-            table.unsubscribe_slot_observer_impl  = &sentinel_slot_observer;
+            // Subscription is a side effect, not an empty-value read: silently
+            // discarding it on an unbound view would lose notifications, so
+            // the throwing defaults stay installed (review finding on #492).
         }
     }  // namespace
 

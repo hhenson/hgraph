@@ -78,7 +78,10 @@ namespace hgraph
 
     bool TSWDataView::duration_based() const noexcept
     {
-        return schema()->is_duration_based();
+        // Sentinel contract: an unbound view has no schema and answers the
+        // never-ticked value rather than dereferencing null (#492 review).
+        const auto *view_schema = schema();
+        return view_schema != nullptr && view_schema->is_duration_based();
     }
 
     bool TSWDataView::size_based() const noexcept
@@ -93,21 +96,27 @@ namespace hgraph
 
     std::size_t TSWDataView::period() const
     {
+        // Unbound: the sentinel's generic layout must not be downcast to the
+        // derived window layouts — metadata answers empty (#492 review).
+        if (!storage_.has_value()) { return 0; }
         return size_layout().period;
     }
 
     std::size_t TSWDataView::min_period() const
     {
+        if (!storage_.has_value()) { return 0; }
         return size_layout().min_period;
     }
 
     TimeDelta TSWDataView::time_range() const
     {
+        if (!storage_.has_value()) { return TimeDelta{}; }
         return time_layout().time_range;
     }
 
     TimeDelta TSWDataView::min_time_range() const
     {
+        if (!storage_.has_value()) { return TimeDelta{}; }
         return time_layout().min_time_range;
     }
 

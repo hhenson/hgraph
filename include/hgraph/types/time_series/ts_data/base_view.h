@@ -121,13 +121,15 @@ namespace hgraph
         static void validate_kind(TSDataStorageRef<> storage, TSTypeKind expected_kind)
             requires(!std::same_as<DataOps, TSDataOps>)
         {
-            // Unbound is legal: the typed view dispatches into the family's
-            // no-value sentinel. A BOUND ref of the wrong kind is still a
-            // programming error.
-            if (!storage.has_value()) { return; }
-
-            const auto &base_ops = storage.ops();
-            if (base_ops.kind != expected_kind)
+            // A wholly unbound ref (no type) dispatches into the family's
+            // no-value sentinel. A ref that CARRIES a type — even with null
+            // data, e.g. a dict's bound element type for an absent key —
+            // validates against that type: casting a bound atomic child
+            // as_dict() is a programming error whether or not data is
+            // present (review finding on #492).
+            const auto type = storage.storage_type();
+            if (!type) { return; }
+            if (type.ops_ref().kind != expected_kind)
             {
                 throw std::invalid_argument("TSDataStorageRef requires the matching TSData ops kind");
             }
