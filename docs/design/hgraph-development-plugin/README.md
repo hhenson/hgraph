@@ -38,6 +38,15 @@ junctions and angular paths.
 Three anchored ports in a solid data manifold feed a rigid lowercase `h`. This
 is the most grounded and legible direction, with a more engineered character.
 
+## 06 — Soft branch and join
+
+![Soft branch and join](06-soft-branch-and-join.png)
+
+The grounded three-port manifold remains, while rounded rails split and
+reconverge through smaller luminous graph nodes. The coral timeline crosses a
+separate path and joins the cyan topology, making fan-out and fan-in explicit
+without returning to the organic tree treatment.
+
 ## Generation notes
 
 All concepts were generated with the built-in image tool using the active logo
