@@ -98,6 +98,14 @@ namespace hgraph
         HGRAPH_EXPORT void missing_subscribe_slot_observer(const void *, void *, SlotObserver *);
         HGRAPH_EXPORT void missing_unsubscribe_slot_observer(const void *, void *, SlotObserver *);
         [[nodiscard]] HGRAPH_EXPORT const void *missing_child_at_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_window_size(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_window_element(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT DateTime missing_window_time(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT const void *missing_window_time_element(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t missing_window_capacity(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT bool missing_window_full(const void *, const void *);
+        HGRAPH_EXPORT void missing_window_push(const void *, void *, const ValueView &, DateTime);
+        HGRAPH_EXPORT void missing_window_clear(const void *, void *, DateTime);
 
         [[nodiscard]] Value empty_delta_atomic(const TSRoleTypeRef &binding);
         [[nodiscard]] Value empty_delta_tss(const TSRoleTypeRef &binding);
@@ -176,6 +184,12 @@ namespace hgraph
         // copy_value_from_impl, which owns their invalidation rules. Gates
         // TSDataMutationView::mutable_value() — the typed fast-write path.
         bool        direct_native_value{false};
+        // True only for the input-side target-link alias tables, which own no
+        // payload and forward to the bound target. The explicit flag is the
+        // discriminator target_link_context_for_ops keys on; it replaced a
+        // fragile ownership-ops pointer-identity comparison (audit finding,
+        // 2026-08-16).
+        bool        is_target_link{false};
         const detail::TSDataOwnershipOps *ownership_ops{nullptr};
         const TSDataInspectionOps *inspection_ops{
             &ts_data_detail::empty_inspection_ops()};
@@ -399,15 +413,27 @@ namespace hgraph
 
     struct TSWDataOps : TSDataOps
     {
-        std::size_t (*size_impl)(const void *context, const void *memory) = nullptr;
-        const void *(*element_at_impl)(const void *context, const void *memory, std::size_t index) = nullptr;
-        DateTime (*time_at_impl)(const void *context, const void *memory, std::size_t index) = nullptr;
-        const void *(*time_element_at_impl)(const void *context, const void *memory, std::size_t index) = nullptr;
-        std::size_t (*capacity_impl)(const void *context, const void *memory) = nullptr;
-        bool (*full_impl)(const void *context, const void *memory) = nullptr;
+        // Required window surface: defaults throw with the member's name so a
+        // strategy that forgets an install fails loudly instead of crashing
+        // through a null fn-ptr (audit finding, 2026-08-16).
+        std::size_t (*size_impl)(const void *context,
+                                 const void *memory) = &ts_data_detail::missing_window_size;
+        const void *(*element_at_impl)(const void *context, const void *memory,
+                                       std::size_t index) = &ts_data_detail::missing_window_element;
+        DateTime (*time_at_impl)(const void *context, const void *memory,
+                                 std::size_t index) = &ts_data_detail::missing_window_time;
+        const void *(*time_element_at_impl)(const void *context, const void *memory,
+                                            std::size_t index) = &ts_data_detail::missing_window_time_element;
+        std::size_t (*capacity_impl)(const void *context,
+                                     const void *memory) = &ts_data_detail::missing_window_capacity;
+        bool (*full_impl)(const void *context, const void *memory) = &ts_data_detail::missing_window_full;
         void (*push_impl)(const void *context, void *memory, const ValueView &source,
-                          DateTime modified_time) = nullptr;
-        void (*clear_impl)(const void *context, void *memory, DateTime modified_time) = nullptr;
+                          DateTime modified_time) = &ts_data_detail::missing_window_push;
+        void (*clear_impl)(const void *context, void *memory,
+                           DateTime modified_time) = &ts_data_detail::missing_window_clear;
+        // Optional capabilities: null means the strategy does not track the
+        // fact, and the window views degrade gracefully (no cleared/evicted
+        // reporting). Same null-slot idiom as ValueOps optional hooks.
         DateTime (*cleared_time_impl)(const void *context, const void *memory) = nullptr;
         // The element most recently EVICTED by a push (hgraph's
         // removed_value): the time it fell out plus its value memory

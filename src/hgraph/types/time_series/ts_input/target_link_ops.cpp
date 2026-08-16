@@ -1257,6 +1257,7 @@ namespace hgraph::detail
                 .context                   = &context,
                 .kind                      = context.schema->kind,
                 .allows_mutation           = true,
+                .is_target_link            = true,
                 .ownership_ops             = &target_link_ownership_ops(),
                 .current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(context.schema->kind),
@@ -1569,7 +1570,7 @@ namespace hgraph::detail
 
     const TSInputTargetLinkContext *target_link_context_for_ops(const TSDataOps *ops) noexcept
     {
-        return ops != nullptr && ops->ownership_ops == &target_link_ownership_ops()
+        return ops != nullptr && ops->is_target_link
                    ? static_cast<const TSInputTargetLinkContext *>(ops->context)
                    : nullptr;
     }

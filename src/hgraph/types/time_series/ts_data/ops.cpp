@@ -324,4 +324,32 @@ namespace hgraph::ts_data_detail
     {
         missing_ts_data_op("child at slot");
     }
+
+    std::size_t missing_window_size(const void *, const void *) { missing_ts_data_op("window size"); }
+
+    const void *missing_window_element(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window element");
+    }
+
+    DateTime missing_window_time(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window element time");
+    }
+
+    const void *missing_window_time_element(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window time element");
+    }
+
+    std::size_t missing_window_capacity(const void *, const void *) { missing_ts_data_op("window capacity"); }
+
+    bool missing_window_full(const void *, const void *) { missing_ts_data_op("window full"); }
+
+    void missing_window_push(const void *, void *, const ValueView &, DateTime)
+    {
+        missing_ts_data_op("window push");
+    }
+
+    void missing_window_clear(const void *, void *, DateTime) { missing_ts_data_op("window clear"); }
 }  // namespace hgraph::ts_data_detail
