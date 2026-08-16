@@ -1,6 +1,6 @@
 ---
 name: hgraph-compute-sink-node
-description: Implement or review C++ hgraph compute nodes, sink nodes, algorithms, and concrete operator-node specializations. Use when adding or changing a static node `eval`, lifecycle hooks, local or recordable state, REF usage, incremental or windowed algorithms, operator strategy selection or overload registration, type-erased node strategy, node naming, complexity documentation, or native/Python behavioral tests for a compute or sink node.
+description: Implement or review C++ hgraph compute nodes, sink nodes, algorithms, and concrete operator-node specializations. Use when adding or changing a static node `eval`, lifecycle hooks, local or recordable state, REF usage, incremental or windowed algorithms, input-type branching, operator strategy selection or overload registration, type-erased node strategy, node naming, complexity documentation, or native/Python behavioral tests for a compute or sink node.
 ---
 
 # HGraph Compute and Sink Nodes
@@ -54,6 +54,34 @@ Treat `eval` as the hot path. Leave only work that depends on the current tick.
 
 If expensive work appears unavoidable, state why, inspect neighboring hot-path
 code, and add focused performance evidence for a material regression risk.
+
+## Select input types through operators
+
+Treat an `if`/`else`, `switch`, schema-kind test, RTTI check, or visitor branch
+that chooses node behaviour from an input's type as a design signal: stop and
+make the alternatives operator overloads. Wiring already knows the concrete
+input schemas, so select the implementation once there instead of rediscovering
+the type during `start` or on every `eval`.
+
+- If an operator already describes the behaviour, implement and register a
+  more-specific node or graph overload.
+- If no operator exists, introduce an implementation-free operator contract,
+  then register the concrete implementations under it. Follow
+  `../hgraph-write-operators/SKILL.md`.
+- Keep each node signature as specific as its implementation. Template shared
+  code where useful, but register the concrete instances that wiring should
+  choose.
+- Use a wiring-time scalar value and overload `requires_` predicate when a
+  fixed policy selects an implementation. Do not carry that choice into the
+  hot path.
+- Use runtime switching only when the selecting value is itself time-series
+  data and the contract genuinely permits the implementation choice to change
+  while the graph runs.
+
+Do not hide semantic type selection inside an erased helper or plan. An erased
+ops-table may dispatch representation mechanics at a required abstraction
+boundary; it must not replace the operator registry's wiring-time selection of
+meaningfully different behaviours.
 
 ## Use REF deliberately
 
@@ -140,8 +168,8 @@ make the per-tick implementation typed.
 
 - Template an implementation when its scalar or time-series types vary, and
   use those template parameters to remove runtime conversion and dispatch.
-- Prefer a concrete typed overload over inspecting `TSTypeKind` or a schema in
-  `eval`.
+- Use the operator registry to choose a concrete typed overload instead of
+  inspecting `TSTypeKind`, scalar metadata, or a schema in the node.
 - Select erased representation operations once from immutable wiring or plan
   metadata, then dispatch through the installed ops table.
 - Follow the repository passive ops-table plus explicit erased-ownership
