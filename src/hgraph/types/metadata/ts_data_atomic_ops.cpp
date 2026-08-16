@@ -44,6 +44,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .context                   = &layout,
                 .kind                      = kind,
                 .allows_mutation           = true,
+                .direct_native_value       = value_storage == ValueStorageVariant::Native,
                 .current_state_ops         = &ts_current_state_detail::current_state_ops_for(kind),
                 .layout_impl               = &atomic_layout,
                 .tracking_impl             = &atomic_tracking,

@@ -341,6 +341,17 @@ namespace hgraph
         /** Current value view after any mutations applied through this scope. */
         [[nodiscard]] ValueView value() const;
 
+        /**
+         * Writable view over the current value for typed in-place assignment.
+         * Returns an UNBOUND view unless the installed ops declare
+         * ``direct_native_value`` — storages with representation side rules
+         * (python caches, structural kinds) must write through
+         * ``copy_value_from`` instead. A successful write is committed with
+         * ``mark_modified()``; that pair is the typed fast path behind
+         * ``Out<TS<T>>::set``.
+         */
+        [[nodiscard]] ValueView mutable_value() const;
+
         /** Delta value for ``evaluation_time`` using the underlying TSData semantics. */
         [[nodiscard]] ValueView delta_value(DateTime evaluation_time) const;
 

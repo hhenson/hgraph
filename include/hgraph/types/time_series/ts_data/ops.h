@@ -170,6 +170,13 @@ namespace hgraph
         const void *context{nullptr};
         TSTypeKind  kind{TSTypeKind::TS};
         bool        allows_mutation{false};
+        // True when the current value is a PURE native slot: assigning it in
+        // place (inside an active mutation, followed by mark_modified) keeps
+        // every representation invariant. Python-cached / python-owned
+        // storages and structural kinds leave this false so writes go through
+        // copy_value_from_impl, which owns their invalidation rules. Gates
+        // TSDataMutationView::mutable_value() — the typed fast-write path.
+        bool        direct_native_value{false};
         const detail::TSDataOwnershipOps *ownership_ops{nullptr};
         const TSDataInspectionOps *inspection_ops{
             &ts_data_detail::empty_inspection_ops()};

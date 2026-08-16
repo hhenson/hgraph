@@ -69,6 +69,16 @@ namespace
         return bundle[0].active();
     }
 
+    /** Source whose eval writes through Out<TS<Int>>::set — the typed
+        fast-write probe target. */
+    struct FastWriteProbe
+    {
+        static constexpr auto name              = "audit_fast_write_probe";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<Int>> out) { out.set(Int{7}); }
+    };
+
     [[nodiscard]] NodeView find_recordable_node(const GraphView &graph)
     {
         for (std::size_t index = 0; index < graph.node_count(); ++index)
@@ -253,4 +263,31 @@ TEST_CASE("audit: zero-count take passivates at start and emits nothing")
     graph.stop();
 
     CHECK_OUTPUT(get_recorded_values<Int>(graph.global_state(), "out"), values<Int>());
+}
+
+TEST_CASE("audit: the typed fast write engages for a pure-native scalar output")
+{
+    using namespace hgraph;
+
+    auto node = NodeBuilder{}.label("probe").implementation<FastWriteProbe>().make_node();
+    auto view = node.view();
+    view.start(MIN_ST);
+    view.evaluate(MIN_ST);
+    CHECK(node.view().output(MIN_ST).value().checked_as<Int>() == 7);
+
+    // The property the erased fallback silently hides: mutable_value() must
+    // yield a MUTATION-access typed slot for a pure-native scalar output —
+    // a Writable-tagged view makes try_mutable_as fail and every scalar set
+    // pays the failed probe instead of the fast path (review finding on the
+    // first cut of this change).
+    auto output   = node.view().output(MIN_ST + MIN_TD);
+    auto mutation = output.begin_mutation(MIN_ST + MIN_TD);
+    auto direct   = mutation.mutable_value();
+    REQUIRE(direct.valid());
+    Int *slot = direct.try_mutable_as<Int>();
+    REQUIRE(slot != nullptr);
+    *slot = Int{11};
+    mutation.mark_modified();
+    CHECK(node.view().output(MIN_ST + MIN_TD).value().checked_as<Int>() == 11);
+    CHECK(node.view().output(MIN_ST + MIN_TD).modified());
 }
