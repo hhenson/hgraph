@@ -916,7 +916,9 @@ namespace hgraph
             const bool          scheduled_now = scheduler != nullptr && !scheduler->events.empty() &&
                                        scheduler->events.begin()->first == evaluation_time;
 
-            bool do_eval = ready_to_evaluate(view, evaluation_time);
+            bool do_eval = callbacks(context).input_validity_in_evaluate
+                               ? true
+                               : ready_to_evaluate(view, evaluation_time);
 
             if (do_eval)
             {

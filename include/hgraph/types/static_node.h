@@ -2204,6 +2204,62 @@ namespace hgraph
                 frame)...);
         }
 
+        // ---- gated invoke: build args once, fold In validity, then call ----
+        //
+        // The eval twin of ``invoke``: materialise every argument ONCE, gate
+        // on the input selectors' compile-time validity policies using the
+        // SAME views the hook receives, then apply. Replaces the generic
+        // ``ready_to_evaluate`` slot pass for static nodes, which built and
+        // resolved each slot view a second time per tick (audit O4). The
+        // fold is definitionally identical to the schema gate: valid_inputs /
+        // all_valid_inputs are collected from the same ``E::validity``
+        // constants in the same canonical slot order.
+        template <auto Fn, typename CanonicalArgs, std::size_t... I>
+        void invoke_gated_impl(const NodeView &view,
+                               DateTime evaluation_time,
+                               const detail::PreparedInputSlotRoute *routes,
+                               std::index_sequence<I...>)
+        {
+            using args = typename fn_traits<decltype(Fn)>::args_tuple;
+            StaticNodeInvocationFrame frame{view, evaluation_time, routes};
+            std::tuple<std::tuple_element_t<I, args>...> hook_args{
+                provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(frame)...};
+            const bool inputs_ready =
+                ([&] {
+                    using selector = selector_of<std::tuple_element_t<I, args>>;
+                    if constexpr (is_input_selector<selector>::value)
+                    {
+                        if constexpr (selector::validity == InputValidity::Valid)
+                        {
+                            return std::get<I>(hook_args).valid();
+                        }
+                        else if constexpr (selector::validity == InputValidity::AllValid)
+                        {
+                            return std::get<I>(hook_args).all_valid();
+                        }
+                        else { return true; }
+                    }
+                    else { return true; }
+                }() && ...);
+            if (!inputs_ready) { return; }
+            std::apply(
+                [](auto &&...hook_arg) { Fn(std::forward<decltype(hook_arg)>(hook_arg)...); },
+                std::move(hook_args));
+        }
+
+        template <auto Fn,
+                  typename CanonicalArgs = typename fn_traits<decltype(Fn)>::args_tuple>
+        void invoke_gated(const NodeView &view, DateTime evaluation_time,
+                          const detail::PreparedInputSlotRoute *routes)
+        {
+            using traits = fn_traits<decltype(Fn)>;
+            static_assert(std::is_same_v<typename traits::return_type, void>,
+                          "Static node hooks must return void");
+            invoke_gated_impl<Fn, CanonicalArgs>(
+                view, evaluation_time, routes,
+                std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
+        }
+
         template <auto Fn,
                   typename CanonicalArgs = typename fn_traits<decltype(Fn)>::args_tuple>
         void invoke(const NodeView &view, DateTime evaluation_time,
@@ -3013,9 +3069,10 @@ namespace hgraph
             else
             {
                 callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
-                    invoke<&TImplementation::eval, signature_args>(view, evaluation_time,
-                                                                   prepared_input_routes_for(view));
+                    invoke_gated<&TImplementation::eval, signature_args>(
+                        view, evaluation_time, prepared_input_routes_for(view));
                 };
+                callbacks.input_validity_in_evaluate = true;
                 callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
                     // The user hook runs with the slow path (routes not yet
                     // acquired); a throwing start leaves nothing behind.
