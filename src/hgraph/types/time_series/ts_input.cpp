@@ -3173,4 +3173,25 @@ namespace hgraph
         return active != nullptr && active->active;
     }
 
+    namespace
+    {
+        /** Descend the activity trie along the parent chain: recurse to the
+            root, then take one ``child_at(child_id)`` step per level on the
+            unwind — the same traversal ``active(path)`` performs, without
+            materialising the path vector. */
+        [[nodiscard]] const detail::TSInputActiveTarget *descend_active_trie(
+            const TSParentLink &link, const detail::TSInputActiveTarget *root) noexcept
+        {
+            if (!link.has_ts_data_parent()) { return root; }
+            const auto *parent_node = descend_active_trie(link.parent_link(), root);
+            return parent_node != nullptr ? parent_node->child_at(link.child_id) : nullptr;
+        }
+    }  // namespace
+
+    bool TSInput::active(const TSParentLink &leaf_link) const noexcept
+    {
+        const auto *node = descend_active_trie(leaf_link, active_root_.get());
+        return node != nullptr && node->active;
+    }
+
 }  // namespace hgraph

@@ -189,6 +189,11 @@ namespace hgraph
          */
         [[nodiscard]] std::vector<std::size_t> path_from_root() const;
 
+        /** The next link outward: the parent TSData node's own parent link,
+            or an empty link at the root — the public chain-walking step
+            behind allocation-free path traversals. */
+        [[nodiscard]] TSParentLink parent_link() const;
+
         /** Resolve the root TSData view reached by repeatedly following links. */
         [[nodiscard]] TSDataView root_view() const;
 
