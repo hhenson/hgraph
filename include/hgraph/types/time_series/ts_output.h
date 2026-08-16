@@ -9,7 +9,6 @@
 #include <hgraph/types/time_series/ts_output/bundle_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
 #include <hgraph/types/time_series/ts_output/list_view.h>
-#include <hgraph/types/time_series/ts_output/mutation_view.h>
 #include <hgraph/types/time_series/ts_output/set_view.h>
 #include <hgraph/types/time_series/ts_output/window_view.h>
 
@@ -84,9 +83,6 @@ namespace hgraph
          */
         void release_alternative_subscriptions(DateTime release_time) const noexcept;
 
-        /** Begin a root mutation scope. */
-        [[nodiscard]] TSOutputMutationView begin_mutation(DateTime evaluation_time);
-
         /** Node owner for this endpoint, if it is attached to a runtime graph. */
         [[nodiscard]] NodeView owner_node() const;
         [[nodiscard]] GraphView owner_graph() const;
@@ -94,7 +90,6 @@ namespace hgraph
         void clear_node_parent();
 
       private:
-        friend class TSOutputMutationView;
         friend struct TSParentLink;
         friend void notify_node_endpoint_child_modified(NodePtr             node,
                                                         TSEndpointOwnerPort port,

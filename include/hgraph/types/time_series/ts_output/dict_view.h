@@ -7,7 +7,6 @@ namespace hgraph
 {
     class TSOutput;
     class TSOutputView;
-    class TSOutputMutationView;
     class TSBOutputView;
     class TSLOutputView;
     class TSSOutputView;

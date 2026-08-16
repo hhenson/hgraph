@@ -6,6 +6,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <stdexcept>
@@ -374,6 +375,10 @@ namespace hgraph
         /** True when the underlying TSData was modified at ``evaluation_time``. */
         [[nodiscard]] bool modified(DateTime evaluation_time) const;
 
+        /** True when this scope's storage was modified at the scope's own
+            mutation time (the niladic form the root-mutation API carried). */
+        [[nodiscard]] bool modified() const { return modified(mutation_time_); }
+
         /**
          * Mark this TSData node as modified and notify its parent once.
          *
@@ -411,10 +416,8 @@ namespace hgraph
         [[nodiscard]] void *mutable_data(const TSDataOps &table) const
         {
             require_active_mutation();
-            if (!table.allows_mutation)
-            {
-                throw std::logic_error("TSData mutation requires mutable TSData ops");
-            }
+            assert(table.allows_mutation);
+            static_cast<void>(table);
             return storage_.data();
         }
 
@@ -432,6 +435,12 @@ namespace hgraph
 
         void require_active_mutation() const
         {
+            // Scope LIVENESS stays a runtime guard: the move constructor
+            // clears storage_ and mutation_time_, so a moved-from mutation
+            // view must keep its documented exception in release builds too
+            // (review finding on #488) — two register compares. The
+            // type/mutability validation, by contrast, is immutable for the
+            // scope and trusted after construction (validate_mutation_view).
             if (mutation_time_ == MIN_DT || !storage_.has_value())
             {
                 throw std::logic_error("TSData mutation requires an active mutation scope");

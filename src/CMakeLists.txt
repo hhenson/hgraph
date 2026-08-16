@@ -75,7 +75,6 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/time_series/ts_output/bundle_view.cpp
     hgraph/types/time_series/ts_output/dict_view.cpp
     hgraph/types/time_series/ts_output/list_view.cpp
-    hgraph/types/time_series/ts_output/mutation_view.cpp
     hgraph/types/time_series/ts_output/set_view.cpp
     hgraph/types/time_series/ts_output/window_view.cpp
     hgraph/types/time_series_reference.cpp

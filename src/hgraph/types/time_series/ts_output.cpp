@@ -308,8 +308,4 @@ void TSOutput::bind_node_parent(const NodeView &node,
 
 void TSOutput::clear_node_parent() { attach_root_parent(); }
 
-TSOutputMutationView TSOutput::begin_mutation(DateTime evaluation_time) {
-  return TSOutputMutationView{*this, evaluation_time};
-}
-
 } // namespace hgraph
