@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include "ts_input/target_link_ops.h"
 #include "ts_data/ownership.h"
@@ -2380,7 +2381,7 @@ namespace hgraph
             const auto type = checked_ts_role_type(
                 intern_ts_type(*schema, TypeRole::Input, root_plan, context.ops(),
                                schema->kind == TSTypeKind::REF
-                                   ? std::string_view{"ts.ref.input.target"}
+                                   ? ts_labels::target_label(ts_labels::Family::REF)
                                    : std::string_view{}),
                 std::integral_constant<TypeRole, TypeRole::Input>{});
             cache.emplace(key, std::move(context));
@@ -2398,65 +2399,33 @@ namespace hgraph
                                                            TypeRole role,
                                                            bool root_record)
         {
-            const auto by_role = [role](std::string_view data,
-                                        std::string_view input,
-                                        std::string_view output) {
-                switch (role)
-                {
-                case TypeRole::Data: return data;
-                case TypeRole::Input: return input;
-                case TypeRole::Output: return output;
-                default: throw std::invalid_argument("owned dynamic TSData role is not supported");
-                }
-            };
+            const auto position = root_record ? ts_labels::Position::Root : ts_labels::Position::Embedded;
+            std::string_view label{};
             if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
             {
-                return root_record
-                           ? by_role("ts.tsl.dynamic.data.root", "ts.tsl.dynamic.input.owned",
-                                     "ts.tsl.dynamic.output.root")
-                           : by_role("ts.tsl.dynamic.data.embedded", "ts.tsl.dynamic.input.embedded",
-                                     "ts.tsl.dynamic.output.embedded");
+                label = ts_labels::record_label(ts_labels::Family::TSLDynamic, role, position);
             }
-            if (schema.kind == TSTypeKind::TSW)
+            else if (schema.kind == TSTypeKind::TSW)
             {
-                if (schema.is_duration_based())
-                {
-                    return root_record
-                               ? by_role("ts.tsw.duration.data.root", "ts.tsw.duration.input.owned",
-                                         "ts.tsw.duration.output.root")
-                               : by_role("ts.tsw.duration.data.embedded", "ts.tsw.duration.input.embedded",
-                                         "ts.tsw.duration.output.embedded");
-                }
-                return root_record
-                           ? by_role("ts.tsw.tick.data.root", "ts.tsw.tick.input.owned",
-                                     "ts.tsw.tick.output.root")
-                           : by_role("ts.tsw.tick.data.embedded", "ts.tsw.tick.input.embedded",
-                                     "ts.tsw.tick.output.embedded");
+                label = ts_labels::record_label(schema.is_duration_based()
+                                                    ? ts_labels::Family::TSWDuration
+                                                    : ts_labels::Family::TSWTick,
+                                                role, position);
             }
-            throw std::invalid_argument("owned dynamic TSData label requires dynamic TSL or TSW");
+            else { throw std::invalid_argument("owned dynamic TSData label requires dynamic TSL or TSW"); }
+            if (label.empty()) { throw std::invalid_argument("owned dynamic TSData role is not supported"); }
+            return label;
         }
 
         [[nodiscard]] std::string_view dynamic_composite_label(
             TypeRole role, bool root_record)
         {
-            switch (role)
+            const auto label = ts_labels::tsl_dynamic_composite_label(role, root_record);
+            if (label.empty())
             {
-                case TypeRole::Data:
-                    return root_record
-                               ? std::string_view{"ts.tsl.dynamic.data.composite"}
-                               : std::string_view{"ts.tsl.dynamic.data.composite.embedded"};
-                case TypeRole::Input:
-                    return root_record
-                               ? std::string_view{"ts.tsl.dynamic.input.composite"}
-                               : std::string_view{"ts.tsl.dynamic.input.composite.embedded"};
-                case TypeRole::Output:
-                    return root_record
-                               ? std::string_view{"ts.tsl.dynamic.output.composite"}
-                               : std::string_view{"ts.tsl.dynamic.output.composite.embedded"};
-                default:
-                    throw std::invalid_argument(
-                        "dynamic TSL composite role is not supported");
+                throw std::invalid_argument("dynamic TSL composite role is not supported");
             }
+            return label;
         }
 
         [[nodiscard]] TSRoleTypeRef input_storage_type_for(const TSEndpointSchema         &endpoint_schema,
@@ -2480,15 +2449,16 @@ namespace hgraph
             {
                 const auto &ops = target_link_ops_for(endpoint_schema, root_plan, storage_offset);
                 const auto role = storage_role == TypeRole::Output ? TypeRole::Output : TypeRole::Input;
-                const auto label = schema->kind == TSTypeKind::TSS ? std::string_view{"ts.tss.input.target"}
-                                 : schema->kind == TSTypeKind::TSD ? std::string_view{"ts.tsd.input.target"}
-                                 : dynamic_list ? std::string_view{"ts.tsl.dynamic.input.target"}
-                                 : window ? std::string_view{"ts.tsw.input.target"}
-                                 : schema->kind == TSTypeKind::REF ? std::string_view{"ts.ref.input.target"}
+                const auto label = schema->kind == TSTypeKind::TSS ? ts_labels::target_label(ts_labels::Family::TSS)
+                                 : schema->kind == TSTypeKind::TSD ? ts_labels::target_label(ts_labels::Family::TSD)
+                                 : dynamic_list ? ts_labels::target_label(ts_labels::Family::TSLDynamic)
+                                 : window ? ts_labels::target_label(ts_labels::Family::TSWTick)
+                                 : schema->kind == TSTypeKind::REF ? ts_labels::target_label(ts_labels::Family::REF)
                                  : role == TypeRole::Output
-                                       ? std::string_view{"ts.fixed.output.embedded"}
+                                       ? ts_labels::record_label(ts_labels::Family::Fixed, TypeRole::Output,
+                                                                 ts_labels::Position::Embedded)
                                        : fixed || !root_record
-                                             ? std::string_view{"ts.fixed.input.target"}
+                                             ? ts_labels::target_label(ts_labels::Family::Fixed)
                                              : std::string_view{};
                 return intern_ts_type(*schema, role, root_plan, ops, label);
             }
@@ -2533,11 +2503,10 @@ namespace hgraph
                                           : &ts_data_plan_factory_detail::slot_ts_data_ops(
                                                 *schema, keyed_plan, 0, key_binding,
                                                 storage_role, !root_record);
-                    const auto label = schema->kind == TSTypeKind::TSS
-                                           ? root_record ? std::string_view{"ts.tss.input.owned"}
-                                                         : std::string_view{"ts.tss.input.embedded"}
-                                           : root_record ? std::string_view{"ts.tsd.input.owned"}
-                                                         : std::string_view{"ts.tsd.input.embedded"};
+                    const auto label = ts_labels::record_label(
+                        schema->kind == TSTypeKind::TSS ? ts_labels::Family::TSS : ts_labels::Family::TSD,
+                        TypeRole::Input,
+                        root_record ? ts_labels::Position::Root : ts_labels::Position::Embedded);
                     return intern_ts_type(*schema, storage_role, keyed_plan, *ops, label);
                 }
                 if (fixed)
@@ -2561,11 +2530,15 @@ namespace hgraph
                     schema->kind, value_type, delta_type, root_plan, storage_offset + value->offset,
                     storage_offset + tracking->offset);
                 const auto scalar_label = schema->kind == TSTypeKind::REF
-                                              ? std::string_view{"ts.ref.input.owned"}
+                                              ? ts_labels::record_label(ts_labels::Family::REF, TypeRole::Input,
+                                                                        ts_labels::Position::Root)
                                               : root_record ? std::string_view{}
-                                                            : storage_role == TypeRole::Output
-                                                                  ? std::string_view{"ts.fixed.output.embedded"}
-                                                                  : std::string_view{"ts.fixed.input.embedded"};
+                                                            : ts_labels::record_label(
+                                                                  ts_labels::Family::Fixed,
+                                                                  storage_role == TypeRole::Output
+                                                                      ? TypeRole::Output
+                                                                      : TypeRole::Input,
+                                                                  ts_labels::Position::Embedded);
                 return intern_ts_type(*schema, storage_role, root_plan, ops, scalar_label);
             }
 
@@ -2582,8 +2555,9 @@ namespace hgraph
                     *schema, root_plan, storage_offset, key_binding, element_type,
                     storage_role, false, true);
                 const auto label = storage_role == TypeRole::Output
-                                       ? std::string_view{"ts.tsd.output.root"}
-                                       : std::string_view{"ts.tsd.input.composite"};
+                                       ? ts_labels::record_label(ts_labels::Family::TSD, TypeRole::Output,
+                                                                 ts_labels::Position::Root)
+                                       : ts_labels::tsd_input_composite;
                 return intern_ts_type(*schema, storage_role, root_plan, ops, label);
             }
 
@@ -2610,13 +2584,18 @@ namespace hgraph
                 throw std::invalid_argument("non-peered TSW inputs are not supported");
 
             const auto composite_label = schema->kind == TSTypeKind::TSD
-                                             ? std::string_view{"ts.tsd.input.composite"}
+                                             ? ts_labels::tsd_input_composite
                                              : root_record ? storage_role == TypeRole::Output
-                                                                 ? std::string_view{"ts.fixed.output.root"}
-                                                                 : std::string_view{"ts.fixed.input.composite"}
-                                                           : storage_role == TypeRole::Output
-                                                                 ? std::string_view{"ts.fixed.output.embedded"}
-                                                                 : std::string_view{"ts.fixed.input.embedded"};
+                                                                 ? ts_labels::record_label(
+                                                                       ts_labels::Family::Fixed, TypeRole::Output,
+                                                                       ts_labels::Position::Root)
+                                                                 : ts_labels::fixed_input_composite
+                                                           : ts_labels::record_label(
+                                                                 ts_labels::Family::Fixed,
+                                                                 storage_role == TypeRole::Output
+                                                                     ? TypeRole::Output
+                                                                     : TypeRole::Input,
+                                                                 ts_labels::Position::Embedded);
             const auto type = input_data_type_for(
                 endpoint_schema, root_plan, storage_offset, storage_role, composite_label);
             if (!type) throw std::logic_error("composite input storage type is not resolved");
@@ -2732,7 +2711,8 @@ namespace hgraph
                     TypeRole::Output, false, true);
                 return intern_ts_type(
                     *schema, TypeRole::Output, *plan, ops,
-                    "ts.tsd.output.root");
+                    ts_labels::record_label(ts_labels::Family::TSD, TypeRole::Output,
+                                            ts_labels::Position::Root));
             }
 
             const auto &root_plan = ::hgraph::input_storage_plan(endpoint_schema);

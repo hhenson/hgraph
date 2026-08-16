@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -419,39 +420,16 @@ namespace hgraph::ts_data_plan_factory_detail
                                                           TypeRole role,
                                                           bool root_record)
         {
-            if (!root_record)
-            {
-                if (schema.kind == TSTypeKind::TSS)
-                    return role == TypeRole::Data ? "ts.tss.data.embedded"
-                         : role == TypeRole::Input ? "ts.tss.input.embedded"
-                                                   : "ts.tss.output.embedded";
-                if (schema.kind == TSTypeKind::TSD)
-                    return role == TypeRole::Data ? "ts.tsd.data.embedded"
-                         : role == TypeRole::Input ? "ts.tsd.input.embedded"
-                                                   : "ts.tsd.output.embedded";
-                if (schema.kind == TSTypeKind::REF)
-                    return role == TypeRole::Data ? "ts.ref.data.embedded"
-                         : role == TypeRole::Input ? "ts.ref.input.embedded"
-                                                   : "ts.ref.output.embedded";
-                switch (role)
-                {
-                case TypeRole::Data: return "ts.fixed.data.embedded";
-                case TypeRole::Input: return "ts.fixed.input.embedded";
-                case TypeRole::Output: return "ts.fixed.output.embedded";
-                default: break;
-                }
-            }
-            else
-            {
-                switch (role)
-                {
-                case TypeRole::Data: return "ts.fixed.data.root";
-                case TypeRole::Input: return "ts.fixed.input.owned";
-                case TypeRole::Output: return "ts.fixed.output.root";
-                default: break;
-                }
-            }
-            throw std::invalid_argument("fixed TSData role must be Data, Input, or Output");
+            const auto family = !root_record && schema.kind == TSTypeKind::TSS ? ts_labels::Family::TSS
+                              : !root_record && schema.kind == TSTypeKind::TSD ? ts_labels::Family::TSD
+                              : !root_record && schema.kind == TSTypeKind::REF ? ts_labels::Family::REF
+                                                                               : ts_labels::Family::Fixed;
+            const auto label = ts_labels::record_label(
+                family, role,
+                root_record ? ts_labels::Position::Root : ts_labels::Position::Embedded);
+            if (label.empty())
+                throw std::invalid_argument("fixed TSData role must be Data, Input, or Output");
+            return label;
         }
     }
 

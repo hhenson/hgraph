@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include <hgraph/types/metadata/debug_descriptor.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
@@ -40,12 +41,13 @@ namespace hgraph
 
         [[nodiscard]] std::string_view root_label(TSTypeKind kind, TypeRole role)
         {
+            using ts_labels::Family;
             if (kind == TSTypeKind::TSS)
-                return role == TypeRole::Data ? "ts.tss.data.root" : "ts.tss.output.root";
+                return ts_labels::record_label(Family::TSS, role, ts_labels::Position::Root);
             if (kind == TSTypeKind::TSD)
-                return role == TypeRole::Data ? "ts.tsd.data.root" : "ts.tsd.output.root";
+                return ts_labels::record_label(Family::TSD, role, ts_labels::Position::Root);
             if (kind == TSTypeKind::REF)
-                return role == TypeRole::Data ? "ts.ref.data.root" : "ts.ref.output.root";
+                return ts_labels::record_label(Family::REF, role, ts_labels::Position::Root);
             return {};
         }
 
@@ -53,36 +55,14 @@ namespace hgraph
                                                         TypeRole role,
                                                         bool embedded)
         {
+            const auto position = embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root;
             if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
-            {
-                if (embedded)
-                    return role == TypeRole::Data ? "ts.tsl.dynamic.data.embedded"
-                         : role == TypeRole::Input ? "ts.tsl.dynamic.input.embedded"
-                                                   : "ts.tsl.dynamic.output.embedded";
-                return role == TypeRole::Data ? "ts.tsl.dynamic.data.root"
-                     : role == TypeRole::Input ? "ts.tsl.dynamic.input.owned"
-                                               : "ts.tsl.dynamic.output.root";
-            }
+                return ts_labels::record_label(ts_labels::Family::TSLDynamic, role, position);
             if (schema.kind == TSTypeKind::TSW)
-            {
-                if (embedded)
-                {
-                    if (schema.is_duration_based())
-                        return role == TypeRole::Data ? "ts.tsw.duration.data.embedded"
-                             : role == TypeRole::Input ? "ts.tsw.duration.input.embedded"
-                                                       : "ts.tsw.duration.output.embedded";
-                    return role == TypeRole::Data ? "ts.tsw.tick.data.embedded"
-                         : role == TypeRole::Input ? "ts.tsw.tick.input.embedded"
-                                                   : "ts.tsw.tick.output.embedded";
-                }
-                if (schema.is_duration_based())
-                    return role == TypeRole::Data ? "ts.tsw.duration.data.root"
-                         : role == TypeRole::Input ? "ts.tsw.duration.input.owned"
-                                                   : "ts.tsw.duration.output.root";
-                return role == TypeRole::Data ? "ts.tsw.tick.data.root"
-                     : role == TypeRole::Input ? "ts.tsw.tick.input.owned"
-                                               : "ts.tsw.tick.output.root";
-            }
+                return ts_labels::record_label(schema.is_duration_based()
+                                                   ? ts_labels::Family::TSWDuration
+                                                   : ts_labels::Family::TSWTick,
+                                               role, position);
             return {};
         }
 
@@ -187,11 +167,10 @@ namespace hgraph
                     }
                     if (plan == nullptr || ops == nullptr)
                         throw std::logic_error("standalone keyed TSData storage is not resolved");
-                    const auto label = schema.kind == TSTypeKind::TSS
-                                           ? embedded ? std::string_view{"ts.tss.input.embedded"}
-                                                      : std::string_view{"ts.tss.input.owned"}
-                                           : embedded ? std::string_view{"ts.tsd.input.embedded"}
-                                                      : std::string_view{"ts.tsd.input.owned"};
+                    const auto label = ts_labels::record_label(
+                        schema.kind == TSTypeKind::TSS ? ts_labels::Family::TSS : ts_labels::Family::TSD,
+                        TypeRole::Input,
+                        embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root);
                     return TSRoleTypeRef{intern_ts_type(schema, role, *plan, *ops, label)};
                 }
 
@@ -214,7 +193,8 @@ namespace hgraph
                 const auto &ops = atomic_ts_data_ops(
                     schema.kind, value_type, delta_type, plan, value->offset, tracking->offset);
                 const auto label = schema.kind == TSTypeKind::REF
-                                       ? std::string_view{"ts.ref.input.owned"}
+                                       ? ts_labels::record_label(ts_labels::Family::REF, TypeRole::Input,
+                                                                 ts_labels::Position::Root)
                                        : std::string_view{};
                 return TSRoleTypeRef{intern_ts_type(schema, role, plan, ops, label)};
             }
@@ -260,21 +240,9 @@ namespace hgraph
             if (is_slot_ts_data(schema))
             {
                 const auto &ops = slot_ts_data_ops(schema, *plan, 0, role, embedded);
-                const auto label = schema.kind == TSTypeKind::TSS
-                                       ? embedded
-                                             ? role == TypeRole::Data ? "ts.tss.data.embedded"
-                                               : role == TypeRole::Input ? "ts.tss.input.embedded"
-                                                                         : "ts.tss.output.embedded"
-                                             : role == TypeRole::Data ? "ts.tss.data.root"
-                                               : role == TypeRole::Input ? "ts.tss.input.owned"
-                                                                         : "ts.tss.output.root"
-                                       : embedded
-                                             ? role == TypeRole::Data ? "ts.tsd.data.embedded"
-                                               : role == TypeRole::Input ? "ts.tsd.input.embedded"
-                                                                         : "ts.tsd.output.embedded"
-                                             : role == TypeRole::Data ? "ts.tsd.data.root"
-                                               : role == TypeRole::Input ? "ts.tsd.input.owned"
-                                                                         : "ts.tsd.output.root";
+                const auto label = ts_labels::record_label(
+                    schema.kind == TSTypeKind::TSS ? ts_labels::Family::TSS : ts_labels::Family::TSD,
+                    role, embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root);
                 return TSRoleTypeRef{intern_ts_type(schema, role, *plan, ops, label)};
             }
 
@@ -291,9 +259,8 @@ namespace hgraph
             const auto &ops = atomic_ts_data_ops(schema.kind, value_type, delta_type, *plan,
                                                  value->offset, tracking->offset);
             const auto label = schema.kind == TSTypeKind::REF
-                                   ? role == TypeRole::Data ? std::string_view{"ts.ref.data.root"}
-                                     : role == TypeRole::Input ? std::string_view{"ts.ref.input.owned"}
-                                                               : std::string_view{"ts.ref.output.root"}
+                                   ? ts_labels::record_label(ts_labels::Family::REF, role,
+                                                             ts_labels::Position::Root)
                                    : std::string_view{};
             return TSRoleTypeRef{intern_ts_type(schema, role, *plan, ops, label)};
         }
@@ -608,7 +575,8 @@ namespace hgraph
                                     *schema, *plan, 0, key_binding, TypeRole::Output);
         return checked_ts_role_type(
             intern_ts_type(*schema, TypeRole::Output, *plan, ops,
-                           is_tsd ? "ts.tsd.output.root" : "ts.tss.output.root"),
+                           ts_labels::record_label(is_tsd ? ts_labels::Family::TSD : ts_labels::Family::TSS,
+                                                   TypeRole::Output, ts_labels::Position::Root)),
             std::integral_constant<TypeRole, TypeRole::Output>{});
     }
 

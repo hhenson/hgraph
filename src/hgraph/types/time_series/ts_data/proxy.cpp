@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_data/proxy.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include "ownership.h"
 
@@ -311,9 +312,7 @@ namespace hgraph
                 layout.delta_binding = intern_value_type(*schema->delta_value_schema, *plan, delta_bundle_ops);
 
                 key_set_value_binding = intern_value_type(*set_schema, *plan, key_set_value_ops);
-                const auto label = role == TypeRole::Data
-                                       ? std::string_view{"ts.tsd.key-set.data"}
-                                       : std::string_view{"ts.tsd.key-set.output"};
+                const auto label = ts_labels::tsd_key_set_label(role);
                 key_set_type = TSRoleTypeRef{intern_ts_type(
                     *key_set_ts_schema, role, *plan, key_set_ts_ops, label)};
                 layout.key_set_type = key_set_type;

@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
@@ -979,24 +980,10 @@ namespace hgraph::ts_data_plan_factory_detail
                                                         bool embedded, bool composite = false)
         {
             if (composite && kind == TSTypeKind::TSD && role == TypeRole::Input)
-                return "ts.tsd.input.composite";
-            if (embedded)
-            {
-                if (kind == TSTypeKind::TSS)
-                    return role == TypeRole::Data ? "ts.tss.data.embedded"
-                         : role == TypeRole::Input ? "ts.tss.input.embedded"
-                                                   : "ts.tss.output.embedded";
-                return role == TypeRole::Data ? "ts.tsd.data.embedded"
-                     : role == TypeRole::Input ? "ts.tsd.input.embedded"
-                                               : "ts.tsd.output.embedded";
-            }
-            if (kind == TSTypeKind::TSS)
-                return role == TypeRole::Data ? "ts.tss.data.root"
-                     : role == TypeRole::Input ? "ts.tss.input.owned"
-                                               : "ts.tss.output.root";
-            return role == TypeRole::Data ? "ts.tsd.data.root"
-                 : role == TypeRole::Input ? "ts.tsd.input.owned"
-                                           : "ts.tsd.output.root";
+                return ts_labels::tsd_input_composite;
+            const auto family = kind == TSTypeKind::TSS ? ts_labels::Family::TSS : ts_labels::Family::TSD;
+            return ts_labels::record_label(
+                family, role, embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root);
         }
 
         struct SlotContextCommon
@@ -2204,11 +2191,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     key_set_ts_ops.touch_impl      = read_only_set.touch_impl;
                 }
                 const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
-                const auto role_label = role == TypeRole::Data
-                                            ? std::string_view{"ts.tsd.key-set.data"}
-                                            : role == TypeRole::Input
-                                                  ? std::string_view{"ts.tsd.key-set.input"}
-                                                  : std::string_view{"ts.tsd.key-set.output"};
+                const auto role_label = ts_labels::tsd_key_set_label(role);
                 key_set_ts_type = TSRoleTypeRef{intern_ts_type(
                     *key_set_schema, role, plan_, key_set_ts_ops, role_label)};
                 dict_layout.key_set_type = key_set_ts_type;
