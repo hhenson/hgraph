@@ -1052,8 +1052,22 @@ namespace hgraph
         template <typename U>
         void set(U &&value) const
         {
-            TValue resolved{std::forward<U>(value)};
             auto mutation = TSOutputView::begin_mutation(evaluation_time());
+            // Typed fast path: a pure-native atomic slot whose realized ops
+            // match TValue assigns in place and commits via mark_modified
+            // (observer notification and parent bubbling included) — the
+            // erased copy ceremony below exists for representation variants
+            // (python caches, polymorphic realizations), which fall through.
+            if (auto destination = mutation.mutable_value(); destination.valid())
+            {
+                if (TValue *slot = destination.template try_mutable_as<TValue>())
+                {
+                    *slot = TValue{std::forward<U>(value)};
+                    mutation.mark_modified();
+                    return;
+                }
+            }
+            TValue resolved{std::forward<U>(value)};
             auto destination = mutation.value();
             const ValueView source{destination.binding(), static_cast<const void *>(&resolved)};
             static_cast<void>(mutation.copy_value_from(source));
