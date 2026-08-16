@@ -457,9 +457,7 @@ bool TSDataMutationView::copy_value_from(const ValueView &source) {
     // mutation (which marks it), or a write-through forwarding link
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
-    if (record_modified_local()) {
-      notify_parent_modified();
-    }
+    mark_modified(table);
   }
   return newly_modified;
 }
@@ -484,9 +482,7 @@ bool TSDataMutationView::move_value_from(ValueView source) {
     // mutation (which marks it), or a write-through forwarding link
     // landed on pre-marked storage. Recording is idempotent; parents
     // are notified only by the first recording.
-    if (record_modified_local()) {
-      notify_parent_modified();
-    }
+    mark_modified(table);
   }
   return newly_modified;
 }
@@ -540,12 +536,13 @@ bool TSDataMutationView::from_python(nb::handle source) {
   const auto &table = ops();
   const bool newly_modified = table.from_python_impl(
       table.context, storage_.data(), source, mutation_time_);
-  if (newly_modified && !record_modified_local()) {
-    throw std::logic_error("TSDataMutationView::from_python reported a new "
-                           "modification that was already recorded");
-  }
   if (newly_modified) {
-    notify_parent_modified();
+    auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
+    if (!state.record_modified(mutation_time_)) {
+      throw std::logic_error("TSDataMutationView::from_python reported a new "
+                             "modification that was already recorded");
+    }
+    state.parent.notify_child_modified(mutation_time_);
   }
   return newly_modified;
 }

@@ -430,7 +430,16 @@ namespace hgraph
 
         void mark_modified(const TSDataOps &table)
         {
-            if (record_modified_local(table)) { notify_parent_modified(table); }
+            // ONE tracking fetch for the whole commit: recording and the
+            // parent notify read the same record, but the split helpers
+            // fetched it twice per write (deferred audit item, unblocked
+            // once #488 merged).
+            require_active_mutation();
+            auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
+            if (state.record_modified(mutation_time_))
+            {
+                state.parent.notify_child_modified(mutation_time_);
+            }
         }
 
         void require_active_mutation() const
