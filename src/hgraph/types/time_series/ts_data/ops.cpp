@@ -146,7 +146,141 @@ namespace hgraph::ts_data_detail
             .mutable_value_memory_impl = &missing_mutable_value_memory,
             .delta_memory_impl = &default_delta_memory,
             .mutable_delta_memory_impl = &missing_mutable_delta_memory,
+            .indexed_child_count_impl = &default_indexed_child_count,
+            .indexed_child_binding_impl = &default_indexed_child_binding,
+            .indexed_child_memory_impl = &default_indexed_child_memory,
         };
+        return table;
+    }
+
+    namespace
+    {
+        // No-value answers shared by the derived sentinel tables. Every thunk
+        // ignores its memory pointer: unbound views carry null data.
+        std::size_t sentinel_zero(const void *, const void *) noexcept { return 0; }
+        bool        sentinel_false_slot(const void *, const void *, std::size_t) noexcept { return false; }
+        const void *sentinel_null_slot(const void *, const void *, std::size_t) noexcept { return nullptr; }
+        bool        sentinel_contains(const void *, const void *, const ValueView &) noexcept { return false; }
+        std::size_t sentinel_find(const void *, const void *, const ValueView &) noexcept
+        {
+            return TS_DATA_NO_CHILD_ID;
+        }
+        std::size_t sentinel_next(const void *, const void *, std::size_t) noexcept
+        {
+            return TS_DATA_NO_CHILD_ID;
+        }
+        Range<ValueView> sentinel_value_range(const void *, const void *) noexcept { return {}; }
+        Range<TSDataView> sentinel_ts_range(const void *, const void *) noexcept { return {}; }
+        KeyValueRange<ValueView, TSDataView> sentinel_kv_range(const void *, const void *) noexcept
+        {
+            return {};
+        }
+        TSRoleTypeRef sentinel_child_binding_at_slot(const void *, const void *, std::size_t) noexcept
+        {
+            return {};
+        }
+        const void *sentinel_window_element(const void *, const void *, std::size_t) noexcept
+        {
+            return nullptr;
+        }
+        DateTime sentinel_window_time(const void *, const void *, std::size_t) noexcept { return MIN_DT; }
+        bool     sentinel_window_full(const void *, const void *) noexcept { return false; }
+
+        void install_sentinel_slot_surface(TSSDataOps &table) noexcept
+        {
+            table.size_impl                       = &sentinel_zero;
+            table.slot_capacity_impl              = &sentinel_zero;
+            table.slot_occupied_impl              = &sentinel_false_slot;
+            table.slot_live_impl                  = &sentinel_false_slot;
+            table.slot_added_impl                 = &sentinel_false_slot;
+            table.slot_removed_impl               = &sentinel_false_slot;
+            table.next_added_slot_impl            = &sentinel_next;
+            table.next_removed_slot_impl          = &sentinel_next;
+            table.key_at_slot_impl                = &sentinel_null_slot;
+            table.contains_impl                   = &sentinel_contains;
+            table.find_slot_impl                  = &sentinel_find;
+            table.make_values_range_impl          = &sentinel_value_range;
+            table.make_added_values_range_impl    = &sentinel_value_range;
+            table.make_removed_values_range_impl  = &sentinel_value_range;
+            // Subscription is a side effect, not an empty-value read: silently
+            // discarding it on an unbound view would lose notifications, so
+            // the throwing defaults stay installed (review finding on #492).
+        }
+    }  // namespace
+
+    std::size_t default_indexed_child_count(const void *, const void *) { return 0; }
+    TSRoleTypeRef default_indexed_child_binding(const void *, const void *, std::size_t) { return {}; }
+    const void *default_indexed_child_memory(const void *, const void *, std::size_t) { return nullptr; }
+
+    const TSSDataOps &default_tss_data_ops() noexcept
+    {
+        static const TSSDataOps table = [] {
+            TSSDataOps t{};
+            static_cast<TSDataOps &>(t) = default_ts_data_ops();
+            t.kind                      = TSTypeKind::TSS;
+            install_sentinel_slot_surface(t);
+            return t;
+        }();
+        return table;
+    }
+
+    const TSDDataOps &default_tsd_data_ops() noexcept
+    {
+        static const TSDDataOps table = [] {
+            TSDDataOps t{};
+            static_cast<TSDataOps &>(t) = default_ts_data_ops();
+            t.kind                      = TSTypeKind::TSD;
+            install_sentinel_slot_surface(t);
+            t.structural_delta_current_impl      = &no_structural_delta;
+            t.child_binding_at_slot_impl         = &sentinel_child_binding_at_slot;
+            t.child_at_slot_impl                 = &sentinel_null_slot;
+            t.slot_modified_impl                 = &sentinel_false_slot;
+            t.next_modified_slot_impl            = &sentinel_next;
+            t.make_ts_values_range_impl          = &sentinel_ts_range;
+            t.make_valid_keys_range_impl         = &sentinel_value_range;
+            t.make_valid_ts_values_range_impl    = &sentinel_ts_range;
+            t.make_modified_keys_range_impl      = &sentinel_value_range;
+            t.make_modified_ts_values_range_impl = &sentinel_ts_range;
+            t.make_added_ts_values_range_impl    = &sentinel_ts_range;
+            t.make_removed_ts_values_range_impl  = &sentinel_ts_range;
+            t.make_ts_kv_range_impl              = &sentinel_kv_range;
+            t.make_valid_ts_kv_range_impl        = &sentinel_kv_range;
+            t.make_modified_ts_kv_range_impl     = &sentinel_kv_range;
+            t.make_added_ts_kv_range_impl        = &sentinel_kv_range;
+            t.make_removed_ts_kv_range_impl      = &sentinel_kv_range;
+            return t;
+        }();
+        return table;
+    }
+
+    const IndexedTSDataOps &default_indexed_ts_data_ops() noexcept
+    {
+        static const IndexedTSDataOps table = [] {
+            IndexedTSDataOps t{};
+            static_cast<TSDataOps &>(t) = default_ts_data_ops();
+            t.kind                      = TSTypeKind::TSL;
+            t.size_impl                 = &sentinel_zero;
+            t.element_binding_impl      = &default_indexed_child_binding;
+            t.element_memory_impl       = &default_indexed_child_memory;
+            return t;
+        }();
+        return table;
+    }
+
+    const TSWDataOps &default_tsw_data_ops() noexcept
+    {
+        static const TSWDataOps table = [] {
+            TSWDataOps t{};
+            static_cast<TSDataOps &>(t) = default_ts_data_ops();
+            t.kind                      = TSTypeKind::TSW;
+            t.size_impl                 = &sentinel_zero;
+            t.element_at_impl           = &sentinel_window_element;
+            t.time_at_impl              = &sentinel_window_time;
+            t.time_element_at_impl      = &sentinel_window_element;
+            t.capacity_impl             = &sentinel_zero;
+            t.full_impl                 = &sentinel_window_full;
+            return t;
+        }();
         return table;
     }
 

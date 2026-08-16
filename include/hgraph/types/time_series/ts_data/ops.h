@@ -17,6 +17,10 @@ namespace hgraph
     class TSInputView;
     class TSOutputView;
     class Value;
+    struct TSSDataOps;
+    struct TSDDataOps;
+    struct IndexedTSDataOps;
+    struct TSWDataOps;
 
     namespace detail
     {
@@ -49,6 +53,11 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT const void *missing_delta_memory(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_delta_memory(const void *, void *);
         HGRAPH_EXPORT void noop_record_child_modified(const void *, void *, std::size_t, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT std::size_t default_indexed_child_count(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef default_indexed_child_binding(const void *, const void *,
+                                                                                std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT const void *default_indexed_child_memory(const void *, const void *,
+                                                                             std::size_t);
         [[nodiscard]] inline DynamicStorageMetrics no_dynamic_storage_metrics(const void *, const void *) noexcept
         {
             return {};
@@ -114,6 +123,18 @@ namespace hgraph
         [[nodiscard]] Value empty_delta_tsb(const TSRoleTypeRef &binding);
 
         [[nodiscard]] const TSDataOps &default_ts_data_ops() noexcept;
+
+        // No-value sentinel tables for the DERIVED families: an unbound
+        // typed view dispatches into these and every read answers the
+        // empty/never-ticked value (size 0, predicates false, empty ranges,
+        // TS_DATA_NO_CHILD_ID cursors); mutations keep the throwing
+        // defaults. This is the "has-no-value ops responds appropriately"
+        // half of the sentinel design (access-path audit, 2026-08-16) — the
+        // base default_ts_data_ops() is its scalar twin.
+        [[nodiscard]] HGRAPH_EXPORT const TSSDataOps &default_tss_data_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const TSDDataOps &default_tsd_data_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const IndexedTSDataOps &default_indexed_ts_data_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const TSWDataOps &default_tsw_data_ops() noexcept;
 
         [[nodiscard]] Value capture_delta_ts(const TSInputView &in);
         [[nodiscard]] Value capture_delta_signal(const TSInputView &in);
