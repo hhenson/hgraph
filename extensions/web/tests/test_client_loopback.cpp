@@ -272,11 +272,16 @@ struct ClientLoopbackGraph {
 };
 } // namespace
 
-int main() {
-  try {
-    hgraph::stdlib::register_standard_operators();
-    const auto release_state = hgraph::make_scope_exit(release_test_state);
-    register_web_types();
+namespace {
+void run_loopback_once() {
+    http_triggered.store(false);
+    ws_triggered.store(false);
+    http_response_seen.store(false);
+    http_failure_seen.store(false);
+    ws_welcome_seen.store(false);
+    server_saw_client_ping.store(false);
+    observed_response = Value{};
+    observed_failure = Value{};
 
     const DateTime start = wall_now();
     GraphExecutorBuilder executor_builder;
@@ -310,6 +315,18 @@ int main() {
             "the WS client did not receive the welcome frame");
     require(server_saw_client_ping.load(),
             "the server did not receive the WS client's frame");
+}
+} // namespace
+
+int main() {
+  try {
+    hgraph::stdlib::register_standard_operators();
+    const auto release_state = hgraph::make_scope_exit(release_test_state);
+    register_web_types();
+    // Two sequential runs in one process: the second run must survive the
+    // first run's teardown (the shape the python suites execute).
+    run_loopback_once();
+    run_loopback_once();
     std::cout << "hgraph-web client loopback tests passed\n";
     return 0;
   } catch (const std::exception &error) {

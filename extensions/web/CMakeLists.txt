@@ -263,8 +263,10 @@ set_target_properties(hgraph_web PROPERTIES
 if(MSVC)
     # The transport implementation includes Windows headers.  Keep their
     # min/max macros from rewriting standard-library calls in this target.
+    # Beast's template instantiation count in the server TU exceeds the
+    # default COFF section limit, hence /bigobj.
     target_compile_definitions(hgraph_web PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_compile_options(hgraph_web PRIVATE /W4 /permissive-)
+    target_compile_options(hgraph_web PRIVATE /W4 /permissive- /bigobj)
 else()
     target_compile_options(hgraph_web PRIVATE -Wall -Wextra -Wpedantic)
 endif()

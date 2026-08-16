@@ -22,6 +22,13 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#if defined(__GNUC__) && !defined(__clang__)
+// GCC's -Wmaybe-uninitialized fires falsely on the std::optional-held
+// scalar tuple that static_node.h instantiates for this TU's runtime node;
+// the member is written before every read.
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <compare>
@@ -494,6 +501,26 @@ struct CompiledRoutes {
   std::vector<Value> routes{};
 };
 
+// Lock-free published-snapshot access for io threads.  Apple's libc++ does
+// not provide std::atomic<std::shared_ptr>, and GCC deprecates the free
+// functions; the deprecation is suppressed here and nowhere else.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+[[nodiscard]] inline std::shared_ptr<const CompiledRoutes>
+atomic_load_routes(const std::shared_ptr<const CompiledRoutes> *slot) {
+  return std::atomic_load(slot);
+}
+
+inline void atomic_store_routes(std::shared_ptr<const CompiledRoutes> *slot,
+                                std::shared_ptr<const CompiledRoutes> value) {
+  std::atomic_store(slot, std::move(value));
+}
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
 class ServerConnection;
 
 class WebServerRuntime {
@@ -517,15 +544,19 @@ public:
   [[nodiscard]] const ServerRuntimeConfig &config() const noexcept {
     return *config_;
   }
+  [[nodiscard]] std::shared_ptr<const ServerRuntimeConfig>
+  config_ptr() const noexcept {
+    return config_;
+  }
   [[nodiscard]] ServerBridgeHandle &bridge() noexcept { return bridge_; }
   [[nodiscard]] asio::ssl::context *tls_context() noexcept {
     return tls_context_ ? tls_context_.get() : nullptr;
   }
   [[nodiscard]] std::shared_ptr<const CompiledRoutes> http_routes() const {
-    return std::atomic_load(&http_routes_);
+    return atomic_load_routes(&http_routes_);
   }
   [[nodiscard]] std::shared_ptr<const CompiledRoutes> ws_routes() const {
-    return std::atomic_load(&ws_routes_);
+    return atomic_load_routes(&ws_routes_);
   }
 
   [[nodiscard]] Int register_pending(const std::shared_ptr<ServerConnection> &connection);
@@ -596,9 +627,10 @@ private:
 
 class ServerConnection : public std::enable_shared_from_this<ServerConnection> {
 public:
-  ServerConnection(std::shared_ptr<WebListener> listener, tcp::socket socket,
-                   asio::ssl::context *tls)
-      : listener_{std::move(listener)},
+  ServerConnection(std::shared_ptr<WebListener> listener,
+                   std::shared_ptr<const ServerRuntimeConfig> config,
+                   tcp::socket socket, asio::ssl::context *tls)
+      : listener_{std::move(listener)}, config_{std::move(config)},
         strand_{asio::make_strand(listener_->io_context())} {
     if (tls != nullptr) {
       tls_stream_.emplace(std::move(socket), *tls);
@@ -672,7 +704,7 @@ private:
   void handshake() {
     if (tls_stream_.has_value()) {
       beast::get_lowest_layer(*tls_stream_)
-          .expires_after(listener_owner_config().idle_timeout);
+          .expires_after(config_->idle_timeout);
       tls_stream_->async_handshake(
           asio::ssl::stream_base::server,
           asio::bind_executor(
@@ -690,7 +722,6 @@ private:
     }
   }
 
-  [[nodiscard]] const ServerRuntimeConfig &listener_owner_config() const;
 
   void read_next();
   void on_request();
@@ -712,6 +743,10 @@ private:
   [[nodiscard]] Value peer_value();
 
   std::shared_ptr<WebListener> listener_;
+  // Captured at accept: the owning runtime may detach from the listener
+  // while this connection's handlers are still draining, so socket-level
+  // settings are never fetched through the (possibly empty) attach list.
+  std::shared_ptr<const ServerRuntimeConfig> config_;
   asio::strand<asio::io_context::executor_type> strand_;
   std::optional<PlainStream> plain_stream_{};
   std::optional<TlsStream> tls_stream_{};
@@ -805,7 +840,8 @@ void WebListener::accept_next() {
       if (owner != nullptr &&
           !self->at_connection_limit(owner->config().max_connections)) {
         auto connection = std::make_shared<ServerConnection>(
-            self, std::move(socket), owner->tls_context());
+            self, owner->config_ptr(), std::move(socket),
+            owner->tls_context());
         connection->run();
       }
     }
@@ -1072,7 +1108,7 @@ void WebServerRuntime::rebuild(
     compiled->routes.push_back(route.clone());
   }
   compiled->table = RouteTable::build(std::move(entries));
-  std::atomic_store(&slot, std::shared_ptr<const CompiledRoutes>{compiled});
+  atomic_store_routes(&slot, compiled);
 }
 
 void WebServerRuntime::apply_http_routes(std::vector<Value> added,
@@ -1325,12 +1361,6 @@ void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
 // ---------------------------------------------------------------------------
 // Connection implementation
 
-const ServerRuntimeConfig &ServerConnection::listener_owner_config() const {
-  // Shared-port attachees agree on socket-level settings by the registry's
-  // TLS-identity check; the first runtime's limits govern the socket.
-  return listener_->owner()->config();
-}
-
 void ServerConnection::read_next() {
   if (shutting_down_) {
     close();
@@ -1342,7 +1372,7 @@ void ServerConnection::read_next() {
         [self = shared_from_this()] { self->resume_reading(); });
     return;
   }
-  const auto &config = listener_owner_config();
+  const auto &config = *config_;
   parser_.emplace();
   parser_->header_limit(static_cast<std::uint32_t>(config.max_header_bytes));
   parser_->body_limit(config.max_body_bytes);

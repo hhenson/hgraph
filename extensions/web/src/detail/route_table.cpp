@@ -13,7 +13,7 @@ namespace {
 // array from it would be worse than rejecting it.
 constexpr std::int64_t max_method_value = 64;
 
-[[nodiscard]] std::string quoted(std::string_view value) {
+[[nodiscard]] std::string quoted_text(std::string_view value) {
   std::string text;
   text.reserve(value.size() + 2);
   text.push_back('\'');
@@ -24,7 +24,7 @@ constexpr std::int64_t max_method_value = 64;
 
 [[nodiscard]] std::invalid_argument pattern_error(std::string_view pattern,
                                                   std::string_view reason) {
-  return std::invalid_argument("Web route pattern " + quoted(pattern) + ' ' +
+  return std::invalid_argument("Web route pattern " + quoted_text(pattern) + ' ' +
                                std::string{reason});
 }
 
@@ -149,7 +149,7 @@ void RouteTable::validate_pattern(std::string_view pattern) {
       continue;
     }
     if (std::find(names.begin(), names.end(), name) != names.end()) {
-      throw pattern_error(pattern, "repeats the capture name " + quoted(name));
+      throw pattern_error(pattern, "repeats the capture name " + quoted_text(name));
     }
     names.push_back(name);
   }
@@ -221,8 +221,8 @@ RouteTable RouteTable::build(std::vector<Entry> entries) {
       // spell their captures differently, so this also catches an exactly
       // repeated (method, pattern) pair.
       throw std::invalid_argument(
-          "Web route " + quoted(entry.pattern) + " duplicates " +
-          quoted(table.entries_[terminal].pattern) + " for method " +
+          "Web route " + quoted_text(entry.pattern) + " duplicates " +
+          quoted_text(table.entries_[terminal].pattern) + " for method " +
           std::string{enum_name(entry.method)});
     }
     terminal = index;
