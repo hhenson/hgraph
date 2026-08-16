@@ -199,10 +199,13 @@ argument** to every slot. Groups of slots:
      - **throw**
    * - copy / assign
      - ``copy_construct_view`` · ``copy_assign_view`` ·
-       ``accepts_source`` · ``copy_assign_from`` · ``move_assign_from`` ·
-       ``can_materialize_source``
-     - fall back to the **plan's** ``LifecycleOps``;
-       ``accepts_source`` defaults to same-plan
+       ``copy_assign_from`` · ``move_assign_from``
+     - fall back to the **plan's** ``LifecycleOps``
+   * - source gating
+     - ``accepts_source`` · ``can_materialize_source``
+     - ``accepts_source`` defaults to same-plan;
+       ``can_materialize_source`` defaults to **false** — an incomplete
+       indexed source is rejected, never materialised
    * - projection
      - ``owning_type`` · ``concrete_type`` · ``concrete_memory`` ·
        ``mutable_concrete_memory`` · ``writable_concrete_memory``

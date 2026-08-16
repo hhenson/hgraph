@@ -537,6 +537,7 @@ the same factory that resolves the type record. The data-only layouts are:
        const TypeRecord *key_type;
        const TypeRecord *element_type;
        const DebugDynamicLayout *dynamic_layout;
+       const DebugTimeSeriesLayout *time_series_layout;
    };
 
    struct DebugDynamicLayout {
@@ -564,7 +565,11 @@ type, never inferred from a semantic label: bool, signed/unsigned integers, and
 remains explicitly opaque. Fixed-composite fields connect semantic child type
 records to physical plan offsets. Tuple and bundle descriptors also publish the
 validity-word offset and one bit index per field, so an unset child is displayed
-as typed-null rather than reading uninitialised payload bytes.
+as typed-null rather than reading uninitialised payload bytes. Time-series
+records additionally publish ``time_series_layout`` — the value/delta type
+records plus the value, tracking, last-modified, parent-link, and observer
+offsets (and whether the delta aliases the value) — so debugger tooling can
+inspect live TSData without invoking any ops table.
 
 The version-three dynamic layout remains 88 bytes on supported 64-bit
 platforms. It distinguishes contiguous storage from stable pointer slots and
