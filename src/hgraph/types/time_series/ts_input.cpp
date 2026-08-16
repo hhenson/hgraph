@@ -2294,6 +2294,7 @@ namespace hgraph
                 .context = context.get(),
                 .kind = context->schema->kind,
                 .allows_mutation = true,
+                .is_input_binding = true,
                 .ownership_ops = &input_ownership_ops(),
                 .inspection_ops = &input_inspection_ops(),
                 .current_state_ops =
@@ -2332,7 +2333,7 @@ namespace hgraph
 
         [[nodiscard]] const InputBindingContext *input_context_for(const TSDataOps *ops) noexcept
         {
-            return ops != nullptr && ops->ownership_ops == &input_ownership_ops()
+            return ops != nullptr && ops->is_input_binding
                        ? static_cast<const InputBindingContext *>(ops->context)
                        : nullptr;
         }

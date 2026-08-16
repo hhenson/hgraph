@@ -138,9 +138,9 @@ The implementation uses the following names consistently:
     role, while peered positions select target-link storage and ops.
     ``TS_DATA_OPS_ABI_VERSION`` is 10. ABI 10 removes the never-dispatched
     ``reset_delta`` hook (slot deltas roll lazily inside the storages), adds
-    the explicit ``is_target_link`` discriminator (replacing an
-    ownership-ops pointer-identity comparison), and gives the required TSW
-    window members named throwing defaults. ABI 9
+    the explicit ``is_target_link`` and ``is_input_binding`` discriminators
+    (replacing ownership-ops pointer-identity comparisons), and gives the
+    required TSW window members named throwing defaults. ABI 9
     adds an explicit data-only
     inspection table for debugger-visible representation fields. ABI 8 adds
     recursive source-topology validation to the current-state strategy table

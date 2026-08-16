@@ -262,12 +262,16 @@ namespace hgraph
             return holds_alternative<T>() ? static_cast<const T *>(data()) : nullptr;
         }
 
-        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only views. */
+        /** Mutable variant of ``try_as<T>``; returns ``nullptr`` for read-only views.
+            The ops-address identity subsumes the kind test — a table equal to
+            ``ops_for<T>`` is atomic by construction — so the probe is one
+            compare plus the access-mode check (audit O8). */
         template <typename T>
         [[nodiscard]] T *try_mutable_as() noexcept
         {
-            return holds_alternative<T>() && mutable_payload() ? static_cast<T *>(const_cast<void *>(data()))
-                                                               : nullptr;
+            return valid() && type().ops() == &ops_for<T>() && mutable_payload()
+                       ? static_cast<T *>(const_cast<void *>(data()))
+                       : nullptr;
         }
 
         /** ``checked_as<T>`` throws when the view is invalid, non-atomic, or T doesn't match. */
@@ -276,7 +280,9 @@ namespace hgraph
         {
             if (!valid()) { throw std::logic_error("checked_as<T> on invalid ValueView"); }
             if (!is_atomic()) { throw std::logic_error("checked_as<T> on non-atomic ValueView"); }
-            if (!holds_alternative<T>()) { throw std::logic_error("checked_as<T> type mismatch"); }
+            // Atomicity just proved; the ops-address compare alone settles T
+            // (audit O8 — holds_alternative would re-run is_atomic).
+            if (type().ops() != &ops_for<T>()) { throw std::logic_error("checked_as<T> type mismatch"); }
             return *static_cast<const T *>(data());
         }
         template <typename T>
@@ -285,7 +291,7 @@ namespace hgraph
             if (!valid()) { throw std::logic_error("checked_mutable_as<T> on invalid ValueView"); }
             if (!mutable_payload()) { throw std::logic_error("checked_mutable_as<T> requires begin_mutation"); }
             if (!is_atomic()) { throw std::logic_error("checked_mutable_as<T> on non-atomic ValueView"); }
-            if (!holds_alternative<T>()) { throw std::logic_error("checked_mutable_as<T> type mismatch"); }
+            if (type().ops() != &ops_for<T>()) { throw std::logic_error("checked_mutable_as<T> type mismatch"); }
             return *static_cast<T *>(const_cast<void *>(data()));
         }
 
