@@ -1261,6 +1261,24 @@ namespace
         }
     };
 
+    /** The passive twin of SampleIfTrueRouteGraph: the if_-routed branch is
+        the PASSIVELY sampled input and a separate trigger drives sample —
+        the C++ public-wiring pin for passive reads following reference
+        retargets (mirrors test_passive_read_follows_reference_retarget;
+        review finding on #495). */
+    struct SamplePassiveRoutedGraph
+    {
+        static constexpr auto name = "sample_passive_routed_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> condition, Port<TS<Int>> ts,
+                                     Port<TS<Bool>> trigger)
+        {
+            auto routed = wire<stdlib::if_, IfIntRefBundle>(w, condition, ts).as<IfIntRefBundle>();
+            auto branch = wire<stdlib::getitem_>(w, routed, Str{"true"}).as<TS<Int>>();
+            return wire<stdlib::sample>(w, trigger, branch).as<TS<Int>>();
+        }
+    };
+
     struct IfTrueTsdFilterGraph
     {
         static constexpr auto name = "if_true_tsd_filter_graph";
@@ -3161,6 +3179,13 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
     CHECK_OUTPUT(eval_node<SampleIfTrueRouteGraph>(values<Bool>(false, false, true, false, true),
                                                    values<Int>(1, 2, 3, 4, 5)),
                  values<Int>(none, none, 1, none, 1));
+    // Passive twin: the routed branch is the sampled (passive) input; every
+    // trigger must observe the branch's CURRENT binding across retargets.
+    CHECK_OUTPUT(eval_node<SamplePassiveRoutedGraph>(
+                     values<Bool>(true, none, false, none, true, none),
+                     values<Int>(1, 2, 3, 4, 5, 6),
+                     values<Bool>(none, true, none, true, none, true)),
+                 values<Int>(none, 2, none, none, none, 6));
     CHECK_OUTPUT(eval_node<RouteByIndexSlotTwoGraph>(values<Int>(0, 2, none, 1, 2),
                                                      values<Int>(10, 20, 30, 40, 50)),
                  values<Int>(none, 20, 30, none, 50));
