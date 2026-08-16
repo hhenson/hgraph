@@ -433,15 +433,18 @@ namespace hgraph
             if (record_modified_local(table)) { notify_parent_modified(table); }
         }
 
-        void require_active_mutation() const noexcept
+        void require_active_mutation() const
         {
-            // One validation per mutation scope (audit 2026-08-16):
-            // validate_mutation_view proved liveness, time, and mutability at
-            // construction, and both facts are immutable for the view's
-            // lifetime (only a move clears them, and a moved-from mutation
-            // view must not be used). Downstream entry points trust the
-            // scope; the facts stay debug-asserted.
-            assert(mutation_time_ != MIN_DT && storage_.has_value());
+            // Scope LIVENESS stays a runtime guard: the move constructor
+            // clears storage_ and mutation_time_, so a moved-from mutation
+            // view must keep its documented exception in release builds too
+            // (review finding on #488) — two register compares. The
+            // type/mutability validation, by contrast, is immutable for the
+            // scope and trusted after construction (validate_mutation_view).
+            if (mutation_time_ == MIN_DT || !storage_.has_value())
+            {
+                throw std::logic_error("TSData mutation requires an active mutation scope");
+            }
         }
 
         void validate_mutation_view() const;
