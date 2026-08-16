@@ -30,6 +30,8 @@
     "websiteURL": "https://github.com/hhenson/hgraph/tree/main/plugins/hgraph-development",
     "privacyPolicyURL": "https://github.com/hhenson/hgraph/blob/main/plugins/hgraph-development/PRIVACY.md",
     "termsOfServiceURL": "https://github.com/hhenson/hgraph/blob/main/plugins/hgraph-development/TERMS.md",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Implement a high-performance hgraph compute node.",
       "Compose this hgraph behavior as a graph.",

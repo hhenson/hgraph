@@ -64,7 +64,8 @@ Initial release notes:
 
 - Verify the individual or organization publisher identity in OpenAI Platform.
 - Confirm the submitter has **Apps Management: Write** permission.
-- Upload a production hgraph logo.
+- Upload the bundled production logo from `assets/logo.png` and confirm its
+  crop in the listing preview.
 - Upload the final `skills/` bundle from this directory.
 - Enter at least the five positive and three negative tests above.
 - Select supported countries or regions and submit the draft for review.
