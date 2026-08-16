@@ -136,7 +136,9 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 9. ABI 9 adds an explicit data-only
+    ``TS_DATA_OPS_ABI_VERSION`` is 10. ABI 10 removes the never-dispatched
+    ``reset_delta`` hook (slot deltas roll lazily inside the storages). ABI 9
+    adds an explicit data-only
     inspection table for debugger-visible representation fields. ABI 8 adds
     recursive source-topology validation to the current-state strategy table
     introduced by ABI 7. ABI 6
@@ -465,7 +467,7 @@ TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 9.
+``TS_DATA_OPS_ABI_VERSION``, currently 10.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

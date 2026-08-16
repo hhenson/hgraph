@@ -1073,7 +1073,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_value_memory_impl = &tss_mutable_value_memory,
                     .delta_memory_impl         = &tss_delta_memory,
                     .mutable_delta_memory_impl = &tss_mutable_delta_memory,
-                    .reset_delta_impl          = &tss_reset_delta,
                     .copy_value_from_impl      = &tss_copy_value_from,
                     .move_value_from_impl      = &tss_move_value_from,
                     .empty_delta_impl          = &ts_data_detail::empty_delta_tss,
@@ -1330,12 +1329,6 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return memory;
             }
-
-            static void tss_reset_delta(const void *, void *memory)
-            {
-                storage<Storage>(memory).reset_delta();
-            }
-
 
             [[nodiscard]] static bool tss_copy_value_from(const void *context, void *memory, const ValueView &source,
                                                           DateTime modified_time)
@@ -2033,7 +2026,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.mutable_value_memory_impl = &tsd_mutable_value_memory;
                 base_ops.delta_memory_impl = &tsd_delta_memory;
                 base_ops.mutable_delta_memory_impl = &tsd_mutable_delta_memory;
-                base_ops.reset_delta_impl = &tsd_reset_delta;
                 base_ops.record_child_modified_impl = &tsd_record_child_modified;
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
                 base_ops.current_state_ops =
@@ -2202,7 +2194,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     ks.apply_delta_impl          = read_only_base.apply_delta_impl;
                     ks.mutable_value_memory_impl = read_only_base.mutable_value_memory_impl;
                     ks.mutable_delta_memory_impl = read_only_base.mutable_delta_memory_impl;
-                    ks.reset_delta_impl          = read_only_base.reset_delta_impl;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                     ks.from_python_impl          = read_only_base.from_python_impl;
 #endif
@@ -2399,12 +2390,6 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return memory;
             }
-
-            static void tsd_reset_delta(const void *, void *memory)
-            {
-                storage<TSDSlotStorage>(memory).reset_delta();
-            }
-
 
             static void tsd_record_child_modified(const void *, void *memory, std::size_t child_id,
                                                   DateTime modified_time)

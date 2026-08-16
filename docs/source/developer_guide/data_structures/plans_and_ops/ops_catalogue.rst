@@ -139,7 +139,7 @@ constant when the ops struct layout changes.
      - 6
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 9
+     - 10
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 4
@@ -365,7 +365,7 @@ context is the interned per-shape layout/context object; generic policy
        *first-for-time*, not success)
    * - delta capture / apply
      - ``empty_delta`` · ``capture_delta`` · ``delta_has_effect`` ·
-       ``apply_delta`` · ``clear_collection`` · ``reset_delta`` ·
+       ``apply_delta`` · ``clear_collection`` ·
        ``record_child_modified``
    * - children
      - ``indexed_child_count`` · ``indexed_child_binding`` ·

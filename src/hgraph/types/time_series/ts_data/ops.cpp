@@ -76,7 +76,6 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("mutable delta memory");
     }
 
-    void noop_reset_delta(const void *, void *) {}
 
     void noop_record_child_modified(const void *, void *, std::size_t, DateTime) {}
 
