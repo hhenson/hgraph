@@ -53,12 +53,17 @@ debug descriptor for one implementation:
 .. code-block:: cpp
 
    struct TypeRecord {
+       std::uint32_t                   magic;
+       std::uint16_t                   abi_version;
        TypeRole                        role;
+       std::uint16_t                   ops_abi_version;
        TypeCapabilities                capabilities;
+       const char*                     implementation_label;
        const SchemaHeader*             schema;
        const MemoryUtils::StoragePlan* plan;
        const void*                     ops;
        const DebugDescriptor*          debug;
+       mutable const TypeRecord*       external_value_owner;
    };
 
    class ValueTypeRef {
@@ -68,6 +73,8 @@ debug descriptor for one implementation:
 A ``ValueTypeRef`` is a one-word, trivially-copyable typed reference to a
 value-family ``Instance`` record. ``Value``, ``ValueView``, and builders use
 it to reach schema, plan, lifecycle, capabilities, and ``ValueOps``.
+:doc:`ops_catalogue` is the current-state reference for all six record
+families, their ops tables, and their ABI versions.
 
 ``intern_value_type`` interns one record per ``(schema header, Instance role,
 plan, ops)`` key in ``TypeRecordRegistry``. ``ValuePlanFactory`` caches
@@ -202,6 +209,19 @@ falls back to the erased copy otherwise — python-cached and
 python-owned storages keep ``direct_native_value`` false because their
 writes carry cache-invalidation side rules (2026-08-15; motivated by
 the recordable-counter write cost surfaced in the std-operator audit).
+
+The same gate powers the **typed fast read**:
+``TSDataView::try_native_value_memory(expected_value_ops)`` returns the
+payload address when the ops declare ``direct_native_value``, take the
+plain layout+memory route (no ``value_view_impl`` override), and the
+value binding's ops table is address-identical to the caller's expected
+``ops_for<T>`` — the same identity ``checked_as`` verifies. Bound
+typed inputs surface it as
+``TSInputView::try_native_value_memory``; ``In<TS<T>>::value()`` and
+the lifted kernels read through it and fall back to the erased
+``value().checked_as<T>()`` path when the gate refuses (2026-08-16; the
+read-side twin, skipping the two transient value views, the
+``concrete()`` projection, and the per-read ``checked_as`` ceremony).
 
 The mutation is closed by calling ``end_mutation()`` on the mutable
 view. For the current scalar value-layer ops this is a no-op; the
@@ -379,10 +399,8 @@ currently support explicit mutation when their ops table allows
 ``begin_mutation()``. The compact (build-once) container storage ops do
 not allow it. Structural mutation is supported for **mutable** container
 schemas (``ValueTypeFlags::Mutable``), which bind to slot-store-backed
-storage and install a structural-mutation ops surface — the mutable list
-is implemented (below); the mutable map follows; the remaining structural
-methods are still design/API targets for the slot-store-backed
-time-series layer.
+storage and install a structural-mutation ops surface — the mutable
+list, set, and map are all implemented (below).
 
 ``MutableTupleView``
     Adds mutable child access by index. ``set(index, value)`` is a

@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
@@ -979,24 +980,10 @@ namespace hgraph::ts_data_plan_factory_detail
                                                         bool embedded, bool composite = false)
         {
             if (composite && kind == TSTypeKind::TSD && role == TypeRole::Input)
-                return "ts.tsd.input.composite";
-            if (embedded)
-            {
-                if (kind == TSTypeKind::TSS)
-                    return role == TypeRole::Data ? "ts.tss.data.embedded"
-                         : role == TypeRole::Input ? "ts.tss.input.embedded"
-                                                   : "ts.tss.output.embedded";
-                return role == TypeRole::Data ? "ts.tsd.data.embedded"
-                     : role == TypeRole::Input ? "ts.tsd.input.embedded"
-                                               : "ts.tsd.output.embedded";
-            }
-            if (kind == TSTypeKind::TSS)
-                return role == TypeRole::Data ? "ts.tss.data.root"
-                     : role == TypeRole::Input ? "ts.tss.input.owned"
-                                               : "ts.tss.output.root";
-            return role == TypeRole::Data ? "ts.tsd.data.root"
-                 : role == TypeRole::Input ? "ts.tsd.input.owned"
-                                           : "ts.tsd.output.root";
+                return ts_labels::tsd_input_composite;
+            const auto family = kind == TSTypeKind::TSS ? ts_labels::Family::TSS : ts_labels::Family::TSD;
+            return ts_labels::record_label(
+                family, role, embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root);
         }
 
         struct SlotContextCommon
@@ -1073,7 +1060,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_value_memory_impl = &tss_mutable_value_memory,
                     .delta_memory_impl         = &tss_delta_memory,
                     .mutable_delta_memory_impl = &tss_mutable_delta_memory,
-                    .reset_delta_impl          = &tss_reset_delta,
                     .copy_value_from_impl      = &tss_copy_value_from,
                     .move_value_from_impl      = &tss_move_value_from,
                     .empty_delta_impl          = &ts_data_detail::empty_delta_tss,
@@ -1330,12 +1316,6 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return memory;
             }
-
-            static void tss_reset_delta(const void *, void *memory)
-            {
-                storage<Storage>(memory).reset_delta();
-            }
-
 
             [[nodiscard]] static bool tss_copy_value_from(const void *context, void *memory, const ValueView &source,
                                                           DateTime modified_time)
@@ -2033,7 +2013,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.mutable_value_memory_impl = &tsd_mutable_value_memory;
                 base_ops.delta_memory_impl = &tsd_delta_memory;
                 base_ops.mutable_delta_memory_impl = &tsd_mutable_delta_memory;
-                base_ops.reset_delta_impl = &tsd_reset_delta;
                 base_ops.record_child_modified_impl = &tsd_record_child_modified;
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
                 base_ops.current_state_ops =
@@ -2202,7 +2181,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     ks.apply_delta_impl          = read_only_base.apply_delta_impl;
                     ks.mutable_value_memory_impl = read_only_base.mutable_value_memory_impl;
                     ks.mutable_delta_memory_impl = read_only_base.mutable_delta_memory_impl;
-                    ks.reset_delta_impl          = read_only_base.reset_delta_impl;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                     ks.from_python_impl          = read_only_base.from_python_impl;
 #endif
@@ -2213,11 +2191,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     key_set_ts_ops.touch_impl      = read_only_set.touch_impl;
                 }
                 const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
-                const auto role_label = role == TypeRole::Data
-                                            ? std::string_view{"ts.tsd.key-set.data"}
-                                            : role == TypeRole::Input
-                                                  ? std::string_view{"ts.tsd.key-set.input"}
-                                                  : std::string_view{"ts.tsd.key-set.output"};
+                const auto role_label = ts_labels::tsd_key_set_label(role);
                 key_set_ts_type = TSRoleTypeRef{intern_ts_type(
                     *key_set_schema, role, plan_, key_set_ts_ops, role_label)};
                 dict_layout.key_set_type = key_set_ts_type;
@@ -2399,12 +2373,6 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return memory;
             }
-
-            static void tsd_reset_delta(const void *, void *memory)
-            {
-                storage<TSDSlotStorage>(memory).reset_delta();
-            }
-
 
             static void tsd_record_child_modified(const void *, void *memory, std::size_t child_id,
                                                   DateTime modified_time)

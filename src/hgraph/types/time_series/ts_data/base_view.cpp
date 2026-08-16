@@ -126,6 +126,15 @@ ValueView TSDataView::value() const {
       .concrete();
 }
 
+const void *TSDataView::try_native_value_memory(const void *expected_value_ops) const noexcept {
+  if (!storage_.has_value()) { return nullptr; }
+  const auto &table = ops();
+  if (!table.direct_native_value || table.value_view_impl != nullptr) { return nullptr; }
+  const auto *data_layout = table.layout_impl(table.context);
+  if (data_layout->value_binding.ops() != expected_value_ops) { return nullptr; }
+  return table.value_memory_impl(table.context, data());
+}
+
 ValueView TSDataView::delta_value(DateTime evaluation_time) const {
   const auto &table = ops();
   if (table.delta_view_impl != nullptr) {

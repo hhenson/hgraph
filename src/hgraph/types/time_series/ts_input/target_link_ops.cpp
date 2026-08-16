@@ -2,6 +2,7 @@
 #include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_data/ts_labels.h>
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value.h>
@@ -1412,7 +1413,7 @@ namespace hgraph::detail
             }
             context->dict_layout.key_set_type = TSRoleTypeRef{intern_ts_type(
                 *key_set_schema, TypeRole::Input, root_plan, context->key_set_ops,
-                std::string_view{"ts.tsd.key-set.input"})};
+                ts_labels::tsd_key_set_label(TypeRole::Input))};
 
             context->active_layout = &context->dict_layout;
             context->active_ops = &context->dict_ops;

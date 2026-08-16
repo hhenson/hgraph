@@ -612,7 +612,15 @@ namespace hgraph
         explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}
 
         /** Current value of the input (typed; shadows the erased ``value() -> ValueView``). */
-        [[nodiscard]] value_type value() const { return TSInputView::value().template checked_as<TValue>(); }
+        [[nodiscard]] value_type value() const
+        {
+            if (const auto *fast = static_cast<const TValue *>(
+                    this->try_native_value_memory(&ops_for<TValue>())))
+            {
+                return *fast;
+            }
+            return TSInputView::value().template checked_as<TValue>();
+        }
         /** The underlying erased input view (the container typed views expose the same via the CRTP base). */
         [[nodiscard]] const TSInputView &base() const noexcept { return *this; }
         // modified() / valid() / delta_value() inherited from TSInputView.

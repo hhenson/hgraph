@@ -72,6 +72,26 @@ namespace hgraph
         }
 
         /**
+         * Like ``intern`` but runs the factory while HOLDING the table
+         * mutex, serialising construction per table. Required whenever the
+         * factory publishes the candidate's address into another registry
+         * during construction (e.g. interns a TypeRecord pointing at the
+         * entry's ops): under the unlocked ``intern``, a racing loser is
+         * destroyed while its published record lives forever, leaving a
+         * dangling record and a nondeterministic registry count. The
+         * factory must not re-enter the same table.
+         */
+        template <typename Factory> [[nodiscard]] const Value &intern_serialized(Key key, Factory &&factory) {
+            std::lock_guard lock(m_mutex);
+            if (const auto it = m_cache.find(key); it != m_cache.end()) { return *it->second; }
+            auto value = std::make_unique<Value>(std::forward<Factory>(factory)());
+            const Value *result = value.get();
+            m_storage.push_back(std::move(value));
+            m_cache.emplace(std::move(key), result);
+            return *result;
+        }
+
+        /**
          * Convenience for the common case of constructing ``Value`` from
          * forwarded arguments. Equivalent to
          * ``intern(key, [&]{ return Value{args...}; })``.
@@ -99,6 +119,18 @@ namespace hgraph
             std::lock_guard lock(m_mutex);
             m_cache.clear();
             m_storage.clear();
+        }
+
+        /**
+         * Drop the key index but keep every interned value alive. For
+         * registries whose values are address-published immortals (interned
+         * TypeRecords point into them): a reset must forget the keys so
+         * fresh schemas rebuild, while values already handed out stay valid
+         * for artifacts that outlive the reset.
+         */
+        void clear_index() noexcept {
+            std::lock_guard lock(m_mutex);
+            m_cache.clear();
         }
 
       private:

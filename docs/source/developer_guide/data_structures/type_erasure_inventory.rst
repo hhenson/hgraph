@@ -61,7 +61,7 @@ but it is an exception to the desired two-word pointer model.
 The complete current-layout baseline is enforced by
 ``tests/cpp/test_type_erasure_layout.cpp``:
 
-.. list-table:: Current erased layout baseline
+.. list-table:: Milestone-0 erased layout baseline
    :header-rows: 1
    :widths: 42 18 40
 
@@ -136,7 +136,7 @@ Only value and time-series schemas currently share ``TypeMetaData`` and its
 unrelated C++ types.  Every family has a narrow ops ABI; there is no common ops
 prefix and no runtime family discriminator on a binding.
 
-.. list-table:: Current schema and ops families
+.. list-table:: Milestone-0 schema and ops families
    :header-rows: 1
    :widths: 13 22 25 24 16
 
@@ -239,7 +239,7 @@ Binding Specializations
 Pointers, Views, Owners, And Builders
 -------------------------------------
 
-.. list-table:: Current object classification and ownership
+.. list-table:: Milestone-0 object classification and ownership
    :header-rows: 1
    :widths: 24 15 26 35
 
@@ -309,7 +309,7 @@ must not be mechanically renamed without preserving their endpoint semantics.
 Factories, Registries, And Reset
 --------------------------------
 
-.. list-table:: Current interning and factory layers
+.. list-table:: Milestone-0 interning and factory layers
    :header-rows: 1
    :widths: 25 38 37
 

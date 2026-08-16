@@ -48,7 +48,6 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_value_memory(const void *, void *);
         [[nodiscard]] HGRAPH_EXPORT const void *missing_delta_memory(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT void *missing_mutable_delta_memory(const void *, void *);
-        HGRAPH_EXPORT void noop_reset_delta(const void *, void *);
         HGRAPH_EXPORT void noop_record_child_modified(const void *, void *, std::size_t, DateTime);
         [[nodiscard]] inline DynamicStorageMetrics no_dynamic_storage_metrics(const void *, const void *) noexcept
         {
@@ -212,7 +211,6 @@ namespace hgraph
                                          const void *memory) = &ts_data_detail::missing_delta_memory;
         void *(*mutable_delta_memory_impl)(const void *context,
                                            void *memory) = &ts_data_detail::missing_mutable_delta_memory;
-        void (*reset_delta_impl)(const void *context, void *memory) = &ts_data_detail::noop_reset_delta;
         void (*record_child_modified_impl)(const void *context,
                                            void *memory,
                                            std::size_t child_id,

@@ -80,9 +80,9 @@ cached by value against the schema.
   *Container Storage Shapes* below. ``plan_for`` synthesises the
   matching plan on first request, attaching a per-instantiation
   ``*State`` struct as the ``StoragePlan::lifecycle_context`` so the
-  lifecycle hooks know how to construct the storage. ``binding_for``
-  is replaced by ``type_for``, which pairs the plan with the compact
-  kind-specific ops table in the common type-record registry.
+  lifecycle hooks know how to construct the storage. ``type_for``
+  pairs the plan with the compact kind-specific ops table in the
+  common type-record registry.
 
 The time-series layer has the matching ``TSDataPlanFactory`` for the
 payload/delta component inside a time-series endpoint. Atomic TSData

@@ -89,6 +89,7 @@ and is described in *Refinement Topics*.
    :maxdepth: 2
 
    erased_types
+   ops_catalogue
    scalar
    time_series
    proxy_state_management
