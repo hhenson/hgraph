@@ -89,7 +89,23 @@ namespace hgraph
             {
                 if (!has_value())
                 {
-                    throw std::logic_error("specialized TSDataStorageRef requires live TSData storage");
+                    // Unbound dispatches into the family's no-value sentinel:
+                    // reads answer empty, mutations throw (audit sentinel
+                    // design, 2026-08-16). Order matters: TSDDataOps derives
+                    // TSSDataOps.
+                    if constexpr (std::same_as<DataOps, TSDDataOps>)
+                    {
+                        return ts_data_detail::default_tsd_data_ops();
+                    }
+                    else if constexpr (std::same_as<DataOps, TSSDataOps>)
+                    {
+                        return ts_data_detail::default_tss_data_ops();
+                    }
+                    else if constexpr (std::same_as<DataOps, TSWDataOps>)
+                    {
+                        return ts_data_detail::default_tsw_data_ops();
+                    }
+                    else { return ts_data_detail::default_indexed_ts_data_ops(); }
                 }
                 return static_cast<const DataOps &>(type_.ops_ref());
             }
@@ -105,7 +121,10 @@ namespace hgraph
         static void validate_kind(TSDataStorageRef<> storage, TSTypeKind expected_kind)
             requires(!std::same_as<DataOps, TSDataOps>)
         {
-            if (!storage.has_value()) { throw std::logic_error("TSDataStorageRef requires live TSData storage"); }
+            // Unbound is legal: the typed view dispatches into the family's
+            // no-value sentinel. A BOUND ref of the wrong kind is still a
+            // programming error.
+            if (!storage.has_value()) { return; }
 
             const auto &base_ops = storage.ops();
             if (base_ops.kind != expected_kind)

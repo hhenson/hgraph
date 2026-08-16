@@ -180,7 +180,10 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.valid() ? target.value() : ValueView{};
+            // Unbound dispatches into the no-value sentinel and yields an
+            // invalid ValueView — the branch answered the same (audit
+            // sentinel conversion, 2026-08-16; same for every drop below).
+            return target.value();
         }
 
         [[nodiscard]] const void *target_link_delta_memory(const void *context, const void *memory)
@@ -197,7 +200,7 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.valid() ? target.delta_value(evaluation_time) : ValueView{};
+            return target.delta_value(evaluation_time);
         }
 
         [[nodiscard]] TSDataView target_link_target_view(const void *context, const void *memory)
@@ -223,7 +226,7 @@ namespace hgraph::detail
                 return true;
             }
             auto target = target_link_target_view(context, memory);
-            return target.valid() && target.as_dict().structural_delta_current(evaluation_time);
+            return target.as_dict().structural_delta_current(evaluation_time);
         }
 
         [[nodiscard]] TSDataView target_link_previous_view(const void *context, const void *memory) noexcept
@@ -463,12 +466,10 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_slot_capacity_or_zero(const void *context, const void *memory) noexcept
         {
-            return fallback_on_exception(std::size_t{0}, [&] {
-                const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
-                auto target = target_link_target_view(context, memory);
-                return target.valid() && state->slot_access != nullptr ? state->slot_access->slot_capacity(target)
-                                                                       : std::size_t{0};
-            });
+            const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
+            auto target = target_link_target_view(context, memory);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->slot_capacity(target);
         }
 
         [[nodiscard]] Range<ValueView> target_link_empty_value_range() noexcept
@@ -491,12 +492,10 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_set_size(const void *context, const void *memory) noexcept
         {
-            return fallback_on_exception(std::size_t{0}, [&] {
-                const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
-                auto target = target_link_target_view(context, memory);
-                return target.valid() && state->slot_access != nullptr ? state->slot_access->size(target)
-                                                                       : std::size_t{0};
-            });
+            const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
+            auto target = target_link_target_view(context, memory);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->size(target);
         }
 
         [[nodiscard]] std::size_t target_link_set_slot_capacity(const void *context, const void *memory) noexcept
@@ -508,14 +507,16 @@ namespace hgraph::detail
         {
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
-            return target.valid() && state->slot_access != nullptr && state->slot_access->slot_occupied(target, slot);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->slot_occupied(target, slot);
         }
 
         [[nodiscard]] bool target_link_set_slot_live(const void *context, const void *memory, std::size_t slot)
         {
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
-            return target.valid() && state->slot_access != nullptr && state->slot_access->slot_live(target, slot);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->slot_live(target, slot);
         }
 
         [[nodiscard]] bool target_link_set_slot_added(const void *context, const void *memory, std::size_t slot)
@@ -523,13 +524,14 @@ namespace hgraph::detail
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
             const auto *link = target_link_for(context, memory);
-            if (target.valid() && link != nullptr && link->sampled_structural_transition() &&
-                state->slot_access != nullptr && state->slot_access->slot_live(target, slot))
+            assert(state->slot_access != nullptr);
+            if (link != nullptr && link->sampled_structural_transition() &&
+                state->slot_access->slot_live(target, slot))
             {
                 const auto key = target_link_key_view(*state, target, slot);
                 return !target_link_previous_contains_published(context, memory, key);
             }
-            return target.valid() && state->slot_access != nullptr && state->slot_access->slot_added(target, slot);
+            return state->slot_access->slot_added(target, slot);
         }
 
         [[nodiscard]] bool target_link_set_slot_removed(const void *context, const void *memory, std::size_t slot)
@@ -538,7 +540,8 @@ namespace hgraph::detail
             auto target = target_link_target_view(context, memory);
             const auto *link = target_link_for(context, memory);
             if (link != nullptr && link->structural_transition_active()) { return false; }
-            return target.valid() && state->slot_access != nullptr && state->slot_access->slot_removed(target, slot);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->slot_removed(target, slot);
         }
 
         [[nodiscard]] bool target_link_previous_slot_removed(const void *context,
@@ -584,8 +587,10 @@ namespace hgraph::detail
             const auto previous = target_link_previous_view(context, memory);
             const auto current = target_link_target_view(context, memory);
             const auto key = target_link_key_view(*state, previous, slot);
-            return !current.valid() || state->slot_access == nullptr ||
-                   !state->slot_access->contains(current, key);
+            // Unbound current: sentinel contains() answers false — the slot
+            // is gone, exactly what the valid() arm concluded.
+            assert(state->slot_access != nullptr);
+            return !state->slot_access->contains(current, key);
         }
 
         [[nodiscard]] const void *target_link_set_key_at_slot(const void *context,
@@ -605,7 +610,8 @@ namespace hgraph::detail
         {
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
-            return target.valid() && state->slot_access != nullptr && state->slot_access->contains(target, key);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->contains(target, key);
         }
 
         [[nodiscard]] std::size_t target_link_set_find_slot(const void *context,
@@ -614,8 +620,8 @@ namespace hgraph::detail
         {
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
-            return target.valid() && state->slot_access != nullptr ? state->slot_access->find_slot(target, key)
-                                                                   : TS_DATA_NO_CHILD_ID;
+            assert(state->slot_access != nullptr);
+            return state->slot_access->find_slot(target, key);
         }
 
         [[nodiscard]] ValueView target_link_set_key_projector(const void *context,
@@ -778,11 +784,11 @@ namespace hgraph::detail
         {
             auto target = target_link_target_view(context, memory);
             const auto *link = target_link_for(context, memory);
-            if (target.valid() && link != nullptr && link->sampled_structural_transition())
+            if (link != nullptr && link->sampled_structural_transition())
             {
                 return target.as_dict().slot_live(slot);
             }
-            return target.valid() && target.as_dict().slot_modified(slot);
+            return target.as_dict().slot_modified(slot);
         }
 
         [[nodiscard]] std::size_t target_link_dict_next_modified_slot(const void *context,
@@ -790,8 +796,6 @@ namespace hgraph::detail
                                                                       std::size_t previous)
         {
             auto target = target_link_target_view(context, memory);
-            if (!target.valid()) { return TS_DATA_NO_CHILD_ID; }
-
             auto dict = target.as_dict();
             const auto *link = target_link_for(context, memory);
             if (link == nullptr || !link->sampled_structural_transition())
@@ -856,7 +860,9 @@ namespace hgraph::detail
         [[nodiscard]] bool target_link_dict_slot_valid(const void *context, const void *memory, std::size_t slot)
         {
             auto target = target_link_target_view(context, memory);
-            return target.valid() && target.as_dict().slot_live(slot) && target.as_dict().at_slot(slot).valid();
+            // Sentinel slot_live answers false for unbound, short-circuiting
+            // before the bounds-checked at_slot.
+            return target.as_dict().slot_live(slot) && target.as_dict().at_slot(slot).valid();
         }
 
         [[nodiscard]] Range<TSDataView> target_link_dict_ts_range(
@@ -975,12 +981,10 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_indexed_size(const void *context, const void *memory) noexcept
         {
-            return fallback_on_exception(std::size_t{0}, [&] {
-                const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
-                auto target = target_link_target_view(context, memory);
-                return target.valid() && state->indexed_access != nullptr ? state->indexed_access->size(target)
-                                                                          : std::size_t{0};
-            });
+            const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
+            auto target = target_link_target_view(context, memory);
+            assert(state->indexed_access != nullptr);
+            return state->indexed_access->size(target);
         }
 
         [[nodiscard]] TSDataView target_link_indexed_child(const void *context,
@@ -1028,10 +1032,8 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_window_size(const void *context, const void *memory) noexcept
         {
-            return fallback_on_exception(std::size_t{0}, [&] {
-                auto target = target_link_target_view(context, memory);
-                return target.valid() ? target.as_window().size() : std::size_t{0};
-            });
+            auto target = target_link_target_view(context, memory);
+            return target.as_window().size();
         }
 
         [[nodiscard]] const void *target_link_window_element_at(const void *context,
@@ -1057,16 +1059,14 @@ namespace hgraph::detail
 
         [[nodiscard]] std::size_t target_link_window_capacity(const void *context, const void *memory) noexcept
         {
-            return fallback_on_exception(std::size_t{0}, [&] {
-                auto target = target_link_target_view(context, memory);
-                return target.valid() ? target.as_window().capacity() : std::size_t{0};
-            });
+            auto target = target_link_target_view(context, memory);
+            return target.as_window().capacity();
         }
 
         [[nodiscard]] bool target_link_window_full(const void *context, const void *memory)
         {
             auto target = target_link_target_view(context, memory);
-            return target.valid() && target.as_window().full();
+            return target.as_window().full();
         }
 
         void target_link_window_push(const void *, void *, const ValueView &, DateTime)

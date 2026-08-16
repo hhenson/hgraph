@@ -461,6 +461,20 @@ Derived tables and sub-tables:
         capacity · evicted/cleared
       }
 
+**No-value sentinels.** Every family has a sentinel table —
+``default_ts_data_ops()`` for the base and
+``default_{tss,tsd,indexed_ts,tsw}_data_ops()`` for the derived
+surfaces — that an UNBOUND view dispatches into: reads answer the
+empty/never-ticked value (size 0, predicates false, empty ranges,
+``TS_DATA_NO_CHILD_ID`` cursors), mutations keep the throwing defaults.
+Typed casts (``as_set()`` …) accept an unbound ref (a bound ref of the
+wrong kind still throws), so the target-link read thunks dispatch
+unconditionally instead of branching on ``target.valid()`` per call.
+Guards remain only where they are semantic: mutation no-ops on unbound
+links, bounds-checked child access, side-effectful subscription, and
+the explicit ``require_live`` API throws
+(``tests/cpp/test_sentinel_ops.cpp`` pins the contract).
+
 The four sub-tables each answer one concern:
 
 - ``TSCurrentStateOps`` — record/replay reconciliation: eight per-kind
