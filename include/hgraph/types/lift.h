@@ -386,6 +386,20 @@ namespace hgraph
             return value;
         }
 
+        /** Typed argument read sharing the ``In<TS<T>>::value`` fast path:
+            direct native payload load when the resolved target qualifies,
+            erased ``checked_as`` otherwise. */
+        template <typename T>
+        T read_lifted_arg(const TSInputView &child)
+        {
+            if (const auto *fast =
+                    static_cast<const T *>(child.try_native_value_memory(&ops_for<T>())))
+            {
+                return *fast;
+            }
+            return child.value().template checked_as<T>();
+        }
+
         template <typename F, std::size_t... I>
         bool evaluate_lifted_children(const NodeView &view, TSInputView &root, TSBInputView &input,
                                       DateTime evaluation_time, std::index_sequence<I...>)
@@ -405,7 +419,7 @@ namespace hgraph
 
             using tuple = arg_tuple_t<F>;
             result_t<F> result =
-                invoke<F>(children[I].value().template checked_as<tuple_arg_t<tuple, I>>()...);
+                invoke<F>(read_lifted_arg<tuple_arg_t<tuple, I>>(children[I])...);
             auto mutation = output.begin_mutation(evaluation_time);
             auto destination = mutation.value();
             const ValueView source{destination.binding(), static_cast<const void *>(&result)};

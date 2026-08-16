@@ -79,6 +79,23 @@ namespace
         static void eval(Out<TS<Int>> out) { out.set(Int{7}); }
     };
 
+    /** Compute node reporting whether the typed fast READ engaged: emits
+        the value read through try_native_value_memory, or -1 when the
+        direct-native gate refused. In<TS<Int>>::value() rides the same
+        accessor, so a -1 here means every typed scalar read pays the
+        erased path. */
+    struct FastReadProbe
+    {
+        static constexpr auto name = "audit_fast_read_probe";
+
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out)
+        {
+            const auto *fast =
+                static_cast<const Int *>(ts.base().try_native_value_memory(&ops_for<Int>()));
+            out.set(fast != nullptr ? *fast : Int{-1});
+        }
+    };
+
     [[nodiscard]] NodeView find_recordable_node(const GraphView &graph)
     {
         for (std::size_t index = 0; index < graph.node_count(); ++index)
@@ -290,4 +307,12 @@ TEST_CASE("audit: the typed fast write engages for a pure-native scalar output")
     mutation.mark_modified();
     CHECK(node.view().output(MIN_ST + MIN_TD).value().checked_as<Int>() == 11);
     CHECK(node.view().output(MIN_ST + MIN_TD).modified());
+}
+
+TEST_CASE("audit: the typed fast read engages for a bound native scalar input")
+{
+    // The probe emits the fast-read value, or -1 when the gate refused —
+    // so equality with the source proves the direct path engaged through
+    // real wiring (prepared route, trusted handle, native storage).
+    CHECK_OUTPUT(eval_node<FastReadProbe>(values<Int>(7, 11)), values<Int>(7, 11));
 }

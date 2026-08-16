@@ -210,6 +210,19 @@ python-owned storages keep ``direct_native_value`` false because their
 writes carry cache-invalidation side rules (2026-08-15; motivated by
 the recordable-counter write cost surfaced in the std-operator audit).
 
+The same gate powers the **typed fast read**:
+``TSDataView::try_native_value_memory(expected_value_ops)`` returns the
+payload address when the ops declare ``direct_native_value``, take the
+plain layout+memory route (no ``value_view_impl`` override), and the
+value binding's ops table is address-identical to the caller's expected
+``ops_for<T>`` — the same identity ``checked_as`` verifies. Bound
+typed inputs surface it as
+``TSInputView::try_native_value_memory``; ``In<TS<T>>::value()`` and
+the lifted kernels read through it and fall back to the erased
+``value().checked_as<T>()`` path when the gate refuses (2026-08-16; the
+read-side twin, skipping the two transient value views, the
+``concrete()`` projection, and the per-read ``checked_as`` ceremony).
+
 The mutation is closed by calling ``end_mutation()`` on the mutable
 view. For the current scalar value-layer ops this is a no-op; the
 method exists so the same view contract can be used by slot-store-

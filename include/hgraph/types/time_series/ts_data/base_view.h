@@ -202,6 +202,19 @@ namespace hgraph
         /** Current value view for this TSData node. */
         [[nodiscard]] ValueView value() const;
 
+        /**
+         * Payload memory for typed in-place reads, or null when the fast
+         * path does not apply. Non-null only when the installed ops declare
+         * ``direct_native_value``, take the plain layout+memory route (no
+         * ``value_view_impl`` override), and the value binding's ops table
+         * is exactly ``expected_value_ops`` — the same address identity
+         * ``checked_as`` relies on, so a non-null result may be cast
+         * straight to the native type. Reads the identical memory the
+         * erased ``value()`` path exposes; the read-side twin of
+         * ``TSDataMutationView::mutable_value``.
+         */
+        [[nodiscard]] const void *try_native_value_memory(const void *expected_value_ops) const noexcept;
+
         /** Delta value for ``evaluation_time``, or a typed null view when unchanged. */
         [[nodiscard]] ValueView delta_value(DateTime evaluation_time) const;
 

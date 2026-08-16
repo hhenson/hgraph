@@ -372,10 +372,17 @@ context is the interned per-shape layout/context object; generic policy
 
 ``direct_native_value`` is the **typed fast-path gate**: set only by
 pure-native atomic storages (never for python-cached or python-only
-variants), it lets ``TSDataMutationView::mutable_value()`` hand out a
-Mutation-tagged ``ValueView`` over the raw payload so callers such as
+variants). On the write side it lets
+``TSDataMutationView::mutable_value()`` hand out a Mutation-tagged
+``ValueView`` over the raw payload so callers such as
 ``Out<TS<T>>::set`` can assign in place and commit with
-``mark_modified()``, skipping the erased copy pipeline.
+``mark_modified()``, skipping the erased copy pipeline. On the read
+side ``TSDataView::try_native_value_memory`` /
+``TSInputView::try_native_value_memory`` return the payload address
+under the same gate plus an ops-address identity check against
+``ops_for<T>``, so ``In<TS<T>>::value()`` and the lifted kernels load
+the native value directly and fall back to the erased
+``value().checked_as<T>()`` path otherwise.
 
 Derived tables and sub-tables:
 
@@ -512,8 +519,10 @@ The read path (``In<TS<Int>>::value()``, active peered slot):
       CUR --> TRUST{"route bound · locally active ·<br/>value observation · target bound?"}
       TRUST -- yes --> DV["observed.data_view()<br/>(handle resolved at subscribe time)"]
       TRUST -- no --> SLOW["target_link_resolve<br/>full path projection"]
-      DV --> TSV["TSDataView::value()"]
-      SLOW --> TSV
+      DV --> GATE{"ops.direct_native_value and<br/>value ops == ops_for&lt;Int&gt;?"}
+      SLOW --> GATE
+      GATE -- yes --> FASTR["try_native_value_memory:<br/>load the Int directly"]
+      GATE -- no --> TSV["TSDataView::value()"]
       TSV --> OPS["ops.layout / ops.value_memory<br/>(fn-ptr hops)"]
       OPS --> VV["ValueView · concrete()"]
       VV --> CA["checked_as&lt;Int&gt;<br/>(atomicity + ops-address identity checks)"]

@@ -459,6 +459,13 @@ namespace hgraph
         throw std::logic_error("TSInputView::value requires a live input view");
     }
 
+    const void *TSInputView::try_native_value_memory(const void *expected_value_ops) const noexcept
+    {
+        const auto &data = data_view();
+        if (!data.valid()) { return nullptr; }
+        return data.try_native_value_memory(expected_value_ops);
+    }
+
     ValueView TSInputView::delta_value() const
     {
         const auto &data = data_view();

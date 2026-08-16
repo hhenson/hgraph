@@ -116,6 +116,17 @@ namespace hgraph
         [[nodiscard]] TSInputView parent_input() const;
 
         [[nodiscard]] ValueView value() const;
+
+        /**
+         * Payload memory for typed in-place reads through the resolved
+         * input, or null when the input is unbound or the resolved target's
+         * ops do not qualify (see ``TSDataView::try_native_value_memory``).
+         * The read-side twin of the ``Out<TS<T>>::set`` fast path: a
+         * non-null result may be cast straight to the native type whose
+         * canonical ops table was passed as ``expected_value_ops``.
+         */
+        [[nodiscard]] const void *try_native_value_memory(const void *expected_value_ops) const noexcept;
+
         [[nodiscard]] ValueView delta_value() const;
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
