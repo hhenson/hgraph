@@ -243,6 +243,8 @@ artifacts.
 
 - Develop every change on a dedicated non-`main` branch and merge it through a
   pull request. Do not commit or push changes directly to `main`.
+- Open pull requests as ready for review, not as drafts, unless the user
+  explicitly requests a draft.
 - A change that affects this repository and a downstream project requires a
   separate branch and pull request in each repository. Cross-link the related
   pull requests so the complete change remains traceable.
