@@ -101,3 +101,9 @@ Relationship to other RFCs
   must not compromise.
 * :doc:`rfc_0019_native_table_recording` — the source of the one-run rule, the
   duplicate-key rejection, and the segment layout a version would enclose.
+* :doc:`rfc_0022_serializable_graph_manifest` — stable graph, binding, and run
+  identity for deciding which recording or checkpoint can attach.
+* :doc:`rfc_0023_graph_checkpoint_recovery` — proposes immutable checkpoint
+  manifests, parent links, published run heads, and retention reachability.
+  A future revision of this draft should use that lineage rather than invent a
+  second version catalogue.

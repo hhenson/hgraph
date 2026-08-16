@@ -152,6 +152,11 @@ implementations, source/sink bindings, and reproducibility inputs for a run.
 A proposal must distinguish a stable public manifest from diagnostic dumps and
 must not serialize credentials or live resource handles.
 
+This gap is now covered by the proposed
+:doc:`../rfc/rfc_0022_serializable_graph_manifest`, which defines graph,
+binding, and run manifests without moving executable code or credentials into
+the serialized artifact.
+
 Durable checkpoint and store contract
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -160,6 +165,10 @@ foundations, but long-running applications still need a generic durable store
 and checkpoint/recovery contract. Any proposal must define consistency
 boundaries, schema/version migration, idempotency, and the relation between
 recorded inputs, node state, and external effects.
+
+The proposed :doc:`../rfc/rfc_0023_graph_checkpoint_recovery` defines that
+graph-wide cut, exact restore lifecycle, boundary input journal, immutable
+checkpoint publication, store capabilities, and retention model.
 
 Capabilities that remain downstream
 -----------------------------------
