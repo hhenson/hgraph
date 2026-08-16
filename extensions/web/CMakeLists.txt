@@ -129,8 +129,11 @@ if(NOT HGRAPH_WEB_CURL_TARGET)
     set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     # The fetched curl links the in-tree nghttp2 target, which cannot appear
     # in curl's own CMake export set; the extension never consumes curl via
-    # its export anyway.
+    # its export anyway.  Installation must be off entirely: a partial
+    # CURLConfig.cmake landing in the hgraph SDK prefix poisons every later
+    # find_package(CURL) in that prefix.
     set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
+    set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
     set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
     set(BUILD_MISC_DOCS OFF CACHE BOOL "" FORCE)
     set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
@@ -188,6 +191,9 @@ if(NOT HGRAPH_WEB_BOOST_TARGETS)
     # compilation.
     set(BOOST_INCLUDE_LIBRARIES beast asio system)
     set(BOOST_ENABLE_CMAKE ON)
+    # Keep the fetched Boost out of the install tree; it is a build-time
+    # detail of this extension, never part of the hgraph SDK.
+    set(BOOST_SKIP_INSTALL_RULES ON)
     FetchContent_Declare(boost
         URL https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-cmake.tar.xz
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE

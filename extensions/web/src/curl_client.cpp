@@ -13,7 +13,6 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <curl/curl.h>
-#include <cstdio>
 
 #include <algorithm>
 #include <array>
@@ -299,15 +298,13 @@ template <typename T>
 }
 
 [[nodiscard]] Value http_response(const ValueBindings &b, Int status,
-                                  const NameValues &headers,
-                                  std::string body) {
-  return build(b.http_response,
-               {
-                   {"status", b.number(status)},
-                   {"headers", b.headers(headers)},
-                   {"body", b.bytes(Bytes{std::move(body)})},
-                   {"trailers", b.headers({})},
-               });
+                                  const NameValues &headers, std::string body) {
+  return build(b.http_response, {
+                                    {"status", b.number(status)},
+                                    {"headers", b.headers(headers)},
+                                    {"body", b.bytes(Bytes{std::move(body)})},
+                                    {"trailers", b.headers({})},
+                                });
 }
 
 /** The WsEvent `request` field is server-side only and stays unset here. */
@@ -347,16 +344,17 @@ template <typename T>
                                     Int sequence, WebDeliveryStatus status,
                                     Int error_code, bool retriable,
                                     const Str &message) {
-  return build(b.delivery_report,
-               {
-                   {"request_id", b.number(request_id)},
-                   {"sequence", b.number(sequence)},
-                   {"status", ValueBindings::scalar(b.delivery_status, &status)},
-                   {"error_code", b.number(error_code)},
-                   {"retriable", b.flag(retriable)},
-                   {"fatal", b.flag(false)},
-                   {"message", b.string(message)},
-               });
+  return build(
+      b.delivery_report,
+      {
+          {"request_id", b.number(request_id)},
+          {"sequence", b.number(sequence)},
+          {"status", ValueBindings::scalar(b.delivery_status, &status)},
+          {"error_code", b.number(error_code)},
+          {"retriable", b.flag(retriable)},
+          {"fatal", b.flag(false)},
+          {"message", b.string(message)},
+      });
 }
 
 [[nodiscard]] Value web_event(const ValueBindings &b, WebSeverity severity,
@@ -414,8 +412,7 @@ template <typename T>
   result.sni = text_or(fields, "sni");
   result.verify_peer = bool_or(fields, "verify_peer", true);
   result.verify_host = bool_or(fields, "verify_host", true);
-  result.min_version =
-      enum_or(fields, "min_version", WebTlsVersion::Tls1_2);
+  result.min_version = enum_or(fields, "min_version", WebTlsVersion::Tls1_2);
   return result;
 }
 
@@ -500,14 +497,22 @@ void ensure_curl_initialized() {
 
 [[nodiscard]] const char *method_name(HttpMethod method) noexcept {
   switch (method) {
-  case HttpMethod::Get: return "GET";
-  case HttpMethod::Head: return "HEAD";
-  case HttpMethod::Post: return "POST";
-  case HttpMethod::Put: return "PUT";
-  case HttpMethod::Delete: return "DELETE";
-  case HttpMethod::Patch: return "PATCH";
-  case HttpMethod::Options: return "OPTIONS";
-  case HttpMethod::Trace: return "TRACE";
+  case HttpMethod::Get:
+    return "GET";
+  case HttpMethod::Head:
+    return "HEAD";
+  case HttpMethod::Post:
+    return "POST";
+  case HttpMethod::Put:
+    return "PUT";
+  case HttpMethod::Delete:
+    return "DELETE";
+  case HttpMethod::Patch:
+    return "PATCH";
+  case HttpMethod::Options:
+    return "OPTIONS";
+  case HttpMethod::Trace:
+    return "TRACE";
   }
   return "GET";
 }
@@ -531,9 +536,12 @@ void ensure_curl_initialized() {
 
 [[nodiscard]] long http_version_option(WebHttpVersionPolicy policy) noexcept {
   switch (policy) {
-  case WebHttpVersionPolicy::H1Only: return CURL_HTTP_VERSION_1_1;
-  case WebHttpVersionPolicy::H2Only: return CURL_HTTP_VERSION_2_0;
-  case WebHttpVersionPolicy::Auto: break;
+  case WebHttpVersionPolicy::H1Only:
+    return CURL_HTTP_VERSION_1_1;
+  case WebHttpVersionPolicy::H2Only:
+    return CURL_HTTP_VERSION_2_0;
+  case WebHttpVersionPolicy::Auto:
+    break;
   }
   return CURL_HTTP_VERSION_2TLS;
 }
@@ -543,11 +551,11 @@ void apply_tls(CURL *easy, const TlsClientSettings &tls) {
                                      tls.verify_peer ? 1L : 0L));
   static_cast<void>(curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST,
                                      tls.verify_host ? 2L : 0L));
-  static_cast<void>(curl_easy_setopt(
-      easy, CURLOPT_SSLVERSION,
-      tls.min_version == WebTlsVersion::Tls1_3
-          ? static_cast<long>(CURL_SSLVERSION_TLSv1_3)
-          : static_cast<long>(CURL_SSLVERSION_TLSv1_2)));
+  static_cast<void>(
+      curl_easy_setopt(easy, CURLOPT_SSLVERSION,
+                       tls.min_version == WebTlsVersion::Tls1_3
+                           ? static_cast<long>(CURL_SSLVERSION_TLSv1_3)
+                           : static_cast<long>(CURL_SSLVERSION_TLSv1_2)));
   if (!tls.ca_path.empty()) {
     static_cast<void>(
         curl_easy_setopt(easy, CURLOPT_CAINFO, tls.ca_path.c_str()));
@@ -768,7 +776,8 @@ public:
       : config_{std::move(config)}, path_{std::move(path)},
         bridge_{std::move(bridge)}, simulation_{simulation} {
     if (!bridge_.value) {
-      throw std::invalid_argument("Web client runtime requires an output bridge");
+      throw std::invalid_argument(
+          "Web client runtime requires an output bridge");
     }
   }
 
@@ -796,9 +805,9 @@ public:
       if (multi_ == nullptr) {
         throw std::runtime_error("curl_multi_init failed");
       }
-      static_cast<void>(curl_multi_setopt(
-          multi_, CURLMOPT_MAX_TOTAL_CONNECTIONS,
-          static_cast<long>(config_.max_total_connections)));
+      static_cast<void>(
+          curl_multi_setopt(multi_, CURLMOPT_MAX_TOTAL_CONNECTIONS,
+                            static_cast<long>(config_.max_total_connections)));
       static_cast<void>(curl_multi_setopt(
           multi_, CURLMOPT_MAX_HOST_CONNECTIONS,
           static_cast<long>(config_.max_connections_per_host)));
@@ -850,9 +859,8 @@ public:
     if (!live()) {
       warn_simulation_once();
       reject_call(client_id, simulation_ ? kSimulationCode : kStoppedCode,
-                  simulation_
-                      ? Str{"web client is real-time only"}
-                      : Str{"web client is not accepting calls"});
+                  simulation_ ? Str{"web client is real-time only"}
+                              : Str{"web client is not accepting calls"});
       return;
     }
     // The response reservation is taken before curl sees the request, so a
@@ -868,11 +876,11 @@ public:
     try {
       submission = parse_submission(client_id, request, options);
     } catch (const std::exception &exception) {
-      push_response(response_envelope(bindings_, 
-                        client_id, Value{},
-                        transport_error(bindings_, kInvalidRequestCode,
-                                        Str{exception.what()}, false)),
-                    512, config_.max_response_bytes);
+      push_response(
+          response_envelope(bindings_, client_id, Value{},
+                            transport_error(bindings_, kInvalidRequestCode,
+                                            Str{exception.what()}, false)),
+          512, config_.max_response_bytes);
       return;
     }
     submission.reserved_bytes = config_.max_response_bytes;
@@ -1028,10 +1036,10 @@ private:
     result.http_version = config_.http_version_policy;
     if (options.has_value()) {
       const auto option_fields = options.view().as_bundle();
-      result.connect_timeout_ms =
-          int_or(option_fields, "connect_timeout_ms", result.connect_timeout_ms);
-      result.request_timeout_ms =
-          int_or(option_fields, "request_timeout_ms", result.request_timeout_ms);
+      result.connect_timeout_ms = int_or(option_fields, "connect_timeout_ms",
+                                         result.connect_timeout_ms);
+      result.request_timeout_ms = int_or(option_fields, "request_timeout_ms",
+                                         result.request_timeout_ms);
       result.follow_redirects =
           bool_or(option_fields, "follow_redirects", result.follow_redirects);
       result.max_redirects =
@@ -1095,9 +1103,10 @@ private:
   void reject_call(Int client_id, Int error_code, Str message,
                    bool retriable = false) noexcept {
     try {
-      Value envelope = response_envelope(bindings_, 
-          client_id, Value{},
-          transport_error(bindings_, error_code, std::move(message), retriable));
+      Value envelope =
+          response_envelope(bindings_, client_id, Value{},
+                            transport_error(bindings_, error_code,
+                                            std::move(message), retriable));
       static_cast<void>(bridge_.value->push_control(
           index(ClientChannel::Response), std::move(envelope), 512));
     } catch (...) {
@@ -1106,14 +1115,15 @@ private:
 
   void reject_ws_key(Value key, Str message) noexcept {
     try {
-      Value envelope = ws_client_envelope(bindings_, 
-          std::move(key), ws_event(bindings_, 0, WsConnectionState::Failed, 0, message),
+      Value envelope = ws_client_envelope(
+          bindings_, std::move(key),
+          ws_event(bindings_, 0, WsConnectionState::Failed, 0, message),
           Value{});
       static_cast<void>(bridge_.value->push_control(
           index(ClientChannel::WsIngress), std::move(envelope), 512));
       emit_event(WebSeverity::Warning, Str{"client"}, Str{"ws_connect"},
-                 std::move(message), simulation_ ? kSimulationCode : kStoppedCode,
-                 false, false);
+                 std::move(message),
+                 simulation_ ? kSimulationCode : kStoppedCode, false, false);
     } catch (...) {
     }
   }
@@ -1150,8 +1160,8 @@ private:
       const std::size_t retained = message.size() + component.size() +
                                    category.size() + path_.size() + 256;
       Value event = web_event(bindings_, severity, std::move(component),
-                               std::move(category), path_, std::move(message),
-                               error_code, retriable, fatal, connection_id);
+                              std::move(category), path_, std::move(message),
+                              error_code, retriable, fatal, connection_id);
       const bool stop_graph =
           fatal && config_.failure_policy == WebFailurePolicy::StopGraph;
       Value envelope = event_envelope(bindings_, std::move(event), stop_graph);
@@ -1179,8 +1189,8 @@ private:
                  0, false, false);
     }
     if (config_.stats_interval_ms > 0) {
-      next_stats_ = Clock::now() +
-                    std::chrono::milliseconds{config_.stats_interval_ms};
+      next_stats_ =
+          Clock::now() + std::chrono::milliseconds{config_.stats_interval_ms};
     }
     while (true) {
       try {
@@ -1211,10 +1221,10 @@ private:
           }
         }
         int ready{};
-        static_cast<void>(curl_multi_poll(
-            multi_, waitfds.empty() ? nullptr : waitfds.data(),
-            static_cast<unsigned int>(waitfds.size()), poll_timeout_ms(),
-            &ready));
+        static_cast<void>(
+            curl_multi_poll(multi_, waitfds.empty() ? nullptr : waitfds.data(),
+                            static_cast<unsigned int>(waitfds.size()),
+                            poll_timeout_ms(), &ready));
       } catch (const std::exception &exception) {
         emit_event(WebSeverity::Fatal, Str{"client"}, Str{"worker"},
                    Str{exception.what()}, 0, false, true);
@@ -1228,12 +1238,15 @@ private:
   }
 
   [[nodiscard]] int poll_timeout_ms() const noexcept {
-    std::int64_t timeout = stopping_.load(std::memory_order_acquire) ? 25 : 1000;
+    std::int64_t timeout =
+        stopping_.load(std::memory_order_acquire) ? 25 : 1000;
     if (config_.stats_interval_ms > 0) {
-      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 next_stats_ - Clock::now())
-                                 .count();
-      timeout = std::min<std::int64_t>(timeout, std::max<std::int64_t>(1, remaining));
+      const auto remaining =
+          std::chrono::duration_cast<std::chrono::milliseconds>(next_stats_ -
+                                                                Clock::now())
+              .count();
+      timeout =
+          std::min<std::int64_t>(timeout, std::max<std::int64_t>(1, remaining));
     }
     return static_cast<int>(timeout);
   }
@@ -1304,8 +1317,8 @@ private:
       transfer->headers = appended;
     }
 
-    static_cast<void>(curl_easy_setopt(easy, CURLOPT_URL,
-                                       submission.url.c_str()));
+    static_cast<void>(
+        curl_easy_setopt(easy, CURLOPT_URL, submission.url.c_str()));
     if (transfer->headers != nullptr) {
       static_cast<void>(
           curl_easy_setopt(easy, CURLOPT_HTTPHEADER, transfer->headers));
@@ -1329,26 +1342,26 @@ private:
         !(submission.method == HttpMethod::Get && submission.body.empty())) {
       // POSTFIELDSIZE first, then COPYPOSTFIELDS: the size decides how many
       // bytes curl copies, which is what makes a binary body safe.
-      static_cast<void>(curl_easy_setopt(
-          easy, CURLOPT_POSTFIELDSIZE_LARGE,
-          static_cast<curl_off_t>(submission.body.size())));
       static_cast<void>(
-          curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS,
-                           submission.body.empty() ? ""
-                                                   : submission.body.data()));
+          curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE_LARGE,
+                           static_cast<curl_off_t>(submission.body.size())));
+      static_cast<void>(curl_easy_setopt(
+          easy, CURLOPT_COPYPOSTFIELDS,
+          submission.body.empty() ? "" : submission.body.data()));
     }
-    static_cast<void>(curl_easy_setopt(
-        easy, CURLOPT_CONNECTTIMEOUT_MS,
-        static_cast<long>(submission.connect_timeout_ms)));
-    static_cast<void>(curl_easy_setopt(
-        easy, CURLOPT_TIMEOUT_MS,
-        static_cast<long>(submission.request_timeout_ms)));
+    static_cast<void>(
+        curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS,
+                         static_cast<long>(submission.connect_timeout_ms)));
+    static_cast<void>(
+        curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS,
+                         static_cast<long>(submission.request_timeout_ms)));
     static_cast<void>(curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION,
                                        submission.follow_redirects ? 1L : 0L));
     static_cast<void>(curl_easy_setopt(
         easy, CURLOPT_MAXREDIRS, static_cast<long>(submission.max_redirects)));
-    static_cast<void>(curl_easy_setopt(
-        easy, CURLOPT_HTTP_VERSION, http_version_option(submission.http_version)));
+    static_cast<void>(
+        curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
+                         http_version_option(submission.http_version)));
     if (config_.keep_alive_ms > 0) {
       static_cast<void>(curl_easy_setopt(
           easy, CURLOPT_MAXAGE_CONN,
@@ -1359,8 +1372,8 @@ private:
           curl_easy_setopt(easy, CURLOPT_PROXY, config_.proxy.c_str()));
     }
     apply_tls(easy, config_.tls);
-    static_cast<void>(
-        curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, &WebClientRuntime::on_body));
+    static_cast<void>(curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION,
+                                       &WebClientRuntime::on_body));
     static_cast<void>(
         curl_easy_setopt(easy, CURLOPT_WRITEDATA, transfer.get()));
     static_cast<void>(curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION,
@@ -1384,11 +1397,11 @@ private:
 
   void fail_call(Int client_id, std::size_t reserved, Int error_code,
                  Str message, bool retriable) noexcept {
-    push_response(response_envelope(bindings_, client_id, Value{},
-                                    transport_error(bindings_, error_code,
-                                                    std::move(message),
-                                                    retriable)),
-                  512, reserved);
+    push_response(
+        response_envelope(bindings_, client_id, Value{},
+                          transport_error(bindings_, error_code,
+                                          std::move(message), retriable)),
+        512, reserved);
   }
 
   static std::size_t on_body(char *data, std::size_t size, std::size_t nitems,
@@ -1406,8 +1419,8 @@ private:
   /** Headers are captured in arrival order with duplicates preserved; a new
    * status line resets the block so only the FINAL response survives a
    * redirect chain or a 100-continue. */
-  static std::size_t on_header(char *data, std::size_t size,
-                               std::size_t nitems, void *userdata) {
+  static std::size_t on_header(char *data, std::size_t size, std::size_t nitems,
+                               void *userdata) {
     auto *transfer = static_cast<HttpTransfer *>(userdata);
     const std::size_t total = size * nitems;
     std::string_view line{data, total};
@@ -1466,11 +1479,11 @@ private:
     const std::size_t reserved = owned->reserved_bytes;
     if (owned->truncated) {
       push_response(
-          response_envelope(bindings_, 
-              owned->client_id, Value{},
-              transport_error(bindings_, static_cast<Int>(CURLE_FILESIZE_EXCEEDED),
-                              Str{"response exceeded max_response_bytes"},
-                              false)),
+          response_envelope(
+              bindings_, owned->client_id, Value{},
+              transport_error(
+                  bindings_, static_cast<Int>(CURLE_FILESIZE_EXCEEDED),
+                  Str{"response exceeded max_response_bytes"}, false)),
           512, reserved);
       return;
     }
@@ -1481,12 +1494,12 @@ private:
         message += ": ";
         message += owned->error;
       }
-      push_response(response_envelope(bindings_, 
-                        owned->client_id, Value{},
-                        transport_error(bindings_, static_cast<Int>(result),
-                                        std::move(message),
-                                        retriable_curl_error(result))),
-                    512, reserved);
+      push_response(
+          response_envelope(bindings_, owned->client_id, Value{},
+                            transport_error(bindings_, static_cast<Int>(result),
+                                            std::move(message),
+                                            retriable_curl_error(result))),
+          512, reserved);
       return;
     }
     long status{};
@@ -1494,12 +1507,13 @@ private:
         curl_easy_getinfo(owned->easy, CURLINFO_RESPONSE_CODE, &status));
     const std::size_t retained =
         owned->body.size() + header_bytes(owned->response_headers) + 256;
-    push_response(response_envelope(bindings_, owned->client_id,
-                                    http_response(bindings_, static_cast<Int>(status),
-                                                  owned->response_headers,
-                                                  std::move(owned->body)),
-                                    Value{}),
-                  retained, reserved);
+    push_response(
+        response_envelope(bindings_, owned->client_id,
+                          http_response(bindings_, static_cast<Int>(status),
+                                        owned->response_headers,
+                                        std::move(owned->body)),
+                          Value{}),
+        retained, reserved);
   }
 
   [[nodiscard]] std::unique_ptr<HttpTransfer> take_transfer(HttpTransfer *raw) {
@@ -1522,7 +1536,8 @@ private:
     const auto fields = connection->key.view().as_bundle();
     const Str url = text_or(fields, "url");
     if (url.empty()) {
-      fail_connection(*connection, 0, Str{"WebSocket client keys require a URL"});
+      fail_connection(*connection, 0,
+                      Str{"WebSocket client keys require a URL"});
       return;
     }
     connection->easy = curl_easy_init();
@@ -1578,9 +1593,9 @@ private:
       static_cast<void>(
           curl_easy_setopt(easy, CURLOPT_HTTPHEADER, connection->headers));
     }
-    static_cast<void>(curl_easy_setopt(
-        easy, CURLOPT_CONNECTTIMEOUT_MS,
-        static_cast<long>(config_.connect_timeout_ms)));
+    static_cast<void>(
+        curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS,
+                         static_cast<long>(config_.connect_timeout_ms)));
     if (!config_.proxy.empty()) {
       static_cast<void>(
           curl_easy_setopt(easy, CURLOPT_PROXY, config_.proxy.c_str()));
@@ -1616,8 +1631,7 @@ private:
       connections_.erase(found);
       fail_connection(*owned, static_cast<Int>(result), std::move(message),
                       retriable_curl_error(result));
-      fail_staged_sends_for(owned->key,
-                            Str{"the WebSocket handshake failed"});
+      fail_staged_sends_for(owned->key, Str{"the WebSocket handshake failed"});
       return;
     }
     // The handshake finished.  The easy handle STAYS IN the multi: removing
@@ -1639,11 +1653,10 @@ private:
 
   void fail_connection(WsConnection &connection, Int error_code, Str message,
                        bool retriable = false) {
-    push_ws(ws_client_envelope(bindings_, 
-                connection.key.clone(),
-                ws_event(bindings_, connection.connection_id, WsConnectionState::Failed, 0,
-                         message),
-                Value{}),
+    push_ws(ws_client_envelope(bindings_, connection.key.clone(),
+                               ws_event(bindings_, connection.connection_id,
+                                        WsConnectionState::Failed, 0, message),
+                               Value{}),
             message.size() + 512);
     emit_event(WebSeverity::Warning, Str{"client"}, Str{"ws_connect"},
                std::move(message), error_code, retriable, false,
@@ -1655,9 +1668,9 @@ private:
   void push_ws(Value envelope, std::size_t retained,
                bool lifecycle = true) noexcept {
     try {
-      if (bridge_.value->push(index(ClientChannel::WsIngress),
-                              lifecycle ? envelope.clone() : std::move(envelope),
-                              retained)) {
+      if (bridge_.value->push(
+              index(ClientChannel::WsIngress),
+              lifecycle ? envelope.clone() : std::move(envelope), retained)) {
         return;
       }
       if (lifecycle) {
@@ -1708,9 +1721,9 @@ private:
         Int close_code{1005};
         Str close_reason;
         if (received >= 2) {
-          close_code = static_cast<Int>(
-              (static_cast<unsigned char>(buffer[0]) << 8) |
-              static_cast<unsigned char>(buffer[1]));
+          close_code =
+              static_cast<Int>((static_cast<unsigned char>(buffer[0]) << 8) |
+                               static_cast<unsigned char>(buffer[1]));
           close_reason.assign(buffer.data() + 2, received - 2);
         }
         // Answer the peer's close so the socket shuts down cleanly, then
@@ -1757,8 +1770,8 @@ private:
     Value frame = connection.message_is_text
                       ? ws_text_frame(bindings_, std::move(payload))
                       : ws_binary_frame(bindings_, std::move(payload));
-    Value envelope =
-        ws_client_envelope(bindings_, connection.key.clone(), Value{}, std::move(frame));
+    Value envelope = ws_client_envelope(bindings_, connection.key.clone(),
+                                        Value{}, std::move(frame));
     if (bridge_.value->push(index(ClientChannel::WsIngress),
                             std::move(envelope), retained)) {
       return true;
@@ -1781,8 +1794,8 @@ private:
     connection.open = false;
     connection.closing = true;
     push_ws(ws_client_envelope(bindings_, connection.key.clone(),
-                               ws_event(bindings_, connection.connection_id, state,
-                                        close_code, reason),
+                               ws_event(bindings_, connection.connection_id,
+                                        state, close_code, reason),
                                Value{}),
             reason.size() + 512);
     if (state == WsConnectionState::Failed) {
@@ -1967,15 +1980,14 @@ private:
             {"ingress_record_count",
              bindings_.number(static_cast<Int>(bridge_.value->payload_pending(
                  index(ClientChannel::Response))))},
-            {"ingress_byte_count",
-             bindings_.number(static_cast<Int>(
-                 bridge_.value->payload_retained_bytes(
-                     index(ClientChannel::Response))))},
-            {"dropped_count",
-             bindings_.number(static_cast<Int>(
-                 dropped_.load(std::memory_order_relaxed)))},
+            {"ingress_byte_count", bindings_.number(static_cast<Int>(
+                                       bridge_.value->payload_retained_bytes(
+                                           index(ClientChannel::Response))))},
+            {"dropped_count", bindings_.number(static_cast<Int>(
+                                  dropped_.load(std::memory_order_relaxed)))},
         });
-    bridge_.value->push_latest(index(ClientChannel::Stats), std::move(stats), 1);
+    bridge_.value->push_latest(index(ClientChannel::Stats), std::move(stats),
+                               1);
   }
 
   void shutdown() noexcept {
@@ -1998,8 +2010,8 @@ private:
         // The reservation is consumed by the report, so nothing leaks even
         // when the bridge has already refused the push.
         push_response(
-            response_envelope(bindings_, 
-                transfer->client_id, Value{},
+            response_envelope(
+                bindings_, transfer->client_id, Value{},
                 transport_error(bindings_, kStoppedCode,
                                 Str{"the web client stopped before the "
                                     "response arrived"},
@@ -2077,8 +2089,7 @@ struct WebClientRuntimeNode {
       In<"ws_keys", TSS<WsClientKey>, InputValidity::Unchecked>,
       In<"ws_sends", TSD<Int, WsClientSendRequest>, InputValidity::Unchecked>,
       Scalar<"config", wd::ClientRuntimeConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", wd::ClientBridgeHandle>,
-      State<wd::ClientRuntimeHandle>>;
+      Scalar<"bridge", wd::ClientBridgeHandle>, State<wd::ClientRuntimeHandle>>;
 
   static void start(Scalar<"config", wd::ClientRuntimeConfigHandle> config,
                     Scalar<"path", Str> path,

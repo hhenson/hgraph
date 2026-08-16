@@ -2,11 +2,62 @@
 #include <hgraph/web/value_builders.h>
 
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/types/operator_dispatch.h>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 
+#include <stdexcept>
+#include <string>
+#include <utility>
+
 namespace nb = nanobind;
+
+namespace hgraph::web {
+namespace {
+struct RegisterWebServerOperator
+    : Operator<"hgraph.web.register_server",
+               Scalar<"config", ScalarVar<"Config">>, Scalar<"path", Str>> {};
+
+struct RegisterWebServerGraph {
+  static constexpr auto name = "hgraph.web.register_server_impl";
+
+  static void compose(Wiring &w, Scalar<"config", ScalarVar<"Config">> config,
+                      Scalar<"path", Str> path) {
+    Value value = config.value().clone();
+    if (value.schema() != scalar_descriptor<WebServerConfig>::value_meta()) {
+      throw std::invalid_argument(
+          "register_web_server requires WebServerConfig, received " +
+          std::string{value.schema() != nullptr
+                          ? value.schema()->name()
+                          : std::string_view{"<unbound>"}});
+    }
+    register_server(w, service::path(path.value()), std::move(value));
+  }
+};
+
+struct RegisterWebClientOperator
+    : Operator<"hgraph.web.register_client",
+               Scalar<"config", ScalarVar<"Config">>, Scalar<"path", Str>> {};
+
+struct RegisterWebClientGraph {
+  static constexpr auto name = "hgraph.web.register_client_impl";
+
+  static void compose(Wiring &w, Scalar<"config", ScalarVar<"Config">> config,
+                      Scalar<"path", Str> path) {
+    Value value = config.value().clone();
+    if (value.schema() != scalar_descriptor<WebClientConfig>::value_meta()) {
+      throw std::invalid_argument(
+          "register_web_client requires WebClientConfig, received " +
+          std::string{value.schema() != nullptr
+                          ? value.schema()->name()
+                          : std::string_view{"<unbound>"}});
+    }
+    register_client(w, service::path(path.value()), std::move(value));
+  }
+};
+} // namespace
+} // namespace hgraph::web
 
 NB_MODULE(_hgraph_web, module) {
   using namespace hgraph;
@@ -113,4 +164,6 @@ NB_MODULE(_hgraph_web, module) {
       version_policy);
 
   register_web_types();
+  register_graph_overload<RegisterWebServerOperator, RegisterWebServerGraph>();
+  register_graph_overload<RegisterWebClientOperator, RegisterWebClientGraph>();
 }

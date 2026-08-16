@@ -332,6 +332,11 @@ jobs:
           name: analytics-distribution-wheel-ubuntu-latest
           path: analytics-dist/*.whl
           if-no-files-found: error
+      - name: Install web wheel system dependencies
+        # The web extension's TLS stack builds against the container's
+        # OpenSSL headers; auditwheel then vendors the shared libraries
+        # (RFC 0024, packaging).
+        run: dnf install -y openssl-devel
       - name: Build web stable ABI wheel
         shell: bash
         run: |
