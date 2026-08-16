@@ -327,7 +327,7 @@ inline std::ostream &operator<<(std::ostream &stream,
 class WebServerRuntime;
 
 struct MatchedRoute {
-  WebServerRuntime *runtime{};
+  std::shared_ptr<WebServerRuntime> runtime{};
   Value route{};
   NamedPairs params{};
 };
@@ -358,15 +358,17 @@ public:
     return tls_identity_;
   }
 
-  void attach(WebServerRuntime *runtime) {
+  void attach(std::shared_ptr<WebServerRuntime> runtime) {
     std::lock_guard lock{mutex_};
-    runtimes_.push_back(runtime);
+    runtimes_.push_back(std::move(runtime));
   }
 
   /** @return true when this was the last attached runtime. */
-  bool detach(WebServerRuntime *runtime) {
+  bool detach(const WebServerRuntime *runtime) {
     std::lock_guard lock{mutex_};
-    std::erase(runtimes_, runtime);
+    std::erase_if(runtimes_, [runtime](const auto &attached) {
+      return attached.get() == runtime;
+    });
     return runtimes_.empty();
   }
 
@@ -393,7 +395,7 @@ public:
   }
   void park_for_resume(std::function<void()> resume);
 
-  [[nodiscard]] WebServerRuntime *owner() {
+  [[nodiscard]] std::shared_ptr<WebServerRuntime> owner() {
     std::lock_guard lock{mutex_};
     return runtimes_.empty() ? nullptr : runtimes_.front();
   }
@@ -418,7 +420,12 @@ private:
   std::atomic<std::size_t> open_connections_{0};
   std::atomic<bool> reads_paused_{false};
   std::mutex mutex_{};
-  std::vector<WebServerRuntime *> runtimes_{};
+  // Owning (P1): a connection's asynchronous callbacks may outlive one
+  // attachee's stop when the peer stalls its close handshake, so runtimes
+  // stay alive until every reference (match results, WS connections, queued
+  // frames) has drained.  detach() drops this reference at stop, breaking
+  // the runtime->listener->runtime cycle.
+  std::vector<std::shared_ptr<WebServerRuntime>> runtimes_{};
   std::vector<std::function<void()>> parked_{};
 };
 
@@ -431,7 +438,7 @@ public:
 
   [[nodiscard]] std::shared_ptr<WebListener>
   acquire(const std::string &address, std::uint16_t port, const Value &tls,
-          std::size_t io_threads, WebServerRuntime *runtime) {
+          std::size_t io_threads, std::shared_ptr<WebServerRuntime> runtime) {
     std::lock_guard lock{mutex_};
     const auto key = std::make_pair(address, port);
     if (port != 0) {
@@ -447,14 +454,14 @@ public:
                 std::to_string(port) +
                 " must use an identical TLS configuration");
           }
-          existing->attach(runtime);
+          existing->attach(std::move(runtime));
           return existing;
         }
       }
     }
     auto listener = std::make_shared<WebListener>(
         address, port, tls.has_value() ? tls.clone() : Value{}, io_threads);
-    listener->attach(runtime);
+    listener->attach(std::move(runtime));
     if (port != 0) {
       listeners_[key] = listener;
     }
@@ -517,7 +524,8 @@ inline void atomic_store_routes(std::shared_ptr<const CompiledRoutes> *slot,
 
 class ServerConnection;
 
-class WebServerRuntime {
+class WebServerRuntime
+    : public std::enable_shared_from_this<WebServerRuntime> {
 public:
   WebServerRuntime(std::shared_ptr<const ServerRuntimeConfig> config, Str path,
                    ServerBridgeHandle bridge, bool simulation)
@@ -641,14 +649,15 @@ public:
   }
 
   void deliver_response(Int request_id, Value response, Int client_id,
-                        WebServerRuntime *runtime) {
+                        std::shared_ptr<WebServerRuntime> runtime) {
     asio::post(strand_, [self = shared_from_this(), request_id,
                          response = std::move(response), client_id, runtime] {
       self->write_response(request_id, response, client_id, runtime);
     });
   }
 
-  void deliver_ws_frame(Value frame, Int client_id, WebServerRuntime *runtime) {
+  void deliver_ws_frame(Value frame, Int client_id,
+                        std::shared_ptr<WebServerRuntime> runtime) {
     asio::post(strand_, [self = shared_from_this(), frame = std::move(frame),
                          client_id, runtime] {
       self->queue_ws_frame(frame, client_id, runtime);
@@ -723,10 +732,14 @@ private:
   void accept_ws(MatchedRoute matched);
   void ws_read_next();
   void write_response(Int request_id, const Value &response, Int client_id,
-                      WebServerRuntime *runtime);
+                      const std::shared_ptr<WebServerRuntime> &runtime);
+  void finish_response(beast::error_code ec, Int client_id, Int request_id,
+                       const std::shared_ptr<WebServerRuntime> &runtime,
+                       bool keep_alive);
   void queue_ws_frame(const Value &frame, Int client_id,
-                      WebServerRuntime *runtime);
+                      const std::shared_ptr<WebServerRuntime> &runtime);
   void ws_write_next();
+  void ws_send_fragment();
   void ws_close(websocket::close_code code, beast::string_view reason);
   void send_simple_response(http::status status, std::string_view body,
                             bool keep_alive);
@@ -754,19 +767,27 @@ private:
   bool shutting_down_{};
   bool read_parked_{};
   bool request_keep_alive_{};
+  bool pending_is_head_{};
+  std::string decoded_path_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
-  WebServerRuntime *ws_runtime_{};
+  std::shared_ptr<WebServerRuntime> ws_runtime_{};
   Value ws_route_{};
   std::optional<http::response<http::string_body>> outgoing_{};
+  std::optional<http::response<http::empty_body>> chunk_head_{};
+  std::optional<http::response_serializer<http::empty_body>> chunk_serializer_{};
+  std::string chunk_body_{};
+  http::fields chunk_trailers_{};
   struct QueuedWsFrame {
     Value frame{};
     Int client_id{};
-    WebServerRuntime *runtime{};
+    std::shared_ptr<WebServerRuntime> runtime{};
     std::size_t bytes{};
   };
   std::deque<QueuedWsFrame> ws_outbound_{};
   std::size_t ws_outbound_bytes_{};
+  std::string ws_send_buffer_{};
+  std::size_t ws_send_offset_{};
   beast::flat_buffer ws_read_buffer_{};
 };
 
@@ -826,7 +847,7 @@ void WebListener::accept_next() {
   acceptor_.async_accept([self = shared_from_this()](beast::error_code ec,
                                                      tcp::socket socket) {
     if (!ec && self->accepting_.load(std::memory_order_acquire)) {
-      WebServerRuntime *owner = nullptr;
+      std::shared_ptr<WebServerRuntime> owner;
       {
         std::lock_guard lock{self->mutex_};
         owner = self->runtimes_.empty() ? nullptr : self->runtimes_.front();
@@ -846,12 +867,12 @@ void WebListener::accept_next() {
 std::optional<MatchedRoute> WebListener::match(HttpMethod method,
                                                std::string_view path,
                                                bool upgrade) {
-  std::vector<WebServerRuntime *> runtimes;
+  std::vector<std::shared_ptr<WebServerRuntime>> runtimes;
   {
     std::lock_guard lock{mutex_};
     runtimes = runtimes_;
   }
-  for (WebServerRuntime *runtime : runtimes) {
+  for (const std::shared_ptr<WebServerRuntime> &runtime : runtimes) {
     const auto snapshot = upgrade ? runtime->ws_routes() : runtime->http_routes();
     const auto matched = snapshot->table.match(method, path);
     if (matched.matched) {
@@ -980,7 +1001,7 @@ void WebServerRuntime::start() {
 
   listener_ = ListenerRegistry::instance().acquire(
       std::string{config_->bind_address}, config_->port,
-      config_->tls_identity, config_->io_threads, this);
+      config_->tls_identity, config_->io_threads, shared_from_this());
   try {
     if (!config_->bind_deferred) {
       listener_->ensure_listening();
@@ -1323,7 +1344,7 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
     return;
   }
   connection->deliver_response(request_id, std::move(response), client_id,
-                               this);
+                               shared_from_this());
 }
 
 void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
@@ -1349,7 +1370,8 @@ void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
                                 false, Str{"WebSocket is not connected"}));
     return;
   }
-  connection->deliver_ws_frame(std::move(frame), client_id, this);
+  connection->deliver_ws_frame(std::move(frame), client_id,
+                               shared_from_this());
 }
 
 // ---------------------------------------------------------------------------
@@ -1401,6 +1423,16 @@ void ServerConnection::on_request() {
                                 request_.target().size()};
   const auto query_start = target.find('?');
   const std::string_view path = target.substr(0, query_start);
+  // Malformed percent-encoding is a client error, not an unmatched route
+  // (RFC 0024, routing); decode once here so the graph-visible path and the
+  // matcher agree on the same bytes.
+  auto decoded_path = RouteTable::decode_path(path);
+  if (!decoded_path.has_value()) {
+    send_simple_response(http::status::bad_request,
+                         "malformed percent-encoding", false);
+    return;
+  }
+  decoded_path_ = std::move(*decoded_path);
 
   if (websocket::is_upgrade(request_)) {
     auto matched = listener_->match(*method, path, true);
@@ -1413,6 +1445,11 @@ void ServerConnection::on_request() {
   }
 
   auto matched = listener_->match(*method, path, false);
+  if (!matched.has_value() && *method == HttpMethod::Head) {
+    // Standard HTTP: HEAD is GET without the body, so a GET route serves it
+    // (the transport suppresses the body on the way out).
+    matched = listener_->match(HttpMethod::Get, path, false);
+  }
   if (!matched.has_value()) {
     send_simple_response(http::status::not_found, "no such route",
                          request_.keep_alive());
@@ -1469,7 +1506,6 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   const std::string_view target{request_.target().data(),
                                 request_.target().size()};
   const auto query_start = target.find('?');
-  const std::string_view path = target.substr(0, query_start);
   const std::string_view query =
       query_start == std::string_view::npos ? std::string_view{}
                                             : target.substr(query_start + 1);
@@ -1483,7 +1519,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   Value request = bundle_value<HttpRequest>({
       {"method", atomic_value(method)},
       {"target", atomic_value(Str{std::string{target}})},
-      {"path", atomic_value(Str{std::string{path}})},
+      {"path", atomic_value(Str{decoded_path_})},
       {"query", name_value_tuple<WebParam>(parse_query(query))},
       {"path_params", name_value_tuple<WebParam>(matched.params)},
       {"headers", name_value_tuple<WebHeader>(headers)},
@@ -1500,7 +1536,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
 }
 
 void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
-  WebServerRuntime *runtime = matched.runtime;
+  const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   const Int request_id = runtime->register_pending(shared_from_this());
   Value server_request = build_server_request(matched, request_id);
   if (!runtime->push_request(matched.route.clone(),
@@ -1529,11 +1565,12 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   }
   pending_request_id_ = request_id;
   request_keep_alive_ = keep_alive;
+  pending_is_head_ = request_.method() == http::verb::head;
 }
 
-void ServerConnection::write_response(Int request_id, const Value &response,
-                                      Int client_id,
-                                      WebServerRuntime *runtime) {
+void ServerConnection::write_response(
+    Int request_id, const Value &response, Int client_id,
+    const std::shared_ptr<WebServerRuntime> &runtime) {
   if (pending_request_id_ != request_id || writing_) {
     runtime->report(index(ServerChannel::RespondDelivery), client_id,
                     make_delivery_report(
@@ -1544,9 +1581,114 @@ void ServerConnection::write_response(Int request_id, const Value &response,
   }
   pending_request_id_ = -1;
   const auto fields = response.view().as_bundle();
+  const bool keep_alive = request_keep_alive_ && !shutting_down_;
+  const auto status =
+      static_cast<unsigned>(fields.at("status").checked_as<Int>());
+  std::string body;
+  const auto body_field = fields.at("body");
+  if (body_field.data() != nullptr) {
+    body = std::string{body_field.checked_as<Bytes>().data};
+  }
+  chunk_trailers_.clear();
+  const auto trailers = fields.at("trailers");
+  const bool suppress_body = pending_is_head_;
+  if (!suppress_body && trailers.data() != nullptr) {
+    for (const auto trailer : trailers.as_list()) {
+      const auto pair = trailer.as_bundle();
+      chunk_trailers_.insert(std::string{pair.at("name").checked_as<Str>()},
+                             std::string{pair.at("value").checked_as<Str>()});
+    }
+  }
+  writing_ = true;
+
+  if (chunk_trailers_.begin() != chunk_trailers_.end()) {
+    // Trailer-bearing responses use chunked transfer (the only way h1.1
+    // carries trailers); the header, one body chunk, and the trailer part
+    // write in sequence on the strand (RFC 0024, value contract).
+    chunk_head_.emplace();
+    chunk_head_->version(11);
+    chunk_head_->result(status);
+    const auto headers = fields.at("headers");
+    if (headers.data() != nullptr) {
+      for (const auto header : headers.as_list()) {
+        const auto pair = header.as_bundle();
+        chunk_head_->insert(std::string{pair.at("name").checked_as<Str>()},
+                            std::string{pair.at("value").checked_as<Str>()});
+      }
+    }
+    std::string trailer_names;
+    for (const auto &trailer : chunk_trailers_) {
+      if (!trailer_names.empty()) {
+        trailer_names += ", ";
+      }
+      trailer_names += std::string{trailer.name_string()};
+    }
+    chunk_head_->set(http::field::trailer, trailer_names);
+    chunk_head_->keep_alive(keep_alive);
+    chunk_head_->chunked(true);
+    chunk_body_ = std::move(body);
+    chunk_serializer_.emplace(*chunk_head_);
+    const auto on_header = asio::bind_executor(
+        strand_, [self = shared_from_this(), client_id, request_id, runtime,
+                  keep_alive](beast::error_code ec, std::size_t) {
+          if (ec) {
+            self->finish_response(ec, client_id, request_id, runtime,
+                                  keep_alive);
+            return;
+          }
+          const auto on_body = asio::bind_executor(
+              self->strand_,
+              [self, client_id, request_id, runtime,
+               keep_alive](beast::error_code body_ec, std::size_t) {
+                if (body_ec) {
+                  self->finish_response(body_ec, client_id, request_id,
+                                        runtime, keep_alive);
+                  return;
+                }
+                const auto on_last = asio::bind_executor(
+                    self->strand_,
+                    [self, client_id, request_id, runtime,
+                     keep_alive](beast::error_code last_ec, std::size_t) {
+                      self->finish_response(last_ec, client_id, request_id,
+                                            runtime, keep_alive);
+                    });
+                if (self->tls_stream_.has_value()) {
+                  asio::async_write(*self->tls_stream_,
+                                    http::make_chunk_last(self->chunk_trailers_),
+                                    on_last);
+                } else {
+                  asio::async_write(*self->plain_stream_,
+                                    http::make_chunk_last(self->chunk_trailers_),
+                                    on_last);
+                }
+              });
+          if (self->chunk_body_.empty()) {
+            asio::post(self->strand_, [on_body] {
+              on_body.get()(beast::error_code{}, 0);
+            });
+            return;
+          }
+          if (self->tls_stream_.has_value()) {
+            asio::async_write(*self->tls_stream_,
+                              http::make_chunk(asio::buffer(self->chunk_body_)),
+                              on_body);
+          } else {
+            asio::async_write(*self->plain_stream_,
+                              http::make_chunk(asio::buffer(self->chunk_body_)),
+                              on_body);
+          }
+        });
+    if (tls_stream_.has_value()) {
+      http::async_write_header(*tls_stream_, *chunk_serializer_, on_header);
+    } else {
+      http::async_write_header(*plain_stream_, *chunk_serializer_, on_header);
+    }
+    return;
+  }
+
   outgoing_.emplace();
   outgoing_->version(11);
-  outgoing_->result(static_cast<unsigned>(fields.at("status").checked_as<Int>()));
+  outgoing_->result(status);
   const auto headers = fields.at("headers");
   if (headers.data() != nullptr) {
     for (const auto header : headers.as_list()) {
@@ -1555,36 +1697,48 @@ void ServerConnection::write_response(Int request_id, const Value &response,
                         std::string{pair.at("value").checked_as<Str>()});
     }
   }
-  const auto body = fields.at("body");
-  if (body.data() != nullptr) {
-    outgoing_->body() = std::string{body.checked_as<Bytes>().data};
+  const std::size_t body_size = body.size();
+  if (!suppress_body) {
+    outgoing_->body() = std::move(body);
   }
-  const bool keep_alive = request_keep_alive_ && !shutting_down_;
   outgoing_->keep_alive(keep_alive);
   outgoing_->prepare_payload();
-  writing_ = true;
+  if (suppress_body) {
+    // A HEAD response advertises the entity's Content-Length but carries no
+    // body (RFC 0024 / RFC 9110).
+    outgoing_->content_length(body_size);
+  }
   const auto on_write = asio::bind_executor(
       strand_, [self = shared_from_this(), client_id, request_id, runtime,
                 keep_alive](beast::error_code ec, std::size_t) {
-        self->writing_ = false;
-        self->outgoing_.reset();
-        runtime->report(
-            index(ServerChannel::RespondDelivery), client_id,
-            make_delivery_report(request_id, ++runtime->sequence_,
-                                 ec ? WebDeliveryStatus::PermanentFailure
-                                    : WebDeliveryStatus::Delivered,
-                                 ec ? ec.value() : 0, false, false,
-                                 ec ? Str{ec.message()} : Str{}));
-        if (ec || !keep_alive) {
-          self->close();
-        } else {
-          self->read_next();
-        }
+        self->finish_response(ec, client_id, request_id, runtime, keep_alive);
       });
   if (tls_stream_.has_value()) {
     http::async_write(*tls_stream_, *outgoing_, on_write);
   } else {
     http::async_write(*plain_stream_, *outgoing_, on_write);
+  }
+}
+
+void ServerConnection::finish_response(
+    beast::error_code ec, Int client_id, Int request_id,
+    const std::shared_ptr<WebServerRuntime> &runtime, bool keep_alive) {
+  writing_ = false;
+  outgoing_.reset();
+  chunk_serializer_.reset();
+  chunk_head_.reset();
+  chunk_body_.clear();
+  chunk_trailers_.clear();
+  runtime->report(index(ServerChannel::RespondDelivery), client_id,
+                  make_delivery_report(request_id, ++runtime->sequence_,
+                                       ec ? WebDeliveryStatus::PermanentFailure
+                                          : WebDeliveryStatus::Delivered,
+                                       ec ? ec.value() : 0, false, false,
+                                       ec ? Str{ec.message()} : Str{}));
+  if (ec || !keep_alive) {
+    close();
+  } else {
+    read_next();
   }
 }
 
@@ -1623,7 +1777,7 @@ void ServerConnection::send_simple_response(http::status status,
 }
 
 void ServerConnection::accept_ws(MatchedRoute matched) {
-  WebServerRuntime *runtime = matched.runtime;
+  const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   ws_runtime_ = runtime;
   ws_route_ = matched.route.clone();
   ws_connection_id_ = runtime->register_ws_connection(shared_from_this());
@@ -1682,7 +1836,7 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
 void ServerConnection::ws_read_next() {
   const auto on_read = asio::bind_executor(
       strand_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
-        WebServerRuntime *runtime = self->ws_runtime_;
+        const std::shared_ptr<WebServerRuntime> runtime = self->ws_runtime_;
         if (ec) {
           runtime->unregister_ws_connection(self->ws_connection_id_);
           const bool orderly = ec == websocket::error::closed;
@@ -1739,8 +1893,9 @@ void ServerConnection::ws_read_next() {
   }
 }
 
-void ServerConnection::queue_ws_frame(const Value &frame, Int client_id,
-                                      WebServerRuntime *runtime) {
+void ServerConnection::queue_ws_frame(
+    const Value &frame, Int client_id,
+    const std::shared_ptr<WebServerRuntime> &runtime) {
   if (!ws_) {
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
                     make_delivery_report(
@@ -1837,10 +1992,31 @@ void ServerConnection::ws_write_next() {
            : (data_field.data() != nullptr
                   ? std::string{data_field.checked_as<Bytes>().data}
                   : std::string{});
-  auto buffer = std::make_shared<std::string>(std::move(payload));
+  ws_send_buffer_ = std::move(payload);
+  ws_send_offset_ = 0;
+  if (plain_ws_.has_value()) {
+    plain_ws_->text(text);
+  } else {
+    tls_ws_->text(text);
+  }
+  ws_send_fragment();
+}
+
+void ServerConnection::ws_send_fragment() {
+  // Outbound messages fragment at the advertised frame cap (RFC 0024,
+  // configuration): Beast tracks continuation state across write_some calls.
+  const std::size_t cap = std::max<std::size_t>(config_->ws_max_frame_bytes, 1);
+  const std::size_t remaining = ws_send_buffer_.size() - ws_send_offset_;
+  const std::size_t length = std::min(cap, remaining);
+  const bool fin = ws_send_offset_ + length == ws_send_buffer_.size();
   const auto on_write = asio::bind_executor(
-      strand_, [self = shared_from_this(), buffer](beast::error_code ec,
-                                                   std::size_t) {
+      strand_, [self = shared_from_this(), fin,
+                length](beast::error_code ec, std::size_t) {
+        if (!ec && !fin) {
+          self->ws_send_offset_ += length;
+          self->ws_send_fragment();
+          return;
+        }
         QueuedWsFrame sent = std::move(self->ws_outbound_.front());
         self->ws_outbound_.pop_front();
         self->ws_outbound_bytes_ -= sent.bytes;
@@ -1859,12 +2035,12 @@ void ServerConnection::ws_write_next() {
         }
         self->ws_write_next();
       });
+  const auto fragment = asio::buffer(ws_send_buffer_.data() + ws_send_offset_,
+                                     length);
   if (plain_ws_.has_value()) {
-    plain_ws_->text(text);
-    plain_ws_->async_write(asio::buffer(*buffer), on_write);
+    plain_ws_->async_write_some(fin, fragment, on_write);
   } else {
-    tls_ws_->text(text);
-    tls_ws_->async_write(asio::buffer(*buffer), on_write);
+    tls_ws_->async_write_some(fin, fragment, on_write);
   }
 }
 

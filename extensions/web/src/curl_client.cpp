@@ -811,6 +811,31 @@ public:
       static_cast<void>(curl_multi_setopt(
           multi_, CURLMOPT_MAX_HOST_CONNECTIONS,
           static_cast<long>(config_.max_connections_per_host)));
+      // Ingress watermarks pause in-flight transfers while the graph
+      // catches up (RFC 0024, flow control).  The callback runs on whichever
+      // thread crossed the threshold; it flips an atomic and wakes the
+      // owner loop, which applies curl_easy_pause on its own thread.
+      const auto high = OutputLimits{
+          config_.ingress.records *
+              static_cast<std::size_t>(config_.watermark_high_pct) / 100,
+          config_.ingress.bytes *
+              static_cast<std::size_t>(config_.watermark_high_pct) / 100,
+      };
+      const auto low = OutputLimits{
+          config_.ingress.records *
+              static_cast<std::size_t>(config_.watermark_low_pct) / 100,
+          config_.ingress.bytes *
+              static_cast<std::size_t>(config_.watermark_low_pct) / 100,
+      };
+      bridge_.value->set_watermark(
+          index(ClientChannel::Response),
+          WatermarkConfig{high, low, [this](bool paused) {
+                            ingress_paused_.store(paused,
+                                                  std::memory_order_release);
+                            if (multi_ != nullptr) {
+                              static_cast<void>(curl_multi_wakeup(multi_));
+                            }
+                          }});
       accepting_.store(true, std::memory_order_release);
       thread_ = std::thread{[this] { run(); }};
     } catch (...) {
@@ -1209,6 +1234,7 @@ private:
           }
         } else {
           apply_staged_work();
+          apply_ingress_pause();
           maybe_emit_stats();
         }
 
@@ -1249,6 +1275,18 @@ private:
           std::min<std::int64_t>(timeout, std::max<std::int64_t>(1, remaining));
     }
     return static_cast<int>(timeout);
+  }
+
+  void apply_ingress_pause() {
+    const bool paused = ingress_paused_.load(std::memory_order_acquire);
+    if (paused == ingress_pause_applied_) {
+      return;
+    }
+    ingress_pause_applied_ = paused;
+    for (const auto &transfer : transfers_) {
+      static_cast<void>(curl_easy_pause(
+          transfer->easy, paused ? CURLPAUSE_RECV : CURLPAUSE_CONT));
+    }
   }
 
   void apply_staged_work() {
@@ -1391,6 +1429,9 @@ private:
                 Str{"the transfer could not be added to the curl multi loop"},
                 false);
       return;
+    }
+    if (ingress_pause_applied_) {
+      static_cast<void>(curl_easy_pause(transfer->easy, CURLPAUSE_RECV));
     }
     transfers_.push_back(std::move(transfer));
   }
@@ -2058,6 +2099,8 @@ private:
 
   std::atomic<bool> accepting_{};
   std::atomic<bool> stopping_{};
+  std::atomic<bool> ingress_paused_{};
+  bool ingress_pause_applied_{};
   std::atomic<bool> stopped_{};
   std::atomic<std::size_t> dropped_{};
   std::thread thread_{};

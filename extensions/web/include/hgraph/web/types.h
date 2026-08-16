@@ -415,6 +415,9 @@ namespace hgraph::web
 
     // The h2_* fields are deliberately present before the server HTTP/2
     // session activates so activation is not a schema break (RFC 0024).
+    // ws_max_frame_bytes caps OUTBOUND fragmentation; inbound reassembly is
+    // bounded by ws_max_message_bytes (Beast exposes no per-frame inbound
+    // cap — the HTTP/2 session owns its own framing when it activates).
     using WebServerConfig = Bundle<
         "hgraph.web::WebServerConfig", Field<"bind_address", Str>, Field<"port", Int>, Field<"tls", TlsServerConfig>,
         Field<"io_threads", Int>, Field<"max_connections", Int>, Field<"max_header_bytes", Int>, Field<"max_body_bytes", Int>,

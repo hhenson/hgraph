@@ -4,6 +4,7 @@
 #include <hgraph/web/types.h>
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -46,6 +47,12 @@ public:
   /** The pattern grammar, reusable at wiring time.  Throws
    * std::invalid_argument naming the offending pattern. */
   static void validate_pattern(std::string_view pattern);
+
+  /** Percent-decode a request path segment-wise ('/' separators are
+   * preserved, '+' is not decoded).  Empty on a malformed escape — the
+   * transport answers 400 for those (RFC 0024, routing). */
+  [[nodiscard]] static std::optional<std::string>
+  decode_path(std::string_view path);
 
   /** Match a raw request path (no query string).  Every incoming segment is
    * percent-decoded before comparison and capture; an invalid escape fails

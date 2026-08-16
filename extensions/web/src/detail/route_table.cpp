@@ -101,6 +101,29 @@ split_segments(std::string_view path) {
 
 } // namespace
 
+std::optional<std::string> RouteTable::decode_path(std::string_view path) {
+  std::string decoded;
+  decoded.reserve(path.size());
+  std::size_t start = 0;
+  while (start <= path.size()) {
+    const auto slash = path.find('/', start);
+    const auto segment =
+        path.substr(start, slash == std::string_view::npos ? std::string_view::npos
+                                                           : slash - start);
+    std::string piece;
+    if (!percent_decode(segment, piece)) {
+      return std::nullopt;
+    }
+    decoded.append(piece);
+    if (slash == std::string_view::npos) {
+      break;
+    }
+    decoded.push_back('/');
+    start = slash + 1;
+  }
+  return decoded;
+}
+
 void RouteTable::validate_pattern(std::string_view pattern) {
   if (!pattern.starts_with('/')) {
     throw pattern_error(pattern, "must start with '/'");

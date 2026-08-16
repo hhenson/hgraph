@@ -148,6 +148,35 @@ struct ReportCounter {
   }
 };
 
+struct TraileredId {
+  static constexpr auto name = "web_loopback_trailered_id";
+
+  static void eval(In<"routed", WebRouteOutput, InputValidity::Unchecked>
+                       routed,
+                   Out<TS<Int>> out) {
+    auto request = routed.template field<"request">();
+    if (request.valid() && request.modified()) {
+      out.apply(request.base().value().as_bundle().at("request_id"));
+    }
+  }
+};
+
+struct TraileredResponse {
+  static constexpr auto name = "web_loopback_trailered_response";
+
+  static void eval(In<"routed", WebRouteOutput, InputValidity::Unchecked>
+                       routed,
+                   Out<TS<HttpResponse>> out) {
+    auto request = routed.template field<"request">();
+    if (request.valid() && request.modified()) {
+      const Value response =
+          make_response(Int{200}, {}, Bytes{"trailered-body"},
+                        {{"X-Trail", "checksum-1"}});
+      out.apply(response.view());
+    }
+  }
+};
+
 struct NullRouteSink {
   static constexpr auto name = "web_loopback_null_route_sink";
 
@@ -226,6 +255,15 @@ struct LoopbackGraph {
     auto reports = respond(w, path, respond_request(w, request_id, response));
     static_cast<void>(wire<ReportCounter>(w, reports));
 
+    auto trailered_route = wire<stdlib::const_, TS<WebRoute>>(
+        w, make_route(HttpMethod::Get, "/trailered"));
+    auto trailered = serve(w, path, trailered_route);
+    auto trailered_id = wire<TraileredId>(w, trailered).as<TS<Int>>();
+    auto trailered_response =
+        wire<TraileredResponse>(w, trailered).as<TS<HttpResponse>>();
+    static_cast<void>(respond(
+        w, path, respond_request(w, trailered_id, trailered_response)));
+
     auto black_hole = wire<stdlib::const_, TS<WebRoute>>(
         w, make_route(HttpMethod::Get, "/black-hole"));
     static_cast<void>(wire<NullRouteSink>(w, serve(w, path, black_hole)));
@@ -261,24 +299,27 @@ struct LoopbackGraph {
 
 [[nodiscard]] bhttp::response<bhttp::string_body>
 sync_get(asio::io_context &ioc, int port, std::string_view target,
-         std::vector<std::pair<std::string, std::string>> headers = {}) {
+         std::vector<std::pair<std::string, std::string>> headers = {},
+         bhttp::verb method = bhttp::verb::get) {
   beast::tcp_stream stream{ioc};
   stream.expires_after(5s);
   stream.connect(loopback_endpoint(port));
-  bhttp::request<bhttp::string_body> request{bhttp::verb::get,
-                                             std::string{target}, 11};
+  bhttp::request<bhttp::string_body> request{method, std::string{target}, 11};
   request.set(bhttp::field::host, "127.0.0.1");
   for (const auto &[name, value] : headers) {
     request.insert(name, value);
   }
   bhttp::write(stream, request);
   beast::flat_buffer buffer;
-  bhttp::response<bhttp::string_body> response;
-  bhttp::read(stream, buffer, response);
+  bhttp::response_parser<bhttp::string_body> parser;
+  // The parser cannot know the request verb; a HEAD response advertises a
+  // length it will not send.
+  parser.skip(method == bhttp::verb::head);
+  bhttp::read(stream, buffer, parser);
   beast::error_code ec;
   static_cast<void>(
       stream.socket().shutdown(tcp::socket::shutdown_both, ec));
-  return response;
+  return parser.release();
 }
 } // namespace
 
@@ -317,6 +358,42 @@ int main() {
       const auto response = sync_get(ioc, port, "/missing");
       require(response.result_int() == 404,
               "an unmatched route did not answer 404");
+    }
+
+    {
+      // HEAD advertises the entity's length but carries no body.
+      const auto response = sync_get(ioc, port, "/echo/head", {},
+                                     bhttp::verb::head);
+      require(response.result_int() == 200, "HEAD did not answer 200");
+      require(response.body().empty(), "a HEAD response carried a body");
+      require(response["Content-Length"] == "10",
+              "HEAD did not advertise the entity length");
+    }
+
+    {
+      // Percent-encoded targets route AND surface decoded (%6C = 'l').
+      const auto response = sync_get(ioc, port, "/echo/he%6Clo");
+      require(response.result_int() == 200,
+              "the percent-encoded target did not route");
+      require(response.body() == "hello hello",
+              "the path capture was not percent-decoded: " + response.body());
+    }
+
+    {
+      // Malformed escapes are a client error, not an unmatched route.
+      const auto response = sync_get(ioc, port, "/echo/%ZZ");
+      require(response.result_int() == 400,
+              "a malformed escape did not answer 400");
+    }
+
+    {
+      // Graph-provided trailers arrive over chunked transfer.
+      const auto response = sync_get(ioc, port, "/trailered");
+      require(response.result_int() == 200, "trailered route did not answer");
+      require(response.body() == "trailered-body",
+              "the chunked body did not round-trip");
+      require(response["X-Trail"] == "checksum-1",
+              "the response trailer was not delivered");
     }
 
     {
