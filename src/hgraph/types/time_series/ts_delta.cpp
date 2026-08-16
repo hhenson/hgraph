@@ -173,6 +173,23 @@ namespace hgraph
             return *ops;
         }
 
+        /** Trusted variant: reach the policy table through the live data
+            view's ops. The role-typed overload above validates the whole
+            record (TSOutputTypeRef::checked replays validate_ts_record);
+            interned records were validated once and the apply path runs per
+            node per tick, so output-side callers use this form. */
+        [[nodiscard]] const TSCurrentStateOps &current_state_ops(const TSDataView &data,
+                                                                 const char *fn)
+        {
+            if (!data.valid()) { throw std::logic_error(fmt::format("{}: unresolved TSData type", fn)); }
+            const auto *ops = data.ops().current_state_ops;
+            if (ops == nullptr)
+            {
+                throw std::logic_error(fmt::format("{}: TSData current-state policy is null", fn));
+            }
+            return *ops;
+        }
+
         [[nodiscard]] const TSCurrentStateOps &current_state_ops_for_input(
             const TSInputView &input, const char *fn)
         {
@@ -1587,9 +1604,14 @@ namespace hgraph
 
     void apply_delta(const TSOutputView &out, const ValueView &delta)
     {
-        const auto type = out.type_ref();
-        if (!type) throw std::logic_error("apply_delta requires a canonical output type record");
-        const auto &ops = type.ops_ref();
+        // Trusted ops access: out.type_ref() replayed the full intern-time
+        // record validation (capability recomputation included) per node per
+        // child per tick — the audit's heaviest per-tick check. The record
+        // was validated when interned; reach ops through the live data view,
+        // as the python-bridge apply already does.
+        const auto &data = out.data_view();
+        if (!data.valid()) throw std::logic_error("apply_delta requires a canonical output type record");
+        const auto &ops = data.ops();
         if (!ops.delta_has_effect_impl(out, delta)) { return; }
         ops.apply_delta_impl(out, delta);
     }
@@ -1618,8 +1640,7 @@ namespace hgraph
                 static_cast<std::size_t>(schema.kind)));
         }
 
-        const auto type = out.type_ref();
-        const auto &ops = current_state_ops(type.as_role(), "apply_current_value");
+        const auto &ops = current_state_ops(out.data_view(), "apply_current_value");
         ops.apply_current_value_impl(out, value);
     }
 
@@ -1656,8 +1677,7 @@ namespace hgraph
         {
             throw std::invalid_argument("reconcile_current_state requires a bound target");
         }
-        const auto type = target.type_ref();
-        const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        const auto &ops = current_state_ops(target.data_view(), "reconcile_current_state");
         validate_reconcile_source(schema, ops, source);
         ops.reconcile_input_impl(target, source, options);
     }
@@ -1670,8 +1690,7 @@ namespace hgraph
         {
             throw std::invalid_argument("reconcile_current_state requires a bound target");
         }
-        const auto type = target.type_ref();
-        const auto &ops = current_state_ops(type.as_role(), "reconcile_current_state");
+        const auto &ops = current_state_ops(target.data_view(), "reconcile_current_state");
         validate_reconcile_source(schema, ops, source);
         ops.reconcile_data_impl(target, source, options);
     }
