@@ -1,0 +1,4 @@
+interface:
+  display_name: "HGraph Operator Authoring"
+  short_description: "Define contracts and register typed overloads"
+  default_prompt: "Use $hgraph-write-operators to define or review this HGraph operator and its overloads."

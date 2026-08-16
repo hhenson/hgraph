@@ -1,0 +1,39 @@
+{
+  "name": "hgraph-development",
+  "version": "0.1.0",
+  "description": "Implement and review hgraph operators, graphs, and high-performance C++ compute and sink nodes.",
+  "author": {
+    "name": "Howard Henson",
+    "email": "howard@henson.me.uk",
+    "url": "https://github.com/hhenson"
+  },
+  "homepage": "https://github.com/hhenson/hgraph/tree/main/plugins/hgraph-development",
+  "repository": "https://github.com/hhenson/hgraph",
+  "license": "MIT",
+  "keywords": [
+    "hgraph",
+    "cpp",
+    "functional-reactive-programming",
+    "agent-skills"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "hgraph Development",
+    "shortDescription": "Build typed, efficient hgraph behavior",
+    "longDescription": "Author and review hgraph operators, wiring-time graphs, and efficient C++ compute and sink node implementations using the project's established contracts and validation practices.",
+    "developerName": "Howard Henson and hgraph contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/hhenson/hgraph/tree/main/plugins/hgraph-development",
+    "privacyPolicyURL": "https://github.com/hhenson/hgraph/blob/main/plugins/hgraph-development/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/hhenson/hgraph/blob/main/plugins/hgraph-development/TERMS.md",
+    "defaultPrompt": [
+      "Implement a high-performance hgraph compute node.",
+      "Compose this hgraph behavior as a graph.",
+      "Define this hgraph operator and its overloads."
+    ]
+  }
+}
