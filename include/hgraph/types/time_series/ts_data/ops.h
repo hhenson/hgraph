@@ -385,6 +385,20 @@ namespace hgraph
     };
 
     /**
+     * Reset every mutating entry point of a cloned set-surface table back to
+     * its throwing default, making the clone a strictly read-only projection
+     * (over and above the ``allows_mutation`` gate). This is THE single
+     * enumeration of the family's mutators: a new mutating member MUST be
+     * stripped here, or every read-only projection cloned from a live table
+     * silently keeps it callable — the fail-open hazard the 2026-08-16 audit
+     * flagged (the previous inline strip already missed move_value_from,
+     * clear_collection, mutable_indexed_child_memory, and reserve).
+     * Tracking hooks are deliberately untouched: projections keep dedicated
+     * tracking and subscription wiring.
+     */
+    HGRAPH_EXPORT void strip_to_read_only(TSSDataOps &ops) noexcept;
+
+    /**
      * Extension ops for TSData shapes with indexed element access.
      *
      * Fixed and dynamic TSL can share this view-facing surface while keeping

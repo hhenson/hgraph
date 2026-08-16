@@ -239,6 +239,16 @@ argument** to every slot. Groups of slots:
      Set schema (the projection reuses the map's storage); this is the
      one sanctioned violation of "the plan describes the schema's
      layout".
+   - Per-kind delta policy is declared in ``ts_data/ops.h``, installed
+     by the metadata factories, and implemented in ``ts_delta.cpp`` —
+     three homes by design: the free functions ARE the kind policy and
+     the factories select them once. Consolidating would re-architect
+     the factory split for locality alone; navigate via this catalogue.
+   - Compact container storages carry their element binding both in the
+     plan's state and per instance (8+ bytes each). Removing the copy
+     means per-instantiation ops contexts instead of shared statics —
+     deferred until a measured need; do not add new per-instance
+     duplicates.
 
 Container ops derive from ``ValueOps`` by struct inheritance; the
 ``ValueOpsKind`` discriminant makes narrowing safe.

@@ -2164,32 +2164,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 // dictionary's value ticks (subscriptions stay on the shared
                 // root set, so notification wiring is unchanged).
                 key_set_ts_ops = set_ops;
-                {
-                    // The projection is STRICTLY read-only: it reports the
-                    // owner's mutations (dedicated tracking + observers) but
-                    // can never perform one — every mutating entry point is
-                    // stripped back to the throwing defaults, over and above
-                    // the ``allows_mutation = false`` gate.
-                    const TSDataOps  read_only_base{};
-                    const TSSDataOps read_only_set{};
-                    TSDataOps       &ks = key_set_ts_ops;
-                    ks.allows_mutation           = false;
-                    ks.tracking_impl             = &tsd_key_set_tracking;
-                    ks.mutable_tracking_impl     = &tsd_key_set_mutable_tracking;   // subscriptions only
-                    ks.has_current_value_impl    = &tsd_key_set_has_current_value;
-                    ks.copy_value_from_impl      = read_only_base.copy_value_from_impl;
-                    ks.apply_delta_impl          = read_only_base.apply_delta_impl;
-                    ks.mutable_value_memory_impl = read_only_base.mutable_value_memory_impl;
-                    ks.mutable_delta_memory_impl = read_only_base.mutable_delta_memory_impl;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    ks.from_python_impl          = read_only_base.from_python_impl;
-#endif
-                    key_set_ts_ops.insert_key_impl = read_only_set.insert_key_impl;
-                    key_set_ts_ops.insert_key_move_impl = read_only_set.insert_key_move_impl;
-                    key_set_ts_ops.remove_key_impl = read_only_set.remove_key_impl;
-                    key_set_ts_ops.remove_slot_impl = read_only_set.remove_slot_impl;
-                    key_set_ts_ops.touch_impl      = read_only_set.touch_impl;
-                }
+                // The projection is STRICTLY read-only: it reports the
+                // owner's mutations (dedicated tracking + observers) but can
+                // never perform one. strip_to_read_only is the single place
+                // that enumerates the family's mutators.
+                strip_to_read_only(key_set_ts_ops);
+                key_set_ts_ops.tracking_impl          = &tsd_key_set_tracking;
+                key_set_ts_ops.mutable_tracking_impl  = &tsd_key_set_mutable_tracking;  // subscriptions only
+                key_set_ts_ops.has_current_value_impl = &tsd_key_set_has_current_value;
                 const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
                 const auto role_label = ts_labels::tsd_key_set_label(role);
                 key_set_ts_type = TSRoleTypeRef{intern_ts_type(
