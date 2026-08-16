@@ -220,6 +220,36 @@ argument** to every slot. Groups of slots:
    an error, a missing ``equals`` is a semantic default). When adding a
    slot, record its default in the table above.
 
+.. admonition:: Recorded exceptions (audit 2026-08-16, accepted)
+
+   - ``CyclicBufferValueOps::head`` and ``QueueValueOps::front`` take
+     only ``(memory)`` — no leading context. Aligning them costs a
+     ValueOps ABI bump for zero functional gain; accepted as-is. Do not
+     copy the shape into new slots.
+   - ``equals_impl`` may throw while ``compare_impl`` is ``noexcept``;
+     ``ValueView::compare`` fences its semantic fallback with
+     ``fallback_on_exception``. The asymmetry is cosmetic and the fence
+     is load-bearing — changing either signature is an ABI bump with no
+     behavioural benefit.
+   - ``TSDataOps.copy_value_from`` / ``move_value_from`` return
+     *first-for-time*, while ``from_python``'s bool is cross-checked
+     against modification recording — same shape, different meaning.
+     Read the member docs before implementing a new strategy.
+   - The map key-set adapter records intern the **map's** plan under a
+     Set schema (the projection reuses the map's storage); this is the
+     one sanctioned violation of "the plan describes the schema's
+     layout".
+   - Per-kind delta policy is declared in ``ts_data/ops.h``, installed
+     by the metadata factories, and implemented in ``ts_delta.cpp`` —
+     three homes by design: the free functions ARE the kind policy and
+     the factories select them once. Consolidating would re-architect
+     the factory split for locality alone; navigate via this catalogue.
+   - Compact container storages carry their element binding both in the
+     plan's state and per instance (8+ bytes each). Removing the copy
+     means per-instantiation ops contexts instead of shared statics —
+     deferred until a measured need; do not add new per-instance
+     duplicates.
+
 Container ops derive from ``ValueOps`` by struct inheritance; the
 ``ValueOpsKind`` discriminant makes narrowing safe.
 ``try_value_ops<Ops>`` / ``checked_value_ops<Ops>`` validate the kind
@@ -348,7 +378,8 @@ context is the interned per-shape layout/context object; generic policy
      - Members
    * - identity / policy
      - ``kind`` · ``context`` · ``allows_mutation`` ·
-       ``indexed_child_growth`` · ``direct_native_value``
+       ``indexed_child_growth`` · ``direct_native_value`` ·
+       ``is_target_link``
    * - sub-tables
      - ``ownership_ops`` (nullable) · ``inspection_ops`` ·
        ``current_state_ops`` · ``python_ops``

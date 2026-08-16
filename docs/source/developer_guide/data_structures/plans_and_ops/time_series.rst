@@ -137,7 +137,10 @@ The implementation uses the following names consistently:
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
     ``TS_DATA_OPS_ABI_VERSION`` is 10. ABI 10 removes the never-dispatched
-    ``reset_delta`` hook (slot deltas roll lazily inside the storages). ABI 9
+    ``reset_delta`` hook (slot deltas roll lazily inside the storages), adds
+    the explicit ``is_target_link`` discriminator (replacing an
+    ownership-ops pointer-identity comparison), and gives the required TSW
+    window members named throwing defaults. ABI 9
     adds an explicit data-only
     inspection table for debugger-visible representation fields. ABI 8 adds
     recursive source-topology validation to the current-state strategy table

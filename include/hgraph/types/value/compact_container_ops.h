@@ -990,8 +990,6 @@ namespace hgraph
             return result;
         }
 
-        void map_key_adapter_from_python(const void *, const ValueTypeRef &binding, void *memory,
-                                         nb::handle source);
 #endif
     }  // namespace container_ops_detail
 
@@ -1017,33 +1015,35 @@ namespace hgraph
         void compact_list_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
-        void compact_list_move_assign_from(
-            const void *, ValueTypeRef binding, void *dst,
-            ValueTypeRef source, void *src);
         void compact_set_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
-        void compact_set_move_assign_from(
-            const void *, ValueTypeRef binding, void *dst,
-            ValueTypeRef source, void *src);
         void compact_map_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
-        void compact_map_move_assign_from(
-            const void *, ValueTypeRef binding, void *dst,
-            ValueTypeRef source, void *src);
         void compact_cyclic_buffer_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
-        void compact_cyclic_buffer_move_assign_from(
-            const void *, ValueTypeRef binding, void *dst,
-            ValueTypeRef source, void *src);
         void compact_queue_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
-        void compact_queue_move_assign_from(
-            const void *, ValueTypeRef binding, void *dst,
-            ValueTypeRef source, void *src);
+
+        /** Shared move-assign: identical bindings move storage directly;
+            cross-representation moves rebuild through the kind's
+            copy_assign_from (compact storages have nothing cheaper to
+            steal across representations). One template replaces five
+            hand-written identical wrappers (audit finding, 2026-08-16). */
+        template <auto CopyAssignFrom>
+        void compact_move_assign_via_copy(const void *context, ValueTypeRef binding, void *dst,
+                                          ValueTypeRef source, void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            CopyAssignFrom(context, binding, dst, source, src);
+        }
 
         template <typename Storage>
         [[nodiscard]] DynamicStorageMetrics compact_dynamic_storage_metrics(
@@ -1100,7 +1100,9 @@ namespace hgraph
                 value.element_valid = &container_ops_detail::list_element_valid;
                 value.accepts_source_impl = &compact_accepts_source;
                 value.copy_assign_from_impl = &compact_list_copy_assign_from;
-                value.move_assign_from_impl = &compact_list_move_assign_from;
+                value.move_assign_from_impl =
+                &container_ops_detail::compact_move_assign_via_copy<
+                    &container_ops_detail::compact_list_copy_assign_from>;
                 return value;
             }();
             return ops;
@@ -1144,7 +1146,8 @@ namespace hgraph
             value.copy_assign_from_impl =
                 &container_ops_detail::compact_set_copy_assign_from;
             value.move_assign_from_impl =
-                &container_ops_detail::compact_set_move_assign_from;
+                &container_ops_detail::compact_move_assign_via_copy<
+                    &container_ops_detail::compact_set_copy_assign_from>;
             return value;
         }();
         return ops;
@@ -1204,7 +1207,8 @@ namespace hgraph
             value.copy_assign_from_impl =
                 &container_ops_detail::compact_map_copy_assign_from;
             value.move_assign_from_impl =
-                &container_ops_detail::compact_map_move_assign_from;
+                &container_ops_detail::compact_move_assign_via_copy<
+                    &container_ops_detail::compact_map_copy_assign_from>;
             return value;
         }();
         return ops;
@@ -1242,7 +1246,8 @@ namespace hgraph
             value.copy_assign_from_impl =
                 &container_ops_detail::compact_cyclic_buffer_copy_assign_from;
             value.move_assign_from_impl =
-                &container_ops_detail::compact_cyclic_buffer_move_assign_from;
+                &container_ops_detail::compact_move_assign_via_copy<
+                    &container_ops_detail::compact_cyclic_buffer_copy_assign_from>;
             return value;
         }();
         return ops;
@@ -1280,7 +1285,8 @@ namespace hgraph
             value.copy_assign_from_impl =
                 &container_ops_detail::compact_queue_copy_assign_from;
             value.move_assign_from_impl =
-                &container_ops_detail::compact_queue_move_assign_from;
+                &container_ops_detail::compact_move_assign_via_copy<
+                    &container_ops_detail::compact_queue_copy_assign_from>;
             return value;
         }();
         return ops;
@@ -1304,7 +1310,10 @@ namespace hgraph
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
               &container_ops_detail::map_key_adapter_to_python,
-              &container_ops_detail::map_key_adapter_from_python
+              // Read-only projection: null = unsupported, the one idiom for
+              // the fact (the wrapper throws); a bespoke throwing thunk was
+              // a second idiom for the same statement.
+              nullptr
 #endif
              },
              &container_ops_detail::map_size,

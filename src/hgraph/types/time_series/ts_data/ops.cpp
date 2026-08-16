@@ -324,4 +324,59 @@ namespace hgraph::ts_data_detail
     {
         missing_ts_data_op("child at slot");
     }
+
+    std::size_t missing_window_size(const void *, const void *) { missing_ts_data_op("window size"); }
+
+    const void *missing_window_element(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window element");
+    }
+
+    DateTime missing_window_time(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window element time");
+    }
+
+    const void *missing_window_time_element(const void *, const void *, std::size_t)
+    {
+        missing_ts_data_op("window time element");
+    }
+
+    std::size_t missing_window_capacity(const void *, const void *) { missing_ts_data_op("window capacity"); }
+
+    bool missing_window_full(const void *, const void *) { missing_ts_data_op("window full"); }
+
+    void missing_window_push(const void *, void *, const ValueView &, DateTime)
+    {
+        missing_ts_data_op("window push");
+    }
+
+    void missing_window_clear(const void *, void *, DateTime) { missing_ts_data_op("window clear"); }
 }  // namespace hgraph::ts_data_detail
+
+namespace hgraph
+{
+    void strip_to_read_only(TSSDataOps &ops) noexcept
+    {
+        const TSDataOps  base_defaults{};
+        const TSSDataOps set_defaults{};
+        ops.allows_mutation                   = false;
+        ops.direct_native_value               = false;
+        ops.copy_value_from_impl              = base_defaults.copy_value_from_impl;
+        ops.move_value_from_impl              = base_defaults.move_value_from_impl;
+        ops.apply_delta_impl                  = base_defaults.apply_delta_impl;
+        ops.clear_collection_impl             = base_defaults.clear_collection_impl;
+        ops.mutable_value_memory_impl         = base_defaults.mutable_value_memory_impl;
+        ops.mutable_delta_memory_impl         = base_defaults.mutable_delta_memory_impl;
+        ops.mutable_indexed_child_memory_impl = base_defaults.mutable_indexed_child_memory_impl;
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+        ops.from_python_impl                  = base_defaults.from_python_impl;
+#endif
+        ops.insert_key_impl      = set_defaults.insert_key_impl;
+        ops.insert_key_move_impl = set_defaults.insert_key_move_impl;
+        ops.remove_key_impl      = set_defaults.remove_key_impl;
+        ops.remove_slot_impl     = set_defaults.remove_slot_impl;
+        ops.touch_impl           = set_defaults.touch_impl;
+        ops.reserve_impl         = set_defaults.reserve_impl;
+    }
+}  // namespace hgraph

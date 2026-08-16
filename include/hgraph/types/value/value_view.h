@@ -164,8 +164,6 @@ namespace hgraph
             return ValueView{pointer_.begin_mutation(), TrustedPointer{}};
         }
 
-        void end_mutation() const noexcept {}
-
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         /**
          * Assign this view's storage FROM a python object through the
