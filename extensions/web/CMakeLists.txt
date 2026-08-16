@@ -126,6 +126,7 @@ if(NOT HGRAPH_WEB_CURL_TARGET)
             "HGRAPH_WEB_FETCH_CURL")
     endif()
     set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     # The fetched curl links the in-tree nghttp2 target, which cannot appear
     # in curl's own CMake export set; the extension never consumes curl via
     # its export anyway.
@@ -200,11 +201,18 @@ endif()
 
 set(BUILD_SHARED_LIBS ${_hgraph_web_saved_build_shared_libs})
 set(BUILD_TESTING ${_hgraph_web_saved_build_testing})
+# A fetched dependency rewrites the shared BUILD_TESTING cache entry during
+# its configure; restore the superbuild's value so a reconfigure does not
+# silently drop every test target in the tree.
+set(BUILD_TESTING ${_hgraph_web_saved_build_testing}
+    CACHE BOOL "Build the testing tree." FORCE)
 unset(_hgraph_web_saved_build_shared_libs)
 unset(_hgraph_web_saved_build_testing)
 
 add_library(hgraph_web
+    src/service.cpp
     src/value_builders.cpp
+    src/testing/fake_transport.cpp
 )
 add_library(hgraph::web ALIAS hgraph_web)
 

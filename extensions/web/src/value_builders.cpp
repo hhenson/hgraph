@@ -729,6 +729,21 @@ namespace hgraph::web
         });
     }
 
+    Value make_client_options(Int connect_timeout_ms, Int request_timeout_ms, Bool follow_redirects, Int max_redirects,
+                              WebHttpVersionPolicy http_version) {
+        register_web_types();
+        require_non_negative(connect_timeout_ms, "connect timeout");
+        require_non_negative(request_timeout_ms, "request timeout");
+        require_non_negative(max_redirects, "max_redirects");
+        return bundle<HttpClientOptions>({
+            {"connect_timeout_ms", atomic(connect_timeout_ms)},
+            {"request_timeout_ms", atomic(request_timeout_ms)},
+            {"follow_redirects", atomic(follow_redirects)},
+            {"max_redirects", atomic(max_redirects)},
+            {"http_version", atomic(http_version)},
+        });
+    }
+
     Value make_transport_error(Int error_code, Str message, Bool retriable) {
         register_web_types();
         return bundle<WebTransportError>({

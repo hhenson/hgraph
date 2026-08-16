@@ -85,6 +85,54 @@ namespace hgraph::web
         static constexpr std::string_view name{"web_client_stats"};
         using output_schema = TS<WebClientStats>;
     };
+
+    // Wiring sugar over the descriptors above.  Server and client
+    // implementations are registered by the transport translation units (or
+    // by testing::register_fake_server / register_fake_client); the calls
+    // below only wire clients against a path.
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<WebRouteOutput> serve(Wiring &w, service::ServicePath path,
+                                                               Port<TS<WebRoute>> route);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<HttpRespondRequest> respond_request(Wiring &w, Port<TS<Int>> request_id,
+                                                                             Port<TS<HttpResponse>> response);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebDeliveryReport>> respond(Wiring &w, service::ServicePath path,
+                                                                        Port<HttpRespondRequest> request);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<WsRouteOutput> ws_serve(Wiring &w, service::ServicePath path,
+                                                                 Port<TS<WebRoute>> route);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<WsSendRequest> ws_send_request(Wiring &w, Port<TS<Int>> connection_id,
+                                                                        Port<TS<WsFrame>> frame);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebDeliveryReport>> ws_send(Wiring &w, service::ServicePath path,
+                                                                        Port<WsSendRequest> request);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<HttpClientCall> http_client_call(Wiring &w, Port<TS<HttpClientRequest>> request,
+                                                                          Port<TS<HttpClientOptions>> options);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<HttpClientCall> http_client_call(Wiring &w, Port<TS<HttpClientRequest>> request);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<HttpCallResult> http_request(Wiring &w, service::ServicePath path,
+                                                                      Port<HttpClientCall> call);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<WsClientOutput> ws_connect(Wiring &w, service::ServicePath path,
+                                                                    Port<TS<WsClientKey>> key);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<WsClientSendRequest> ws_client_send_request(Wiring &w, Port<TS<WsClientKey>> key,
+                                                                                     Port<TS<WsFrame>> frame);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebDeliveryReport>> ws_client_send(Wiring &w, service::ServicePath path,
+                                                                               Port<WsClientSendRequest> request);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebEvent>> server_events(Wiring &w, service::ServicePath path);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebEvent>> client_events(Wiring &w, service::ServicePath path);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebServerStats>> server_stats(Wiring &w, service::ServicePath path);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Port<TS<WebClientStats>> client_stats(Wiring &w, service::ServicePath path);
 }  // namespace hgraph::web
 
 #endif  // HGRAPH_WEB_SERVICE_H

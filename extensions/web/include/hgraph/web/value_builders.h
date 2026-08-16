@@ -222,6 +222,11 @@ namespace hgraph::web
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_client_request(HttpMethod method, Str url,
                                                               std::vector<WebHeaderInput> headers = {}, Bytes body = {});
 
+    [[nodiscard]] HGRAPH_WEB_EXPORT Value make_client_options(Int  connect_timeout_ms = 10'000,
+                                                              Int  request_timeout_ms = 30'000,
+                                                              Bool follow_redirects = true, Int max_redirects = 5,
+                                                              WebHttpVersionPolicy http_version = WebHttpVersionPolicy::Auto);
+
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_transport_error(Int error_code, Str message, Bool retriable = false);
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_text_frame(Str text);
