@@ -496,15 +496,9 @@ namespace hgraph
         /** Per-enum ValueOps: Int ops with member-aware rendering and the
             python conversion hooks; ``context`` = the enum meta. Cleared on
             registry reset (metas are re-interned, pointers reuse). */
-        TypeSystemMutex &enum_ops_mutex()
+        InternTable<const ValueTypeMetaData *, ValueOps> &enum_ops_store()
         {
-            static TypeSystemMutex m;
-            return m;
-        }
-
-        std::unordered_map<const ValueTypeMetaData *, ValueOps> &enum_ops_store()
-        {
-            static auto *store = new std::unordered_map<const ValueTypeMetaData *, ValueOps>{};
+            static auto *store = new InternTable<const ValueTypeMetaData *, ValueOps>{};
             return *store;
         }
 
@@ -543,10 +537,7 @@ namespace hgraph
 
         const ValueOps &enum_ops_for(const ValueTypeMetaData *meta)
         {
-            std::lock_guard lock(enum_ops_mutex());
-            auto [it, fresh] = enum_ops_store().try_emplace(meta);
-            if (fresh)
-            {
+            return enum_ops_store().intern(meta, [meta] {
                 ValueOps ops       = ops_for<Int>();
                 ops.context        = meta;
                 ops.to_string_impl = &enum_to_string;
@@ -555,16 +546,11 @@ namespace hgraph
                 ops.from_python_impl      = &enum_from_python;
                 ops.to_python_buffer_impl = nullptr;
 #endif
-                it->second = ops;
-            }
-            return it->second;
+                return ops;
+            });
         }
 
-        void clear_enum_ops() noexcept
-        {
-            std::lock_guard lock(enum_ops_mutex());
-            enum_ops_store().clear();
-        }
+        void clear_enum_ops() noexcept { enum_ops_store().clear(); }
     }  // namespace
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES

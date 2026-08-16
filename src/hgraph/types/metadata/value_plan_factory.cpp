@@ -1695,39 +1695,21 @@ array_indexed_ops_cache() noexcept {
   return cache;
 }
 
-struct OwnedValueCache {
-  TypeSystemMutex mutex{};
-  std::unordered_map<const ValueTypeMetaData *, const OwnedValueEntry *>
-      entries{};
-  std::vector<std::unique_ptr<OwnedValueEntry>> storage{};
-
-  [[nodiscard]] const OwnedValueEntry &get(const ValueTypeMetaData &schema) {
-    std::lock_guard lock(mutex);
-    if (const auto found = entries.find(&schema); found != entries.end()) {
-      return *found->second;
-    }
-    auto value = std::make_unique<OwnedValueEntry>(schema);
-    const auto *result = value.get();
-    storage.push_back(std::move(value));
-    entries.emplace(&schema, result);
-    return *result;
-  }
-
-  void clear() noexcept {
-    std::lock_guard lock(mutex);
-    entries.clear();
-    storage.clear();
-  }
-};
-
-[[nodiscard]] OwnedValueCache &owned_value_cache() noexcept {
-  static OwnedValueCache cache;
+// Entries are address-published (interned TypeRecords point at their ops),
+// so the table stores stable unique_ptr pointees.
+[[nodiscard]] InternTable<const ValueTypeMetaData *,
+                          std::unique_ptr<OwnedValueEntry>> &
+owned_value_cache() noexcept {
+  static InternTable<const ValueTypeMetaData *,
+                     std::unique_ptr<OwnedValueEntry>>
+      cache;
   return cache;
 }
 
 [[nodiscard]] const OwnedValueEntry &
 owned_value_entry(const ValueTypeMetaData &schema) {
-  return owned_value_cache().get(schema);
+  return *owned_value_cache().intern(
+      &schema, [&] { return std::make_unique<OwnedValueEntry>(schema); });
 }
 
 struct RealizedCompositeKey {
@@ -1791,32 +1773,26 @@ struct RealizedCompositeEntry {
   }
 };
 
+// Entries are address-published (interned TypeRecords point at their ops),
+// so the table stores stable unique_ptr pointees.
 struct RealizedCompositeCache {
-  TypeSystemMutex mutex{};
-  std::unordered_map<RealizedCompositeKey, const RealizedCompositeEntry *,
-                     RealizedCompositeKeyHash>
-      entries{};
-  std::vector<std::unique_ptr<RealizedCompositeEntry>> storage{};
+  InternTable<RealizedCompositeKey, std::unique_ptr<RealizedCompositeEntry>,
+              RealizedCompositeKeyHash>
+      table{};
 
   [[nodiscard]] ValueTypeRef get(const ValueTypeMetaData &schema,
                                  std::vector<ValueTypeRef> fields) {
-    std::lock_guard lock(mutex);
     RealizedCompositeKey key{&schema, std::move(fields)};
-    if (const auto found = entries.find(key); found != entries.end()) {
-      return found->second->binding;
-    }
-    auto entry = std::make_unique<RealizedCompositeEntry>(schema, key.fields);
-    const auto *result = entry.get();
-    storage.push_back(std::move(entry));
-    entries.emplace(std::move(key), result);
-    return result->binding;
+    return table
+        .intern(key,
+                [&] {
+                  return std::make_unique<RealizedCompositeEntry>(schema,
+                                                                  key.fields);
+                })
+        ->binding;
   }
 
-  void clear() noexcept {
-    std::lock_guard lock(mutex);
-    entries.clear();
-    storage.clear();
-  }
+  void clear() noexcept { table.clear(); }
 };
 
 [[nodiscard]] RealizedCompositeCache &realized_composite_cache() noexcept {
@@ -2255,37 +2231,28 @@ struct PythonRetainedBindingEntry {
   }
 };
 
-struct PythonRetainedBindings {
-  TypeSystemMutex mutex{};
-  std::unordered_map<const ValueTypeMetaData *, PythonRetainedBindingEntry *>
-      current{};
-  std::vector<std::unique_ptr<PythonRetainedBindingEntry>> immortal{};
-};
-
-[[nodiscard]] PythonRetainedBindings &python_retained_bindings() noexcept {
-  static auto *bindings = new PythonRetainedBindings{};
+// Entries are address-published AND immortal: python Values can outlive a
+// registry reset, so a reset drops only the key index (clear_index) while
+// every entry stays alive. The table itself is leaked for the same reason.
+[[nodiscard]] InternTable<const ValueTypeMetaData *,
+                          std::unique_ptr<PythonRetainedBindingEntry>> &
+python_retained_bindings() noexcept {
+  static auto *bindings =
+      new InternTable<const ValueTypeMetaData *,
+                      std::unique_ptr<PythonRetainedBindingEntry>>{};
   return *bindings;
 }
 
 [[nodiscard]] ValueTypeRef
 python_retained_binding_for(const ValueTypeMetaData *schema) {
-  auto &bindings = python_retained_bindings();
-  std::lock_guard lock(bindings.mutex);
-  if (const auto found = bindings.current.find(schema);
-      found != bindings.current.end()) {
-    return found->second->binding;
-  }
-  auto created = std::make_unique<PythonRetainedBindingEntry>(schema);
-  const auto result = created->binding;
-  bindings.current.emplace(schema, created.get());
-  bindings.immortal.push_back(std::move(created));
-  return result;
+  return python_retained_bindings()
+      .intern(schema,
+              [&] { return std::make_unique<PythonRetainedBindingEntry>(schema); })
+      ->binding;
 }
 
 void clear_python_retained_bindings() noexcept {
-  auto &bindings = python_retained_bindings();
-  std::lock_guard lock(bindings.mutex);
-  bindings.current.clear();
+  python_retained_bindings().clear_index();
 }
 #endif
 } // namespace

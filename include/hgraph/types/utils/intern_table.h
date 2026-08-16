@@ -101,6 +101,18 @@ namespace hgraph
             m_storage.clear();
         }
 
+        /**
+         * Drop the key index but keep every interned value alive. For
+         * registries whose values are address-published immortals (interned
+         * TypeRecords point into them): a reset must forget the keys so
+         * fresh schemas rebuild, while values already handed out stay valid
+         * for artifacts that outlive the reset.
+         */
+        void clear_index() noexcept {
+            std::lock_guard lock(m_mutex);
+            m_cache.clear();
+        }
+
       private:
         mutable TypeSystemMutex                                   m_mutex;
         std::unordered_map<Key, const Value *, KeyHash, KeyEqual> m_cache{};
