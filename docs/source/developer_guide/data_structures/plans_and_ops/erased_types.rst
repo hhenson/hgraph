@@ -53,12 +53,17 @@ debug descriptor for one implementation:
 .. code-block:: cpp
 
    struct TypeRecord {
+       std::uint32_t                   magic;
+       std::uint16_t                   abi_version;
        TypeRole                        role;
+       std::uint16_t                   ops_abi_version;
        TypeCapabilities                capabilities;
+       const char*                     implementation_label;
        const SchemaHeader*             schema;
        const MemoryUtils::StoragePlan* plan;
        const void*                     ops;
        const DebugDescriptor*          debug;
+       mutable const TypeRecord*       external_value_owner;
    };
 
    class ValueTypeRef {
@@ -68,6 +73,8 @@ debug descriptor for one implementation:
 A ``ValueTypeRef`` is a one-word, trivially-copyable typed reference to a
 value-family ``Instance`` record. ``Value``, ``ValueView``, and builders use
 it to reach schema, plan, lifecycle, capabilities, and ``ValueOps``.
+:doc:`ops_catalogue` is the current-state reference for all six record
+families, their ops tables, and their ABI versions.
 
 ``intern_value_type`` interns one record per ``(schema header, Instance role,
 plan, ops)`` key in ``TypeRecordRegistry``. ``ValuePlanFactory`` caches
@@ -379,10 +386,8 @@ currently support explicit mutation when their ops table allows
 ``begin_mutation()``. The compact (build-once) container storage ops do
 not allow it. Structural mutation is supported for **mutable** container
 schemas (``ValueTypeFlags::Mutable``), which bind to slot-store-backed
-storage and install a structural-mutation ops surface — the mutable list
-is implemented (below); the mutable map follows; the remaining structural
-methods are still design/API targets for the slot-store-backed
-time-series layer.
+storage and install a structural-mutation ops surface — the mutable
+list, set, and map are all implemented (below).
 
 ``MutableTupleView``
     Adds mutable child access by index. ``set(index, value)`` is a

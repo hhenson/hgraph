@@ -545,7 +545,7 @@ the same factory that resolves the type record. The data-only layouts are:
        DebugDynamicKind kind;
        std::uint8_t reserved0;
        DebugDynamicFlags flags;
-       std::uint32_t reserved1;
+       std::uint32_t key_auxiliary_offset;
        std::size_t size_offset;
        std::size_t size_constant;
        std::size_t data_offset;
@@ -557,7 +557,7 @@ the same factory that resolves the type record. The data-only layouts are:
        std::size_t entry_offset;
    };
 
-The descriptor is 64 bytes and each fixed field is 32 bytes on supported
+The descriptor is 72 bytes and each fixed field is 32 bytes on supported
 64-bit platforms. Atomic representation is selected from the registered C++
 type, never inferred from a semantic label: bool, signed/unsigned integers, and
 32/64-bit floating point values can be decoded directly; other atomic storage

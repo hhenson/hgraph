@@ -44,7 +44,7 @@ The implementation uses the following names consistently:
        ``TSState`` is a *conceptual grouping*, not a distinct runtime type in
        the current code. The state it names is realised inside ``TSData`` —
        chiefly the per-level ``TSDataTracking`` record (``last_modified_time``,
-       ``TSDataParentLink``) and ``TSDataObserverSet`` — together with
+       ``TSParentLink``) and ``TSDataObserverSet`` — together with
        endpoint-local state on ``TSOutput`` / ``TSInput``. Use the name when
        discussing the *role*; do not expect a ``TSState`` class to exist.
 
@@ -405,7 +405,7 @@ Views are not stored in TargetLink state. Endpoint views materialize
 transient ``TSDataView`` cursors from the stored ``TSOutputHandle`` when
 they need to navigate or read the target. They also avoid storing
 input and target path vectors. Non-peered positions derive their
-logical input path from ``TSDataParentLink`` only when activation needs
+logical input path from ``TSParentLink`` only when activation needs
 to touch the root active trie. Positions below a TargetLink carry a
 pointer into the link's descendant trie; that node records the
 input-to-output transition identity, while the projected output
@@ -627,7 +627,7 @@ bindings and memory offsets needed by the concrete implementation:
   value;
 - ``tracking`` — the common ``TSDataTracking`` record. Every TSData
   shape, including compact atomic TSData, has one. It stores
-  ``last_modified_time`` and the optional ``TSDataParentLink`` used
+  ``last_modified_time`` and the optional ``TSParentLink`` used
   when the data is projected as a child.
 
 The diagrams below are conceptual. ``StoragePlan`` still owns the
@@ -785,7 +785,7 @@ subobject when the child is selected. The child storage type is the canonical
 embedded role record over the independent child plan; slot, dynamic-list, and
 window ops still receive a pointer to their own storage object and do not know
 about the parent's root allocation. Parent notification uses the existing
-``TSDataParentLink`` installed by child view projection.
+``TSParentLink`` installed by child view projection.
 
 When a fixed parent contains projected child storage, its ``value()`` and
 delta surfaces are projected from child views instead of exposing a stale
@@ -851,7 +851,7 @@ fixed ``TSL`` it exposes the documented map-shaped delta
 ``Map<int, child.delta>`` and iterates only child indices modified at
 ``t``.
 
-Projecting a child stores a ``TSDataParentLink`` in the child node's
+Projecting a child stores a ``TSParentLink`` in the child node's
 tracking region. The link records the immediate parent storage-type/data
 identity (a canonical role record) and the parent-local field/index
 id. It does not point at the
@@ -976,7 +976,7 @@ transient parent view that created it:
       Type["TSRoleTypeRef<br/>canonical TypeRecord"]
       Data["TSData storage allocation<br/>value + optional delta + tracking"]
       Tracking["TSDataTracking<br/>last_modified_time<br/>parent<br/>observers"]
-      Link["TSDataParentLink<br/>tagged parent identity<br/>payload union<br/>child_id"]
+      Link["TSParentLink<br/>tagged parent identity<br/>payload union<br/>child_id"]
       Observers["TSDataObserverSet<br/>null / single / vector"]
       ParentData["parent TSData storage"]
       Endpoint["terminal endpoint<br/>TSOutput / TSInput"]
@@ -993,7 +993,7 @@ transient parent view that created it:
 The parent identity is tagged so the link carries exactly one parent
 kind. For a TSData parent it stores ``TypeRecord + data``; for an endpoint
 parent it stores the endpoint pointer in the same payload slot. Because
-each TSData parent also stores its own ``TSDataParentLink``, a child link
+each TSData parent also stores its own ``TSParentLink``, a child link
 can walk back to the root TSData without retaining transient views. The
 walk stops at the endpoint link. The same walk produces the
 root-to-child navigation path as integer field/index/slot ids.
@@ -1026,7 +1026,7 @@ Modification handling is deliberately split into three responsibilities.
 ``TSData`` tracks local modification state and per-level observers;
 projecting child data records the immediate parent binding/data identity
 and parent-relative child id into the child's tracking region; and child
-mutations notify their parent only through ``TSDataParentLink``. The link
+mutations notify their parent only through ``TSParentLink``. The link
 hides the parent-specific details by invoking the parent's
 ``record_child_modified(parent_data, child_id)`` hook before marking the
 parent modified. Marking a TSData level modified updates
@@ -1167,14 +1167,14 @@ the parent bitset is the parent's delta surface, not a duplicate
 timestamp store.
 
 The bubble-up path uses the slot id carried by the child's
-``TSDataParentLink``:
+``TSParentLink``:
 
 .. mermaid::
 
    flowchart TD
       ChildMutation["child TSDataMutationView"]
       Mark["mark_modified() / copy_value_from()"]
-      ParentLink["child tracking<br/>TSDataParentLink(parent, s)"]
+      ParentLink["child tracking<br/>TSParentLink(parent, s)"]
       ParentHook["parent ops<br/>record_child_modified(parent_data, s)"]
       ModifiedBit["parent modified bitset[s] = 1"]
       ParentTime["parent last_modified_time<br/>= current evaluation time"]
@@ -1372,7 +1372,7 @@ slot ids for the current evaluation time so the layer can publish
 
 These structural slot observers are internal synchronisation hooks, not
 the public change-notification surface. Per-level change propagation
-uses the ``TSDataParentLink`` stored in child tracking plus the
+uses the ``TSParentLink`` stored in child tracking plus the
 ``record_child_modified`` hook on the parent ops table. The parent link
 owns the child id because that id is a parent-local slot/path
 identifier. It can also resolve the root ``TSDataView`` and the

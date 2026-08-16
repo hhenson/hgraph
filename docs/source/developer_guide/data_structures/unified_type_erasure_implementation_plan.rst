@@ -4,6 +4,14 @@ Unified Type Erasure Implementation Plan
 Status And Scope
 ----------------
 
+.. admonition:: Historical record
+
+   This plan is **complete** — every milestone through M15 was implemented,
+   reviewed, and committed. The chapter is retained as the migration's
+   process and evidence log. For the current shape of the type system see
+   :doc:`unified_type_erasure` and
+   :doc:`plans_and_ops/ops_catalogue`.
+
 This chapter is the proposed delivery plan for :doc:`unified_type_erasure`.
 Each milestone must be independently buildable, testable, reviewable, and
 reversible.  The migration must not require a flag day across values,
@@ -285,8 +293,9 @@ Iteration 4D
    dynamic roots are supported; non-peered dynamic structural prefixes remain
    rejected. Window removal queries at the data layer require an explicit
    evaluation time, while input endpoints supply the current cycle. Window
-   buffer and eviction algorithms are unchanged. This records implementation
-   status only; review acceptance and commit status remain open.
+   buffer and eviction algorithms are unchanged. (Review acceptance and
+   commit are recorded in the later milestone entries; the plan completed
+   through Milestone 15.)
 
 Technical model
    TS, TSS, TSL, TSB, TSD, and REF remain schema kinds.  Data, Input, and Output

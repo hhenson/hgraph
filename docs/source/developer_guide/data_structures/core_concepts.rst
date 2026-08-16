@@ -106,11 +106,11 @@ Data Group
 Interning
 ~~~~~~~~~
 
-Plans, Schemas, Ops tables, Bindings, and reusable Builders are *interned*:
+Plans, Schemas, Ops tables, TypeRecords, and reusable Builders are *interned*:
 there is only ever one true instance of each, kept alive by an intern table
 that returns stable references for structurally equivalent inputs. Any
 consumer—a View, a Builder, a node, a graph—holds a borrowed pointer to its
-Plan, Schema, Ops, Binding, or reusable Builder for the artifact's whole
+Plan, Schema, Ops, TypeRecord, or reusable Builder for the artifact's whole
 lifetime without managing ownership.
 
 The generic vehicle is ``InternTable<Key, Value>``, which guarantees stable
