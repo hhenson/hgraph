@@ -47,6 +47,16 @@ reconverge through smaller luminous graph nodes. The coral timeline crosses a
 separate path and joins the cyan topology, making fan-out and fan-in explicit
 without returning to the organic tree treatment.
 
+## 07 — Aligned directed flow
+
+![Aligned directed flow](07-aligned-directed-flow.png)
+
+Three inputs originate from one grounded base and flow upward through aligned
+spherical split and join nodes. Bezier paths recombine in different orders
+into three outputs, while dim cobalt branches terminate as time-faded dangling
+edges. The coral active path remains traceable from its input through the
+directed acyclic topology.
+
 ## Generation notes
 
 All concepts were generated with the built-in image tool using the active logo
