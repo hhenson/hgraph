@@ -297,6 +297,19 @@ namespace
         }
     };
 
+    struct LifecycleGatedInput
+    {
+        static constexpr auto name = "lifecycle_gated_input";
+        // Explicit signature contract: "gate" (default Valid policy) is a
+        // lifecycle-only input that eval omits.
+        using signature_args =
+            std::tuple<In<"data", TS<Int>>, In<"gate", TS<Int>>, Out<TS<Int>>>;
+
+        static void start(In<"gate", TS<Int>> /*gate*/) {}
+
+        static void eval(In<"data", TS<Int>> data, Out<TS<Int>> out) { out.set(data.value()); }
+    };
+
     struct DuplicateInputNames
     {
         static void eval(In<"x", TS<Int>>, In<"x", TS<Int>>, Out<TS<Int>>);
@@ -641,6 +654,25 @@ TEST_CASE("static node: explicit signature keeps lifecycle-only selectors out of
                      arg<"value">(Int{7}), arg<"lifecycle">(Int{5})),
                  {Int{12}});
     CHECK(LifecycleConfiguredSource::stopped_value == Int{10});
+}
+
+TEST_CASE("static node: a lifecycle-only input still gates evaluation")
+{
+    using namespace hgraph;
+
+    // "gate" never ticks: the canonical signature says the node is not
+    // ready even though eval does not take that input (review finding on
+    // #489 — the frame gate must cover canonical selectors absent from
+    // eval, exactly as the schema gate did).
+    CHECK_OUTPUT(testing::eval_node<LifecycleGatedInput>(
+                     std::vector<std::optional<Int>>{Int{1}, Int{2}},
+                     std::vector<std::optional<Int>>{std::nullopt, std::nullopt}),
+                 {std::nullopt, std::nullopt});
+    // Once the gate is valid the data path flows.
+    CHECK_OUTPUT(testing::eval_node<LifecycleGatedInput>(
+                     std::vector<std::optional<Int>>{Int{1}, Int{2}},
+                     std::vector<std::optional<Int>>{Int{0}, std::nullopt}),
+                 {Int{1}, Int{2}});
 }
 
 TEST_CASE("static node: State<Int> is constructed and mutated across evaluations")

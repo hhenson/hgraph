@@ -2204,6 +2204,75 @@ namespace hgraph
                 frame)...);
         }
 
+        // True when some eval parameter is an input selector occupying
+        // ``Slot`` in the canonical signature — i.e. the slot's validity is
+        // already gated through the materialised argument views.
+        template <std::size_t Slot, typename EvalArgs, typename CanonicalArgs, std::size_t... J>
+        consteval bool slot_covered_by_eval_impl(std::index_sequence<J...>)
+        {
+            return (([] {
+                        using eval_selector = selector_of<std::tuple_element_t<J, EvalArgs>>;
+                        if constexpr (is_input_selector<eval_selector>::value)
+                        {
+                            return canonical_input_slot<eval_selector, CanonicalArgs>() == Slot;
+                        }
+                        else { return false; }
+                    }()) ||
+                    ...);
+        }
+
+        template <std::size_t Slot, typename EvalArgs, typename CanonicalArgs>
+        consteval bool slot_covered_by_eval()
+        {
+            return slot_covered_by_eval_impl<Slot, EvalArgs, CanonicalArgs>(
+                std::make_index_sequence<std::tuple_size_v<EvalArgs>>{});
+        }
+
+        // Gate the canonical input selectors ABSENT from eval's parameter
+        // list (the explicit ``signature_args`` contract lets eval omit an
+        // In used only by start/stop — review finding on #489: the schema
+        // gate covered those, so the frame gate must too). Compiles to
+        // ``true`` when the canonical and eval signatures coincide.
+        template <typename CanonicalArgs, typename EvalArgs, std::size_t... K>
+        [[nodiscard]] bool residual_canonical_inputs_ready_impl(StaticNodeInvocationFrame &frame,
+                                                                std::index_sequence<K...>)
+        {
+            return ([&] {
+                       using selector = selector_of<std::tuple_element_t<K, CanonicalArgs>>;
+                       if constexpr (is_input_selector<selector>::value)
+                       {
+                           if constexpr (selector::validity == InputValidity::Unchecked)
+                           {
+                               return true;
+                           }
+                           else
+                           {
+                               constexpr std::size_t slot =
+                                   canonical_input_slot<selector, CanonicalArgs>();
+                               if constexpr (!slot_covered_by_eval<slot, EvalArgs, CanonicalArgs>())
+                               {
+                                   auto view = frame.input_at(slot);
+                                   if constexpr (selector::validity == InputValidity::Valid)
+                                   {
+                                       return view.valid();
+                                   }
+                                   else { return view.all_valid(); }
+                               }
+                               else { return true; }
+                           }
+                       }
+                       else { return true; }
+                   }() &&
+                   ...);
+        }
+
+        template <typename CanonicalArgs, typename EvalArgs>
+        [[nodiscard]] bool residual_canonical_inputs_ready(StaticNodeInvocationFrame &frame)
+        {
+            return residual_canonical_inputs_ready_impl<CanonicalArgs, EvalArgs>(
+                frame, std::make_index_sequence<std::tuple_size_v<CanonicalArgs>>{});
+        }
+
         // ---- gated invoke: build args once, fold In validity, then call ----
         //
         // The eval twin of ``invoke``: materialise every argument ONCE, gate
@@ -2241,7 +2310,11 @@ namespace hgraph
                     }
                     else { return true; }
                 }() && ...);
-            if (!inputs_ready) { return; }
+            if (!inputs_ready ||
+                !residual_canonical_inputs_ready<CanonicalArgs, args>(frame))
+            {
+                return;
+            }
             std::apply(
                 [](auto &&...hook_arg) { Fn(std::forward<decltype(hook_arg)>(hook_arg)...); },
                 std::move(hook_args));
