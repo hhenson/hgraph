@@ -733,6 +733,32 @@ __all__ = [
     "web_ws_serve",
 ]
 
-# The RFC 0024 authoring decorators (@http_endpoint, @ws_endpoint), the
-# wiring-supplied authenticator, and the JSON/text codec helpers land with the
-# codec and authentication change; they are deliberately absent here.
+# The RFC 0024 authoring decorators, the wiring-supplied authenticator, and the
+# codec helpers build on the wiring helpers above, so they are imported last.
+from ._endpoints import (  # noqa: E402
+    AuthResult,
+    binary_frame,
+    http_endpoint,
+    json_response,
+    request_json,
+    text_frame,
+    ws_binary,
+    ws_endpoint,
+    ws_json,
+    ws_text,
+)
+
+__all__ += [
+    # Authoring
+    "AuthResult",
+    "http_endpoint",
+    "ws_endpoint",
+    # Codecs
+    "binary_frame",
+    "json_response",
+    "request_json",
+    "text_frame",
+    "ws_binary",
+    "ws_json",
+    "ws_text",
+]
