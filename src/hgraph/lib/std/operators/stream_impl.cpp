@@ -43,8 +43,10 @@ namespace hgraph::stdlib
         register_overload<min_, stream_impl_detail::tsw_extremum_default_impl<true>>();
         register_overload<max_, stream_impl_detail::tsw_extremum_default_impl<false>>();
         register_overload<throttle, throttle_impl>();
+        register_overload<take, take_scalar_impl>();
         register_overload<take, take_impl>();
         register_overload<take, take_reset_impl>();
+        register_overload<drop, drop_scalar_impl>();
         register_overload<drop, drop_impl>();
         register_overload<drop, drop_time_impl>();
         register_overload<step, step_impl>();

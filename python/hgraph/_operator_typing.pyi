@@ -1543,7 +1543,7 @@ class _drop_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``
+    ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
        Stream whose prefix is removed.
 
     ``count`` : scalar; ``int``
@@ -1566,6 +1566,7 @@ class _drop_Operator(_Protocol):
 
     Accepted native overloads:
 
+    - ``drop(ts: TS[SCALAR], count: int) -> TS[SCALAR]``
     - ``drop(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
     - ``drop(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
 
@@ -7328,7 +7329,7 @@ class _take_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``
+    ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
        Stream to truncate.
 
     ``count`` : scalar; ``int``
@@ -7351,6 +7352,7 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
+    - ``take(ts: TS[SCALAR], count: int) -> TS[SCALAR]``
     - ``take(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
     - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int) -> TIME_SERIES_TYPE``
 

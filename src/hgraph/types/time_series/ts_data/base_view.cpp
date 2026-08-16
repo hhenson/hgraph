@@ -400,6 +400,27 @@ void *TSDataMutationView::mutable_data() const {
 
 ValueView TSDataMutationView::value() const { return view().value(); }
 
+ValueView TSDataMutationView::mutable_value() const {
+  require_active_mutation();
+  const auto &table = ops();
+  if (!table.direct_native_value) {
+    return {};
+  }
+  const auto *data_layout = table.layout_impl(table.context);
+  const ValueView writable{data_layout->value_binding,
+                           table.mutable_value_memory_impl(table.context,
+                                                           storage_.data())};
+  // The void* constructor yields Writable access, but typed writes
+  // (try_mutable_as) require the explicit Mutation transition — without it
+  // the fast path never engages and every caller pays a failed probe
+  // (caught in review). The transition is a pointer re-tag; ops that do not
+  // opt in fall back to the erased copy path.
+  if (!writable.can_begin_mutation()) {
+    return {};
+  }
+  return writable.begin_mutation();
+}
+
 ValueView TSDataMutationView::delta_value(DateTime evaluation_time) const {
   return view().delta_value(evaluation_time);
 }

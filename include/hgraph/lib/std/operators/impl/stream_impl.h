@@ -1607,33 +1607,25 @@ namespace hgraph::stdlib
         {
             return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
         }
-    }  // namespace stream_impl_detail
 
-    struct take_impl
-    {
-        /* Forward the first ``count`` ticks, then PASSIVATE the input (the
-           documented contract, matching take_reset): without it the node is
-           scheduled on every source tick forever, doing nothing. */
-        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
-                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
+        /** Shared take lifecycle: passivation is DERIVED from the recordable
+            counter — activation is not recorded, so a restored (recovered)
+            exhausted take must come up passive rather than forwarding. */
+        template <typename TsSelector>
+        void take_start(TsSelector &ts, Int limit, RecordableState<TS<Int>> &seen)
         {
-            // Passivation is DERIVED from the recordable counter: activation
-            // is not recorded, so a restored (recovered) exhausted take must
-            // come up passive rather than forwarding again.
-            const Int limit = count.value();
-            if (limit <= 0 || stream_impl_detail::recorded_index(seen) >= limit)
-            {
-                ts.make_passive();
-            }
+            if (limit <= 0 || recorded_index(seen) >= limit) { ts.make_passive(); }
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
-                         RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
+        /** Shared take counting: forward while the counter allows, passivate
+            at (or past — a restored counter) the limit. ``forward`` supplies
+            the overload-selected forwarding (scalar whole-value vs container
+            delta) — resolved at wiring, never branched per tick. */
+        template <typename TsSelector, typename Forward>
+        void take_eval(TsSelector &ts, Int limit, RecordableState<TS<Int>> &seen,
+                       Forward &&forward)
         {
-            // One read of the wiring scalar (also keeps GCC's
-            // -Wmaybe-uninitialized quiet about the Scalar's optional).
-            const Int limit = count.value();
-            const Int index = stream_impl_detail::recorded_index(seen) + 1;
+            const Int index = recorded_index(seen) + 1;
             if (limit <= 0 || index > limit)
             {
                 // Exhausted (a restored counter can arrive here before the
@@ -1643,28 +1635,81 @@ namespace hgraph::stdlib
             }
             seen.set(index);
             if (index >= limit) { ts.make_passive(); }
-            // Gap-free forwarding from the source's first tick: the DELTA is
-            // sufficient (a whole-value apply re-published unchanged
-            // container entries every forwarded tick — the filter_ rule).
-            apply_delta(out, capture_delta(ts.base()).view());
+            forward();
+        }
+    }  // namespace stream_impl_detail
+
+    /** take over a SCALAR TS: whole-value forwarding — a scalar's delta IS
+        its value, so the general overload's owned-delta capture would be
+        pure overhead. Selected by the typed signature (concrete outranks
+        the ~S generic). */
+    struct take_scalar_impl
+    {
+        static constexpr auto name = "take_scalar";
+
+        static void start(In<"ts", TS<ScalarVar<"T">>, InputValidity::Unchecked> ts,
+                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
+        {
+            stream_impl_detail::take_start(ts, count.value(), seen);
+        }
+
+        static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"count", Int> count,
+                         RecordableState<TS<Int>> seen, Out<TS<ScalarVar<"T">>> out)
+        {
+            stream_impl_detail::take_eval(ts, count.value(), seen,
+                                          [&] { out.apply(ts.base().value()); });
         }
     };
 
+    /** take over any other time-series shape: gap-free from the source's
+        first tick, so the DELTA is sufficient (a whole-value apply would
+        re-publish unchanged container entries — the filter_ rule). */
+    struct take_impl
+    {
+        static constexpr auto name = "take_delta";
+
+        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                          Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
+        {
+            stream_impl_detail::take_start(ts, count.value(), seen);
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
+                         RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
+        {
+            stream_impl_detail::take_eval(
+                ts, count.value(), seen,
+                [&] { apply_delta(out, capture_delta(ts.base()).view()); });
+        }
+    };
+
+    /** drop over a SCALAR TS: whole-value forwarding throughout. */
+    struct drop_scalar_impl
+    {
+        static constexpr auto name = "drop_scalar";
+
+        static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"count", Int> count,
+                         RecordableState<TS<Int>> seen, Out<TS<ScalarVar<"T">>> out)
+        {
+            const Int index = stream_impl_detail::recorded_index(seen);
+            if (index >= count.value()) { out.apply(ts.base().value()); }
+            seen.set(index + 1);
+        }
+    };
+
+    /** drop over any other shape: whole-value sync on the first forwarded
+        tick (the dropped prefix's deltas were skipped), deltas thereafter. */
     struct drop_impl
     {
+        static constexpr auto name = "drop_delta";
+
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
         {
             const Int index = stream_impl_detail::recorded_index(seen);
-            if (index == count.value())
-            {
-                // First forwarded tick after the dropped prefix: whole-value
-                // sync (the prefix's deltas were skipped).
-                out.apply(ts.value());
-            }
+            if (index == count.value()) { out.apply(ts.value()); }
             else if (index > count.value())
             {
-                // Contiguous thereafter: the delta is sufficient.
                 apply_delta(out, capture_delta(ts.base()).view());
             }
             seen.set(index + 1);

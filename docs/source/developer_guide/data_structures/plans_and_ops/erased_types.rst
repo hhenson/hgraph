@@ -189,6 +189,20 @@ flag to false, so ``ListStorage``, ``SetStorage``, ``MapStorage``,
 ``CyclicBufferStorage``, ``QueueStorage``, and map-key-set adapters
 remain immutable from the public API.
 
+At the time-series layer the same idea gates a **typed fast write**:
+``TSDataOps.direct_native_value`` marks storages whose current value is
+a pure native slot — assigning it in place, inside an active mutation,
+preserves every representation invariant. For those,
+``TSDataMutationView::mutable_value()`` hands out a writable value view
+and the caller commits with ``mark_modified()`` (which performs the
+modification recording, observer notification, and parent bubbling the
+erased ``copy_value_from`` path would have done). ``Out<TS<T>>::set``
+uses this pair when the realized value ops match ``T`` exactly and
+falls back to the erased copy otherwise — python-cached and
+python-owned storages keep ``direct_native_value`` false because their
+writes carry cache-invalidation side rules (2026-08-15; motivated by
+the recordable-counter write cost surfaced in the std-operator audit).
+
 The mutation is closed by calling ``end_mutation()`` on the mutable
 view. For the current scalar value-layer ops this is a no-op; the
 method exists so the same view contract can be used by slot-store-

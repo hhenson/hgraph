@@ -22,7 +22,7 @@ the module controls grouping, supported runtimes, and whether collection size
 is scaled independently from the number of engine cycles.
 """
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Mapping, Set, Tuple
 
 import hgraph as hg
 from hgraph import (
@@ -1408,6 +1408,162 @@ def service_adaptor_py(cycle_scale: float, size_scale: float):
     return g, cycles
 
 
+# ---------------------------------------------------------------------------
+# H. Audited operator families (2026-08-15 std-operator audit)
+#
+# One scenario per operator family the audit rewrote (start-resolved
+# bindings, generation-checked caches, State::modify, recordable counters,
+# REF view publication, cached regexes). Baselined against the pinned 0.8.1
+# wheel like every other cell; the 0.5 lines never had these exact shapes,
+# so the scenarios are CPP-first only.
+# ---------------------------------------------------------------------------
+
+@generator
+def _audit_tuple_pulse(cycles: int) -> TS[Tuple[int, ...]]:
+    for i in range(cycles):
+        yield MIN_TD, (i, i + 1, i + 2)
+
+
+@generator
+def _audit_mapping_pulse(cycles: int, keys: int) -> TS[Mapping[str, int]]:
+    names = [f"k{i:02d}" for i in range(keys)]
+    for i in range(cycles):
+        yield MIN_TD, {names[(i + j) % keys]: i + j for j in range(keys)}
+
+
+def audit_convert_collect_std(scale: float):
+    """Scalar-collection conversion kernels (start-resolved builder bindings)."""
+    cycles = int(2_000 * scale)
+
+    @graph
+    def g():
+        src = _int_pulse(cycles)
+        null_sink(hg.convert[TS[Set[int]]](src))
+        null_sink(hg.collect[TS[Tuple[int, ...]]](src))
+
+    return g, cycles
+
+
+def audit_map_transform_std(scale: float):
+    """Scalar-map transform family (flip / keys_ / values_ over TS[Mapping])."""
+    cycles = int(10_000 * scale)
+
+    @graph
+    def g():
+        m = _audit_mapping_pulse(cycles, 8)
+        null_sink(hg.flip(m))
+        null_sink(hg.keys_(m))
+        null_sink(hg.values_(m))
+
+    return g, cycles
+
+
+def audit_tsd_getitem_std(scale: float):
+    """getitem_tsd_by_key with a ticking key (start-resolved dereference +
+    cached-binding reference publication)."""
+    cycles = int(20_000 * scale)
+
+    @graph
+    def g():
+        tsd = _tsd_dense_pulse(cycles, 8)
+        key = _int_pulse(cycles) % 8
+        null_sink(tsd[key])
+
+    return g, cycles
+
+
+def audit_eq_tuple_std(scale: float):
+    """Generic container-scalar comparison fallback (state-cached JSON probe)."""
+    cycles = int(20_000 * scale)
+
+    @graph
+    def g():
+        a = _audit_tuple_pulse(cycles)
+        b = _audit_tuple_pulse(cycles)
+        null_sink(hg.eq_(a, b))
+        null_sink(hg.cmp_(a, b))
+
+    return g, cycles
+
+
+def audit_string_match_std(scale: float):
+    """match_/replace (cached compiled regex; start-resolved groups binding)."""
+    cycles = int(10_000 * scale)
+
+    @graph
+    def g():
+        s = _str_pulse(cycles)
+        null_sink(hg.match_("payload-([0-9]+)", s))
+        null_sink(hg.replace("payload-([0-9]+)", "p", s))
+
+    return g, cycles
+
+
+def audit_json_roundtrip_std(scale: float):
+    """to_json/from_json over a CompoundScalar (start-resolved converter plan)."""
+    cycles = int(10_000 * scale)
+
+    @graph
+    def g():
+        null_sink(hg.from_json[TS[BenchCS]](hg.to_json(_cs_pulse(cycles))))
+
+    return g, cycles
+
+
+def audit_ref_race_std(scale: float):
+    """race over if_-routed references with a per-cycle winner flip (reference
+    VIEW publication instead of Out<REF>::set)."""
+    cycles = int(20_000 * scale)
+
+    @graph
+    def g():
+        src = _int_pulse(cycles)
+        routed = hg.if_(src % 2 == 0, src)
+        null_sink(hg.race(routed.true, routed.false))
+
+    return g, cycles
+
+
+def audit_stream_buffered_std(scale: float):
+    """Buffered stream nodes (lag/gate) — in-place State mutation of the
+    delta deques instead of the get()/set() deep-copy round trip."""
+    cycles = int(5_000 * scale)
+
+    @graph
+    def g():
+        src = _int_pulse(cycles)
+        cond = _bool_pulse(cycles)
+        null_sink(hg.lag(src, 8))
+        null_sink(hg.gate(cond, src))
+
+    return g, cycles
+
+
+def audit_take_drop_std(scale: float):
+    """Stream position counters (recordable) + delta forwarding in take/drop."""
+    cycles = int(20_000 * scale)
+
+    @graph
+    def g():
+        src = _int_pulse(cycles)
+        null_sink(hg.drop(src, 16))
+        null_sink(hg.step(src, 2))
+        null_sink(hg.take(src, cycles))
+
+    return g, cycles
+
+
+def audit_running_mean_std(scale: float):
+    """Running mean unary (recordable count accumulator)."""
+    cycles = int(50_000 * scale)
+
+    @graph
+    def g():
+        null_sink(hg.mean(_float_pulse(cycles)))
+
+    return g, cycles
+
+
 def _scenario(
     group: str,
     label: str,
@@ -1664,4 +1820,35 @@ SCENARIOS = {
     "service_adaptor_py": _scenario(
         "Adaptors", "Multiplexed service adaptor - Python implementation",
         service_adaptor_py, independent_size=True),
+    "audit_convert_collect_std": _scenario(
+        "Audited operators", "Scalar-collection convert and collect",
+        audit_convert_collect_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_map_transform_std": _scenario(
+        "Audited operators", "Scalar-map flip/keys/values",
+        audit_map_transform_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_tsd_getitem_std": _scenario(
+        "Audited operators", "TSD getitem with a ticking key",
+        audit_tsd_getitem_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_eq_tuple_std": _scenario(
+        "Audited operators", "Tuple-scalar eq_/cmp_ fallback",
+        audit_eq_tuple_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_string_match_std": _scenario(
+        "Audited operators", "Regex match_ and replace",
+        audit_string_match_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_json_roundtrip_std": _scenario(
+        "Audited operators", "CompoundScalar to_json/from_json round trip",
+        audit_json_roundtrip_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_ref_race_std": _scenario(
+        "Audited operators", "race over if_-routed references",
+        audit_ref_race_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_stream_buffered_std": _scenario(
+        "Audited operators", "Buffered stream lag/gate",
+        audit_stream_buffered_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_take_drop_std": _scenario(
+        "Audited operators", "Stream take/drop/step counters",
+        audit_take_drop_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+    "audit_running_mean_std": _scenario(
+        "Audited operators", "Running mean accumulator",
+        audit_running_mean_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
+
 }
