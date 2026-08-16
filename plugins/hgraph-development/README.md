@@ -1,5 +1,7 @@
 # hgraph Development plugin
 
+<img src="assets/logo.png" alt="hgraph Development plugin logo" width="160">
+
 This skills-only plugin packages the hgraph development guidance for:
 
 - high-performance C++ compute and sink nodes;
