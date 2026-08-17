@@ -4,7 +4,7 @@
 #include <hgraph/lib/std/operators/table.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
-#include <hgraph/types/record_replay.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -140,7 +140,8 @@ namespace hgraph::stdlib
     {
         const table_ts_detail::TsTableLayout *layout{nullptr};
         /** Start-resolved run-fixed as-of override; reading it per tick from
-            GlobalState copies the whole Config (three heap strings). */
+            GlobalState copies the whole table configuration (two heap
+            strings). */
         std::optional<DateTime> fixed_as_of{};
     };
 }  // namespace hgraph::stdlib
@@ -183,7 +184,7 @@ namespace hgraph::stdlib
             {
                 return;
             }
-            const auto config = record_replay::config(context.global_state);
+            const auto config = table::config(context.global_state);
             bind_output(resolution,
                         table_ts_detail::ts_table_layout(schema, config.date_key, config.as_of_key)
                             .output_ts);
@@ -197,7 +198,7 @@ namespace hgraph::stdlib
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, GlobalStateView gs,
                           State<TableLayoutState> state)
         {
-            const auto config = record_replay::config(gs);
+            const auto config = table::config(gs);
             state.set(TableLayoutState{
                 .layout = &table_ts_detail::ts_table_layout(ts.base().schema(), config.date_key,
                                                             config.as_of_key),
@@ -235,7 +236,7 @@ namespace hgraph::stdlib
         static void start(Out<TsVar<"O">> out, GlobalStateView gs, State<TableLayoutState> state)
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
-            const auto  config = record_replay::config(gs);
+            const auto  config = table::config(gs);
             state.set(TableLayoutState{&table_ts_detail::ts_table_layout(
                 erased.schema(), config.date_key, config.as_of_key)});
         }
@@ -266,7 +267,7 @@ namespace hgraph::stdlib
             {
                 return Value{};
             }
-            const auto  config = record_replay::config(context.global_state);
+            const auto  config = table::config(context.global_state);
             const auto &converter =
                 table_converter(resolved_output->value_schema, config.date_key, config.as_of_key);
             return read_row(converter, *frame, frame_rows(*frame) - 1);
@@ -280,7 +281,7 @@ namespace hgraph::stdlib
             {
                 return;
             }
-            const auto  config = record_replay::config(gs);
+            const auto  config = table::config(gs);
             const auto &converter =
                 table_converter(erased.schema()->value_schema, config.date_key, config.as_of_key);
             Value row = read_row(converter, frame, frame_rows(frame) - 1);

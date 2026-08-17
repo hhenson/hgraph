@@ -148,13 +148,14 @@ namespace hgraph::stdlib
      * step 5). ``G`` is an ordinary graph struct; the component consults the
      * ambient ``record_replay::scope`` and, per its mode, wraps every input
      * and the output with name-resolved ``record``/``replay`` (whatever
-     * backend the active model selects):
+     * implementation the active backend selects):
      *
      * - ``Record``   — each input and the output (``__out__``) is recorded.
      * - ``Replay`` / ``Compare`` — inputs are REPLACED by their recordings;
-     *   ``Compare`` additionally recomputes the output and records per-tick
-     *   equality against the recorded output (``fq.__compare__`` in the
-     *   store; read with ``record_replay::comparison_summary``).
+     *   ``Compare`` additionally recomputes the output and compares per-tick
+     *   equality against the recorded output, publishing the core-neutral
+     *   summary under ``fq.__compare__`` (read with
+     *   ``record_replay::comparison_summary``).
      * - ``ReplayOutput`` — the output is replaced by its recording.
      * - ``None`` — no wrapping; the component is a plain ``wire<G>``.
      *

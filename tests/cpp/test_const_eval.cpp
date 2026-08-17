@@ -58,7 +58,7 @@ TEST_CASE("const eval: replay_const evaluates eagerly through the registry")
     GlobalContext context;
     const auto state = context.state().view();
     record_replay::set_config(state,
-                              record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     auto &registry = TypeRegistry::instance();
     const auto *str_meta  = registry.register_scalar<Str>("str");
     const auto *int_meta  = registry.register_scalar<Int>("int");
@@ -112,7 +112,7 @@ TEST_CASE("const eval: the wired replay_const form emits the recovered value at 
     stdlib::register_standard_operators();
     GlobalContext context;
     record_replay::set_config(context.state().view(),
-                              record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
 

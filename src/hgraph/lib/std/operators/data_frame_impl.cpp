@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
 #include <hgraph/types/time_series/ts_input/dict_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
@@ -571,7 +572,7 @@ namespace hgraph::stdlib
                                      ReplayDataFramePlan *&plan_out)
         {
             auto plan = std::make_unique<ReplayDataFramePlan>();
-            const auto config = record_replay::config(gs);
+            const auto config = table::config(gs);
             plan->layout = &table_ts_detail::ts_table_layout(
                 out.schema(), config.date_key, config.as_of_key);
 

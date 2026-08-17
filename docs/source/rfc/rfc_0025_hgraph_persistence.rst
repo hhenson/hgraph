@@ -398,8 +398,20 @@ Implementation status
 ---------------------
 
 Checkpoint 1 (this RFC, the ownership revisions, and the symbol
-inventory) is in progress on the extraction branch.  No runtime behaviour
-has changed.
+inventory) landed as documentation only; no runtime behaviour changed.
+
+Checkpoint 2 is implemented on the extraction branch: core
+``RecordReplayConfig{backend}`` with the ``normalize_backend`` choke
+point and ``effective_backend`` resolution; the generic table options
+extracted to ``table::TableConfig`` (``types/table_config.h``) and read
+by the generic table operators, the transitional frame backend, and the
+data-frame adaptor's raw replay; the core-neutral ``ComparisonSummary``
+published by both compare implementations (memory per tick before its
+failing throw, frame at stop beside its detailed rows) with the total
+``optional`` query.  Public Python behaviour is unchanged: the module
+attributes carry the new backend ids, legacy names translate at every
+entry point, and the Python summary query keeps its raise-on-absent
+contract.
 
 Appendix: symbol and migration inventory
 ----------------------------------------

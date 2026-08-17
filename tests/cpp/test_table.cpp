@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/value/table_codec.h>
@@ -607,7 +608,7 @@ TEST_CASE("table operators: to_table honours the configured as_of override")
     stdlib::register_standard_operators();
     GlobalContext  context;
     const DateTime fixed = MIN_ST + TimeDelta{123456};
-    record_replay::set_config(context.state().view(), record_replay::Config{.as_of = fixed});
+    table::set_config(context.state().view(), table::TableConfig{.as_of = fixed});
 
     auto rows = eval_node<stdlib::to_table>(values<Int>(1));
     REQUIRE(rows[0].has_value());
@@ -618,9 +619,9 @@ TEST_CASE("table layouts are isolated by seeded column configuration")
 {
     stdlib::register_standard_operators();
     GlobalContext context;
-    record_replay::set_config(
+    table::set_config(
         context.state().view(),
-        record_replay::Config{.date_key = "event_time", .as_of_key = "observed_at"});
+        table::TableConfig{.date_key = "event_time", .as_of_key = "observed_at"});
 
     const auto &layout = stdlib::table_ts_detail::ts_table_layout(
         TypeRegistry::instance().ts(scalar_descriptor<Int>::value_meta()), "event_time",
@@ -749,7 +750,7 @@ TEST_CASE("table type ops: stored replay dispatches through the extension "
     GlobalContext context;
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     const auto *schema =
         TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
     extension_describes = 0;
@@ -795,7 +796,7 @@ TEST_CASE("table type ops: a registered child records and replays beneath a TSD"
     GlobalContext context;
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     const auto *child_schema =
         TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
     extension_describes = 0;
@@ -823,7 +824,7 @@ TEST_CASE("table type ops: a nested all-null child row survives persisted replay
     GlobalContext context;
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     const auto *child_schema =
         TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
     extension_describes = 0;

@@ -292,13 +292,13 @@ namespace
         }
     };
 
-    /** Both runs under the same DATA_FRAME configuration. */
+    /** Both runs under the same frame-backend configuration. */
     void use_frame_backend(GlobalContext &context)
     {
         stdlib::register_standard_operators();
         record_replay::set_config(
             context.state().view(),
-            record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+            record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     }
 }  // namespace
 
@@ -585,16 +585,16 @@ TEST_CASE("record/replay: a call selects its backend independently of the graph"
     // The GRAPH is configured for the in-memory model...
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::IN_MEMORY}});
+        record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
 
     // ...but this call asks for the data-frame backend. requires_ runs before
     // the node exists, so the only way this can work is the call-site scalar -
     // and every overload has to consult it, or the call matches several or
-    // none (see record_replay::call_model).
+    // none (see record_replay::effective_backend).
     (void)eval_node<LocalModelRecordGraph<PriceDict>>(
         values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
 
-    // A frame reached the frame store, which only the DATA_FRAME overload
+    // A frame reached the frame store, which only the frame-backend overload
     // writes to - the in-memory overloads record into GlobalState instead.
     CHECK(record_replay::store_contains("local.ticks"));
 }
