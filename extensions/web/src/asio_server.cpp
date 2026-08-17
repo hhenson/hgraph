@@ -213,12 +213,13 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   // parked forever with no pauser left to resume it (review P1).  The
   // constants mirror the transport's retained-byte estimates.
   if (result.ingress.bytes <
-      result.max_body_bytes + 2 * result.max_header_bytes + 512) {
-    // Two header blocks: h2 initial headers and trailers are capped
-    // separately, and a maximal valid request carries both (review P1).
+      result.max_body_bytes + 4 * result.max_header_bytes + 1024) {
+    // Two header blocks (h2 initial headers and trailers are capped
+    // separately), each weighed twice for the source-plus-graph copies
+    // (review P1).
     throw std::invalid_argument(
         "Web server ingress_byte_limit must cover one maximal request "
-        "(max_body_bytes + 2*max_header_bytes + 512)");
+        "(max_body_bytes + 4*max_header_bytes + 1024)");
   }
   if (result.ws_ingress.bytes < result.ws_max_message_bytes + 256) {
     throw std::invalid_argument(
@@ -382,7 +383,8 @@ public:
     live_connections_.push_back(std::move(connection));
   }
 
-  void retire_runtime_connections(const WebServerRuntime *runtime);
+  void retire_runtime_connections(const WebServerRuntime *runtime,
+                                  std::shared_ptr<const void> barrier);
   void shutdown_connections();
 
   /** @return true when this was the last attached runtime. */
@@ -576,8 +578,12 @@ public:
                                 std::shared_ptr<WebServerRuntime> runtime) = 0;
   virtual void answer_timeout(Int request_id) = 0;
   /** One runtime is stopping: retire only ITS work.  A shared h2
-   * connection keeps serving the other attachees' streams (review P1). */
-  virtual void retire_runtime(const WebServerRuntime *runtime) = 0;
+   * connection keeps serving the other attachees' streams (review P1).
+   * The barrier is held through every handler the retirement schedules,
+   * so the stopping runtime can await ITS completion — without waiting
+   * on other attachees' connections — before clearing its bridge. */
+  virtual void retire_runtime(const WebServerRuntime *runtime,
+                              std::shared_ptr<const void> barrier) = 0;
   /** The listener itself is shutting down (last attachee): close the
    * whole connection — GOAWAY for h2, close for h1 — idle or not. */
   virtual void connection_shutdown() = 0;
@@ -792,32 +798,40 @@ public:
     });
   }
 
-  void retire_runtime(const WebServerRuntime *runtime) override {
-    asio::post(strand_, [self = shared_from_this(), runtime] {
+  void retire_runtime(const WebServerRuntime *runtime,
+                      std::shared_ptr<const void> barrier) override {
+    asio::post(strand_, [self = shared_from_this(), runtime, barrier] {
       // Close only when the stopping runtime owns this connection's
       // CURRENT activity — from route match (admission wait, body read,
       // WS handshake) through the answered response; an idle keep-alive
-      // or a connection serving another attachee keeps serving
+      // or a connection serving another attachee keeps serving.  The
+      // shutdown runs INLINE on this same handler: a second post would
+      // let a queued completion return the connection to idle (or to
+      // another runtime's next request) between check and close
       // (review P1).
       if (self->serving_runtime_ == runtime) {
-        self->connection_shutdown();
+        self->shutdown_now();
       }
     });
   }
 
   void connection_shutdown() override {
-    asio::post(strand_, [self = shared_from_this()] {
-      self->shutting_down_ = true;
-      if (self->ws_) {
-        self->ws_close(websocket::close_code{1001}, "going away");
-      } else if (self->pending_request_id_ >= 0 && !self->writing_) {
-        self->send_simple_response(http::status::service_unavailable,
-                                   "server shutting down", false);
-        self->pending_request_id_ = -1;
-      } else if (!self->writing_) {
-        self->close();
-      }
-    });
+    asio::post(strand_,
+               [self = shared_from_this()] { self->shutdown_now(); });
+  }
+
+  // Must run on the strand.
+  void shutdown_now() {
+    shutting_down_ = true;
+    if (ws_) {
+      ws_close(websocket::close_code{1001}, "going away");
+    } else if (pending_request_id_ >= 0 && !writing_) {
+      send_simple_response(http::status::service_unavailable,
+                           "server shutting down", false);
+      pending_request_id_ = -1;
+    } else if (!writing_) {
+      close();
+    }
   }
 
   void resume_reading() {
@@ -1019,8 +1033,9 @@ public:
     });
   }
 
-  void retire_runtime(const WebServerRuntime *runtime) override {
-    asio::post(strand_, [self = shared_from_this(), runtime] {
+  void retire_runtime(const WebServerRuntime *runtime,
+                      std::shared_ptr<const void> barrier) override {
+    asio::post(strand_, [self = shared_from_this(), runtime, barrier] {
       if (self->closed_) {
         return;
       }
@@ -1034,6 +1049,13 @@ public:
       }
       for (const std::int32_t stream_id : retiring) {
         self->respond_transport(stream_id, 503, "server shutting down");
+      }
+      if (!retiring.empty() && !self->closed_) {
+        // Hold the barrier until the write batch carrying these 503s
+        // completes (a barrier-only sentinel in the flush queue).
+        self->pending_flush_reports_.push_back(
+            PendingReport{nullptr, 0, 0, true, std::move(barrier)});
+        self->pump_writes();
       }
     });
   }
@@ -1140,6 +1162,9 @@ private:
     Int client_id{};
     Int request_id{};
     bool clean{};
+    // Barrier-only sentinel entries carry no runtime; they exist to hold
+    // a retirement barrier until the write that flushes them completes.
+    std::shared_ptr<const void> barrier{};
   };
   void queue_report(std::shared_ptr<WebServerRuntime> runtime, Int client_id,
                     Int request_id, bool clean) {
@@ -1255,7 +1280,8 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
   return std::nullopt;
 }
 
-void WebListener::retire_runtime_connections(const WebServerRuntime *runtime) {
+void WebListener::retire_runtime_connections(
+    const WebServerRuntime *runtime, std::shared_ptr<const void> barrier) {
   std::vector<std::weak_ptr<PendingTarget>> live;
   {
     std::lock_guard lock{mutex_};
@@ -1263,7 +1289,7 @@ void WebListener::retire_runtime_connections(const WebServerRuntime *runtime) {
   }
   for (const auto &weak : live) {
     if (const auto connection = weak.lock()) {
-      connection->retire_runtime(runtime);
+      connection->retire_runtime(runtime, barrier);
     }
   }
 }
@@ -1573,7 +1599,21 @@ void WebServerRuntime::stop() noexcept {
         pending_.clear();
         ws_connections_.clear();
       }
-      listener_->retire_runtime_connections(this);
+      // Retirement completion barrier: the barrier is captured by every
+      // handler the retirement schedules, so use_count falls back to one
+      // exactly when THIS runtime's 503s and releases have run — no wait
+      // on other attachees' live connections (review P1).
+      const std::shared_ptr<const void> barrier =
+          std::make_shared<const int>(0);
+      listener_->retire_runtime_connections(this, barrier);
+      {
+        const auto retire_deadline = std::chrono::steady_clock::now() +
+                                     config_->shutdown_drain_timeout;
+        while (std::chrono::steady_clock::now() < retire_deadline &&
+               barrier.use_count() > 1) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+      }
       if (last) {
         // The listener is going away: every live connection — idle ones
         // included — gets its orderly shutdown (GOAWAY on h2), and only
@@ -2077,7 +2117,7 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
           ? static_cast<std::size_t>(*content_length)
           : config_->max_body_bytes;
   const std::size_t projected =
-      projected_body + header_bytes + header.target().size() + 512;
+      projected_body + 2 * header_bytes + 3 * header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
@@ -2217,7 +2257,13 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   // Moving the body out empties the Beast message, so once the value is
   // pushed the connection itself no longer retains the payload.
   Bytes body{std::move(request_.body())};
-  retained_bytes = body.data.size() + header_bytes + target.size() + 512;
+  // The graph value owns COPIES of the metadata (headers, target, decoded
+  // path, parsed query, path params) while the transport still retains
+  // the source until the request is answered, so headers weigh double and
+  // the target triple (target + decoded path + query) — otherwise large
+  // paths and queries exceed the advertised bound (review P1).
+  retained_bytes =
+      body.data.size() + 2 * header_bytes + 3 * target.size() + 512;
 
   Value request = build_on(
       b.http_request,
@@ -2978,6 +3024,9 @@ void H2Driver::flush_reports(std::size_t count, bool written) {
   count = std::min(count, pending_flush_reports_.size());
   for (std::size_t position = 0; position != count; ++position) {
     const PendingReport &report = pending_flush_reports_[position];
+    if (!report.runtime) {
+      continue; // a barrier-only sentinel: released on erase below
+    }
     if (!written) {
       report.runtime->report(
           index(ServerChannel::RespondDelivery), report.client_id,
@@ -3141,7 +3190,10 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   // Header admission mirrors h1: the header block plus envelope overhead
   // reserves before any DATA window is released; the body then grows the
   // same reservation chunk-by-chunk (RFC 0024, flow control).
-  const std::size_t projected = stream.header_bytes + stream.target.size() + 512;
+  // Headers double (source + graph copies), target triple (target +
+  // decoded path + parsed query), matching the h1 estimate (review P1).
+  const std::size_t projected =
+      2 * stream.header_bytes + 3 * stream.target.size() + 512;
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
@@ -3234,6 +3286,18 @@ void H2Driver::on_request_trailers(std::int32_t stream_id,
   for (const auto &[name, value] : trailers) {
     bytes += name.size() + value.size();
   }
+  // The hard per-receive metadata bound applies to trailer blocks exactly
+  // as to initial headers: an over-bound block kills the stream before it
+  // is retained (review P1).  Unlike a refused-at-open stream, this one
+  // was partially consumed, so REFUSED_STREAM's safe-retry promise would
+  // be wrong.
+  if (unaccounted_total_ + bytes >
+      static_cast<std::size_t>(config_->h2_initial_window_bytes)) {
+    release_stream(stream_id, stream);
+    stream.discarding = true;
+    engine_.reset_stream(stream_id, H2StreamError::EnhanceYourCalm);
+    return;
+  }
   stream.trailers = std::move(trailers);
   stream.trailer_bytes += bytes;
   stream.trailer_unaccounted += bytes;
@@ -3268,7 +3332,7 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     // Trailer bytes grow the reservation but never consume flow-control
     // window — HEADERS frames are not flow-controlled (RFC 9113 §6.9).
     const std::size_t data_pending = stream.unaccounted;
-    const std::size_t pending = data_pending + stream.trailer_unaccounted;
+    const std::size_t pending = data_pending + 2 * stream.trailer_unaccounted;
     if (stream.matched.runtime->grow_request_reservation(pending)) {
       stream.reserved += pending;
       stream.unaccounted = 0;
@@ -3336,9 +3400,9 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
           : full_target.substr(query_start + 1);
   WebBindings::NamedPairs headers{stream.headers.begin(),
                                   stream.headers.end()};
-  const std::size_t retained = stream.body.size() + stream.header_bytes +
-                               stream.trailer_bytes + stream.target.size() +
-                               512;
+  const std::size_t retained =
+      stream.body.size() + 2 * stream.header_bytes +
+      2 * stream.trailer_bytes + 3 * stream.target.size() + 512;
   Value request = build_on(
       b.http_request,
       {
