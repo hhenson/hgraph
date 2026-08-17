@@ -32,6 +32,7 @@ library authors and performance-sensitive integrations.
    :caption: Working with data and services
 
    data_and_analytics
+   analytics
    adaptors/index
    tools/index
 

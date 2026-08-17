@@ -7,6 +7,9 @@ analytical family migrated from core—`diff`, `count`, `clip`, `ewma`, and
 `correlation`, generic `std`/`var`, trailing `rolling_mean`, scheduled
 `resample`, and the EWMA parameter conversion helpers.
 
+For installation, semantics, and Python/C++ usage patterns, see the
+[analytics user guide](https://github.com/hhenson/hgraph/blob/main/docs/source/user_guide/analytics.rst).
+
 ```python
 import hgraph as hg
 import hgraph_analytics as hga
