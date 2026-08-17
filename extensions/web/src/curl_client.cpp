@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <compare>
 #include <cstddef>
@@ -46,6 +47,15 @@ inline constexpr Int kStoppedCode = -3;
 inline constexpr Int kInvalidRequestCode = -4;
 inline constexpr Int kNotConnectedCode = -5;
 inline constexpr Int kQueueFullCode = -6;
+inline constexpr Int kNoHttp2Code = -7;
+
+/** Bundle/field overhead a completed response envelope retains beyond its
+ * body and header text.  `max_response_bytes` is the reservation for the
+ * WHOLE envelope, so the callbacks cap body + header bytes at
+ * `max_response_bytes - kEnvelopeOverhead` and the completion adds this back
+ * (RFC 0024, flow control: a completion can never be dropped for lack of
+ * queue space, so it must never exceed what was reserved either). */
+inline constexpr std::size_t kEnvelopeOverhead = 512;
 
 /** Parsed TlsClientConfig; an absent sub-bundle means library defaults. */
 struct TlsClientSettings {
@@ -376,12 +386,12 @@ template <typename T>
                });
 }
 
-[[nodiscard]] std::size_t header_bytes(const NameValues &headers) noexcept {
-  std::size_t result{};
-  for (const auto &[name, value] : headers) {
-    result += name.size() + value.size() + 32;
-  }
-  return result;
+/** The retained cost of one captured header, charged against the response
+ * reservation as the header arrives.  Single definition so the running total
+ * the header callback enforces and the completion's estimate cannot drift. */
+[[nodiscard]] constexpr std::size_t
+header_entry_bytes(std::size_t name_size, std::size_t value_size) noexcept {
+  return name_size + value_size + 32;
 }
 
 // ---------------------------------------------------------------------------
@@ -534,12 +544,33 @@ void ensure_curl_initialized() {
   }
 }
 
-[[nodiscard]] long http_version_option(WebHttpVersionPolicy policy) noexcept {
+[[nodiscard]] bool is_plaintext_http(std::string_view url) noexcept {
+  constexpr std::string_view scheme{"http://"};
+  if (url.size() < scheme.size()) {
+    return false;
+  }
+  return std::ranges::equal(
+      url.substr(0, scheme.size()), scheme, [](char lhs, char rhs) {
+        return static_cast<char>(
+                   std::tolower(static_cast<unsigned char>(lhs))) == rhs;
+      });
+}
+
+/**
+ * CURL_HTTP_VERSION_2_0 is a ceiling, not a floor: libcurl falls back to
+ * HTTP/1.1 when the server will not speak h2, which would silently violate
+ * H2Only.  Over cleartext the only way to insist is prior knowledge (h2c with
+ * no upgrade dance); over TLS ALPN does the negotiating, so the request goes
+ * out as 2TLS and the completion verifies what was actually negotiated.
+ */
+[[nodiscard]] long http_version_option(WebHttpVersionPolicy policy,
+                                       std::string_view url) noexcept {
   switch (policy) {
   case WebHttpVersionPolicy::H1Only:
     return CURL_HTTP_VERSION_1_1;
   case WebHttpVersionPolicy::H2Only:
-    return CURL_HTTP_VERSION_2_0;
+    return is_plaintext_http(url) ? CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE
+                                  : CURL_HTTP_VERSION_2TLS;
   case WebHttpVersionPolicy::Auto:
     break;
   }
@@ -619,13 +650,40 @@ struct HttpTransfer : TransferTag {
     }
   }
 
+  /** Bytes the completed envelope may retain, excluding kEnvelopeOverhead.
+   * The write and header callbacks hold `body.size() + header_bytes` under
+   * this, so the completion's retained estimate cannot exceed the response
+   * reservation. */
+  [[nodiscard]] std::size_t payload_budget() const noexcept {
+    // Saturating: a configured max_response_bytes below the envelope
+    // overhead leaves no room for any payload at all, which fails the
+    // transfer rather than wrapping around.
+    return max_response_bytes > kEnvelopeOverhead
+               ? max_response_bytes - kEnvelopeOverhead
+               : 0;
+  }
+
+  /** True when retaining `extra` more bytes would push body + headers past
+   * the budget.  Written as a subtraction from the budget so it cannot
+   * overflow, matching the bridge's own limit checks. */
+  [[nodiscard]] bool would_exceed_budget(std::size_t extra) const noexcept {
+    const std::size_t budget = payload_budget();
+    const std::size_t used = body.size() + header_bytes_used;
+    return extra > budget - std::min(used, budget);
+  }
+
   CURL *easy{};
   curl_slist *headers{};
   Int client_id{};
   std::size_t reserved_bytes{};
   std::size_t max_response_bytes{};
+  WebHttpVersionPolicy http_version{WebHttpVersionPolicy::Auto};
   std::string body{};
   NameValues response_headers{};
+  /** Running total of `header_bytes(response_headers)`, maintained by the
+   * header callback so the cap is enforced as headers arrive rather than
+   * recomputed per line. */
+  std::size_t header_bytes_used{};
   bool truncated{};
   char error[CURL_ERROR_SIZE]{};
 };
@@ -1116,6 +1174,11 @@ private:
   void push_response(Value envelope, std::size_t retained,
                      std::size_t reserved) noexcept {
     try {
+      // Defensive only: the write and header callbacks hold body + header
+      // bytes at max_response_bytes - kEnvelopeOverhead, so a completion's
+      // retained estimate is already within its reservation.  The clamp keeps
+      // push_reserved's "exceeded its reservation" invariant from throwing if
+      // that accounting ever drifts.
       static_cast<void>(bridge_.value->push_reserved(
           index(ClientChannel::Response), std::move(envelope),
           std::min(retained, reserved), reserved));
@@ -1334,6 +1397,7 @@ private:
     transfer->client_id = submission.client_id;
     transfer->reserved_bytes = submission.reserved_bytes;
     transfer->max_response_bytes = config_.max_response_bytes;
+    transfer->http_version = submission.http_version;
     transfer->easy = curl_easy_init();
     if (transfer->easy == nullptr) {
       fail_call(submission.client_id, submission.reserved_bytes,
@@ -1397,9 +1461,9 @@ private:
                                        submission.follow_redirects ? 1L : 0L));
     static_cast<void>(curl_easy_setopt(
         easy, CURLOPT_MAXREDIRS, static_cast<long>(submission.max_redirects)));
-    static_cast<void>(
-        curl_easy_setopt(easy, CURLOPT_HTTP_VERSION,
-                         http_version_option(submission.http_version)));
+    static_cast<void>(curl_easy_setopt(
+        easy, CURLOPT_HTTP_VERSION,
+        http_version_option(submission.http_version, submission.url)));
     if (config_.keep_alive_ms > 0) {
       static_cast<void>(curl_easy_setopt(
           easy, CURLOPT_MAXAGE_CONN,
@@ -1445,11 +1509,14 @@ private:
         512, reserved);
   }
 
+  /** Body and headers share one budget: whichever arm would push the
+   * envelope past its reservation aborts the transfer, and the completion
+   * reports the typed "response exceeded max_response_bytes" failure. */
   static std::size_t on_body(char *data, std::size_t size, std::size_t nitems,
                              void *userdata) {
     auto *transfer = static_cast<HttpTransfer *>(userdata);
     const std::size_t total = size * nitems;
-    if (transfer->body.size() + total > transfer->max_response_bytes) {
+    if (transfer->would_exceed_budget(total)) {
       transfer->truncated = true;
       return CURL_WRITEFUNC_ERROR;
     }
@@ -1475,6 +1542,7 @@ private:
     if (colon == std::string_view::npos) {
       if (line.starts_with("HTTP/")) {
         transfer->response_headers.clear();
+        transfer->header_bytes_used = 0;
       }
       return total;
     }
@@ -1483,6 +1551,12 @@ private:
     if (!value.empty() && value.front() == ' ') {
       value.remove_prefix(1);
     }
+    const std::size_t entry = header_entry_bytes(name.size(), value.size());
+    if (transfer->would_exceed_budget(entry)) {
+      transfer->truncated = true;
+      return CURL_WRITEFUNC_ERROR;
+    }
+    transfer->header_bytes_used += entry;
     transfer->response_headers.emplace_back(Str{name}, Str{value});
     return total;
   }
@@ -1543,11 +1617,33 @@ private:
           512, reserved);
       return;
     }
+    if (owned->http_version == WebHttpVersionPolicy::H2Only) {
+      // Over TLS the fallback is invisible at request time: ALPN may settle on
+      // http/1.1 and curl will happily complete the exchange.  H2Only is a
+      // contract, so an h1 answer is a transport failure rather than a
+      // response the graph would have to inspect (RFC 0024: the failure arm is
+      // distinct from the response arm).
+      long negotiated{};
+      static_cast<void>(
+          curl_easy_getinfo(owned->easy, CURLINFO_HTTP_VERSION, &negotiated));
+      if (negotiated < CURL_HTTP_VERSION_2_0) {
+        push_response(
+            response_envelope(
+                bindings_, owned->client_id, Value{},
+                transport_error(bindings_, kNoHttp2Code,
+                                Str{"the server does not support HTTP/2"},
+                                false)),
+            512, reserved);
+        return;
+      }
+    }
     long status{};
     static_cast<void>(
         curl_easy_getinfo(owned->easy, CURLINFO_RESPONSE_CODE, &status));
+    // body + headers were capped at max_response_bytes - kEnvelopeOverhead as
+    // they arrived, so this is <= the reservation by construction.
     const std::size_t retained =
-        owned->body.size() + header_bytes(owned->response_headers) + 256;
+        owned->body.size() + owned->header_bytes_used + kEnvelopeOverhead;
     push_response(
         response_envelope(bindings_, owned->client_id,
                           http_response(bindings_, static_cast<Int>(status),
@@ -1876,8 +1972,25 @@ private:
     connection.closing = true;
   }
 
-  /** curl_ws_send accepts a frame in pieces; a partial write continues with
-   * CURLWS_OFFSET, which is curl's documented continuation form. */
+  /**
+   * Send one complete frame, following curl_ws_send's documented contract.
+   *
+   * The whole payload is in hand, so this is the plain single-frame form:
+   * "fragsize should always be set to zero unless a (huge) frame shall be
+   * sent using multiple calls with partial content per call explicitly".
+   * CURLWS_OFFSET is that explicit streaming mode — for a caller that does
+   * not hold the frame whole and must declare the total size up front — and
+   * is deliberately NOT used here.
+   *
+   * Partial consumption has its own documented recovery, and it is not
+   * OFFSET: "If the return value is CURLE_OK but sent is less than the given
+   * buflen ... the application must call this function again until all
+   * payload is processed. buffer and buflen must be updated on every
+   * following invocation to only point to the remaining piece of the
+   * payload."  So a short write advances the slice and repeats the identical
+   * call.  CURLE_AGAIN means curl would have blocked: "wait for the socket to
+   * signal readability before calling this function again."
+   */
   CURLcode send_frame(WsConnection &connection, const char *data,
                       std::size_t size, unsigned int flags) {
     if (connection.easy == nullptr) {
@@ -1887,22 +2000,22 @@ private:
     std::size_t offset{};
     while (true) {
       std::size_t sent{};
-      const unsigned int call_flags =
-          offset == 0 ? flags : (flags | CURLWS_OFFSET);
       const CURLcode result =
           curl_ws_send(connection.easy, data == nullptr ? "" : data + offset,
-                       size - offset, &sent, 0, call_flags);
+                       size - offset, &sent, 0, flags);
+      if (result != CURLE_OK && result != CURLE_AGAIN) {
+        return result;
+      }
       offset += sent;
       if (result == CURLE_OK && offset >= size) {
         return CURLE_OK;
       }
-      if (result != CURLE_OK && result != CURLE_AGAIN) {
-        return result;
-      }
       if (Clock::now() >= deadline) {
         return CURLE_AGAIN;
       }
-      if (connection.socket != CURL_SOCKET_BAD) {
+      // Only wait when curl took nothing; a short write can be followed
+      // straight up by the next slice.
+      if (sent == 0 && connection.socket != CURL_SOCKET_BAD) {
         curl_waitfd writable{connection.socket, CURL_WAIT_POLLOUT, 0};
         int ready{};
         static_cast<void>(curl_multi_poll(multi_, &writable, 1, 5, &ready));
