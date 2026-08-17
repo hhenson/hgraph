@@ -792,7 +792,13 @@ to the general criteria of this RFC:
   breaches the slow-consumer policy is reset with ``RST_STREAM`` without
   tearing down the connection; connection close remains reserved for
   protocol errors.
-* h2spec conformance passes in CI for the activated build.
+* h2spec conformance passes in CI for the activated build.  One accepted
+  deviation is recorded in ``extensions/web/tools/run_h2spec.py``: h2spec
+  5.1.1/2 (a HEADERS frame with a stream id lower than a previous one)
+  expects a connection error, but nghttp2 ignores the frame as
+  implicitly-closed-stream noise — the reference ``nghttpd`` fails the
+  identical case identically, so the CI gate requires 93/94 with only
+  that failure.
 
 Alternatives considered
 -----------------------

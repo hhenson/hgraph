@@ -78,6 +78,15 @@ jobs:
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
         run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
+      - name: HTTP/2 conformance (h2spec)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl -fsSL -o /tmp/h2spec.tar.gz \
+            https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz
+          tar -xzf /tmp/h2spec.tar.gz -C /tmp
+          python3 extensions/web/tools/run_h2spec.py \
+            build-native/extensions/web/tests/hgraph_web_h2spec_server /tmp/h2spec
       - name: Start the S3 conformance endpoint
         if: runner.os == 'Linux'
         shell: bash

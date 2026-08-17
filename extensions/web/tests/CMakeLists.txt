@@ -22,6 +22,13 @@ add_executable(hgraph_web_client_loopback_tests
 add_executable(hgraph_web_h2_loopback_tests
     test_h2_loopback.cpp
 )
+# Not a ctest target: a standalone server the h2spec conformance binary
+# drives from CI (RFC 0024, h2 acceptance criteria).
+add_executable(hgraph_web_h2spec_server
+    h2spec_server.cpp
+)
+target_compile_features(hgraph_web_h2spec_server PRIVATE cxx_std_23)
+target_link_libraries(hgraph_web_h2spec_server PRIVATE hgraph::web)
 # The loopback oracle is an independent Beast synchronous client, so this
 # test target reaches the (otherwise PRIVATE) header-only Boost targets.
 target_link_libraries(hgraph_web_loopback_tests
