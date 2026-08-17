@@ -172,6 +172,82 @@ void require_schema(const Value &value, const void *expected,
   }
 }
 
+// ---------------------------------------------------------------------------
+// Retained-byte estimates mirroring the live transports (asio_server.cpp,
+// curl_client.cpp).  The fake must account real payload sizes so byte-limit
+// and watermark behaviour is observable in socketless tests instead of being
+// masked by one-byte records.
+
+[[nodiscard]] std::size_t str_bytes(const ValueView &field) {
+  return field.data() != nullptr ? field.checked_as<Str>().size() : 0;
+}
+
+[[nodiscard]] std::size_t bytes_field_bytes(const ValueView &field) {
+  return field.data() != nullptr ? field.checked_as<Bytes>().data.size() : 0;
+}
+
+[[nodiscard]] std::size_t name_value_bytes(const ValueView &tuple) {
+  if (tuple.data() == nullptr) {
+    return 0;
+  }
+  std::size_t total = 0;
+  for (const auto entry : tuple.as_list()) {
+    const auto pair = entry.as_bundle();
+    total += str_bytes(pair.at("name")) + str_bytes(pair.at("value"));
+  }
+  return total;
+}
+
+[[nodiscard]] std::size_t http_request_bytes(const ValueView &request) {
+  if (request.data() == nullptr) {
+    return 0;
+  }
+  const auto fields = request.as_bundle();
+  return str_bytes(fields.at("target")) +
+         name_value_bytes(fields.at("headers")) +
+         bytes_field_bytes(fields.at("body"));
+}
+
+[[nodiscard]] std::size_t server_request_bytes(const Value &server_request) {
+  const auto fields = server_request.view().as_bundle();
+  return http_request_bytes(fields.at("request")) + 512;
+}
+
+[[nodiscard]] std::size_t ws_frame_bytes(const ValueView &frame) {
+  if (frame.data() == nullptr) {
+    return 0;
+  }
+  const auto fields = frame.as_bundle();
+  return str_bytes(fields.at("text")) + bytes_field_bytes(fields.at("data")) +
+         str_bytes(fields.at("close_reason"));
+}
+
+[[nodiscard]] std::size_t inbound_frame_bytes(const Value &inbound_frame) {
+  const auto fields = inbound_frame.view().as_bundle();
+  return ws_frame_bytes(fields.at("frame")) + 256;
+}
+
+[[nodiscard]] std::size_t ws_event_bytes(const Value &event) {
+  const auto fields = event.view().as_bundle();
+  const auto request = fields.at("request");
+  const std::size_t request_bytes =
+      request.data() != nullptr
+          ? http_request_bytes(request.as_bundle().at("request"))
+          : 0;
+  return request_bytes + str_bytes(fields.at("close_reason")) + 512;
+}
+
+[[nodiscard]] std::size_t http_response_bytes(const Value &response) {
+  const auto fields = response.view().as_bundle();
+  return name_value_bytes(fields.at("headers")) +
+         bytes_field_bytes(fields.at("body")) + 512;
+}
+
+[[nodiscard]] std::size_t transport_error_bytes(const Value &failure) {
+  const auto fields = failure.view().as_bundle();
+  return str_bytes(fields.at("message")) + 512;
+}
+
 [[nodiscard]] Value request_envelope(Value route, Value request) {
   return bundle<wd::WebRequestEnvelope>({
       {"route", std::move(route)},
@@ -337,7 +413,7 @@ struct detail::FakeServerAccess {
     Value report = make_delivery_report(request_id, sequence,
                                         WebDeliveryStatus::Delivered);
     if (!bridge->push(wd::index(wd::ServerChannel::RespondDelivery),
-                      delivery_envelope(client_id, std::move(report)), 1)) {
+                      delivery_envelope(client_id, std::move(report)), 512)) {
       throw std::overflow_error("Web fake respond-delivery queue is full");
     }
   }
@@ -362,7 +438,7 @@ struct detail::FakeServerAccess {
     Value report = make_delivery_report(connection_id, sequence,
                                         WebDeliveryStatus::Delivered);
     if (!bridge->push(wd::index(wd::ServerChannel::WsSendDelivery),
-                      delivery_envelope(client_id, std::move(report)), 1)) {
+                      delivery_envelope(client_id, std::move(report)), 512)) {
       throw std::overflow_error("Web fake ws-send-delivery queue is full");
     }
   }
@@ -460,9 +536,10 @@ void FakeWebServer::emit_request(Value route, Value request) {
   require_schema(request, scalar_descriptor<HttpServerRequest>::value_meta(),
                  "request");
   auto bridge = attached_server_bridge(*this);
+  const std::size_t retained = server_request_bytes(request);
   if (!bridge->push(wd::index(wd::ServerChannel::Request),
                     request_envelope(std::move(route), std::move(request)),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake request queue is full");
   }
 }
@@ -471,7 +548,7 @@ void FakeWebServer::emit_route_state(Value route, WebRouteState state) {
   require_schema(route, scalar_descriptor<WebRoute>::value_meta(), "route");
   auto bridge = attached_server_bridge(*this);
   if (!bridge->push(wd::index(wd::ServerChannel::Request),
-                    route_state_envelope(std::move(route), state), 1)) {
+                    route_state_envelope(std::move(route), state), 256)) {
     throw std::overflow_error("Web fake request queue is full");
   }
 }
@@ -480,10 +557,11 @@ void FakeWebServer::emit_ws_event(Value route, Value event) {
   require_schema(route, scalar_descriptor<WebRoute>::value_meta(), "route");
   require_schema(event, scalar_descriptor<WsEvent>::value_meta(), "WS event");
   auto bridge = attached_server_bridge(*this);
+  const std::size_t retained = ws_event_bytes(event);
   if (!bridge->push(wd::index(wd::ServerChannel::WsIngress),
                     ws_ingress_envelope(std::move(route), std::move(event),
                                         Value{}),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake WS ingress queue is full");
   }
 }
@@ -494,10 +572,11 @@ void FakeWebServer::emit_ws_frame(Value route, Value inbound_frame) {
                  scalar_descriptor<WsInboundFrame>::value_meta(),
                  "inbound frame");
   auto bridge = attached_server_bridge(*this);
+  const std::size_t retained = inbound_frame_bytes(inbound_frame);
   if (!bridge->push(wd::index(wd::ServerChannel::WsIngress),
                     ws_ingress_envelope(std::move(route), Value{},
                                         std::move(inbound_frame)),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake WS ingress queue is full");
   }
 }
@@ -506,7 +585,7 @@ void FakeWebServer::emit_event(Value event, bool stop_graph) {
   require_schema(event, scalar_descriptor<WebEvent>::value_meta(), "event");
   auto bridge = attached_server_bridge(*this);
   if (!bridge->push(wd::index(wd::ServerChannel::Event),
-                    event_envelope(std::move(event), stop_graph), 1)) {
+                    event_envelope(std::move(event), stop_graph), 512)) {
     throw std::overflow_error("Web fake event queue is full");
   }
 }
@@ -516,7 +595,7 @@ void FakeWebServer::emit_stats(Value stats) {
                  "stats");
   auto bridge = attached_server_bridge(*this);
   bridge->push_latest(wd::index(wd::ServerChannel::Stats), std::move(stats),
-                      1);
+                      256);
 }
 
 struct FakeWebClient::Impl {
@@ -610,7 +689,7 @@ struct detail::FakeClientAccess {
     Value report =
         make_delivery_report(client_id, sequence, WebDeliveryStatus::Delivered);
     if (!bridge->push(wd::index(wd::ClientChannel::SendDelivery),
-                      delivery_envelope(client_id, std::move(report)), 1)) {
+                      delivery_envelope(client_id, std::move(report)), 512)) {
       throw std::overflow_error("Web fake send-delivery queue is full");
     }
   }
@@ -690,9 +769,10 @@ void FakeWebClient::respond(Int client_id, Value response) {
   require_schema(response, scalar_descriptor<HttpResponse>::value_meta(),
                  "response");
   auto bridge = attached_client_bridge(*this);
+  const std::size_t retained = http_response_bytes(response);
   if (!bridge->push(wd::index(wd::ClientChannel::Response),
                     response_envelope(client_id, std::move(response), Value{}),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake response queue is full");
   }
 }
@@ -702,10 +782,11 @@ void FakeWebClient::fail(Int client_id, Value transport_error) {
                  scalar_descriptor<WebTransportError>::value_meta(),
                  "transport error");
   auto bridge = attached_client_bridge(*this);
+  const std::size_t retained = transport_error_bytes(transport_error);
   if (!bridge->push(wd::index(wd::ClientChannel::Response),
                     response_envelope(client_id, Value{},
                                       std::move(transport_error)),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake response queue is full");
   }
 }
@@ -714,10 +795,11 @@ void FakeWebClient::emit_ws_event(Value key, Value event) {
   require_schema(key, scalar_descriptor<WsClientKey>::value_meta(), "WS key");
   require_schema(event, scalar_descriptor<WsEvent>::value_meta(), "WS event");
   auto bridge = attached_client_bridge(*this);
+  const std::size_t retained = ws_event_bytes(event);
   if (!bridge->push(wd::index(wd::ClientChannel::WsIngress),
                     ws_client_envelope(std::move(key), std::move(event),
                                        Value{}),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake client WS queue is full");
   }
 }
@@ -726,10 +808,11 @@ void FakeWebClient::emit_ws_frame(Value key, Value frame) {
   require_schema(key, scalar_descriptor<WsClientKey>::value_meta(), "WS key");
   require_schema(frame, scalar_descriptor<WsFrame>::value_meta(), "frame");
   auto bridge = attached_client_bridge(*this);
+  const std::size_t retained = ws_frame_bytes(frame.view()) + 256;
   if (!bridge->push(wd::index(wd::ClientChannel::WsIngress),
                     ws_client_envelope(std::move(key), Value{},
                                        std::move(frame)),
-                    1)) {
+                    retained)) {
     throw std::overflow_error("Web fake client WS queue is full");
   }
 }
@@ -738,7 +821,7 @@ void FakeWebClient::emit_event(Value event, bool stop_graph) {
   require_schema(event, scalar_descriptor<WebEvent>::value_meta(), "event");
   auto bridge = attached_client_bridge(*this);
   if (!bridge->push(wd::index(wd::ClientChannel::Event),
-                    event_envelope(std::move(event), stop_graph), 1)) {
+                    event_envelope(std::move(event), stop_graph), 512)) {
     throw std::overflow_error("Web fake event queue is full");
   }
 }
@@ -748,7 +831,7 @@ void FakeWebClient::emit_stats(Value stats) {
                  "stats");
   auto bridge = attached_client_bridge(*this);
   bridge->push_latest(wd::index(wd::ClientChannel::Stats), std::move(stats),
-                      1);
+                      256);
 }
 
 namespace detail {

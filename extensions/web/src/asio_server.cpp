@@ -10,6 +10,7 @@
 
 #include "detail/route_table.h"
 #include "detail/service_bridge.h"
+#include "detail/web_bindings.h"
 #include "detail/stream_model.h"
 
 #include <boost/asio.hpp>
@@ -37,6 +38,7 @@
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <set>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -53,56 +55,11 @@ using tcp = asio::ip::tcp;
 
 namespace hgraph::web::detail {
 namespace {
-// ---------------------------------------------------------------------------
-// Value construction helpers (worker threads build only against schemas and
-// plan bindings pre-warmed at compose/start; kafka precedent).
+// All transport-side value construction goes through WebBindings
+// (detail/web_bindings.h): resolved once at start so io threads never touch
+// the type registry.
 
-template <typename T> [[nodiscard]] Value atomic_value(T value) {
-  static_cast<void>(scalar_descriptor<T>::value_meta());
-  return Value{std::move(value)};
-}
-
-template <typename Schema>
-[[nodiscard]] Value
-bundle_value(std::vector<std::pair<std::string_view, Value>> fields) {
-  BundleBuilder builder{ValuePlanFactory::instance().type_for(
-      scalar_descriptor<Schema>::value_meta())};
-  for (auto &[name, field] : fields) {
-    if (field.has_value()) {
-      builder.set(name, std::move(field));
-    }
-  }
-  return builder.build();
-}
-
-template <typename Element>
-[[nodiscard]] Value tuple_value(std::vector<Value> values) {
-  const auto element_binding =
-      ValuePlanFactory::instance().type_for(scalar_descriptor<Element>::value_meta());
-  const auto tuple_binding = ValuePlanFactory::instance().type_for(
-      scalar_descriptor<HomogeneousTuple<Element>>::value_meta());
-  ListBuilder builder{element_binding};
-  for (const Value &value : values) {
-    builder.push_back_copy(value.view().data());
-  }
-  ListStorage storage = builder.build_storage();
-  return Value{tuple_binding, &storage};
-}
-
-using NamedPairs = std::vector<std::pair<std::string, std::string>>;
-
-template <typename Schema>
-[[nodiscard]] Value name_value_tuple(const NamedPairs &pairs) {
-  std::vector<Value> erased;
-  erased.reserve(pairs.size());
-  for (const auto &[name, value] : pairs) {
-    erased.push_back(bundle_value<Schema>({
-        {"name", atomic_value(Str{name})},
-        {"value", atomic_value(Str{value})},
-    }));
-  }
-  return tuple_value<Schema>(std::move(erased));
-}
+using NamedPairs = WebBindings::NamedPairs;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -123,7 +80,10 @@ struct TlsServerSettings {
 };
 
 struct ServerRuntimeConfig {
-  Value tls_identity{};
+  // The whole WebServerConfig value: sharing a port requires the FULL
+  // configuration to match, not just TLS — the first attachee's listener
+  // settings would otherwise silently govern later attachees (review P1).
+  Value config_identity{};
   Str bind_address{};
   std::uint16_t port{};
   TlsServerSettings tls{};
@@ -179,6 +139,7 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   const auto root = value.view().as_bundle();
 
   ServerRuntimeConfig result;
+  result.config_identity = value.clone();
   result.bind_address = root.at("bind_address").checked_as<Str>();
   const Int port = root.at("port").checked_as<Int>();
   if (port < 0 || port > 65'535) {
@@ -235,7 +196,6 @@ milliseconds_field(const ValueView &field, std::string_view name) {
 
   const auto tls = root.at("tls");
   if (tls.data() != nullptr) {
-    result.tls_identity = tls.clone();
     const auto fields = tls.as_bundle();
     const auto text = [&](std::string_view name) {
       const auto field = fields.at(name);
@@ -335,15 +295,15 @@ struct MatchedRoute {
 // ---------------------------------------------------------------------------
 // Listener: owns the io_context pool and acceptor for one (address, port).
 // Several server runtimes may attach (RFC 0024, routing/port sharing); the
-// first to start binds, later starts attach after a TLS-identity check, and
-// the last detach closes the listener.
+// first to start binds, later starts attach after a full-config identity
+// check, and the last detach closes the listener.
 
 class WebListener : public std::enable_shared_from_this<WebListener> {
 public:
-  WebListener(std::string address, std::uint16_t port, Value tls_identity,
+  WebListener(std::string address, std::uint16_t port, Value config_identity,
               std::size_t io_threads)
       : address_{std::move(address)}, port_{port},
-        tls_identity_{std::move(tls_identity)}, io_threads_{io_threads},
+        config_identity_{std::move(config_identity)}, io_threads_{io_threads},
         acceptor_{io_context_} {}
 
   ~WebListener() { stop_io(); }
@@ -354,8 +314,8 @@ public:
     return bound_port_.load(std::memory_order_acquire);
   }
 
-  [[nodiscard]] const Value &tls_identity() const noexcept {
-    return tls_identity_;
+  [[nodiscard]] const Value &config_identity() const noexcept {
+    return config_identity_;
   }
 
   void attach(std::shared_ptr<WebServerRuntime> runtime) {
@@ -380,6 +340,12 @@ public:
   [[nodiscard]] std::optional<MatchedRoute>
   match(HttpMethod method, std::string_view path, bool upgrade);
 
+  /** Cross-attachee duplicate detection (RFC 0024, port sharing): an
+   * identical (method, pattern) served by two runtimes would otherwise be
+   * resolved by attach order, so it is rejected at route-apply time. */
+  void check_route_conflicts(const WebServerRuntime *applying, bool upgrade,
+                             const std::vector<Value> &added);
+
   void connection_opened() noexcept { ++open_connections_; }
   void connection_closed() noexcept { --open_connections_; }
   [[nodiscard]] std::size_t open_connections() const noexcept {
@@ -389,11 +355,17 @@ public:
     return open_connections_.load(std::memory_order_relaxed) >= limit;
   }
 
-  void set_reads_paused(bool paused);
-  [[nodiscard]] bool reads_paused() const noexcept {
-    return reads_paused_.load(std::memory_order_acquire);
+  // Read pausing is tiered (HTTP requests vs WS ingress) and token-counted:
+  // several attached runtimes may pause independently, and reads resume only
+  // when EVERY pauser on that tier has dropped below its low watermark —
+  // last-writer-wins would reopen the memory-growth path (review P1).
+  enum class ReadTier : std::size_t { Http = 0, Ws = 1, Count };
+  void set_reads_paused(ReadTier tier, const void *token, bool paused);
+  [[nodiscard]] bool reads_paused(ReadTier tier) const noexcept {
+    return pause_counts_[static_cast<std::size_t>(tier)].load(
+               std::memory_order_acquire) != 0;
   }
-  void park_for_resume(std::function<void()> resume);
+  void park_for_resume(ReadTier tier, std::function<void()> resume);
 
   [[nodiscard]] std::shared_ptr<WebServerRuntime> owner() {
     std::lock_guard lock{mutex_};
@@ -407,7 +379,7 @@ private:
 
   std::string address_{};
   std::uint16_t port_{};
-  Value tls_identity_{};
+  Value config_identity_{};
   std::size_t io_threads_{1};
   asio::io_context io_context_{};
   tcp::acceptor acceptor_;
@@ -418,7 +390,7 @@ private:
   std::atomic<bool> accepting_{false};
   std::atomic<bool> listening_{false};
   std::atomic<std::size_t> open_connections_{0};
-  std::atomic<bool> reads_paused_{false};
+  std::array<std::atomic<std::size_t>, 2> pause_counts_{};
   std::mutex mutex_{};
   // Owning (P1): a connection's asynchronous callbacks may outlive one
   // attachee's stop when the peer stalls its close handshake, so runtimes
@@ -426,7 +398,8 @@ private:
   // frames) has drained.  detach() drops this reference at stop, breaking
   // the runtime->listener->runtime cycle.
   std::vector<std::shared_ptr<WebServerRuntime>> runtimes_{};
-  std::vector<std::function<void()>> parked_{};
+  std::array<std::set<const void *>, 2> pause_tokens_{};
+  std::array<std::vector<std::function<void()>>, 2> parked_{};
 };
 
 class ListenerRegistry {
@@ -437,30 +410,29 @@ public:
   }
 
   [[nodiscard]] std::shared_ptr<WebListener>
-  acquire(const std::string &address, std::uint16_t port, const Value &tls,
+  acquire(const std::string &address, std::uint16_t port, const Value &config,
           std::size_t io_threads, std::shared_ptr<WebServerRuntime> runtime) {
     std::lock_guard lock{mutex_};
     const auto key = std::make_pair(address, port);
     if (port != 0) {
       if (const auto found = listeners_.find(key); found != listeners_.end()) {
         if (auto existing = found->second.lock()) {
-          const bool same_tls =
-              existing->tls_identity().has_value() == tls.has_value() &&
-              (!tls.has_value() ||
-               existing->tls_identity().view().equals(tls.view()));
-          if (!same_tls) {
+          // The first attachee's listener settings (io threads, limits,
+          // timeouts, TLS) govern the shared socket, so every later
+          // attachee must present the identical configuration.
+          if (!existing->config_identity().view().equals(config.view())) {
             throw std::invalid_argument(
                 "Web servers sharing " + address + ":" +
                 std::to_string(port) +
-                " must use an identical TLS configuration");
+                " must use an identical WebServerConfig");
           }
           existing->attach(std::move(runtime));
           return existing;
         }
       }
     }
-    auto listener = std::make_shared<WebListener>(
-        address, port, tls.has_value() ? tls.clone() : Value{}, io_threads);
+    auto listener =
+        std::make_shared<WebListener>(address, port, config.clone(), io_threads);
     listener->attach(std::move(runtime));
     if (port != 0) {
       listeners_[key] = listener;
@@ -550,6 +522,10 @@ public:
   config_ptr() const noexcept {
     return config_;
   }
+  [[nodiscard]] const WebBindings &bindings() const noexcept {
+    return bindings_;
+  }
+  [[nodiscard]] const Str &path() const noexcept { return path_; }
   [[nodiscard]] ServerBridgeHandle &bridge() noexcept { return bridge_; }
   [[nodiscard]] asio::ssl::context *tls_context() noexcept {
     return tls_context_ ? tls_context_.get() : nullptr;
@@ -567,9 +543,14 @@ public:
       const std::shared_ptr<ServerConnection> &connection);
   void unregister_ws_connection(Int connection_id) noexcept;
 
-  [[nodiscard]] bool push_request(Value route, Value request);
-  void push_ws_event(Value route, Value event);
-  void push_ws_frame(Value route, Value inbound_frame);
+  [[nodiscard]] bool push_request(Value route, Value request,
+                                  std::size_t retained_bytes);
+  void push_ws_event(Value route, Value event, std::size_t retained_bytes);
+  [[nodiscard]] bool push_ws_frame(Value route, Value inbound_frame,
+                                   std::size_t retained_bytes);
+  [[nodiscard]] Value delivery_report(Int request_id, WebDeliveryStatus status,
+                                      Int error_code = 0,
+                                      const Str &message = {});
   void report(std::size_t channel, Int client_id, Value report_value);
   void emit_event(WebSeverity severity, Str component, Str category,
                   Str message, Int error_code = 0, bool retriable = false,
@@ -582,7 +563,9 @@ public:
 
 private:
   void sweep_expired_requests();
-  void start_stats_timer();
+  void arm_sweep_timer();
+  void arm_stats_timer();
+  void emit_stats_once();
   void rebuild(std::shared_ptr<const CompiledRoutes> &slot,
                std::vector<std::tuple<HttpMethod, std::string, Value>> &master,
                std::vector<Value> added, std::vector<Value> removed);
@@ -590,6 +573,7 @@ private:
   friend class ServerConnection;
 
   std::shared_ptr<const ServerRuntimeConfig> config_{};
+  WebBindings bindings_{};
   Str path_{};
   ServerBridgeHandle bridge_{};
   bool simulation_{};
@@ -615,8 +599,8 @@ private:
   };
   std::map<Int, Pending> pending_{};
   std::map<Int, std::weak_ptr<ServerConnection>> ws_connections_{};
-  std::unique_ptr<asio::steady_timer> sweep_timer_{};
-  std::unique_ptr<asio::steady_timer> stats_timer_{};
+  std::shared_ptr<asio::steady_timer> sweep_timer_{};
+  std::shared_ptr<asio::steady_timer> stats_timer_{};
   std::atomic<Int> sequence_{0};
   std::atomic<Int> dropped_{0};
   std::atomic<bool> stopping_{false};
@@ -731,6 +715,8 @@ private:
   void dispatch_http(MatchedRoute matched, bool keep_alive);
   void accept_ws(MatchedRoute matched);
   void ws_read_next();
+  void ws_read_continue();
+  void deliver_ws_ingress(Value inbound, std::size_t bytes);
   void write_response(Int request_id, const Value &response, Int client_id,
                       const std::shared_ptr<WebServerRuntime> &runtime);
   void finish_response(beast::error_code ec, Int client_id, Int request_id,
@@ -746,8 +732,9 @@ private:
   void close();
   void close_socket_only();
   [[nodiscard]] Value build_server_request(const MatchedRoute &matched,
-                                           Int request_id);
-  [[nodiscard]] Value peer_value();
+                                           Int request_id,
+                                           std::size_t &retained_bytes);
+  [[nodiscard]] Value peer_value(const WebBindings &b);
 
   std::shared_ptr<WebListener> listener_;
   // Captured at accept: the owning runtime may detach from the listener
@@ -883,26 +870,72 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
   return std::nullopt;
 }
 
-void WebListener::set_reads_paused(bool paused) {
-  reads_paused_.store(paused, std::memory_order_release);
-  if (!paused) {
-    std::vector<std::function<void()>> parked;
-    {
-      std::lock_guard lock{mutex_};
-      parked.swap(parked_);
+void WebListener::check_route_conflicts(const WebServerRuntime *applying,
+                                        bool upgrade,
+                                        const std::vector<Value> &added) {
+  if (added.empty()) {
+    return;
+  }
+  std::vector<std::shared_ptr<WebServerRuntime>> runtimes;
+  {
+    std::lock_guard lock{mutex_};
+    runtimes = runtimes_;
+  }
+  for (const std::shared_ptr<WebServerRuntime> &other : runtimes) {
+    if (other.get() == applying) {
+      continue;
     }
-    for (auto &resume : parked) {
-      resume();
+    const auto snapshot = upgrade ? other->ws_routes() : other->http_routes();
+    for (const Value &route : added) {
+      const auto fields = route.view().as_bundle();
+      const auto method = fields.at("method").checked_as<HttpMethod>();
+      const auto pattern = fields.at("pattern").checked_as<Str>();
+      for (const Value &existing : snapshot->routes) {
+        const auto existing_fields = existing.view().as_bundle();
+        if (existing_fields.at("method").checked_as<HttpMethod>() == method &&
+            existing_fields.at("pattern").checked_as<Str>() == pattern) {
+          throw std::invalid_argument(
+              "Web route " + std::string{enum_name(method)} + " " +
+              std::string{pattern} + " from service path '" +
+              std::string{applying->path()} +
+              "' is already served on this port by service path '" +
+              std::string{other->path()} + "'");
+        }
+      }
     }
   }
 }
 
-void WebListener::park_for_resume(std::function<void()> resume) {
+void WebListener::set_reads_paused(ReadTier tier, const void *token,
+                                   bool paused) {
+  const auto index = static_cast<std::size_t>(tier);
+  std::vector<std::function<void()>> parked;
+  {
+    std::lock_guard lock{mutex_};
+    if (paused) {
+      pause_tokens_[index].insert(token);
+    } else {
+      pause_tokens_[index].erase(token);
+    }
+    pause_counts_[index].store(pause_tokens_[index].size(),
+                               std::memory_order_release);
+    if (!pause_tokens_[index].empty()) {
+      return;
+    }
+    parked.swap(parked_[index]);
+  }
+  for (auto &resume : parked) {
+    resume();
+  }
+}
+
+void WebListener::park_for_resume(ReadTier tier, std::function<void()> resume) {
+  const auto index = static_cast<std::size_t>(tier);
   bool run_now = false;
   {
     std::lock_guard lock{mutex_};
-    if (reads_paused_.load(std::memory_order_acquire)) {
-      parked_.push_back(std::move(resume));
+    if (!pause_tokens_[index].empty()) {
+      parked_[index].push_back(std::move(resume));
     } else {
       run_now = true;
     }
@@ -918,6 +951,7 @@ void WebListener::park_for_resume(std::function<void()> resume) {
 void WebServerRuntime::start() {
   register_web_types();
   register_internal_types();
+  bindings_.resolve_all();
   if (simulation_) {
     // Live transport is real-time only (RFC 0024, lifecycle): no socket is
     // bound and every sink command is rejected with a typed report.
@@ -1001,7 +1035,7 @@ void WebServerRuntime::start() {
 
   listener_ = ListenerRegistry::instance().acquire(
       std::string{config_->bind_address}, config_->port,
-      config_->tls_identity, config_->io_threads, shared_from_this());
+      config_->config_identity, config_->io_threads, shared_from_this());
   try {
     if (!config_->bind_deferred) {
       listener_->ensure_listening();
@@ -1030,16 +1064,42 @@ void WebServerRuntime::start() {
   };
   bridge_.value->set_watermark(
       index(ServerChannel::Request),
-      WatermarkConfig{high, low, [listener = listener_](bool paused) {
-                        listener->set_reads_paused(paused);
+      WatermarkConfig{high, low,
+                      [listener = listener_, token = this](bool paused) {
+                        listener->set_reads_paused(
+                            WebListener::ReadTier::Http, token, paused);
+                      }});
+  const auto ws_high = OutputLimits{
+      config_->ws_ingress.records *
+          static_cast<std::size_t>(config_->watermark_high_pct) / 100,
+      config_->ws_ingress.bytes *
+          static_cast<std::size_t>(config_->watermark_high_pct) / 100,
+  };
+  const auto ws_low = OutputLimits{
+      config_->ws_ingress.records *
+          static_cast<std::size_t>(config_->watermark_low_pct) / 100,
+      config_->ws_ingress.bytes *
+          static_cast<std::size_t>(config_->watermark_low_pct) / 100,
+  };
+  bridge_.value->set_watermark(
+      index(ServerChannel::WsIngress),
+      WatermarkConfig{ws_high, ws_low,
+                      [listener = listener_, token = this](bool paused) {
+                        listener->set_reads_paused(WebListener::ReadTier::Ws,
+                                                   token, paused);
                       }});
 
-  sweep_timer_ = std::make_unique<asio::steady_timer>(listener_->io_context());
-  sweep_expired_requests();
+  // Timers run on their own strand and their handlers own the runtime, so a
+  // non-last attachee's stop cannot race an expiring handler against the
+  // runtime's release (review P1; Boost documents shared timer objects as
+  // unsafe across threads).
+  sweep_timer_ = std::make_shared<asio::steady_timer>(
+      asio::make_strand(listener_->io_context()));
+  arm_sweep_timer();
   if (config_->stats_interval.count() > 0) {
-    stats_timer_ =
-        std::make_unique<asio::steady_timer>(listener_->io_context());
-    start_stats_timer();
+    stats_timer_ = std::make_shared<asio::steady_timer>(
+        asio::make_strand(listener_->io_context()));
+    arm_stats_timer();
   }
   if (!config_->bind_deferred) {
     emit_event(WebSeverity::Info, Str{"server"}, Str{"listening"},
@@ -1087,9 +1147,16 @@ void WebServerRuntime::stop() noexcept {
       if (last) {
         listener_->stop_io();
       }
-      // The timers hold service pointers into the listener's io_context;
-      // they must die while it is still alive (threads are joined, so no
-      // handler can race the destruction).
+      // Cancellation is posted onto each timer's strand: for a non-last
+      // attachee the io pool keeps running, and a handler that expired just
+      // before this stop still holds the runtime alive via shared_from_this
+      // (it re-arms nothing once stopping_ is set).
+      for (auto &timer : {sweep_timer_, stats_timer_}) {
+        if (timer) {
+          asio::post(timer->get_executor(),
+                     [timer] { static_cast<void>(timer->cancel()); });
+        }
+      }
       sweep_timer_.reset();
       stats_timer_.reset();
       listener_.reset();
@@ -1131,6 +1198,9 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
   if (simulation_) {
     return;
   }
+  if (listener_) {
+    listener_->check_route_conflicts(this, false, added);
+  }
   std::vector<Value> announce;
   for (const Value &route : added) {
     announce.push_back(route.clone());
@@ -1139,11 +1209,12 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
   for (Value &route : announce) {
     static_cast<void>(bridge_.value->push(
         index(ServerChannel::Request),
-        bundle_value<WebRequestEnvelope>({
-            {"route", std::move(route)},
-            {"state", atomic_value(WebRouteState::Serving)},
-        }),
-        1));
+        build_on(bindings_.request_envelope,
+                 {
+                     {"route", std::move(route)},
+                     {"state", bindings_.enum_value(WebRouteState::Serving)},
+                 }),
+        256));
   }
   if (config_->bind_deferred && listener_) {
     listener_->ensure_listening();
@@ -1157,6 +1228,9 @@ void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
                                        std::vector<Value> removed) {
   if (simulation_) {
     return;
+  }
+  if (listener_) {
+    listener_->check_route_conflicts(this, true, added);
   }
   rebuild(ws_routes_, ws_master_, std::move(added), std::move(removed));
   if (config_->bind_deferred && listener_) {
@@ -1192,45 +1266,75 @@ void WebServerRuntime::unregister_ws_connection(Int connection_id) noexcept {
   ws_connections_.erase(connection_id);
 }
 
-bool WebServerRuntime::push_request(Value route, Value request) {
-  return bridge_.value->push(index(ServerChannel::Request),
-                             bundle_value<WebRequestEnvelope>({
-                                 {"route", std::move(route)},
-                                 {"request", std::move(request)},
-                             }),
-                             1);
+bool WebServerRuntime::push_request(Value route, Value request,
+                                    std::size_t retained_bytes) {
+  return bridge_.value->push(
+      index(ServerChannel::Request),
+      build_on(bindings_.request_envelope,
+               {
+                   {"route", std::move(route)},
+                   {"request", std::move(request)},
+               }),
+      retained_bytes);
 }
 
-void WebServerRuntime::push_ws_event(Value route, Value event) {
-  static_cast<void>(bridge_.value->push(
-      index(ServerChannel::WsIngress),
-      bundle_value<WsIngressEnvelope>({
-          {"route", std::move(route)},
-          {"event", std::move(event)},
-      }),
-      1));
-}
-
-void WebServerRuntime::push_ws_frame(Value route, Value inbound_frame) {
-  if (!bridge_.value->push(index(ServerChannel::WsIngress),
-                           bundle_value<WsIngressEnvelope>({
-                               {"route", std::move(route)},
-                               {"frame", std::move(inbound_frame)},
-                           }),
-                           1)) {
-    count_drop();
+void WebServerRuntime::push_ws_event(Value route, Value event,
+                                     std::size_t retained_bytes) {
+  // Connection lifecycle is graph data and must never be lost (review P1):
+  // an event the payload lane cannot take goes through the control lane,
+  // which is sized for exactly this.
+  const Value envelope = build_on(bindings_.ws_ingress_envelope,
+                                  {
+                                      {"route", std::move(route)},
+                                      {"event", std::move(event)},
+                                  });
+  if (!bridge_.value->push(index(ServerChannel::WsIngress), envelope.clone(),
+                           retained_bytes)) {
+    static_cast<void>(bridge_.value->push_control(
+        index(ServerChannel::WsIngress), envelope.clone(), retained_bytes));
   }
+}
+
+[[nodiscard]] bool WebServerRuntime::push_ws_frame(Value route,
+                                                   Value inbound_frame,
+                                                   std::size_t retained_bytes) {
+  return bridge_.value->push(index(ServerChannel::WsIngress),
+                             build_on(bindings_.ws_ingress_envelope,
+                                      {
+                                          {"route", std::move(route)},
+                                          {"frame", std::move(inbound_frame)},
+                                      }),
+                             retained_bytes);
 }
 
 void WebServerRuntime::report(std::size_t channel, Int client_id,
                               Value report_value) {
-  const Value envelope = bundle_value<WebDeliveryEnvelope>({
-      {"request_id", atomic_value(client_id)},
-      {"report", std::move(report_value)},
-  });
-  if (!bridge_.value->push(channel, envelope.clone(), 1)) {
-    static_cast<void>(bridge_.value->push_control(channel, envelope.clone(), 512));
+  const std::size_t retained = 512;
+  const Value envelope =
+      build_on(bindings_.delivery_envelope,
+               {
+                   {"request_id", bindings_.number(client_id)},
+                   {"report", std::move(report_value)},
+               });
+  if (!bridge_.value->push(channel, envelope.clone(), retained)) {
+    static_cast<void>(
+        bridge_.value->push_control(channel, envelope.clone(), retained));
   }
+}
+
+Value WebServerRuntime::delivery_report(Int request_id, WebDeliveryStatus status,
+                                        Int error_code, const Str &message) {
+  const auto &b = bindings_;
+  return build_on(b.delivery_report,
+                  {
+                      {"request_id", b.number(request_id)},
+                      {"sequence", b.number(++sequence_)},
+                      {"status", b.enum_value(status)},
+                      {"error_code", b.number(error_code)},
+                      {"retriable", b.flag(false)},
+                      {"fatal", b.flag(false)},
+                      {"message", b.string(message)},
+                  });
 }
 
 void WebServerRuntime::emit_event(WebSeverity severity, Str component,
@@ -1239,16 +1343,29 @@ void WebServerRuntime::emit_event(WebSeverity severity, Str component,
                                   Int connection_id) {
   const bool stop_graph =
       fatal && config_->failure_policy == WebFailurePolicy::StopGraph;
-  Value event = make_event(severity, std::move(component), std::move(category),
-                           path_, std::move(message), error_code,
-                           Bool{retriable}, Bool{fatal}, connection_id);
-  const Value envelope = bundle_value<WebEventEnvelope>({
-      {"event", std::move(event)},
-      {"stop_graph", atomic_value(Bool{stop_graph})},
-  });
-  if (!bridge_.value->push(index(ServerChannel::Event), envelope.clone(), 1)) {
+  const auto &b = bindings_;
+  const std::size_t retained = message.size() + 512;
+  Value event = build_on(b.web_event,
+                         {
+                             {"severity", b.enum_value(severity)},
+                             {"component", b.string(component)},
+                             {"category", b.string(category)},
+                             {"error_code", b.number(error_code)},
+                             {"retriable", b.flag(retriable)},
+                             {"fatal", b.flag(fatal)},
+                             {"service_path", b.string(path_)},
+                             {"connection_id", b.number(connection_id)},
+                             {"message", b.string(message)},
+                         });
+  const Value envelope = build_on(b.event_envelope,
+                                  {
+                                      {"event", std::move(event)},
+                                      {"stop_graph", b.flag(stop_graph)},
+                                  });
+  if (!bridge_.value->push(index(ServerChannel::Event), envelope.clone(),
+                           retained)) {
     static_cast<void>(bridge_.value->push_control(index(ServerChannel::Event),
-                                                  envelope.clone(), 512));
+                                                  envelope.clone(), retained));
   }
 }
 
@@ -1272,56 +1389,76 @@ void WebServerRuntime::sweep_expired_requests() {
   for (auto &[request_id, connection] : expired) {
     connection->answer_timeout(request_id);
   }
-  sweep_timer_->expires_after(std::chrono::milliseconds{250});
-  sweep_timer_->async_wait([this](beast::error_code ec) {
-    if (!ec) {
-      sweep_expired_requests();
+  arm_sweep_timer();
+}
+
+void WebServerRuntime::arm_sweep_timer() {
+  auto timer = sweep_timer_;
+  if (!timer || stopping_.load(std::memory_order_acquire)) {
+    return;
+  }
+  timer->expires_after(std::chrono::milliseconds{250});
+  timer->async_wait(
+      [self = shared_from_this(), timer](beast::error_code ec) {
+        if (!ec && !self->stopping_.load(std::memory_order_acquire)) {
+          self->sweep_expired_requests();
+        }
+      });
+}
+
+void WebServerRuntime::arm_stats_timer() {
+  auto timer = stats_timer_;
+  if (!timer || stopping_.load(std::memory_order_acquire)) {
+    return;
+  }
+  timer->expires_after(config_->stats_interval);
+  timer->async_wait([self = shared_from_this(),
+                     timer](beast::error_code ec) {
+    if (ec || self->stopping_.load(std::memory_order_acquire)) {
+      return;
     }
+    self->emit_stats_once();
+    self->arm_stats_timer();
   });
 }
 
-void WebServerRuntime::start_stats_timer() {
-  stats_timer_->expires_after(config_->stats_interval);
-  stats_timer_->async_wait([this](beast::error_code ec) {
-    if (ec || stopping_.load(std::memory_order_acquire)) {
-      return;
-    }
-    std::size_t pending_count = 0;
-    std::size_t ws_count = 0;
-    {
-      std::lock_guard lock{pending_mutex_};
-      pending_count = pending_.size();
-      ws_count = ws_connections_.size();
-    }
-    bridge_.value->push_latest(
-        index(ServerChannel::Stats),
-        bundle_value<WebServerStats>({
-            {"listening_port",
-             atomic_value(Int{listener_ ? listener_->bound_port() : 0})},
-            {"connection_count",
-             atomic_value(Int(listener_ ? listener_->open_connections() : 0))},
-            {"ws_connection_count", atomic_value(Int(ws_count))},
-            {"pending_request_count", atomic_value(Int(pending_count))},
-            {"ingress_record_count",
-             atomic_value(Int(bridge_.value->payload_pending(
-                 index(ServerChannel::Request))))},
-            {"ingress_byte_count",
-             atomic_value(Int(bridge_.value->payload_retained_bytes(
-                 index(ServerChannel::Request))))},
-            {"outbound_byte_count", atomic_value(Int{0})},
-            {"dropped_count", atomic_value(dropped_.load())},
-        }),
-        1);
-    start_stats_timer();
-  });
+void WebServerRuntime::emit_stats_once() {
+  std::size_t pending_count = 0;
+  std::size_t ws_count = 0;
+  {
+    std::lock_guard lock{pending_mutex_};
+    pending_count = pending_.size();
+    ws_count = ws_connections_.size();
+  }
+  const auto &b = bindings_;
+  bridge_.value->push_latest(
+      index(ServerChannel::Stats),
+      build_on(b.server_stats,
+               {
+                   {"listening_port",
+                    b.number(Int{listener_ ? listener_->bound_port() : 0})},
+                   {"connection_count",
+                    b.number(Int(listener_ ? listener_->open_connections()
+                                           : 0))},
+                   {"ws_connection_count", b.number(Int(ws_count))},
+                   {"pending_request_count", b.number(Int(pending_count))},
+                   {"ingress_record_count",
+                    b.number(Int(bridge_.value->payload_pending(
+                        index(ServerChannel::Request))))},
+                   {"ingress_byte_count",
+                    b.number(Int(bridge_.value->payload_retained_bytes(
+                        index(ServerChannel::Request))))},
+                   {"outbound_byte_count", b.number(Int{0})},
+                   {"dropped_count", b.number(dropped_.load())},
+               }),
+      256);
 }
 
 void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
   if (simulation_ || stopping_.load(std::memory_order_acquire)) {
     report(index(ServerChannel::RespondDelivery), client_id,
-           make_delivery_report(request_id, ++sequence_,
-                                WebDeliveryStatus::EnqueueRejected, 0, false,
-                                false, Str{"web server is not serving"}));
+           delivery_report(request_id, WebDeliveryStatus::EnqueueRejected, 0,
+                           Str{"web server is not serving"}));
     return;
   }
   std::shared_ptr<ServerConnection> connection;
@@ -1337,10 +1474,8 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
     // Responding to an unknown or already-answered id is a reported error,
     // never silence (RFC 0024).
     report(index(ServerChannel::RespondDelivery), client_id,
-           make_delivery_report(request_id, ++sequence_,
-                                WebDeliveryStatus::PermanentFailure, 0, false,
-                                false,
-                                Str{"unknown or already-answered request id"}));
+           delivery_report(request_id, WebDeliveryStatus::PermanentFailure, 0,
+                           Str{"unknown or already-answered request id"}));
     return;
   }
   connection->deliver_response(request_id, std::move(response), client_id,
@@ -1350,9 +1485,8 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
 void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
   if (simulation_ || stopping_.load(std::memory_order_acquire)) {
     report(index(ServerChannel::WsSendDelivery), client_id,
-           make_delivery_report(connection_id, ++sequence_,
-                                WebDeliveryStatus::EnqueueRejected, 0, false,
-                                false, Str{"web server is not serving"}));
+           delivery_report(connection_id, WebDeliveryStatus::EnqueueRejected,
+                           0, Str{"web server is not serving"}));
     return;
   }
   std::shared_ptr<ServerConnection> connection;
@@ -1365,9 +1499,8 @@ void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
   }
   if (!connection) {
     report(index(ServerChannel::WsSendDelivery), client_id,
-           make_delivery_report(connection_id, ++sequence_,
-                                WebDeliveryStatus::PermanentFailure, 0, false,
-                                false, Str{"WebSocket is not connected"}));
+           delivery_report(connection_id, WebDeliveryStatus::PermanentFailure,
+                           0, Str{"WebSocket is not connected"}));
     return;
   }
   connection->deliver_ws_frame(std::move(frame), client_id,
@@ -1382,9 +1515,10 @@ void ServerConnection::read_next() {
     close();
     return;
   }
-  if (listener_->reads_paused()) {
+  if (listener_->reads_paused(WebListener::ReadTier::Http)) {
     read_parked_ = true;
     listener_->park_for_resume(
+        WebListener::ReadTier::Http,
         [self = shared_from_this()] { self->resume_reading(); });
     return;
   }
@@ -1458,7 +1592,7 @@ void ServerConnection::on_request() {
   dispatch_http(std::move(*matched), request_.keep_alive());
 }
 
-Value ServerConnection::peer_value() {
+Value ServerConnection::peer_value(const WebBindings &b) {
   beast::error_code ec;
   auto &socket = tls_stream_.has_value()
                      ? beast::get_lowest_layer(*tls_stream_).socket()
@@ -1488,20 +1622,24 @@ Value ServerConnection::peer_value() {
       X509_free(cert);
     }
   }
-  return bundle_value<WebPeer>({
-      {"remote_address",
-       atomic_value(Str{ec ? std::string{} : remote.address().to_string()})},
-      {"remote_port", atomic_value(Int{ec ? 0 : remote.port()})},
-      {"local_port", atomic_value(Int{ec ? 0 : local.port()})},
-      {"tls", atomic_value(Bool{tls})},
-      {"negotiated_protocol", atomic_value(std::move(negotiated))},
-      {"sni", atomic_value(std::move(sni))},
-      {"client_cert_subject", atomic_value(std::move(subject))},
-  });
+  return build_on(
+      b.peer,
+      {
+          {"remote_address",
+           b.string(Str{ec ? std::string{} : remote.address().to_string()})},
+          {"remote_port", b.number(Int{ec ? 0 : remote.port()})},
+          {"local_port", b.number(Int{ec ? 0 : local.port()})},
+          {"tls", b.flag(Bool{tls})},
+          {"negotiated_protocol", b.string(negotiated)},
+          {"sni", b.string(sni)},
+          {"client_cert_subject", b.string(subject)},
+      });
 }
 
 Value ServerConnection::build_server_request(const MatchedRoute &matched,
-                                             Int request_id) {
+                                             Int request_id,
+                                             std::size_t &retained_bytes) {
+  const auto &b = matched.runtime->bindings();
   const auto method = *method_from(request_.method());
   const std::string_view target{request_.target().data(),
                                 request_.target().size()};
@@ -1510,37 +1648,47 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
       query_start == std::string_view::npos ? std::string_view{}
                                             : target.substr(query_start + 1);
 
-  NamedPairs headers;
+  WebBindings::NamedPairs headers;
+  std::size_t header_bytes = 0;
   for (const auto &field : request_) {
     headers.emplace_back(std::string{field.name_string()},
                          std::string{field.value()});
+    header_bytes += headers.back().first.size() + headers.back().second.size();
   }
+  // The bridge accounts for real payload memory, so byte limits and
+  // watermarks bound what a peer can make the graph retain (review P1).
+  retained_bytes = request_.body().size() + header_bytes + target.size() + 512;
 
-  Value request = bundle_value<HttpRequest>({
-      {"method", atomic_value(method)},
-      {"target", atomic_value(Str{std::string{target}})},
-      {"path", atomic_value(Str{decoded_path_})},
-      {"query", name_value_tuple<WebParam>(parse_query(query))},
-      {"path_params", name_value_tuple<WebParam>(matched.params)},
-      {"headers", name_value_tuple<WebHeader>(headers)},
-      {"body", atomic_value(Bytes{request_.body()})},
-      {"trailers", name_value_tuple<WebHeader>({})},
-  });
-  return bundle_value<HttpServerRequest>({
-      {"request_id", atomic_value(request_id)},
-      {"connection_id", atomic_value(Int{0})},
-      {"stream_id", atomic_value(Int{0})},
-      {"request", std::move(request)},
-      {"peer", peer_value()},
-  });
+  Value request = build_on(
+      b.http_request,
+      {
+          {"method", b.enum_value(method)},
+          {"target", b.string(Str{std::string{target}})},
+          {"path", b.string(Str{decoded_path_})},
+          {"query", b.params(parse_query(query))},
+          {"path_params", b.params(matched.params)},
+          {"headers", b.headers(headers)},
+          {"body", b.bytes(Bytes{request_.body()})},
+          {"trailers", b.headers({})},
+      });
+  return build_on(b.server_request,
+                  {
+                      {"request_id", b.number(request_id)},
+                      {"connection_id", b.number(Int{0})},
+                      {"stream_id", b.number(Int{0})},
+                      {"request", std::move(request)},
+                      {"peer", peer_value(b)},
+                  });
 }
 
 void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   const Int request_id = runtime->register_pending(shared_from_this());
-  Value server_request = build_server_request(matched, request_id);
+  std::size_t retained_bytes = 0;
+  Value server_request =
+      build_server_request(matched, request_id, retained_bytes);
   if (!runtime->push_request(matched.route.clone(),
-                             std::move(server_request))) {
+                             std::move(server_request), retained_bytes)) {
     runtime->unregister_pending(request_id);
     if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
       // Over the hard limit the transport answers itself; the graph never
@@ -1573,9 +1721,8 @@ void ServerConnection::write_response(
     const std::shared_ptr<WebServerRuntime> &runtime) {
   if (pending_request_id_ != request_id || writing_) {
     runtime->report(index(ServerChannel::RespondDelivery), client_id,
-                    make_delivery_report(
-                        request_id, ++runtime->sequence_,
-                        WebDeliveryStatus::PermanentFailure, 0, false, false,
+                    runtime->delivery_report(
+                        request_id, WebDeliveryStatus::PermanentFailure, 0,
                         Str{"the request was already answered"}));
     return;
   }
@@ -1730,11 +1877,11 @@ void ServerConnection::finish_response(
   chunk_body_.clear();
   chunk_trailers_.clear();
   runtime->report(index(ServerChannel::RespondDelivery), client_id,
-                  make_delivery_report(request_id, ++runtime->sequence_,
-                                       ec ? WebDeliveryStatus::PermanentFailure
-                                          : WebDeliveryStatus::Delivered,
-                                       ec ? ec.value() : 0, false, false,
-                                       ec ? Str{ec.message()} : Str{}));
+                  runtime->delivery_report(
+                      request_id,
+                      ec ? WebDeliveryStatus::PermanentFailure
+                         : WebDeliveryStatus::Delivered,
+                      ec ? ec.value() : 0, ec ? Str{ec.message()} : Str{}));
   if (ec || !keep_alive) {
     close();
   } else {
@@ -1797,11 +1944,12 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
           : websocket::stream_base::none();
   timeout.keep_alive_pings = config.ping_interval.count() > 0;
 
+  std::size_t request_bytes = 0;
   const Value server_request =
-      build_server_request(matched, ws_connection_id_);
+      build_server_request(matched, ws_connection_id_, request_bytes);
 
   const auto on_accept = asio::bind_executor(
-      strand_, [self = shared_from_this(), runtime,
+      strand_, [self = shared_from_this(), runtime, request_bytes,
                 server_request = server_request.clone()](beast::error_code ec) {
         if (ec) {
           runtime->unregister_ws_connection(self->ws_connection_id_);
@@ -1809,14 +1957,17 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
           return;
         }
         self->ws_ = true;
+        const auto &b = runtime->bindings();
         runtime->push_ws_event(
             self->ws_route_.clone(),
-            bundle_value<WsEvent>({
-                {"connection_id", atomic_value(self->ws_connection_id_)},
-                {"state", atomic_value(WsConnectionState::Open)},
-                {"request", server_request.clone()},
-            }));
-        self->ws_read_next();
+            build_on(b.ws_event,
+                     {
+                         {"connection_id", b.number(self->ws_connection_id_)},
+                         {"state", b.enum_value(WsConnectionState::Open)},
+                         {"request", server_request.clone()},
+                     }),
+            request_bytes + 512);
+        self->ws_read_continue();
       });
   if (tls_stream_.has_value()) {
     tls_ws_.emplace(std::move(*tls_stream_));
@@ -1850,15 +2001,20 @@ void ServerConnection::ws_read_next() {
             close_reason = Str{std::string{reason.reason.data(),
                                            reason.reason.size()}};
           }
+          const auto &b = runtime->bindings();
           runtime->push_ws_event(
               self->ws_route_.clone(),
-              bundle_value<WsEvent>({
-                  {"connection_id", atomic_value(self->ws_connection_id_)},
-                  {"state", atomic_value(orderly ? WsConnectionState::Closed
+              build_on(b.ws_event,
+                       {
+                           {"connection_id",
+                            b.number(self->ws_connection_id_)},
+                           {"state",
+                            b.enum_value(orderly ? WsConnectionState::Closed
                                                  : WsConnectionState::Failed)},
-                  {"close_code", atomic_value(close_code)},
-                  {"close_reason", atomic_value(std::move(close_reason))},
-              }));
+                           {"close_code", b.number(close_code)},
+                           {"close_reason", b.string(close_reason)},
+                       }),
+              close_reason.size() + 512);
           self->close();
           return;
         }
@@ -1869,22 +2025,26 @@ void ServerConnection::ws_read_next() {
         std::string payload{static_cast<const char *>(data.data()),
                             data.size()};
         self->ws_read_buffer_.consume(self->ws_read_buffer_.size());
+        const auto &b = runtime->bindings();
+        const std::size_t frame_bytes = payload.size() + 256;
         Value frame =
-            text ? bundle_value<WsFrame>({
-                       {"kind", atomic_value(WsFrameKind::Text)},
-                       {"text", atomic_value(Str{std::move(payload)})},
-                   })
-                 : bundle_value<WsFrame>({
-                       {"kind", atomic_value(WsFrameKind::Binary)},
-                       {"data", atomic_value(Bytes{std::move(payload)})},
-                   });
-        runtime->push_ws_frame(
-            self->ws_route_.clone(),
-            bundle_value<WsInboundFrame>({
-                {"connection_id", atomic_value(self->ws_connection_id_)},
-                {"frame", std::move(frame)},
-            }));
-        self->ws_read_next();
+            text ? build_on(b.ws_frame,
+                            {
+                                {"kind", b.enum_value(WsFrameKind::Text)},
+                                {"text", b.string(Str{std::move(payload)})},
+                            })
+                 : build_on(b.ws_frame,
+                            {
+                                {"kind", b.enum_value(WsFrameKind::Binary)},
+                                {"data", b.bytes(Bytes{std::move(payload)})},
+                            });
+        Value inbound =
+            build_on(b.ws_inbound_frame,
+                     {
+                         {"connection_id", b.number(self->ws_connection_id_)},
+                         {"frame", std::move(frame)},
+                     });
+        self->deliver_ws_ingress(std::move(inbound), frame_bytes);
       });
   if (plain_ws_.has_value()) {
     plain_ws_->async_read(ws_read_buffer_, on_read);
@@ -1893,15 +2053,61 @@ void ServerConnection::ws_read_next() {
   }
 }
 
+void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
+  const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
+  const bool backpressure =
+      runtime->config().inbound_overflow == WebInboundOverflow::Backpressure;
+  // Under Backpressure the frame must survive a failed push so the parked
+  // retry can resend it, so the push consumes a clone; Reject never retries.
+  Value to_push = backpressure ? inbound.clone() : std::move(inbound);
+  if (runtime->push_ws_frame(ws_route_.clone(), std::move(to_push), bytes)) {
+    ws_read_continue();
+    return;
+  }
+  // The bridge is over its hard limit despite the watermark: apply the
+  // explicit inbound policy — frames are never silently lost.
+  if (!backpressure) {
+    runtime->count_drop();
+    runtime->emit_event(WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
+                        Str{"WebSocket ingress rejected at the hard limit"}, 0,
+                        true, false, ws_connection_id_);
+    ws_close(websocket::close_code{1013}, "server is at capacity");
+    return;
+  }
+  // Hold the frame and retry when the WS tier resumes.  No further read is
+  // issued meanwhile, so TCP backpressure propagates to the peer.
+  auto held = std::make_shared<Value>(std::move(inbound));
+  listener_->park_for_resume(
+      WebListener::ReadTier::Ws,
+      [self = shared_from_this(), held, bytes] {
+        asio::post(self->strand_, [self, held, bytes] {
+          self->deliver_ws_ingress(std::move(*held), bytes);
+        });
+      });
+}
+
+void ServerConnection::ws_read_continue() {
+  if (shutting_down_) {
+    return;
+  }
+  if (listener_->reads_paused(WebListener::ReadTier::Ws)) {
+    listener_->park_for_resume(
+        WebListener::ReadTier::Ws, [self = shared_from_this()] {
+          asio::post(self->strand_, [self] { self->ws_read_continue(); });
+        });
+    return;
+  }
+  ws_read_next();
+}
+
 void ServerConnection::queue_ws_frame(
     const Value &frame, Int client_id,
     const std::shared_ptr<WebServerRuntime> &runtime) {
   if (!ws_) {
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
-                    make_delivery_report(
-                        ws_connection_id_, ++runtime->sequence_,
-                        WebDeliveryStatus::PermanentFailure, 0, false, false,
-                        Str{"WebSocket is not connected"}));
+                    runtime->delivery_report(
+                        ws_connection_id_, WebDeliveryStatus::PermanentFailure,
+                        0, Str{"WebSocket is not connected"}));
     return;
   }
   const auto fields = frame.view().as_bundle();
@@ -1915,19 +2121,17 @@ void ServerConnection::queue_ws_frame(
                  ? std::string{reason.checked_as<Str>()}
                  : std::string{});
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
-                    make_delivery_report(ws_connection_id_,
-                                         ++runtime->sequence_,
-                                         WebDeliveryStatus::Delivered));
+                    runtime->delivery_report(ws_connection_id_,
+                                             WebDeliveryStatus::Delivered));
     return;
   }
   if (kind == WsFrameKind::Ping || kind == WsFrameKind::Pong) {
     // Beast's keep-alive pings own the control-frame policy; graph-initiated
     // pings are not part of the v1 surface (RFC 0024).
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
-                    make_delivery_report(
-                        ws_connection_id_, ++runtime->sequence_,
-                        WebDeliveryStatus::PermanentFailure, 0, false, false,
-                        Str{"control frames are transport-managed"}));
+                    runtime->delivery_report(
+                        ws_connection_id_, WebDeliveryStatus::PermanentFailure,
+                        0, Str{"control frames are transport-managed"}));
     return;
   }
 
@@ -1950,19 +2154,18 @@ void ServerConnection::queue_ws_frame(
       for (const auto &queued : ws_outbound_) {
         queued.runtime->report(
             index(ServerChannel::WsSendDelivery), queued.client_id,
-            make_delivery_report(ws_connection_id_, ++runtime->sequence_,
-                                 WebDeliveryStatus::Dropped, 0, false, false,
-                                 Str{"slow consumer"}));
+            queued.runtime->delivery_report(ws_connection_id_,
+                                            WebDeliveryStatus::Dropped, 0,
+                                            Str{"slow consumer"}));
       }
       ws_outbound_.clear();
       ws_outbound_bytes_ = 0;
       ws_close(websocket::close_code{1013}, "slow consumer");
     }
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
-                    make_delivery_report(ws_connection_id_,
-                                         ++runtime->sequence_,
-                                         WebDeliveryStatus::Dropped, 0, false,
-                                         false, Str{"slow consumer"}));
+                    runtime->delivery_report(ws_connection_id_,
+                                             WebDeliveryStatus::Dropped, 0,
+                                             Str{"slow consumer"}));
     runtime->count_drop();
     return;
   }
@@ -2022,12 +2225,11 @@ void ServerConnection::ws_send_fragment() {
         self->ws_outbound_bytes_ -= sent.bytes;
         sent.runtime->report(
             index(ServerChannel::WsSendDelivery), sent.client_id,
-            make_delivery_report(self->ws_connection_id_,
-                                 ++sent.runtime->sequence_,
-                                 ec ? WebDeliveryStatus::PermanentFailure
-                                    : WebDeliveryStatus::Delivered,
-                                 ec ? ec.value() : 0, false, false,
-                                 ec ? Str{ec.message()} : Str{}));
+            sent.runtime->delivery_report(
+                self->ws_connection_id_,
+                ec ? WebDeliveryStatus::PermanentFailure
+                   : WebDeliveryStatus::Delivered,
+                ec ? ec.value() : 0, ec ? Str{ec.message()} : Str{}));
         if (ec) {
           self->writing_ = false;
           self->close();
