@@ -77,11 +77,14 @@ Routing lives in the transport, not the graph: the route key set arrives as
 delivered already keyed by route.  The tornado pattern of partitioning a
 request dictionary by string matching inside the graph is retired with it.
 
-The current tornado decorators remain importable and unchanged in core for
-at least one transition release.  The extension additionally provides a
-compatibility module which re-implements the released decorator surface on
-the native transport, so the old API can be kept, migrated, or deprecated on
-observed merit rather than by fiat.
+The released tornado decorator surface remains importable from core
+unchanged, but its server tier is now implemented by the extension's
+compatibility module: ``hgraph.adaptors.tornado``'s HTTP and WebSocket
+server modules re-export ``hgraph_web.compat``, which re-implements the
+released decorator surface on the native transport (decision taken during
+review of the initial implementation, eliminating the parallel tornado
+server implementation).  The client adaptors and the REST lowering remain
+Tornado-backed.
 
 Motivation
 ----------
@@ -193,13 +196,17 @@ graph-thread scheduling; native extension scalar and Python-class
 registration; and installed-SDK extension boundaries.
 
 The core must not link to curl, Boost, nghttp2, or OpenSSL, include their
-headers, import ``hgraph_web`` during a normal ``hgraph`` import, or declare
-a package dependency on the extension.  The core wheel owns a guarded lazy
-shim at ``hgraph.adaptors.web`` which imports ``hgraph_web`` only when that
-path is explicitly used.  The existing ``hgraph.adaptors.tornado`` package
-is left untouched; the Perspective adaptor and the debug inspector continue
-to depend on it until they migrate.  The extension wheel installs only the
-``hgraph_web`` package and never contributes files to ``hgraph``.
+headers, or import ``hgraph_web`` during a normal ``hgraph`` import; the
+only core package dependency on the extension is the ``hgraph[web]`` extra,
+which installs ``hgraph-web`` alongside Tornado because the released
+``hgraph.adaptors.tornado`` server tier is served by ``hgraph_web.compat``.
+The core wheel owns a guarded lazy shim at ``hgraph.adaptors.web`` which
+imports ``hgraph_web`` only when that path is explicitly used, and
+``hgraph.adaptors.tornado`` exports every name lazily (PEP 562) so the
+Perspective adaptor and the debug inspector — which use only its Tornado
+plumbing — keep working without hgraph-web installed.  The extension wheel
+installs only the ``hgraph_web`` package and never contributes files to
+``hgraph``.
 
 The first-party extension lives under ``extensions/web`` in the hg_cpp
 monorepo, with its own CMake package, ``pyproject.toml``, version, and
@@ -615,9 +622,12 @@ native transport: all four ``@http_server_handler`` shapes,
 ``register_*_adaptor(port)``.  Legacy defective behaviors — header and
 query collapsing, exception-to-400 conflation, REST f-string bodies — are
 reproduced only inside ``compat`` for parity, never in the primary API.
-The core-owned ``hgraph.adaptors.tornado`` package remains the untouched
-old implementation; whether it is later re-pointed, deprecated, or kept is
-a separate migration decision taken on parity evidence.
+The core-owned ``hgraph.adaptors.tornado`` package re-points its server
+modules at ``hgraph_web.compat`` (lazy re-export shims raising a pointed
+``ModuleNotFoundError`` without hgraph-web); the parallel tornado server
+implementation is removed.  The ``hgraph[web]`` extra installs hgraph-web
+so the released install path keeps working.  The Tornado-backed client
+tier and REST lowering stay in core.
 
 The released tornado adaptor test suites are ported to run against the
 fake transport (socketless, deterministic) with a live loopback subset as
@@ -752,8 +762,10 @@ Compatibility
 * The ported tornado suites pass against ``hgraph_web.compat`` on the fake
   transport, with the live loopback subset as oracle; deviations are
   recorded in the parity document.
-* Core imports and the untouched ``hgraph.adaptors.tornado`` continue to
-  work without the extension installed.
+* Core imports work without the extension installed;
+  ``hgraph.adaptors.tornado``'s Tornado plumbing (Perspective, inspector)
+  keeps working without hgraph-web, while its server names raise a pointed
+  install error only when used.
 
 Performance and release
 ~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,8 +1,11 @@
 """Collection gate for the released adaptor suite.
 
-The HTTP and WebSocket server modules are re-exports of ``hgraph_web.compat``
-and raise on import without the optional hgraph-web distribution, so every
-module here is unimportable then.  Skip collecting them rather than failing.
+The supported install path (the ``hgraph[web]`` extra) brings hgraph-web,
+whose ``hgraph_web.compat`` implements the released HTTP/WebSocket server
+surface these suites exercise.  In a development checkout without the
+extension built there is nothing to test against — the server modules raise
+their pointed install error on import — so skip collection rather than fail;
+never install this gate to mask a broken supported install.
 """
 
 try:
