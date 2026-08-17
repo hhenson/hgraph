@@ -308,13 +308,15 @@ template <typename T>
 }
 
 [[nodiscard]] Value http_response(const ValueBindings &b, Int status,
-                                  const NameValues &headers, std::string body) {
-  return build(b.http_response, {
-                                    {"status", b.number(status)},
-                                    {"headers", b.headers(headers)},
-                                    {"body", b.bytes(Bytes{std::move(body)})},
-                                    {"trailers", b.headers({})},
-                                });
+                                  const NameValues &headers, std::string body,
+                                  const NameValues &trailers = {}) {
+  return build(b.http_response,
+               {
+                   {"status", b.number(status)},
+                   {"headers", b.headers(headers)},
+                   {"body", b.bytes(Bytes{std::move(body)})},
+                   {"trailers", b.headers(trailers)},
+               });
 }
 
 /** The WsEvent `request` field is server-side only and stays unset here. */
@@ -692,7 +694,12 @@ struct HttpTransfer : TransferTag {
   std::size_t max_response_bytes{};
   WebHttpVersionPolicy http_version{WebHttpVersionPolicy::Auto};
   std::string body{};
+  bool body_seen{};
   NameValues response_headers{};
+  // Header lines arriving after the first body byte are trailers (h2
+  // trailing HEADERS, h1 chunked trailers); they stay distinct from the
+  // header block — a gRPC-style terminal status depends on it (review P1).
+  NameValues response_trailers{};
   /** Running total of `header_bytes(response_headers)`, maintained by the
    * header callback so the cap is enforced as headers arrive rather than
    * recomputed per line. */
@@ -1533,6 +1540,7 @@ private:
       transfer->truncated = true;
       return CURL_WRITEFUNC_ERROR;
     }
+    transfer->body_seen = true;
     transfer->body.append(data, total);
     return total;
   }
@@ -1555,6 +1563,8 @@ private:
     if (colon == std::string_view::npos) {
       if (line.starts_with("HTTP/")) {
         transfer->response_headers.clear();
+        transfer->response_trailers.clear();
+        transfer->body_seen = false;
         transfer->header_bytes_used = 0;
       }
       return total;
@@ -1570,7 +1580,9 @@ private:
       return CURL_WRITEFUNC_ERROR;
     }
     transfer->header_bytes_used += entry;
-    transfer->response_headers.emplace_back(Str{name}, Str{value});
+    (transfer->body_seen ? transfer->response_trailers
+                         : transfer->response_headers)
+        .emplace_back(Str{name}, Str{value});
     return total;
   }
 
@@ -1661,7 +1673,8 @@ private:
         response_envelope(bindings_, owned->client_id,
                           http_response(bindings_, static_cast<Int>(status),
                                         owned->response_headers,
-                                        std::move(owned->body)),
+                                        std::move(owned->body),
+                                        owned->response_trailers),
                           Value{}),
         retained, reserved);
   }

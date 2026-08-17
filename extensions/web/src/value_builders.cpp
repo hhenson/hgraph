@@ -384,6 +384,16 @@ namespace hgraph::web
         return *this;
     }
 
+    ServerConfigBuilder &ServerConfigBuilder::h2_max_concurrent_streams(Int value) {
+        h2_max_concurrent_streams_ = value;
+        return *this;
+    }
+
+    ServerConfigBuilder &ServerConfigBuilder::h2_initial_window_bytes(Int value) {
+        h2_initial_window_bytes_ = value;
+        return *this;
+    }
+
     Value ServerConfigBuilder::build() const {
         register_web_types();
         if (bind_address_.empty()) { throw std::invalid_argument("Web server bind address cannot be empty"); }

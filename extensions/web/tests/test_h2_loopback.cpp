@@ -369,24 +369,24 @@ int main() {
     require(response.at("body").checked_as<Bytes>().data == "hi answer",
             "the h2 GET body (path capture) did not round-trip");
     bool served_by = false;
-    bool trailer = false;
-    // curl surfaces h2 trailers through the same header callback as
-    // headers, so the trailer may arrive on either field.
-    for (const auto field_name : {"headers", "trailers"}) {
-      const auto entries = response.at(field_name);
-      if (entries.data() == nullptr) {
-        continue;
-      }
-      for (const auto entry : entries.as_list()) {
-        const auto pair = entry.as_bundle();
-        const auto name = pair.at("name").checked_as<Str>();
-        const auto value = pair.at("value").checked_as<Str>();
-        served_by |= name == Str{"x-served-by"} && value == Str{"h2-loopback"};
-        trailer |= name == Str{"x-trail"} && value == Str{"h2-checksum"};
-      }
+    for (const auto entry : response.at("headers").as_list()) {
+      const auto pair = entry.as_bundle();
+      served_by |= pair.at("name").checked_as<Str>() == Str{"x-served-by"} &&
+                   pair.at("value").checked_as<Str>() == Str{"h2-loopback"};
     }
     require(served_by, "the h2 response header did not round-trip");
-    require(trailer, "the h2 response trailer did not round-trip");
+    // Trailers arrive on the TRAILERS field, distinct from headers — the
+    // separation a gRPC-style terminal status depends on (review P1).
+    bool trailer = false;
+    const auto trailer_entries = response.at("trailers");
+    require(trailer_entries.data() != nullptr,
+            "the h2 response trailers field was not populated");
+    for (const auto entry : trailer_entries.as_list()) {
+      const auto pair = entry.as_bundle();
+      trailer |= pair.at("name").checked_as<Str>() == Str{"x-trail"} &&
+                 pair.at("value").checked_as<Str>() == Str{"h2-checksum"};
+    }
+    require(trailer, "the h2 response trailer did not arrive as a trailer");
 
     const auto peer = observed_server_peer.view().as_bundle();
     require(peer.at("negotiated_protocol").checked_as<Str>() == Str{"h2"},

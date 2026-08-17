@@ -45,6 +45,7 @@ struct RecordedRequest {
   std::string method{};
   std::string target{};
   H2Headers headers{};
+  H2Headers trailers{};
   std::string body{};
   bool complete{};
 };
@@ -58,8 +59,10 @@ struct RecordingHost final : H2Host {
   void on_request_headers(std::int32_t stream_id, std::string method,
                           std::string target, H2Headers headers,
                           bool end_stream) override {
-    RecordedRequest request{stream_id, std::move(method), std::move(target),
-                            std::move(headers), {}, end_stream};
+    RecordedRequest request{stream_id,          std::move(method),
+                            std::move(target),  std::move(headers),
+                            {},                 {},
+                            end_stream};
     requests[stream_id] = std::move(request);
   }
 
@@ -67,6 +70,15 @@ struct RecordingHost final : H2Host {
                        bool end_stream) override {
     auto &request = requests[stream_id];
     request.body.append(data);
+    if (end_stream) {
+      request.complete = true;
+    }
+  }
+
+  void on_request_trailers(std::int32_t stream_id, H2Headers trailers,
+                           bool end_stream) override {
+    auto &request = requests[stream_id];
+    request.trailers = std::move(trailers);
     if (end_stream) {
       request.complete = true;
     }
@@ -159,9 +171,25 @@ struct TestClient {
 
   ~TestClient() { nghttp2_session_del(session); }
 
+  struct RequestBody {
+    std::string payload{};
+    H2Headers trailers{};
+  };
+
   [[nodiscard]] std::int32_t submit_request(std::string_view method,
                                             std::string_view path,
                                             const std::string *body) {
+    static RequestBody wrapped;
+    if (body == nullptr) {
+      return submit_request_with(method, path, nullptr);
+    }
+    wrapped = RequestBody{*body, {}};
+    return submit_request_with(method, path, &wrapped);
+  }
+
+  [[nodiscard]] std::int32_t
+  submit_request_with(std::string_view method, std::string_view path,
+                      RequestBody *body) {
     std::vector<nghttp2_nv> nva;
     const auto nv = [](std::string_view name, std::string_view value) {
       return nghttp2_nv{
@@ -175,17 +203,32 @@ struct TestClient {
     nva.push_back(nv(":path", path));
     nghttp2_data_provider2 provider{};
     if (body != nullptr) {
-      provider.source.ptr = const_cast<std::string *>(body);
+      provider.source.ptr = body;
       provider.read_callback =
-          [](nghttp2_session *, int32_t, uint8_t *buffer, size_t length,
-             uint32_t *data_flags, nghttp2_data_source *source,
+          [](nghttp2_session *session, int32_t stream_id, uint8_t *buffer,
+             size_t length, uint32_t *data_flags, nghttp2_data_source *source,
              void *) -> nghttp2_ssize {
-        auto &payload = *static_cast<std::string *>(source->ptr);
-        const size_t take = std::min(payload.size(), length);
-        std::memcpy(buffer, payload.data(), take);
-        payload.erase(0, take);
-        if (payload.empty()) {
+        auto &request = *static_cast<RequestBody *>(source->ptr);
+        const size_t take = std::min(request.payload.size(), length);
+        std::memcpy(buffer, request.payload.data(), take);
+        request.payload.erase(0, take);
+        if (request.payload.empty()) {
           *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+          if (!request.trailers.empty()) {
+            *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+            std::vector<nghttp2_nv> nva;
+            for (const auto &[name, value] : request.trailers) {
+              nva.push_back(nghttp2_nv{
+                  reinterpret_cast<uint8_t *>(const_cast<char *>(name.data())),
+                  reinterpret_cast<uint8_t *>(
+                      const_cast<char *>(value.data())),
+                  name.size(), value.size(), NGHTTP2_NV_FLAG_NONE});
+            }
+            if (nghttp2_submit_trailer(session, stream_id, nva.data(),
+                                       nva.size()) != 0) {
+              return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+            }
+          }
         }
         return static_cast<nghttp2_ssize>(take);
       };
@@ -315,6 +358,45 @@ void test_withheld_window_stalls_the_sender_until_consume() {
           "the response status did not round-trip");
 }
 
+void test_request_trailers_complete_the_request() {
+  // A gRPC-shaped request: body then trailing HEADERS carrying the
+  // trailers and END_STREAM (review P1: neither may be lost).
+  RecordingHost host;
+  H2Engine engine{host, H2Settings{}};
+  TestClient client;
+  TestClient::RequestBody body{std::string(2048, 'g'),
+                               H2Headers{{"grpc-like-checksum", "abc123"}}};
+  const auto stream_id =
+      client.submit_request_with("POST", "/with-trailers", &body);
+  pump(client, engine);
+
+  auto &request = host.requests[stream_id];
+  while (!request.complete) {
+    const std::size_t received = request.body.size();
+    require(received != 0, "no progress toward the trailered request");
+    engine.consume(stream_id, received);
+    pump(client, engine);
+    if (request.body.size() == received && !request.complete) {
+      break;
+    }
+  }
+  require(request.complete,
+          "END_STREAM on the trailing HEADERS did not complete the request");
+  require(request.body == std::string(2048, 'g'),
+          "the trailered request body was not delivered intact");
+  bool checksum = false;
+  for (const auto &[name, value] : request.trailers) {
+    checksum |= name == "grpc-like-checksum" && value == "abc123";
+  }
+  require(checksum, "the request trailers were not delivered");
+
+  require(engine.submit_response(stream_id, 200, {}, "ok", {}),
+          "the response after trailers was not accepted");
+  pump(client, engine);
+  require(client.streams[stream_id].status == 200,
+          "the trailered request was not answered");
+}
+
 void test_reset_stream_reaches_the_client() {
   RecordingHost host;
   H2Engine engine{host, H2Settings{}};
@@ -410,6 +492,7 @@ int main() {
   try {
     test_get_round_trip_with_trailers();
     test_withheld_window_stalls_the_sender_until_consume();
+    test_request_trailers_complete_the_request();
     test_reset_stream_reaches_the_client();
     test_client_reset_surfaces_as_cancellation();
     test_max_concurrent_streams_gates_a_compliant_client();

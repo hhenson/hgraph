@@ -63,6 +63,12 @@ public:
   virtual void on_request_data(std::int32_t stream_id, std::string_view data,
                                bool end_stream) = 0;
 
+  /** A trailing HEADERS block (request trailers).  Ends the request when
+   * ``end_stream`` is set — a gRPC-style request always finishes this way
+   * (review P1: trailers must not be dropped, nor END_STREAM lost). */
+  virtual void on_request_trailers(std::int32_t stream_id, H2Headers trailers,
+                                   bool end_stream) = 0;
+
   /** The peer reset the stream (per-stream cancellation). */
   virtual void on_stream_reset(std::int32_t stream_id,
                                std::uint32_t error_code) = 0;

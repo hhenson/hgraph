@@ -484,7 +484,12 @@ just TLS (mismatch is a start error); an
 overlapping (method, pattern) registration across service paths is a start
 error naming both paths; the last detach closes the listener so the port
 can be rebound by a later run.  Keep-alive connections may span attached
-services; dispatch is per-request by route match.
+services; dispatch is per-request by route match.  Shutdown on a shared
+listener is runtime-scoped: a stopping attachee retires only ITS pending
+work (its h2 streams answer 503; the connection keeps serving the other
+attachees), and the orderly close of every live connection — idle ones
+included, with GOAWAY on h2 — belongs to the LAST detaching runtime via
+the listener's live-connection registry.
 
 Runtime architecture
 --------------------
@@ -550,7 +555,11 @@ closes 1013 from the transport without graph involvement.  A stopped
 bridge rejects late completions from a shared listener's still-draining
 connections instead of treating them as errors.
 Configuration floors guarantee a single maximal payload always fits an
-empty channel, so an admitted wait always terminates.
+empty channel, so an admitted wait always terminates.  On HTTP/2 the
+per-connection read loop additionally stalls once one window's worth of
+bytes is buffered ahead of admission across all streams, so backpressured
+streams cannot accumulate stream-window times stream-count outside the
+budget.
 
 Outbound, each connection owns a bounded queue on its strand.  A slow
 WebSocket consumer triggers the explicit ``slow_consumer_policy``: ``Close``

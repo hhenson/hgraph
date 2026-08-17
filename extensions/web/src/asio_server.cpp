@@ -342,6 +342,8 @@ struct MatchedRoute {
 // first to start binds, later starts attach after a full-config identity
 // check, and the last detach closes the listener.
 
+class PendingTarget;
+
 class WebListener : public std::enable_shared_from_this<WebListener> {
 public:
   WebListener(std::string address, std::uint16_t port, Value config_identity,
@@ -366,6 +368,18 @@ public:
     std::lock_guard lock{mutex_};
     runtimes_.push_back(std::move(runtime));
   }
+
+  /** Every live connection registers here so the LAST detaching runtime
+   * can shut them all down — including idle ones that no pending
+   * registry references (review P1). */
+  void register_connection(std::weak_ptr<PendingTarget> connection) {
+    std::lock_guard lock{mutex_};
+    std::erase_if(live_connections_,
+                  [](const auto &weak) { return weak.expired(); });
+    live_connections_.push_back(std::move(connection));
+  }
+
+  void shutdown_connections();
 
   /** @return true when this was the last attached runtime. */
   bool detach(const WebServerRuntime *runtime) {
@@ -442,6 +456,7 @@ private:
   // frames) has drained.  detach() drops this reference at stop, breaking
   // the runtime->listener->runtime cycle.
   std::vector<std::shared_ptr<WebServerRuntime>> runtimes_{};
+  std::vector<std::weak_ptr<PendingTarget>> live_connections_{};
   std::array<std::set<const void *>, 2> pause_tokens_{};
   std::array<std::vector<std::function<void()>>, 2> parked_{};
 };
@@ -556,7 +571,12 @@ public:
   virtual void deliver_response(Int request_id, Value response, Int client_id,
                                 std::shared_ptr<WebServerRuntime> runtime) = 0;
   virtual void answer_timeout(Int request_id) = 0;
-  virtual void begin_shutdown() = 0;
+  /** One runtime is stopping: retire only ITS work.  A shared h2
+   * connection keeps serving the other attachees' streams (review P1). */
+  virtual void retire_runtime(const WebServerRuntime *runtime) = 0;
+  /** The listener itself is shutting down (last attachee): close the
+   * whole connection — GOAWAY for h2, close for h1 — idle or not. */
+  virtual void connection_shutdown() = 0;
 };
 
 class WebServerRuntime
@@ -737,6 +757,8 @@ public:
   }
 
   void run() {
+    listener_->register_connection(
+        std::weak_ptr<PendingTarget>{shared_from_this()});
     asio::post(strand_, [self = shared_from_this()] { self->handshake(); });
   }
 
@@ -766,7 +788,13 @@ public:
     });
   }
 
-  void begin_shutdown() override {
+  void retire_runtime(const WebServerRuntime *) override {
+    // An h1 connection serves one request at a time; the stopping
+    // runtime owns whatever is pending here, so retiring == closing.
+    connection_shutdown();
+  }
+
+  void connection_shutdown() override {
     asio::post(strand_, [self = shared_from_this()] {
       self->shutting_down_ = true;
       if (self->ws_) {
@@ -951,6 +979,8 @@ public:
   ~H2Driver() override { listener_->connection_closed(); }
 
   void run() {
+    listener_->register_connection(
+        std::weak_ptr<PendingTarget>{shared_from_this()});
     asio::post(strand_, [self = shared_from_this()] {
       self->pump_writes(); // the server SETTINGS/window preface
       self->read_next();
@@ -974,7 +1004,26 @@ public:
     });
   }
 
-  void begin_shutdown() override {
+  void retire_runtime(const WebServerRuntime *runtime) override {
+    asio::post(strand_, [self = shared_from_this(), runtime] {
+      if (self->closed_) {
+        return;
+      }
+      // Only the stopping runtime's streams retire; a shared listener's
+      // other attachees keep this connection serving (review P1).
+      std::vector<std::int32_t> retiring;
+      for (const auto &[stream_id, stream] : self->streams_) {
+        if (stream.matched.runtime.get() == runtime && !stream.discarding) {
+          retiring.push_back(stream_id);
+        }
+      }
+      for (const std::int32_t stream_id : retiring) {
+        self->respond_transport(stream_id, 503, "server shutting down");
+      }
+    });
+  }
+
+  void connection_shutdown() override {
     asio::post(strand_, [self = shared_from_this()] {
       if (self->shutting_down_) {
         return;
@@ -1005,6 +1054,9 @@ private:
     std::string decoded_path{};
     H2Headers headers{};
     std::size_t header_bytes{};
+    H2Headers trailers{};
+    std::size_t trailer_bytes{};
+    std::size_t trailer_unaccounted{};
     std::string body{};
     std::size_t reserved{};
     std::size_t unaccounted{};
@@ -1029,12 +1081,15 @@ private:
                           bool end_stream) override;
   void on_request_data(std::int32_t stream_id, std::string_view data,
                        bool end_stream) override;
+  void on_request_trailers(std::int32_t stream_id, H2Headers trailers,
+                           bool end_stream) override;
   void on_stream_reset(std::int32_t stream_id,
                        std::uint32_t error_code) override;
   void on_stream_closed(std::int32_t stream_id) override;
   void on_goaway_received() override { shutting_down_ = true; }
 
   void read_next();
+  void resume_stalled_read();
   void pump_writes();
   void close();
   void admit_stream(std::int32_t stream_id);
@@ -1075,6 +1130,12 @@ private:
   void shutdown_send();
 
   std::vector<PendingReport> pending_flush_reports_{};
+  // Bytes buffered ahead of admission across ALL streams; the connection
+  // read loop stalls at one window's worth so backpressured streams
+  // cannot accumulate stream-window x stream-count outside the bridge
+  // budget (review P1).
+  std::size_t unaccounted_total_{};
+  bool read_stalled_{};
   Int connection_id_{-1};
   bool writing_{};
   bool shutting_down_{};
@@ -1172,6 +1233,19 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
     }
   }
   return std::nullopt;
+}
+
+void WebListener::shutdown_connections() {
+  std::vector<std::weak_ptr<PendingTarget>> live;
+  {
+    std::lock_guard lock{mutex_};
+    live.swap(live_connections_);
+  }
+  for (const auto &weak : live) {
+    if (const auto connection = weak.lock()) {
+      connection->connection_shutdown();
+    }
+  }
 }
 
 void WebListener::check_route_conflicts(const WebServerRuntime *applying,
@@ -1472,7 +1546,12 @@ void WebServerRuntime::stop() noexcept {
         ws_connections_.clear();
       }
       for (const auto &target : targets) {
-        target->begin_shutdown();
+        target->retire_runtime(this);
+      }
+      if (last) {
+        // The listener is going away: every live connection — idle ones
+        // included — gets its orderly shutdown (GOAWAY on h2).
+        listener_->shutdown_connections();
       }
       const auto deadline =
           std::chrono::steady_clock::now() + config_->shutdown_drain_timeout;
@@ -2795,6 +2874,13 @@ void H2Driver::read_next() {
   if (closed_) {
     return;
   }
+  if (unaccounted_total_ >=
+      static_cast<std::size_t>(config_->h2_initial_window_bytes)) {
+    // Enough unadmitted bytes are already buffered: stop reading the
+    // connection so TCP backpressure applies until accounting drains.
+    read_stalled_ = true;
+    return;
+  }
   beast::get_lowest_layer(stream_).expires_after(config_->idle_timeout);
   stream_.async_read_some(
       asio::buffer(read_buffer_),
@@ -2918,6 +3004,13 @@ void H2Driver::close() {
 }
 
 void H2Driver::release_stream(std::int32_t, Stream &stream) {
+  const std::size_t buffered = stream.unaccounted + stream.trailer_unaccounted;
+  if (buffered != 0) {
+    unaccounted_total_ -= std::min(unaccounted_total_, buffered);
+    stream.unaccounted = 0;
+    stream.trailer_unaccounted = 0;
+    resume_stalled_read();
+  }
   if (stream.request_id >= 0 && stream.matched.runtime) {
     stream.matched.runtime->unregister_pending(stream.request_id);
     request_to_stream_.erase(stream.request_id);
@@ -3045,18 +3138,56 @@ void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
     // unaccounted bytes is released before the stream starts discarding
     // (review P1).
     engine_.consume(stream_id, stream.unaccounted + data.size());
+    unaccounted_total_ -= std::min(unaccounted_total_, stream.unaccounted);
     stream.unaccounted = 0;
     stream.body = std::string{};
     respond_transport(stream_id, 413, "body exceeds max_body_bytes");
+    resume_stalled_read();
     return;
   }
   stream.body.append(data);
   stream.unaccounted += data.size();
+  unaccounted_total_ += data.size();
   if (end_stream) {
     stream.end_stream_seen = true;
   }
   if (stream.admitted) {
     account_stream_data(stream_id);
+  }
+}
+
+void H2Driver::on_request_trailers(std::int32_t stream_id,
+                                   H2Headers trailers, bool end_stream) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end()) {
+    return;
+  }
+  Stream &stream = found->second;
+  if (stream.discarding) {
+    return;
+  }
+  std::size_t bytes = 0;
+  for (const auto &[name, value] : trailers) {
+    bytes += name.size() + value.size();
+  }
+  stream.trailers = std::move(trailers);
+  stream.trailer_bytes += bytes;
+  stream.trailer_unaccounted += bytes;
+  unaccounted_total_ += bytes;
+  if (end_stream) {
+    stream.end_stream_seen = true;
+  }
+  if (stream.admitted) {
+    account_stream_data(stream_id);
+  }
+}
+
+void H2Driver::resume_stalled_read() {
+  if (read_stalled_ &&
+      unaccounted_total_ <
+          static_cast<std::size_t>(config_->h2_initial_window_bytes)) {
+    read_stalled_ = false;
+    read_next();
   }
 }
 
@@ -3066,13 +3197,21 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     return;
   }
   Stream &stream = found->second;
-  if (stream.unaccounted != 0) {
-    const std::size_t pending = stream.unaccounted;
+  if (stream.unaccounted != 0 || stream.trailer_unaccounted != 0) {
+    // Trailer bytes grow the reservation but never consume flow-control
+    // window — HEADERS frames are not flow-controlled (RFC 9113 §6.9).
+    const std::size_t data_pending = stream.unaccounted;
+    const std::size_t pending = data_pending + stream.trailer_unaccounted;
     if (stream.matched.runtime->grow_request_reservation(pending)) {
       stream.reserved += pending;
       stream.unaccounted = 0;
-      engine_.consume(stream_id, pending);
-      pump_writes(); // the WINDOW_UPDATE this consume released
+      stream.trailer_unaccounted = 0;
+      unaccounted_total_ -= std::min(unaccounted_total_, pending);
+      if (data_pending != 0) {
+        engine_.consume(stream_id, data_pending);
+        pump_writes(); // the WINDOW_UPDATE this consume released
+      }
+      resume_stalled_read();
     } else if (stream.matched.runtime->config().inbound_overflow ==
                WebInboundOverflow::Reject) {
       respond_transport(stream_id, 503, "server is at capacity");
@@ -3131,7 +3270,8 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
   WebBindings::NamedPairs headers{stream.headers.begin(),
                                   stream.headers.end()};
   const std::size_t retained = stream.body.size() + stream.header_bytes +
-                               stream.target.size() + 512;
+                               stream.trailer_bytes + stream.target.size() +
+                               512;
   Value request = build_on(
       b.http_request,
       {
@@ -3143,7 +3283,9 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
           {"path_params", b.params(stream.matched.params)},
           {"headers", b.headers(headers)},
           {"body", b.bytes(Bytes{std::move(stream.body)})},
-          {"trailers", b.headers({})},
+          {"trailers",
+           b.headers(WebBindings::NamedPairs{stream.trailers.begin(),
+                                             stream.trailers.end()})},
       });
   stream.body = std::string{};
   const Int request_id = runtime->register_pending(shared_from_this());

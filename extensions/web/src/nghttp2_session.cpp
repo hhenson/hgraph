@@ -59,6 +59,7 @@ struct H2Engine::Impl {
   H2Settings settings;
   nghttp2_session *session{};
   std::map<std::int32_t, StreamState> requests{};
+  std::map<std::int32_t, StreamState> trailer_blocks{};
   std::map<std::int32_t, ResponseState> responses{};
   bool fatal{};
 
@@ -80,9 +81,15 @@ namespace {
 
 int on_begin_headers(nghttp2_session *, const nghttp2_frame *frame,
                      void *user_data) {
-  if (frame->hd.type == NGHTTP2_HEADERS &&
-      frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
+  if (frame->hd.type != NGHTTP2_HEADERS) {
+    return 0;
+  }
+  if (frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
     impl_of(user_data)->requests.emplace(frame->hd.stream_id, StreamState{});
+  } else if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
+    // A trailing HEADERS block: request trailers.
+    impl_of(user_data)->trailer_blocks.emplace(frame->hd.stream_id,
+                                               StreamState{});
   }
   return 0;
 }
@@ -91,16 +98,24 @@ int on_header(nghttp2_session *, const nghttp2_frame *frame,
               const uint8_t *name, size_t name_length, const uint8_t *value,
               size_t value_length, uint8_t, void *user_data) {
   auto *impl = impl_of(user_data);
-  const auto found = impl->requests.find(frame->hd.stream_id);
-  if (found == impl->requests.end()) {
-    return 0;
+  auto found = impl->requests.find(frame->hd.stream_id);
+  const bool trailer = found == impl->requests.end();
+  if (trailer) {
+    found = impl->trailer_blocks.find(frame->hd.stream_id);
+    if (found == impl->trailer_blocks.end()) {
+      return 0;
+    }
   }
   StreamState &stream = found->second;
   stream.header_bytes += name_length + value_length;
   if (stream.header_bytes > impl->settings.max_header_bytes) {
     // Oversized header block: reset just this stream (RFC 0024 maps the
     // h1 header limit onto h2 per stream).
-    impl->requests.erase(found);
+    if (trailer) {
+      impl->trailer_blocks.erase(found);
+    } else {
+      impl->requests.erase(found);
+    }
     return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
   }
   const std::string_view header_name{reinterpret_cast<const char *>(name),
@@ -130,6 +145,18 @@ int on_frame_recv(nghttp2_session *, const nghttp2_frame *frame,
   auto *impl = impl_of(user_data);
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS: {
+    if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
+      const auto trailer_found = impl->trailer_blocks.find(frame->hd.stream_id);
+      if (trailer_found == impl->trailer_blocks.end()) {
+        break;
+      }
+      H2Headers trailers = std::move(trailer_found->second.headers);
+      impl->trailer_blocks.erase(trailer_found);
+      impl->host.on_request_trailers(
+          frame->hd.stream_id, std::move(trailers),
+          (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) != 0);
+      break;
+    }
     if (frame->headers.cat != NGHTTP2_HCAT_REQUEST) {
       break;
     }
@@ -177,6 +204,7 @@ int on_stream_close(nghttp2_session *, int32_t stream_id, uint32_t error_code,
                     void *user_data) {
   auto *impl = impl_of(user_data);
   impl->requests.erase(stream_id);
+  impl->trailer_blocks.erase(stream_id);
   impl->responses.erase(stream_id);
   if (error_code != NGHTTP2_NO_ERROR) {
     impl->host.on_stream_reset(stream_id, error_code);
