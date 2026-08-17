@@ -19,10 +19,12 @@ Accepted deviations
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 ACCEPTED_DEVIATIONS = ("stream identifier that is numerically smaller",)
 PORT = 18443
@@ -32,7 +34,14 @@ def main() -> int:
     if len(sys.argv) != 3:
         print("usage: run_h2spec.py <h2spec-server-binary> <h2spec-binary>")
         return 2
-    server_binary, h2spec_binary = sys.argv[1], sys.argv[2]
+    # Both commands must be existing executables, resolved to absolute
+    # paths, before anything is spawned.
+    server_binary = str(Path(sys.argv[1]).resolve())
+    h2spec_binary = str(Path(sys.argv[2]).resolve())
+    for binary in (server_binary, h2spec_binary):
+        if not (Path(binary).is_file() and os.access(binary, os.X_OK)):
+            print(f"not an executable: {binary}")
+            return 2
 
     server = subprocess.Popen(
         [server_binary, str(PORT), "600"],

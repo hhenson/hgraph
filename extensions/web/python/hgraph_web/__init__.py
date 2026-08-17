@@ -401,6 +401,14 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
                 "Web ws_ingress_byte_limit must cover one maximal message "
                 "(ws_max_message_bytes + 256)"
             )
+        _require_positive(self.h2_max_concurrent_streams, "h2_max_concurrent_streams")
+        _require_positive(self.h2_initial_window_bytes, "h2_initial_window_bytes")
+        # HTTP/2 windows and stream counts are 31-bit quantities (mirrors
+        # the native builder).
+        if self.h2_initial_window_bytes > 2**31 - 1:
+            raise ValueError("Web h2_initial_window_bytes must be at most 2^31-1")
+        if self.h2_max_concurrent_streams > 2**31 - 1:
+            raise ValueError("Web h2_max_concurrent_streams must be at most 2^31-1")
 
 
 @dataclass(frozen=True)

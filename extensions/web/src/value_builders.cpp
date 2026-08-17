@@ -408,6 +408,17 @@ namespace hgraph::web
         require_non_negative(ping_interval_ms_, "ping interval");
         require_non_negative(pong_timeout_ms_, "pong timeout");
         require_non_negative(stats_interval_ms_, "stats interval");
+        require_positive(h2_max_concurrent_streams_, "h2_max_concurrent_streams");
+        require_positive(h2_initial_window_bytes_, "h2_initial_window_bytes");
+        // HTTP/2 windows and stream counts are 31-bit quantities; larger
+        // values would fail inside the TLS handshake handler instead of at
+        // wiring time (review P2).
+        if (h2_initial_window_bytes_ > 2'147'483'647) {
+            throw std::invalid_argument("Web h2_initial_window_bytes must be at most 2^31-1");
+        }
+        if (h2_max_concurrent_streams_ > 2'147'483'647) {
+            throw std::invalid_argument("Web h2_max_concurrent_streams must be at most 2^31-1");
+        }
         // A single maximal payload must always fit an empty ingress channel;
         // otherwise Backpressure would hold it forever (transport invariant,
         // mirrored in the runtime's config parse).

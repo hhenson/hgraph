@@ -6,6 +6,12 @@
 
 #include "detail/h2_engine.h"
 
+// MSVC has no ssize_t; the v1 nghttp2 API is hidden and only the *2
+// entry points (which this code uses exclusively) remain.
+#ifdef _WIN32
+#define NGHTTP2_NO_SSIZE_T
+#endif
+
 #include <nghttp2/nghttp2.h>
 
 #include <cstring>

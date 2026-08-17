@@ -202,6 +202,11 @@ milliseconds_field(const ValueView &field, std::string_view name) {
       root.at("h2_max_concurrent_streams"), "h2_max_concurrent_streams"));
   result.h2_initial_window_bytes = static_cast<Int>(positive_size(
       root.at("h2_initial_window_bytes"), "h2_initial_window_bytes"));
+  if (result.h2_initial_window_bytes > 2'147'483'647 ||
+      result.h2_max_concurrent_streams > 2'147'483'647) {
+    throw std::invalid_argument(
+        "Web server h2 settings must be at most 2^31-1");
+  }
 
   // A single maximal payload must always fit an EMPTY ingress channel:
   // under Backpressure a message that can never fit would otherwise be
@@ -536,6 +541,12 @@ inline void atomic_store_routes(std::shared_ptr<const CompiledRoutes> *slot,
 class ServerConnection;
 class WebServerRuntime;
 
+// Request and connection ids are unique across every runtime in the
+// process: one h2 connection on a shared listener can carry streams from
+// several runtimes in a single map, so per-runtime counters could collide
+// (review P1).
+inline std::atomic<Int> process_request_ids{0};
+
 /** The respond surface a pending request routes back to: the h1
  * connection or the h2 stream driver that owns the transport side of the
  * request (RFC 0024, HTTP/2 activation plan). */
@@ -631,7 +642,7 @@ public:
                                            bytes);
   }
   [[nodiscard]] Int allocate_connection_id() noexcept {
-    return ++next_request_id_;
+    return ++process_request_ids;
   }
   void release_request_reservation(std::size_t bytes) noexcept {
     bridge_.value->release_reservation(index(ServerChannel::Request), bytes);
@@ -679,7 +690,6 @@ private:
   std::vector<std::tuple<HttpMethod, std::string, Value>> ws_master_{};
 
   std::mutex pending_mutex_{};
-  std::atomic<Int> next_request_id_{0};
   struct Pending {
     // Owning: between dispatch and the graph's answer no async operation
     // holds the transport target, so the pending registry keeps it alive
@@ -1003,6 +1013,14 @@ private:
     bool end_stream_seen{};
     bool discarding{};
     Int request_id{-1};
+    // Delivery is reported from the write pump once the response bytes
+    // have actually left the connection (review P1).
+    std::size_t response_bytes{};
+    bool response_submitted{};
+    std::uint32_t close_error{};
+    Int report_client_id{-1};
+    Int report_request_id{-1};
+    std::shared_ptr<WebServerRuntime> report_runtime{};
   };
 
   // --- H2Host (all calls arrive inside engine_.receive on the strand) ---
@@ -1042,9 +1060,25 @@ private:
   std::array<char, 16 * 1024> read_buffer_{};
   std::string write_buffer_{};
   std::size_t outstanding_response_bytes_{};
+  struct PendingReport {
+    std::shared_ptr<WebServerRuntime> runtime{};
+    Int client_id{};
+    Int request_id{};
+    bool clean{};
+  };
+  void queue_report(std::shared_ptr<WebServerRuntime> runtime, Int client_id,
+                    Int request_id, bool clean) {
+    pending_flush_reports_.push_back(
+        PendingReport{std::move(runtime), client_id, request_id, clean});
+  }
+  void flush_reports(std::size_t count, bool written);
+  void shutdown_send();
+
+  std::vector<PendingReport> pending_flush_reports_{};
   Int connection_id_{-1};
   bool writing_{};
   bool shutting_down_{};
+  bool sent_fin_{};
   bool closed_{};
 };
 
@@ -1542,7 +1576,7 @@ void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
 
 Int WebServerRuntime::register_pending(
     const std::shared_ptr<PendingTarget> &target) {
-  const Int request_id = ++next_request_id_;
+  const Int request_id = ++process_request_ids;
   std::lock_guard lock{pending_mutex_};
   pending_[request_id] =
       Pending{target, std::chrono::steady_clock::now() +
@@ -1557,7 +1591,7 @@ void WebServerRuntime::unregister_pending(Int request_id) noexcept {
 
 Int WebServerRuntime::register_ws_connection(
     const std::shared_ptr<ServerConnection> &connection) {
-  const Int connection_id = ++next_request_id_;
+  const Int connection_id = ++process_request_ids;
   std::lock_guard lock{pending_mutex_};
   ws_connections_[connection_id] = connection;
   return connection_id;
@@ -2745,10 +2779,16 @@ void ServerConnection::close_socket_only() {
 // H2Driver implementation
 
 void ServerConnection::start_h2() {
-  auto driver = std::make_shared<H2Driver>(listener_, config_,
-                                           std::move(*tls_stream_));
-  tls_stream_.reset();
-  driver->run();
+  try {
+    auto driver = std::make_shared<H2Driver>(listener_, config_,
+                                             std::move(*tls_stream_));
+    tls_stream_.reset();
+    driver->run();
+  } catch (const std::exception &) {
+    // An engine construction failure must never escape the handshake
+    // handler into io_context::run() (review P2).
+    close();
+  }
 }
 
 void H2Driver::read_next() {
@@ -2789,36 +2829,88 @@ void H2Driver::pump_writes() {
     write_buffer_.append(output);
   }
   if (write_buffer_.empty()) {
+    // Everything queued so far is on the wire; reports collected while
+    // frames were generated are now deliverable.
+    flush_reports(pending_flush_reports_.size(), true);
     if (engine_.finished()) {
-      close();
+      // An orderly session end closes with a FIN, never a hard close: the
+      // read loop keeps draining to EOF so late peer bytes cannot turn
+      // the close into a TCP RST (review; h2spec 7/1 on slow runners).
+      shutdown_send();
     }
     return;
   }
   writing_ = true;
+  const std::size_t report_batch = pending_flush_reports_.size();
   asio::async_write(
       stream_, asio::buffer(write_buffer_),
       asio::bind_executor(
           strand_,
-          [self = shared_from_this()](beast::error_code ec, std::size_t) {
+          [self = shared_from_this(), report_batch](beast::error_code ec,
+                                                    std::size_t) {
             self->writing_ = false;
             if (ec) {
               self->close();
               return;
             }
+            self->flush_reports(report_batch, true);
             self->pump_writes();
           }));
+}
+
+void H2Driver::flush_reports(std::size_t count, bool written) {
+  count = std::min(count, pending_flush_reports_.size());
+  for (std::size_t position = 0; position != count; ++position) {
+    const PendingReport &report = pending_flush_reports_[position];
+    if (!written) {
+      report.runtime->report(
+          index(ServerChannel::RespondDelivery), report.client_id,
+          report.runtime->delivery_report(
+              report.request_id, WebDeliveryStatus::PermanentFailure, 0,
+              Str{"the connection closed before the response was written"}));
+    } else if (report.clean) {
+      report.runtime->report(index(ServerChannel::RespondDelivery), report.client_id,
+                             report.runtime->delivery_report(
+                                 report.request_id,
+                                 WebDeliveryStatus::Delivered));
+    } else {
+      report.runtime->report(
+          index(ServerChannel::RespondDelivery), report.client_id,
+          report.runtime->delivery_report(
+              report.request_id, WebDeliveryStatus::Dropped, 0,
+              Str{"the stream was reset before delivery"}));
+    }
+  }
+  pending_flush_reports_.erase(pending_flush_reports_.begin(),
+                               pending_flush_reports_.begin() +
+                                   static_cast<std::ptrdiff_t>(count));
+}
+
+void H2Driver::shutdown_send() {
+  if (closed_ || sent_fin_) {
+    return;
+  }
+  sent_fin_ = true;
+  beast::error_code ec;
+  static_cast<void>(beast::get_lowest_layer(stream_).socket().shutdown(
+      asio::ip::tcp::socket::shutdown_send, ec));
 }
 
 void H2Driver::close() {
   if (closed_) {
     return;
   }
-  closed_ = true;
-  // Retire every live stream: release reservations, unregister pending
-  // entries, and drop the maps so late graph answers report cleanly.
+  // Answers whose streams never closed report as write failures, then
+  // everything already queued flushes as failed too (review P1).
   for (auto &[stream_id, stream] : streams_) {
+    if (stream.response_submitted && stream.report_runtime) {
+      queue_report(std::move(stream.report_runtime), stream.report_client_id,
+                   stream.report_request_id, false);
+    }
     release_stream(stream_id, stream);
   }
+  flush_reports(pending_flush_reports_.size(), false);
+  closed_ = true;
   streams_.clear();
   request_to_stream_.clear();
   beast::error_code ec;
@@ -2944,6 +3036,18 @@ void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
   Stream &stream = found->second;
   if (stream.discarding) {
     engine_.consume(stream_id, data.size());
+    return;
+  }
+  if (stream.body.size() + data.size() >
+      stream.matched.runtime->config().max_body_bytes) {
+    // The per-request cap, the h2 mirror of Beast's body_limit: the
+    // over-cap body is never retained, and the window held by any
+    // unaccounted bytes is released before the stream starts discarding
+    // (review P1).
+    engine_.consume(stream_id, stream.unaccounted + data.size());
+    stream.unaccounted = 0;
+    stream.body = std::string{};
+    respond_transport(stream_id, 413, "body exceeds max_body_bytes");
     return;
   }
   stream.body.append(data);
@@ -3096,8 +3200,10 @@ void H2Driver::write_stream_response(
   const std::int32_t stream_id = found->second;
   request_to_stream_.erase(found);
   const auto stream_found = streams_.find(stream_id);
-  const bool head =
-      stream_found != streams_.end() && stream_found->second.head_fallback;
+  // HTTP HEAD semantics apply to every HEAD request, explicit route or
+  // GET fallback alike (review P2).
+  const bool head = stream_found != streams_.end() &&
+                    stream_found->second.method == HttpMethod::Head;
   if (stream_found != streams_.end()) {
     stream_found->second.request_id = -1;
   }
@@ -3147,9 +3253,17 @@ void H2Driver::write_stream_response(
   if (engine_.submit_response(stream_id, status, headers, std::move(body),
                               trailers)) {
     outstanding_response_bytes_ += response_bytes;
-    runtime->report(
-        index(ServerChannel::RespondDelivery), client_id,
-        runtime->delivery_report(request_id, WebDeliveryStatus::Delivered));
+    if (stream_found != streams_.end()) {
+      // Delivery is reported from the write pump once the stream closes
+      // and its bytes have left the connection — never at enqueue
+      // (review P1; the RFC separates acceptance from delivery).
+      Stream &stream = stream_found->second;
+      stream.response_bytes += response_bytes;
+      stream.response_submitted = true;
+      stream.report_client_id = client_id;
+      stream.report_request_id = request_id;
+      stream.report_runtime = runtime;
+    }
   } else {
     runtime->report(index(ServerChannel::RespondDelivery), client_id,
                     runtime->delivery_report(
@@ -3174,22 +3288,33 @@ void H2Driver::finish_stream_transport(Int request_id, int status,
   respond_transport(stream_id, status, body);
 }
 
-void H2Driver::on_stream_reset(std::int32_t stream_id, std::uint32_t) {
+void H2Driver::on_stream_reset(std::int32_t stream_id,
+                               std::uint32_t error_code) {
   const auto found = streams_.find(stream_id);
   if (found == streams_.end()) {
     return;
   }
   // Per-stream cancellation: exactly this request is retired; a late
   // graph answer will be reported Dropped (h2 acceptance criteria).
+  found->second.close_error = error_code;
   release_stream(stream_id, found->second);
 }
 
 void H2Driver::on_stream_closed(std::int32_t stream_id) {
   const auto found = streams_.find(stream_id);
-  if (found != streams_.end()) {
-    release_stream(stream_id, found->second);
-    streams_.erase(found);
+  if (found == streams_.end()) {
+    return;
   }
+  Stream &stream = found->second;
+  // The buffered-outbound budget frees as streams retire (review P1).
+  outstanding_response_bytes_ -=
+      std::min(outstanding_response_bytes_, stream.response_bytes);
+  if (stream.response_submitted && stream.report_runtime) {
+    queue_report(std::move(stream.report_runtime), stream.report_client_id,
+                 stream.report_request_id, stream.close_error == 0);
+  }
+  release_stream(stream_id, stream);
+  streams_.erase(found);
 }
 
 Value H2Driver::peer_value(const WebBindings &b) {
