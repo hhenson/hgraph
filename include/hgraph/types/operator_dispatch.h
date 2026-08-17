@@ -407,6 +407,42 @@ namespace hgraph
 
         void register_overload(OperatorImpl impl);
 
+        /**
+         * Registration installers — the reset-and-rebuild contract
+         * (RFC 0025, checkpoint 3).
+         *
+         * ``reset()`` empties the overload table; the installer list records
+         * registration INTENT and survives it. Core's standard operators and
+         * every installed extension register a keyed installer once
+         * (typically at native-module import); ``run_installers()`` applies
+         * every installer not yet applied since the last reset, so one
+         * rebuild call replays extension registration exactly as it replays
+         * core's. This is what keeps ``reset_registries`` correct in a
+         * process with extensions loaded — no call site maintains a manual
+         * re-registration list.
+         *
+         * An installer carries the extension's ENTIRE registration: native
+         * type metadata, operator overloads, and (for python extensions)
+         * the python scalar associations — which is why it is a
+         * ``std::function``: python-facing installers capture their
+         * module-lifetime ``nb`` class handles. Build-time machinery only;
+         * nothing here touches the per-tick path.
+         *
+         * Keys are unique: re-registering a key replaces the callback
+         * without re-applying an already-applied entry (registration entry
+         * points stay idempotent between resets). Installers run in
+         * first-registration order. An installer is marked applied only
+         * AFTER it returns: a throwing installer stays unapplied so a retry
+         * (or the next rebuild) runs it again — but the registry has no
+         * unregister, so whatever it registered before throwing remains;
+         * the safe recovery from a partial installation is
+         * reset-and-rebuild, which this mechanism makes cheap.
+         */
+        void register_installer(std::string_view key, std::function<void()> installer);
+
+        /** Apply every installer not applied since the last reset. */
+        void run_installers();
+
         /** Select the unique best candidate, with the normalised call it accepted. */
         [[nodiscard]] ResolvedOperatorCall resolve(
             std::string_view name,
@@ -509,9 +545,18 @@ namespace hgraph
             std::string                name{};
         };
 
+        struct Installer
+        {
+            std::string           key{};
+            std::function<void()> fn{};
+            bool                  applied{false};
+            bool                  running{false};
+        };
+
         std::unordered_map<std::string, std::vector<OperatorImpl>> overloads_{};
         std::vector<MeshScope>                                     mesh_scopes_{};
         std::vector<ContextScopeEntry>                             context_scopes_{};
+        std::vector<Installer>                                     installers_{};
     };
 
     namespace operator_dispatch_detail

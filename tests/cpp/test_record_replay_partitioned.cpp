@@ -10,7 +10,7 @@
 //     read back as a single cell;
 //   - a frame-valued leaf, where one tick is a RUN of recorded rows.
 
-#include <hgraph/lib/std/operators/impl/table_impl.h>
+#include <hgraph/lib/std/operators/table_rows.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>

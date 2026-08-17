@@ -434,10 +434,23 @@ namespace hgraph::record_replay
         {
             return {};
         }
-        if (!backend_is(state, MEMORY))
+        // Dispatched by the effective backend over exactly the ids core
+        // serves (RFC 0025): selection is open, so an unrecognised or
+        // extension-owned identifier must be a pointed error here — never a
+        // silent read through the transitional frame path, which would
+        // decode the wrong store (or nothing) during RECOVER.  Extension
+        // seed resolution arrives with extension overload registration
+        // (checkpoint 3/5).
+        const RecordReplayConfig cfg = config(state);
+        if (cfg.backend == TESTING || cfg.backend == FRAME_BACKEND)
         {
             return replay_const_value(state, fq_key, schema->value_schema, start_time,
                                       table::config(state).as_of.value_or(MAX_DT));
+        }
+        if (cfg.backend != MEMORY)
+        {
+            throw std::runtime_error("no recovery seed resolver for record/replay backend '" +
+                                     cfg.backend + "'");
         }
 
         const ValueView buffer = state.get(":memory:" + std::string{fq_key});

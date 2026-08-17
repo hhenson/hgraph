@@ -20,7 +20,7 @@
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/json.h>
 #include <hgraph/lib/std/operators/impl/io_impl.h>   // io_write_slot (sys.stdout routing)
-#include <hgraph/lib/std/operators/impl/table_impl.h>   // ts_table_layout (table_schema_info)
+#include <hgraph/lib/std/operators/table_rows.h>   // ts_table_layout (table_schema_info)
 #include <hgraph/runtime/logger.h>       // log::reset_logger (test support)
 #include <hgraph/runtime/node_error.h>   // node_error_ts_meta (exception_time_series)
 #include <hgraph/types/value/json_codec.h>          // to_json_string / from_json_string (builders)
@@ -160,6 +160,7 @@ NB_MODULE(_hgraph, m)
     bind_ports(m);
     bind_wiring(m);
     bind_state_and_services(m);
+    bind_persistence(m);
 
     m.def("_registry_generation", [] { return python_registry_generation; });
     // Rebuild the process logger (and its sinks) on demand: spdlog's Windows

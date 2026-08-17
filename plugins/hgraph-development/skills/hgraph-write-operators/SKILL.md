@@ -130,9 +130,25 @@ Follow the standard family layout:
    register_graph_overload<normalize, normalize_tsl_map>();
    ```
 
-5. Add a new family registration function to
-   `register_standard_operators()` when introducing a standard family. An
-   extension should expose and call its own explicit registration entry point.
+5. Add a new family registration function to the standard installer
+   (`install_standard_operators()` inside `registration.cpp`) when
+   introducing a standard family. An extension exposes its own explicit
+   registration entry point that records a KEYED INSTALLER and runs the
+   installer list (RFC 0025 checkpoint 3):
+
+   ```cpp
+   OperatorRegistry::instance().register_installer("my.extension", installer);
+   OperatorRegistry::instance().run_installers();
+   ```
+
+   The installer carries the extension's ENTIRE registration — native
+   types, operator overloads, and (for python extensions) the
+   `register_native_scalar_type` associations, capturing the `nb` class
+   handles — because a registry reset clears all three. Resets keep
+   installer intent, so one rebuild call replays the extension's
+   registration exactly as core's — idempotent between resets; a
+   throwing installer stays unapplied and is retried by the next
+   rebuild.
 
 When a new standard family is genuinely needed, also add its definition header
 to `operators/operators.h`, its implementation header to
@@ -142,8 +158,10 @@ creating a one-operator family.
 
 Never register from a static initializer. Registries are reset between tests,
 and candidate patterns borrow interned type metadata. Register standard types
-first, then overloads, once per registry lifetime. Tests that need standard
-operators call `stdlib::register_standard_operators()` before wiring.
+first, then overloads. Tests that need standard operators call
+`stdlib::register_standard_operators()` before wiring; it replays every
+registered installer (core and extensions) not yet applied since the last
+reset, so repeated calls are safe.
 
 ## Connect the same registry to Python
 

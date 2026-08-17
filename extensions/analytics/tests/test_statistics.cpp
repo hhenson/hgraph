@@ -1,7 +1,7 @@
 #include <hgraph/analytics/operators.h>
 
 #include <hgraph/lib/std/operators/collection.h>
-#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/types/record_replay.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/lib/testing/eval_node.h>
@@ -208,9 +208,16 @@ namespace
 
     void test_resample_schedule() {
         Wiring wiring;
-        auto   input  = wire<hgraph::stdlib::replay_impl, TS<Int>>(wiring, Str{"analytics_resample_in"});
+        // Wired through the PUBLIC operator markers (RFC 0025 checkpoint 3):
+        // an extension test selects the dense testing backend and lets the
+        // registry resolve the implementations — no impl headers.
+        hgraph::record_replay::set_config(
+            wiring.global_state(),
+            hgraph::record_replay::RecordReplayConfig{
+                .backend = std::string{hgraph::record_replay::TESTING}});
+        auto   input  = wire<hgraph::stdlib::replay, TS<Int>>(wiring, Str{"analytics_resample_in"});
         auto   output = wire<resample>(wiring, input, MIN_TD * 2);
-        wire<hgraph::stdlib::dense_record_impl>(wiring, output, Str{"analytics_resample_out"});
+        wire<hgraph::stdlib::record>(wiring, output, Str{"analytics_resample_out"});
 
         GraphBuilder graph_builder = std::move(wiring).finish();
         set_replay_values<Int>(graph_builder.global_state(), "analytics_resample_in", values<Int>(1, none, 3));

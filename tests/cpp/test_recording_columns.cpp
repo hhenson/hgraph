@@ -7,7 +7,7 @@
 // that drifts writes each cell one column to the left - which is silent, since
 // the types next to each other are frequently compatible.
 
-#include <hgraph/lib/std/operators/impl/table_impl.h>
+#include <hgraph/lib/std/operators/table_rows.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/value/table_codec.h>

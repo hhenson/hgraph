@@ -571,6 +571,30 @@ TEST_CASE("compare: a one-sided value is recorded as a mismatch")
     CHECK(summary->mismatches == 2);
 }
 
+TEST_CASE("compare: a fresh memory compare run zeroes the published summary")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
+
+    // Simulate a previous run's summary surviving in the shared state; a
+    // rerun that receives no ticks must report 0/0 (the frame compare's
+    // stop publishes exactly that), never these stale counts.
+    record_replay::publish_comparison_summary(
+        context.state().view(), "sided.__compare__",
+        record_replay::ComparisonSummary{.compared = 9, .mismatches = 9});
+
+    (void)eval_node<DirectCompareGraph>(values<Int>(), values<Int>());
+
+    const auto summary =
+        record_replay::comparison_summary(context.state().view(), "sided.__compare__");
+    REQUIRE(summary.has_value());
+    CHECK(summary->compared == 0);
+    CHECK(summary->mismatches == 0);
+}
+
 TEST_CASE("compare: an unrecognised backend matches no core overload")
 {
     stdlib::register_standard_operators();

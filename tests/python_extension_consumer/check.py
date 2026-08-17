@@ -48,6 +48,8 @@ def main() -> int:
         check = subprocess.run(
             [
                 sys.executable,
+                "-X",
+                "faulthandler",
                 "-c",
                 """
 import importlib
@@ -108,15 +110,79 @@ except ValueError:
 else:
     raise RuntimeError("built-in native-schema registration was replaced")
 
+# The extension also registered an external record/replay backend
+# ("probe.mem") for the CORE operator markers through public installed
+# headers (RFC 0025 checkpoint 3). Selecting its backend id resolves its
+# overloads from unchanged hgraph imports, on the Python surface.
+from hgraph import TS as _TS, graph, record, replay, set_record_replay_model
+
+with hgraph.GlobalState() as _probe_state:
+    set_record_replay_model("probe.mem")
+
+    @graph
+    def _probe_record(ts: _TS[int]):
+        record(ts, key="probe_out")
+
+    eval_node(_probe_record, [7, 8])
+    assert _probe_state[":probe:probe_out.n"] == 2
+    assert _probe_state[":probe:probe_out.0"] == 7
+    assert _probe_state[":probe:probe_out.1"] == 8
+
+    @graph
+    def _probe_replay() -> _TS[int]:
+        return replay("probe_out", _TS[int])
+
+    assert eval_node(_probe_replay) == [7, 8]
+
+# Registry reset invalidates the interned metadata every live object of the
+# current generation points at (a documented test-only hazard), so nothing
+# from this generation may survive it — not the probe GlobalState, and not
+# the @graph objects whose decoration-time type handles would otherwise be
+# destroyed against freed metadata at interpreter exit.
+del _probe_state, _probe_record, _probe_replay
+import gc as _gc
+_gc.collect()
+
+# reset_registries replays the extension installer exactly as core's —
+# operator overloads AND the python scalar association alike.
+_hgraph.reset_registries()
+assert scalar_type(TS[consumer.ConsumerScalar]) is consumer.ConsumerScalar
+assert repr(TS[consumer.ConsumerScalar].handle) == (
+    "TS[hgraph.test.consumer_scalar]"
+)
+with hgraph.GlobalState() as _probe_state:
+    set_record_replay_model("probe.mem")
+
+    # Re-decorated after the reset: a @graph object captures resolved type
+    # handles at decoration time, and the reset invalidated that generation.
+    @graph
+    def _probe_record_again(ts: _TS[int]):
+        record(ts, key="probe_out")
+
+    eval_node(_probe_record_again, [9])
+    assert _probe_state[":probe:probe_out.0"] == 9
+
 print(f"installed Python extension consumer passed: registry={address:#x}")
+
+# Skip final interpreter teardown: after a registry reset, the hgraph
+# package's import-time native handles all belong to the freed generation,
+# and exit-time garbage collection destroying them segfaults on Linux
+# (macOS happens to tolerate it). That is the documented test-only reset
+# hazard, not a defect this consumer should die on — everything above has
+# been asserted and reported.
+import os as _os
+sys.stdout.flush()
+_os._exit(0)
 """,
                 str(module_dir),
             ],
-            check=True,
             capture_output=True,
             text=True,
         )
         print(check.stdout, end="")
+        if check.returncode != 0:
+            print(check.stderr, file=sys.stderr, end="")
+            raise SystemExit(check.returncode)
     return 0
 
 

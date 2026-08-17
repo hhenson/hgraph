@@ -47,8 +47,6 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("NOT_AVAILABLE", KafkaTimestampType::NotAvailable)
           .value("CREATE_TIME", KafkaTimestampType::CreateTime)
           .value("LOG_APPEND_TIME", KafkaTimestampType::LogAppendTime);
-  python_bridge::register_native_scalar_type<KafkaTimestampType>(
-      timestamp_type);
 
   auto subscription_state =
       nb::enum_<KafkaSubscriptionState>(module, "KafkaSubscriptionState")
@@ -59,8 +57,6 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("RETRYING", KafkaSubscriptionState::Retrying)
           .value("STOPPED", KafkaSubscriptionState::Stopped)
           .value("FAILED", KafkaSubscriptionState::Failed);
-  python_bridge::register_native_scalar_type<KafkaSubscriptionState>(
-      subscription_state);
 
   auto delivery_status =
       nb::enum_<KafkaDeliveryStatus>(module, "KafkaDeliveryStatus")
@@ -69,8 +65,6 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("DELIVERED", KafkaDeliveryStatus::Delivered)
           .value("RETRIABLE_FAILURE", KafkaDeliveryStatus::RetriableFailure)
           .value("PERMANENT_FAILURE", KafkaDeliveryStatus::PermanentFailure);
-  python_bridge::register_native_scalar_type<KafkaDeliveryStatus>(
-      delivery_status);
 
   auto severity = nb::enum_<KafkaSeverity>(module, "KafkaSeverity")
                       .value("DEBUG", KafkaSeverity::Debug)
@@ -78,27 +72,22 @@ NB_MODULE(_hgraph_kafka, module) {
                       .value("WARNING", KafkaSeverity::Warning)
                       .value("ERROR", KafkaSeverity::Error)
                       .value("FATAL", KafkaSeverity::Fatal);
-  python_bridge::register_native_scalar_type<KafkaSeverity>(severity);
 
   auto commit_mode =
       nb::enum_<KafkaCommitMode>(module, "KafkaCommitMode")
           .value("NONE", KafkaCommitMode::None)
           .value("ON_GRAPH_DELIVERY", KafkaCommitMode::OnGraphDelivery)
           .value("EXPLICIT", KafkaCommitMode::Explicit);
-  python_bridge::register_native_scalar_type<KafkaCommitMode>(commit_mode);
 
   auto assignment_mode =
       nb::enum_<KafkaAssignmentMode>(module, "KafkaAssignmentMode")
           .value("GROUP", KafkaAssignmentMode::Group)
           .value("INDEPENDENT", KafkaAssignmentMode::Independent);
-  python_bridge::register_native_scalar_type<KafkaAssignmentMode>(
-      assignment_mode);
 
   auto selector_kind = nb::enum_<KafkaSelectorKind>(module, "KafkaSelectorKind")
                            .value("TOPICS", KafkaSelectorKind::Topics)
                            .value("PATTERN", KafkaSelectorKind::Pattern)
                            .value("PARTITIONS", KafkaSelectorKind::Partitions);
-  python_bridge::register_native_scalar_type<KafkaSelectorKind>(selector_kind);
 
   auto start_kind =
       nb::enum_<KafkaStartPositionKind>(module, "KafkaStartPositionKind")
@@ -108,8 +97,6 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("TIMESTAMP", KafkaStartPositionKind::Timestamp)
           .value("OFFSETS", KafkaStartPositionKind::Offsets)
           .value("GRAPH_START_TIME", KafkaStartPositionKind::GraphStartTime);
-  python_bridge::register_native_scalar_type<KafkaStartPositionKind>(
-      start_kind);
 
   auto stop_kind =
       nb::enum_<KafkaStopPositionKind>(module, "KafkaStopPositionKind")
@@ -118,48 +105,60 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("GRAPH_LIFETIME", KafkaStopPositionKind::GraphLifetime)
           .value("TIMESTAMP", KafkaStopPositionKind::Timestamp)
           .value("OFFSETS", KafkaStopPositionKind::Offsets);
-  python_bridge::register_native_scalar_type<KafkaStopPositionKind>(stop_kind);
 
   auto offset_fallback =
       nb::enum_<KafkaOffsetFallback>(module, "KafkaOffsetFallback")
           .value("EARLIEST", KafkaOffsetFallback::Earliest)
           .value("LATEST", KafkaOffsetFallback::Latest)
           .value("FAIL", KafkaOffsetFallback::Fail);
-  python_bridge::register_native_scalar_type<KafkaOffsetFallback>(
-      offset_fallback);
 
   auto recovery_clock =
       nb::enum_<KafkaRecoveryClock>(module, "KafkaRecoveryClock")
           .value("ARRIVAL", KafkaRecoveryClock::Arrival)
           .value("RECORD_TIMESTAMP", KafkaRecoveryClock::RecordTimestamp);
-  python_bridge::register_native_scalar_type<KafkaRecoveryClock>(
-      recovery_clock);
 
   auto merge_policy =
       nb::enum_<KafkaMergePolicy>(module, "KafkaMergePolicy")
           .value("PARTITION", KafkaMergePolicy::Partition)
           .value("TIMESTAMP_TOPIC_PARTITION_OFFSET",
                  KafkaMergePolicy::TimestampTopicPartitionOffset);
-  python_bridge::register_native_scalar_type<KafkaMergePolicy>(merge_policy);
 
   auto overflow_action =
       nb::enum_<KafkaOverflowAction>(module, "KafkaOverflowAction")
           .value("FAIL", KafkaOverflowAction::Fail)
           .value("DROP", KafkaOverflowAction::Drop)
           .value("STAGE", KafkaOverflowAction::Stage);
-  python_bridge::register_native_scalar_type<KafkaOverflowAction>(
-      overflow_action);
 
   auto failure_policy =
       nb::enum_<KafkaFailurePolicy>(module, "KafkaFailurePolicy")
           .value("REPORT", KafkaFailurePolicy::Report)
           .value("STOP_GRAPH", KafkaFailurePolicy::StopGraph);
-  python_bridge::register_native_scalar_type<KafkaFailurePolicy>(
-      failure_policy);
 
-  register_kafka_types();
-  register_graph_overload<RegisterKafkaServiceOperator,
-                          RegisterKafkaServiceGraph>();
+  // Keyed installer (RFC 0025 checkpoint 3): the extension's ENTIRE
+  // registration — native types, operator overloads, AND the python
+  // scalar associations (the captured class handles) — so a registry
+  // reset-and-rebuild replays this extension exactly as it replays core.
+  hgraph::OperatorRegistry::instance().register_installer(
+      "hgraph.kafka", [=] {
+        register_kafka_types();
+        register_graph_overload<RegisterKafkaServiceOperator,
+                                RegisterKafkaServiceGraph>();
+        python_bridge::register_native_scalar_type<KafkaTimestampType>(timestamp_type);
+        python_bridge::register_native_scalar_type<KafkaSubscriptionState>(subscription_state);
+        python_bridge::register_native_scalar_type<KafkaDeliveryStatus>(delivery_status);
+        python_bridge::register_native_scalar_type<KafkaSeverity>(severity);
+        python_bridge::register_native_scalar_type<KafkaCommitMode>(commit_mode);
+        python_bridge::register_native_scalar_type<KafkaAssignmentMode>(assignment_mode);
+        python_bridge::register_native_scalar_type<KafkaSelectorKind>(selector_kind);
+        python_bridge::register_native_scalar_type<KafkaStartPositionKind>(start_kind);
+        python_bridge::register_native_scalar_type<KafkaStopPositionKind>(stop_kind);
+        python_bridge::register_native_scalar_type<KafkaOffsetFallback>(offset_fallback);
+        python_bridge::register_native_scalar_type<KafkaRecoveryClock>(recovery_clock);
+        python_bridge::register_native_scalar_type<KafkaMergePolicy>(merge_policy);
+        python_bridge::register_native_scalar_type<KafkaOverflowAction>(overflow_action);
+        python_bridge::register_native_scalar_type<KafkaFailurePolicy>(failure_policy);
+      });
+  hgraph::OperatorRegistry::instance().run_installers();
 
   nb::enum_<testing::MockProduceError>(module, "MockProduceError")
       .value("RETRIABLE", testing::MockProduceError::Retriable)

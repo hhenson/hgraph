@@ -412,6 +412,12 @@ checkpoint-5 move):
 - **``replay_const_value(fq_key, meta, tm, as_of)``** — the const read
   (Python's ``replay_const``, a plain function per the const_fn ruling):
   the last row with value-time <= ``tm`` and as-of <= ``as_of``.
+- **``recorded_seed_resolver``** (``component`` RECOVER) dispatches over
+  exactly the backend ids core serves: ``"memory"`` reads the sparse
+  ``:memory:`` buffer; ``"testing"`` and the transitional frame id read
+  through ``replay_const_value``; anything else is a pointed error naming
+  the backend — extension seed resolution registers with the extension
+  (RFC 0025, checkpoints 3/5).
 
 The release/0.5 ``DataFrameStorage`` surface is now a compatibility adapter,
 not a second recorder. It offers the native bridge only
@@ -547,7 +553,10 @@ not) and is recorded as a failure — never skipped.
 stop alongside its detailed rows, the memory compare per tick with its
 counters resolved at start (published before the failing throw, so a
 shared-GlobalState caller sees the mismatching tick; a bare compare
-outside any recordable scope publishes nothing).
+outside any recordable scope publishes nothing).  The memory compare
+also publishes ``0/0`` at START: a rerun over the same ``GlobalState``
+that receives no ticks reports an empty run — matching the frame
+compare's empty stop — never the previous run's counts.
 ``record_replay::comparison_summary(state, fq_key)`` is the **total,
 Arrow-free query**: ``optional<ComparisonSummary>``, ``nullopt`` when
 nothing was published (the Python binding keeps its raise-on-absent
@@ -606,7 +615,11 @@ record/replay backend's fused Arrow route; the frame round-trip remains
 reachable through ``TS[Frame[...]]`` payloads below). Python-parity rules:
 
 - **Row layout** (synthesised once per resolved input TS schema + configured
-  bitemporal names, the serializer-ops pattern):
+  bitemporal names, the serializer-ops pattern; since RFC 0025 checkpoint 3
+  the layout/traversal seam is the SUPPORTED public header
+  ``lib/std/operators/table_rows.h`` — the seam a durable-backend extension
+  consumes — with ``impl/table_impl.h`` keeping only the operator
+  implementations over it):
   ``[date_key, as_of_key, {removed, *key-cols}(per TSD level), *value-cols]``.
   Value columns are the ``TableConverter`` flattening (bundles dotted).
   Partition-key columns follow Python's naming: level *N* of a TSD

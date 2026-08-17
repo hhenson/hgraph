@@ -15,6 +15,7 @@
 #include "py_bindings.h"
 #include "py_runtime.h"
 
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/python/ts_data_conversion.h>
 
 namespace nb = nanobind;

@@ -605,6 +605,55 @@ namespace hgraph
         overloads_[impl.name].push_back(std::move(impl));
     }
 
+    void OperatorRegistry::register_installer(std::string_view key, std::function<void()> installer)
+    {
+        for (Installer &entry : installers_)
+        {
+            if (entry.key == key)
+            {
+                // Replace the callback, keep the applied state: entry points
+                // stay idempotent between resets. A previously FAILED
+                // attempt left applied=false, so a replaced callback runs on
+                // the next rebuild.
+                entry.fn = std::move(installer);
+                return;
+            }
+        }
+        installers_.push_back(Installer{.key = std::string{key}, .fn = std::move(installer)});
+    }
+
+    void OperatorRegistry::run_installers()
+    {
+        // Indexed iteration: an installer may register further installers
+        // (an entry point that fans out), which reallocates the vector — and
+        // freshly appended entries are picked up in the same pass.
+        for (std::size_t i = 0; i < installers_.size(); ++i)
+        {
+            if (installers_[i].applied || installers_[i].running || !installers_[i].fn)
+            {
+                continue;
+            }
+            // ``running`` guards re-entrancy (an installer that indirectly
+            // re-enters the rebuild must not replay itself); ``applied`` is
+            // set only AFTER success so a throwing installer is retried by
+            // the next rebuild rather than silently stranded.
+            installers_[i].running = true;
+            try
+            {
+                // Copy: the stored entry may move if the callback appends.
+                const std::function<void()> fn = installers_[i].fn;
+                fn();
+            }
+            catch (...)
+            {
+                installers_[i].running = false;
+                throw;
+            }
+            installers_[i].running = false;
+            installers_[i].applied = true;
+        }
+    }
+
     Value OperatorRegistry::evaluate_const(std::string_view name, std::span<const WiringArg> args,
                                            const TSValueTypeMetaData *expected_output,
                                            GlobalStateView global_state) const
@@ -835,6 +884,10 @@ namespace hgraph
         mesh_scopes_.clear();
         context_scopes_.clear();
         record_replay::reset();   // config + mode scopes (types/record_replay.h)
+        // Registration INTENT survives the reset: clear only the applied
+        // flags so the next run_installers() replays every installer —
+        // extensions exactly as core (RFC 0025 checkpoint 3).
+        for (Installer &entry : installers_) { entry.applied = false; }
     }
 
     void OperatorRegistry::push_context_scope(std::string_view name, WiringPortRef port, const void *wiring)

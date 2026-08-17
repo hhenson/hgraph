@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_TESTING_EVAL_NODE_H
 #define HGRAPH_LIB_TESTING_EVAL_NODE_H
 
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/call_args.h>

@@ -657,7 +657,12 @@ handle's properties (``_TsExpr.from_ts``).
 **Implementations** are a parallel tree under ``include/hgraph/lib/std/operators/impl/``:
 each definition file ``<family>.h`` has a matching ``impl/<family>_impl.h`` holding the
 concrete overloads and a ``register_<family>_operators()`` function, and
-``impl/operators_impl.h`` aggregates them into ``register_standard_operators()``. The
+``impl/operators_impl.h`` aggregates them into ``register_standard_operators()`` —
+which since RFC 0025 checkpoint 3 records the whole list as the keyed
+installer ``"hgraph.stdlib"`` on ``OperatorRegistry`` and then runs every
+registered installer: a registry reset keeps installer intent, so one
+rebuild call replays core and every extension alike, idempotently
+between resets. The
 implemented subset currently covers scalar arithmetic (``impl/arithmetic_impl.h``),
 scalar comparison (``impl/comparison_impl.h``), scalar logical / bitwise operators
 (``impl/logical_impl.h``), string operators (``match_`` / ``replace`` /
