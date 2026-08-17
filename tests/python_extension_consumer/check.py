@@ -132,6 +132,11 @@ with hgraph.GlobalState() as _probe_state:
 
     assert eval_node(_probe_replay) == [7, 8]
 
+# Registry reset invalidates the interned metadata every live value points
+# at (a documented test-only hazard), so no GlobalState object may survive
+# across it — release the first probe state BEFORE resetting.
+del _probe_state
+
 # reset_registries replays the extension installer exactly as core's —
 # operator overloads AND the python scalar association alike.
 _hgraph.reset_registries()
@@ -141,7 +146,14 @@ assert repr(TS[consumer.ConsumerScalar].handle) == (
 )
 with hgraph.GlobalState() as _probe_state:
     set_record_replay_model("probe.mem")
-    eval_node(_probe_record, [9])
+
+    # Re-decorated after the reset: a @graph object captures resolved type
+    # handles at decoration time, and the reset invalidated that generation.
+    @graph
+    def _probe_record_again(ts: _TS[int]):
+        record(ts, key="probe_out")
+
+    eval_node(_probe_record_again, [9])
     assert _probe_state[":probe:probe_out.0"] == 9
 
 print(f"installed Python extension consumer passed: registry={address:#x}")
