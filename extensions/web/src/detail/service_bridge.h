@@ -133,6 +133,7 @@ public:
       channel.sender = PushSourceSender{};
       channel.watermark = WatermarkConfig{};
       channel.paused = false;
+      channel.delivered_paused = false;
     }
   }
 
@@ -141,6 +142,7 @@ public:
     auto &state = at(channel);
     state.watermark = std::move(config);
     state.paused = false;
+    state.delivered_paused = false;
   }
 
   [[nodiscard]] bool push(std::size_t channel, Value value,
@@ -196,7 +198,7 @@ public:
 
   [[nodiscard]] std::optional<Value> pop(std::size_t channel) {
     std::optional<Value> result;
-    std::function<void(bool)> resume;
+    bool notify = false;
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
@@ -215,11 +217,11 @@ public:
           state.payload_records <= state.watermark.low.records &&
           state.payload_bytes <= state.watermark.low.bytes) {
         state.paused = false;
-        resume = state.watermark.callback;
+        notify = true;
       }
     }
-    if (resume) {
-      resume(false);
+    if (notify) {
+      deliver_watermark(channel);
     }
     return result;
   }
@@ -273,15 +275,40 @@ public:
     return true;
   }
 
+  /** Extend a live reservation by bytes only (no extra record): the
+   * incremental WebSocket read path reserves as chunks arrive, so an idle
+   * connection holds no standing reservation (review P1). */
+  [[nodiscard]] bool grow_reservation(std::size_t channel,
+                                      std::size_t additional_bytes) {
+    std::lock_guard lock{mutex_};
+    auto &state = at(channel);
+    if (!accepting_ || state.reserved_records == 0 ||
+        additional_bytes >
+            state.limits.bytes -
+                std::min(state.payload_bytes + state.reserved_bytes,
+                         state.limits.bytes)) {
+      return false;
+    }
+    state.reserved_bytes += additional_bytes;
+    return true;
+  }
+
   [[nodiscard]] bool push_reserved(std::size_t channel, Value value,
                                    std::size_t retained_bytes,
                                    std::size_t reserved_bytes) {
     PushSourceSender wake;
     Int generation{};
-    std::function<void(bool)> pause;
+    bool notify = false;
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
+      if (!accepting_) {
+        // stop() already discarded every reservation; a late completion
+        // racing a shared listener's teardown is rejected, never treated
+        // as a broken invariant that would throw across io_context::run()
+        // (review P1).
+        return false;
+      }
       if (state.reserved_records == 0 ||
           state.reserved_bytes < reserved_bytes) {
         throw std::logic_error("Web bridge output reservation is not live");
@@ -291,9 +318,6 @@ public:
       }
       --state.reserved_records;
       state.reserved_bytes -= reserved_bytes;
-      if (!accepting_) {
-        return false;
-      }
       const bool became_head = state.values.empty();
       state.values.push_back(
           QueuedValue{std::move(value), retained_bytes, false});
@@ -312,16 +336,39 @@ public:
           (state.payload_records >= state.watermark.high.records ||
            state.payload_bytes >= state.watermark.high.bytes)) {
         state.paused = true;
-        pause = state.watermark.callback;
+        notify = true;
       }
     }
     if (wake.valid()) {
       wake.send(generation);
     }
-    if (pause) {
-      pause(true);
+    if (notify) {
+      deliver_watermark(channel);
     }
     return true;
+  }
+
+  /** Serialized watermark delivery: each invocation re-reads the CURRENT
+   * pause state and the delivery mutex totally orders the callbacks, so a
+   * producer's pause and the graph's resume can never be observed out of
+   * order by the transport (review P1).  The channel mutex is not held
+   * while the callback runs. */
+  void deliver_watermark(std::size_t channel) {
+    std::lock_guard delivery{watermark_delivery_mutex_};
+    std::function<void(bool)> callback;
+    bool desired{};
+    {
+      std::lock_guard lock{mutex_};
+      auto &state = at(channel);
+      if (!state.watermark.callback ||
+          state.delivered_paused == state.paused) {
+        return;
+      }
+      desired = state.paused;
+      state.delivered_paused = desired;
+      callback = state.watermark.callback;
+    }
+    callback(desired);
   }
 
   void release_reservation(std::size_t channel,
@@ -382,6 +429,7 @@ private:
     bool wake_outstanding{};
     WatermarkConfig watermark{};
     bool paused{};
+    bool delivered_paused{};
   };
 
   static void remove_accounting(Channel &state,
@@ -400,7 +448,7 @@ private:
                                std::size_t retained_bytes, bool control) {
     PushSourceSender wake;
     Int generation{};
-    std::function<void(bool)> pause;
+    bool notify = false;
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
@@ -437,14 +485,14 @@ private:
           (state.payload_records >= state.watermark.high.records ||
            state.payload_bytes >= state.watermark.high.bytes)) {
         state.paused = true;
-        pause = state.watermark.callback;
+        notify = true;
       }
     }
     if (wake.valid()) {
       wake.send(generation);
     }
-    if (pause) {
-      pause(true);
+    if (notify) {
+      deliver_watermark(channel);
     }
     return true;
   }
@@ -458,6 +506,9 @@ private:
   }
 
   mutable std::mutex mutex_{};
+  // Serializes watermark callback delivery; never held with a callback's
+  // own locks while mutex_ is held (see deliver_watermark).
+  std::mutex watermark_delivery_mutex_{};
   std::array<Channel, ChannelCount> channels_{};
   bool accepting_{};
 };

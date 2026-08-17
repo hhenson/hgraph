@@ -597,6 +597,10 @@ public:
   [[nodiscard]] bool reserve_ws_ingress(std::size_t bytes) {
     return bridge_.value->reserve(index(ServerChannel::WsIngress), bytes);
   }
+  [[nodiscard]] bool grow_ws_reservation(std::size_t bytes) {
+    return bridge_.value->grow_reservation(index(ServerChannel::WsIngress),
+                                           bytes);
+  }
   void release_ws_reservation(std::size_t bytes) noexcept {
     bridge_.value->release_reservation(index(ServerChannel::WsIngress),
                                        bytes);
@@ -766,6 +770,8 @@ private:
   void accept_ws(MatchedRoute matched);
   void ws_read_next();
   void ws_read_continue();
+  void ws_account_chunk();
+  void ws_continue_message();
   void deliver_ws_ingress(Value inbound, std::size_t bytes);
   void release_ws_reservation_held() noexcept;
   void write_response(Int request_id, const Value &response, Int client_id,
@@ -810,6 +816,7 @@ private:
   std::size_t admitted_bytes_{};
   std::shared_ptr<WebServerRuntime> admitted_runtime_{};
   std::size_t ws_reserved_bytes_{};
+  std::size_t ws_unaccounted_bytes_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
   std::shared_ptr<WebServerRuntime> ws_runtime_{};
@@ -1697,12 +1704,17 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
   for (const auto &field : header) {
     header_bytes += field.name_string().size() + field.value().size();
   }
-  // Projection mirrors build_server_request's retained estimate; without a
-  // Content-Length (chunked) the body limit is the only bound.
+  // Projection mirrors build_server_request's retained estimate.  A
+  // header-complete message (a bodyless GET/HEAD) projects zero body
+  // bytes — treating it as potentially chunked would reserve the whole
+  // body limit per request and starve concurrent admission (review P1);
+  // only genuinely chunked framing falls back to the body limit.
   const auto content_length = parser_->content_length();
   const std::size_t projected_body =
-      content_length.has_value() ? static_cast<std::size_t>(*content_length)
-                                 : config_->max_body_bytes;
+      parser_->is_done() ? 0
+      : content_length.has_value()
+          ? static_cast<std::size_t>(*content_length)
+          : config_->max_body_bytes;
   const std::size_t projected =
       projected_body + header_bytes + header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
@@ -2161,8 +2173,11 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
 }
 
 void ServerConnection::ws_read_next() {
+  const std::size_t chunk =
+      std::min<std::size_t>(64 * 1024, config_->ws_max_message_bytes);
   const auto on_read = asio::bind_executor(
-      strand_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
+      strand_,
+      [self = shared_from_this()](beast::error_code ec, std::size_t received) {
         const std::shared_ptr<WebServerRuntime> runtime = self->ws_runtime_;
         if (ec) {
           self->release_ws_reservation_held();
@@ -2195,39 +2210,49 @@ void ServerConnection::ws_read_next() {
           self->close();
           return;
         }
-        const bool text = self->plain_ws_.has_value()
-                              ? self->plain_ws_->got_text()
-                              : self->tls_ws_->got_text();
-        const auto data = self->ws_read_buffer_.data();
-        std::string payload{static_cast<const char *>(data.data()),
-                            data.size()};
-        self->ws_read_buffer_.consume(self->ws_read_buffer_.size());
-        const auto &b = runtime->bindings();
-        const std::size_t frame_bytes = payload.size() + 256;
-        Value frame =
-            text ? build_on(b.ws_frame,
-                            {
-                                {"kind", b.enum_value(WsFrameKind::Text)},
-                                {"text", b.string(Str{std::move(payload)})},
-                            })
-                 : build_on(b.ws_frame,
-                            {
-                                {"kind", b.enum_value(WsFrameKind::Binary)},
-                                {"data", b.bytes(Bytes{std::move(payload)})},
-                            });
-        Value inbound =
-            build_on(b.ws_inbound_frame,
-                     {
-                         {"connection_id", b.number(self->ws_connection_id_)},
-                         {"frame", std::move(frame)},
-                     });
-        self->deliver_ws_ingress(std::move(inbound), frame_bytes);
+        self->ws_unaccounted_bytes_ += received;
+        self->ws_account_chunk();
       });
   if (plain_ws_.has_value()) {
-    plain_ws_->async_read(ws_read_buffer_, on_read);
+    plain_ws_->async_read_some(ws_read_buffer_, chunk, on_read);
   } else {
-    tls_ws_->async_read(ws_read_buffer_, on_read);
+    tls_ws_->async_read_some(ws_read_buffer_, chunk, on_read);
   }
+}
+
+void ServerConnection::ws_continue_message() {
+  const bool done = plain_ws_.has_value() ? plain_ws_->is_message_done()
+                                          : tls_ws_->is_message_done();
+  if (!done) {
+    ws_read_next();
+    return;
+  }
+  const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
+  const bool text = plain_ws_.has_value() ? plain_ws_->got_text()
+                                          : tls_ws_->got_text();
+  const auto data = ws_read_buffer_.data();
+  std::string payload{static_cast<const char *>(data.data()), data.size()};
+  ws_read_buffer_.consume(ws_read_buffer_.size());
+  const auto &b = runtime->bindings();
+  const std::size_t frame_bytes = payload.size() + 256;
+  Value frame =
+      text ? build_on(b.ws_frame,
+                      {
+                          {"kind", b.enum_value(WsFrameKind::Text)},
+                          {"text", b.string(Str{std::move(payload)})},
+                      })
+           : build_on(b.ws_frame,
+                      {
+                          {"kind", b.enum_value(WsFrameKind::Binary)},
+                          {"data", b.bytes(Bytes{std::move(payload)})},
+                      });
+  Value inbound =
+      build_on(b.ws_inbound_frame,
+               {
+                   {"connection_id", b.number(ws_connection_id_)},
+                   {"frame", std::move(frame)},
+               });
+  deliver_ws_ingress(std::move(inbound), frame_bytes);
 }
 
 void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
@@ -2247,16 +2272,28 @@ void ServerConnection::ws_read_continue() {
   if (shutting_down_) {
     return;
   }
-  // A message read may retain up to the message limit before any push, so
-  // the capacity is reserved BEFORE the read is armed and transferred to
-  // the queued value on delivery — concurrent reads across connections are
-  // bounded by ws_ingress_byte_limit, not by connection count (review P1).
+  ws_read_next();
+}
+
+// Chunked accounting (review P1): capacity is reserved incrementally as
+// data arrives, not up-front for a maximal message — an idle connection
+// holds NO standing reservation, so healthy-but-quiet WebSockets cannot
+// monopolize the ingress limit.  The only unaccounted memory is one
+// in-flight chunk per connection, the same order as the kernel socket
+// buffer that precedes it.
+void ServerConnection::ws_account_chunk() {
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
-  const std::size_t reservation =
-      runtime->config().ws_max_message_bytes + 256;
-  if (runtime->reserve_ws_ingress(reservation)) {
-    ws_reserved_bytes_ = reservation;
-    ws_read_next();
+  const std::size_t pending = ws_unaccounted_bytes_;
+  // The first chunk of a message takes the record slot and the envelope
+  // overhead; later chunks grow the same reservation by bytes only.
+  const bool first = ws_reserved_bytes_ == 0;
+  const std::size_t wanted = first ? pending + 256 : pending;
+  const bool accounted = first ? runtime->reserve_ws_ingress(wanted)
+                               : runtime->grow_ws_reservation(wanted);
+  if (accounted) {
+    ws_reserved_bytes_ += wanted;
+    ws_unaccounted_bytes_ = 0;
+    ws_continue_message();
     return;
   }
   if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
@@ -2267,13 +2304,14 @@ void ServerConnection::ws_read_continue() {
     ws_close(websocket::close_code{1013}, "server is at capacity");
     return;
   }
-  // Backpressure: no read is armed, so TCP backpressure propagates.  Wake
-  // on the watermark resume when a pauser is registered; otherwise poll —
+  // Backpressure: hold what is already read and retry the accounting; no
+  // further read is armed, so TCP backpressure propagates.  Wake on the
+  // watermark resume when a pauser is registered; otherwise poll —
   // reservations occupy capacity without engaging the payload watermark.
   if (listener_->reads_paused(WebListener::ReadTier::Ws)) {
     listener_->park_for_resume(
         WebListener::ReadTier::Ws, [self = shared_from_this()] {
-          asio::post(self->strand_, [self] { self->ws_read_continue(); });
+          asio::post(self->strand_, [self] { self->ws_account_chunk(); });
         });
     return;
   }
@@ -2282,7 +2320,7 @@ void ServerConnection::ws_read_continue() {
   retry->async_wait(asio::bind_executor(
       strand_, [self = shared_from_this(), retry](beast::error_code ec) {
         if (!ec && !self->shutting_down_) {
-          self->ws_read_continue();
+          self->ws_account_chunk();
         }
       }));
 }
@@ -2292,6 +2330,7 @@ void ServerConnection::release_ws_reservation_held() noexcept {
     ws_runtime_->release_ws_reservation(ws_reserved_bytes_);
     ws_reserved_bytes_ = 0;
   }
+  ws_unaccounted_bytes_ = 0;
 }
 
 void ServerConnection::queue_ws_frame(

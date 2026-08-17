@@ -537,13 +537,18 @@ connection reads headers first, projects the request's retained bytes from
 ``Content-Length`` (the body limit when chunked), and reserves that on the
 ingress channel — records and bytes under one lock — before reading the
 body; the reserved push then transfers the reservation to the queued value
-and cannot fail for lack of space.  A WebSocket connection reserves
-``ws_max_message_bytes`` before arming each message read, so concurrent
-in-flight reads across all connections are bounded by
-``ws_ingress_byte_limit``, not by connection count.  On reservation
-failure the explicit ``inbound_overflow`` policy applies: ``Backpressure``
-leaves the request unread in the kernel (no read is armed); ``Reject``
-answers 503 / closes 1013 from the transport without graph involvement.
+and cannot fail for lack of space.  A WebSocket connection accounts
+incrementally: message data is read in bounded chunks and each chunk is
+reserved as it arrives (growing one reservation per message), so an idle
+connection holds no standing reservation and healthy-but-quiet sockets
+cannot monopolize the ingress limit — the only unaccounted memory is one
+in-flight chunk per connection, the same order as the kernel socket buffer
+that precedes it.  On reservation failure the explicit
+``inbound_overflow`` policy applies: ``Backpressure`` leaves the payload
+unread in the kernel (no further read is armed); ``Reject`` answers 503 /
+closes 1013 from the transport without graph involvement.  A stopped
+bridge rejects late completions from a shared listener's still-draining
+connections instead of treating them as errors.
 Configuration floors guarantee a single maximal payload always fits an
 empty channel, so an admitted wait always terminates.
 
