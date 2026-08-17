@@ -571,6 +571,20 @@ TEST_CASE("compare: a one-sided value is recorded as a mismatch")
     CHECK(summary->mismatches == 2);
 }
 
+TEST_CASE("compare: an unrecognised backend matches no core overload")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    // Backend selection is OPEN (RFC 0025): every core compare guard names
+    // exactly the ids it serves, so an identifier no installed
+    // implementation recognises is the documented no-match wiring error —
+    // never a silent fall-through into the built-in frame compare.
+    record_replay::set_config(context.state().view(),
+                              record_replay::RecordReplayConfig{.backend = "acme.custom"});
+    CHECK_THROWS_AS((void)eval_node<DirectCompareGraph>(values<Int>(1), values<Int>(1)),
+                    OperatorResolutionError);
+}
+
 namespace
 {
     /** Two components claiming the SAME recordable id in one wiring. */

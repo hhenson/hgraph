@@ -14,6 +14,9 @@
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 
+#include <atomic>
+#include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -55,17 +58,25 @@ namespace hgraph::record_replay
 
         void ensure_summary_type()
         {
-            // Once per process: the memory compare publishes per tick, and
-            // the per-tick path must not acquire the registry's counted
-            // mutex (single-threaded evaluation ruling). set_config also
-            // registers eagerly so evaluation normally sees zero
-            // acquisitions even on the first publish.
-            static const bool registered = [] {
-                (void)TypeRegistry::instance().register_scalar<ComparisonSummary>(
-                    "__comparison_summary__");
-                return true;
-            }();
-            static_cast<void>(registered);
+            // Generation-checked (the per-tick cache validation pattern the
+            // registry's atomic ``reset_generation`` exists for): the memory
+            // compare publishes per tick, and the per-tick path must not
+            // acquire the registry's counted mutex (single-threaded
+            // evaluation ruling) — but a process-lifetime flag would survive
+            // ``reset_all_registries()`` and strand the type unregistered.
+            // Between resets this is one relaxed atomic load; set_config
+            // also registers eagerly so evaluation normally sees zero
+            // acquisitions even on the first publish after a reset.
+            static std::atomic<std::uint64_t> registered_generation{
+                std::numeric_limits<std::uint64_t>::max()};
+            auto               &registry = TypeRegistry::instance();
+            const std::uint64_t generation = registry.reset_generation();
+            if (registered_generation.load(std::memory_order_acquire) == generation)
+            {
+                return;
+            }
+            (void)registry.register_scalar<ComparisonSummary>("__comparison_summary__");
+            registered_generation.store(generation, std::memory_order_release);
         }
 
         struct FrameStoreHolder

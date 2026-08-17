@@ -528,14 +528,18 @@ The Compare sink (landed)
 -------------------------
 
 The Q-compare ruling realised, re-based on the RFC 0025 core-neutral
-summary at checkpoint 2.  ``compare(lhs, rhs, recordable_id="")`` under a
-non-memory backend is a sink recording per-tick equality (erased
-``ValueView::equals``) into a bitemporal ``Bool`` frame via the
+summary at checkpoint 2.  ``compare(lhs, rhs, recordable_id="")`` under
+the ``"testing"`` or frame backend is a sink recording per-tick equality
+(erased ``ValueView::equals``) into a bitemporal ``Bool`` frame via the
 ``FrameRecorder``, written through the **registered frame store** (P6) at
 stop under ``fq.__compare__``; the memory backend's ``memory_compare``
-keeps the interactive contract (a mismatch fails the run).  Activation
-with a one-sided value IS a mismatch (one series produced where the other
-did not) and is recorded as a failure — never skipped.
+keeps the interactive contract (a mismatch fails the run).  Every core
+compare guard names exactly the backend ids it serves — selection is
+open, so an unrecognised or extension-owned identifier produces the
+no-match wiring error (or the extension's own overload), never a silent
+fall-through into the built-in frame compare.  Activation with a
+one-sided value IS a mismatch (one series produced where the other did
+not) and is recorded as a failure — never skipped.
 
 **Both implementations publish the same neutral
 ``ComparisonSummary{compared, mismatches}``** under a private core-owned

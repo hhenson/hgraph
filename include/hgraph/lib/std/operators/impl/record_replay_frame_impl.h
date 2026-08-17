@@ -711,16 +711,24 @@ namespace hgraph::stdlib
      * ``compare`` — the backtesting comparison sink (the Q-compare ruling):
      * per tick, records whether ``lhs`` and ``rhs`` hold equal values into a
      * bitemporal ``equal`` frame written through the REGISTERED frame store
-     * (P6) at stop, under ``fq.__compare__``. Model-independent — the store
-     * is the pluggable seam, so a single implementation serves every model.
+     * (P6) at stop, under ``fq.__compare__``. The store is the pluggable
+     * seam, so this one implementation serves both the testing and the
+     * frame backend.
      */
     struct compare_impl
     {
         static constexpr auto name = "compare";
 
+        /** Guarded on exactly the backend ids this implementation serves
+            (RFC 0025): backend selection is open, so an unrecognised or
+            extension-owned identifier must produce the no-match wiring
+            error — or an extension's own overload — never silently fall
+            into the built-in frame compare. */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return !record_replay::effective_backend_is(context, record_replay::MEMORY);
+            return record_replay::effective_backend_is(context, record_replay::TESTING) ||
+                   record_replay::effective_backend_is(context,
+                                                       record_replay_frame_detail::FRAME_BACKEND);
         }
 
         static auto defaults()

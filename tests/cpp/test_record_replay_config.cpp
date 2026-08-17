@@ -102,6 +102,33 @@ TEST_CASE("comparison summary: core-neutral publication and total query")
     CHECK_FALSE(comparison_summary(state, "other.__compare__").has_value());
 }
 
+TEST_CASE("comparison summary: registration survives a registry reset")
+{
+    using namespace hgraph::record_replay;
+
+    // The per-test listener resets registries between cases, so each case
+    // runs one process-per-case under ctest — a process-lifetime
+    // registration flag passes there and breaks any same-process second
+    // run. Reproduce the listener's cycle inside ONE case: registration is
+    // generation-checked, so the post-reset publish must re-register.
+    {
+        hgraph::GlobalContext context;
+        publish_comparison_summary(context.state().view(), "a.__compare__",
+                                   ComparisonSummary{.compared = 1, .mismatches = 0});
+    }
+    hgraph::reset_all_registries();
+    {
+        hgraph::GlobalContext context;
+        const auto            state = context.state().view();
+        publish_comparison_summary(state, "b.__compare__",
+                                   ComparisonSummary{.compared = 2, .mismatches = 1});
+        const auto summary = comparison_summary(state, "b.__compare__");
+        REQUIRE(summary.has_value());
+        CHECK(summary->compared == 2);
+        CHECK(summary->mismatches == 1);
+    }
+}
+
 TEST_CASE("record/replay mode scope: nesting shadows, nearest wins, pops restore")
 {
     using namespace hgraph::record_replay;
