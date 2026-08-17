@@ -335,6 +335,17 @@ void H2Engine::consume(std::int32_t stream_id, std::size_t bytes) {
       nghttp2_session_consume(impl_->session, stream_id, bytes));
 }
 
+void H2Engine::discard(std::int32_t stream_id, std::size_t bytes) {
+  // A reset may remove the stream-level WINDOW_UPDATE queued by consume().
+  // Split the two levels: stream credit may follow nghttp2's normal batching,
+  // while connection credit is returned explicitly and cannot disappear with
+  // the stream (review P1).
+  static_cast<void>(
+      nghttp2_session_consume_stream(impl_->session, stream_id, bytes));
+  static_cast<void>(nghttp2_submit_window_update(
+      impl_->session, NGHTTP2_FLAG_NONE, 0, static_cast<std::int32_t>(bytes)));
+}
+
 bool H2Engine::submit_response(std::int32_t stream_id, int status,
                                const H2Headers &headers, std::string body,
                                const H2Headers &trailers) {

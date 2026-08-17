@@ -769,8 +769,10 @@ The activation splits along the third-party confinement rule: the protocol
 engine (``nghttp2_session.cpp``, the only nghttp2 TU) is a pure
 bytes-in/actions-out wrapper over an nghttp2 server session in the pull
 model, with automatic window updates disabled so request-DATA flow control
-releases only through an explicit consume — the reservation-admission
-lever; the connection driver (in ``asio_server.cpp``, the only Asio TU)
+releases only through an explicit consume after reservation, or an explicit
+discard when the bytes will not be retained.  The latter restores connection
+credit immediately because a reset may remove stream-scoped queued updates;
+the connection driver (in ``asio_server.cpp``, the only Asio TU)
 owns the socket, the strand, and the bridge integration.  The engine is
 validated in-memory against a genuine nghttp2 client session
 (``hgraph_web_h2_engine_tests``) before any socket exists.
@@ -793,7 +795,9 @@ to the general criteria of this RFC:
 * Stream-level flow control maps to the bridge contract: window updates
   are withheld per stream while its ingress reservation cannot be taken
   (the same admission rule as h1), and the connection-level window tracks
-  the watermark state.
+  the watermark state.  Rejected and reset streams return abandoned DATA
+  credit before releasing their reservation, so repeated stream-local faults
+  cannot exhaust the shared connection window.
 * Connection-level limits are enforced from the shipped configuration:
   streams beyond ``h2_max_concurrent_streams`` are refused with
   ``REFUSED_STREAM``; ``h2_initial_window_bytes`` seeds both window

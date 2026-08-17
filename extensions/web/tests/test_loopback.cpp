@@ -57,12 +57,16 @@ void require(bool condition, std::string message) {
 }
 
 inline std::atomic<int> listening_port{0};
+inline std::atomic<int> close_test_port{0};
 inline std::atomic<int> observed_query_count{0};
 inline std::atomic<int> observed_dup_header_count{0};
 inline std::atomic<int> respond_delivered_count{0};
 inline std::atomic<int> ws_open_count{0};
 inline std::atomic<int> ws_frame_count{0};
 inline std::atomic<int> ws_closed_count{0};
+inline std::atomic<int> ws_server_closed_count{0};
+inline std::atomic<int> ws_server_failed_count{0};
+inline std::atomic<Int> ws_server_close_code{0};
 inline Value observed_ws_frame{};
 
 void release_test_state() { observed_ws_frame = Value{}; }
@@ -80,6 +84,22 @@ struct StatsCapture {
                                               .as_bundle()
                                               .at("listening_port")
                                               .checked_as<Int>()));
+  }
+};
+
+struct CloseStatsCapture {
+  static constexpr auto name = "web_loopback_close_stats_capture";
+
+  static void
+  eval(In<"stats", TS<WebServerStats>, InputValidity::Unchecked> stats) {
+    if (!stats.valid() || !stats.modified()) {
+      return;
+    }
+    close_test_port.store(static_cast<int>(stats.base()
+                                               .value()
+                                               .as_bundle()
+                                               .at("listening_port")
+                                               .checked_as<Int>()));
   }
 };
 
@@ -235,6 +255,47 @@ struct WsFrameCapture {
   }
 };
 
+struct WsServerCloseId {
+  static constexpr auto name = "web_loopback_ws_server_close_id";
+
+  static void eval(In<"routed", WsRouteOutput, InputValidity::Unchecked> routed,
+                   Out<TS<Int>> out) {
+    auto event = routed.template field<"event">();
+    if (!event.valid() || !event.modified()) {
+      return;
+    }
+    const auto fields = event.base().value().as_bundle();
+    const auto state = fields.at("state").checked_as<WsConnectionState>();
+    if (state == WsConnectionState::Open) {
+      out.apply(fields.at("connection_id"));
+    } else if (state == WsConnectionState::Closed) {
+      ++ws_server_closed_count;
+      ws_server_close_code.store(fields.at("close_code").checked_as<Int>());
+    } else if (state == WsConnectionState::Failed) {
+      ++ws_server_failed_count;
+    }
+  }
+};
+
+struct WsServerCloseFrame {
+  static constexpr auto name = "web_loopback_ws_server_close_frame";
+
+  static void eval(In<"routed", WsRouteOutput, InputValidity::Unchecked> routed,
+                   Out<TS<WsFrame>> out) {
+    auto event = routed.template field<"event">();
+    if (!event.valid() || !event.modified() ||
+        event.base()
+                .value()
+                .as_bundle()
+                .at("state")
+                .checked_as<WsConnectionState>() != WsConnectionState::Open) {
+      return;
+    }
+    const Value frame = make_close_frame(1000, Str{"graph requested close"});
+    out.apply(frame.view());
+  }
+};
+
 struct LoopbackGraph {
   static constexpr auto name = "web_loopback_test_graph";
 
@@ -278,6 +339,27 @@ struct LoopbackGraph {
     static_cast<void>(wire<WsFrameCapture>(w, ws_output));
 
     static_cast<void>(wire<StatsCapture>(w, server_stats(w, path)));
+
+    // A one-record WS ingress lane is the sharp reservation-order case: the
+    // terminal reservation must be taken first, forcing Open through the
+    // guaranteed control lane.  The graph then initiates the close, which
+    // must convert that reservation into exactly one terminal event.
+    const auto close_path = service::path("web-loopback-server-close");
+    register_server(w, close_path,
+                    server_config()
+                        .port(0)
+                        .ws_ingress_limits(1, 64 * 1024 * 1024)
+                        .stats_interval(50ms)
+                        .build());
+    auto close_route = wire<stdlib::const_, TS<WebRoute>>(
+        w, make_route(HttpMethod::Get, "/server-close", true));
+    auto close_output = ws_serve(w, close_path, close_route);
+    auto close_id = wire<WsServerCloseId>(w, close_output).as<TS<Int>>();
+    auto close_frame =
+        wire<WsServerCloseFrame>(w, close_output).as<TS<WsFrame>>();
+    static_cast<void>(
+        ws_send(w, close_path, ws_send_request(w, close_id, close_frame)));
+    static_cast<void>(wire<CloseStatsCapture>(w, server_stats(w, close_path)));
   }
 };
 
@@ -290,6 +372,18 @@ struct LoopbackGraph {
     std::this_thread::sleep_for(10ms);
   }
   throw std::runtime_error("the server did not report its listening port");
+}
+
+[[nodiscard]] int await_close_test_port() {
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (const int port = close_test_port.load(); port != 0) {
+      return port;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  throw std::runtime_error(
+      "the close-test server did not report its listening port");
 }
 
 [[nodiscard]] tcp::endpoint loopback_endpoint(int port) {
@@ -335,6 +429,7 @@ int main() {
     AsyncGraphExecutorRun runner{view};
 
     const int port = await_listening_port();
+    const int server_close_port = await_close_test_port();
     asio::io_context ioc;
 
     {
@@ -469,6 +564,38 @@ int main() {
       }
       require(ws_closed_count.load() == 1,
               "the orderly close did not reach the graph as a Closed event");
+    }
+
+    {
+      bws::stream<beast::tcp_stream> ws{ioc};
+      beast::get_lowest_layer(ws).expires_after(5s);
+      beast::get_lowest_layer(ws).connect(loopback_endpoint(server_close_port));
+      ws.handshake("127.0.0.1", "/server-close");
+
+      beast::flat_buffer buffer;
+      beast::error_code ec;
+      ws.read(buffer, ec);
+      require(ec == bws::error::closed,
+              "the graph-initiated close did not reach the peer cleanly: " +
+                  ec.message());
+
+      const auto close_deadline = std::chrono::steady_clock::now() + 5s;
+      while (ws_server_closed_count.load() == 0 &&
+             ws_server_failed_count.load() == 0 &&
+             std::chrono::steady_clock::now() < close_deadline) {
+        std::this_thread::sleep_for(10ms);
+      }
+      // Both the read and close-write completions may run; give the losing
+      // completion time to prove the exactly-once guard, not merely first
+      // delivery.
+      std::this_thread::sleep_for(100ms);
+      require(ws_server_failed_count.load() == 0,
+              "the graph-initiated close produced a Failed event");
+      require(ws_server_closed_count.load() == 1,
+              "the graph-initiated close did not produce exactly one Closed "
+              "event");
+      require(ws_server_close_code.load() == 1000,
+              "the graph-initiated close code was not preserved");
     }
 
     require(respond_delivered_count.load() >= 1,

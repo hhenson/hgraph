@@ -16,18 +16,31 @@
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/util/scope.h>
 
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl.hpp>
+#include <nghttp2/nghttp2.h>
+
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 using namespace hgraph;
 using namespace hgraph::web;
 using namespace hgraph::testing;
 using namespace std::chrono_literals;
+
+namespace asio = boost::asio;
+using tcp = asio::ip::tcp;
 
 void require(bool condition, std::string message) {
   if (!condition) {
@@ -91,6 +104,311 @@ ljQAIYegDzbgnKbPvtbj35Dy07fljW3WYT3fzH70nB3YieivDx2JXqp+DZ8AAnSc
 
 constexpr std::size_t kBigBodyBytes = 2 * 1024 * 1024;
 
+struct RawH2Stream {
+  int status{};
+  std::string body{};
+  bool closed{};
+  std::uint32_t error_code{};
+};
+
+/** A deliberately small synchronous nghttp2/TLS client used only for the
+ * discard regression below.  It can keep one request open while another
+ * sends DATA plus trailers, which the public HTTP client call shape cannot
+ * express. */
+class RawH2Client {
+public:
+  struct RequestBody {
+    std::string payload{};
+    std::size_t offset{};
+    std::vector<std::pair<std::string, std::string>> trailers{};
+    bool trailers_submitted{};
+  };
+
+  explicit RawH2Client(int port)
+      : context_{asio::ssl::context::tls_client}, stream_{io_, context_} {
+    context_.set_verify_mode(asio::ssl::verify_none);
+    const std::array<unsigned char, 3> alpn{{2, 'h', '2'}};
+    require(SSL_set_alpn_protos(stream_.native_handle(), alpn.data(),
+                                static_cast<unsigned int>(alpn.size())) == 0,
+            "failed to configure raw-client ALPN");
+    tcp::resolver resolver{io_};
+    asio::connect(stream_.next_layer(),
+                  resolver.resolve("127.0.0.1", std::to_string(port)));
+    stream_.handshake(asio::ssl::stream_base::client);
+    const unsigned char *selected = nullptr;
+    unsigned int selected_length = 0;
+    SSL_get0_alpn_selected(stream_.native_handle(), &selected,
+                           &selected_length);
+    require(selected_length == 2 && std::memcmp(selected, "h2", 2) == 0,
+            "raw client did not negotiate h2");
+
+    nghttp2_session_callbacks *callbacks = nullptr;
+    require(nghttp2_session_callbacks_new(&callbacks) == 0,
+            "raw client callback allocation failed");
+    nghttp2_session_callbacks_set_on_header_callback(
+        callbacks,
+        [](nghttp2_session *, const nghttp2_frame *frame, const uint8_t *name,
+           std::size_t name_length, const uint8_t *value,
+           std::size_t value_length, uint8_t, void *user_data) -> int {
+          auto &stream = static_cast<RawH2Client *>(user_data)
+                             ->streams_[frame->hd.stream_id];
+          const std::string_view header_name{
+              reinterpret_cast<const char *>(name), name_length};
+          if (header_name == ":status") {
+            stream.status = std::stoi(std::string{
+                reinterpret_cast<const char *>(value), value_length});
+          }
+          return 0;
+        });
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
+        callbacks,
+        [](nghttp2_session *, uint8_t, std::int32_t stream_id,
+           const uint8_t *data, std::size_t length, void *user_data) -> int {
+          static_cast<RawH2Client *>(user_data)
+              ->streams_[stream_id]
+              .body.append(reinterpret_cast<const char *>(data), length);
+          return 0;
+        });
+    nghttp2_session_callbacks_set_on_stream_close_callback(
+        callbacks,
+        [](nghttp2_session *, std::int32_t stream_id, std::uint32_t error_code,
+           void *user_data) -> int {
+          auto &stream =
+              static_cast<RawH2Client *>(user_data)->streams_[stream_id];
+          stream.closed = true;
+          stream.error_code = error_code;
+          return 0;
+        });
+    nghttp2_session_callbacks_set_on_frame_recv_callback(
+        callbacks,
+        [](nghttp2_session *, const nghttp2_frame *frame,
+           void *user_data) -> int {
+          if (frame->hd.type == NGHTTP2_SETTINGS &&
+              (frame->hd.flags & NGHTTP2_FLAG_ACK) == 0) {
+            static_cast<RawH2Client *>(user_data)->settings_seen_ = true;
+          }
+          return 0;
+        });
+    require(nghttp2_session_client_new(&session_, callbacks, this) == 0,
+            "raw client session allocation failed");
+    nghttp2_session_callbacks_del(callbacks);
+    require(nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, nullptr, 0) ==
+                0,
+            "raw client SETTINGS submission failed");
+    stream_.next_layer().non_blocking(true);
+  }
+
+  ~RawH2Client() {
+    if (session_ != nullptr) {
+      nghttp2_session_del(session_);
+    }
+  }
+
+  RawH2Client(const RawH2Client &) = delete;
+  RawH2Client &operator=(const RawH2Client &) = delete;
+
+  void exchange_settings() {
+    pump_until([this] { return settings_seen_; },
+               "the server SETTINGS did not arrive");
+    flush_output(); // the automatically generated SETTINGS ACK
+  }
+
+  [[nodiscard]] std::int32_t submit_open_request(std::string_view path) {
+    auto headers = request_headers("POST", path);
+    const std::int32_t stream_id =
+        nghttp2_submit_headers(session_, NGHTTP2_FLAG_END_HEADERS, -1, nullptr,
+                               headers.data(), headers.size(), nullptr);
+    require(stream_id > 0, "open request submission failed");
+    streams_.try_emplace(stream_id);
+    return stream_id;
+  }
+
+  [[nodiscard]] std::int32_t submit_request(std::string_view path,
+                                            RequestBody &body) {
+    auto headers = request_headers("POST", path);
+    nghttp2_data_provider2 provider{};
+    provider.source.ptr = &body;
+    provider.read_callback =
+        [](nghttp2_session *session, std::int32_t stream_id, uint8_t *buffer,
+           std::size_t length, std::uint32_t *data_flags,
+           nghttp2_data_source *source, void *) -> nghttp2_ssize {
+      auto &request = *static_cast<RequestBody *>(source->ptr);
+      const std::size_t remaining = request.payload.size() - request.offset;
+      const std::size_t take = std::min(remaining, length);
+      std::memcpy(buffer, request.payload.data() + request.offset, take);
+      request.offset += take;
+      if (request.offset == request.payload.size()) {
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+        if (!request.trailers.empty() && !request.trailers_submitted) {
+          *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
+          request.trailers_submitted = true;
+          std::vector<nghttp2_nv> trailers;
+          trailers.reserve(request.trailers.size());
+          for (const auto &[name, value] : request.trailers) {
+            trailers.push_back(make_nv(name, value));
+          }
+          if (nghttp2_submit_trailer(session, stream_id, trailers.data(),
+                                     trailers.size()) != 0) {
+            return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+          }
+        }
+      }
+      return static_cast<nghttp2_ssize>(take);
+    };
+    const std::int32_t stream_id = nghttp2_submit_request2(
+        session_, nullptr, headers.data(), headers.size(), &provider, nullptr);
+    require(stream_id > 0, "raw request submission failed");
+    streams_.try_emplace(stream_id);
+    return stream_id;
+  }
+
+  void reset(std::int32_t stream_id) {
+    require(nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE, stream_id,
+                                      NGHTTP2_CANCEL) == 0,
+            "raw client reset submission failed");
+  }
+
+  [[nodiscard]] const RawH2Stream &stream(std::int32_t stream_id) const {
+    return streams_.at(stream_id);
+  }
+
+  [[nodiscard]] std::int32_t connection_window() const {
+    return nghttp2_session_get_remote_window_size(session_);
+  }
+
+  template <typename Predicate>
+  void pump_until(Predicate predicate, std::string_view failure) {
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      flush_output();
+      bool progressed = false;
+      while (read_input()) {
+        progressed = true;
+      }
+      if (predicate()) {
+        flush_output();
+        return;
+      }
+      if (!progressed) {
+        std::this_thread::sleep_for(1ms);
+      }
+    }
+    throw std::runtime_error(std::string{failure});
+  }
+
+private:
+  [[nodiscard]] static nghttp2_nv make_nv(std::string_view name,
+                                          std::string_view value) {
+    return nghttp2_nv{
+        reinterpret_cast<uint8_t *>(const_cast<char *>(name.data())),
+        reinterpret_cast<uint8_t *>(const_cast<char *>(value.data())),
+        name.size(), value.size(), NGHTTP2_NV_FLAG_NONE};
+  }
+
+  [[nodiscard]] static std::array<nghttp2_nv, 4>
+  request_headers(std::string_view method, std::string_view path) {
+    return {make_nv(":method", method), make_nv(":scheme", "https"),
+            make_nv(":authority", "127.0.0.1"), make_nv(":path", path)};
+  }
+
+  void flush_output() {
+    while (true) {
+      const uint8_t *bytes = nullptr;
+      const nghttp2_ssize length = nghttp2_session_mem_send2(session_, &bytes);
+      require(length >= 0, "raw client failed to encode output");
+      if (length == 0) {
+        return;
+      }
+      stream_.next_layer().non_blocking(false);
+      boost::system::error_code ec;
+      asio::write(stream_,
+                  asio::buffer(bytes, static_cast<std::size_t>(length)), ec);
+      stream_.next_layer().non_blocking(true);
+      require(!ec, "raw client TLS write failed: " + ec.message());
+    }
+  }
+
+  [[nodiscard]] bool read_input() {
+    boost::system::error_code ec;
+    const std::size_t available = stream_.next_layer().available(ec);
+    require(!ec, "raw client socket query failed: " + ec.message());
+    if (available == 0 && SSL_pending(stream_.native_handle()) == 0) {
+      return false;
+    }
+    std::array<char, 16 * 1024> buffer{};
+    const std::size_t received = stream_.read_some(asio::buffer(buffer), ec);
+    if (ec == asio::error::would_block || ec == asio::error::try_again) {
+      return false;
+    }
+    require(!ec, "raw client TLS read failed: " + ec.message());
+    const nghttp2_ssize processed = nghttp2_session_mem_recv2(
+        session_, reinterpret_cast<const uint8_t *>(buffer.data()), received);
+    require(processed >= 0 && static_cast<std::size_t>(processed) == received,
+            "raw client rejected server HTTP/2 bytes");
+    return received != 0;
+  }
+
+  asio::io_context io_{};
+  asio::ssl::context context_;
+  asio::ssl::stream<tcp::socket> stream_;
+  nghttp2_session *session_{};
+  std::map<std::int32_t, RawH2Stream> streams_{};
+  bool settings_seen_{};
+};
+
+void test_rejected_stream_restores_connection_window(int port) {
+  RawH2Client client{port};
+  client.exchange_settings();
+
+  // Stream 1 owns the only ingress record without completing.  Stream 3 is
+  // therefore backpressured: its DATA remains unconsumed when a large trailer
+  // block crosses the one-window metadata bound and forces a reset.
+  const std::int32_t holding =
+      client.submit_open_request("/h2-discard-probe");
+  // More than one default 65,535-byte connection window in aggregate: a
+  // driver that drops each stream's 3000-byte credit eventually wedges,
+  // while the correct consume path periodically emits WINDOW_UPDATE.
+  for (int attempt = 0; attempt != 24; ++attempt) {
+    RawH2Client::RequestBody rejected_body{
+        std::string(3000, 'r'),
+        0,
+        {{"x-overflow", std::string(2000, 't')}},
+        false};
+    const std::int32_t rejected =
+        client.submit_request("/h2-discard-probe", rejected_body);
+    client.pump_until([&] { return client.stream(rejected).closed; },
+                      "a trailer-overflow stream was not reset");
+    require(client.stream(rejected).error_code == NGHTTP2_ENHANCE_YOUR_CALM,
+            "a trailer-overflow stream used the wrong reset code");
+  }
+
+  client.reset(holding);
+  client.pump_until([&] { return client.stream(holding).closed; },
+                    "the holding stream did not reset");
+
+  // The rejected streams consumed more than the whole connection window.
+  // This complete request can reach dispatch only if every discard returned
+  // its credit; the deliberately unanswered route then produces the timeout
+  // 503 that proves dispatch completed.
+  RawH2Client::RequestBody recovery{std::string(3000, 'g')};
+  const std::int32_t recovered =
+      client.submit_request("/h2-discard-probe", recovery);
+  try {
+    client.pump_until([&] { return client.stream(recovered).closed; },
+                      "the connection window was not restored after discard");
+  } catch (const std::runtime_error &) {
+    throw std::runtime_error(
+        "the recovery stream stalled (sent=" + std::to_string(recovery.offset) +
+        ", window=" + std::to_string(client.connection_window()) +
+        ", status=" + std::to_string(client.stream(recovered).status) +
+        ", body='" + client.stream(recovered).body + "')");
+  }
+  require(client.stream(recovered).error_code == NGHTTP2_NO_ERROR,
+          "the recovery stream did not close cleanly");
+  require(client.stream(recovered).status == 503,
+          "the recovery request did not reach the dispatch timeout");
+}
+
 inline std::atomic<bool> get_triggered{false};
 inline std::atomic<bool> post_triggered{false};
 inline std::atomic<bool> status_triggered{false};
@@ -98,6 +416,7 @@ inline std::atomic<bool> get_response_seen{false};
 inline std::atomic<bool> post_response_seen{false};
 inline std::atomic<bool> status_response_seen{false};
 inline std::atomic<bool> failure_seen{false};
+inline std::atomic<bool> raw_rejection_complete{false};
 inline std::atomic<Int> bound_port{0};
 inline Value observed_get_response{};
 inline Value observed_post_response{};
@@ -114,8 +433,8 @@ void release_test_state() {
 }
 
 void maybe_stop(NodeView &node) {
-  if ((get_response_seen.load() && post_response_seen.load() &&
-       status_response_seen.load()) ||
+  if ((raw_rejection_complete.load() && get_response_seen.load() &&
+       post_response_seen.load() && status_response_seen.load()) ||
       failure_seen.load()) {
     node.graph().executor().request_stop();
   }
@@ -139,6 +458,9 @@ struct H2GetTrigger {
       return;
     }
     bound_port.store(port);
+    if (!raw_rejection_complete.load()) {
+      return;
+    }
     get_triggered.store(true);
     const Value request = make_client_request(
         HttpMethod::Get,
@@ -328,6 +650,13 @@ struct H2IngestResponse {
   }
 };
 
+struct H2DiscardProbeSink {
+  static constexpr auto name = "web_h2_discard_probe_sink";
+
+  static void
+  eval(In<"routed", WebRouteOutput, InputValidity::Unchecked>) {}
+};
+
 struct H2LoopbackGraph {
   static constexpr auto name = "web_h2_loopback_test_graph";
 
@@ -337,7 +666,9 @@ struct H2LoopbackGraph {
     register_server(w, server_path,
                     server_config()
                         .port(0)
-                        .request_timeout(5'000ms)
+                        .request_timeout(500ms)
+                        .ingress_limits(1, 64 * 1024 * 1024)
+                        .h2_initial_window_bytes(4096)
                         .stats_interval(50ms)
                         .tls(tls_server()
                                  .cert_pem(Str{kTestCertPem})
@@ -373,6 +704,11 @@ struct H2LoopbackGraph {
         wire<H2IngestResponse>(w, ingested).as<TS<HttpResponse>>();
     static_cast<void>(respond(
         w, server_path, respond_request(w, ingest_id, ingest_response)));
+
+    auto discard_probe_route = wire<stdlib::const_, TS<WebRoute>>(
+        w, make_route(HttpMethod::Post, "/h2-discard-probe"));
+    static_cast<void>(wire<H2DiscardProbeSink>(
+        w, serve(w, server_path, discard_probe_route)));
 
     auto status_route = wire<stdlib::const_, TS<WebRoute>>(
         w, make_route(HttpMethod::Get, "/h2-status"));
@@ -417,7 +753,23 @@ int main() {
     auto view = executor.view();
     {
       AsyncGraphExecutorRun runner{view};
-      runner.join();
+      try {
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (bound_port.load() == 0 &&
+               std::chrono::steady_clock::now() < deadline) {
+          std::this_thread::sleep_for(10ms);
+        }
+        require(bound_port.load() != 0,
+                "the h2 server did not report its listening port");
+        test_rejected_stream_restores_connection_window(
+            static_cast<int>(bound_port.load()));
+        raw_rejection_complete.store(true);
+        runner.join();
+      } catch (...) {
+        view.request_stop();
+        runner.join();
+        throw;
+      }
     }
 
     require(!failure_seen.load(),

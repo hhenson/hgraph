@@ -794,6 +794,7 @@ public:
   ~ServerConnection() {
     release_admission();
     release_ws_reservation_held();
+    release_ws_terminal_reservation();
     listener_->connection_closed();
   }
 
@@ -860,7 +861,8 @@ public:
   void shutdown_now() {
     shutting_down_ = true;
     if (ws_) {
-      ws_close(websocket::close_code{1001}, "going away");
+      ws_close(websocket::close_code{1001}, "going away",
+               WsConnectionState::Closed);
     } else if (pending_request_id_ >= 0 && !writing_) {
       send_simple_response(http::status::service_unavailable,
                            "server shutting down", false);
@@ -945,7 +947,10 @@ private:
                       const std::shared_ptr<WebServerRuntime> &runtime);
   void ws_write_next();
   void ws_send_fragment();
-  void ws_close(websocket::close_code code, beast::string_view reason);
+  void ws_close(websocket::close_code code, beast::string_view reason,
+                WsConnectionState terminal_state);
+  void finish_ws(WsConnectionState state, Int close_code, Str close_reason);
+  void release_ws_terminal_reservation() noexcept;
   void send_simple_response(http::status status, std::string_view body,
                             bool keep_alive);
   void close();
@@ -987,6 +992,8 @@ private:
   // Capacity for THIS connection's terminal Closed/Failed event, reserved
   // at accept and held for the socket's lifetime (review P1).
   std::size_t ws_close_reserved_{};
+  bool ws_close_started_{};
+  bool ws_terminal_emitted_{};
   // Message bytes accumulate here — storage the reservation accounts —
   // while ws_read_buffer_ stays chunk-sized: Beast's flat_buffer keeps its
   // allocated capacity after consume(), so assembling messages inside it
@@ -1203,6 +1210,7 @@ private:
   void finish_stream_transport(Int request_id, int status,
                                std::string_view body);
   void release_stream(std::int32_t stream_id, Stream &stream);
+  void discard_stream_input(std::int32_t stream_id, Stream &stream);
   [[nodiscard]] Value peer_value(const WebBindings &bindings);
 
   std::shared_ptr<WebListener> listener_;
@@ -2707,6 +2715,22 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
         }
         self->ws_ = true;
         const auto &b = runtime->bindings();
+        // Reserve the terminal event BEFORE publishing Open.  Once the graph
+        // can observe the connection it must also be guaranteed to observe
+        // exactly one Closed/Failed event, even when Open itself fills the
+        // payload lane (review P1).
+        const std::size_t close_weight = self->ws_route_weight_ + 128 + 512;
+        if (!runtime->reserve_ws_ingress(close_weight)) {
+          runtime->count_drop();
+          runtime->emit_event(
+              WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
+              Str{"terminal-event capacity unavailable; closing"}, 0, true,
+              false, self->ws_connection_id_);
+          runtime->unregister_ws_connection(self->ws_connection_id_);
+          self->close();
+          return;
+        }
+        self->ws_close_reserved_ = close_weight;
         const bool open_delivered = runtime->push_ws_event(
             self->ws_route_->clone(),
             build_on(b.ws_event,
@@ -2733,22 +2757,6 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
           self->close();
           return;
         }
-        // Reserve the terminal event's capacity for the connection's
-        // lifetime: lifecycle-as-data means the Closed/Failed event must
-        // never be lost to a full channel (review P1).  A connection
-        // whose terminal event cannot be guaranteed does not open.
-        const std::size_t close_weight = self->ws_route_weight_ + 128 + 512;
-        if (!runtime->reserve_ws_ingress(close_weight)) {
-          runtime->count_drop();
-          runtime->emit_event(
-              WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
-              Str{"terminal-event capacity unavailable; closing"}, 0, true,
-              false, self->ws_connection_id_);
-          runtime->unregister_ws_connection(self->ws_connection_id_);
-          self->close();
-          return;
-        }
-        self->ws_close_reserved_ = close_weight;
         // Beast no longer needs the upgrade request; releasing it keeps
         // the single-counted accounting honest for the WebSocket's whole
         // lifetime (review P1).
@@ -2777,10 +2785,7 @@ void ServerConnection::ws_read_next() {
   const auto on_read = asio::bind_executor(
       strand_,
       [self = shared_from_this()](beast::error_code ec, std::size_t received) {
-        const std::shared_ptr<WebServerRuntime> runtime = self->ws_runtime_;
         if (ec) {
-          self->release_ws_reservation_held();
-          runtime->unregister_ws_connection(self->ws_connection_id_);
           const bool orderly = ec == websocket::error::closed;
           Int close_code = 1005;
           Str close_reason{};
@@ -2791,32 +2796,13 @@ void ServerConnection::ws_read_next() {
             close_code = static_cast<Int>(reason.code);
             close_reason = Str{std::string{reason.reason.data(),
                                            reason.reason.size()}};
-          }
-          const auto &b = runtime->bindings();
-          Value terminal = build_on(
-              b.ws_event,
-              {
-                  {"connection_id", b.number(self->ws_connection_id_)},
-                  {"state",
-                   b.enum_value(orderly ? WsConnectionState::Closed
-                                        : WsConnectionState::Failed)},
-                  {"close_code", b.number(close_code)},
-                  {"close_reason", b.string(close_reason)},
-              });
-          const std::size_t terminal_bytes =
-              close_reason.size() + self->ws_route_weight_ + 512;
-          if (self->ws_close_reserved_ != 0) {
-            const std::size_t reserved = self->ws_close_reserved_;
-            self->ws_close_reserved_ = 0;
-            static_cast<void>(runtime->push_ws_event_reserved(
-                self->ws_route_->clone(), std::move(terminal),
-                terminal_bytes, reserved));
           } else {
-            static_cast<void>(runtime->push_ws_event(
-                self->ws_route_->clone(), std::move(terminal),
-                terminal_bytes));
+            close_code = 1006;
+            close_reason = Str{ec.message()};
           }
-          self->close();
+          self->finish_ws(orderly ? WsConnectionState::Closed
+                                  : WsConnectionState::Failed,
+                          close_code, std::move(close_reason));
           return;
         }
         static_cast<void>(received);
@@ -2911,7 +2897,8 @@ void ServerConnection::ws_account_chunk() {
     runtime->emit_event(WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
                         Str{"message cannot fit the WS ingress limit"}, 0,
                         false, false, ws_connection_id_);
-    ws_close(websocket::close_code{1009}, "message too big to admit");
+    ws_close(websocket::close_code{1009}, "message too big to admit",
+             WsConnectionState::Failed);
     return;
   }
   const bool accounted = first ? runtime->reserve_ws_ingress(wanted)
@@ -2927,7 +2914,8 @@ void ServerConnection::ws_account_chunk() {
     runtime->emit_event(WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
                         Str{"WebSocket ingress rejected at the hard limit"}, 0,
                         true, false, ws_connection_id_);
-    ws_close(websocket::close_code{1013}, "server is at capacity");
+    ws_close(websocket::close_code{1013}, "server is at capacity",
+             WsConnectionState::Failed);
     return;
   }
   // Backpressure: hold what is already read and retry the accounting; no
@@ -2979,7 +2967,8 @@ void ServerConnection::queue_ws_frame(
                  code.data() != nullptr ? code.checked_as<Int>() : 1000)},
              reason.data() != nullptr
                  ? std::string{reason.checked_as<Str>()}
-                 : std::string{});
+                 : std::string{},
+             WsConnectionState::Closed);
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
                     runtime->delivery_report(ws_connection_id_,
                                              WebDeliveryStatus::Delivered));
@@ -3020,7 +3009,8 @@ void ServerConnection::queue_ws_frame(
       }
       ws_outbound_.clear();
       ws_outbound_bytes_ = 0;
-      ws_close(websocket::close_code{1013}, "slow consumer");
+      ws_close(websocket::close_code{1013}, "slow consumer",
+               WsConnectionState::Failed);
     }
     runtime->report(index(ServerChannel::WsSendDelivery), client_id,
                     runtime->delivery_report(ws_connection_id_,
@@ -3092,7 +3082,7 @@ void ServerConnection::ws_send_fragment() {
                 ec ? ec.value() : 0, ec ? Str{ec.message()} : Str{}));
         if (ec) {
           self->writing_ = false;
-          self->close();
+          self->finish_ws(WsConnectionState::Failed, 1006, Str{ec.message()});
           return;
         }
         self->ws_write_next();
@@ -3107,10 +3097,23 @@ void ServerConnection::ws_send_fragment() {
 }
 
 void ServerConnection::ws_close(websocket::close_code code,
-                                beast::string_view reason) {
-  const auto on_close =
-      asio::bind_executor(strand_, [self = shared_from_this()](
-                                       beast::error_code) { self->close(); });
+                                beast::string_view reason,
+                                WsConnectionState terminal_state) {
+  if (ws_close_started_ || ws_terminal_emitted_) {
+    return;
+  }
+  ws_close_started_ = true;
+  const Int close_code = static_cast<Int>(code);
+  Str close_reason{reason};
+  const auto on_close = asio::bind_executor(
+      strand_, [self = shared_from_this(), terminal_state, close_code,
+                close_reason](beast::error_code ec) mutable {
+        if (ec) {
+          self->finish_ws(WsConnectionState::Failed, 1006, Str{ec.message()});
+        } else {
+          self->finish_ws(terminal_state, close_code, std::move(close_reason));
+        }
+      });
   websocket::close_reason close{code};
   close.reason = reason;
   if (plain_ws_.has_value()) {
@@ -3118,19 +3121,64 @@ void ServerConnection::ws_close(websocket::close_code code,
   } else if (tls_ws_.has_value()) {
     tls_ws_->async_close(close, on_close);
   } else {
-    close_socket_only();
+    finish_ws(WsConnectionState::Failed, 1006,
+              Str{"WebSocket transport is unavailable"});
+  }
+}
+
+void ServerConnection::finish_ws(WsConnectionState state, Int close_code,
+                                 Str close_reason) {
+  if (ws_terminal_emitted_) {
+    close();
+    return;
+  }
+  ws_terminal_emitted_ = true;
+  release_ws_reservation_held();
+
+  const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
+  if (runtime) {
+    runtime->unregister_ws_connection(ws_connection_id_);
+  }
+  if (runtime && ws_route_ != nullptr) {
+    const auto &b = runtime->bindings();
+    Value terminal =
+        build_on(b.ws_event, {
+                                 {"connection_id", b.number(ws_connection_id_)},
+                                 {"state", b.enum_value(state)},
+                                 {"close_code", b.number(close_code)},
+                                 {"close_reason", b.string(close_reason)},
+                             });
+    const std::size_t terminal_bytes =
+        close_reason.size() + ws_route_weight_ + 512;
+    if (ws_close_reserved_ != 0) {
+      const std::size_t reserved = ws_close_reserved_;
+      ws_close_reserved_ = 0;
+      static_cast<void>(runtime->push_ws_event_reserved(
+          ws_route_->clone(), std::move(terminal), terminal_bytes, reserved));
+    } else {
+      // Only reachable after bridge teardown or for a pre-reservation
+      // connection; retain the best-effort fallback for orderly cleanup.
+      static_cast<void>(runtime->push_ws_event(
+          ws_route_->clone(), std::move(terminal), terminal_bytes));
+    }
+  }
+  close();
+}
+
+void ServerConnection::release_ws_terminal_reservation() noexcept {
+  if (ws_close_reserved_ != 0 && ws_runtime_) {
+    ws_runtime_->release_ws_reservation(ws_close_reserved_);
+    ws_close_reserved_ = 0;
   }
 }
 
 void ServerConnection::close() {
   release_admission();
   release_ws_reservation_held();
-  if (ws_close_reserved_ != 0 && ws_runtime_) {
-    // Torn down without a terminal event (forced teardown): return the
-    // reserved capacity.
-    ws_runtime_->release_ws_reservation(ws_close_reserved_);
-    ws_close_reserved_ = 0;
-  }
+  // Pre-Open failures and forced teardown have no graph-visible lifecycle
+  // to terminate; return any capacity that was never converted into an
+  // event.  Every post-Open transport path calls finish_ws first.
+  release_ws_terminal_reservation();
   close_socket_only();
   retire_barrier_.reset();
 }
@@ -3302,32 +3350,56 @@ void H2Driver::close() {
   static_cast<void>(beast::get_lowest_layer(stream_).socket().close(ec));
 }
 
-void H2Driver::release_stream(std::int32_t, Stream &stream) {
-  // Subtract exactly what this stream contributed: header bytes only
-  // while their flag is set (early-error streams that were refused
-  // before counting contribute nothing) — a mismatched subtraction here
-  // would steal accounting from other blocked streams and prematurely
-  // resume reads (review P1).
+void H2Driver::discard_stream_input(std::int32_t stream_id, Stream &stream) {
+  // DATA is flow-controlled even when the request is rejected or reset.
+  // Returning every byte the application stops retaining is what keeps a
+  // discarded stream from permanently shrinking the shared connection
+  // window (review P1).
+  if (stream.unaccounted != 0) {
+    engine_.discard(stream_id, stream.unaccounted);
+  }
+
+  // Subtract exactly what this stream contributed: header bytes only while
+  // their flag is set (early-error streams refused before counting contribute
+  // nothing).  Trailer metadata is retained but not flow-controlled.
   const std::size_t header_part =
       stream.headers_counted ? stream.header_bytes + stream.target.size() : 0;
-  stream.headers_counted = false;
   const std::size_t buffered =
       stream.unaccounted + stream.trailer_unaccounted + header_part;
   if (buffered != 0) {
     unaccounted_total_ -= std::min(unaccounted_total_, buffered);
-    stream.unaccounted = 0;
-    stream.trailer_unaccounted = 0;
-    resume_stalled_read();
   }
+
+  stream.unaccounted = 0;
+  stream.trailer_unaccounted = 0;
+  stream.headers_counted = false;
+  stream.header_bytes = 0;
+  stream.trailer_bytes = 0;
+  stream.body = std::string{};
+  stream.headers = H2Headers{};
+  stream.trailers = H2Headers{};
+  stream.target = std::string{};
+  stream.decoded_path = std::string{};
+  stream.matched.params = {};
+  stream.matched.route = nullptr;
+  stream.matched.snapshot.reset();
+  resume_stalled_read();
+}
+
+void H2Driver::release_stream(std::int32_t stream_id, Stream &stream) {
   if (stream.request_id >= 0 && stream.matched.runtime) {
     stream.matched.runtime->unregister_pending(stream.request_id);
     request_to_stream_.erase(stream.request_id);
     stream.request_id = -1;
   }
+  discard_stream_input(stream_id, stream);
   if (stream.reserved != 0 && stream.matched.runtime) {
     stream.matched.runtime->release_request_reservation(stream.reserved);
     stream.reserved = 0;
   }
+  stream.matched.runtime.reset();
+  stream.admitted = false;
+  stream.admission_in_flight = false;
 }
 
 void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
@@ -3480,12 +3552,12 @@ void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
     // A stream answered by the transport (404/503/...): release the
     // window immediately so a still-sending peer cannot wedge the
     // connection; the bytes are never retained.
-    engine_.consume(stream_id, data.size());
+    engine_.discard(stream_id, data.size());
     return;
   }
   Stream &stream = found->second;
   if (stream.discarding) {
-    engine_.consume(stream_id, data.size());
+    engine_.discard(stream_id, data.size());
     return;
   }
   if (stream.body.size() + data.size() >
@@ -3494,7 +3566,7 @@ void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
     // just-arrived chunk was never buffered, so its window is released
     // here; respond_transport restores the rest and discards uniformly
     // (review P1).
-    engine_.consume(stream_id, data.size());
+    engine_.discard(stream_id, data.size());
     respond_transport(stream_id, 413, "body exceeds max_body_bytes");
     return;
   }
@@ -3715,26 +3787,12 @@ void H2Driver::respond_transport(std::int32_t stream_id, int status,
   const auto found = streams_.find(stream_id);
   if (found != streams_.end()) {
     Stream &stream = found->second;
-    // Every transport answer discards uniformly BEFORE the budget is
-    // released: restore the flow-control window held by unconsumed DATA
-    // (auto window updates are off, so a skipped consume() shrinks the
-    // connection window forever) and drop the retained request buffers —
-    // releasing the reservation while still holding the body would keep
-    // memory outside the advertised bound until the peer half-closes
-    // (review P1).
-    if (stream.unaccounted != 0) {
-      engine_.consume(stream_id, stream.unaccounted);
-    }
-    const std::size_t buffered =
-        stream.unaccounted + stream.trailer_unaccounted;
-    unaccounted_total_ -= std::min(unaccounted_total_, buffered);
-    stream.unaccounted = 0;
-    stream.trailer_unaccounted = 0;
-    stream.body = std::string{};
-    stream.trailers = H2Headers{};
+    // One release path restores unconsumed DATA credit and drops every
+    // retained request buffer before giving the bridge reservation back.
+    // Trailer-overflow resets, peer resets, transport answers, and shutdown
+    // all share the same invariant (review P1).
     release_stream(stream_id, stream);
     stream.discarding = true;
-    resume_stalled_read();
   }
   // Transport answers obey the same outbound budgets as graph responses:
   // a slow peer accumulating error responses is reset instead of growing

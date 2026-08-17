@@ -22,9 +22,9 @@ namespace hgraph::web::detail {
 //
 // Flow control IS the ingress admission contract: the engine never
 // releases connection or stream window for request DATA by itself — the
-// host calls consume() once (and only once) the bytes are
-// reservation-accounted on the bridge, so an unadmitted stream stalls at
-// the sender exactly like an unread h1 socket (RFC 0024, flow control).
+// host calls consume() once reservation-accounted on the bridge, or discard()
+// once the bytes are deliberately abandoned, so an unadmitted stream stalls
+// at the sender exactly like an unread h1 socket (RFC 0024, flow control).
 
 using H2Headers = std::vector<std::pair<std::string, std::string>>;
 
@@ -100,6 +100,12 @@ public:
   /** Release flow-control window for request bytes the driver has
    * accounted (window updates are withheld until admission; RFC 0024). */
   void consume(std::int32_t stream_id, std::size_t bytes);
+
+  /** Release bytes that will never be retained because their request is
+   * being discarded.  Stream credit is consumed normally; connection credit
+   * is restored immediately so many reset streams cannot cumulatively wedge
+   * unrelated work before nghttp2's batching threshold is reached. */
+  void discard(std::int32_t stream_id, std::size_t bytes);
 
   /** Submit a complete response on the stream.  Headers/trailers use the
    * wire names; the engine adds ``:status``. */

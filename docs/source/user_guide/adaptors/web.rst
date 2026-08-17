@@ -244,8 +244,9 @@ ordinary graph logic; the served request that opened the socket rides on
 the ``OPEN`` event.  The client mirror is ``web_ws_connect(key)`` —
 producing the same event/frame shape — with ``web_ws_client_send(key,
 frame)`` for output; removing the key sends a Close frame and tears the
-connection down promptly (the client does not wait for the peer's close
-echo; the server side performs the full close handshake).
+connection down promptly.  Both transports send a Close frame; they then
+tear down once that write completes or peer closure is observed rather than
+waiting indefinitely for a close echo.
 
 Calling out
 -----------
