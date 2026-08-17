@@ -1063,11 +1063,16 @@ public:
           report.barrier = barrier;
         }
       }
+      // The barrier rides EVERY stream of the retiring runtime to its
+      // terminal event (close/reset/write failure) — an output-queue
+      // sentinel would release while a zero-window client still blocks a
+      // submitted response (review P1).
+      for (auto &[stream_id, stream] : self->streams_) {
+        if (stream.matched.runtime.get() == runtime) {
+          stream.retire_barrier = barrier;
+        }
+      }
       if (!retiring.empty() && !self->closed_) {
-        // Hold the barrier until the write batch carrying these 503s
-        // completes (a barrier-only sentinel in the flush queue).
-        self->pending_flush_reports_.push_back(
-            PendingReport{nullptr, 0, 0, true, std::move(barrier)});
         self->pump_writes();
       }
     });
@@ -1116,6 +1121,10 @@ private:
     // connection's unaccounted bound; cleared exactly once, on admission
     // (into the reservation) or on release (review P1).
     bool headers_counted{};
+    // A retirement barrier rides the stream to its terminal event —
+    // close, reset, or write failure — so a flow-control-blocked
+    // response cannot let stop() clear the bridge early (review P1).
+    std::shared_ptr<const void> retire_barrier{};
     bool end_stream_seen{};
     bool discarding{};
     Int request_id{-1};
@@ -2129,8 +2138,11 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
       : content_length.has_value()
           ? static_cast<std::size_t>(*content_length)
           : config_->max_body_bytes;
+  // The Beast source is released at dispatch, so headers single-count;
+  // the target weighs 4x to bound its request-controlled derivations
+  // (decoded path, query pairs, path-parameter values).
   const std::size_t projected =
-      projected_body + 2 * header_bytes + 4 * header.target().size() + 512;
+      projected_body + header_bytes + 4 * header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
@@ -2270,13 +2282,14 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   // Moving the body out empties the Beast message, so once the value is
   // pushed the connection itself no longer retains the payload.
   Bytes body{std::move(request_.body())};
-  // The graph value owns COPIES of the metadata (headers, target, decoded
-  // path, parsed query, path params) while the transport still retains
-  // the source until the request is answered, so headers weigh double and
-  // the target triple (target + decoded path + query) — otherwise large
-  // paths and queries exceed the advertised bound (review P1).
-  retained_bytes =
-      body.data.size() + 2 * header_bytes + 4 * target.size() + 512;
+  // EXACT derived sizes: the Beast message is released right after the
+  // push, so the graph value's copies are single-counted (review P1).
+  std::size_t params_bytes = 0;
+  for (const auto &[name, value] : matched.params) {
+    params_bytes += name.size() + value.size();
+  }
+  retained_bytes = body.data.size() + header_bytes + target.size() +
+                   decoded_path_.size() + query.size() + params_bytes + 512;
 
   Value request = build_on(
       b.http_request,
@@ -2323,6 +2336,10 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   pending_request_id_ = request_id;
   request_keep_alive_ = keep_alive;
   pending_is_head_ = request_.method() == http::verb::head;
+  // The graph value owns its copies; drop the transport's source message
+  // so the retained estimate single-counts everything (review P1).
+  request_ = http::request<http::string_body>{};
+  decoded_path_ = std::string{};
 }
 
 void ServerConnection::write_response(
@@ -3204,11 +3221,12 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   // Header admission mirrors h1: the header block plus envelope overhead
   // reserves before any DATA window is released; the body then grows the
   // same reservation chunk-by-chunk (RFC 0024, flow control).
-  // Headers double (source + graph copies); the target weighs 4x — raw
-  // target, decoded path, parsed query pairs, and path-parameter values
-  // are separate owned copies (review P1).
+  // Transport copies are released once the graph value is built, so the
+  // reservation single-counts the headers; the target weighs 4x to bound
+  // its request-controlled derivations (decoded path, query pairs,
+  // path-parameter values, each <= the target).
   const std::size_t projected =
-      2 * stream.header_bytes + 4 * stream.target.size() + 512;
+      stream.header_bytes + 4 * stream.target.size() + 512;
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
@@ -3347,19 +3365,15 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     // Trailer bytes grow the reservation but never consume flow-control
     // window — HEADERS frames are not flow-controlled (RFC 9113 §6.9).
     const std::size_t data_pending = stream.unaccounted;
-    // The connection counter tracks RAW buffered bytes; the bridge
-    // reservation weighs trailers double for the graph copy.  Subtracting
-    // the weighted amount from the raw counter would steal accounting
-    // from other blocked streams (review P1).
-    const std::size_t raw_pending =
-        data_pending + stream.trailer_unaccounted;
-    const std::size_t reserve_pending =
-        data_pending + 2 * stream.trailer_unaccounted;
-    if (stream.matched.runtime->grow_request_reservation(reserve_pending)) {
-      stream.reserved += reserve_pending;
+    // Raw buffered bytes and the reservation growth are the same amount
+    // now that transport copies are released at dispatch: the graph copy
+    // is the only survivor, single-counted (review P1).
+    const std::size_t pending = data_pending + stream.trailer_unaccounted;
+    if (stream.matched.runtime->grow_request_reservation(pending)) {
+      stream.reserved += pending;
       stream.unaccounted = 0;
       stream.trailer_unaccounted = 0;
-      unaccounted_total_ -= std::min(unaccounted_total_, raw_pending);
+      unaccounted_total_ -= std::min(unaccounted_total_, pending);
       if (data_pending != 0) {
         engine_.consume(stream_id, data_pending);
         pump_writes(); // the WINDOW_UPDATE this consume released
@@ -3422,9 +3436,18 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
           : full_target.substr(query_start + 1);
   WebBindings::NamedPairs headers{stream.headers.begin(),
                                   stream.headers.end()};
+  // The EXACT derived sizes, not multipliers: every owned copy in the
+  // graph value is measurable here, and the transport copies are released
+  // right after the value is built, so single-counting bounds retained
+  // memory (review P1).
+  std::size_t params_bytes = 0;
+  for (const auto &[name, value] : stream.matched.params) {
+    params_bytes += name.size() + value.size();
+  }
   const std::size_t retained =
-      stream.body.size() + 2 * stream.header_bytes +
-      2 * stream.trailer_bytes + 4 * stream.target.size() + 512;
+      stream.body.size() + stream.header_bytes + stream.trailer_bytes +
+      stream.target.size() + stream.decoded_path.size() + query.size() +
+      params_bytes + 512;
   Value request = build_on(
       b.http_request,
       {
@@ -3441,6 +3464,12 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
                                              stream.trailers.end()})},
       });
   stream.body = std::string{};
+  // The graph value owns its copies now; drop the transport's so the
+  // retained estimate above single-counts everything still alive.
+  stream.headers = H2Headers{};
+  stream.trailers = H2Headers{};
+  stream.decoded_path = std::string{};
+  stream.matched.params = NamedPairs{};
   const Int request_id = runtime->register_pending(shared_from_this());
   Value server_request =
       build_on(b.server_request,
@@ -3461,6 +3490,8 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
     respond_transport(stream_id, 503, "server shutting down");
     return;
   }
+  stream.target = std::string{};
+  stream.matched.route = Value{};
   stream.request_id = request_id;
   request_to_stream_[request_id] = stream_id;
 }
@@ -3639,6 +3670,12 @@ void H2Driver::on_stream_closed(std::int32_t stream_id) {
   if (stream.response_submitted && stream.report_runtime) {
     queue_report(std::move(stream.report_runtime), stream.report_client_id,
                  stream.report_request_id, stream.close_error == 0);
+    pending_flush_reports_.back().barrier = std::move(stream.retire_barrier);
+  } else if (stream.retire_barrier) {
+    // No report to carry it: a barrier-only entry releases once the
+    // frames that closed this stream have been written.
+    pending_flush_reports_.push_back(
+        PendingReport{nullptr, 0, 0, true, std::move(stream.retire_barrier)});
   }
   release_stream(stream_id, stream);
   streams_.erase(found);
