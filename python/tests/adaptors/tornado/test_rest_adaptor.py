@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import http.client
+import random
 import socket
 from threading import Thread
 import time
@@ -244,9 +245,20 @@ def test_http_response_converts_to_typed_rest_response(
 
 @pytest.fixture
 def free_tcp_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    # Allocate OUTSIDE the OS ephemeral range: a probe-close-bind port from
+    # the ephemeral range can be reissued as an outbound SOURCE port (client
+    # connection pools) before the server binds it — the "Address already in
+    # use" flake seen on the macOS CI leg.
+    start = random.randint(20000, 31000)
+    for offset in range(1000):
+        candidate = start + offset
+        with socket.socket() as sock:
+            try:
+                sock.bind(("127.0.0.1", candidate))
+            except OSError:
+                continue
+            return candidate
+    raise RuntimeError("no free TCP port found")
 
 
 def test_rest_handler_maps_live_delete_request(free_tcp_port):
