@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import inspect
 
 import pyarrow as pa
+import pytest
 from frozendict import frozendict as fd
 
 from hgraph import TS, TSD, CompoundScalar, Frame, graph
@@ -71,6 +72,11 @@ def test_private_module_paths_match_upstream_import_sites():
         DATA_FRAME_RECORD_REPLAY,
         DATA_FRAME_RECORD_REPLAY_PATH,
         DATA_FRAME_RECORD_OVERRIDES,
+    )
+    # The storage classes resolve through the same private path when the
+    # optional hgraph-persistence distribution is installed (RFC 0025).
+    pytest.importorskip("hgraph_persistence")
+    from hgraph.adaptors.data_frame._data_frame_record_replay import (  # noqa: F401
         MemoryDataFrameStorage,
     )
 

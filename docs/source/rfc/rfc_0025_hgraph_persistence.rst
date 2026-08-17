@@ -435,6 +435,30 @@ with a trivial external ``"probe.mem"`` backend that records and replays
 through the core operator markers on both the C++ and Python surfaces,
 including after a registry reset.
 
+Checkpoint 4 is implemented on the extraction branch, and — a recorded
+sequencing decision — carries the checkpoint-5 operator-implementation
+move with it: "core builds without ``FrameStore``" and "frame-backed
+overloads stay in core" are not simultaneously compilable states, so the
+store and the frame operator implementations moved as one unit.  Landed:
+the ``extensions/persistence`` package (CMake package, wheel, CI wiring,
+audits, installed-SDK consumers); ``FrameStore`` and all backends under
+``hgraph::persistence::store`` with NO core stub; the recording-store
+surface (state-scoped store selection, segment protocol, durable
+``replay_const_value``) as ``hgraph/persistence/recording_store.h`` —
+the PROCESS-GLOBAL fallback store is gone, and store lifetime is always
+the ``GlobalState`` scope that selected it; the frame operator overloads
+and the RECOVER seed resolver registered from the extension's keyed
+installer; ``_hgraph_persistence`` with the frame-store bindings and the
+Python compatibility store; ``hgraph_persistence`` with the
+``DataFrameStorage`` compat surface; the backend-selection choke point
+lazily importing the extension (the activation contract, live);
+``hgraph.adaptors.data_frame`` as the guarded lazy re-export; and the
+frame test suites relocated (C++ Catch2 suite and the Python suites) —
+core keeps memory/testing coverage only.  Remaining from checkpoint 5:
+the explicit missing-extension diagnostics polish and the ``dataframe``
+extra gaining ``hgraph-persistence`` (deferred with the ``uv.lock``
+regeneration).
+
 Appendix: symbol and migration inventory
 ----------------------------------------
 
@@ -571,8 +595,10 @@ C++ — operator implementations and seams:
    * - ``impl/record_replay_frame_impl.h`` (frame-backed
        record/replay/compare, recording options fold)
      - extension
-     - 5
-     - Moves wholesale; registers its overloads from the extension.
+     - 4
+     - Moved wholesale WITH the store (pulled forward from checkpoint 5:
+       the two are one compile unit); registers its overloads from the
+       extension's installer.
    * - ``impl/table_impl.h`` — ``table_ts_detail`` layout/traversal
        (``recording_columns`` et al., ``TableRecordingOptions``)
      - core

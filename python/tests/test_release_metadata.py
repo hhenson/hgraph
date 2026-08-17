@@ -75,7 +75,7 @@ def test_shared_prerelease_uses_numeric_release_core():
         release_exists=lambda _package, _version: False,
     )
 
-    assert release.packages == ("hgraph", "hgraph-kafka", "hgraph-analytics")
+    assert release.packages == ("hgraph", "hgraph-kafka", "hgraph-analytics", "hgraph-persistence")
     assert release.version == "0.8.0rc1"
     assert release.core == (0, 8, 0)
 
@@ -93,6 +93,7 @@ def test_shared_release_checks_all_pypi_packages():
         ("hgraph", "0.8.0"),
         ("hgraph-kafka", "0.8.0"),
         ("hgraph-analytics", "0.8.0"),
+        ("hgraph-persistence", "0.8.0"),
     ]
 
 

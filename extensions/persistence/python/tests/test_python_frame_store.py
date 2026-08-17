@@ -13,6 +13,7 @@ import pyarrow as pa
 import pytest
 from contextlib import contextmanager
 from hgraph import _hgraph
+import hgraph_persistence as _hgraph_persistence
 
 
 class RecordingStore:
@@ -42,11 +43,11 @@ def store():
 def _using(store):
     with hg.GlobalState() as state:
         hg.set_record_replay_model("DataFrame")
-        _hgraph._set_python_frame_store(state._impl, store)
+        _hgraph_persistence._hgraph_persistence._set_python_frame_store(state._impl, store)
         try:
             yield
         finally:
-            _hgraph._restore_python_frame_store(state._impl)
+            _hgraph_persistence._hgraph_persistence._restore_python_frame_store(state._impl)
 
 
 def _record(store, ticks, tp, key="out", **options):
@@ -152,12 +153,12 @@ def test_reselecting_the_native_model_starts_with_a_fresh_store():
 def test_reselecting_the_model_keeps_a_python_compatibility_store(store):
     with hg.GlobalState() as state:
         hg.set_record_replay_model(hg.DATA_FRAME)
-        _hgraph._set_python_frame_store(state._impl, store)
+        _hgraph_persistence._hgraph_persistence._set_python_frame_store(state._impl, store)
         try:
             hg.set_record_replay_model(hg.DATA_FRAME)
             _record(store, [1], hg.TS[int])
         finally:
-            _hgraph._restore_python_frame_store(state._impl)
+            _hgraph_persistence._hgraph_persistence._restore_python_frame_store(state._impl)
 
     assert store.writes == ["py.out"]
 
@@ -203,15 +204,15 @@ def test_nested_python_stores_restore_the_previous_graph_store():
 
     with hg.GlobalState() as state:
         hg.set_record_replay_model("DataFrame")
-        _hgraph._set_python_frame_store(state._impl, first)
-        _hgraph._set_python_frame_store(state._impl, second)
-        _hgraph._restore_python_frame_store(state._impl)
+        _hgraph_persistence._hgraph_persistence._set_python_frame_store(state._impl, first)
+        _hgraph_persistence._hgraph_persistence._set_python_frame_store(state._impl, second)
+        _hgraph_persistence._hgraph_persistence._restore_python_frame_store(state._impl)
 
         _record(first, [1], hg.TS[int], key="first")
         assert first.writes == ["py.first"]
         assert second.writes == []
 
-        _hgraph._restore_python_frame_store(state._impl)
+        _hgraph_persistence._hgraph_persistence._restore_python_frame_store(state._impl)
         _record(first, [2], hg.TS[int], key="native")
         assert first.writes == ["py.first"]
         assert hg.frame_store_contains("py.native")

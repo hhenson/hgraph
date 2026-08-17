@@ -1,7 +1,7 @@
-#ifndef HGRAPH_TYPES_FRAME_STORE_H
-#define HGRAPH_TYPES_FRAME_STORE_H
+#ifndef HGRAPH_PERSISTENCE_FRAME_STORE_H
+#define HGRAPH_PERSISTENCE_FRAME_STORE_H
 
-#include <hgraph/hgraph_export.h>
+#include <hgraph/persistence/export.h>
 #include <hgraph/types/frame.h>
 
 #include <memory>
@@ -15,7 +15,7 @@
  *
  * A configured content store: keyed frames written to memory, a local
  * filesystem, or S3, in Arrow IPC or Parquet. Record/replay is the first
- * consumer through the owning, type-erased ``store::FrameStore``; the store
+ * consumer through the owning, type-erased ``persistence::store::FrameStore``; the store
  * itself knows nothing about record/replay.
  *
  * The frame is the unit. A frame carries its own description in its Arrow
@@ -23,7 +23,7 @@
  * answers "what produced this?" without the store holding anything on the
  * side. There is no index object and no group construct.
  */
-namespace hgraph::store
+namespace hgraph::persistence::store
 {
     /** Serialisation format. */
     enum class Format
@@ -135,10 +135,10 @@ namespace hgraph::store
      *
      * @returns the reason when invalid; ``std::nullopt`` when the key is valid.
      */
-    [[nodiscard]] HGRAPH_EXPORT std::optional<std::string> validate_key(std::string_view key);
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::optional<std::string> validate_key(std::string_view key);
 
     /** Throws ``std::invalid_argument`` when ``validate_key`` rejects the key. */
-    HGRAPH_EXPORT void require_valid_key(std::string_view key);
+    HGRAPH_PERSISTENCE_EXPORT void require_valid_key(std::string_view key);
 
     /**
      * Shut the S3 layer down. Call before process exit when S3 has been used.
@@ -148,10 +148,10 @@ namespace hgraph::store
      * destructor happens after Arrow's own statics are gone and terminates the
      * process. Safe to call when S3 was never used, and safe to call twice.
      */
-    HGRAPH_EXPORT void finalize_s3() noexcept;
+    HGRAPH_PERSISTENCE_EXPORT void finalize_s3() noexcept;
 
     /** True when this build links a Parquet implementation. */
-    [[nodiscard]] HGRAPH_EXPORT bool parquet_available() noexcept;
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT bool parquet_available() noexcept;
 
     /**
      * Owning, type-erased handle to a configured store.
@@ -165,7 +165,7 @@ namespace hgraph::store
      * therefore remain safe without testing an ops pointer for null; a write
      * fails explicitly rather than silently discarding data.
      */
-    class HGRAPH_EXPORT FrameStore final
+    class HGRAPH_PERSISTENCE_EXPORT FrameStore final
     {
       public:
         FrameStore() noexcept;
@@ -211,7 +211,7 @@ namespace hgraph::store
      * a store that quietly fell back would turn a configuration error into
      * output that looks wrong much later.
      */
-    [[nodiscard]] HGRAPH_EXPORT FrameStore make_frame_store(FrameStoreConfig config);
-}  // namespace hgraph::store
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT FrameStore make_frame_store(FrameStoreConfig config);
+}  // namespace hgraph::persistence::store
 
-#endif  // HGRAPH_TYPES_FRAME_STORE_H
+#endif  // HGRAPH_PERSISTENCE_FRAME_STORE_H

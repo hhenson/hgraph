@@ -11,7 +11,6 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
-#include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -83,27 +82,6 @@ namespace
             return request;
         }
     };
-
-    struct ConsumerFrameStore
-    {
-        bool present{false};
-    };
-
-    const hgraph::store::FrameStoreOps &consumer_frame_store_ops()
-    {
-        static const hgraph::store::FrameStoreOps ops{
-            [](void *context, std::string_view, hgraph::Frame,
-               std::optional<hgraph::store::Compression>) {
-                static_cast<ConsumerFrameStore *>(context)->present = true;
-            },
-            [](void *, std::string_view) { return hgraph::Frame{}; },
-            [](void *context, std::string_view) {
-                return static_cast<ConsumerFrameStore *>(context)->present;
-            },
-            [](void *context) { static_cast<ConsumerFrameStore *>(context)->present = false; },
-        };
-        return ops;
-    }
 
     void describe_consumer_table(hgraph::TableLayout &, const hgraph::TSValueTypeMetaData *,
                                  std::string, std::vector<std::size_t>, std::size_t)
@@ -284,8 +262,6 @@ int main()
     static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
-    static_assert(!std::is_polymorphic_v<store::FrameStore>);
-    static_assert(sizeof(store::FrameStoreOps) == 4 * sizeof(void *));
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
     static_assert(std::is_standard_layout_v<TableTypeOps>);
 
@@ -296,13 +272,8 @@ int main()
         throw std::runtime_error("installed table type-ops no-op contract is incomplete");
     }
 
-    auto              frame_store_context = std::make_shared<ConsumerFrameStore>();
-    store::FrameStore frame_store{frame_store_context, consumer_frame_store_ops()};
-    frame_store.write("consumer", Frame{});
-    if (!frame_store.contains("consumer"))
-    {
-        throw std::runtime_error("installed erased frame-store contract is unusable");
-    }
+    // The erased frame-store contract moved to hgraph-persistence
+    // (RFC 0025 checkpoint 4); its installed consumer covers it.
 
     CompoundScalarStorage compound_storage = CompoundScalarStorage::make_default();
     const auto            compound_view = compound_storage.view();

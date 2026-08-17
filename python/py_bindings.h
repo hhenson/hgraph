@@ -16,7 +16,6 @@ namespace hgraph::python_bridge
     void bind_ports(nanobind::module_ &m);              // py_ports.cpp
     void bind_wiring(nanobind::module_ &m);             // py_wiring.cpp
     void bind_state_and_services(nanobind::module_ &m); // py_state_services.cpp
-    void bind_persistence(nanobind::module_ &m);        // py_persistence.cpp
     void register_python_overloads();                   // py_nodes.cpp
 }  // namespace hgraph::python_bridge
 

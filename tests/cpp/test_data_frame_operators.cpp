@@ -3,7 +3,6 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
-#include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -611,13 +610,6 @@ TEST_CASE("data frame operators: Arrow schema metadata survives row-preserving o
         stdlib::data_frame_detail::concat_frames(markerless, same_revision);
     CHECK(frame_metadata_equal(markerless_combined, input));
     CHECK(frame_rows(markerless_combined) == 3);
-
-    record_replay::store_write("tests.data_frame.metadata", markerless);
-    const Frame stored =
-        record_replay::store_read("tests.data_frame.metadata");
-    CHECK(frame_metadata_equal(stored, markerless));
-    CHECK(frame_metadata(stored, scalar_descriptor<FrameMeta>::value_meta()) ==
-          metadata_value(7));
 
     const Frame other_revision = metadata_frame({3}, {30}, 8);
     CHECK_THROWS_AS(stdlib::data_frame_detail::concat_frames(input, other_revision),

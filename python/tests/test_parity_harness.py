@@ -2154,6 +2154,11 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
 def test_coverage_corpus_recipes_execute_on_the_candidate():
     from tools.parity.runner import run_recipe
 
+    try:
+        import hgraph_persistence  # noqa: F401
+        durable = True
+    except ModuleNotFoundError:
+        durable = False
     for name in (
         "coverage-scalar-operator-arguments",
         "regression-integer-pow-result-type",
@@ -2166,10 +2171,16 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
         "coverage-nested-adaptor-pipeline",
         "coverage-nested-outer-switch",
     ):
+        if name.startswith("coverage-frame-recording") and not durable:
+            # Durable recording is hgraph-persistence's (RFC 0025); the wheel
+            # CI legs install it and execute these recipes.
+            continue
         raw = json.loads(
             (CORPUS / f"{name}.json").read_text(encoding="utf-8"))
         result = run_recipe(raw)
         assert result["status"] == "ok", (name, result)
+    if not durable:
+        return
     # The recorded-frame surface reports column timezone presentation: the
     # naive-UTC user boundary must hold (a tz-aware column is a trace diff).
     raw = json.loads(

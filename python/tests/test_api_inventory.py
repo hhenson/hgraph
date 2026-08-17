@@ -287,9 +287,12 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
     )
 
     record = classes["_record_Operator"]
+    # The durable overload (mode: _ToTableMode et al.) registers from
+    # hgraph-persistence (RFC 0025); core's stub carries the in-memory
+    # shapes, including the sparse/dense selection.
     assert any(
         any(
-            argument.arg == "mode" and ast.unparse(argument.annotation) == "_ToTableMode"
+            argument.arg == "sparse"
             for argument in call.args.args + call.args.kwonlyargs
         )
         for call in record.body

@@ -3,6 +3,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/persistence/recording_store.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/table_config.h>
 #include <hgraph/types/value/table_codec.h>
@@ -10,6 +11,44 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+namespace test_detail
+{
+    /** The moved tests' store shims: the process-global store forms died at
+        RFC 0025 checkpoint 4, so the no-state spellings resolve against the
+        ambient GlobalContext state the test established. */
+    [[nodiscard]] inline hgraph::GlobalStateView active_state()
+    {
+        return hgraph::GlobalContext::active_state()->view();
+    }
+    inline void store_write(std::string_view key, hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(active_state(), key, std::move(frame));
+    }
+    inline void store_write(hgraph::GlobalStateView state, std::string_view key,
+                            hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(state, key, std::move(frame));
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(std::string_view key)
+    {
+        return hgraph::persistence::store_read(active_state(), key);
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(hgraph::GlobalStateView state,
+                                                  std::string_view key)
+    {
+        return hgraph::persistence::store_read(state, key);
+    }
+    [[nodiscard]] inline bool store_contains(std::string_view key)
+    {
+        return hgraph::persistence::store_contains(active_state(), key);
+    }
+    [[nodiscard]] inline bool store_contains(hgraph::GlobalStateView state, std::string_view key)
+    {
+        return hgraph::persistence::store_contains(state, key);
+    }
+}  // namespace test_detail
+
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
@@ -27,6 +66,7 @@
 namespace
 {
     using namespace hgraph;
+using namespace hgraph::persistence::store;
     using namespace hgraph::testing;
 
     using ReplayBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
@@ -289,11 +329,11 @@ namespace
         std::unordered_map<std::string, Frame> frames;
     };
 
-    [[nodiscard]] const store::FrameStoreOps &capturing_frame_store_ops()
+    [[nodiscard]] const persistence::store::FrameStoreOps &capturing_frame_store_ops()
     {
-        static const store::FrameStoreOps ops{
+        static const persistence::store::FrameStoreOps ops{
             [](void *context, std::string_view key, Frame frame,
-               std::optional<store::Compression>) {
+               std::optional<persistence::store::Compression>) {
                 static_cast<CapturingFrameStore *>(context)->frames[std::string{key}] =
                     std::move(frame);
             },
@@ -335,8 +375,8 @@ TEST_CASE("frame backend: record writes a bitemporal frame to the store; "
     // Run 1: record (values at cycles 0, 2 and 3 - gaps preserved).
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
 
-    REQUIRE(record_replay::store_contains("book.prices"));
-    const Frame recorded = record_replay::store_read("book.prices");
+    REQUIRE(test_detail::store_contains("book.prices"));
+    const Frame recorded = test_detail::store_read("book.prices");
     CHECK(frame_rows(recorded) == 3);
 
     // Run 2: replay - values re-emitted at the RECORDED times (cycle-aligned).
@@ -354,7 +394,7 @@ TEST_CASE("frame backend: per-recording time-column names replay through the "
     const auto expected = values<Int>(10, none, 30);
 
     (void)eval_node<RenamedTimeRecordGraph>(expected);
-    const Frame recorded = record_replay::store_read(state, "book.renamed");
+    const Frame recorded = test_detail::store_read(state, "book.renamed");
     REQUIRE(recorded.has_value());
     CHECK(recorded.table->GetColumnByName("event_time") != nullptr);
     CHECK(recorded.table->GetColumnByName("revision") != nullptr);
@@ -374,15 +414,15 @@ TEST_CASE("frame backend: row-count flushing writes immutable segments and "
 
     (void)eval_node<SegmentedRecordGraph>(values<Int>(10, 20, 30, 40, 50));
 
-    const Frame marker = record_replay::store_read(state, "book.prices");
-    REQUIRE(record_replay::is_segmented_recording(marker));
-    CHECK(frame_rows(record_replay::store_read(state, "book.prices.0")) == 2);
-    CHECK(frame_rows(record_replay::store_read(state, "book.prices.1")) == 2);
-    CHECK(frame_rows(record_replay::store_read(state, "book.prices.2")) == 1);
-    CHECK(record_replay::store_contains(state, "book.prices.complete"));
+    const Frame marker = test_detail::store_read(state, "book.prices");
+    REQUIRE(persistence::is_segmented_recording(marker));
+    CHECK(frame_rows(test_detail::store_read(state, "book.prices.0")) == 2);
+    CHECK(frame_rows(test_detail::store_read(state, "book.prices.1")) == 2);
+    CHECK(frame_rows(test_detail::store_read(state, "book.prices.2")) == 1);
+    CHECK(test_detail::store_contains(state, "book.prices.complete"));
 
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 20, 30, 40, 50));
-    CHECK(record_replay::replay_const_value(state, "book.prices",
+    CHECK(persistence::replay_const_value(state, "book.prices",
                                             scalar_descriptor<Int>::value_meta())
               .view()
               .checked_as<Int>() == Int{50});
@@ -398,9 +438,9 @@ TEST_CASE("frame backend: time flushing commits complete tick-aligned segments")
 
     (void)eval_node<IntervalSegmentedRecordGraph>(values<Int>(10, 20, 30, 40, 50));
 
-    CHECK(frame_rows(record_replay::store_read(state, "book.prices.0")) == 3);
-    CHECK(frame_rows(record_replay::store_read(state, "book.prices.1")) == 2);
-    CHECK_FALSE(record_replay::store_contains(state, "book.prices.2"));
+    CHECK(frame_rows(test_detail::store_read(state, "book.prices.0")) == 3);
+    CHECK(frame_rows(test_detail::store_read(state, "book.prices.1")) == 2);
+    CHECK_FALSE(test_detail::store_contains(state, "book.prices.2"));
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 20, 30, 40, 50));
 }
 
@@ -423,9 +463,9 @@ TEST_CASE("frame backend: Tick Sample and Snap use the to_table row semantics")
     (void)eval_node<ModeRecordGraph<2>>(input);
     (void)eval_node<ModeRecordGraph<3>>(input);
 
-    const Frame tick = record_replay::store_read(state, "mode.tick");
-    const Frame sample = record_replay::store_read(state, "mode.sample");
-    const Frame snap = record_replay::store_read(state, "mode.snap");
+    const Frame tick = test_detail::store_read(state, "mode.tick");
+    const Frame sample = test_detail::store_read(state, "mode.sample");
+    const Frame snap = test_detail::store_read(state, "mode.snap");
     REQUIRE(frame_rows(tick) == 3);
     REQUIRE(frame_rows(sample) == 3);
     REQUIRE(frame_rows(snap) == 4);
@@ -459,9 +499,9 @@ TEST_CASE("frame backend: one and many immutable segments replay identically")
     const auto expected = values<Int>(10, 20, 30, 40, 50);
 
     (void)eval_node<SegmentEquivalenceRecordGraph>(expected);
-    CHECK(record_replay::store_contains(state, "segments.one.0"));
-    CHECK_FALSE(record_replay::store_contains(state, "segments.one.1"));
-    CHECK(record_replay::store_contains(state, "segments.many.2"));
+    CHECK(test_detail::store_contains(state, "segments.one.0"));
+    CHECK_FALSE(test_detail::store_contains(state, "segments.one.1"));
+    CHECK(test_detail::store_contains(state, "segments.many.2"));
     CHECK_OUTPUT((eval_node<SegmentEquivalenceReplayGraph<"one">>()), expected);
     CHECK_OUTPUT((eval_node<SegmentEquivalenceReplayGraph<"many">>()), expected);
 }
@@ -475,14 +515,14 @@ TEST_CASE("frame backend: replay consumes completed segments without a "
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
-    record_replay::store_write(state, "book.prices", record_replay::segmented_recording_marker());
-    record_replay::store_write(
+    test_detail::store_write(state, "book.prices", persistence::segmented_recording_marker());
+    test_detail::store_write(
         state, "book.prices.0",
         scalar_segment({{MIN_ST, Int{10}}, {MIN_ST + TimeDelta{1}, Int{20}}}));
-    record_replay::store_write(state, "book.prices.1",
+    test_detail::store_write(state, "book.prices.1",
                                scalar_segment({{MIN_ST + TimeDelta{2}, Int{30}}}));
 
-    CHECK_FALSE(record_replay::store_contains(state, "book.prices.complete"));
+    CHECK_FALSE(test_detail::store_contains(state, "book.prices.complete"));
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 20, 30));
 }
 
@@ -494,7 +534,7 @@ TEST_CASE("frame backend: a legacy segment key prevents an ambiguous flat "
     const auto    state = context.state().view();
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    record_replay::store_write(state, "book.prices.0", scalar_segment({{MIN_ST, Int{10}}}));
+    test_detail::store_write(state, "book.prices.0", scalar_segment({{MIN_ST, Int{10}}}));
 
     CHECK_THROWS_WITH(
         (void)eval_node<RecordGraph>(values<Int>(20)),
@@ -508,14 +548,14 @@ TEST_CASE("frame backend: a stale completion key prevents a segmented run")
     const auto    state = context.state().view();
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    record_replay::store_write(state, "book.prices.complete",
-                               record_replay::segmented_recording_manifest(1, 1));
+    test_detail::store_write(state, "book.prices.complete",
+                               persistence::segmented_recording_manifest(1, 1));
 
     CHECK_THROWS_WITH(
         (void)eval_node<SegmentedRecordGraph>(values<Int>(20)),
         Catch::Matchers::ContainsSubstring("recording key already exists: book.prices"));
-    CHECK_FALSE(record_replay::store_contains(state, "book.prices"));
-    CHECK_FALSE(record_replay::store_contains(state, "book.prices.0"));
+    CHECK_FALSE(test_detail::store_contains(state, "book.prices"));
+    CHECK_FALSE(test_detail::store_contains(state, "book.prices.0"));
 }
 
 TEST_CASE("frame backend: inherited recording uses the configured fixed as-of")
@@ -530,7 +570,7 @@ TEST_CASE("frame backend: inherited recording uses the configured fixed as-of")
 
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
 
-    const Frame recorded = record_replay::store_read(state, "book.prices");
+    const Frame recorded = test_detail::store_read(state, "book.prices");
     REQUIRE(recorded.has_value());
     REQUIRE(frame_rows(recorded) == 3);
     for (std::int64_t row = 0; row < frame_rows(recorded); ++row)
@@ -546,7 +586,7 @@ TEST_CASE("frame backend: a custom erased C++ store participates through "
     GlobalContext context;
     const auto    state = context.state().view();
     auto          capture = std::make_shared<CapturingFrameStore>();
-    record_replay::set_frame_store(state, store::FrameStore{capture, capturing_frame_store_ops()});
+    persistence::set_frame_store(state, persistence::store::FrameStore{capture, capturing_frame_store_ops()});
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
@@ -569,7 +609,7 @@ TEST_CASE("frame backend: the recordable id resolves through graph traits at "
         record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<TraitRecordGraph>(values<Int>(7));
-    CHECK(record_replay::store_contains("desk.fx.orders"));
+    CHECK(test_detail::store_contains("desk.fx.orders"));
 }
 
 TEST_CASE("frame backend: native recording keys are immutable within a store")
@@ -584,7 +624,7 @@ TEST_CASE("frame backend: native recording keys are immutable within a store")
     CHECK_THROWS_WITH((void)eval_node<RecordGraph>(values<Int>(20)),
                       Catch::Matchers::ContainsSubstring("key already exists"));
 
-    const Frame original = record_replay::store_read(state, "book.prices");
+    const Frame original = test_detail::store_read(state, "book.prices");
     REQUIRE(original.has_value());
     CHECK(read_row(table_converter(scalar_descriptor<Int>::value_meta()), original, 0)
               .view()
@@ -603,19 +643,19 @@ TEST_CASE("frame backend: replay_const_value reads the last row at or before tm"
 
     const auto *int_meta = scalar_descriptor<Int>::value_meta();
     // Everything <= MAX_DT: the last recorded value.
-    CHECK(record_replay::replay_const_value(state, "book.prices", int_meta)
+    CHECK(persistence::replay_const_value(state, "book.prices", int_meta)
               .view()
               .checked_as<Int>() == Int{40});
     // Cut at the second recorded tick (cycle 2 = MIN_ST + 2).
-    CHECK(record_replay::replay_const_value(state, "book.prices", int_meta, MIN_ST + TimeDelta{2})
+    CHECK(persistence::replay_const_value(state, "book.prices", int_meta, MIN_ST + TimeDelta{2})
               .view()
               .checked_as<Int>() == Int{30});
     // Before the first tick: nothing qualifies.
     CHECK_FALSE(
-        record_replay::replay_const_value(state, "book.prices", int_meta, MIN_ST - TimeDelta{1})
+        persistence::replay_const_value(state, "book.prices", int_meta, MIN_ST - TimeDelta{1})
             .has_value());
     // Unknown key: empty.
-    CHECK_FALSE(record_replay::replay_const_value(state, "missing.key", int_meta).has_value());
+    CHECK_FALSE(persistence::replay_const_value(state, "missing.key", int_meta).has_value());
 }
 
 TEST_CASE("raw frame replay selects revisions independently of input row order")
@@ -638,7 +678,7 @@ TEST_CASE("stored frame replay selects the visible revision")
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     table::set_config(state, table::TableConfig{.as_of = MIN_ST + TimeDelta{15}});
-    record_replay::store_write(state, "book.prices", scalar_replay_frame());
+    test_detail::store_write(state, "book.prices", scalar_replay_frame());
 
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 30));
 }
@@ -650,7 +690,7 @@ TEST_CASE("stored frame replay discards rows before graph start")
     const auto    state = context.state().view();
     record_replay::set_config(
         state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    record_replay::store_write(state, "book.prices", scalar_replay_frame());
+    test_detail::store_write(state, "book.prices", scalar_replay_frame());
 
     GraphBuilder         gb = build_graph<ReplaySinkGraph>();
     GraphExecutorBuilder eb;

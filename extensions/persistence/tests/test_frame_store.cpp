@@ -7,9 +7,10 @@
 // to the typed value.
 
 #include <hgraph/runtime/global_state.h>
-#include <hgraph/types/frame_store.h>
+#include <hgraph/persistence/frame_store.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/persistence/recording_store.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/value_builder.h>
@@ -24,6 +25,44 @@
 #endif
 
 #include <catch2/catch_test_macros.hpp>
+
+namespace test_detail
+{
+    /** The moved tests' store shims: the process-global store forms died at
+        RFC 0025 checkpoint 4, so the no-state spellings resolve against the
+        ambient GlobalContext state the test established. */
+    [[nodiscard]] inline hgraph::GlobalStateView active_state()
+    {
+        return hgraph::GlobalContext::active_state()->view();
+    }
+    inline void store_write(std::string_view key, hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(active_state(), key, std::move(frame));
+    }
+    inline void store_write(hgraph::GlobalStateView state, std::string_view key,
+                            hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(state, key, std::move(frame));
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(std::string_view key)
+    {
+        return hgraph::persistence::store_read(active_state(), key);
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(hgraph::GlobalStateView state,
+                                                  std::string_view key)
+    {
+        return hgraph::persistence::store_read(state, key);
+    }
+    [[nodiscard]] inline bool store_contains(std::string_view key)
+    {
+        return hgraph::persistence::store_contains(active_state(), key);
+    }
+    [[nodiscard]] inline bool store_contains(hgraph::GlobalStateView state, std::string_view key)
+    {
+        return hgraph::persistence::store_contains(state, key);
+    }
+}  // namespace test_detail
+
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cstdlib>
@@ -32,7 +71,7 @@
 #include <type_traits>
 
 using namespace hgraph;
-using namespace hgraph::store;
+using namespace hgraph::persistence::store;
 
 namespace
 {
@@ -361,18 +400,18 @@ TEST_CASE("frame store: GlobalState scopes independent stores and owns their lif
     {
         GlobalState first_state;
         GlobalState second_state;
-        record_replay::set_frame_store(first_state.view(),
+        persistence::set_frame_store(first_state.view(),
                                        FrameStore{first_context, probe_store_ops()});
-        record_replay::set_frame_store(second_state.view(),
+        persistence::set_frame_store(second_state.view(),
                                        FrameStore{second_context, probe_store_ops()});
         first_context.reset();
         second_context.reset();
 
-        record_replay::store_write(first_state.view(), "value", make_frame(10));
-        record_replay::store_write(second_state.view(), "value", make_frame(20));
-        CHECK(record_replay::store_read(first_state.view(), "value")
+        test_detail::store_write(first_state.view(), "value", make_frame(10));
+        test_detail::store_write(second_state.view(), "value", make_frame(20));
+        CHECK(test_detail::store_read(first_state.view(), "value")
                   .table->column(0)->GetScalar(0).ValueOrDie()->ToString() == "10");
-        CHECK(record_replay::store_read(second_state.view(), "value")
+        CHECK(test_detail::store_read(second_state.view(), "value")
                   .table->column(0)->GetScalar(0).ValueOrDie()->ToString() == "20");
         CHECK_FALSE(first_lifetime.expired());
         CHECK_FALSE(second_lifetime.expired());

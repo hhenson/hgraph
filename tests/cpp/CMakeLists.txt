@@ -224,7 +224,6 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
-    test_frame_store.cpp
     test_type_resolution.cpp
     test_wiring_observers.cpp
 )
@@ -294,8 +293,6 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_record_replay.cpp
     test_operator_installers.cpp
     test_record_replay_config.cpp
-    test_record_replay_frame.cpp
-    test_record_replay_partitioned.cpp
     test_recording_columns.cpp
     test_table.cpp
     test_table_round_trip.cpp
@@ -378,6 +375,14 @@ target_link_libraries(hgraph_stable_slot_representation_perf
 
 hgraph_enable_private_pch(hgraph_stable_slot_representation_perf)
 
+# Catch2's subproject build exports its extras module path only to its
+# FETCHER's scope; when another directory (an extension's test suite)
+# fetched it first, resolve the module path here explicitly.
+if(catch2_SOURCE_DIR)
+    list(APPEND CMAKE_MODULE_PATH "${catch2_SOURCE_DIR}/extras")
+elseif(Catch2_SOURCE_DIR)
+    list(APPEND CMAKE_MODULE_PATH "${Catch2_SOURCE_DIR}/extras")
+endif()
 include(Catch)
 if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
     catch_discover_tests(hgraph_unit_tests

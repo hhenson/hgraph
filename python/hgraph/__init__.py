@@ -64,16 +64,31 @@ IN_MEMORY_DENSE = _hgraph.IN_MEMORY_DENSE
 DATA_FRAME = _hgraph.DATA_FRAME
 
 
+def _persistence():
+    # Guarded lazy re-export (RFC 0025 checkpoint 4): the frame store lives
+    # in the optional hgraph-persistence distribution; the error fires when
+    # a durable name is USED, never at hgraph import.
+    try:
+        import hgraph_persistence
+    except ModuleNotFoundError as error:
+        if error.name != "hgraph_persistence":
+            raise
+        raise ModuleNotFoundError(
+            "the frame store is provided by the optional 'hgraph-persistence' "
+            "distribution; install it with `pip install hgraph-persistence`",
+            name="hgraph_persistence",
+        ) from error
+    return hgraph_persistence
+
+
 def frame_store_contains(key, global_state=None):
     """Whether the active graph's frame store contains ``key``."""
-    state = global_state if global_state is not None else GlobalState.instance()
-    return _hgraph._frame_store_contains(state._impl, key)
+    return _persistence().frame_store_contains(key, global_state)
 
 
 def frame_store_read(key, global_state=None):
     """Load one complete frame from the active graph's frame store."""
-    state = global_state if global_state is not None else GlobalState.instance()
-    return _hgraph._frame_store_read(state._impl, key)
+    return _persistence().frame_store_read(key, global_state)
 
 TimeSeries = _hgraph.TimeSeries
 Graph = _hgraph.Graph
@@ -135,8 +150,15 @@ _OPERATOR_NAMES = frozenset(
 drop_dups = operator_function("dedup")
 
 
+# Operator CONTRACTS whose implementations live in optional extensions
+# (RFC 0025): the import path stays core even before any overload is
+# registered; using one without its extension produces the wiring-time
+# no-overload diagnostic instead of an import error.
+_EXTENSION_OPERATOR_CONTRACTS = frozenset({"replay_const"})
+
+
 def __getattr__(name):
-    if name in _OPERATOR_NAMES:
+    if name in _OPERATOR_NAMES or name in _EXTENSION_OPERATOR_CONTRACTS:
         fn = operator_function(name)
         globals()[name] = fn  # cache
         return fn
@@ -148,7 +170,7 @@ def __getattr__(name):
 
 
 def __dir__():
-    return sorted(set(globals()) | _OPERATOR_NAMES)
+    return sorted(set(globals()) | _OPERATOR_NAMES | _EXTENSION_OPERATOR_CONTRACTS)
 
 
 __all__ = [

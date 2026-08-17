@@ -255,6 +255,22 @@ def set_record_replay_config(model):
         _hgraph.DATA_FRAME if model == _LEGACY_DATA_FRAME_RECORD_REPLAY else model
     )
     backend = _LEGACY_BACKENDS.get(backend, backend)
+    if backend.startswith("hgraph.persistence."):
+        # Selecting the backend is the LOAD POINT (RFC 0025): importing the
+        # extension registers its overloads with the shared runtime, and
+        # selection starts a new recording session.
+        try:
+            import hgraph_persistence
+        except ModuleNotFoundError as error:
+            if error.name != "hgraph_persistence":
+                raise
+            raise ModuleNotFoundError(
+                f"record/replay backend {backend!r} is provided by the optional "
+                "'hgraph-persistence' distribution; install it with "
+                "`pip install hgraph-persistence`",
+                name="hgraph_persistence",
+            ) from error
+        hgraph_persistence.start_recording_session(GlobalState.instance())
     _hgraph._set_record_replay_config(GlobalState.instance()._impl, backend)
     # python-readable mirror (backend-gated python overloads read it in their
     # requires= predicates; the C++ config has no python getter)

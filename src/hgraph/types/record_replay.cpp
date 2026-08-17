@@ -2,17 +2,9 @@
 
 #include <hgraph/runtime/graph.h>
 #include <hgraph/types/metadata/type_registry.h>
-#include <hgraph/types/table_config.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
-#include <hgraph/types/value/table_codec.h>
-
-#include <arrow/array.h>
-#include <arrow/array/builder_primitive.h>
-#include <arrow/table.h>
-#include <arrow/type.h>
-#include <arrow/util/key_value_metadata.h>
 
 #include <atomic>
 #include <cstdint>
@@ -25,13 +17,7 @@ namespace hgraph::record_replay
     namespace
     {
         inline constexpr std::string_view CONFIG_KEY{"__hgraph.record_replay.config__"};
-        inline constexpr std::string_view FRAME_STORE_KEY{"__hgraph.record_replay.frame_store__"};
         inline constexpr std::string_view COMPARE_KEY_PREFIX{"__hgraph.record_replay.compare__."};
-
-        // The durable backend id belongs to hgraph-persistence (RFC 0025);
-        // this literal exists only for the transitional in-core frame backend
-        // and leaves with it at checkpoint 5.
-        inline constexpr std::string_view FRAME_BACKEND{"hgraph.persistence.frame"};
 
         /** The single legacy-name choke point (RFC 0025 deprecation window):
             every entry that accepts a backend id normalises through here, so
@@ -40,15 +26,28 @@ namespace hgraph::record_replay
         {
             if (backend == "InMemory") { return std::string{MEMORY}; }
             if (backend == "InMemoryDense") { return std::string{TESTING}; }
-            if (backend == "DataFrame") { return std::string{FRAME_BACKEND}; }
+            // Compat alias only (deprecation window): the id is defined and
+            // served by hgraph-persistence; core merely translates the
+            // released legacy spelling.
+            if (backend == "DataFrame") { return std::string{"hgraph.persistence.frame"}; }
             return backend;
         }
-        inline constexpr std::string_view RECORDING_LAYOUT_KEY{"hgraph.recording.layout"};
-        inline constexpr std::string_view SEGMENTED_LAYOUT{"segmented"};
-        inline constexpr std::string_view RECORDING_VERSION_KEY{"hgraph.recording.version"};
-
         thread_local std::vector<ScopeState> g_scopes{};
         const ScopeState                     g_no_scope{};
+
+        /** Backend id -> registered RECOVER seed resolver. Build-time
+            registration state; reset() clears it and the registration
+            installers replay it (RFC 0025 checkpoint 3 semantics). */
+        std::vector<std::pair<std::string, SeedResolver>> g_seed_resolvers{};
+
+        [[nodiscard]] SeedResolver find_seed_resolver(std::string_view backend) noexcept
+        {
+            for (const auto &[id, resolver] : g_seed_resolvers)
+            {
+                if (id == backend) { return resolver; }
+            }
+            return nullptr;
+        }
 
         void ensure_config_type()
         {
@@ -78,71 +77,6 @@ namespace hgraph::record_replay
             (void)registry.register_scalar<ComparisonSummary>("__comparison_summary__");
             registered_generation.store(generation, std::memory_order_release);
         }
-
-        struct FrameStoreHolder
-        {
-            store::FrameStore store;
-        };
-
-        struct ProcessFrameStores
-        {
-            ProcessFrameStores()
-            {
-                store::FrameStoreConfig config;
-                config.immutable = false;
-                fallback = store::make_frame_store(std::move(config));
-                active = fallback;
-            }
-
-            store::FrameStore fallback{};
-            store::FrameStore active{};
-        };
-
-        [[nodiscard]] ProcessFrameStores &process_frame_stores()
-        {
-            static ProcessFrameStores stores;
-            return stores;
-        }
-
-        [[nodiscard]] Frame metadata_frame(std::vector<std::string> keys,
-                                           std::vector<std::string> values)
-        {
-            arrow::BooleanBuilder         builder;
-            std::shared_ptr<arrow::Array> marker;
-            const auto                    status = builder.Finish(&marker);
-            if (!status.ok())
-            {
-                throw std::runtime_error("build segmented-recording marker: " + status.ToString());
-            }
-            auto schema =
-                arrow::schema({arrow::field("__hgraph_recording_marker__", arrow::boolean())},
-                              arrow::key_value_metadata(std::move(keys), std::move(values)));
-            return Frame{arrow::Table::Make(std::move(schema), {std::move(marker)}, 0)};
-        }
-
-        template <typename Fn>
-        void for_each_recording_frame(GlobalStateView state, std::string_view key, Fn &&fn)
-        {
-            Frame frame = store_read(state, key);
-            if (!frame.has_value())
-            {
-                return;
-            }
-            if (!is_segmented_recording(frame))
-            {
-                fn(frame);
-                return;
-            }
-            for (std::size_t segment = 0;; ++segment)
-            {
-                frame = store_read(state, segment_key(key, segment));
-                if (!frame.has_value())
-                {
-                    return;
-                }
-                fn(frame);
-            }
-        }
     }  // namespace
 
     void set_config(GlobalStateView state, RecordReplayConfig config)
@@ -158,14 +92,6 @@ namespace hgraph::record_replay
         config.backend = normalize_backend(std::move(config.backend));
         ensure_config_type();
         ensure_summary_type();
-        if (config.backend == FRAME_BACKEND && !frame_store(state))
-        {
-            // The frame backend has a real graph-owned C++ store by default.
-            // Besides matching the configured file/S3 lifetime, this gives the
-            // memory-backed store the same immutable-key behaviour as those
-            // deployments. Moves to the extension at checkpoint 5 (RFC 0025).
-            set_frame_store(state, store::make_frame_store(store::FrameStoreConfig{}));
-        }
         state.set(CONFIG_KEY, Value{std::move(config)});
     }
 
@@ -225,182 +151,6 @@ namespace hgraph::record_replay
         }
     }
 
-    void set_frame_store(store::FrameStore frame_store)
-    {
-        if (!frame_store)
-        {
-            throw std::invalid_argument("frame store must not be empty");
-        }
-        process_frame_stores().active = std::move(frame_store);
-    }
-
-    const store::FrameStore &frame_store() { return process_frame_stores().active; }
-
-    void set_frame_store(GlobalStateView state, store::FrameStore frame_store)
-    {
-        if (!state.valid())
-        {
-            throw std::logic_error("installing a frame store requires GlobalState");
-        }
-        if (!frame_store)
-        {
-            throw std::invalid_argument("frame store must not be empty");
-        }
-        (void)TypeRegistry::instance().register_scalar<FrameStoreHolder>("__frame_store_holder__");
-        state.set(FRAME_STORE_KEY, Value{FrameStoreHolder{std::move(frame_store)}});
-    }
-
-    void clear_frame_store(GlobalStateView state)
-    {
-        if (!state.valid())
-        {
-            throw std::logic_error("clearing a frame store requires GlobalState");
-        }
-        static_cast<void>(state.erase(FRAME_STORE_KEY));
-    }
-
-    store::FrameStore frame_store(GlobalStateView state)
-    {
-        if (!state.valid())
-        {
-            return {};
-        }
-        const ValueView value = state.get(FRAME_STORE_KEY);
-        return value ? value.checked_as<FrameStoreHolder>().store : store::FrameStore{};
-    }
-
-    void store_write(std::string_view key, Frame frame)
-    {
-        if (GlobalState *state = GlobalContext::active_state())
-        {
-            if (auto selected = frame_store(state->view()))
-            {
-                selected.write(key, std::move(frame));
-                return;
-            }
-        }
-        frame_store().write(key, std::move(frame));
-    }
-
-    Frame store_read(std::string_view key)
-    {
-        if (GlobalState *state = GlobalContext::active_state())
-        {
-            if (auto selected = frame_store(state->view()))
-            {
-                return selected.read(key);
-            }
-        }
-        return frame_store().read(key);
-    }
-
-    bool store_contains(std::string_view key)
-    {
-        if (GlobalState *state = GlobalContext::active_state())
-        {
-            if (auto selected = frame_store(state->view()))
-            {
-                return selected.contains(key);
-            }
-        }
-        return frame_store().contains(key);
-    }
-
-    void store_write(GlobalStateView state, std::string_view key, Frame frame)
-    {
-        if (auto selected = frame_store(state))
-        {
-            selected.write(key, std::move(frame));
-        }
-        else
-        {
-            frame_store().write(key, std::move(frame));
-        }
-    }
-
-    Frame store_read(GlobalStateView state, std::string_view key)
-    {
-        if (auto selected = frame_store(state))
-        {
-            return selected.read(key);
-        }
-        return frame_store().read(key);
-    }
-
-    bool store_contains(GlobalStateView state, std::string_view key)
-    {
-        if (auto selected = frame_store(state))
-        {
-            return selected.contains(key);
-        }
-        return frame_store().contains(key);
-    }
-
-    Frame segmented_recording_marker()
-    {
-        return metadata_frame(
-            {std::string{RECORDING_LAYOUT_KEY}, std::string{RECORDING_VERSION_KEY}},
-            {std::string{SEGMENTED_LAYOUT}, "1"});
-    }
-
-    Frame segmented_recording_manifest(std::size_t segments, std::size_t rows)
-    {
-        return metadata_frame({std::string{RECORDING_LAYOUT_KEY},
-                               std::string{RECORDING_VERSION_KEY}, "hgraph.recording.segments",
-                               "hgraph.recording.rows"},
-                              {"complete", "1", std::to_string(segments), std::to_string(rows)});
-    }
-
-    bool is_segmented_recording(const Frame &frame) noexcept
-    {
-        if (!frame.has_value() || frame.table->schema()->metadata() == nullptr)
-        {
-            return false;
-        }
-        return frame.table->schema()
-                   ->metadata()
-                   ->Get(std::string{RECORDING_LAYOUT_KEY})
-                   .ValueOr("") == SEGMENTED_LAYOUT;
-    }
-
-    std::string segment_key(std::string_view key, std::size_t segment)
-    {
-        return std::string{key} + "." + std::to_string(segment);
-    }
-
-    std::string completion_key(std::string_view key) { return std::string{key} + ".complete"; }
-
-    Value replay_const_value(GlobalStateView state, std::string_view fq_key,
-                             const ValueTypeMetaData *meta, DateTime tm, DateTime as_of)
-    {
-        const table::TableConfig cfg = table::config(state);
-        const auto              &converter = table_converter(meta, cfg.date_key, cfg.as_of_key);
-        Value                    result;
-        for_each_recording_frame(state, fq_key, [&](const Frame &frame) {
-            const auto as_of_column = frame.table->GetColumnByName(converter.as_of_key);
-            for (std::int64_t row = 0; row < frame_rows(frame); ++row)
-            {
-                if (frame_value_time(converter, frame, row) > tm)
-                {
-                    continue;
-                }
-                if (as_of_column != nullptr)
-                {
-                    const auto &array =
-                        static_cast<const arrow::TimestampArray &>(*as_of_column->chunk(0));
-                    if (DateTime{std::chrono::microseconds{array.Value(row)}} > as_of)
-                    {
-                        continue;
-                    }
-                }
-                // Segments and their rows are monotonic, so assignment keeps
-                // the last qualifying value across the whole recording.
-                result = read_row(converter, frame, row);
-            }
-        });
-        return result;
-    }
-
     void publish_comparison_summary(GlobalStateView state, std::string_view fq_key,
                                     ComparisonSummary summary)
     {
@@ -434,21 +184,20 @@ namespace hgraph::record_replay
         {
             return {};
         }
-        // Dispatched by the effective backend over exactly the ids core
-        // serves (RFC 0025): selection is open, so an unrecognised or
-        // extension-owned identifier must be a pointed error here — never a
-        // silent read through the transitional frame path, which would
-        // decode the wrong store (or nothing) during RECOVER.  Extension
-        // seed resolution arrives with extension overload registration
-        // (checkpoint 3/5).
+        // Dispatched by the effective backend (RFC 0025): core serves its
+        // in-memory ids from the ``:memory:`` buffer (the dense harness
+        // records plain-key buffers, so a recover under "testing" finds no
+        // sparse recording and seeds empty — its recordings are test
+        // fixtures, not recoveries); an extension id goes to its REGISTERED
+        // resolver; anything else is a pointed error — never a silent read
+        // of the wrong store.
         const RecordReplayConfig cfg = config(state);
-        if (cfg.backend == TESTING || cfg.backend == FRAME_BACKEND)
+        if (cfg.backend != MEMORY && cfg.backend != TESTING)
         {
-            return replay_const_value(state, fq_key, schema->value_schema, start_time,
-                                      table::config(state).as_of.value_or(MAX_DT));
-        }
-        if (cfg.backend != MEMORY)
-        {
+            if (const SeedResolver resolver = find_seed_resolver(cfg.backend))
+            {
+                return resolver(state, fq_key, schema, start_time);
+            }
             throw std::runtime_error("no recovery seed resolver for record/replay backend '" +
                                      cfg.backend + "'");
         }
@@ -475,13 +224,29 @@ namespace hgraph::record_replay
         return view.valid() ? Value{view.value()} : Value{};
     }
 
+    void register_seed_resolver(std::string_view backend, SeedResolver resolver)
+    {
+        if (backend.empty() || resolver == nullptr)
+        {
+            throw std::invalid_argument("seed resolver registration requires a backend id and fn");
+        }
+        for (auto &[id, registered] : g_seed_resolvers)
+        {
+            if (id == backend)
+            {
+                registered = resolver;
+                return;
+            }
+        }
+        g_seed_resolvers.emplace_back(std::string{backend}, resolver);
+    }
+
     void reset() noexcept
     {
         g_scopes.clear();
-        auto &stores = process_frame_stores();
-        stores.active.clear();
-        stores.fallback.clear();
-        stores.active = stores.fallback;
+        // Registered seed resolvers are registration content, replayed by
+        // the installers on the next rebuild.
+        g_seed_resolvers.clear();
     }
 
     bool has_recordable_id(const GraphView &graph) noexcept

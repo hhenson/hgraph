@@ -857,7 +857,7 @@ class _compare_Operator(_Protocol):
        Expected or reference stream.
 
     ``recordable_id`` : scalar; ``str``
-       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+       Optional explicit identity; context supplies it when omitted.
 
     ``model`` : scalar; ``str``
        Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
@@ -877,17 +877,13 @@ class _compare_Operator(_Protocol):
     Accepted native overloads:
 
     - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None``
-    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str, model: str = ...) -> None: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str = ..., model: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 compare: _compare_Operator
@@ -5928,36 +5924,6 @@ class _record_Operator(_Protocol):
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
-    ``as_of`` : scalar; ``RecordAsOf``
-       Whether to track, omit, or inherit the as-of column policy. Optional in overloads that show ``= ...``.
-
-    ``removes`` : scalar; ``RecordRemoves``
-       Whether TSD removals are emitted as explicit rows. Optional in overloads that show ``= ...``.
-
-    ``partition_names`` : scalar; ``tuple[str, ...]``
-       Optional stored names for flattened TSD key columns. Optional in overloads that show ``= ...``.
-
-    ``removed_names`` : scalar; ``tuple[str, ...]``
-       Optional stored names for TSD removal-flag columns. Optional in overloads that show ``= ...``.
-
-    ``date_key`` : scalar; ``str``
-       Optional stored name for the value-time column. Optional in overloads that show ``= ...``.
-
-    ``as_of_key`` : scalar; ``str``
-       Optional stored name for the as-of column. Optional in overloads that show ``= ...``.
-
-    ``frame_prefix`` : scalar; ``str``
-       Prefix applied to expanded frame-valued columns. Optional in overloads that show ``= ...``.
-
-    ``mode`` : scalar; ``ToTableMode``
-       Fixed Tick, Sample, or Snap row-selection policy. Optional in overloads that show ``= ...``.
-
-    ``flush_rows`` : scalar; ``int``
-       Native-store segment threshold in rows; zero disables it. Optional in overloads that show ``= ...``.
-
-    ``flush_interval`` : scalar; ``timedelta``
-       Native-store segment threshold in evaluation time; zero disables it. Optional in overloads that show ``= ...``.
-
     Returns
     ~~~~~~~
 
@@ -5975,7 +5941,6 @@ class _record_Operator(_Protocol):
 
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ..., model: str = ...) -> None``
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ..., model: str = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ..., model: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -5986,8 +5951,6 @@ class _record_Operator(_Protocol):
     def __call__(self, ts: _WiringPort | object, key: str = ..., sparse: bool = ..., model: str = ...) -> None: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ..., model: str = ...) -> None: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: _ToTableMode = ..., flush_rows: int = ..., flush_interval: _timedelta = ..., model: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator
@@ -6173,21 +6136,6 @@ class _replay_Operator(_Protocol):
     ``model`` : scalar; ``str``
        Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
-    ``partition_names`` : scalar; ``tuple[str, ...]``
-       Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
-
-    ``removed_names`` : scalar; ``tuple[str, ...]``
-       Stored names used for TSD removal-flag columns. Optional in overloads that show ``= ...``.
-
-    ``date_key`` : scalar; ``str``
-       Stored name for the value-time column. Optional in overloads that show ``= ...``.
-
-    ``as_of_key`` : scalar; ``str``
-       Stored name for the as-of column. Optional in overloads that show ``= ...``.
-
-    ``frame_prefix`` : scalar; ``str``
-       Prefix used by expanded frame-valued columns. Optional in overloads that show ``= ...``.
-
     Returns
     ~~~~~~~
 
@@ -6205,67 +6153,16 @@ class _replay_Operator(_Protocol):
     Accepted native overloads:
 
     - ``replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT``
-    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., model: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    @_overload
     def __call__(self, key: str, recordable_id: str = ..., model: str = ...) -> _WiringPort: ...
-    @_overload
-    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., model: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay: _replay_Operator
-
-class _replay_const_Operator(_Protocol):
-    """Read the latest value recorded at or before graph start and emit it as a constant.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``key`` : scalar; ``str``
-       Wiring-time name within the current recordable context.
-
-    ``recordable_id`` : scalar; ``str``
-       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
-
-    ``tm`` : scalar; ``datetime``
-       Latest value time eligible for the read. Optional in overloads that show ``= ...``.
-
-    ``model`` : scalar; ``str``
-       Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
-
-    Returns
-    ~~~~~~~
-
-    A single value representing recorded state at graph start.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       opening_price = hg.replay_const[TS[float]](key="price")
-
-    Accepted native overloads:
-
-    - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ..., model: str = ...) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, key: str, recordable_id: str = ..., tm: _datetime = ..., model: str = ...) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-replay_const: _replay_const_Operator
 
 class _replay_data_frame_Operator(_Protocol):
     """Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas. @note Retained memory: the whole decoded tick list is held for the run.
@@ -8622,7 +8519,6 @@ __all__ = (
     "rekey",
     "replace",
     "replay",
-    "replay_const",
     "replay_data_frame",
     "request_id",
     "resolve_civil",

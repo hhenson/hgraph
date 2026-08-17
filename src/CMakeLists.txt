@@ -102,7 +102,6 @@ set(HGRAPH_WIRING_SOURCES
     hgraph/types/operator_dispatch.cpp
     hgraph/types/record_replay.cpp
     hgraph/types/table_config.cpp
-    hgraph/types/frame_store.cpp
     hgraph/types/registry_reset.cpp
     hgraph/types/impl/request_reply_transport.cpp
     hgraph/types/service_runtime.cpp
@@ -124,7 +123,6 @@ set(HGRAPH_STDLIB_SOURCES
     hgraph/lib/std/operators/data_frame_impl.cpp
     hgraph/lib/std/operators/json_impl.cpp
     hgraph/lib/std/operators/logical_impl.cpp
-    hgraph/lib/std/operators/record_replay_frame_impl.cpp
     hgraph/lib/std/operators/record_replay_memory_impl.cpp
     hgraph/lib/std/operators/registration.cpp
     hgraph/lib/std/operators/stream_impl.cpp
