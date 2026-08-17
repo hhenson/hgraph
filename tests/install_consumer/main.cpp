@@ -6,7 +6,6 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/record_replay.h>
-#include <hgraph/types/registry_reset.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
@@ -259,10 +258,11 @@ namespace
 
         run_round_trip();
 
-        // Reset-and-rebuild: intent survives, one call restores the backend.
-        reset_all_registries();
-        OperatorRegistry::instance().run_installers();
-        run_round_trip();
+        // The reset-and-rebuild replay of this installer is covered by the
+        // in-tree installer tests and the Python extension consumer:
+        // ``reset_all_registries()`` invalidates the interned metadata every
+        // live value in this main() still points at, so a full reset cannot
+        // run mid-consumer (the documented test-only reset hazard).
     }
 }  // namespace
 

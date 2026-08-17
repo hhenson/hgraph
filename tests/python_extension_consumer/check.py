@@ -132,10 +132,14 @@ with hgraph.GlobalState() as _probe_state:
 
     assert eval_node(_probe_replay) == [7, 8]
 
-# Registry reset invalidates the interned metadata every live value points
-# at (a documented test-only hazard), so no GlobalState object may survive
-# across it — release the first probe state BEFORE resetting.
-del _probe_state
+# Registry reset invalidates the interned metadata every live object of the
+# current generation points at (a documented test-only hazard), so nothing
+# from this generation may survive it — not the probe GlobalState, and not
+# the @graph objects whose decoration-time type handles would otherwise be
+# destroyed against freed metadata at interpreter exit.
+del _probe_state, _probe_record, _probe_replay
+import gc as _gc
+_gc.collect()
 
 # reset_registries replays the extension installer exactly as core's —
 # operator overloads AND the python scalar association alike.
