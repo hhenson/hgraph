@@ -6,7 +6,7 @@ to native C++ and Python graphs.
 
 For installation, concepts, recovery and commit semantics, operational
 configuration, and Python/C++ usage patterns, see the
-[Kafka user guide](../../docs/source/user_guide/adaptors/kafka.rst).
+[Kafka user guide](https://github.com/hhenson/hgraph/blob/main/docs/source/user_guide/adaptors/kafka.rst).
 
 One path-bound, multi-interface `service_impl` owns the Kafka clients for a
 configuration. Subscriptions, publish requests, explicit commits, and events
