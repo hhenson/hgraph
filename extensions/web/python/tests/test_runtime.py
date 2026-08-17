@@ -17,6 +17,8 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
         allow_module_level=True,
     )
 
+import _loopback_harness as harness
+
 
 def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
     """The full loopback: this graph is both the server and the client.
@@ -47,40 +49,17 @@ def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
             body=f"hello {name}".encode(),
         )
 
-    @hg.compute_node
-    def client_request(
-        stats: hg.TS[web.WebServerStats],
-    ) -> hg.TS[web.HttpClientRequest]:
-        port = stats.value.listening_port
-        if port == 0 or requested:
-            return None
-        requested.append(port)
-        return web.HttpClientRequest(
+    client_request = harness.port_triggered_request(
+        requested,
+        lambda port: web.HttpClientRequest(
             web.HttpMethod.GET, f"http://127.0.0.1:{port}/echo/py"
-        )
-
-    @hg.sink_node
-    def capture(
-        response: hg.TS[web.HttpResponse],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        observed.append(response.value)
-        _api.request_engine_stop()
-
-    @hg.sink_node
-    def capture_failure(
-        failure: hg.TS[web.WebTransportError],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        failures.append(failure.value)
-        _api.request_engine_stop()
+        ),
+    )
+    capture, capture_failure = harness.result_captures(observed, failures)
 
     @hg.graph
     def app():
-        web.register_web_server(
-            web.WebServerConfig(port=0, stats_interval_ms=50), path="site"
-        )
-        web.register_web_client(web.WebClientConfig(), path="api")
+        harness.register_loopback()
 
         served = web.web_serve(
             web.WebRoute(web.HttpMethod.GET, "/echo/{name}"), path="site"

@@ -27,6 +27,8 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
         allow_module_level=True,
     )
 
+import _loopback_harness as harness
+
 
 # Annotations are resolved against this module's globals, so any type named in
 # a handler signature has to live here rather than inside a test function.
@@ -75,43 +77,20 @@ def test_an_http_endpoint_round_trips_a_json_body() -> None:
     def greet(request: hg.TS[web.HttpServerRequest]) -> hg.TS[web.HttpResponse]:
         return web.json_response(bump(web.request_json(request, Greeting)))
 
-    @hg.compute_node
-    def client_request(
-        stats: hg.TS[web.WebServerStats],
-    ) -> hg.TS[web.HttpClientRequest]:
-        port = stats.value.listening_port
-        if port == 0 or requested:
-            return None
-        requested.append(port)
-        return web.HttpClientRequest(
+    client_request = harness.port_triggered_request(
+        requested,
+        lambda port: web.HttpClientRequest(
             web.HttpMethod.POST,
             f"http://127.0.0.1:{port}/greet",
             headers=(web.WebHeader("content-type", "application/json"),),
             body=b'{"name": "py", "count": 2}',
-        )
-
-    @hg.sink_node
-    def capture(
-        response: hg.TS[web.HttpResponse],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        observed.append(response.value)
-        _api.request_engine_stop()
-
-    @hg.sink_node
-    def capture_failure(
-        failure: hg.TS[web.WebTransportError],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        failures.append(failure.value)
-        _api.request_engine_stop()
+        ),
+    )
+    capture, capture_failure = harness.result_captures(observed, failures)
 
     @hg.graph
     def app():
-        web.register_web_server(
-            web.WebServerConfig(port=0, stats_interval_ms=50), path="site"
-        )
-        web.register_web_client(web.WebClientConfig(), path="api")
+        harness.register_loopback()
 
         greet()
 
@@ -201,28 +180,11 @@ def test_an_authenticator_refuses_a_request_before_the_handler_sees_it() -> None
     def capture_refusal(response: hg.TS[web.HttpResponse]):
         observed.append(response.value)
 
-    @hg.sink_node
-    def capture_secret(
-        response: hg.TS[web.HttpResponse],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        observed.append(response.value)
-        _api.request_engine_stop()
-
-    @hg.sink_node
-    def capture_failure(
-        failure: hg.TS[web.WebTransportError],
-        _api: hg.EvaluationEngineApi = None,
-    ):
-        failures.append(failure.value)
-        _api.request_engine_stop()
+    capture_secret, capture_failure = harness.result_captures(observed, failures)
 
     @hg.graph
     def app():
-        web.register_web_server(
-            web.WebServerConfig(port=0, stats_interval_ms=50), path="site"
-        )
-        web.register_web_client(web.WebClientConfig(), path="api")
+        harness.register_loopback()
 
         private()
 
