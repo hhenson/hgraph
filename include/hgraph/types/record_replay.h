@@ -57,53 +57,54 @@ namespace hgraph::record_replay
                flag != Mode::None;
     }
 
-    /** The default (in-memory GlobalState buffer) record/replay model. Under
-        this model ``record`` binds to the SPARSE, absolute-time
-        ``:memory:<recordable_id>.<key>`` backend (``stdlib::sparse_record_impl``)
-        — the upstream semantics that append across runs and tolerate arbitrary
-        cross-cycle gaps (real-time alarms, components). ``replay`` is a single
-        backend serving both models; see
-        ``record_replay_table.rst`` (*In-memory record/replay — sparse vs dense*).
-     */
-    inline constexpr std::string_view IN_MEMORY = "InMemory";
+    /** The SPARSE, absolute-time in-memory backend
+        (``:memory:<recordable_id>.<key>``; ``stdlib::sparse_record_impl``) —
+        the default.  Appends across runs and tolerates arbitrary cross-cycle
+        gaps (real-time alarms, components); see ``record_replay_table.rst``
+        (*In-memory record/replay — sparse vs dense*). */
+    inline constexpr std::string_view MEMORY = "memory";
 
-    /** The DENSE cycle-aligned in-memory model (the graph testing harness).
-        Under this model ``record`` binds to ``stdlib::dense_record_impl``:
-        a plain-key ``List`` indexed by evaluation
-        cycle (``MIN_ST + i*MIN_TD``), read back with ``get_recorded_values`` /
-        ``Run.recorded``. Distinct model so a single ``record`` operator selects
-        sparse (default) vs dense purely from wiring-time configuration. */
-    inline constexpr std::string_view IN_MEMORY_DENSE = "InMemoryDense";
-
-    /** The Arrow data-frame record/replay model (frame-store backed). */
-    inline constexpr std::string_view DATA_FRAME = "DataFrame";
+    /** The DENSE cycle-aligned in-memory backend (the graph testing
+        harness; ``stdlib::dense_record_impl``): a plain-key ``List`` indexed
+        by evaluation cycle (``MIN_ST + i*MIN_TD``), read back with
+        ``get_recorded_values`` / ``Run.recorded``. */
+    inline constexpr std::string_view TESTING = "testing";
 
     /**
-     * Explicit wiring-time configuration. ``model`` selects the backend
-     * (overloads guard on it via ``requires_``); the date / as-of keys name
-     * the bitemporal table columns; ``as_of`` overrides the as-of time
-     * (unset = the evaluation clock).
+     * Backend selection is OPEN (RFC 0025): core recognises only its own
+     * ``"memory"`` / ``"testing"`` identifiers above; an installed extension
+     * defines its own namespaced identifier (for example
+     * ``"hgraph.persistence.frame"``) and registers overloads of the same
+     * operator markers.  Core defines no extension identifiers.
+     *
+     * The wiring-time configuration is exactly the cross-implementation
+     * selection core needs; every implementation-specific option (bitemporal
+     * column names, as-of overrides, flush thresholds, ...) belongs to the
+     * implementation that reads it.
      */
-    struct Config
+    struct RecordReplayConfig
     {
-        std::string             model{IN_MEMORY};
-        std::string             date_key{"__date_time__"};
-        std::string             as_of_key{"__as_of__"};
-        std::optional<DateTime> as_of{};
+        std::string backend{MEMORY};
     };
 
-    /** Set the configuration in ``state`` before wiring. */
-    HGRAPH_EXPORT void set_config(GlobalStateView state, Config config);
+    /** Set the configuration in ``state`` before wiring.  Legacy model names
+        (``"InMemory"`` / ``"InMemoryDense"`` / ``"DataFrame"``) are accepted
+        and translated to backend identifiers during the RFC 0025 deprecation
+        window. */
+    HGRAPH_EXPORT void set_config(GlobalStateView state, RecordReplayConfig config);
 
     /** The configuration in ``state`` (the default when no entry is present). */
-    [[nodiscard]] HGRAPH_EXPORT Config config(GlobalStateView state);
+    [[nodiscard]] HGRAPH_EXPORT RecordReplayConfig config(GlobalStateView state);
 
-    /** ``requires_``-friendly backend guard over a wiring state's model. */
-    [[nodiscard]] HGRAPH_EXPORT bool model_is(GlobalStateView state, std::string_view model);
+    /** ``requires_``-friendly backend guard over a wiring state's backend. */
+    [[nodiscard]] HGRAPH_EXPORT bool backend_is(GlobalStateView state, std::string_view backend);
 
     /**
-     * The model ONE call resolves against: a ``model`` scalar supplied at the
-     * call site if there is one, otherwise the graph's configured model.
+     * The EFFECTIVE backend one call resolves against: a backend scalar
+     * supplied at the call site if there is one (the wiring argument remains
+     * spelled ``model`` through the deprecation window), otherwise the
+     * graph's configured backend.  Legacy names are translated here too, so
+     * every entry point normalises identically.
      *
      * ``requires_`` runs before the node exists, so it cannot read node state —
      * but ``OperatorCallContext::scalar`` exposes scalar wiring arguments by
@@ -114,11 +115,11 @@ namespace hgraph::record_replay
      * local override and another did not, a call supplying one would match
      * both overloads or neither.
      */
-    [[nodiscard]] HGRAPH_EXPORT std::string call_model(const OperatorCallContext &context);
+    [[nodiscard]] HGRAPH_EXPORT std::string effective_backend(const OperatorCallContext &context);
 
-    /** ``requires_``-friendly guard over ``call_model``. */
-    [[nodiscard]] HGRAPH_EXPORT bool call_model_is(const OperatorCallContext &context,
-                                                   std::string_view           model);
+    /** ``requires_``-friendly guard over ``effective_backend``. */
+    [[nodiscard]] HGRAPH_EXPORT bool effective_backend_is(const OperatorCallContext &context,
+                                                          std::string_view           backend);
 
     /**
      * The mode scope: a wiring-time stack of ``(mode, recordable_id)``
@@ -244,10 +245,18 @@ namespace hgraph
                                                                  DateTime start_time);
 
         /**
-         * Comparison-result summary: (rows compared, mismatches) from the
-         * ``compare`` sink's frame under ``fq_key`` (typically
-         * ``<component-id>.__compare__``). Throws when no comparison was
-         * recorded under the key.
+         * Comparison-result summary: (rows compared, mismatches) for a
+         * ``compare`` run under ``fq_key`` (typically
+         * ``<component-id>.__compare__``).
+         *
+         * The summary is CORE-NEUTRAL (RFC 0025): every comparison
+         * implementation — the in-memory compare and any durable extension —
+         * publishes this small value under a private core-owned
+         * ``GlobalState`` key, and the query reads only that.  It has no
+         * dependency on ``Frame``, Arrow, a store, or a specific backend, and
+         * it is total: ``std::nullopt`` when nothing was published under the
+         * key.  Detailed, implementation-specific comparison rows (if any)
+         * stay wherever the implementation keeps them.
          */
         struct ComparisonSummary
         {
@@ -255,8 +264,12 @@ namespace hgraph
             std::size_t mismatches{0};
         };
 
-        [[nodiscard]] HGRAPH_EXPORT ComparisonSummary comparison_summary(GlobalStateView  state,
-                                                                         std::string_view fq_key);
+        HGRAPH_EXPORT void publish_comparison_summary(GlobalStateView  state,
+                                                      std::string_view fq_key,
+                                                      ComparisonSummary summary);
+
+        [[nodiscard]] HGRAPH_EXPORT std::optional<ComparisonSummary>
+        comparison_summary(GlobalStateView state, std::string_view fq_key);
     }  // namespace record_replay
 }  // namespace hgraph
 

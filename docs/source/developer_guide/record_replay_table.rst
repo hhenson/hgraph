@@ -137,15 +137,20 @@ function; a const source is ``const_``. For the two roles that remain:
   const-evaluable operators — Python's dual-mode behaviour reproduced
   without a node class.
 
-**P2 — configuration in graph GlobalState.** The record/replay model,
-date/as-of keys, and as-of override are one typed **RecordReplayConfig** value
-in the top-level graph's ``GlobalState``.  Operator resolution reads the LIVE
-selected state during wiring (ruling 2026-07-27) — the same store Python's
-imperative setters write, so configuration applied during wiring, including
-inside a graph function, is honoured — while runtime nodes receive the root
-graph's isolation copy, captured at graph build.  Configuration must not
-change between graph build and execution.  There is no second process-global
-store.
+**P2 — configuration in graph GlobalState.** Two typed values in the
+top-level graph's ``GlobalState`` (split at RFC 0025 checkpoint 2):
+**``RecordReplayConfig``** carries exactly the cross-implementation
+selection — the ``backend`` id (``"memory"`` default, ``"testing"``, or an
+extension-owned id; legacy model names normalise through one choke point) —
+and **``table::TableConfig``** carries the generic bitemporal table options
+(date/as-of column keys, optional fixed as-of) that the generic
+``to_table``/``from_table`` operators own.  Operator resolution reads the
+LIVE selected state during wiring (ruling 2026-07-27) — the same store
+Python's imperative setters write, so configuration applied during wiring,
+including inside a graph function, is honoured — while runtime nodes
+receive the root graph's isolation copy, captured at graph build.
+Configuration must not change between graph build and execution.  There is
+no second process-global store.
 
 **P3 — modes via the context machinery, folded into identity.** The
 ``RecordReplayContext`` maps onto the landed wiring-scope machinery (a
@@ -259,15 +264,23 @@ Step 2 — landed
 
 ``types/record_replay.h`` + graph traits (implements P2, P3, P5):
 
-- **``record_replay::Config``** (P2) — the typed graph/run
-  configuration: ``model`` (default ``IN_MEMORY``), the bitemporal
-  ``date_key``/``as_of_key`` column names, and the optional ``as_of``
-  override. ``set_config(GlobalStateView, Config)`` runs before wiring;
-  backends guard overloads with ordinary ``requires_`` predicates via
-  ``record_replay::model_is`` over the state carried by operator resolution.
-  Python's imperative setters (``set_record_replay_model``,
-  ``set_table_schema_date_key``, ``set_as_of``…) become bridge shims over
-  the Python thread's seed.  Registry reset clears transient wiring scopes but
+- **``record_replay::RecordReplayConfig``** (P2, reshaped at RFC 0025
+  checkpoint 2) — the typed graph/run selection: the ``backend`` id
+  (default ``"memory"``; ``"testing"``; extension ids such as
+  ``"hgraph.persistence.frame"``).  Legacy model names (``"InMemory"`` /
+  ``"InMemoryDense"`` / ``"DataFrame"``) normalise through the single
+  ``normalize_backend`` choke point in both ``set_config`` and the per-call
+  scalar read.  ``set_config(GlobalStateView, RecordReplayConfig)`` runs
+  before wiring; backends guard overloads with ordinary ``requires_``
+  predicates via ``record_replay::effective_backend_is`` (the per-call
+  ``model`` scalar wins over the graph configuration; one resolution
+  function keeps the overloads mutually exclusive).  The bitemporal
+  date/as-of keys and fixed as-of override moved to the generic
+  ``table::TableConfig`` (``types/table_config.h``) owned by the table
+  operators.  Python's imperative setters (``set_record_replay_model``,
+  ``set_table_schema_date_key``, ``set_as_of``…) are bridge shims over
+  the Python thread's seed, writing whichever of the two configurations
+  owns the field.  Registry reset clears transient wiring scopes but
   does not own graph/run configuration.
 - **``record_replay::scope``** (P3) — the RAII mode scope
   (``Mode`` flag set mirroring ``RecordReplayEnum``, plus a recordable id);
@@ -358,8 +371,10 @@ override, graph round-trip).
 Step 4 — landed
 ---------------
 
-The Arrow data-frame record/replay backend, model
-``record_replay::DATA_FRAME``:
+The Arrow data-frame record/replay backend, backend id
+``"hgraph.persistence.frame"`` (RFC 0025: the id belongs to the persistence
+extension; the transitional in-core implementation answers to it until the
+checkpoint-5 move):
 
 - **The P6 content store** — a graph-scoped, owning type-erased
   ``store::FrameStore`` selected in ``GlobalState``. The handle shares an
@@ -373,7 +388,8 @@ The Arrow data-frame record/replay backend, model
   primitive: a transparent stateless injectable (the ``SingleShotScheduler``
   pattern) giving hooks ``trait``/``trait_or`` over the owning graph's
   chain; ``fq_recordable_id(TraitsView, id)`` is the node-side resolution.
-- **``record`` (frame backend)** — ``requires_`` gates on the model;
+- **``record`` (frame backend)** — ``requires_`` gates on the effective
+  backend;
   ``start`` resolves the ``TableLayout`` + fq key (explicit
   ``recordable_id`` scalar, defaulting through the trait chain) and creates
   one ``TableRecorder`` over Arrow builders. ``eval`` appends the tick's
@@ -381,8 +397,8 @@ The Arrow data-frame record/replay backend, model
   objects, including frame-valued leaves below ``TSD``; ``stop`` finishes one
   complete frame and writes it to the graph store by default.
   Native stores reject an existing key. The in-memory (GlobalState) record
-  backends carry the matching ``requires_`` gate on the in-memory models
-  (see *In-memory record/replay — sparse vs dense*).
+  backends carry the matching ``requires_`` gate on the in-memory backend
+  ids (see *In-memory record/replay — sparse vs dense*).
 - **``replay`` (frame backend)** — ``start`` reads the frame through the same
   graph store and resolves its columns against the output layout. ``eval``
   applies every row stamped at the current value time and schedules the next
@@ -423,7 +439,8 @@ struct; the component consults the ambient ``record_replay::scope`` and
 wraps per its mode:
 
 - **Record** — every input and the output (``__out__``) is recorded through
-  the name-resolved ``record`` (whatever backend the model selects).
+  the name-resolved ``record`` (whatever implementation the effective
+  backend selects).
 - **Replay** — inputs are REPLACED by their recordings (Python parity: the
   live wiring stays but the recorded values win).
 - **ReplayOutput** — the output is replaced by its recording.
@@ -457,10 +474,10 @@ In-memory record/replay — sparse vs dense (2026-07-18)
 Every in-memory record/replay OPERATOR backend lives in one file,
 ``lib/std/operators/impl/record_replay_memory_impl.h`` (the sibling of the frame
 backend ``record_replay_frame_impl.h``). ``record`` has **two** backends selected
-by the record/replay *model* (``record_replay::Config::model``); ``replay`` is a
+by the record/replay *backend* (``RecordReplayConfig::backend``); ``replay`` is a
 **single** operator serving both:
 
-- **``record`` under ``IN_MEMORY``** (default) → ``stdlib::sparse_record_impl``:
+- **``record`` under ``"memory"``** (default) → ``stdlib::sparse_record_impl``:
   **sparse, absolute-time**. Recordings are a ``List`` of
   ``(evaluation_time, delta)`` tuples under ``:memory:<fq_recordable_id>.<key>``;
   they append across runs and tolerate **arbitrary cross-cycle gaps** (real-time
@@ -469,7 +486,7 @@ by the record/replay *model* (``record_replay::Config::model``); ``replay`` is a
   it round-trips with ``get_recorded_value()`` (which reads
   ``:memory:nodes.record.out`` by default). This is the upstream
   ``_record_replay_in_memory`` semantics.
-- **``record`` under ``IN_MEMORY_DENSE``** → ``stdlib::dense_record_impl``:
+- **``record`` under ``"testing"``** → ``stdlib::dense_record_impl``:
   **dense, cycle-aligned**. Recordings are a plain-key ``List`` indexed by
   evaluation cycle (``MIN_ST + i*MIN_TD``; a hole = no tick that cycle), read
   back with ``get_recorded_values`` / ``Run.recorded``. This is the graph
@@ -479,8 +496,8 @@ by the record/replay *model* (``record_replay::Config::model``); ``replay`` is a
   GlobalState's model, so real runs (``evaluate_graph`` / ``run_graph``) and
   components stay sparse.
 - **``replay`` (one backend)** → ``stdlib::replay_impl``, active under **both**
-  in-memory models. Replay is not
-  split by the record model — it just replays what was recorded, keyed on the
+  in-memory backends. Replay is not
+  split by the record backend — it just replays what was recorded, keyed on the
   presence of a ``recordable_id``: a bare ``replay(key)`` reads the seeded /
   recorded **plain-key** cycle-aligned buffer (``set_replay_values`` /
   ``Run.set_replay`` always seed this layout); an explicit ``recordable_id``
@@ -501,7 +518,7 @@ base, not on each other.
 Prior to this split both in-memory ``record`` backends gated on ``IN_MEMORY`` and
 were distinguished only by a ``recordable_id`` argument, and there were two
 separate replays — a code smell (a bare ``record(ts)`` in a real-time run wrongly
-selected the dense recorder and rejected the large cross-cycle gap). The model
+selected the dense recorder and rejected the large cross-cycle gap). The backend
 split + single replay make the choice explicit and close the two upstream
 wall-clock scheduler tests (``ported/_runtime/test_scheduler.py``). Tests:
 ``tests/cpp/test_record_replay.cpp``, ``test_erased_wiring.cpp``,
@@ -510,15 +527,28 @@ wall-clock scheduler tests (``ported/_runtime/test_scheduler.py``). Tests:
 The Compare sink (landed)
 -------------------------
 
-The Q-compare ruling realised: ``compare(lhs, rhs, recordable_id="")`` is a
-sink recording per-tick equality (erased ``ValueView::equals``) into a
-bitemporal ``Bool`` frame via the ``FrameRecorder``, written through the
-**registered frame store** (P6) at stop under ``fq.__compare__`` — the
-store is the pluggable seam, so one implementation serves every model.
-Activation with a one-sided value IS a mismatch (one series produced where
-the other did not) and is recorded as a failure — never skipped.
-``record_replay::comparison_summary(fq_key)`` reads results back as
-``(compared, mismatches)``.
+The Q-compare ruling realised, re-based on the RFC 0025 core-neutral
+summary at checkpoint 2.  ``compare(lhs, rhs, recordable_id="")`` under a
+non-memory backend is a sink recording per-tick equality (erased
+``ValueView::equals``) into a bitemporal ``Bool`` frame via the
+``FrameRecorder``, written through the **registered frame store** (P6) at
+stop under ``fq.__compare__``; the memory backend's ``memory_compare``
+keeps the interactive contract (a mismatch fails the run).  Activation
+with a one-sided value IS a mismatch (one series produced where the other
+did not) and is recorded as a failure — never skipped.
+
+**Both implementations publish the same neutral
+``ComparisonSummary{compared, mismatches}``** under a private core-owned
+``GlobalState`` key (``publish_comparison_summary``): the frame compare at
+stop alongside its detailed rows, the memory compare per tick with its
+counters resolved at start (published before the failing throw, so a
+shared-GlobalState caller sees the mismatching tick; a bare compare
+outside any recordable scope publishes nothing).
+``record_replay::comparison_summary(state, fq_key)`` is the **total,
+Arrow-free query**: ``optional<ComparisonSummary>``, ``nullopt`` when
+nothing was published (the Python binding keeps its raise-on-absent
+contract).  Detailed comparison rows stay wherever the implementation
+keeps them.
 
 P1 — const-evaluable operators (landed)
 ---------------------------------------

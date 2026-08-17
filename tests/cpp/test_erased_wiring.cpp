@@ -63,7 +63,7 @@ namespace
     {
         record_replay::set_config(
             w.global_state(),
-            record_replay::Config{.model = std::string{record_replay::IN_MEMORY_DENSE}});
+            record_replay::RecordReplayConfig{.backend = std::string{record_replay::TESTING}});
     }
 
     struct RuntimeMetas

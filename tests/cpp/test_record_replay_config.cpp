@@ -45,24 +45,61 @@ TEST_CASE("record/replay config: configuration belongs to the seeded GlobalState
     hgraph::GlobalContext context;
     const auto            state = context.state().view();
 
-    CHECK(config(state).model == std::string{IN_MEMORY});
-    CHECK(config(state).date_key == "__date_time__");
-    CHECK(config(state).as_of_key == "__as_of__");
-    CHECK(model_is(state, IN_MEMORY));
+    CHECK(config(state).backend == std::string{MEMORY});
+    CHECK(backend_is(state, MEMORY));
 
-    set_config(state, Config{.model = "Arrow", .date_key = "dt", .as_of_key = "asof", .as_of = MIN_ST});
-    CHECK(config(state).model == "Arrow");
-    CHECK(config(state).date_key == "dt");
-    CHECK(config(state).as_of_key == "asof");
-    CHECK(model_is(state, "Arrow"));
-    CHECK_FALSE(model_is(state, IN_MEMORY));
-    CHECK(config(state).as_of == MIN_ST);
+    // Backend selection is OPEN (RFC 0025): unknown identifiers store as
+    // given; a missing implementation surfaces at overload resolution.
+    set_config(state, RecordReplayConfig{.backend = "acme.custom"});
+    CHECK(config(state).backend == "acme.custom");
+    CHECK(backend_is(state, "acme.custom"));
+    CHECK_FALSE(backend_is(state, MEMORY));
 
-    CHECK_THROWS_AS(set_config(state, Config{.model = ""}), std::invalid_argument);
+    CHECK_THROWS_AS(set_config(state, RecordReplayConfig{.backend = ""}), std::invalid_argument);
 
     hgraph::GlobalState other;
-    CHECK(config(other.view()).model == std::string{IN_MEMORY});
-    CHECK_FALSE(config(other.view()).as_of.has_value());
+    CHECK(config(other.view()).backend == std::string{MEMORY});
+}
+
+TEST_CASE("record/replay config: legacy model names normalise to backend ids")
+{
+    using namespace hgraph::record_replay;
+    hgraph::GlobalContext context;
+    const auto            state = context.state().view();
+
+    set_config(state, RecordReplayConfig{.backend = "InMemory"});
+    CHECK(config(state).backend == std::string{MEMORY});
+
+    set_config(state, RecordReplayConfig{.backend = "InMemoryDense"});
+    CHECK(config(state).backend == std::string{TESTING});
+
+    set_config(state, RecordReplayConfig{.backend = "DataFrame"});
+    CHECK(config(state).backend == "hgraph.persistence.frame");
+}
+
+TEST_CASE("comparison summary: core-neutral publication and total query")
+{
+    using namespace hgraph::record_replay;
+    hgraph::GlobalContext context;
+    const auto            state = context.state().view();
+
+    // Nothing published: nullopt, never a throw (RFC 0025).
+    CHECK_FALSE(comparison_summary(state, "calc.__compare__").has_value());
+
+    publish_comparison_summary(state, "calc.__compare__",
+                               ComparisonSummary{.compared = 7, .mismatches = 2});
+    const auto summary = comparison_summary(state, "calc.__compare__");
+    REQUIRE(summary.has_value());
+    CHECK(summary->compared == 7);
+    CHECK(summary->mismatches == 2);
+
+    // Republishing overwrites: the summary is a running total, not a log.
+    publish_comparison_summary(state, "calc.__compare__",
+                               ComparisonSummary{.compared = 8, .mismatches = 2});
+    CHECK(comparison_summary(state, "calc.__compare__")->compared == 8);
+
+    // Keys are independent.
+    CHECK_FALSE(comparison_summary(state, "other.__compare__").has_value());
 }
 
 TEST_CASE("record/replay mode scope: nesting shadows, nearest wins, pops restore")

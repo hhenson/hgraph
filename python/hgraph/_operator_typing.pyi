@@ -860,7 +860,7 @@ class _compare_Operator(_Protocol):
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+       Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -5923,7 +5923,7 @@ class _record_Operator(_Protocol):
        The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+       Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
@@ -6171,7 +6171,7 @@ class _replay_Operator(_Protocol):
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+       Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     ``partition_names`` : scalar; ``tuple[str, ...]``
        Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
@@ -6239,7 +6239,7 @@ class _replay_const_Operator(_Protocol):
        Latest value time eligible for the read. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
-       Optional per-call backend (``IN_MEMORY``, ``IN_MEMORY_DENSE``, or ``DATA_FRAME``); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
+       Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~

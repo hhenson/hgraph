@@ -4,6 +4,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/value/table_codec.h>
 
 #include <arrow/api.h>
@@ -19,7 +20,7 @@
 #include <vector>
 
 // Step 4 of the record/replay/table design record: the Arrow data-frame
-// record/replay backend (model record_replay::DATA_FRAME) over the registered
+// record/replay backend (backend "hgraph.persistence.frame") over the registered
 // frame store (P6), plus the replay_const read. Recording happens in one
 // graph run and replays in a SECOND run - the store outlives the graph.
 
@@ -329,7 +330,7 @@ TEST_CASE("frame backend: record writes a bitemporal frame to the store; "
     GlobalContext context;
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     // Run 1: record (values at cycles 0, 2 and 3 - gaps preserved).
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
@@ -349,7 +350,7 @@ TEST_CASE("frame backend: per-recording time-column names replay through the "
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     const auto expected = values<Int>(10, none, 30);
 
     (void)eval_node<RenamedTimeRecordGraph>(expected);
@@ -369,7 +370,7 @@ TEST_CASE("frame backend: row-count flushing writes immutable segments and "
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<SegmentedRecordGraph>(values<Int>(10, 20, 30, 40, 50));
 
@@ -393,7 +394,7 @@ TEST_CASE("frame backend: time flushing commits complete tick-aligned segments")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<IntervalSegmentedRecordGraph>(values<Int>(10, 20, 30, 40, 50));
 
@@ -409,7 +410,7 @@ TEST_CASE("frame backend: Tick Sample and Snap use the to_table row semantics")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     const Value first =
         dict_delta<Str, ReplayBundle>({{Str{"a"}, tsb_delta<ReplayBundle>(Int{1}, Str{"one"})},
@@ -454,7 +455,7 @@ TEST_CASE("frame backend: one and many immutable segments replay identically")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     const auto expected = values<Int>(10, 20, 30, 40, 50);
 
     (void)eval_node<SegmentEquivalenceRecordGraph>(expected);
@@ -472,7 +473,7 @@ TEST_CASE("frame backend: replay consumes completed segments without a "
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     record_replay::store_write(state, "book.prices", record_replay::segmented_recording_marker());
     record_replay::store_write(
@@ -492,7 +493,7 @@ TEST_CASE("frame backend: a legacy segment key prevents an ambiguous flat "
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     record_replay::store_write(state, "book.prices.0", scalar_segment({{MIN_ST, Int{10}}}));
 
     CHECK_THROWS_WITH(
@@ -506,7 +507,7 @@ TEST_CASE("frame backend: a stale completion key prevents a segmented run")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     record_replay::store_write(state, "book.prices.complete",
                                record_replay::segmented_recording_manifest(1, 1));
 
@@ -523,9 +524,9 @@ TEST_CASE("frame backend: inherited recording uses the configured fixed as-of")
     GlobalContext  context;
     const auto     state = context.state().view();
     const DateTime fixed_as_of = MIN_ST + TimeDelta{30};
-    record_replay::set_config(state,
-                              record_replay::Config{.model = std::string{record_replay::DATA_FRAME},
-                                                    .as_of = fixed_as_of});
+    record_replay::set_config(
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
+    table::set_config(state, table::TableConfig{.as_of = fixed_as_of});
 
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
 
@@ -547,7 +548,7 @@ TEST_CASE("frame backend: a custom erased C++ store participates through "
     auto          capture = std::make_shared<CapturingFrameStore>();
     record_replay::set_frame_store(state, store::FrameStore{capture, capturing_frame_store_ops()});
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     // Even when the call requests flushing, a compatibility/custom store is
     // a whole-frame write seam and is never asked to manage segment keys.
@@ -565,7 +566,7 @@ TEST_CASE("frame backend: the recordable id resolves through graph traits at "
     GlobalContext context;
     record_replay::set_config(
         context.state().view(),
-        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<TraitRecordGraph>(values<Int>(7));
     CHECK(record_replay::store_contains("desk.fx.orders"));
@@ -577,7 +578,7 @@ TEST_CASE("frame backend: native recording keys are immutable within a store")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<RecordGraph>(values<Int>(10));
     CHECK_THROWS_WITH((void)eval_node<RecordGraph>(values<Int>(20)),
@@ -596,7 +597,7 @@ TEST_CASE("frame backend: replay_const_value reads the last row at or before tm"
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
 
     (void)eval_node<RecordGraph>(values<Int>(10, none, 30, 40));
 
@@ -634,9 +635,9 @@ TEST_CASE("stored frame replay selects the visible revision")
     stdlib::register_standard_operators();
     GlobalContext context;
     const auto    state = context.state().view();
-    record_replay::set_config(state,
-                              record_replay::Config{.model = std::string{record_replay::DATA_FRAME},
-                                                    .as_of = MIN_ST + TimeDelta{15}});
+    record_replay::set_config(
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
+    table::set_config(state, table::TableConfig{.as_of = MIN_ST + TimeDelta{15}});
     record_replay::store_write(state, "book.prices", scalar_replay_frame());
 
     CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 30));
@@ -648,7 +649,7 @@ TEST_CASE("stored frame replay discards rows before graph start")
     GlobalContext context;
     const auto    state = context.state().view();
     record_replay::set_config(
-        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+        state, record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
     record_replay::store_write(state, "book.prices", scalar_replay_frame());
 
     GraphBuilder         gb = build_graph<ReplaySinkGraph>();
@@ -671,8 +672,8 @@ TEST_CASE("raw frame replay uses configured as-of and applies TSB rows")
 {
     stdlib::register_standard_operators();
     GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::Config{.as_of = MIN_ST + TimeDelta{15}});
+    table::set_config(context.state().view(),
+                      table::TableConfig{.as_of = MIN_ST + TimeDelta{15}});
 
     const auto scalar =
         eval_node<stdlib::replay_data_frame, TS<Int>>(scalar_replay_frame(), MAX_DT);
@@ -707,12 +708,12 @@ TEST_CASE("raw frame replay accepts an empty canonical frame")
     CHECK(eval_node<stdlib::replay_data_frame, TS<Int>>(frame, MAX_DT).empty());
 }
 
-TEST_CASE("frame backend: the in-memory model still resolves record/replay by "
-          "default")
+TEST_CASE("frame backend: the in-memory backend still resolves record/replay "
+          "by default")
 {
     stdlib::register_standard_operators();
-    // Default config = IN_MEMORY: the frame backend must NOT be selected and
+    // Default config = "memory": the frame backend must NOT be selected and
     // the testing (GlobalState) backend continues to serve the names.
-    CHECK(record_replay::model_is({}, record_replay::IN_MEMORY));
+    CHECK(record_replay::backend_is({}, record_replay::MEMORY));
     CHECK_OUTPUT(eval_node<stdlib::to_json>(values<Int>(1)), values<Str>(Str{"1"}));
 }

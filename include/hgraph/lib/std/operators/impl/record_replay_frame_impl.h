@@ -11,6 +11,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/value/compact_storage.h>
@@ -28,6 +29,11 @@ namespace hgraph::stdlib
 {
     namespace record_replay_frame_detail
     {
+        /** The durable backend identifier this transitional in-core backend
+            answers to. The id and these overloads move to hgraph-persistence
+            at RFC 0025 checkpoint 5; core defines no extension identifiers. */
+        inline constexpr std::string_view FRAME_BACKEND{"hgraph.persistence.frame"};
+
         [[nodiscard]] inline std::string frame_key(const TraitsView &traits,
                                                    std::string_view  recordable_id,
                                                    std::string_view  key)
@@ -73,13 +79,16 @@ namespace hgraph::stdlib
          * two calls in one graph differ by being called differently rather
          * than through a registry keyed on their name.
          *
-         * A global ``Config::as_of`` names a fixed as-of for the run, so it
-         * selects ``Fixed`` unless the call site omits the column outright.
+         * A fixed as-of in the table configuration names a fixed as-of for
+         * the run, so it selects ``Fixed`` unless the call site omits the
+         * column outright.  (Transitional: this backend reads the generic
+         * ``table::config`` until checkpoint 5 gives the extension its own
+         * ``FrameRecordingConfig`` — RFC 0025.)
          */
         [[nodiscard]] inline table_ts_detail::TableRecordingOptions recording_options(
             RecordAsOf as_of, RecordRemoves removes, const ValueView &partition_names,
             const ValueView &removed_names, std::string_view date_key, std::string_view as_of_key,
-            std::string_view frame_prefix, const record_replay::Config &config)
+            std::string_view frame_prefix, const table::TableConfig &config)
         {
             using Options = table_ts_detail::TableRecordingOptions;
             Options options;
@@ -151,6 +160,11 @@ namespace hgraph::stdlib
                 allocations) and probes the cache (lock-free per-tick ruling:
                 plan discovery is start work). */
             const table_ts_detail::TsTableLayout *layout{nullptr};
+
+            /** ``compare`` only: rows compared / mismatched, published as the
+                core-neutral ``ComparisonSummary`` at stop (RFC 0025). */
+            std::size_t compared{0};
+            std::size_t mismatches{0};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -351,7 +365,7 @@ namespace hgraph::stdlib
 {
     /**
      * The Arrow data-frame record/replay backend (design record, step 4;
-     * model ``record_replay::DATA_FRAME``). ``record`` appends one bitemporal
+     * backend ``"hgraph.persistence.frame"``). ``record`` appends one bitemporal
      * row per tick straight into Arrow builders (the fused P4 path) and
      * writes the finished frame to the registered frame store (P6) at
      * ``stop`` under ``fq_recordable_id.key``; ``replay`` reads the frame and
@@ -379,7 +393,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
+            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
         }
 
         static void start(
@@ -398,7 +412,7 @@ namespace hgraph::stdlib
             using record_replay_frame_detail::RecorderHandle;
             using namespace table_ts_detail;
 
-            const auto config = record_replay::config(gs);
+            const auto config = table::config(gs);
             // The LAYOUT, not the value schema: a value schema cannot describe
             // a TSD's key columns or removed flags, which is why recording a
             // partitioned series used to fail here (RFC 0019).
@@ -565,7 +579,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
+            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
         }
 
         static void start(
@@ -588,7 +602,7 @@ namespace hgraph::stdlib
             }
             const bool  segmented = record_replay::is_segmented_recording(stored);
             const auto &erased = static_cast<const TSOutputView &>(out);
-            const auto  config = record_replay::config(gs);
+            const auto  config = table::config(gs);
             const auto &layout = table_ts_detail::ts_table_layout(erased.schema(), config.date_key,
                                                                   config.as_of_key);
             table_ts_detail::TableRecordingOptions replay_options;
@@ -706,7 +720,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return !record_replay::call_model_is(context, record_replay::IN_MEMORY);
+            return !record_replay::effective_backend_is(context, record_replay::MEMORY);
         }
 
         static auto defaults()
@@ -718,7 +732,7 @@ namespace hgraph::stdlib
                           TraitsView traits, GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
-            const auto config = record_replay::config(gs);
+            const auto config = table::config(gs);
             // Bitemporal plus one boolean: described directly rather than
             // through a converter, so there is one recorder in the tree.
             const std::vector<std::string> names{config.date_key, config.as_of_key, "value"};
@@ -747,6 +761,8 @@ namespace hgraph::stdlib
             static_cast<void>(gs);
             const bool  equal  = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
             auto       *handle = state.get().handle;
+            ++handle->compared;
+            if (!equal) { ++handle->mismatches; }
             const auto  as_of  = handle->fixed_as_of.value_or(now);
             auto       &recorder = handle->recorder;
             const Value when{now};
@@ -767,6 +783,11 @@ namespace hgraph::stdlib
                 return;
             }
             record_replay::store_write(gs, handle->fq_key, handle->recorder.finish());
+            // The detailed rows above are this implementation's own business;
+            // the cross-implementation contract is the neutral summary.
+            record_replay::publish_comparison_summary(
+                gs, handle->fq_key,
+                record_replay::ComparisonSummary{handle->compared, handle->mismatches});
         }
     };
 
@@ -790,7 +811,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
+            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
         }
 
         static Value const_eval(const TSValueTypeMetaData *resolved_output,
@@ -804,7 +825,7 @@ namespace hgraph::stdlib
                 throw std::invalid_argument("replay_const: an explicit recordable_id is "
                                             "required for the eager (const) call");
             }
-            const auto config = record_replay::config(context.global_state);
+            const auto config = table::config(context.global_state);
             return record_replay::replay_const_value(
                 context.global_state, *recordable_id + "." + (key != nullptr ? *key : Str{}),
                 resolved_output->value_schema, tm != nullptr ? *tm : MAX_DT,
@@ -821,7 +842,7 @@ namespace hgraph::stdlib
                 gs,
                 record_replay::fq_recordable_id(traits, recordable_id.value()) + "." + key.value(),
                 erased.schema()->value_schema, cutoff,
-                record_replay::config(gs).as_of.value_or(MAX_DT));
+                table::config(gs).as_of.value_or(MAX_DT));
             if (value.has_value())
             {
                 out.apply(value.view());

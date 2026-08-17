@@ -238,17 +238,27 @@ def _exit_runtime():
         del _global_state_local.runtime_active
 
 
+# Legacy model names accepted through the RFC 0025 deprecation window; the
+# stored configuration and the python mirror always carry the backend id.
+_LEGACY_BACKENDS = {
+    "InMemory": "memory",
+    "InMemoryDense": "testing",
+    "DataFrame": "hgraph.persistence.frame",
+}
+
+
 def set_record_replay_config(model):
     # The 0.5 data-frame adaptor exported a private-looking model sentinel
     # which became part of the user surface. Keep accepting it while the C++
-    # runtime has one canonical model name.
-    native_model = (
+    # runtime has one canonical backend id per implementation (RFC 0025).
+    backend = (
         _hgraph.DATA_FRAME if model == _LEGACY_DATA_FRAME_RECORD_REPLAY else model
     )
-    _hgraph._set_record_replay_config(GlobalState.instance()._impl, native_model)
-    # python-readable mirror (model-gated python overloads read it in their
+    backend = _LEGACY_BACKENDS.get(backend, backend)
+    _hgraph._set_record_replay_config(GlobalState.instance()._impl, backend)
+    # python-readable mirror (backend-gated python overloads read it in their
     # requires= predicates; the C++ config has no python getter)
-    GlobalState.instance()["__record_replay_model__"] = native_model
+    GlobalState.instance()["__record_replay_model__"] = backend
 
 
 def set_pooled_compound_scalar_storage(enabled=True):

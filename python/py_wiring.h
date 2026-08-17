@@ -102,15 +102,16 @@ namespace hgraph::python_bridge
         {
             // The raw stateless wiring bridge IS the dense recording harness
             // (``Run.recorded`` reads cycle-aligned buffers): record/replay
-            // resolve to the DENSE backend here. A seeded wiring (below)
-            // inherits its GlobalState's model instead (default IN_MEMORY =
+            // resolve to the "testing" backend here. A seeded wiring (below)
+            // inherits its GlobalState's backend instead (default "memory" =
             // sparse ``:memory:`` recording for real graph runs / components).
-            // Guarded so an ambient non-default model (e.g. DATA_FRAME) wins.
+            // Guarded so an ambient non-default backend (e.g. a durable one)
+            // wins.
             const GlobalStateView state = raw->global_state();
-            if (record_replay::model_is(state, record_replay::IN_MEMORY))
+            if (record_replay::backend_is(state, record_replay::MEMORY))
             {
-                record_replay::Config config = record_replay::config(state);
-                config.model                 = std::string{record_replay::IN_MEMORY_DENSE};
+                record_replay::RecordReplayConfig config = record_replay::config(state);
+                config.backend = std::string{record_replay::TESTING};
                 record_replay::set_config(state, std::move(config));
             }
         }

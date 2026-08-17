@@ -12,6 +12,7 @@
 #include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/table_config.h>
 
 namespace nb = nanobind;
 using namespace hgraph;
@@ -468,10 +469,13 @@ namespace hgraph::python_bridge
         });
 
     // Record/replay configuration is copied with the Python thread's seed.
-    m.def("_set_record_replay_config", [](GlobalState &state, const std::string &model) {
-        if (model == record_replay::DATA_FRAME)
+    m.def("_set_record_replay_config", [](GlobalState &state, const std::string &backend) {
+        // ``set_config`` normalises legacy model names; the frame-backend
+        // check below must see the same answer, so translate up front.
+        record_replay::RecordReplayConfig config{.backend = backend};
+        if (backend == "DataFrame" || backend == "hgraph.persistence.frame")
         {
-            // Explicitly selecting the native data-frame model starts a new
+            // Explicitly selecting the native frame backend starts a new
             // recording session. Do not carry immutable keys from an earlier
             // native run through the long-lived implicit Python GlobalState.
             // A Python compatibility store is user-owned and remains installed
@@ -483,8 +487,6 @@ namespace hgraph::python_bridge
                     state.view(), store::make_frame_store(store::FrameStoreConfig{}));
             }
         }
-        auto config = record_replay::config(state.view());
-        config.model = model;
         record_replay::set_config(state.view(), std::move(config));
     });
     m.def("_set_pooled_compound_scalar_storage",
@@ -493,26 +495,26 @@ namespace hgraph::python_bridge
           },
           nb::arg("state"), nb::arg("enabled") = true);
     m.def("_set_as_of", [](GlobalState &state, nb::object value) {
-        auto config = record_replay::config(state.view());
+        auto config = table::config(state.view());
         config.as_of = value.is_none() ? std::optional<DateTime>{}
                                         : std::optional<DateTime>{nb::cast<DateTime>(value)};
-        record_replay::set_config(state.view(), std::move(config));
+        table::set_config(state.view(), std::move(config));
     }, nb::arg("state"), nb::arg("value").none());
     m.def("_set_time_zone_provider", [](GlobalState &state) {
         set_time_zone_provider(state.view(), make_time_zone_provider());
     });
     m.def("_set_table_schema_date_key", [](GlobalState &state, const std::string &key) {
-        auto config = record_replay::config(state.view());
+        auto config = table::config(state.view());
         config.date_key = key;
-        record_replay::set_config(state.view(), std::move(config));
+        table::set_config(state.view(), std::move(config));
     });
     m.def("_set_table_schema_as_of_key", [](GlobalState &state, const std::string &key) {
-        auto config = record_replay::config(state.view());
+        auto config = table::config(state.view());
         config.as_of_key = key;
-        record_replay::set_config(state.view(), std::move(config));
+        table::set_config(state.view(), std::move(config));
     });
     m.def("_table_schema_keys", [](GlobalState &state) {
-        const auto config = record_replay::config(state.view());
+        const auto config = table::config(state.view());
         return nb::make_tuple(config.date_key, config.as_of_key);
     });
     m.attr("MODE_NONE")          = static_cast<unsigned>(record_replay::Mode::None);
@@ -533,7 +535,13 @@ namespace hgraph::python_bridge
     });
     m.def("_comparison_summary", [](GlobalState &state, const std::string &fq_key) {
         const auto summary = record_replay::comparison_summary(state.view(), fq_key);
-        return nb::make_tuple(summary.compared, summary.mismatches);
+        if (!summary.has_value())
+        {
+            // The C++ query is total (RFC 0025); the Python wrapper keeps
+            // its raise-on-absent contract.
+            throw std::runtime_error("no comparison recorded under '" + fq_key + "'");
+        }
+        return nb::make_tuple(summary->compared, summary->mismatches);
     });
     m.def("_frame_store_contains", [](GlobalState &state, const std::string &key) {
         return record_replay::store_contains(state.view(), key);
@@ -829,9 +837,11 @@ namespace hgraph::python_bridge
     m.def("has_context", [](PyWiring &w, const std::string &name) {
         return graph_wiring_detail::has_context_source(w.wiring_ref(), name);
     });
-    m.attr("IN_MEMORY")       = std::string{record_replay::IN_MEMORY};
-    m.attr("IN_MEMORY_DENSE")  = std::string{record_replay::IN_MEMORY_DENSE};
-    m.attr("DATA_FRAME")       = std::string{record_replay::DATA_FRAME};
+    // Deprecated aliases (RFC 0025): they now carry the backend ids
+    // directly, so equality checks against a stored backend keep working.
+    m.attr("IN_MEMORY")       = std::string{record_replay::MEMORY};
+    m.attr("IN_MEMORY_DENSE")  = std::string{record_replay::TESTING};
+    m.attr("DATA_FRAME")       = std::string{"hgraph.persistence.frame"};
     m.attr("MIN_ST")     = nb::cast(MIN_ST);
     m.attr("MIN_TD")     = nb::cast(MIN_TD);
     m.attr("MAX_DT")     = nb::cast(MAX_DT);
@@ -1246,7 +1256,7 @@ namespace hgraph::python_bridge
         }, nb::arg("trait"), nb::arg("default") = nb::none(),
         "Return this graph's own trait, or the supplied default when absent.");
     m.def("_table_schema_keys", [](const PyRuntimeGlobalState &state) {
-        const auto config = record_replay::config(state.checked());
+        const auto config = table::config(state.checked());
         return nb::make_tuple(config.date_key, config.as_of_key);
     });
     m.def("_temporal_at_zone",

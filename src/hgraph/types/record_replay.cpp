@@ -2,6 +2,7 @@
 
 #include <hgraph/runtime/graph.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/table_config.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -22,6 +23,23 @@ namespace hgraph::record_replay
     {
         inline constexpr std::string_view CONFIG_KEY{"__hgraph.record_replay.config__"};
         inline constexpr std::string_view FRAME_STORE_KEY{"__hgraph.record_replay.frame_store__"};
+        inline constexpr std::string_view COMPARE_KEY_PREFIX{"__hgraph.record_replay.compare__."};
+
+        // The durable backend id belongs to hgraph-persistence (RFC 0025);
+        // this literal exists only for the transitional in-core frame backend
+        // and leaves with it at checkpoint 5.
+        inline constexpr std::string_view FRAME_BACKEND{"hgraph.persistence.frame"};
+
+        /** The single legacy-name choke point (RFC 0025 deprecation window):
+            every entry that accepts a backend id normalises through here, so
+            "InMemory" and "memory" can never select different overloads. */
+        [[nodiscard]] std::string normalize_backend(std::string backend)
+        {
+            if (backend == "InMemory") { return std::string{MEMORY}; }
+            if (backend == "InMemoryDense") { return std::string{TESTING}; }
+            if (backend == "DataFrame") { return std::string{FRAME_BACKEND}; }
+            return backend;
+        }
         inline constexpr std::string_view RECORDING_LAYOUT_KEY{"hgraph.recording.layout"};
         inline constexpr std::string_view SEGMENTED_LAYOUT{"segmented"};
         inline constexpr std::string_view RECORDING_VERSION_KEY{"hgraph.recording.version"};
@@ -31,7 +49,23 @@ namespace hgraph::record_replay
 
         void ensure_config_type()
         {
-            (void)TypeRegistry::instance().register_scalar<Config>("RecordReplayConfig");
+            (void)TypeRegistry::instance().register_scalar<RecordReplayConfig>(
+                "RecordReplayConfig");
+        }
+
+        void ensure_summary_type()
+        {
+            // Once per process: the memory compare publishes per tick, and
+            // the per-tick path must not acquire the registry's counted
+            // mutex (single-threaded evaluation ruling). set_config also
+            // registers eagerly so evaluation normally sees zero
+            // acquisitions even on the first publish.
+            static const bool registered = [] {
+                (void)TypeRegistry::instance().register_scalar<ComparisonSummary>(
+                    "__comparison_summary__");
+                return true;
+            }();
+            static_cast<void>(registered);
         }
 
         struct FrameStoreHolder
@@ -100,64 +134,66 @@ namespace hgraph::record_replay
         }
     }  // namespace
 
-    void set_config(GlobalStateView state, Config config)
+    void set_config(GlobalStateView state, RecordReplayConfig config)
     {
         if (!state.valid())
         {
             throw std::logic_error("record/replay configuration requires GlobalState");
         }
-        if (config.model.empty())
+        if (config.backend.empty())
         {
-            throw std::invalid_argument("record/replay model must not be empty");
+            throw std::invalid_argument("record/replay backend must not be empty");
         }
-        if (config.date_key.empty() || config.as_of_key.empty())
-        {
-            throw std::invalid_argument("record/replay table keys must not be empty");
-        }
+        config.backend = normalize_backend(std::move(config.backend));
         ensure_config_type();
-        if (config.model == DATA_FRAME && !frame_store(state))
+        ensure_summary_type();
+        if (config.backend == FRAME_BACKEND && !frame_store(state))
         {
-            // DATA_FRAME has a real graph-owned C++ store by default. Besides
-            // matching the configured file/S3 lifetime, this gives the memory
-            // backend the same immutable-key behaviour as those deployments.
+            // The frame backend has a real graph-owned C++ store by default.
+            // Besides matching the configured file/S3 lifetime, this gives the
+            // memory-backed store the same immutable-key behaviour as those
+            // deployments. Moves to the extension at checkpoint 5 (RFC 0025).
             set_frame_store(state, store::make_frame_store(store::FrameStoreConfig{}));
         }
         state.set(CONFIG_KEY, Value{std::move(config)});
     }
 
-    Config config(GlobalStateView state)
+    RecordReplayConfig config(GlobalStateView state)
     {
         if (!state.valid())
         {
-            return Config{};
+            return RecordReplayConfig{};
         }
         const ValueView value = state.get(CONFIG_KEY);
-        return value.valid() ? value.checked_as<Config>() : Config{};
+        return value.valid() ? value.checked_as<RecordReplayConfig>() : RecordReplayConfig{};
     }
 
-    bool model_is(GlobalStateView state, std::string_view model)
+    bool backend_is(GlobalStateView state, std::string_view backend)
     {
-        return config(state).model == model;
+        return config(state).backend == backend;
     }
 
-    std::string call_model(const OperatorCallContext &context)
+    std::string effective_backend(const OperatorCallContext &context)
     {
-        // A call-site ``model`` wins over the graph's configuration. Reading it
-        // here rather than in each guard is what keeps the overloads mutually
-        // exclusive - they all decide against the same answer.
+        // A call-site backend (the scalar remains spelled ``model`` through
+        // the deprecation window) wins over the graph's configuration.
+        // Reading it here rather than in each guard is what keeps the
+        // overloads mutually exclusive - they all decide against the same
+        // answer.
         if (const Str *local = context.scalar_as<Str>("model");
             local != nullptr && !local->empty())
         {
-            return *local;
+            return normalize_backend(*local);
         }
-        // By value: ``config`` returns a Config by value, so a view into its
-        // ``model`` would dangle the moment the temporary died.
-        return config(context.global_state).model;
+        // By value: ``config`` returns the configuration by value, so a view
+        // into its ``backend`` would dangle the moment the temporary died.
+        // (``set_config`` already normalised the stored value.)
+        return config(context.global_state).backend;
     }
 
-    bool call_model_is(const OperatorCallContext &context, std::string_view model)
+    bool effective_backend_is(const OperatorCallContext &context, std::string_view backend)
     {
-        return call_model(context) == model;
+        return effective_backend(context) == backend;
     }
 
     const ScopeState &current_scope() noexcept
@@ -326,9 +362,9 @@ namespace hgraph::record_replay
     Value replay_const_value(GlobalStateView state, std::string_view fq_key,
                              const ValueTypeMetaData *meta, DateTime tm, DateTime as_of)
     {
-        const Config cfg = config(state);
-        const auto  &converter = table_converter(meta, cfg.date_key, cfg.as_of_key);
-        Value        result;
+        const table::TableConfig cfg = table::config(state);
+        const auto              &converter = table_converter(meta, cfg.date_key, cfg.as_of_key);
+        Value                    result;
         for_each_recording_frame(state, fq_key, [&](const Frame &frame) {
             const auto as_of_column = frame.table->GetColumnByName(converter.as_of_key);
             for (std::int64_t row = 0; row < frame_rows(frame); ++row)
@@ -354,27 +390,30 @@ namespace hgraph::record_replay
         return result;
     }
 
-    ComparisonSummary comparison_summary(GlobalStateView state, std::string_view fq_key)
+    void publish_comparison_summary(GlobalStateView state, std::string_view fq_key,
+                                    ComparisonSummary summary)
     {
-        if (!store_contains(state, fq_key))
+        if (!state.valid())
         {
-            throw std::runtime_error("no comparison recorded under '" + std::string{fq_key} + "'");
+            throw std::logic_error("publishing a comparison summary requires GlobalState");
         }
-        const Config cfg = config(state);
-        const auto  &converter =
-            table_converter(scalar_descriptor<Bool>::value_meta(), cfg.date_key, cfg.as_of_key);
-        ComparisonSummary summary;
-        for_each_recording_frame(state, fq_key, [&](const Frame &frame) {
-            summary.compared += static_cast<std::size_t>(frame_rows(frame));
-            for (std::int64_t row = 0; row < frame_rows(frame); ++row)
-            {
-                if (!read_row(converter, frame, row).view().checked_as<Bool>())
-                {
-                    ++summary.mismatches;
-                }
-            }
-        });
-        return summary;
+        ensure_summary_type();
+        state.set(std::string{COMPARE_KEY_PREFIX} + std::string{fq_key}, Value{summary});
+    }
+
+    std::optional<ComparisonSummary> comparison_summary(GlobalStateView state,
+                                                        std::string_view fq_key)
+    {
+        if (!state.valid())
+        {
+            return std::nullopt;
+        }
+        const ValueView value = state.get(std::string{COMPARE_KEY_PREFIX} + std::string{fq_key});
+        if (!value.valid())
+        {
+            return std::nullopt;
+        }
+        return value.checked_as<ComparisonSummary>();
     }
 
     Value recorded_seed_resolver(GlobalStateView state, std::string_view fq_key,
@@ -384,10 +423,10 @@ namespace hgraph::record_replay
         {
             return {};
         }
-        if (!model_is(state, IN_MEMORY))
+        if (!backend_is(state, MEMORY))
         {
             return replay_const_value(state, fq_key, schema->value_schema, start_time,
-                                      config(state).as_of.value_or(MAX_DT));
+                                      table::config(state).as_of.value_or(MAX_DT));
         }
 
         const ValueView buffer = state.get(":memory:" + std::string{fq_key});
