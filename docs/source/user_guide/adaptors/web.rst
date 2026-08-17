@@ -58,7 +58,9 @@ path* and used from anywhere in the graph:
 
 Under the hood, transport I/O threads deliver into the graph only through
 root push sources, and the graph reaches the sockets only through sink
-nodes — evaluation itself stays single-threaded and lock-free.  A request
+nodes — evaluation itself stays single-threaded, with the bounded boundary
+queues (and their short handoff locks) as the only cross-thread
+touchpoints.  A request
 that a same-cycle handler can answer dispatches its response in that same
 engine cycle; there is no per-request feedback cycle.
 
@@ -174,8 +176,9 @@ WebSockets
 / ``PING`` / ``PONG`` / ``CLOSE``) with ``text`` or ``data`` payloads and
 close fields; build them with ``text_frame`` / ``binary_frame`` or the
 codecs below.  Inbound messages are delivered complete (reassembled up to
-``ws_max_message_bytes``); outbound messages are fragmented at
-``ws_max_frame_bytes``.
+``ws_max_message_bytes``); on the server, outbound messages are fragmented
+at ``ws_max_frame_bytes``, while the client rejects an oversized outbound
+frame with a delivery report instead of fragmenting it.
 
 :class:`WsClientKey` — ``url``, extra ``headers``, ``subprotocols``; the
 client-side connection identity and lifecycle.
@@ -240,8 +243,9 @@ Connection open and close are just events, so session lifecycle is
 ordinary graph logic; the served request that opened the socket rides on
 the ``OPEN`` event.  The client mirror is ``web_ws_connect(key)`` —
 producing the same event/frame shape — with ``web_ws_client_send(key,
-frame)`` for output; removing the key closes the connection with a normal
-close handshake.
+frame)`` for output; removing the key sends a Close frame and tears the
+connection down promptly (the client does not wait for the peer's close
+echo; the server side performs the full close handshake).
 
 Calling out
 -----------

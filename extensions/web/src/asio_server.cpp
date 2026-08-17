@@ -668,6 +668,9 @@ public:
                                            std::size_t reserved_bytes);
   [[nodiscard]] bool push_ws_event(Value route, Value event,
                                    std::size_t retained_bytes);
+  [[nodiscard]] bool push_ws_event_reserved(Value route, Value event,
+                                            std::size_t retained_bytes,
+                                            std::size_t reserved_bytes);
   [[nodiscard]] bool push_ws_frame_reserved(Value route, Value inbound_frame,
                                             std::size_t retained_bytes,
                                             std::size_t reserved_bytes);
@@ -981,6 +984,9 @@ private:
   std::shared_ptr<const void> retire_barrier_{};
   std::size_t ws_reserved_bytes_{};
   std::size_t ws_unaccounted_bytes_{};
+  // Capacity for THIS connection's terminal Closed/Failed event, reserved
+  // at accept and held for the socket's lifetime (review P1).
+  std::size_t ws_close_reserved_{};
   // Message bytes accumulate here — storage the reservation accounts —
   // while ws_read_buffer_ stays chunk-sized: Beast's flat_buffer keeps its
   // allocated capacity after consume(), so assembling messages inside it
@@ -1858,6 +1864,21 @@ bool WebServerRuntime::push_request_reserved(Value route, Value request,
       retained_bytes, reserved_bytes);
 }
 
+bool WebServerRuntime::push_ws_event_reserved(Value route, Value event,
+                                              std::size_t retained_bytes,
+                                              std::size_t reserved_bytes) {
+  // Terminal lifecycle events ride capacity reserved at accept, so a full
+  // channel can never lose a Closed/Failed event (review P1).
+  return bridge_.value->push_reserved(
+      index(ServerChannel::WsIngress),
+      build_on(bindings_.ws_ingress_envelope,
+               {
+                   {"route", std::move(route)},
+                   {"event", std::move(event)},
+               }),
+      std::min(retained_bytes, reserved_bytes), reserved_bytes);
+}
+
 bool WebServerRuntime::push_ws_event(Value route, Value event,
                                      std::size_t retained_bytes) {
   // Connection lifecycle is graph data and must never be lost (review P1):
@@ -2712,6 +2733,22 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
           self->close();
           return;
         }
+        // Reserve the terminal event's capacity for the connection's
+        // lifetime: lifecycle-as-data means the Closed/Failed event must
+        // never be lost to a full channel (review P1).  A connection
+        // whose terminal event cannot be guaranteed does not open.
+        const std::size_t close_weight = self->ws_route_weight_ + 128 + 512;
+        if (!runtime->reserve_ws_ingress(close_weight)) {
+          runtime->count_drop();
+          runtime->emit_event(
+              WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
+              Str{"terminal-event capacity unavailable; closing"}, 0, true,
+              false, self->ws_connection_id_);
+          runtime->unregister_ws_connection(self->ws_connection_id_);
+          self->close();
+          return;
+        }
+        self->ws_close_reserved_ = close_weight;
         // Beast no longer needs the upgrade request; releasing it keeps
         // the single-counted accounting honest for the WebSocket's whole
         // lifetime (review P1).
@@ -2756,19 +2793,29 @@ void ServerConnection::ws_read_next() {
                                            reason.reason.size()}};
           }
           const auto &b = runtime->bindings();
-          static_cast<void>(runtime->push_ws_event(
-              self->ws_route_->clone(),
-              build_on(b.ws_event,
-                       {
-                           {"connection_id",
-                            b.number(self->ws_connection_id_)},
-                           {"state",
-                            b.enum_value(orderly ? WsConnectionState::Closed
-                                                 : WsConnectionState::Failed)},
-                           {"close_code", b.number(close_code)},
-                           {"close_reason", b.string(close_reason)},
-                       }),
-              close_reason.size() + self->ws_route_weight_ + 512));
+          Value terminal = build_on(
+              b.ws_event,
+              {
+                  {"connection_id", b.number(self->ws_connection_id_)},
+                  {"state",
+                   b.enum_value(orderly ? WsConnectionState::Closed
+                                        : WsConnectionState::Failed)},
+                  {"close_code", b.number(close_code)},
+                  {"close_reason", b.string(close_reason)},
+              });
+          const std::size_t terminal_bytes =
+              close_reason.size() + self->ws_route_weight_ + 512;
+          if (self->ws_close_reserved_ != 0) {
+            const std::size_t reserved = self->ws_close_reserved_;
+            self->ws_close_reserved_ = 0;
+            static_cast<void>(runtime->push_ws_event_reserved(
+                self->ws_route_->clone(), std::move(terminal),
+                terminal_bytes, reserved));
+          } else {
+            static_cast<void>(runtime->push_ws_event(
+                self->ws_route_->clone(), std::move(terminal),
+                terminal_bytes));
+          }
           self->close();
           return;
         }
@@ -3078,6 +3125,12 @@ void ServerConnection::ws_close(websocket::close_code code,
 void ServerConnection::close() {
   release_admission();
   release_ws_reservation_held();
+  if (ws_close_reserved_ != 0 && ws_runtime_) {
+    // Torn down without a terminal event (forced teardown): return the
+    // reserved capacity.
+    ws_runtime_->release_ws_reservation(ws_close_reserved_);
+    ws_close_reserved_ = 0;
+  }
   close_socket_only();
   retire_barrier_.reset();
 }
@@ -3437,16 +3490,12 @@ void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
   }
   if (stream.body.size() + data.size() >
       stream.matched.runtime->config().max_body_bytes) {
-    // The per-request cap, the h2 mirror of Beast's body_limit: the
-    // over-cap body is never retained, and the window held by any
-    // unaccounted bytes is released before the stream starts discarding
+    // The per-request cap, the h2 mirror of Beast's body_limit.  The
+    // just-arrived chunk was never buffered, so its window is released
+    // here; respond_transport restores the rest and discards uniformly
     // (review P1).
-    engine_.consume(stream_id, stream.unaccounted + data.size());
-    unaccounted_total_ -= std::min(unaccounted_total_, stream.unaccounted);
-    stream.unaccounted = 0;
-    stream.body = std::string{};
+    engine_.consume(stream_id, data.size());
     respond_transport(stream_id, 413, "body exceeds max_body_bytes");
-    resume_stalled_read();
     return;
   }
   stream.body.append(data);
@@ -3526,17 +3575,10 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     const std::size_t pending = data_pending + stream.trailer_unaccounted;
     if (stream.reserved + pending >
         stream.matched.runtime->config().ingress.bytes) {
-      // Incremental growth that can NEVER fit: release the held window
-      // and answer, mirroring the body-cap path (review P1).
-      engine_.consume(stream_id, stream.unaccounted);
-      unaccounted_total_ -=
-          std::min(unaccounted_total_,
-                   stream.unaccounted + stream.trailer_unaccounted);
-      stream.unaccounted = 0;
-      stream.trailer_unaccounted = 0;
+      // Incremental growth that can NEVER fit: respond_transport restores
+      // the held window and discards the buffers uniformly (review P1).
       respond_transport(stream_id, 413,
                         "request cannot fit the ingress limit");
-      resume_stalled_read();
       return;
     }
     if (stream.matched.runtime->grow_request_reservation(pending)) {
@@ -3672,8 +3714,27 @@ void H2Driver::respond_transport(std::int32_t stream_id, int status,
                                  std::string_view body) {
   const auto found = streams_.find(stream_id);
   if (found != streams_.end()) {
-    release_stream(stream_id, found->second);
-    found->second.discarding = true;
+    Stream &stream = found->second;
+    // Every transport answer discards uniformly BEFORE the budget is
+    // released: restore the flow-control window held by unconsumed DATA
+    // (auto window updates are off, so a skipped consume() shrinks the
+    // connection window forever) and drop the retained request buffers —
+    // releasing the reservation while still holding the body would keep
+    // memory outside the advertised bound until the peer half-closes
+    // (review P1).
+    if (stream.unaccounted != 0) {
+      engine_.consume(stream_id, stream.unaccounted);
+    }
+    const std::size_t buffered =
+        stream.unaccounted + stream.trailer_unaccounted;
+    unaccounted_total_ -= std::min(unaccounted_total_, buffered);
+    stream.unaccounted = 0;
+    stream.trailer_unaccounted = 0;
+    stream.body = std::string{};
+    stream.trailers = H2Headers{};
+    release_stream(stream_id, stream);
+    stream.discarding = true;
+    resume_stalled_read();
   }
   // Transport answers obey the same outbound budgets as graph responses:
   // a slow peer accumulating error responses is reset instead of growing
