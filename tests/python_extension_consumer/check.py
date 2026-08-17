@@ -132,8 +132,13 @@ with hgraph.GlobalState() as _probe_state:
 
     assert eval_node(_probe_replay) == [7, 8]
 
-# reset_registries replays the extension installer exactly as core's.
+# reset_registries replays the extension installer exactly as core's —
+# operator overloads AND the python scalar association alike.
 _hgraph.reset_registries()
+assert scalar_type(TS[consumer.ConsumerScalar]) is consumer.ConsumerScalar
+assert repr(TS[consumer.ConsumerScalar].handle) == (
+    "TS[hgraph.test.consumer_scalar]"
+)
 with hgraph.GlobalState() as _probe_state:
     set_record_replay_model("probe.mem")
     eval_node(_probe_record, [9])

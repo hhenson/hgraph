@@ -605,33 +605,52 @@ namespace hgraph
         overloads_[impl.name].push_back(std::move(impl));
     }
 
-    void OperatorRegistry::register_installer(std::string_view key, void (*installer)())
+    void OperatorRegistry::register_installer(std::string_view key, std::function<void()> installer)
     {
         for (Installer &entry : installers_)
         {
             if (entry.key == key)
             {
                 // Replace the callback, keep the applied state: entry points
-                // stay idempotent between resets.
-                entry.fn = installer;
+                // stay idempotent between resets. A previously FAILED
+                // attempt left applied=false, so a replaced callback runs on
+                // the next rebuild.
+                entry.fn = std::move(installer);
                 return;
             }
         }
-        installers_.push_back(Installer{.key = std::string{key}, .fn = installer});
+        installers_.push_back(Installer{.key = std::string{key}, .fn = std::move(installer)});
     }
 
     void OperatorRegistry::run_installers()
     {
-        for (Installer &entry : installers_)
+        // Indexed iteration: an installer may register further installers
+        // (an entry point that fans out), which reallocates the vector — and
+        // freshly appended entries are picked up in the same pass.
+        for (std::size_t i = 0; i < installers_.size(); ++i)
         {
-            if (entry.applied || entry.fn == nullptr)
+            if (installers_[i].applied || installers_[i].running || !installers_[i].fn)
             {
                 continue;
             }
-            // Flag first: an installer that (indirectly) re-enters the
-            // rebuild must not replay itself.
-            entry.applied = true;
-            entry.fn();
+            // ``running`` guards re-entrancy (an installer that indirectly
+            // re-enters the rebuild must not replay itself); ``applied`` is
+            // set only AFTER success so a throwing installer is retried by
+            // the next rebuild rather than silently stranded.
+            installers_[i].running = true;
+            try
+            {
+                // Copy: the stored entry may move if the callback appends.
+                const std::function<void()> fn = installers_[i].fn;
+                fn();
+            }
+            catch (...)
+            {
+                installers_[i].running = false;
+                throw;
+            }
+            installers_[i].running = false;
+            installers_[i].applied = true;
         }
     }
 

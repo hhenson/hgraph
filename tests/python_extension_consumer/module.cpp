@@ -133,16 +133,19 @@ NB_MODULE(_hgraph_consumer, module)
             .def("__eq__", [](const ConsumerScalar &lhs,
                               const ConsumerScalar &rhs) { return lhs == rhs; });
 
-    hgraph::python_bridge::register_native_scalar_type<ConsumerScalar>(
-        consumer_scalar, "hgraph.test.consumer_scalar");
-
     module.def("registry_address", [] {
         return reinterpret_cast<std::uintptr_t>(&hgraph::TypeRegistry::instance());
     });
 
-    // Keyed installer (RFC 0025 checkpoint 3): the shared runtime replays
-    // this registration after every reset_registries, exactly as core's.
-    hgraph::OperatorRegistry::instance().register_installer("hgraph.test.probe",
-                                                            &install_probe_backend);
+    // Keyed installer (RFC 0025 checkpoint 3): the extension's ENTIRE
+    // registration — the probe backend overloads AND the python scalar
+    // association (the captured class handle) — so the shared runtime
+    // replays it after every reset_registries, exactly as core's.
+    hgraph::OperatorRegistry::instance().register_installer(
+        "hgraph.test.probe", [consumer_scalar] {
+            install_probe_backend();
+            hgraph::python_bridge::register_native_scalar_type<ConsumerScalar>(
+                consumer_scalar, "hgraph.test.consumer_scalar");
+        });
     hgraph::OperatorRegistry::instance().run_installers();
 }

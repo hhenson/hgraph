@@ -137,12 +137,18 @@ Follow the standard family layout:
    installer list (RFC 0025 checkpoint 3):
 
    ```cpp
-   OperatorRegistry::instance().register_installer("my.extension", &install_fn);
+   OperatorRegistry::instance().register_installer("my.extension", installer);
    OperatorRegistry::instance().run_installers();
    ```
 
-   Registry resets keep installer intent, so one rebuild call replays the
-   extension's registration exactly as core's — idempotent between resets.
+   The installer carries the extension's ENTIRE registration — native
+   types, operator overloads, and (for python extensions) the
+   `register_native_scalar_type` associations, capturing the `nb` class
+   handles — because a registry reset clears all three. Resets keep
+   installer intent, so one rebuild call replays the extension's
+   registration exactly as core's — idempotent between resets; a
+   throwing installer stays unapplied and is retried by the next
+   rebuild.
 
 When a new standard family is genuinely needed, also add its definition header
 to `operators/operators.h`, its implementation header to

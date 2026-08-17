@@ -421,14 +421,24 @@ namespace hgraph
          * process with extensions loaded — no call site maintains a manual
          * re-registration list.
          *
+         * An installer carries the extension's ENTIRE registration: native
+         * type metadata, operator overloads, and (for python extensions)
+         * the python scalar associations — which is why it is a
+         * ``std::function``: python-facing installers capture their
+         * module-lifetime ``nb`` class handles. Build-time machinery only;
+         * nothing here touches the per-tick path.
+         *
          * Keys are unique: re-registering a key replaces the callback
          * without re-applying an already-applied entry (registration entry
          * points stay idempotent between resets). Installers run in
-         * first-registration order. Plain function pointers by design —
-         * registration intent is static program structure, not captured
-         * state.
+         * first-registration order. An installer is marked applied only
+         * AFTER it returns: a throwing installer stays unapplied so a retry
+         * (or the next rebuild) runs it again — but the registry has no
+         * unregister, so whatever it registered before throwing remains;
+         * the safe recovery from a partial installation is
+         * reset-and-rebuild, which this mechanism makes cheap.
          */
-        void register_installer(std::string_view key, void (*installer)());
+        void register_installer(std::string_view key, std::function<void()> installer);
 
         /** Apply every installer not applied since the last reset. */
         void run_installers();
@@ -537,9 +547,10 @@ namespace hgraph
 
         struct Installer
         {
-            std::string key{};
-            void (*fn)(){nullptr};
-            bool applied{false};
+            std::string           key{};
+            std::function<void()> fn{};
+            bool                  applied{false};
+            bool                  running{false};
         };
 
         std::unordered_map<std::string, std::vector<OperatorImpl>> overloads_{};

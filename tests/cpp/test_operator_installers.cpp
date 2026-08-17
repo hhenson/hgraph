@@ -11,6 +11,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <stdexcept>
+
 // The registration-installer contract (RFC 0025, checkpoint 3): a registry
 // reset clears the overload TABLE but keeps registration INTENT, so one
 // rebuild call replays every installer — an extension's exactly as core's.
@@ -129,6 +131,32 @@ TEST_CASE("installers: a reset-and-rebuild replays extensions exactly as core")
     registry.register_installer("test.probe", &install_probe_backend);
     registry.run_installers();
     CHECK(record_overload_count() == core_count + 1);
+}
+
+TEST_CASE("installers: a throwing installer stays unapplied and retries")
+{
+    auto &registry = OperatorRegistry::instance();
+
+    int attempts = 0;
+    registry.register_installer("test.flaky", [&attempts] {
+        ++attempts;
+        if (attempts == 1) { throw std::runtime_error("flaky installer"); }
+    });
+
+    // The failure propagates and the entry is NOT marked applied.
+    CHECK_THROWS_AS(registry.run_installers(), std::runtime_error);
+    CHECK(attempts == 1);
+
+    // The next rebuild retries it; success marks it applied.
+    registry.run_installers();
+    CHECK(attempts == 2);
+    registry.run_installers();
+    CHECK(attempts == 2);
+
+    // Neutralise before the local capture dies: the installer list outlives
+    // this case, and the listener's reset would otherwise replay a dangling
+    // callback in a later same-process case.
+    registry.register_installer("test.flaky", [] {});
 }
 
 TEST_CASE("installers: an external backend records and replays through the core markers")

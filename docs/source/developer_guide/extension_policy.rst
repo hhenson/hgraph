@@ -48,14 +48,21 @@ An extension follows the same C++-first model as the core:
   implementation of runtime semantics.
 * The extension links the installed shared hgraph targets and shared nanobind
   runtime. It must not statically embed another hgraph registry universe.
-* Operator registration is a **keyed installer** (RFC 0025 checkpoint 3):
-  the native module's import path calls
-  ``OperatorRegistry::register_installer("<distribution key>", &install_fn)``
-  followed by ``run_installers()``.  A registry reset keeps installer
-  intent and clears only its applied state, so the next rebuild
-  (``register_standard_operators()`` or ``run_installers()``) replays the
-  extension's registration exactly as core's — never register from a
-  static initializer, and never maintain a manual re-registration list.
+* Registration is a **keyed installer** (RFC 0025 checkpoint 3): the
+  native module's import path calls
+  ``OperatorRegistry::register_installer("<distribution key>", installer)``
+  followed by ``run_installers()``.  The installer carries the
+  extension's ENTIRE registration — native type metadata, operator
+  overloads, and the python scalar associations
+  (``register_native_scalar_type`` with the captured ``nb`` class
+  handles) — because a registry reset clears all three.  A reset keeps
+  installer intent and clears only its applied state, so the next
+  rebuild (``register_standard_operators()`` or ``run_installers()``)
+  replays the extension's registration exactly as core's — never
+  register from a static initializer, and never maintain a manual
+  re-registration list.  An installer is marked applied only after it
+  returns; a throwing installer is retried by the next rebuild (recover
+  from a partial installation with reset-and-rebuild).
 * An extension implementing operator overloads consumes SUPPORTED public
   headers only (for durable recording: the operator markers in
   ``lib/std/operators/io.h`` and the table seam in

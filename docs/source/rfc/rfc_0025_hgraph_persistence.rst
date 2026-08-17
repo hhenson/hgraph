@@ -419,6 +419,22 @@ attributes carry the new backend ids, legacy names translate at every
 entry point, and the Python summary query keeps its raise-on-absent
 contract.
 
+Checkpoint 3 is implemented on the extraction branch: the
+registration-installer mechanism on ``OperatorRegistry`` (core standard
+operators and the analytics/web/kafka extensions register keyed
+installers carrying their ENTIRE registration — native types, operator
+overloads, and python scalar associations; reset keeps intent and one
+rebuild call replays all; an installer is marked applied only after it
+returns, so a throwing installer is retried by the next rebuild); the
+``table_ts_detail`` seam promoted to the supported public
+``lib/std/operators/table_rows.h``; the testing harness decoupled from
+the operator implementations and the analytics extension test re-pointed
+at the public operator markers; the persistence bindings split into
+``python/py_persistence.cpp``; and the installed-SDK consumers extended
+with a trivial external ``"probe.mem"`` backend that records and replays
+through the core operator markers on both the C++ and Python surfaces,
+including after a registry reset.
+
 Appendix: symbol and migration inventory
 ----------------------------------------
 
