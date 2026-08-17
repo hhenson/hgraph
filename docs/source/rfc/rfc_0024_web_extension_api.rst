@@ -478,7 +478,9 @@ I/O threads.
 Port sharing replaces the tornado ``TornadoWeb`` refcount singleton: a
 process-wide listener registry keyed by (bind address, port).  The first
 server runtime to start binds and listens; later starts attach only after
-verifying an identical TLS configuration (mismatch is a start error); an
+verifying an identical ``WebServerConfig`` — the first attachee's settings
+govern the shared socket, so full-configuration identity is required, not
+just TLS (mismatch is a start error); an
 overlapping (method, pattern) registration across service paths is a start
 error naming both paths; the last detach closes the listener so the port
 can be rebound by a later run.  Keep-alive connections may span attached
@@ -668,6 +670,74 @@ and wiring helpers.  One wheel, ``hgraph-web`` (cp312-abi3), covers server
 and client; the optional Python module uses the stable-ABI bridge via
 ``hgraph_add_python_module``.
 
+Protocol scope and milestones
+-----------------------------
+
+The durable modern-web contract of this RFC is the capability matrix
+below.  Anything marked *excluded* is a normative exclusion: it is
+rejected, never silently half-supported, and moves out of the excluded row
+only through a new RFC.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 14 14 42
+
+   * - Protocol
+     - Server
+     - Client
+     - Notes
+   * - HTTP/1.1 (+ TLS)
+     - v1
+     - v1
+     - Beast/Asio server; libcurl client.
+   * - HTTP/2 (+ TLS)
+     - v1.x
+     - v1
+     - Client negotiates via ALPN (TLS) or prior knowledge (cleartext,
+       ``H2Only``).  The server ships the complete seam in v1 (ALPN
+       callback, stream-aware model, config placeholders) but rejects
+       ``h2`` in ALPN until ``nghttp2_session.cpp`` activates it.
+   * - WebSocket (RFC 6455, ``ws``/``wss``)
+     - v1
+     - v1
+     - Complete-message delivery within the configured frame/message caps.
+   * - HTTP/3 / QUIC
+     - excluded
+     - excluded
+     - No plan.  Neither Beast nor the pinned curl build carries it; a
+       QUIC stack is a dependency-and-architecture change needing its own
+       RFC.
+   * - WebSocket over HTTP/2 (RFC 8441)
+     - excluded
+     - excluded
+     - WebSocket remains on the h1 upgrade path even after h2 server
+       activation; extended CONNECT is not negotiated.
+   * - WebSocket extensions (RFC 7692 permessage-deflate et al.)
+     - excluded
+     - excluded
+     - Extension negotiation is declined, never silently accepted;
+       recorded as possible future work, not planned.
+   * - Server-Sent Events
+     - excluded
+     - excluded
+     - An SSE response is an unbounded streaming body; lands only with the
+       streaming-body RFC.
+   * - Streaming / incremental bodies
+     - excluded
+     - excluded
+     - v1 is complete-message bodies on every transport.  A follow-up
+       streaming-body RFC is required (see below).
+
+**Milestone boundary.**  *v1* is the HTTP/1.1(+TLS) server, the RFC 6455
+WebSocket server and client, and the h1/h2 client.  *v1.x* activates the
+HTTP/2 server behind the already-shipped seam, gated on the acceptance
+criteria below.  Because HTTP/2 without streaming bodies leaves a
+substantial part of its value inaccessible (long-lived streams, incremental
+responses, SSE), the streaming-body follow-up RFC is a companion to h2
+server activation — it must be Accepted no later than the release that
+activates h2, so the stream-aware model and the streaming surface are
+designed against each other rather than sequentially bolted on.
+
 HTTP/2 activation plan
 ----------------------
 
@@ -676,11 +746,38 @@ h2.  The server ships the complete h2 seam: the ALPN callback, the
 protocol-dispatch interface expressed in the stream-aware internal model,
 and the h2 configuration placeholders.  Config validation rejects ``h2`` in
 server ALPN until ``nghttp2_session.cpp`` lands in a v1.x release — a
-correct nghttp2 server session (callback framing, flow-control mapping to
-the per-connection queues and watermarks, stream lifecycle, RST/GOAWAY,
-h2spec conformance) is a multi-week item that must not gate v1.0, and its
-activation is purely additive: one translation unit and a registry entry,
-zero schema or API change.
+correct nghttp2 server session is a multi-week item that must not gate
+v1.0, and its activation is purely additive: one translation unit and a
+registry entry, zero schema or API change.
+
+Activation is gated on these server-side acceptance criteria, in addition
+to the general criteria of this RFC:
+
+* ALPN ``h2`` dispatches the connection to the nghttp2 session; h1 and
+  WebSocket clients on the same listener continue on the Beast path.
+* Stream-aware delivery: ``connection_id`` plus the real ``stream_id``
+  populate the existing schema fields; concurrent streams on one
+  connection dispatch independently and responses interleave.
+* Per-stream cancellation: a client ``RST_STREAM`` cancels exactly that
+  request — the pending entry is retired, a late graph answer is reported
+  ``Dropped``, and nothing is written to the dead stream.
+* ``GOAWAY`` in both directions: server shutdown sends GOAWAY carrying the
+  last processed stream id and drains in-flight streams within the
+  shutdown drain timeout; a received GOAWAY stops new work on that
+  connection while in-flight streams complete.
+* Stream-level flow control maps to the bridge contract: window updates
+  are withheld per stream while its ingress reservation cannot be taken
+  (the same admission rule as h1), and the connection-level window tracks
+  the watermark state.
+* Connection-level limits are enforced from the shipped configuration:
+  streams beyond ``h2_max_concurrent_streams`` are refused with
+  ``REFUSED_STREAM``; ``h2_initial_window_bytes`` seeds both window
+  scopes.
+* Slow consumers are handled per stream: a stream whose outbound share
+  breaches the slow-consumer policy is reset with ``RST_STREAM`` without
+  tearing down the connection; connection close remains reserved for
+  protocol errors.
+* h2spec conformance passes in CI for the activated build.
 
 Alternatives considered
 -----------------------
@@ -814,9 +911,13 @@ Implementation plan
 Implementation status
 ---------------------
 
-No implementation is included with this proposed RFC.  The tornado
-adaptors remain the shipped behavior until the extension satisfies the
-acceptance criteria.
+The v1 scope of this RFC is implemented on the ``extensions/web`` tree
+(PR #496): the Asio/Beast h1+WebSocket server with reservation-based
+ingress admission, the curl h1/h2+WebSocket client with the response
+reservation protocol, the service tier, the fake transport, the Python
+surface, and ``hgraph_web.compat`` — which now serves the released
+``hgraph.adaptors.tornado`` server modules.  The h2 server remains a
+sealed seam per the activation plan above.
 
 References
 ----------
