@@ -428,6 +428,39 @@ int main() {
       }
       require(ws_frame_count.load() == 1,
               "the client frame did not reach the graph");
+      {
+        const auto frame_fields = observed_ws_frame.view().as_bundle();
+        require(frame_fields.at("frame")
+                        .as_bundle()
+                        .at("text")
+                        .checked_as<Str>() == Str{"ping-from-client"},
+                "the inbound WS frame payload was not preserved");
+      }
+
+      // A message larger than the transport's 64KB read chunk exercises
+      // the incremental accounting path: several some-reads grow one
+      // reservation and reassemble in accounted storage (review P1).
+      std::string big(200'000, '\0');
+      for (std::size_t i = 0; i != big.size(); ++i) {
+        big[i] = static_cast<char>('a' + static_cast<char>(i % 23));
+      }
+      ws.binary(true);
+      ws.write(asio::buffer(big));
+      const auto big_deadline = std::chrono::steady_clock::now() + 5s;
+      while (ws_frame_count.load() < 2 &&
+             std::chrono::steady_clock::now() < big_deadline) {
+        std::this_thread::sleep_for(10ms);
+      }
+      require(ws_frame_count.load() == 2,
+              "the multi-chunk frame did not reach the graph");
+      {
+        const auto big_fields = observed_ws_frame.view().as_bundle();
+        const auto received =
+            big_fields.at("frame").as_bundle().at("data").checked_as<Bytes>();
+        require(received.data == big,
+                "the multi-chunk frame payload was not reassembled intact");
+      }
+
       ws.close(bws::close_code::normal);
       const auto close_deadline = std::chrono::steady_clock::now() + 5s;
       while (ws_closed_count.load() == 0 &&
@@ -442,12 +475,6 @@ int main() {
             "the respond delivery report did not tick");
     require(ws_open_count.load() == 1,
             "the WS open event did not tick exactly once");
-    const auto frame_fields = observed_ws_frame.view().as_bundle();
-    require(frame_fields.at("frame")
-                    .as_bundle()
-                    .at("text")
-                    .checked_as<Str>() == Str{"ping-from-client"},
-            "the inbound WS frame payload was not preserved");
 
     view.request_stop();
     runner.join();

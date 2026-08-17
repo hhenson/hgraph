@@ -817,6 +817,12 @@ private:
   std::shared_ptr<WebServerRuntime> admitted_runtime_{};
   std::size_t ws_reserved_bytes_{};
   std::size_t ws_unaccounted_bytes_{};
+  // Message bytes accumulate here — storage the reservation accounts —
+  // while ws_read_buffer_ stays chunk-sized: Beast's flat_buffer keeps its
+  // allocated capacity after consume(), so assembling messages inside it
+  // would let every idle connection retain its largest-ever message
+  // outside bridge accounting (review P1).
+  std::string ws_message_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
   std::shared_ptr<WebServerRuntime> ws_runtime_{};
@@ -2210,7 +2216,12 @@ void ServerConnection::ws_read_next() {
           self->close();
           return;
         }
-        self->ws_unaccounted_bytes_ += received;
+        static_cast<void>(received);
+        const auto data = self->ws_read_buffer_.data();
+        self->ws_unaccounted_bytes_ += data.size();
+        self->ws_message_.append(static_cast<const char *>(data.data()),
+                                 data.size());
+        self->ws_read_buffer_.consume(self->ws_read_buffer_.size());
         self->ws_account_chunk();
       });
   if (plain_ws_.has_value()) {
@@ -2230,9 +2241,8 @@ void ServerConnection::ws_continue_message() {
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
   const bool text = plain_ws_.has_value() ? plain_ws_->got_text()
                                           : tls_ws_->got_text();
-  const auto data = ws_read_buffer_.data();
-  std::string payload{static_cast<const char *>(data.data()), data.size()};
-  ws_read_buffer_.consume(ws_read_buffer_.size());
+  std::string payload{std::move(ws_message_)};
+  ws_message_ = std::string{};
   const auto &b = runtime->bindings();
   const std::size_t frame_bytes = payload.size() + 256;
   Value frame =
@@ -2331,6 +2341,7 @@ void ServerConnection::release_ws_reservation_held() noexcept {
     ws_reserved_bytes_ = 0;
   }
   ws_unaccounted_bytes_ = 0;
+  ws_message_ = std::string{};
 }
 
 void ServerConnection::queue_ws_frame(
