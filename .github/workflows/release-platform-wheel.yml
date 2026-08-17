@@ -186,3 +186,39 @@ jobs:
           name: analytics-distribution-wheel-${{ inputs.os }}
           path: analytics-dist/*.whl
           if-no-files-found: error
+      - name: Build web stable ABI wheel
+        env:
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_EXTENSION_SDK_PREFIX }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          "-Cbuild-dir=.ci-build/web/{wheel_tag}"
+          --outdir web-dist extensions/web
+      - name: Verify web wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("web-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_web-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - name: Audit web wheel contents
+        run: >-
+          python extensions/web/tools/audit_distribution.py
+          "web-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: web-distribution-wheel-${{ inputs.os }}
+          path: web-dist/*.whl
+          if-no-files-found: error

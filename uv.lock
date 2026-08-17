@@ -15,6 +15,7 @@ members = [
     "hgraph",
     "hgraph-analytics",
     "hgraph-kafka",
+    "hgraph-web",
 ]
 
 [[package]]
@@ -501,6 +502,7 @@ test = [
     { name = "trove-classifiers" },
 ]
 web = [
+    { name = "hgraph-web" },
     { name = "tornado" },
 ]
 
@@ -517,6 +519,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'sql'", specifier = ">=1.4" },
     { name = "duckdb", marker = "extra == 'test'", specifier = ">=1.4" },
     { name = "frozendict", specifier = ">=2.4" },
+    { name = "hgraph-web", marker = "extra == 'web'", editable = "extensions/web" },
     { name = "hypothesis", marker = "extra == 'parity'", specifier = ">=6" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6" },
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -587,6 +590,28 @@ provides-extras = ["test"]
 name = "hgraph-kafka"
 version = "0.0.0"
 source = { editable = "extensions/kafka" }
+dependencies = [
+    { name = "frozendict" },
+    { name = "hgraph" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "frozendict", specifier = ">=2" },
+    { name = "hgraph", editable = "." },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "hgraph-web"
+version = "0.0.0"
+source = { editable = "extensions/web" }
 dependencies = [
     { name = "frozendict" },
     { name = "hgraph" },

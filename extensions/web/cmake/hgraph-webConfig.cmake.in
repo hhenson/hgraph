@@ -1,0 +1,23 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(hgraph CONFIG)
+
+# A STATIC hgraph::web export references OpenSSL::SSL through LINK_ONLY
+# entries, and the targets file validates its references as it loads, so
+# OpenSSL must be resolvable before the include (RFC 0024, packaging).
+find_dependency(OpenSSL)
+
+include("${CMAKE_CURRENT_LIST_DIR}/hgraphWebTargets.cmake")
+
+# Beast/Asio are header-only and already compiled into the archive.  curl is
+# confined to the build tree; a STATIC hgraph::web archive additionally needs
+# it at the consumer's final link, while a SHARED hgraph::web carries it.
+get_target_property(_hgraph_web_type hgraph::web TYPE)
+if(_hgraph_web_type STREQUAL "STATIC_LIBRARY")
+    find_dependency(CURL)
+    target_link_libraries(hgraph::web INTERFACE CURL::libcurl)
+endif()
+unset(_hgraph_web_type)
+
+check_required_components(hgraph-web)

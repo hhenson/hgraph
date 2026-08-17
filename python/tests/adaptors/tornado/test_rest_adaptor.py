@@ -38,7 +38,6 @@ from hgraph.adaptors.tornado import (
     rest_read,
     rest_update,
 )
-from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
 
 
 URL = "http://localhost/test"
@@ -323,9 +322,8 @@ def test_rest_handler_maps_live_delete_request(free_tcp_port):
     assert not any(key.startswith("http_server_adaptor://") for key in state.keys())
 
 
-def test_rest_handler_maps_batch_requests(free_tcp_port, monkeypatch):
+def test_rest_handler_maps_batch_requests(free_tcp_port):
     route = f"/rest-batch-{free_tcp_port}"
-    route_pattern = f"{route}/?(.*)"
     client_responses = []
     client_errors = []
 
@@ -344,15 +342,6 @@ def test_rest_handler_maps_batch_requests(free_tcp_port, monkeypatch):
                 reason=f"missing:{request_value.value.id}:{_state.count}",
             )
         return responses
-
-    manager = HttpAdaptorManager.instance(free_tcp_port)
-    start = manager.start
-
-    def assert_route_registered_before_start(path):
-        assert route_pattern in manager._registered_paths
-        start(path)
-
-    monkeypatch.setattr(manager, "start", assert_route_registered_before_start)
 
     @hg.push_queue(hg.TS[bool])
     def drive_client(sender):

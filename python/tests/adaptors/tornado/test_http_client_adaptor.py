@@ -604,45 +604,6 @@ def test_http_server_supports_late_manual_handler_and_idempotent_call(free_tcp_p
     assert observed == [True]
 
 
-def test_http_manager_buffers_request_until_route_queue_starts(free_tcp_port):
-    from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
-
-    route = f"/pending-{free_tcp_port}"
-    manager = HttpAdaptorManager(free_tcp_port)
-    sent = []
-
-    async def exercise():
-        request = HttpGetRequest(url=route)
-        request_id, response = manager.add_request(route, request)
-        assert sent == []
-        assert not response.done()
-        manager.set_queue(route, sent.append)
-        assert sent == [{request_id: request}]
-        manager.remove_request(request_id)
-
-    asyncio.run(exercise())
-
-
-def test_http_manager_stop_routes_cancels_outstanding_requests(free_tcp_port):
-    from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
-
-    route = f"/stopping-{free_tcp_port}"
-    manager = HttpAdaptorManager(free_tcp_port)
-
-    async def exercise():
-        manager.start_routes((route,), lambda _: None)
-        request_id, response = manager.add_request(route, HttpGetRequest(url=route))
-        assert request_id in manager._requests
-        assert not response.done()
-
-        manager.stop_routes((route,))
-
-        assert response.cancelled()
-        assert request_id not in manager._requests
-
-    asyncio.run(exercise())
-
-
 def test_http_route_precedence_follows_handler_registration_order(free_tcp_port):
     prefix = f"/precedence-{free_tcp_port}"
     specific_route = f"{prefix}/specific/(.*)"

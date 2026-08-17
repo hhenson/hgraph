@@ -3,8 +3,6 @@ from datetime import datetime, timedelta, timezone
 import socket
 from threading import Thread
 import time
-from types import SimpleNamespace
-from unittest.mock import Mock
 
 import pytest
 from tornado.httpclient import HTTPClientError
@@ -22,10 +20,6 @@ from hgraph.adaptors.tornado import (
     websocket_server_handler,
     websocket_server_adaptor_helper,
     websocket_server_adaptor_impl,
-)
-from hgraph.adaptors.tornado.websocket_server_adaptor import (
-    WebSocketAdaptorManager,
-    WebSocketHandler,
 )
 
 
@@ -49,69 +43,6 @@ def test_feedback_supports_keyed_websocket_response_bundles():
         delayed,
         [{1: {"connect_response": True}}, None],
     ) == [None, {1: {"connect_response": True}}]
-
-
-def test_websocket_manager_buffers_open_until_route_queues_start(free_tcp_port):
-    path = f"/websocket-pending-{free_tcp_port}/(.*)"
-    manager = WebSocketAdaptorManager(free_tcp_port, bytes)
-    connect_events = []
-    message_events = []
-
-    async def exercise():
-        request = WebSocketConnectRequest(url=path)
-        request_id, accepted = manager.add_request(path, request, lambda message: None)
-        assert connect_events == []
-        assert not accepted.done()
-
-        manager.set_queues(path, connect_events.append, message_events.append)
-        assert connect_events == [{request_id: request}]
-        manager.complete_request(request_id, {"connect_response": True})
-        assert await accepted is True
-
-        manager.remove_request(request_id)
-        assert connect_events[-1] == {request_id: hg.REMOVE_IF_EXISTS}
-        assert message_events == [{request_id: hg.REMOVE_IF_EXISTS}]
-
-    asyncio.run(exercise())
-
-
-def test_websocket_handler_open_propagates_cancellation_after_closing():
-    async def exercise():
-        response = asyncio.get_running_loop().create_future()
-        response.cancel()
-        manager = SimpleNamespace(
-            binary=False,
-            add_request=lambda _path, _request, _sender: (1, response),
-        )
-        handler = SimpleNamespace(
-            _path="/cancelled",
-            _manager=manager,
-            _request_id=None,
-            _accepted=False,
-            request=SimpleNamespace(headers={}, cookies={}),
-            write_message=Mock(),
-            close=Mock(),
-        )
-
-        with pytest.raises(asyncio.CancelledError):
-            await WebSocketHandler.open(handler)
-        handler.close.assert_called_once_with()
-
-    asyncio.run(exercise())
-
-
-def test_websocket_managers_are_isolated_by_port_and_message_type(free_tcp_port):
-    text_manager = WebSocketAdaptorManager.instance(free_tcp_port, str)
-    binary_manager = WebSocketAdaptorManager.instance(free_tcp_port, bytes)
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        other_port = sock.getsockname()[1]
-    other_manager = WebSocketAdaptorManager.instance(other_port, str)
-
-    assert text_manager is not binary_manager
-    assert text_manager is not other_manager
-    assert text_manager._web is binary_manager._web
-    assert text_manager._web is not other_manager._web
 
 
 def test_websocket_server_handler_rejects_invalid_authoring_signatures():

@@ -13,11 +13,14 @@ and WebSocket), ``sql`` (and Snowflake), ``delta``, ``perspective``,
 ``run_graph_on_thread`` and ``data_catalogue``. The installation matrix and
 public module list are in :doc:`../../reference/modules`.
 
-Kafka is the exception. It is a first-party *extension* rather than an extra:
-a separate ``hgraph-kafka`` distribution with its own native library, built
-against the hgraph SDK. Install it with ``pip install hgraph-kafka``.
+Kafka and the web transports are the exceptions. Each is a first-party
+*extension* rather than an extra: a separate distribution
+(``hgraph-kafka``, ``hgraph-web``) with its own native library, built
+against the hgraph SDK. Install them with ``pip install hgraph-kafka`` /
+``pip install hgraph-web``.
 
 .. toctree::
     :maxdepth: 1
 
     tornado
+    web

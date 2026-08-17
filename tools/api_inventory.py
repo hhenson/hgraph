@@ -368,6 +368,13 @@ def collect_inventory() -> dict[str, Any]:
     for name in sorted(_hgraph.operator_names()):
         if name.startswith("__"):
             continue
+        # Extension operators register under their own dotted namespace
+        # (``hgraph.web.register_server``). They document themselves with their
+        # extension and reach this registry only because importing a public
+        # module can load an installed extension - hgraph.adaptors.tornado now
+        # serves its transport from hgraph-web.
+        if "." in name:
+            continue
         semantic_documentation = operator_documentation.get(name)
         overloads = []
         for raw_overload in _hgraph.operator_overload_signatures(name):

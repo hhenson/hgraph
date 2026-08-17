@@ -70,6 +70,9 @@ parity = [
     "hypothesis>=6",
 ]
 web = [
+    # The released hgraph.adaptors.tornado server surface is implemented by
+    # hgraph_web.compat; the client tier is still Tornado-backed.
+    "hgraph-web>=0.8.0",
     "tornado>=6.5",
 ]
 sql = [
@@ -126,6 +129,7 @@ Issues = "https://github.com/hhenson/hgraph/issues"
 
 [tool.uv.sources]
 hgraph = {workspace = true}
+hgraph-web = {workspace = true}
 
 [tool.uv.workspace]
 members = ["extensions/*"]
