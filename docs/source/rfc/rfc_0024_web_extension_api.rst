@@ -755,6 +755,16 @@ correct nghttp2 server session is a multi-week item that must not gate
 v1.0, and its activation is purely additive: one translation unit and a
 registry entry, zero schema or API change.
 
+The activation splits along the third-party confinement rule: the protocol
+engine (``nghttp2_session.cpp``, the only nghttp2 TU) is a pure
+bytes-in/actions-out wrapper over an nghttp2 server session in the pull
+model, with automatic window updates disabled so request-DATA flow control
+releases only through an explicit consume — the reservation-admission
+lever; the connection driver (in ``asio_server.cpp``, the only Asio TU)
+owns the socket, the strand, and the bridge integration.  The engine is
+validated in-memory against a genuine nghttp2 client session
+(``hgraph_web_h2_engine_tests``) before any socket exists.
+
 Activation is gated on these server-side acceptance criteria, in addition
 to the general criteria of this RFC:
 
