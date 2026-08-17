@@ -4,6 +4,10 @@ C++-first Kafka services for hgraph, implementing the contract in hgraph RFC
 0015. The extension uses librdkafka's C API and exposes the same service model
 to native C++ and Python graphs.
 
+For installation, concepts, recovery and commit semantics, operational
+configuration, and Python/C++ usage patterns, see the
+[Kafka user guide](../../docs/source/user_guide/adaptors/kafka.rst).
+
 One path-bound, multi-interface `service_impl` owns the Kafka clients for a
 configuration. Subscriptions, publish requests, explicit commits, and events
 all bind to that service instance. Graph output reaches Kafka through the

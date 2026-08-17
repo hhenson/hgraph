@@ -24,3 +24,4 @@ against the hgraph SDK. Install them with ``pip install hgraph-kafka`` /
 
     tornado
     web
+    kafka
