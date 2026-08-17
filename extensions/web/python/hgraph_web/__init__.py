@@ -391,12 +391,12 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_non_negative(self.stats_interval_ms, "stats interval")
         # Mirrors the native builders: a single maximal payload must always
         # fit an empty ingress channel, or Backpressure would hold it forever.
-        # Two header blocks (HTTP/2 caps initial headers and trailers
-        # separately), each weighed twice for the source-plus-graph copies.
-        if self.ingress_byte_limit < self.max_body_bytes + 4 * self.max_header_bytes + 1024:
+        # The transport's worst-case weight: a 2x initial header block with
+        # a 4x-weighted target (worst case 4x one block) plus 2x trailers.
+        if self.ingress_byte_limit < self.max_body_bytes + 6 * self.max_header_bytes + 1024:
             raise ValueError(
                 "Web ingress_byte_limit must cover one maximal request "
-                "(max_body_bytes + 4*max_header_bytes + 1024)"
+                "(max_body_bytes + 6*max_header_bytes + 1024)"
             )
         if self.ws_ingress_byte_limit < self.ws_max_message_bytes + 256:
             raise ValueError(

@@ -432,11 +432,12 @@ namespace hgraph::web
         // A single maximal payload must always fit an empty ingress channel;
         // otherwise Backpressure would hold it forever (transport invariant,
         // mirrored in the runtime's config parse).
-        // Two header blocks (HTTP/2 caps initial headers and trailers
-        // separately), each weighed twice for the source-plus-graph copies.
-        if (ingress_byte_limit_ < max_body_bytes_ + 4 * max_header_bytes_ + 1024) {
+        // The transport's worst-case weight: a 2x initial header block
+        // with a 4x-weighted target (worst case 4x one block) plus 2x
+        // trailers.
+        if (ingress_byte_limit_ < max_body_bytes_ + 6 * max_header_bytes_ + 1024) {
             throw std::invalid_argument(
-                "Web ingress_byte_limit must cover one maximal request (max_body_bytes + 4*max_header_bytes + 1024)");
+                "Web ingress_byte_limit must cover one maximal request (max_body_bytes + 6*max_header_bytes + 1024)");
         }
         if (ws_ingress_byte_limit_ < ws_max_message_bytes_ + 256) {
             throw std::invalid_argument(

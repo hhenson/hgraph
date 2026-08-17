@@ -213,13 +213,13 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   // parked forever with no pauser left to resume it (review P1).  The
   // constants mirror the transport's retained-byte estimates.
   if (result.ingress.bytes <
-      result.max_body_bytes + 4 * result.max_header_bytes + 1024) {
-    // Two header blocks (h2 initial headers and trailers are capped
-    // separately), each weighed twice for the source-plus-graph copies
-    // (review P1).
+      result.max_body_bytes + 6 * result.max_header_bytes + 1024) {
+    // The implementation's own worst-case weight: initial headers at 2x
+    // plus a 4x-weighted target (both inside one max_header_bytes block,
+    // worst case 4x) plus trailers at 2x (review P1).
     throw std::invalid_argument(
         "Web server ingress_byte_limit must cover one maximal request "
-        "(max_body_bytes + 4*max_header_bytes + 1024)");
+        "(max_body_bytes + 6*max_header_bytes + 1024)");
   }
   if (result.ws_ingress.bytes < result.ws_max_message_bytes + 256) {
     throw std::invalid_argument(
@@ -810,6 +810,11 @@ public:
       // another runtime's next request) between check and close
       // (review P1).
       if (self->serving_runtime_ == runtime) {
+        // The barrier must survive the ASYNC tail — the 503 write, the
+        // WS close handshake, an already-running response — all of which
+        // terminate in close(); holding it as a member until then lets
+        // the stopping runtime await true completion (review P1).
+        self->retire_barrier_ = std::move(barrier);
         self->shutdown_now();
       }
     });
@@ -945,6 +950,7 @@ private:
   // (admission wait, body read, WS handshake) through completion, so a
   // stopping runtime can retire pre-dispatch work too (review P1).
   const WebServerRuntime *serving_runtime_{};
+  std::shared_ptr<const void> retire_barrier_{};
   std::size_t ws_reserved_bytes_{};
   std::size_t ws_unaccounted_bytes_{};
   // Message bytes accumulate here — storage the reservation accounts —
@@ -1049,6 +1055,13 @@ public:
       }
       for (const std::int32_t stream_id : retiring) {
         self->respond_transport(stream_id, 503, "server shutting down");
+      }
+      // Delivery reports already queued for the retiring runtime release
+      // the barrier only when their carrying write completes (review P1).
+      for (auto &report : self->pending_flush_reports_) {
+        if (report.runtime.get() == runtime) {
+          report.barrier = barrier;
+        }
       }
       if (!retiring.empty() && !self->closed_) {
         // Hold the barrier until the write batch carrying these 503s
@@ -2117,7 +2130,7 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
           ? static_cast<std::size_t>(*content_length)
           : config_->max_body_bytes;
   const std::size_t projected =
-      projected_body + 2 * header_bytes + 3 * header.target().size() + 512;
+      projected_body + 2 * header_bytes + 4 * header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
@@ -2263,7 +2276,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   // the target triple (target + decoded path + query) — otherwise large
   // paths and queries exceed the advertised bound (review P1).
   retained_bytes =
-      body.data.size() + 2 * header_bytes + 3 * target.size() + 512;
+      body.data.size() + 2 * header_bytes + 4 * target.size() + 512;
 
   Value request = build_on(
       b.http_request,
@@ -2913,6 +2926,7 @@ void ServerConnection::close() {
   release_admission();
   release_ws_reservation_held();
   close_socket_only();
+  retire_barrier_.reset();
 }
 
 void ServerConnection::close_socket_only() {
@@ -3190,10 +3204,11 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   // Header admission mirrors h1: the header block plus envelope overhead
   // reserves before any DATA window is released; the body then grows the
   // same reservation chunk-by-chunk (RFC 0024, flow control).
-  // Headers double (source + graph copies), target triple (target +
-  // decoded path + parsed query), matching the h1 estimate (review P1).
+  // Headers double (source + graph copies); the target weighs 4x — raw
+  // target, decoded path, parsed query pairs, and path-parameter values
+  // are separate owned copies (review P1).
   const std::size_t projected =
-      2 * stream.header_bytes + 3 * stream.target.size() + 512;
+      2 * stream.header_bytes + 4 * stream.target.size() + 512;
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
@@ -3332,12 +3347,19 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     // Trailer bytes grow the reservation but never consume flow-control
     // window — HEADERS frames are not flow-controlled (RFC 9113 §6.9).
     const std::size_t data_pending = stream.unaccounted;
-    const std::size_t pending = data_pending + 2 * stream.trailer_unaccounted;
-    if (stream.matched.runtime->grow_request_reservation(pending)) {
-      stream.reserved += pending;
+    // The connection counter tracks RAW buffered bytes; the bridge
+    // reservation weighs trailers double for the graph copy.  Subtracting
+    // the weighted amount from the raw counter would steal accounting
+    // from other blocked streams (review P1).
+    const std::size_t raw_pending =
+        data_pending + stream.trailer_unaccounted;
+    const std::size_t reserve_pending =
+        data_pending + 2 * stream.trailer_unaccounted;
+    if (stream.matched.runtime->grow_request_reservation(reserve_pending)) {
+      stream.reserved += reserve_pending;
       stream.unaccounted = 0;
       stream.trailer_unaccounted = 0;
-      unaccounted_total_ -= std::min(unaccounted_total_, pending);
+      unaccounted_total_ -= std::min(unaccounted_total_, raw_pending);
       if (data_pending != 0) {
         engine_.consume(stream_id, data_pending);
         pump_writes(); // the WINDOW_UPDATE this consume released
@@ -3402,7 +3424,7 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
                                   stream.headers.end()};
   const std::size_t retained =
       stream.body.size() + 2 * stream.header_bytes +
-      2 * stream.trailer_bytes + 3 * stream.target.size() + 512;
+      2 * stream.trailer_bytes + 4 * stream.target.size() + 512;
   Value request = build_on(
       b.http_request,
       {
