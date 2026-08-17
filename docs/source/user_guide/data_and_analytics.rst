@@ -28,6 +28,9 @@ NumPy.
 Scientific operators (``hgraph_analytics``)
 -------------------------------------------
 
+For installation, practical Python and C++ examples, and operator-selection
+guidance, see :doc:`analytics`.
+
 Shaped-array analytics live in the separately installed ``hgraph-analytics``
 package. The public catalogue delegates to C++ operators:
 
