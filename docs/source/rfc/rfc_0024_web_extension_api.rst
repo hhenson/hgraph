@@ -739,18 +739,19 @@ only through a new RFC.
    * - Streaming / incremental bodies
      - excluded
      - excluded
-     - v1 is complete-message bodies on every transport.  A follow-up
-       streaming-body RFC is required (see below).
+     - v1 is complete-message bodies on every transport.  Phase 3 below
+       defines the generic streaming foundation required for a later release.
 
 **Milestone boundary.**  *v1* is the HTTP/1.1(+TLS) server, the RFC 6455
 WebSocket server and client, and the h1/h2 client.  *v1.x* activates the
 HTTP/2 server behind the already-shipped seam, gated on the acceptance
 criteria below.  Because HTTP/2 without streaming bodies leaves a
 substantial part of its value inaccessible (long-lived streams, incremental
-responses, SSE), the streaming-body follow-up RFC is a companion to h2
-server activation — it must be Accepted no later than the release that
-activates h2, so the stream-aware model and the streaming surface are
-designed against each other rather than sequentially bolted on.
+responses, SSE), the streaming-body work is a companion to h2 server
+activation.  Phase 3 below supplies that contract and must be Accepted
+no later than the release that activates h2, so the stream-aware model and the
+streaming surface are designed against each other rather than sequentially
+bolted on.
 
 HTTP/2 activation plan
 ----------------------
@@ -808,6 +809,149 @@ to the general criteria of this RFC:
   implicitly-closed-stream noise — the reference ``nghttpd`` fails the
   identical case identically, so the CI gate requires 93/94 with only
   that failure.
+
+Phase 3: generic bidirectional streaming foundation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Phases 1 and 2 establish the confined nghttp2 protocol engine and the Asio
+connection driver, then adapt an HTTP/2 stream to the existing complete-
+message request/reply surface.  Phase 3 adds the native streaming service
+boundary that makes the transport reusable without teaching it gRPC,
+protobuf, or time-series semantics.  It follows the layering developed in
+:doc:`research_layered_network_services`: HTTP/2 supplies ordered duplex byte
+streams and flow control; higher layers supply message framing and application
+meaning.
+
+One bidirectional stream is the primitive.  Unary, server-streaming,
+client-streaming, and bidirectional-streaming calls are restrictions or graph
+adaptors over that primitive, not four independent transports.  The current
+``HttpRequest`` / ``HttpResponse`` services remain supported as the unary
+complete-message adaptor.  Phase 3 is additive; a user that does not request a
+streaming service pays no streaming bridge or scheduling cost.
+
+Reliability is scoped to one active call: every accepted chunk is delivered in
+order or the call terminates with an explicit error.  It does not promise
+exactly-once processing, transparent retry, or stream resumption across a
+broken connection; those require application idempotency or a higher-level
+resume protocol.
+
+The public semantic contract is native C++ first and contains no curl,
+nghttp2, Asio, protobuf, or Python type.  Exact schema and service names remain
+reviewable while this RFC is Proposed, but the contract must represent:
+
+* a logical call id, connection id, protocol stream id, client/server role,
+  selected route or service, peer identity, and optional deadline;
+* an open event carrying initial metadata, followed by ordered DATA chunks in
+  each direction;
+* independent local and remote half-close, with terminal trailers kept
+  distinct from initial metadata even when no DATA chunk was sent;
+* local cancel, peer ``RST_STREAM``, timeout, transport failure, and terminal
+  status as explicit outcomes — never an empty successful result;
+* connection draining and ``GOAWAY``, including its last accepted stream id,
+  so new work is rejected while eligible in-flight streams finish; and
+* separate acceptance and delivery reports for outbound commands.  Acceptance
+  means bounded transport ownership was acquired; delivery means the bytes
+  crossed the transport boundary.  Neither claims that a remote application
+  decoded or applied the message.
+
+The graph-facing shape is one keyed stream-lifecycle source plus one keyed
+command sink per direction.  Opening a client call allocates a logical call id
+before the wire stream id necessarily exists.  Subsequent headers, data,
+half-close, trailers, cancel, and delivery events correlate by that call id;
+the real HTTP/2 stream id is added once assigned.  Server calls use the same
+event and command vocabulary with direction reversed.  A terminal event occurs
+exactly once and retires all retained reservations, pending commands, timers,
+and route/runtime ownership for that call.  Python exposes the same schemas and
+services through the native bridge rather than running a second stream
+scheduler.
+
+Flow control is part of this service contract, not an implementation detail:
+
+* Inbound DATA credit is released only after the corresponding chunk has a
+  bounded bridge reservation.  The graph may therefore lag the socket without
+  creating unaccounted payload storage.
+* Initial metadata, trailers, envelope overhead, compression state, and queued
+  protocol output count toward memory limits as well as DATA.  A configured
+  maximal stream must fit an empty channel, including both its initial and
+  terminal metadata, or wiring fails.  Header-list limits apply to the
+  uncompressed fields and a connection-wide bound covers metadata that HTTP/2
+  flow control does not govern.
+* Outbound commands use bounded per-stream and per-connection admission.
+  Writable/credit events let a graph resume production without polling.  A
+  blocked stream cannot accumulate an unbounded queue or prevent unrelated
+  streams from progressing; fair scheduling is required between writable
+  streams.
+* Cancel, reset, timeout, and shutdown release reservations exactly once.
+  Every accepted-but-undelivered command receives a terminal report.
+* Buffer ownership and lifetime are explicit across the type-erased bridge.
+  The streaming hot path must not first assemble or copy a complete unary body.
+
+HTTP/2 is the first implementation, but the public primitive is not named for
+nghttp2 and does not expose HTTP/2 frame boundaries.  DATA callbacks are byte
+chunks, not application messages: a codec may receive a partial message or
+several messages in one chunk and must frame incrementally.  HTTP/1.1 chunked
+responses and SSE may later adapt the same one-way subset without changing the
+graph contract.
+
+The existing curl-multi client remains the preferred complete-message HTTP
+client.  Before Phase 3 freezes its client implementation, a focused prototype
+must prove that curl can provide incremental upload and download, independent
+half-close, trailers-only completion, cancellation, and bounded resume signals
+for all four call shapes without hidden whole-body buffering.  If it cannot,
+the confined nghttp2 engine gains a client role symmetric with the server and
+curl remains the unary HTTP adaptor.  The public service contract must not be
+weakened to fit one client library.
+
+Protocol layers above Phase 3
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Phase 3 deliberately stops at reliable ordered bytes and metadata:
+
+* A gRPC extension adds the five-byte message prefix, compression negotiation,
+  content type, deadlines, cancellation mapping, and ``grpc-status`` /
+  ``grpc-message`` terminal trailers.  A minimal interoperability adaptor must
+  exercise unary, server-streaming, client-streaming, and bidirectional calls
+  against a reference gRPC peer before the common stream API is accepted.
+* The cached-subscription protocol adds subscribe/amend/unsubscribe, coherent
+  initial image, delta, status, epoch/revision, acknowledgement, re-image, and
+  terminal messages.  Its cache owns materialization, fan-out, slow-client
+  cohorts, and type-aware conflated queues; HTTP/2 flow control does not
+  conflate application state.  A Phase 3 composition test must demonstrate an
+  image followed by deltas and a deliberately slow subscriber without adding
+  cache semantics to the transport.
+* Event-accurate subscriptions remain the responsibility of a durable
+  messaging system such as Kafka.  Service discovery, readiness, load, cache
+  affinity, xDS/Envoy integration, authentication policy, and cache replication
+  remain separate control-plane or protocol RFCs.
+
+Phase 3 acceptance criteria
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In addition to the extension-wide gates below, Phase 3 requires:
+
+* first-class installed-SDK C++ wiring and equivalent Python authoring tests
+  for the same native services;
+* in-memory engine and live TLS loopback coverage for unary, server-streaming,
+  client-streaming, and bidirectional traffic, including message fragments
+  split and coalesced across arbitrary DATA chunks;
+* header-only, data-bearing, empty-body trailers-only, and both half-close
+  orderings, with duplicate ordered metadata preserved;
+* per-stream reset/cancel and deadline expiry that leave concurrent streams
+  usable, plus ``GOAWAY`` last-stream and bounded-drain behavior;
+* a stalled graph and a stalled peer proving bounded ingress and egress,
+  correct credit resumption, fair progress by other streams, and complete
+  terminal delivery reports;
+* shared-listener tests in which stopping one runtime retires all of that
+  runtime's streams — including streams blocked before graph dispatch — while
+  other attached runtimes and their streams continue;
+* malformed framing, oversized initial metadata, oversized trailers, and
+  aggregate metadata-plus-body limit tests, with no connection-wide failure
+  for a stream-local fault;
+* the gRPC interoperability and cached-subscription composition proofs above;
+  and
+* the normal native/Python acceptance suites on supported platforms, an
+  installed static-SDK consumer, h2spec, and ASan coverage of reset, timeout,
+  shutdown, and late-callback ownership paths.
 
 Alternatives considered
 -----------------------
