@@ -391,10 +391,12 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_non_negative(self.stats_interval_ms, "stats interval")
         # Mirrors the native builders: a single maximal payload must always
         # fit an empty ingress channel, or Backpressure would hold it forever.
-        if self.ingress_byte_limit < self.max_body_bytes + self.max_header_bytes + 512:
+        # Two header blocks: HTTP/2 caps the initial headers and the
+        # trailers separately, and each may reach max_header_bytes.
+        if self.ingress_byte_limit < self.max_body_bytes + 2 * self.max_header_bytes + 512:
             raise ValueError(
                 "Web ingress_byte_limit must cover one maximal request "
-                "(max_body_bytes + max_header_bytes + 512)"
+                "(max_body_bytes + 2*max_header_bytes + 512)"
             )
         if self.ws_ingress_byte_limit < self.ws_max_message_bytes + 256:
             raise ValueError(

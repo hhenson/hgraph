@@ -93,24 +93,29 @@ constexpr std::size_t kBigBodyBytes = 2 * 1024 * 1024;
 
 inline std::atomic<bool> get_triggered{false};
 inline std::atomic<bool> post_triggered{false};
+inline std::atomic<bool> status_triggered{false};
 inline std::atomic<bool> get_response_seen{false};
 inline std::atomic<bool> post_response_seen{false};
+inline std::atomic<bool> status_response_seen{false};
 inline std::atomic<bool> failure_seen{false};
 inline std::atomic<Int> bound_port{0};
 inline Value observed_get_response{};
 inline Value observed_post_response{};
+inline Value observed_status_response{};
 inline Value observed_failure{};
 inline Value observed_server_peer{};
 
 void release_test_state() {
   observed_get_response = Value{};
   observed_post_response = Value{};
+  observed_status_response = Value{};
   observed_failure = Value{};
   observed_server_peer = Value{};
 }
 
 void maybe_stop(NodeView &node) {
-  if ((get_response_seen.load() && post_response_seen.load()) ||
+  if ((get_response_seen.load() && post_response_seen.load() &&
+       status_response_seen.load()) ||
       failure_seen.load()) {
     node.graph().executor().request_stop();
   }
@@ -181,6 +186,38 @@ struct H2PostCapture {
 
   static void eval(NodeView node,
                    In<"result", HttpCallResult, InputValidity::Unchecked>
+                       result,
+                   Out<TS<HttpClientRequest>> out) {
+    auto failure = result.template field<"failure">();
+    if (failure.valid() && failure.modified()) {
+      observed_failure = failure.base().value().clone();
+      failure_seen.store(true);
+      maybe_stop(node);
+      return;
+    }
+    auto response = result.template field<"response">();
+    if (!response.valid() || !response.modified()) {
+      return;
+    }
+    observed_post_response = response.base().value().clone();
+    post_response_seen.store(true);
+    if (!status_triggered.exchange(true)) {
+      // A gRPC-shaped exchange: empty body, terminal status in trailers.
+      const Value request = make_client_request(
+          HttpMethod::Get,
+          Str{"https://127.0.0.1:" + std::to_string(bound_port.load()) +
+              "/h2-status"});
+      out.apply(request.view());
+    }
+    maybe_stop(node);
+  }
+};
+
+struct H2StatusCapture {
+  static constexpr auto name = "web_h2_loopback_status_capture";
+
+  static void eval(NodeView node,
+                   In<"result", HttpCallResult, InputValidity::Unchecked>
                        result) {
     auto failure = result.template field<"failure">();
     if (failure.valid() && failure.modified()) {
@@ -191,10 +228,26 @@ struct H2PostCapture {
     }
     auto response = result.template field<"response">();
     if (response.valid() && response.modified()) {
-      observed_post_response = response.base().value().clone();
-      post_response_seen.store(true);
+      observed_status_response = response.base().value().clone();
+      status_response_seen.store(true);
     }
     maybe_stop(node);
+  }
+};
+
+struct H2StatusResponse {
+  static constexpr auto name = "web_h2_loopback_status_response";
+
+  static void eval(In<"routed", WebRouteOutput, InputValidity::Unchecked>
+                       routed,
+                   Out<TS<HttpResponse>> out) {
+    auto request = routed.template field<"request">();
+    if (request.valid() && request.modified()) {
+      const Value response = make_response(
+          Int{200}, {}, Bytes{},
+          {{Str{"grpc-like-status"}, Str{"0"}}});
+      out.apply(response.view());
+    }
   }
 };
 
@@ -321,6 +374,15 @@ struct H2LoopbackGraph {
     static_cast<void>(respond(
         w, server_path, respond_request(w, ingest_id, ingest_response)));
 
+    auto status_route = wire<stdlib::const_, TS<WebRoute>>(
+        w, make_route(HttpMethod::Get, "/h2-status"));
+    auto status_served = serve(w, server_path, status_route);
+    auto status_id = wire<H2IngestId>(w, status_served).as<TS<Int>>();
+    auto status_response =
+        wire<H2StatusResponse>(w, status_served).as<TS<HttpResponse>>();
+    static_cast<void>(respond(
+        w, server_path, respond_request(w, status_id, status_response)));
+
     auto get_request =
         wire<H2GetTrigger>(w, stats).as<TS<HttpClientRequest>>();
     auto get_result =
@@ -329,7 +391,11 @@ struct H2LoopbackGraph {
         wire<H2GetCapture>(w, get_result).as<TS<HttpClientRequest>>();
     auto post_result =
         http_request(w, client_path, http_client_call(w, post_request));
-    static_cast<void>(wire<H2PostCapture>(w, post_result));
+    auto status_request =
+        wire<H2PostCapture>(w, post_result).as<TS<HttpClientRequest>>();
+    auto status_result =
+        http_request(w, client_path, http_client_call(w, status_request));
+    static_cast<void>(wire<H2StatusCapture>(w, status_result));
   }
 };
 
@@ -401,6 +467,31 @@ int main() {
     require(post.at("body").checked_as<Bytes>().data ==
                 std::to_string(kBigBodyBytes),
             "the h2 POST body was not delivered intact");
+
+    // The gRPC-shaped exchange: an EMPTY body must not fold the trailer
+    // into the headers (review P1 — origin-based separation).
+    require(status_response_seen.load(),
+            "the trailers-only exchange did not complete");
+    const auto status = observed_status_response.view().as_bundle();
+    require(status.at("body").checked_as<Bytes>().data.empty(),
+            "the trailers-only response grew a body");
+    bool status_trailer = false;
+    const auto status_trailers = status.at("trailers");
+    require(status_trailers.data() != nullptr,
+            "the trailers-only response has no trailers field");
+    for (const auto entry : status_trailers.as_list()) {
+      const auto pair = entry.as_bundle();
+      status_trailer |=
+          pair.at("name").checked_as<Str>() == Str{"grpc-like-status"} &&
+          pair.at("value").checked_as<Str>() == Str{"0"};
+    }
+    require(status_trailer,
+            "the empty-body trailer did not arrive as a trailer");
+    for (const auto entry : status.at("headers").as_list()) {
+      const auto pair = entry.as_bundle();
+      require(pair.at("name").checked_as<Str>() != Str{"grpc-like-status"},
+              "the empty-body trailer leaked into the headers");
+    }
 
     release_test_state();
   } catch (const std::exception &error) {

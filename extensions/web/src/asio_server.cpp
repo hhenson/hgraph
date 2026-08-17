@@ -213,10 +213,12 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   // parked forever with no pauser left to resume it (review P1).  The
   // constants mirror the transport's retained-byte estimates.
   if (result.ingress.bytes <
-      result.max_body_bytes + result.max_header_bytes + 512) {
+      result.max_body_bytes + 2 * result.max_header_bytes + 512) {
+    // Two header blocks: h2 initial headers and trailers are capped
+    // separately, and a maximal valid request carries both (review P1).
     throw std::invalid_argument(
         "Web server ingress_byte_limit must cover one maximal request "
-        "(max_body_bytes + max_header_bytes + 512)");
+        "(max_body_bytes + 2*max_header_bytes + 512)");
   }
   if (result.ws_ingress.bytes < result.ws_max_message_bytes + 256) {
     throw std::invalid_argument(
@@ -369,9 +371,10 @@ public:
     runtimes_.push_back(std::move(runtime));
   }
 
-  /** Every live connection registers here so the LAST detaching runtime
-   * can shut them all down — including idle ones that no pending
-   * registry references (review P1). */
+  /** Every live connection registers here so a stopping runtime can
+   * retire ITS work everywhere — streams still blocked before dispatch
+   * included — and so the LAST detaching runtime can shut every
+   * connection down, idle ones included (review P1). */
   void register_connection(std::weak_ptr<PendingTarget> connection) {
     std::lock_guard lock{mutex_};
     std::erase_if(live_connections_,
@@ -379,6 +382,7 @@ public:
     live_connections_.push_back(std::move(connection));
   }
 
+  void retire_runtime_connections(const WebServerRuntime *runtime);
   void shutdown_connections();
 
   /** @return true when this was the last attached runtime. */
@@ -788,10 +792,22 @@ public:
     });
   }
 
-  void retire_runtime(const WebServerRuntime *) override {
-    // An h1 connection serves one request at a time; the stopping
-    // runtime owns whatever is pending here, so retiring == closing.
-    connection_shutdown();
+  void retire_runtime(const WebServerRuntime *runtime) override {
+    asio::post(strand_, [self = shared_from_this(), runtime] {
+      // Only close when the stopping runtime owns this connection's
+      // current activity; an idle keep-alive connection (or one serving
+      // another attachee) must keep serving (review P1).
+      if (self->ws_) {
+        if (self->ws_runtime_.get() == runtime) {
+          self->connection_shutdown();
+        }
+        return;
+      }
+      if (self->pending_request_id_ >= 0 &&
+          self->pending_runtime_ == runtime) {
+        self->connection_shutdown();
+      }
+    });
   }
 
   void connection_shutdown() override {
@@ -916,6 +932,7 @@ private:
   std::string decoded_path_{};
   std::size_t admitted_bytes_{};
   std::shared_ptr<WebServerRuntime> admitted_runtime_{};
+  const WebServerRuntime *pending_runtime_{};
   std::size_t ws_reserved_bytes_{};
   std::size_t ws_unaccounted_bytes_{};
   // Message bytes accumulate here — storage the reservation accounts —
@@ -1115,6 +1132,7 @@ private:
   std::array<char, 16 * 1024> read_buffer_{};
   std::string write_buffer_{};
   std::size_t outstanding_response_bytes_{};
+  std::size_t outstanding_response_messages_{};
   struct PendingReport {
     std::shared_ptr<WebServerRuntime> runtime{};
     Int client_id{};
@@ -1233,6 +1251,19 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
     }
   }
   return std::nullopt;
+}
+
+void WebListener::retire_runtime_connections(const WebServerRuntime *runtime) {
+  std::vector<std::weak_ptr<PendingTarget>> live;
+  {
+    std::lock_guard lock{mutex_};
+    live = live_connections_;
+  }
+  for (const auto &weak : live) {
+    if (const auto connection = weak.lock()) {
+      connection->retire_runtime(runtime);
+    }
+  }
 }
 
 void WebListener::shutdown_connections() {
@@ -1531,35 +1562,29 @@ void WebServerRuntime::stop() noexcept {
       listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
       listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
 
-      std::vector<std::shared_ptr<PendingTarget>> targets;
       {
+        // The pending and WS registries are bookkeeping only from here;
+        // retirement itself reaches EVERY live connection through the
+        // listener, so streams still blocked before dispatch retire too
+        // (review P1).
         std::lock_guard lock{pending_mutex_};
-        for (auto &[request_id, pending] : pending_) {
-          targets.push_back(std::move(pending.target));
-        }
-        for (auto &[connection_id, weak] : ws_connections_) {
-          if (auto connection = weak.lock()) {
-            targets.push_back(std::move(connection));
-          }
-        }
         pending_.clear();
         ws_connections_.clear();
       }
-      for (const auto &target : targets) {
-        target->retire_runtime(this);
-      }
+      listener_->retire_runtime_connections(this);
       if (last) {
         // The listener is going away: every live connection — idle ones
-        // included — gets its orderly shutdown (GOAWAY on h2).
+        // included — gets its orderly shutdown (GOAWAY on h2), and only
+        // then is the connection drain awaited.  A non-last stop must NOT
+        // wait on listener-wide connections that stay open serving the
+        // other attachees (review P1); its 503s flush on the live io pool.
         listener_->shutdown_connections();
-      }
-      const auto deadline =
-          std::chrono::steady_clock::now() + config_->shutdown_drain_timeout;
-      while (std::chrono::steady_clock::now() < deadline &&
-             listener_->open_connections() != 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{10});
-      }
-      if (last) {
+        const auto deadline = std::chrono::steady_clock::now() +
+                              config_->shutdown_drain_timeout;
+        while (std::chrono::steady_clock::now() < deadline &&
+               listener_->open_connections() != 0) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
         listener_->stop_io();
       }
       // Cancellation is posted onto each timer's strand: for a non-last
@@ -2233,6 +2258,7 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
     return;
   }
   pending_request_id_ = request_id;
+  pending_runtime_ = runtime.get();
   request_keep_alive_ = keep_alive;
   pending_is_head_ = request_.method() == http::verb::head;
 }
@@ -3004,7 +3030,15 @@ void H2Driver::close() {
 }
 
 void H2Driver::release_stream(std::int32_t, Stream &stream) {
-  const std::size_t buffered = stream.unaccounted + stream.trailer_unaccounted;
+  const std::size_t header_part =
+      stream.admitted ? 0 : stream.header_bytes + stream.target.size();
+  const std::size_t buffered =
+      stream.unaccounted + stream.trailer_unaccounted + header_part;
+  if (!stream.admitted) {
+    // release runs at most once per stream; mark so a second call cannot
+    // double-subtract the header part.
+    stream.admitted = true;
+  }
   if (buffered != 0) {
     unaccounted_total_ -= std::min(unaccounted_total_, buffered);
     stream.unaccounted = 0;
@@ -3068,6 +3102,10 @@ void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
     return;
   }
   stream.matched = std::move(*matched);
+  // Until admission succeeds the header block is buffered driver memory,
+  // so it counts toward the connection's unaccounted bound — otherwise
+  // header-only streams could exceed the one-window claim (review P1).
+  unaccounted_total_ += stream.header_bytes + stream.target.size();
   streams_.emplace(stream_id, std::move(stream));
   admit_stream(stream_id);
 }
@@ -3078,6 +3116,12 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
     return;
   }
   Stream &stream = found->second;
+  if (stream.discarding) {
+    // Already answered by the transport (a retiring runtime's 503): the
+    // admission retry loop ends here instead of spinning against a
+    // stopped bridge (review P1).
+    return;
+  }
   stream.admission_in_flight = false;
   const std::shared_ptr<WebServerRuntime> runtime = stream.matched.runtime;
   // Header admission mirrors h1: the header block plus envelope overhead
@@ -3087,6 +3131,9 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
+    const std::size_t header_part = stream.header_bytes + stream.target.size();
+    unaccounted_total_ -= std::min(unaccounted_total_, header_part);
+    resume_stalled_read();
     account_stream_data(stream_id);
     return;
   }
@@ -3197,6 +3244,9 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     return;
   }
   Stream &stream = found->second;
+  if (stream.discarding) {
+    return;
+  }
   if (stream.unaccounted != 0 || stream.trailer_unaccounted != 0) {
     // Trailer bytes grow the reservation but never consume flow-control
     // window — HEADERS frames are not flow-controlled (RFC 9113 §6.9).
@@ -3378,10 +3428,21 @@ void H2Driver::write_stream_response(
   }
 
   // Per-stream slow-consumer policy: a response that would push the
-  // buffered outbound share past the configured byte limit resets JUST
-  // this stream (h2 acceptance criteria).
-  if (outstanding_response_bytes_ + body.size() >
-      static_cast<std::size_t>(config_->outbound_byte_limit)) {
+  // buffered outbound share past the configured byte OR message limits
+  // resets JUST this stream.  The weight covers headers and trailers, so
+  // metadata-heavy or empty-body responses cannot bypass the bounds
+  // (review P1).
+  std::size_t response_weight = body.size() + 256;
+  for (const auto &[name, value] : headers) {
+    response_weight += name.size() + value.size();
+  }
+  for (const auto &[name, value] : trailers) {
+    response_weight += name.size() + value.size();
+  }
+  if (outstanding_response_bytes_ + response_weight >
+          static_cast<std::size_t>(config_->outbound_byte_limit) ||
+      outstanding_response_messages_ >=
+          static_cast<std::size_t>(config_->outbound_message_limit)) {
     engine_.reset_stream(stream_id, H2StreamError::EnhanceYourCalm);
     pump_writes();
     runtime->report(index(ServerChannel::RespondDelivery), client_id,
@@ -3391,16 +3452,16 @@ void H2Driver::write_stream_response(
     return;
   }
 
-  const std::size_t response_bytes = body.size();
   if (engine_.submit_response(stream_id, status, headers, std::move(body),
                               trailers)) {
-    outstanding_response_bytes_ += response_bytes;
+    outstanding_response_bytes_ += response_weight;
+    ++outstanding_response_messages_;
     if (stream_found != streams_.end()) {
       // Delivery is reported from the write pump once the stream closes
       // and its bytes have left the connection — never at enqueue
       // (review P1; the RFC separates acceptance from delivery).
       Stream &stream = stream_found->second;
-      stream.response_bytes += response_bytes;
+      stream.response_bytes += response_weight;
       stream.response_submitted = true;
       stream.report_client_id = client_id;
       stream.report_request_id = request_id;
@@ -3448,9 +3509,12 @@ void H2Driver::on_stream_closed(std::int32_t stream_id) {
     return;
   }
   Stream &stream = found->second;
-  // The buffered-outbound budget frees as streams retire (review P1).
+  // The buffered-outbound budgets free as streams retire (review P1).
   outstanding_response_bytes_ -=
       std::min(outstanding_response_bytes_, stream.response_bytes);
+  if (stream.response_submitted && outstanding_response_messages_ != 0) {
+    --outstanding_response_messages_;
+  }
   if (stream.response_submitted && stream.report_runtime) {
     queue_report(std::move(stream.report_runtime), stream.report_client_id,
                  stream.report_request_id, stream.close_error == 0);
