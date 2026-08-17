@@ -298,13 +298,11 @@ class TlsServerConfig(CompoundScalar, namespace=_NAMESPACE):
             raise ValueError("Web server TLS requires a private key")
         if self.client_verify != WebClientVerify.NONE and not self.ca_path and not self.ca_pem:
             raise ValueError("Web client-certificate verification requires a CA")
-        # Advertising a protocol the server does not speak is a protocol
-        # violation: "h2" stays rejected until the HTTP/2 session activates
-        # behind the ALPN seam (RFC 0024).
-        if any(protocol == "h2" for protocol in self.alpn):
-            raise ValueError(
-                "Web server ALPN cannot advertise h2 before the HTTP/2 session is activated"
-            )
+        # The HTTP/2 session is active behind the ALPN seam (RFC 0024,
+        # activation plan): "h2" is a legal server protocol.  Only known
+        # protocols may be advertised.
+        if any(protocol not in ("h2", "http/1.1") for protocol in self.alpn):
+            raise ValueError('Web server ALPN accepts only "h2" and "http/1.1"')
 
 
 @dataclass(frozen=True)
@@ -393,16 +391,26 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_non_negative(self.stats_interval_ms, "stats interval")
         # Mirrors the native builders: a single maximal payload must always
         # fit an empty ingress channel, or Backpressure would hold it forever.
-        if self.ingress_byte_limit < self.max_body_bytes + self.max_header_bytes + 512:
+        # The transport's worst-case weight: a 2x initial header block with
+        # a 4x-weighted target (worst case 4x one block) plus 2x trailers.
+        if self.ingress_byte_limit < self.max_body_bytes + 6 * self.max_header_bytes + 1024:
             raise ValueError(
                 "Web ingress_byte_limit must cover one maximal request "
-                "(max_body_bytes + max_header_bytes + 512)"
+                "(max_body_bytes + 6*max_header_bytes + 1024)"
             )
         if self.ws_ingress_byte_limit < self.ws_max_message_bytes + 256:
             raise ValueError(
                 "Web ws_ingress_byte_limit must cover one maximal message "
                 "(ws_max_message_bytes + 256)"
             )
+        _require_positive(self.h2_max_concurrent_streams, "h2_max_concurrent_streams")
+        _require_positive(self.h2_initial_window_bytes, "h2_initial_window_bytes")
+        # HTTP/2 windows and stream counts are 31-bit quantities (mirrors
+        # the native builder).
+        if self.h2_initial_window_bytes > 2**31 - 1:
+            raise ValueError("Web h2_initial_window_bytes must be at most 2^31-1")
+        if self.h2_max_concurrent_streams > 2**31 - 1:
+            raise ValueError("Web h2_max_concurrent_streams must be at most 2^31-1")
 
 
 @dataclass(frozen=True)

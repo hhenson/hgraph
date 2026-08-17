@@ -308,13 +308,15 @@ template <typename T>
 }
 
 [[nodiscard]] Value http_response(const ValueBindings &b, Int status,
-                                  const NameValues &headers, std::string body) {
-  return build(b.http_response, {
-                                    {"status", b.number(status)},
-                                    {"headers", b.headers(headers)},
-                                    {"body", b.bytes(Bytes{std::move(body)})},
-                                    {"trailers", b.headers({})},
-                                });
+                                  const NameValues &headers, std::string body,
+                                  const NameValues &trailers = {}) {
+  return build(b.http_response,
+               {
+                   {"status", b.number(status)},
+                   {"headers", b.headers(headers)},
+                   {"body", b.bytes(Bytes{std::move(body)})},
+                   {"trailers", b.headers(trailers)},
+               });
 }
 
 /** The WsEvent `request` field is server-side only and stays unset here. */
@@ -692,7 +694,6 @@ struct HttpTransfer : TransferTag {
   std::size_t max_response_bytes{};
   WebHttpVersionPolicy http_version{WebHttpVersionPolicy::Auto};
   std::string body{};
-  NameValues response_headers{};
   /** Running total of `header_bytes(response_headers)`, maintained by the
    * header callback so the cap is enforced as headers arrive rather than
    * recomputed per line. */
@@ -1537,9 +1538,11 @@ private:
     return total;
   }
 
-  /** Headers are captured in arrival order with duplicates preserved; a new
-   * status line resets the block so only the FINAL response survives a
-   * redirect chain or a 100-continue. */
+  /** The callback only enforces the retained-byte budget as lines arrive;
+   * the names and values are harvested at completion through curl's
+   * header API, which records each block's ORIGIN — headers and trailers
+   * stay distinct even for empty-body (gRPC trailers-only) responses
+   * (review P1; CURLOPT_HEADERFUNCTION documents the origin model). */
   static std::size_t on_header(char *data, std::size_t size, std::size_t nitems,
                                void *userdata) {
     auto *transfer = static_cast<HttpTransfer *>(userdata);
@@ -1554,24 +1557,33 @@ private:
     const auto colon = line.find(':');
     if (colon == std::string_view::npos) {
       if (line.starts_with("HTTP/")) {
-        transfer->response_headers.clear();
+        // A new status line (redirect hop, 100-continue): only the final
+        // response's blocks are charged.
         transfer->header_bytes_used = 0;
       }
       return total;
     }
-    std::string_view name = line.substr(0, colon);
-    std::string_view value = line.substr(colon + 1);
-    if (!value.empty() && value.front() == ' ') {
-      value.remove_prefix(1);
-    }
-    const std::size_t entry = header_entry_bytes(name.size(), value.size());
+    const std::size_t value_length = line.size() - colon - 1;
+    const std::size_t entry = header_entry_bytes(colon, value_length);
     if (transfer->would_exceed_budget(entry)) {
       transfer->truncated = true;
       return CURL_WRITEFUNC_ERROR;
     }
     transfer->header_bytes_used += entry;
-    transfer->response_headers.emplace_back(Str{name}, Str{value});
     return total;
+  }
+
+  /** Enumerate the final response's header block of one origin, arrival
+   * order and duplicates preserved. */
+  [[nodiscard]] static NameValues harvest_headers(CURL *easy,
+                                                  unsigned int origin) {
+    NameValues result;
+    curl_header *header = nullptr;
+    while ((header = curl_easy_nextheader(easy, origin, -1, header)) !=
+           nullptr) {
+      result.emplace_back(Str{header->name}, Str{header->value});
+    }
+    return result;
   }
 
   void collect_completions() {
@@ -1660,8 +1672,11 @@ private:
     push_response(
         response_envelope(bindings_, owned->client_id,
                           http_response(bindings_, static_cast<Int>(status),
-                                        owned->response_headers,
-                                        std::move(owned->body)),
+                                        harvest_headers(owned->easy,
+                                                        CURLH_HEADER),
+                                        std::move(owned->body),
+                                        harvest_headers(owned->easy,
+                                                        CURLH_TRAILER)),
                           Value{}),
         retained, reserved);
   }

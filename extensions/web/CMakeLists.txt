@@ -221,6 +221,7 @@ unset(_hgraph_web_saved_build_testing)
 add_library(hgraph_web
     src/asio_server.cpp
     src/curl_client.cpp
+    src/nghttp2_session.cpp
     src/detail/route_table.cpp
     src/service.cpp
     src/value_builders.cpp
@@ -249,6 +250,7 @@ target_link_libraries(hgraph_web
     # leg; wheels are always shared).
     PRIVATE $<BUILD_INTERFACE:${HGRAPH_WEB_BOOST_TARGETS}>
             $<BUILD_INTERFACE:${HGRAPH_WEB_CURL_TARGET}>
+            $<BUILD_INTERFACE:${HGRAPH_WEB_NGHTTP2_TARGET}>
             OpenSSL::SSL OpenSSL::Crypto
 )
 target_include_directories(hgraph_web

@@ -65,6 +65,11 @@ struct OutputLimits {
   std::size_t bytes{};
 };
 
+/** The guaranteed control lane per channel: lifecycle records that the
+ * payload lane cannot take fall back here, so configuration validation
+ * must keep every lifecycle record within this bound. */
+inline constexpr std::size_t kControlLaneBytes = 1024 * 1024;
+
 struct WatermarkConfig {
   OutputLimits high{};
   OutputLimits low{};
@@ -586,7 +591,7 @@ inline std::ostream &operator<<(std::ostream &stream,
       limits_from(view, "ws_ingress_record_limit", "ws_ingress_byte_limit");
   const auto outbound =
       limits_from(view, "outbound_message_limit", "outbound_byte_limit");
-  const OutputLimits control{1024, 1024 * 1024};
+  const OutputLimits control{1024, kControlLaneBytes};
   return ServerBridgeHandle{std::make_shared<ServerBridge>(
       std::array<OutputLimits, index(ServerChannel::Count)>{
           ingress, ws_ingress, outbound, outbound, OutputLimits{1024, 1024 * 1024},
@@ -603,7 +608,7 @@ inline std::ostream &operator<<(std::ostream &stream,
       limits_from(view, "ws_ingress_record_limit", "ws_ingress_byte_limit");
   const auto outbound =
       limits_from(view, "outbound_record_limit", "outbound_byte_limit");
-  const OutputLimits control{1024, 1024 * 1024};
+  const OutputLimits control{1024, kControlLaneBytes};
   return ClientBridgeHandle{std::make_shared<ClientBridge>(
       std::array<OutputLimits, index(ClientChannel::Count)>{
           ingress, ws_ingress, outbound, OutputLimits{1024, 1024 * 1024},

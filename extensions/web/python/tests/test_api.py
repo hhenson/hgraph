@@ -248,9 +248,9 @@ def test_config_defaults_match_the_native_builders() -> None:
         ),
         (
             lambda: web.TlsServerConfig(
-                cert_path="cert.pem", key_path="key.pem", alpn=("h2", "http/1.1")
+                cert_path="cert.pem", key_path="key.pem", alpn=("spdy/3",)
             ),
-            "cannot advertise h2",
+            'accepts only "h2" and "http/1.1"',
         ),
         (
             lambda: web.TlsServerConfig(
@@ -325,6 +325,15 @@ def test_config_defaults_match_the_native_builders() -> None:
 def test_invalid_public_values_are_rejected_at_construction(factory, error) -> None:
     with pytest.raises(ValueError, match=error):
         factory()
+
+
+def test_server_alpn_accepts_h2() -> None:
+    # The HTTP/2 session is active behind the ALPN seam (RFC 0024,
+    # activation plan): advertising h2 is a legal configuration.
+    config = web.TlsServerConfig(
+        cert_path="cert.pem", key_path="key.pem", alpn=("h2", "http/1.1")
+    )
+    assert config.alpn == ("h2", "http/1.1")
 
 
 def test_ws_frame_helpers_mirror_the_native_makers() -> None:

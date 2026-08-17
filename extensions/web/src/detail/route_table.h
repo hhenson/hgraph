@@ -32,11 +32,14 @@ public:
   };
 
   /** `entry_index` indexes `entries()`; `params` are (name, decoded value)
-   * pairs in pattern order. */
+   * pairs in pattern order.  The NAME is a view into this table's own
+   * pattern storage — valid while the table lives (callers pin the route
+   * snapshot) — so matching never copies capture names; an owning copy is
+   * materialized only after admission reserves for it (review P1). */
   struct Match {
     bool matched{};
     std::size_t entry_index{};
-    std::vector<std::pair<std::string, std::string>> params{};
+    std::vector<std::pair<std::string_view, std::string>> params{};
   };
 
   /** Compile `entries`, preserving their order as the match index space.

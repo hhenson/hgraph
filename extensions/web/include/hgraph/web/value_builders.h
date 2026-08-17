@@ -94,6 +94,8 @@ namespace hgraph::web
         ServerConfigBuilder &idle_timeout(std::chrono::milliseconds value);
         ServerConfigBuilder &keep_alive_timeout(std::chrono::milliseconds value);
         ServerConfigBuilder &bind_deferred(bool value);
+        ServerConfigBuilder &h2_max_concurrent_streams(Int value);
+        ServerConfigBuilder &h2_initial_window_bytes(Int value);
         ServerConfigBuilder &ingress_limits(Int records, Int bytes);
         ServerConfigBuilder &ws_ingress_limits(Int records, Int bytes);
         ServerConfigBuilder &watermarks(Int high_pct, Int low_pct);

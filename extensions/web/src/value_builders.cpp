@@ -156,11 +156,13 @@ namespace hgraph::web
         if (client_verify_ != WebClientVerify::None && ca_path_.empty() && ca_pem_.empty()) {
             throw std::invalid_argument("Web client-certificate verification requires a CA");
         }
-        // Advertising a protocol the server does not speak is a protocol
-        // violation: "h2" stays rejected until the HTTP/2 session activates
-        // behind the ALPN seam (RFC 0024).
-        if (std::ranges::any_of(alpn_, [](const Str &protocol) { return protocol == "h2"; })) {
-            throw std::invalid_argument("Web server ALPN cannot advertise h2 before the HTTP/2 session is activated");
+        // The HTTP/2 session is active behind the ALPN seam (RFC 0024,
+        // activation plan): "h2" is a legal server protocol.  Only known
+        // protocols may be advertised.
+        if (std::ranges::any_of(alpn_, [](const Str &protocol) {
+                return protocol != "h2" && protocol != "http/1.1";
+            })) {
+            throw std::invalid_argument("Web server ALPN accepts only \"h2\" and \"http/1.1\"");
         }
         std::vector<std::pair<std::string_view, Value>> fields{
             {"client_verify", atomic(client_verify_)},
@@ -382,6 +384,16 @@ namespace hgraph::web
         return *this;
     }
 
+    ServerConfigBuilder &ServerConfigBuilder::h2_max_concurrent_streams(Int value) {
+        h2_max_concurrent_streams_ = value;
+        return *this;
+    }
+
+    ServerConfigBuilder &ServerConfigBuilder::h2_initial_window_bytes(Int value) {
+        h2_initial_window_bytes_ = value;
+        return *this;
+    }
+
     Value ServerConfigBuilder::build() const {
         register_web_types();
         if (bind_address_.empty()) { throw std::invalid_argument("Web server bind address cannot be empty"); }
@@ -406,12 +418,26 @@ namespace hgraph::web
         require_non_negative(ping_interval_ms_, "ping interval");
         require_non_negative(pong_timeout_ms_, "pong timeout");
         require_non_negative(stats_interval_ms_, "stats interval");
+        require_positive(h2_max_concurrent_streams_, "h2_max_concurrent_streams");
+        require_positive(h2_initial_window_bytes_, "h2_initial_window_bytes");
+        // HTTP/2 windows and stream counts are 31-bit quantities; larger
+        // values would fail inside the TLS handshake handler instead of at
+        // wiring time (review P2).
+        if (h2_initial_window_bytes_ > 2'147'483'647) {
+            throw std::invalid_argument("Web h2_initial_window_bytes must be at most 2^31-1");
+        }
+        if (h2_max_concurrent_streams_ > 2'147'483'647) {
+            throw std::invalid_argument("Web h2_max_concurrent_streams must be at most 2^31-1");
+        }
         // A single maximal payload must always fit an empty ingress channel;
         // otherwise Backpressure would hold it forever (transport invariant,
         // mirrored in the runtime's config parse).
-        if (ingress_byte_limit_ < max_body_bytes_ + max_header_bytes_ + 512) {
+        // The transport's worst-case weight: a 2x initial header block
+        // with a 4x-weighted target (worst case 4x one block) plus 2x
+        // trailers.
+        if (ingress_byte_limit_ < max_body_bytes_ + 6 * max_header_bytes_ + 1024) {
             throw std::invalid_argument(
-                "Web ingress_byte_limit must cover one maximal request (max_body_bytes + max_header_bytes + 512)");
+                "Web ingress_byte_limit must cover one maximal request (max_body_bytes + 6*max_header_bytes + 1024)");
         }
         if (ws_ingress_byte_limit_ < ws_max_message_bytes_ + 256) {
             throw std::invalid_argument(

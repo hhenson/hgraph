@@ -10,12 +10,25 @@ add_executable(hgraph_web_route_table_tests
 add_executable(hgraph_web_bridge_tests
     test_bridge.cpp
 )
+add_executable(hgraph_web_h2_engine_tests
+    test_h2_engine.cpp
+)
 add_executable(hgraph_web_loopback_tests
     test_loopback.cpp
 )
 add_executable(hgraph_web_client_loopback_tests
     test_client_loopback.cpp
 )
+add_executable(hgraph_web_h2_loopback_tests
+    test_h2_loopback.cpp
+)
+# Not a ctest target: a standalone server the h2spec conformance binary
+# drives from CI (RFC 0024, h2 acceptance criteria).
+add_executable(hgraph_web_h2spec_server
+    h2spec_server.cpp
+)
+target_compile_features(hgraph_web_h2spec_server PRIVATE cxx_std_23)
+target_link_libraries(hgraph_web_h2spec_server PRIVATE hgraph::web)
 # The loopback oracle is an independent Beast synchronous client, so this
 # test target reaches the (otherwise PRIVATE) header-only Boost targets.
 target_link_libraries(hgraph_web_loopback_tests
@@ -28,8 +41,20 @@ target_include_directories(hgraph_web_route_table_tests
 # directly (late reserved completions after stop must reject, not throw).
 target_include_directories(hgraph_web_bridge_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+# The H2 engine test converses with the engine through a genuine nghttp2
+# client session, so it links the same nghttp2 the extension uses.
+target_include_directories(hgraph_web_h2_engine_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_link_libraries(hgraph_web_h2_engine_tests
+    PRIVATE ${HGRAPH_WEB_NGHTTP2_TARGET})
+# The h2 loopback also carries a small independent nghttp2/TLS client for
+# rejection/window-restoration behavior that the public call shape cannot
+# express (an open stream plus DATA followed by request trailers).
+target_link_libraries(hgraph_web_h2_loopback_tests
+    PRIVATE ${HGRAPH_WEB_NGHTTP2_TARGET} OpenSSL::SSL OpenSSL::Crypto
+            ${HGRAPH_WEB_BOOST_TARGETS})
 
-foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_bridge_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests)
+foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_bridge_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_h2_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_link_libraries(${target} PRIVATE hgraph::web)
 
