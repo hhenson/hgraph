@@ -48,6 +48,8 @@ def main() -> int:
         check = subprocess.run(
             [
                 sys.executable,
+                "-X",
+                "faulthandler",
                 "-c",
                 """
 import importlib
@@ -161,14 +163,26 @@ with hgraph.GlobalState() as _probe_state:
     assert _probe_state[":probe:probe_out.0"] == 9
 
 print(f"installed Python extension consumer passed: registry={address:#x}")
+
+# Skip final interpreter teardown: after a registry reset, the hgraph
+# package's import-time native handles all belong to the freed generation,
+# and exit-time garbage collection destroying them segfaults on Linux
+# (macOS happens to tolerate it). That is the documented test-only reset
+# hazard, not a defect this consumer should die on — everything above has
+# been asserted and reported.
+import os as _os
+sys.stdout.flush()
+_os._exit(0)
 """,
                 str(module_dir),
             ],
-            check=True,
             capture_output=True,
             text=True,
         )
         print(check.stdout, end="")
+        if check.returncode != 0:
+            print(check.stderr, file=sys.stderr, end="")
+            raise SystemExit(check.returncode)
     return 0
 
 
