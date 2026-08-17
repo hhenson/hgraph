@@ -97,6 +97,13 @@ an outside tool read the file.
 Ownership boundary
 ------------------
 
+.. note::
+   **Ownership revised by** :doc:`rfc_0025_hgraph_persistence` (2026-08-17):
+   the ``FrameStore`` contract, its configuration, and every concrete
+   backend move to the ``hgraph-persistence`` extension.  The store
+   *semantics* specified below stand unchanged; only the paragraph
+   arguing for core residency is superseded.
+
 The store abstraction, its configuration, and the Arrow-backed backends are
 **core**. Three things put them there rather than in an extension:
 
