@@ -107,17 +107,22 @@ void test_tls_server_config_validation() {
                               .build());
       },
       "client-certificate verification requires a CA");
-  // Advertising h2 before the server HTTP/2 session activates is a protocol
-  // violation and stays a wiring-time error (RFC 0024).
+  // The HTTP/2 session is active: "h2" is a legal server protocol, and
+  // only known protocols may be advertised (RFC 0024, activation plan).
+  static_cast<void>(tls_server()
+                        .cert_path("/tmp/cert.pem")
+                        .key_path("/tmp/key.pem")
+                        .alpn({"h2", "http/1.1"})
+                        .build());
   require_invalid(
       [] {
         static_cast<void>(tls_server()
                               .cert_path("/tmp/cert.pem")
                               .key_path("/tmp/key.pem")
-                              .alpn({"h2", "http/1.1"})
+                              .alpn({"spdy/3"})
                               .build());
       },
-      "server ALPN cannot advertise h2 before activation");
+      "server ALPN accepted an unknown protocol");
 }
 
 void test_client_config_validation() {

@@ -8,6 +8,7 @@
 #include <hgraph/web/service.h>
 #include <hgraph/web/value_builders.h>
 
+#include "detail/h2_engine.h"
 #include "detail/route_table.h"
 #include "detail/service_bridge.h"
 #include "detail/web_bindings.h"
@@ -30,6 +31,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <map>
@@ -111,6 +113,8 @@ struct ServerRuntimeConfig {
   std::chrono::milliseconds ping_interval{};
   std::chrono::milliseconds pong_timeout{};
   std::chrono::milliseconds stats_interval{};
+  Int h2_max_concurrent_streams{};
+  Int h2_initial_window_bytes{};
 };
 
 [[nodiscard]] std::size_t positive_size(const ValueView &field,
@@ -194,6 +198,10 @@ milliseconds_field(const ValueView &field, std::string_view name) {
       milliseconds_field(root.at("pong_timeout_ms"), "pong timeout");
   result.stats_interval =
       milliseconds_field(root.at("stats_interval_ms"), "stats interval");
+  result.h2_max_concurrent_streams = static_cast<Int>(positive_size(
+      root.at("h2_max_concurrent_streams"), "h2_max_concurrent_streams"));
+  result.h2_initial_window_bytes = static_cast<Int>(positive_size(
+      root.at("h2_initial_window_bytes"), "h2_initial_window_bytes"));
 
   // A single maximal payload must always fit an EMPTY ingress channel:
   // under Backpressure a message that can never fit would otherwise be
@@ -276,6 +284,20 @@ inline std::ostream &operator<<(std::ostream &stream,
   default:
     return std::nullopt;
   }
+}
+
+/** The h2 ``:method`` token (always uppercase on the wire). */
+[[nodiscard]] std::optional<HttpMethod>
+method_from_token(std::string_view token) noexcept {
+  if (token == "GET") { return HttpMethod::Get; }
+  if (token == "HEAD") { return HttpMethod::Head; }
+  if (token == "POST") { return HttpMethod::Post; }
+  if (token == "PUT") { return HttpMethod::Put; }
+  if (token == "DELETE") { return HttpMethod::Delete; }
+  if (token == "PATCH") { return HttpMethod::Patch; }
+  if (token == "OPTIONS") { return HttpMethod::Options; }
+  if (token == "TRACE") { return HttpMethod::Trace; }
+  return std::nullopt;
 }
 
 // Query strings stay raw: decoding is a codec-tier decision (RFC 0024).
@@ -512,6 +534,19 @@ inline void atomic_store_routes(std::shared_ptr<const CompiledRoutes> *slot,
 #endif
 
 class ServerConnection;
+class WebServerRuntime;
+
+/** The respond surface a pending request routes back to: the h1
+ * connection or the h2 stream driver that owns the transport side of the
+ * request (RFC 0024, HTTP/2 activation plan). */
+class PendingTarget {
+public:
+  virtual ~PendingTarget() = default;
+  virtual void deliver_response(Int request_id, Value response, Int client_id,
+                                std::shared_ptr<WebServerRuntime> runtime) = 0;
+  virtual void answer_timeout(Int request_id) = 0;
+  virtual void begin_shutdown() = 0;
+};
 
 class WebServerRuntime
     : public std::enable_shared_from_this<WebServerRuntime> {
@@ -554,7 +589,7 @@ public:
     return atomic_load_routes(&ws_routes_);
   }
 
-  [[nodiscard]] Int register_pending(const std::shared_ptr<ServerConnection> &connection);
+  [[nodiscard]] Int register_pending(const std::shared_ptr<PendingTarget> &target);
   void unregister_pending(Int request_id) noexcept;
   [[nodiscard]] Int register_ws_connection(
       const std::shared_ptr<ServerConnection> &connection);
@@ -591,6 +626,13 @@ public:
   [[nodiscard]] bool reserve_request(std::size_t bytes) {
     return bridge_.value->reserve(index(ServerChannel::Request), bytes);
   }
+  [[nodiscard]] bool grow_request_reservation(std::size_t bytes) {
+    return bridge_.value->grow_reservation(index(ServerChannel::Request),
+                                           bytes);
+  }
+  [[nodiscard]] Int allocate_connection_id() noexcept {
+    return ++next_request_id_;
+  }
   void release_request_reservation(std::size_t bytes) noexcept {
     bridge_.value->release_reservation(index(ServerChannel::Request), bytes);
   }
@@ -625,6 +667,9 @@ private:
   bool started_{};
   std::shared_ptr<WebListener> listener_{};
   std::unique_ptr<asio::ssl::context> tls_context_{};
+  // The wire-format ALPN preference list the select callback reads; owned
+  // here so its address outlives every TLS handshake on this context.
+  std::vector<unsigned char> alpn_wire_{};
   std::shared_ptr<const CompiledRoutes> http_routes_{
       std::make_shared<CompiledRoutes>()};
   std::shared_ptr<const CompiledRoutes> ws_routes_{
@@ -637,9 +682,9 @@ private:
   std::atomic<Int> next_request_id_{0};
   struct Pending {
     // Owning: between dispatch and the graph's answer no async operation
-    // holds the connection, so the pending registry keeps it alive until it
-    // is answered, timed out, or shut down.
-    std::shared_ptr<ServerConnection> connection{};
+    // holds the transport target, so the pending registry keeps it alive
+    // until it is answered, timed out, or shut down.
+    std::shared_ptr<PendingTarget> target{};
     std::chrono::steady_clock::time_point deadline{};
   };
   std::map<Int, Pending> pending_{};
@@ -657,7 +702,10 @@ private:
 // thread never touches a socket — respond/ws_send post owned data onto the
 // strand (RFC 0024, threading).
 
-class ServerConnection : public std::enable_shared_from_this<ServerConnection> {
+using ServerTlsStream = asio::ssl::stream<beast::tcp_stream>;
+
+class ServerConnection : public std::enable_shared_from_this<ServerConnection>,
+                         public PendingTarget {
 public:
   ServerConnection(std::shared_ptr<WebListener> listener,
                    std::shared_ptr<const ServerRuntimeConfig> config,
@@ -683,7 +731,7 @@ public:
   }
 
   void deliver_response(Int request_id, Value response, Int client_id,
-                        std::shared_ptr<WebServerRuntime> runtime) {
+                        std::shared_ptr<WebServerRuntime> runtime) override {
     asio::post(strand_, [self = shared_from_this(), request_id,
                          response = std::move(response), client_id, runtime] {
       self->write_response(request_id, response, client_id, runtime);
@@ -698,7 +746,7 @@ public:
     });
   }
 
-  void answer_timeout(Int request_id) {
+  void answer_timeout(Int request_id) override {
     asio::post(strand_, [self = shared_from_this(), request_id] {
       if (self->pending_request_id_ == request_id && !self->writing_) {
         self->send_simple_response(http::status::service_unavailable,
@@ -708,7 +756,7 @@ public:
     });
   }
 
-  void begin_shutdown() {
+  void begin_shutdown() override {
     asio::post(strand_, [self = shared_from_this()] {
       self->shutting_down_ = true;
       if (self->ws_) {
@@ -734,7 +782,7 @@ public:
 
 private:
   using PlainStream = beast::tcp_stream;
-  using TlsStream = asio::ssl::stream<beast::tcp_stream>;
+  using TlsStream = ServerTlsStream;
   using PlainWs = websocket::stream<beast::tcp_stream>;
   using TlsWs = websocket::stream<TlsStream>;
 
@@ -750,8 +798,13 @@ private:
                   self->close();
                   return;
                 }
-                // The ALPN seam: h1 is the only wired protocol until the
-                // HTTP/2 session lands (RFC 0024, activation plan).
+                // The ALPN seam (RFC 0024, activation plan): "h2"
+                // hands the socket to the HTTP/2 driver; everything
+                // else stays on the h1 path.
+                if (self->negotiated_h2()) {
+                  self->start_h2();
+                  return;
+                }
                 self->read_next();
               }));
     } else {
@@ -759,6 +812,16 @@ private:
     }
   }
 
+
+  [[nodiscard]] bool negotiated_h2() const {
+    const unsigned char *protocol = nullptr;
+    unsigned int length = 0;
+    SSL_get0_alpn_selected(
+        const_cast<TlsStream &>(*tls_stream_).native_handle(), &protocol,
+        &length);
+    return length == 2 && std::memcmp(protocol, "h2", 2) == 0;
+  }
+  void start_h2();
 
   void read_next();
   void on_headers();
@@ -843,6 +906,146 @@ private:
   std::string ws_send_buffer_{};
   std::size_t ws_send_offset_{};
   beast::flat_buffer ws_read_buffer_{};
+};
+
+// ---------------------------------------------------------------------------
+// HTTP/2 connection driver (RFC 0024, HTTP/2 activation plan).
+//
+// Owns the TLS socket after ALPN selects "h2" and pumps bytes through the
+// pure H2Engine; every protocol event arrives via H2Host on this strand.
+// Requests flow through the SAME bridge contract as h1: header admission
+// reserves on the matched runtime before any DATA window is released, DATA
+// chunks grow the reservation before the engine may consume them, and the
+// reserved push transfers everything to the queued value.
+
+class H2Driver final : public std::enable_shared_from_this<H2Driver>,
+                       public PendingTarget,
+                       private H2Host {
+public:
+  H2Driver(std::shared_ptr<WebListener> listener,
+           std::shared_ptr<const ServerRuntimeConfig> config,
+           ServerTlsStream stream)
+      : listener_{std::move(listener)}, config_{std::move(config)},
+        strand_{asio::make_strand(listener_->io_context())},
+        stream_{std::move(stream)},
+        engine_{*this,
+                H2Settings{
+                    static_cast<std::size_t>(
+                        config_->h2_max_concurrent_streams),
+                    static_cast<std::size_t>(config_->h2_initial_window_bytes),
+                    config_->max_header_bytes,
+                }} {
+    listener_->connection_opened();
+  }
+
+  ~H2Driver() override { listener_->connection_closed(); }
+
+  void run() {
+    asio::post(strand_, [self = shared_from_this()] {
+      self->pump_writes(); // the server SETTINGS/window preface
+      self->read_next();
+    });
+  }
+
+  // --- PendingTarget ---
+  void deliver_response(Int request_id, Value response, Int client_id,
+                        std::shared_ptr<WebServerRuntime> runtime) override {
+    asio::post(strand_, [self = shared_from_this(), request_id,
+                         response = std::move(response), client_id,
+                         runtime = std::move(runtime)] {
+      self->write_stream_response(request_id, response, client_id, runtime);
+    });
+  }
+
+  void answer_timeout(Int request_id) override {
+    asio::post(strand_, [self = shared_from_this(), request_id] {
+      self->finish_stream_transport(request_id, 503,
+                                    "the graph did not answer in time");
+    });
+  }
+
+  void begin_shutdown() override {
+    asio::post(strand_, [self = shared_from_this()] {
+      if (self->shutting_down_) {
+        return;
+      }
+      self->shutting_down_ = true;
+      // GOAWAY carries the last processed stream id; unanswered streams
+      // get the transport 503 and in-flight writes drain (RFC 0024,
+      // lifecycle; h2 acceptance criteria).
+      std::vector<Int> unanswered;
+      for (const auto &[request_id, stream_id] : self->request_to_stream_) {
+        unanswered.push_back(request_id);
+      }
+      for (const Int request_id : unanswered) {
+        self->finish_stream_transport(request_id, 503,
+                                      "server shutting down");
+      }
+      self->engine_.submit_goaway();
+      self->pump_writes();
+    });
+  }
+
+private:
+  struct Stream {
+    MatchedRoute matched{};
+    HttpMethod method{HttpMethod::Get};
+    bool head_fallback{};
+    std::string target{};
+    std::string decoded_path{};
+    H2Headers headers{};
+    std::size_t header_bytes{};
+    std::string body{};
+    std::size_t reserved{};
+    std::size_t unaccounted{};
+    bool admitted{};
+    bool admission_in_flight{};
+    bool end_stream_seen{};
+    bool discarding{};
+    Int request_id{-1};
+  };
+
+  // --- H2Host (all calls arrive inside engine_.receive on the strand) ---
+  void on_request_headers(std::int32_t stream_id, std::string method,
+                          std::string target, H2Headers headers,
+                          bool end_stream) override;
+  void on_request_data(std::int32_t stream_id, std::string_view data,
+                       bool end_stream) override;
+  void on_stream_reset(std::int32_t stream_id,
+                       std::uint32_t error_code) override;
+  void on_stream_closed(std::int32_t stream_id) override;
+  void on_goaway_received() override { shutting_down_ = true; }
+
+  void read_next();
+  void pump_writes();
+  void close();
+  void admit_stream(std::int32_t stream_id);
+  void account_stream_data(std::int32_t stream_id);
+  void maybe_dispatch(std::int32_t stream_id);
+  void respond_transport(std::int32_t stream_id, int status,
+                         std::string_view body);
+  void write_stream_response(Int request_id, const Value &response,
+                             Int client_id,
+                             const std::shared_ptr<WebServerRuntime> &runtime);
+  void finish_stream_transport(Int request_id, int status,
+                               std::string_view body);
+  void release_stream(std::int32_t stream_id, Stream &stream);
+  [[nodiscard]] Value peer_value(const WebBindings &bindings);
+
+  std::shared_ptr<WebListener> listener_;
+  std::shared_ptr<const ServerRuntimeConfig> config_;
+  asio::strand<asio::io_context::executor_type> strand_;
+  ServerTlsStream stream_;
+  H2Engine engine_;
+  std::map<std::int32_t, Stream> streams_{};
+  std::map<Int, std::int32_t> request_to_stream_{};
+  std::array<char, 16 * 1024> read_buffer_{};
+  std::string write_buffer_{};
+  std::size_t outstanding_response_bytes_{};
+  Int connection_id_{-1};
+  bool writing_{};
+  bool shutting_down_{};
+  bool closed_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -1094,24 +1297,35 @@ void WebServerRuntime::start() {
                               asio::ssl::verify_fail_if_no_peer_cert);
       break;
     }
-    // The ALPN callback is the HTTP/2 seam: only h1 is selectable until the
-    // nghttp2 session activates (config validation rejects "h2").
+    // The ALPN callback selects from the CONFIGURED list, in configured
+    // preference order; "h2" hands the connection to the HTTP/2 driver
+    // after the handshake (RFC 0024, activation plan).
+    alpn_wire_.clear();
+    const std::vector<Str> protocols =
+        config_->tls.alpn.empty() ? std::vector<Str>{Str{"http/1.1"}}
+                                  : config_->tls.alpn;
+    for (const Str &protocol : protocols) {
+      alpn_wire_.push_back(static_cast<unsigned char>(protocol.size()));
+      alpn_wire_.insert(alpn_wire_.end(), protocol.begin(), protocol.end());
+    }
     SSL_CTX_set_alpn_select_cb(
         context.native_handle(),
         [](SSL *, const unsigned char **out, unsigned char *out_length,
            const unsigned char *in, unsigned int in_length,
-           void *) noexcept -> int {
+           void *wire) noexcept -> int {
+          const auto *preference =
+              static_cast<const std::vector<unsigned char> *>(wire);
           unsigned char *selected = nullptr;
           if (SSL_select_next_proto(
-                  &selected, out_length,
-                  reinterpret_cast<const unsigned char *>("\x08http/1.1"), 9,
-                  in, in_length) == OPENSSL_NPN_NEGOTIATED) {
+                  &selected, out_length, preference->data(),
+                  static_cast<unsigned int>(preference->size()), in,
+                  in_length) == OPENSSL_NPN_NEGOTIATED) {
             *out = selected;
             return SSL_TLSEXT_ERR_OK;
           }
           return SSL_TLSEXT_ERR_NOACK;
         },
-        nullptr);
+        &alpn_wire_);
   }
 
   listener_ = ListenerRegistry::instance().acquire(
@@ -1209,22 +1423,22 @@ void WebServerRuntime::stop() noexcept {
       listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
       listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
 
-      std::vector<std::shared_ptr<ServerConnection>> connections;
+      std::vector<std::shared_ptr<PendingTarget>> targets;
       {
         std::lock_guard lock{pending_mutex_};
         for (auto &[request_id, pending] : pending_) {
-          connections.push_back(std::move(pending.connection));
+          targets.push_back(std::move(pending.target));
         }
         for (auto &[connection_id, weak] : ws_connections_) {
           if (auto connection = weak.lock()) {
-            connections.push_back(std::move(connection));
+            targets.push_back(std::move(connection));
           }
         }
         pending_.clear();
         ws_connections_.clear();
       }
-      for (const auto &connection : connections) {
-        connection->begin_shutdown();
+      for (const auto &target : targets) {
+        target->begin_shutdown();
       }
       const auto deadline =
           std::chrono::steady_clock::now() + config_->shutdown_drain_timeout;
@@ -1327,12 +1541,12 @@ void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
 }
 
 Int WebServerRuntime::register_pending(
-    const std::shared_ptr<ServerConnection> &connection) {
+    const std::shared_ptr<PendingTarget> &target) {
   const Int request_id = ++next_request_id_;
   std::lock_guard lock{pending_mutex_};
   pending_[request_id] =
-      Pending{connection, std::chrono::steady_clock::now() +
-                              config_->request_timeout};
+      Pending{target, std::chrono::steady_clock::now() +
+                          config_->request_timeout};
   return request_id;
 }
 
@@ -1464,21 +1678,21 @@ void WebServerRuntime::sweep_expired_requests() {
   if (stopping_.load(std::memory_order_acquire)) {
     return;
   }
-  std::vector<std::pair<Int, std::shared_ptr<ServerConnection>>> expired;
+  std::vector<std::pair<Int, std::shared_ptr<PendingTarget>>> expired;
   {
     std::lock_guard lock{pending_mutex_};
     const auto now = std::chrono::steady_clock::now();
     for (auto item = pending_.begin(); item != pending_.end();) {
       if (item->second.deadline <= now) {
-        expired.emplace_back(item->first, std::move(item->second.connection));
+        expired.emplace_back(item->first, std::move(item->second.target));
         item = pending_.erase(item);
       } else {
         ++item;
       }
     }
   }
-  for (auto &[request_id, connection] : expired) {
-    connection->answer_timeout(request_id);
+  for (auto &[request_id, target] : expired) {
+    target->answer_timeout(request_id);
   }
   arm_sweep_timer();
 }
@@ -1552,16 +1766,16 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
                            Str{"web server is not serving"}));
     return;
   }
-  std::shared_ptr<ServerConnection> connection;
+  std::shared_ptr<PendingTarget> target;
   {
     std::lock_guard lock{pending_mutex_};
     const auto found = pending_.find(request_id);
     if (found != pending_.end()) {
-      connection = std::move(found->second.connection);
+      target = std::move(found->second.target);
       pending_.erase(found);
     }
   }
-  if (!connection) {
+  if (!target) {
     // Responding to an unknown or already-answered id is a reported error,
     // never silence (RFC 0024).
     report(index(ServerChannel::RespondDelivery), client_id,
@@ -1569,8 +1783,8 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
                            Str{"unknown or already-answered request id"}));
     return;
   }
-  connection->deliver_response(request_id, std::move(response), client_id,
-                               shared_from_this());
+  target->deliver_response(request_id, std::move(response), client_id,
+                           shared_from_this());
 }
 
 void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
@@ -2525,6 +2739,489 @@ void ServerConnection::close_socket_only() {
   } else if (plain_stream_.has_value()) {
     static_cast<void>(plain_stream_->socket().close(ec));
   }
+}
+
+// ---------------------------------------------------------------------------
+// H2Driver implementation
+
+void ServerConnection::start_h2() {
+  auto driver = std::make_shared<H2Driver>(listener_, config_,
+                                           std::move(*tls_stream_));
+  tls_stream_.reset();
+  driver->run();
+}
+
+void H2Driver::read_next() {
+  if (closed_) {
+    return;
+  }
+  beast::get_lowest_layer(stream_).expires_after(config_->idle_timeout);
+  stream_.async_read_some(
+      asio::buffer(read_buffer_),
+      asio::bind_executor(
+          strand_, [self = shared_from_this()](beast::error_code ec,
+                                               std::size_t received) {
+            if (ec) {
+              self->close();
+              return;
+            }
+            if (!self->engine_.receive(
+                    std::string_view{self->read_buffer_.data(), received})) {
+              // Fatal protocol error: flush the GOAWAY and close.
+              self->pump_writes();
+              return;
+            }
+            self->pump_writes();
+            self->read_next();
+          }));
+}
+
+void H2Driver::pump_writes() {
+  if (closed_ || writing_) {
+    return;
+  }
+  write_buffer_.clear();
+  while (write_buffer_.size() < 64 * 1024) {
+    const std::string_view output = engine_.next_output();
+    if (output.empty()) {
+      break;
+    }
+    write_buffer_.append(output);
+  }
+  if (write_buffer_.empty()) {
+    if (engine_.finished()) {
+      close();
+    }
+    return;
+  }
+  writing_ = true;
+  asio::async_write(
+      stream_, asio::buffer(write_buffer_),
+      asio::bind_executor(
+          strand_,
+          [self = shared_from_this()](beast::error_code ec, std::size_t) {
+            self->writing_ = false;
+            if (ec) {
+              self->close();
+              return;
+            }
+            self->pump_writes();
+          }));
+}
+
+void H2Driver::close() {
+  if (closed_) {
+    return;
+  }
+  closed_ = true;
+  // Retire every live stream: release reservations, unregister pending
+  // entries, and drop the maps so late graph answers report cleanly.
+  for (auto &[stream_id, stream] : streams_) {
+    release_stream(stream_id, stream);
+  }
+  streams_.clear();
+  request_to_stream_.clear();
+  beast::error_code ec;
+  static_cast<void>(beast::get_lowest_layer(stream_).socket().close(ec));
+}
+
+void H2Driver::release_stream(std::int32_t, Stream &stream) {
+  if (stream.request_id >= 0 && stream.matched.runtime) {
+    stream.matched.runtime->unregister_pending(stream.request_id);
+    request_to_stream_.erase(stream.request_id);
+    stream.request_id = -1;
+  }
+  if (stream.reserved != 0 && stream.matched.runtime) {
+    stream.matched.runtime->release_request_reservation(stream.reserved);
+    stream.reserved = 0;
+  }
+}
+
+void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
+                                  std::string target, H2Headers headers,
+                                  bool end_stream) {
+  if (shutting_down_) {
+    engine_.reset_stream(stream_id, H2StreamError::RefusedStream);
+    return;
+  }
+  Stream stream;
+  stream.target = std::move(target);
+  stream.headers = std::move(headers);
+  stream.end_stream_seen = end_stream;
+  for (const auto &[name, value] : stream.headers) {
+    stream.header_bytes += name.size() + value.size();
+  }
+  const auto method_value = method_from_token(method);
+  if (!method_value.has_value()) {
+    streams_.emplace(stream_id, std::move(stream));
+    respond_transport(stream_id, 501, "unsupported method");
+    return;
+  }
+  stream.method = *method_value;
+
+  const std::string_view full_target{stream.target};
+  const auto query_start = full_target.find('?');
+  const std::string_view path = full_target.substr(0, query_start);
+  auto decoded_path = RouteTable::decode_path(path);
+  if (!decoded_path.has_value()) {
+    streams_.emplace(stream_id, std::move(stream));
+    respond_transport(stream_id, 400, "malformed percent-encoding");
+    return;
+  }
+  stream.decoded_path = std::move(*decoded_path);
+
+  auto matched = listener_->match(stream.method, path, false);
+  if (!matched.has_value() && stream.method == HttpMethod::Head) {
+    // Standard HTTP: HEAD is GET without the body (transport suppresses
+    // the body on the way out), exactly like the h1 path.
+    matched = listener_->match(HttpMethod::Get, path, false);
+    stream.head_fallback = matched.has_value();
+  }
+  if (!matched.has_value()) {
+    streams_.emplace(stream_id, std::move(stream));
+    respond_transport(stream_id, 404, "no such route");
+    return;
+  }
+  stream.matched = std::move(*matched);
+  streams_.emplace(stream_id, std::move(stream));
+  admit_stream(stream_id);
+}
+
+void H2Driver::admit_stream(std::int32_t stream_id) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end() || closed_) {
+    return;
+  }
+  Stream &stream = found->second;
+  stream.admission_in_flight = false;
+  const std::shared_ptr<WebServerRuntime> runtime = stream.matched.runtime;
+  // Header admission mirrors h1: the header block plus envelope overhead
+  // reserves before any DATA window is released; the body then grows the
+  // same reservation chunk-by-chunk (RFC 0024, flow control).
+  const std::size_t projected = stream.header_bytes + stream.target.size() + 512;
+  if (runtime->reserve_request(projected)) {
+    stream.admitted = true;
+    stream.reserved = projected;
+    account_stream_data(stream_id);
+    return;
+  }
+  if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
+    respond_transport(stream_id, 503, "server is at capacity");
+    return;
+  }
+  // Backpressure: no window is released, so the sender stalls; retry on
+  // the watermark resume or a timer, exactly like the h1 admission wait.
+  stream.admission_in_flight = true;
+  if (listener_->reads_paused(WebListener::ReadTier::Http)) {
+    listener_->park_for_resume(
+        WebListener::ReadTier::Http, [self = shared_from_this(), stream_id] {
+          asio::post(self->strand_,
+                     [self, stream_id] { self->admit_stream(stream_id); });
+        });
+    return;
+  }
+  auto retry = std::make_shared<asio::steady_timer>(listener_->io_context());
+  retry->expires_after(std::chrono::milliseconds{50});
+  retry->async_wait(asio::bind_executor(
+      strand_,
+      [self = shared_from_this(), stream_id, retry](beast::error_code ec) {
+        if (!ec && !self->closed_) {
+          self->admit_stream(stream_id);
+        }
+      }));
+}
+
+void H2Driver::on_request_data(std::int32_t stream_id, std::string_view data,
+                               bool end_stream) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end()) {
+    // A stream answered by the transport (404/503/...): release the
+    // window immediately so a still-sending peer cannot wedge the
+    // connection; the bytes are never retained.
+    engine_.consume(stream_id, data.size());
+    return;
+  }
+  Stream &stream = found->second;
+  if (stream.discarding) {
+    engine_.consume(stream_id, data.size());
+    return;
+  }
+  stream.body.append(data);
+  stream.unaccounted += data.size();
+  if (end_stream) {
+    stream.end_stream_seen = true;
+  }
+  if (stream.admitted) {
+    account_stream_data(stream_id);
+  }
+}
+
+void H2Driver::account_stream_data(std::int32_t stream_id) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end() || closed_) {
+    return;
+  }
+  Stream &stream = found->second;
+  if (stream.unaccounted != 0) {
+    const std::size_t pending = stream.unaccounted;
+    if (stream.matched.runtime->grow_request_reservation(pending)) {
+      stream.reserved += pending;
+      stream.unaccounted = 0;
+      engine_.consume(stream_id, pending);
+      pump_writes(); // the WINDOW_UPDATE this consume released
+    } else if (stream.matched.runtime->config().inbound_overflow ==
+               WebInboundOverflow::Reject) {
+      respond_transport(stream_id, 503, "server is at capacity");
+      return;
+    } else {
+      // Backpressure: the unaccounted bytes stay window-unreleased, so
+      // the sender stalls; retry on the watermark resume or a timer.
+      if (listener_->reads_paused(WebListener::ReadTier::Http)) {
+        listener_->park_for_resume(
+            WebListener::ReadTier::Http,
+            [self = shared_from_this(), stream_id] {
+              asio::post(self->strand_, [self, stream_id] {
+                self->account_stream_data(stream_id);
+              });
+            });
+        return;
+      }
+      auto retry =
+          std::make_shared<asio::steady_timer>(listener_->io_context());
+      retry->expires_after(std::chrono::milliseconds{50});
+      retry->async_wait(asio::bind_executor(
+          strand_, [self = shared_from_this(), stream_id,
+                    retry](beast::error_code ec) {
+            if (!ec && !self->closed_) {
+              self->account_stream_data(stream_id);
+            }
+          }));
+      return;
+    }
+  }
+  maybe_dispatch(stream_id);
+}
+
+void H2Driver::maybe_dispatch(std::int32_t stream_id) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end()) {
+    return;
+  }
+  Stream &stream = found->second;
+  if (!stream.admitted || !stream.end_stream_seen ||
+      stream.unaccounted != 0 || stream.request_id >= 0) {
+    return;
+  }
+  const std::shared_ptr<WebServerRuntime> runtime = stream.matched.runtime;
+  const auto &b = runtime->bindings();
+  if (connection_id_ < 0) {
+    connection_id_ = runtime->allocate_connection_id();
+  }
+
+  const std::string_view full_target{stream.target};
+  const auto query_start = full_target.find('?');
+  const std::string_view query =
+      query_start == std::string_view::npos
+          ? std::string_view{}
+          : full_target.substr(query_start + 1);
+  WebBindings::NamedPairs headers{stream.headers.begin(),
+                                  stream.headers.end()};
+  const std::size_t retained = stream.body.size() + stream.header_bytes +
+                               stream.target.size() + 512;
+  Value request = build_on(
+      b.http_request,
+      {
+          {"method", b.enum_value(stream.head_fallback ? HttpMethod::Head
+                                                       : stream.method)},
+          {"target", b.string(Str{stream.target})},
+          {"path", b.string(Str{stream.decoded_path})},
+          {"query", b.params(parse_query(query))},
+          {"path_params", b.params(stream.matched.params)},
+          {"headers", b.headers(headers)},
+          {"body", b.bytes(Bytes{std::move(stream.body)})},
+          {"trailers", b.headers({})},
+      });
+  stream.body = std::string{};
+  const Int request_id = runtime->register_pending(shared_from_this());
+  Value server_request =
+      build_on(b.server_request,
+               {
+                   {"request_id", b.number(request_id)},
+                   {"connection_id", b.number(connection_id_)},
+                   {"stream_id", b.number(Int{stream_id})},
+                   {"request", std::move(request)},
+                   {"peer", peer_value(b)},
+               });
+  const std::size_t reserved = stream.reserved;
+  stream.reserved = 0;
+  const bool pushed = runtime->push_request_reserved(
+      stream.matched.route.clone(), std::move(server_request), retained,
+      reserved);
+  if (!pushed) {
+    runtime->unregister_pending(request_id);
+    respond_transport(stream_id, 503, "server shutting down");
+    return;
+  }
+  stream.request_id = request_id;
+  request_to_stream_[request_id] = stream_id;
+}
+
+void H2Driver::respond_transport(std::int32_t stream_id, int status,
+                                 std::string_view body) {
+  const auto found = streams_.find(stream_id);
+  if (found != streams_.end()) {
+    release_stream(stream_id, found->second);
+    found->second.discarding = true;
+  }
+  static_cast<void>(engine_.submit_response(
+      stream_id, status, H2Headers{{"content-type", "text/plain"}},
+      std::string{body}, {}));
+  pump_writes();
+}
+
+void H2Driver::write_stream_response(
+    Int request_id, const Value &response, Int client_id,
+    const std::shared_ptr<WebServerRuntime> &runtime) {
+  const auto found = request_to_stream_.find(request_id);
+  if (found == request_to_stream_.end()) {
+    // The peer reset the stream before the graph answered: the late
+    // answer is Dropped, never written to a dead stream (h2 acceptance
+    // criteria).
+    runtime->report(index(ServerChannel::RespondDelivery), client_id,
+                    runtime->delivery_report(
+                        request_id, WebDeliveryStatus::Dropped, 0,
+                        Str{"the stream was cancelled by the peer"}));
+    return;
+  }
+  const std::int32_t stream_id = found->second;
+  request_to_stream_.erase(found);
+  const auto stream_found = streams_.find(stream_id);
+  const bool head =
+      stream_found != streams_.end() && stream_found->second.head_fallback;
+  if (stream_found != streams_.end()) {
+    stream_found->second.request_id = -1;
+  }
+
+  const auto fields = response.view().as_bundle();
+  const auto status =
+      static_cast<int>(fields.at("status").checked_as<Int>());
+  std::string body;
+  const auto body_field = fields.at("body");
+  if (!head && body_field.data() != nullptr) {
+    body = std::string{body_field.checked_as<Bytes>().data};
+  }
+  H2Headers headers;
+  const auto header_fields = fields.at("headers");
+  if (header_fields.data() != nullptr) {
+    for (const auto header : header_fields.as_list()) {
+      const auto pair = header.as_bundle();
+      headers.emplace_back(std::string{pair.at("name").checked_as<Str>()},
+                           std::string{pair.at("value").checked_as<Str>()});
+    }
+  }
+  H2Headers trailers;
+  const auto trailer_fields = fields.at("trailers");
+  if (!head && trailer_fields.data() != nullptr) {
+    for (const auto trailer : trailer_fields.as_list()) {
+      const auto pair = trailer.as_bundle();
+      trailers.emplace_back(std::string{pair.at("name").checked_as<Str>()},
+                            std::string{pair.at("value").checked_as<Str>()});
+    }
+  }
+
+  // Per-stream slow-consumer policy: a response that would push the
+  // buffered outbound share past the configured byte limit resets JUST
+  // this stream (h2 acceptance criteria).
+  if (outstanding_response_bytes_ + body.size() >
+      static_cast<std::size_t>(config_->outbound_byte_limit)) {
+    engine_.reset_stream(stream_id, H2StreamError::EnhanceYourCalm);
+    pump_writes();
+    runtime->report(index(ServerChannel::RespondDelivery), client_id,
+                    runtime->delivery_report(
+                        request_id, WebDeliveryStatus::Dropped, 0,
+                        Str{"slow consumer: the stream was reset"}));
+    return;
+  }
+
+  const std::size_t response_bytes = body.size();
+  if (engine_.submit_response(stream_id, status, headers, std::move(body),
+                              trailers)) {
+    outstanding_response_bytes_ += response_bytes;
+    runtime->report(
+        index(ServerChannel::RespondDelivery), client_id,
+        runtime->delivery_report(request_id, WebDeliveryStatus::Delivered));
+  } else {
+    runtime->report(index(ServerChannel::RespondDelivery), client_id,
+                    runtime->delivery_report(
+                        request_id, WebDeliveryStatus::PermanentFailure, 0,
+                        Str{"the stream could not accept the response"}));
+  }
+  pump_writes();
+}
+
+void H2Driver::finish_stream_transport(Int request_id, int status,
+                                       std::string_view body) {
+  const auto found = request_to_stream_.find(request_id);
+  if (found == request_to_stream_.end()) {
+    return;
+  }
+  const std::int32_t stream_id = found->second;
+  request_to_stream_.erase(found);
+  const auto stream_found = streams_.find(stream_id);
+  if (stream_found != streams_.end()) {
+    stream_found->second.request_id = -1;
+  }
+  respond_transport(stream_id, status, body);
+}
+
+void H2Driver::on_stream_reset(std::int32_t stream_id, std::uint32_t) {
+  const auto found = streams_.find(stream_id);
+  if (found == streams_.end()) {
+    return;
+  }
+  // Per-stream cancellation: exactly this request is retired; a late
+  // graph answer will be reported Dropped (h2 acceptance criteria).
+  release_stream(stream_id, found->second);
+}
+
+void H2Driver::on_stream_closed(std::int32_t stream_id) {
+  const auto found = streams_.find(stream_id);
+  if (found != streams_.end()) {
+    release_stream(stream_id, found->second);
+    streams_.erase(found);
+  }
+}
+
+Value H2Driver::peer_value(const WebBindings &b) {
+  beast::error_code ec;
+  auto &socket = beast::get_lowest_layer(stream_).socket();
+  const auto remote = socket.remote_endpoint(ec);
+  const auto local = socket.local_endpoint(ec);
+  Str negotiated{"h2"};
+  Str sni{};
+  Str subject{};
+  SSL *ssl = stream_.native_handle();
+  if (const char *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) {
+    sni = Str{name};
+  }
+  if (X509 *cert = SSL_get_peer_certificate(ssl)) {
+    char buffer[512];
+    X509_NAME_oneline(X509_get_subject_name(cert), buffer, sizeof(buffer));
+    subject = Str{buffer};
+    X509_free(cert);
+  }
+  return build_on(
+      b.peer,
+      {
+          {"remote_address",
+           b.string(Str{ec ? std::string{} : remote.address().to_string()})},
+          {"remote_port", b.number(Int{ec ? 0 : remote.port()})},
+          {"local_port", b.number(Int{ec ? 0 : local.port()})},
+          {"tls", b.flag(Bool{true})},
+          {"negotiated_protocol", b.string(negotiated)},
+          {"sni", b.string(sni)},
+          {"client_cert_subject", b.string(subject)},
+      });
 }
 } // namespace
 

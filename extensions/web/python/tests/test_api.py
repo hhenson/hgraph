@@ -248,9 +248,9 @@ def test_config_defaults_match_the_native_builders() -> None:
         ),
         (
             lambda: web.TlsServerConfig(
-                cert_path="cert.pem", key_path="key.pem", alpn=("h2", "http/1.1")
+                cert_path="cert.pem", key_path="key.pem", alpn=("spdy/3",)
             ),
-            "cannot advertise h2",
+            'accepts only "h2" and "http/1.1"',
         ),
         (
             lambda: web.TlsServerConfig(

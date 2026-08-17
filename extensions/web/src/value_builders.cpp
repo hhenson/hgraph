@@ -156,11 +156,13 @@ namespace hgraph::web
         if (client_verify_ != WebClientVerify::None && ca_path_.empty() && ca_pem_.empty()) {
             throw std::invalid_argument("Web client-certificate verification requires a CA");
         }
-        // Advertising a protocol the server does not speak is a protocol
-        // violation: "h2" stays rejected until the HTTP/2 session activates
-        // behind the ALPN seam (RFC 0024).
-        if (std::ranges::any_of(alpn_, [](const Str &protocol) { return protocol == "h2"; })) {
-            throw std::invalid_argument("Web server ALPN cannot advertise h2 before the HTTP/2 session is activated");
+        // The HTTP/2 session is active behind the ALPN seam (RFC 0024,
+        // activation plan): "h2" is a legal server protocol.  Only known
+        // protocols may be advertised.
+        if (std::ranges::any_of(alpn_, [](const Str &protocol) {
+                return protocol != "h2" && protocol != "http/1.1";
+            })) {
+            throw std::invalid_argument("Web server ALPN accepts only \"h2\" and \"http/1.1\"");
         }
         std::vector<std::pair<std::string_view, Value>> fields{
             {"client_verify", atomic(client_verify_)},

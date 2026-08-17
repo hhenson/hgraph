@@ -19,6 +19,9 @@ add_executable(hgraph_web_loopback_tests
 add_executable(hgraph_web_client_loopback_tests
     test_client_loopback.cpp
 )
+add_executable(hgraph_web_h2_loopback_tests
+    test_h2_loopback.cpp
+)
 # The loopback oracle is an independent Beast synchronous client, so this
 # test target reaches the (otherwise PRIVATE) header-only Boost targets.
 target_link_libraries(hgraph_web_loopback_tests
@@ -38,7 +41,7 @@ target_include_directories(hgraph_web_h2_engine_tests
 target_link_libraries(hgraph_web_h2_engine_tests
     PRIVATE ${HGRAPH_WEB_NGHTTP2_TARGET})
 
-foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_bridge_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests)
+foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_bridge_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_h2_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_link_libraries(${target} PRIVATE hgraph::web)
 

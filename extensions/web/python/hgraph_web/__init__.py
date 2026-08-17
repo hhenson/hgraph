@@ -298,13 +298,11 @@ class TlsServerConfig(CompoundScalar, namespace=_NAMESPACE):
             raise ValueError("Web server TLS requires a private key")
         if self.client_verify != WebClientVerify.NONE and not self.ca_path and not self.ca_pem:
             raise ValueError("Web client-certificate verification requires a CA")
-        # Advertising a protocol the server does not speak is a protocol
-        # violation: "h2" stays rejected until the HTTP/2 session activates
-        # behind the ALPN seam (RFC 0024).
-        if any(protocol == "h2" for protocol in self.alpn):
-            raise ValueError(
-                "Web server ALPN cannot advertise h2 before the HTTP/2 session is activated"
-            )
+        # The HTTP/2 session is active behind the ALPN seam (RFC 0024,
+        # activation plan): "h2" is a legal server protocol.  Only known
+        # protocols may be advertised.
+        if any(protocol not in ("h2", "http/1.1") for protocol in self.alpn):
+            raise ValueError('Web server ALPN accepts only "h2" and "http/1.1"')
 
 
 @dataclass(frozen=True)
