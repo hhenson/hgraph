@@ -347,8 +347,22 @@ struct MatchedRoute {
   // which the retained estimate accounts via route_weight().
   std::shared_ptr<const CompiledRoutes> snapshot{};
   const Value *route{};
-  NamedPairs params{};
+  // Capture NAMES are views into the snapshot's route table; values are
+  // owned (request-derived).  Materialized into owning pairs only after
+  // admission (review P1).
+  std::vector<std::pair<std::string_view, std::string>> params{};
 };
+
+[[nodiscard]] WebBindings::NamedPairs
+materialize_params(
+    const std::vector<std::pair<std::string_view, std::string>> &params) {
+  WebBindings::NamedPairs owned;
+  owned.reserve(params.size());
+  for (const auto &[name, value] : params) {
+    owned.emplace_back(std::string{name}, value);
+  }
+  return owned;
+}
 
 /** The bytes the envelope's owning route copy retains (pattern + fixed
  * fields); route patterns are server-defined but can be long relative to
@@ -1753,6 +1767,19 @@ void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
   if (listener_) {
     listener_->check_route_conflicts(this, true, added);
   }
+  for (const Value &route : added) {
+    // Route-aware floor: every maximal message on this route must fit an
+    // empty channel including the envelope's route copy (review P1).
+    const std::size_t weight = route_weight(route);
+    if (config_->ws_ingress.bytes <
+        config_->ws_max_message_bytes + 256 + weight) {
+      throw std::invalid_argument(
+          "Web ws_ingress_byte_limit cannot admit a maximal message on "
+          "route '" +
+          std::string{route.view().as_bundle().at("pattern").checked_as<Str>()} +
+          "' (needs ws_max_message_bytes + 256 + route pattern bytes)");
+    }
+  }
   rebuild(ws_routes_, ws_master_, std::move(added), std::move(removed));
   if (config_->bind_deferred && listener_) {
     listener_->ensure_listening();
@@ -2339,7 +2366,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
           {"target", b.string(Str{std::string{target}})},
           {"path", b.string(Str{decoded_path_})},
           {"query", b.params(parse_query(query))},
-          {"path_params", b.params(matched.params)},
+          {"path_params", b.params(materialize_params(matched.params))},
           {"headers", b.headers(headers)},
           {"body", b.bytes(body)},
           {"trailers", b.headers({})},
@@ -2636,7 +2663,10 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
                          {"state", b.enum_value(WsConnectionState::Open)},
                          {"request", server_request.clone()},
                      }),
-            request_bytes + self->ws_route_weight_ + 512);
+            // request_bytes (build_server_request) already includes the
+            // route weight — adding it again could overcharge a genuinely
+            // fitting event off the control lane (review P1).
+            request_bytes + 512);
         // Beast no longer needs the upgrade request; releasing it keeps
         // the single-counted accounting honest for the WebSocket's whole
         // lifetime (review P1).
@@ -2780,6 +2810,18 @@ void ServerConnection::ws_account_chunk() {
   const bool first = ws_reserved_bytes_ == 0;
   const std::size_t wanted =
       first ? pending + 256 + ws_route_weight_ : pending;
+  // Absolute oversize rejection: a record that cannot fit even an EMPTY
+  // channel (route weight included) must never enter the Backpressure
+  // retry loop — it would stall forever (review P1).
+  if (ws_reserved_bytes_ + wanted >
+      static_cast<std::size_t>(runtime->config().ws_ingress.bytes)) {
+    runtime->count_drop();
+    runtime->emit_event(WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
+                        Str{"message cannot fit the WS ingress limit"}, 0,
+                        false, false, ws_connection_id_);
+    ws_close(websocket::close_code{1009}, "message too big to admit");
+    return;
+  }
   const bool accounted = first ? runtime->reserve_ws_ingress(wanted)
                                : runtime->grow_ws_reservation(wanted);
   if (accounted) {
@@ -3518,7 +3560,7 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
           {"target", b.string(Str{stream.target})},
           {"path", b.string(Str{stream.decoded_path})},
           {"query", b.params(parse_query(query))},
-          {"path_params", b.params(stream.matched.params)},
+          {"path_params", b.params(materialize_params(stream.matched.params))},
           {"headers", b.headers(headers)},
           {"body", b.bytes(Bytes{std::move(stream.body)})},
           {"trailers",
@@ -3531,7 +3573,8 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
   stream.headers = H2Headers{};
   stream.trailers = H2Headers{};
   stream.decoded_path = std::string{};
-  stream.matched.params = NamedPairs{};
+  stream.matched.params.clear();
+  stream.matched.params.shrink_to_fit();
   const Int request_id = runtime->register_pending(shared_from_this());
   Value server_request =
       build_on(b.server_request,
