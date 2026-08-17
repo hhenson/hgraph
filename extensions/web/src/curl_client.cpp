@@ -447,6 +447,12 @@ header_entry_bytes(std::size_t name_size, std::size_t value_size) noexcept {
   result.proxy = text_or(root, "proxy");
   result.tls = parse_tls(root.at("tls"));
   result.max_response_bytes = positive_limit(root, "max_response_bytes");
+  // Floor mirrored from ClientConfigBuilder: the 512-byte envelope overhead
+  // is charged against this limit (review P2).
+  if (result.max_response_bytes < 1024) {
+    throw std::invalid_argument(
+        "Web client max_response_bytes must be at least 1024");
+  }
   result.ingress = OutputLimits{positive_limit(root, "ingress_record_limit"),
                                 positive_limit(root, "ingress_byte_limit")};
   result.ws_ingress =
@@ -469,6 +475,13 @@ header_entry_bytes(std::size_t name_size, std::size_t value_size) noexcept {
       root.at("failure_policy").checked_as<WebFailurePolicy>();
   result.ws_max_frame_bytes = positive_limit(root, "ws_max_frame_bytes");
   result.ws_max_message_bytes = positive_limit(root, "ws_max_message_bytes");
+  // A single maximal message must always fit an empty WS ingress channel
+  // (transport invariant, mirrored from the server config parse).
+  if (result.ws_ingress.bytes < result.ws_max_message_bytes + 256) {
+    throw std::invalid_argument(
+        "Web client ws_ingress_byte_limit must cover one maximal message "
+        "(ws_max_message_bytes + 256)");
+  }
   result.ping_interval_ms = root.at("ping_interval_ms").checked_as<Int>();
   result.pong_timeout_ms = root.at("pong_timeout_ms").checked_as<Int>();
   result.stats_interval_ms = root.at("stats_interval_ms").checked_as<Int>();

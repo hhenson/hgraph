@@ -406,6 +406,17 @@ namespace hgraph::web
         require_non_negative(ping_interval_ms_, "ping interval");
         require_non_negative(pong_timeout_ms_, "pong timeout");
         require_non_negative(stats_interval_ms_, "stats interval");
+        // A single maximal payload must always fit an empty ingress channel;
+        // otherwise Backpressure would hold it forever (transport invariant,
+        // mirrored in the runtime's config parse).
+        if (ingress_byte_limit_ < max_body_bytes_ + max_header_bytes_ + 512) {
+            throw std::invalid_argument(
+                "Web ingress_byte_limit must cover one maximal request (max_body_bytes + max_header_bytes + 512)");
+        }
+        if (ws_ingress_byte_limit_ < ws_max_message_bytes_ + 256) {
+            throw std::invalid_argument(
+                "Web ws_ingress_byte_limit must cover one maximal message (ws_max_message_bytes + 256)");
+        }
         require_tls_schema(tls_, scalar_descriptor<TlsServerConfig>::value_meta(), "server TLS config");
 
         std::vector<std::pair<std::string_view, Value>> fields{
@@ -566,6 +577,12 @@ namespace hgraph::web
         require_non_negative(keep_alive_ms_, "keep-alive");
         require_non_negative(max_redirects_, "max_redirects");
         require_positive(max_response_bytes_, "max_response_bytes");
+        // The 512-byte response envelope overhead is charged against this
+        // limit; smaller values would make every response fail while
+        // under-reporting the failure envelope's retained memory.
+        if (max_response_bytes_ < 1024) {
+            throw std::invalid_argument("Web max_response_bytes must be at least 1024");
+        }
         require_positive(ingress_record_limit_, "ingress record limit");
         require_positive(ingress_byte_limit_, "ingress byte limit");
         require_pct_watermarks(watermark_high_pct_, watermark_low_pct_);
@@ -576,6 +593,12 @@ namespace hgraph::web
         require_positive(ws_ingress_byte_limit_, "WS ingress byte limit");
         require_positive(ws_max_frame_bytes_, "WS frame limit");
         require_positive(ws_max_message_bytes_, "WS message limit");
+        // A single maximal message must always fit an empty WS ingress
+        // channel (transport invariant, mirrored in the runtime parses).
+        if (ws_ingress_byte_limit_ < ws_max_message_bytes_ + 256) {
+            throw std::invalid_argument(
+                "Web ws_ingress_byte_limit must cover one maximal message (ws_max_message_bytes + 256)");
+        }
         require_non_negative(ping_interval_ms_, "ping interval");
         require_non_negative(pong_timeout_ms_, "pong timeout");
         require_non_negative(stats_interval_ms_, "stats interval");

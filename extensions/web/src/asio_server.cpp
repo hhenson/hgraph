@@ -194,6 +194,22 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   result.stats_interval =
       milliseconds_field(root.at("stats_interval_ms"), "stats interval");
 
+  // A single maximal payload must always fit an EMPTY ingress channel:
+  // under Backpressure a message that can never fit would otherwise be
+  // parked forever with no pauser left to resume it (review P1).  The
+  // constants mirror the transport's retained-byte estimates.
+  if (result.ingress.bytes <
+      result.max_body_bytes + result.max_header_bytes + 512) {
+    throw std::invalid_argument(
+        "Web server ingress_byte_limit must cover one maximal request "
+        "(max_body_bytes + max_header_bytes + 512)");
+  }
+  if (result.ws_ingress.bytes < result.ws_max_message_bytes + 256) {
+    throw std::invalid_argument(
+        "Web server ws_ingress_byte_limit must cover one maximal message "
+        "(ws_max_message_bytes + 256)");
+  }
+
   const auto tls = root.at("tls");
   if (tls.data() != nullptr) {
     const auto fields = tls.as_bundle();
@@ -561,6 +577,31 @@ public:
     return listener_;
   }
 
+  // Ingress admission (review P1): a connection reserves its projected
+  // retained bytes BEFORE reading the request body, so concurrent
+  // connections cannot each hold a fully-read body while the bridge is
+  // full — the excess stays unread in the kernel (RFC 0024, flow control).
+  // The reservation is released when the request is pushed (the bridge
+  // accounts it from then on) or abandoned.
+  [[nodiscard]] bool try_admit_ingress(std::size_t bytes) noexcept {
+    const std::size_t limit = config_->ingress.bytes;
+    const std::size_t bridge_bytes =
+        bridge_.value->payload_retained_bytes(index(ServerChannel::Request));
+    std::size_t current = in_flight_ingress_.load(std::memory_order_relaxed);
+    while (true) {
+      if (bytes > limit - std::min(bridge_bytes + current, limit)) {
+        return false;
+      }
+      if (in_flight_ingress_.compare_exchange_weak(
+              current, current + bytes, std::memory_order_relaxed)) {
+        return true;
+      }
+    }
+  }
+  void release_ingress(std::size_t bytes) noexcept {
+    in_flight_ingress_.fetch_sub(bytes, std::memory_order_relaxed);
+  }
+
 private:
   void sweep_expired_requests();
   void arm_sweep_timer();
@@ -603,6 +644,7 @@ private:
   std::shared_ptr<asio::steady_timer> stats_timer_{};
   std::atomic<Int> sequence_{0};
   std::atomic<Int> dropped_{0};
+  std::atomic<std::size_t> in_flight_ingress_{0};
   std::atomic<bool> stopping_{false};
 };
 
@@ -626,7 +668,10 @@ public:
     listener_->connection_opened();
   }
 
-  ~ServerConnection() { listener_->connection_closed(); }
+  ~ServerConnection() {
+    release_admission();
+    listener_->connection_closed();
+  }
 
   void run() {
     asio::post(strand_, [self = shared_from_this()] { self->handshake(); });
@@ -711,7 +756,11 @@ private:
 
 
   void read_next();
-  void on_request();
+  void on_headers();
+  void respond_after_headers(http::status status, std::string_view body);
+  void admit_and_read_body(MatchedRoute matched);
+  void read_body(MatchedRoute matched);
+  void release_admission() noexcept;
   void dispatch_http(MatchedRoute matched, bool keep_alive);
   void accept_ws(MatchedRoute matched);
   void ws_read_next();
@@ -756,6 +805,8 @@ private:
   bool request_keep_alive_{};
   bool pending_is_head_{};
   std::string decoded_path_{};
+  std::size_t admitted_bytes_{};
+  std::shared_ptr<WebServerRuntime> admitted_runtime_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
   std::shared_ptr<WebServerRuntime> ws_runtime_{};
@@ -1116,6 +1167,12 @@ void WebServerRuntime::stop() noexcept {
   stopping_.store(true, std::memory_order_release);
   try {
     if (listener_) {
+      // Withdraw this runtime's pause tokens first: bridge_.stop() below
+      // discards the watermark callback, so a token left behind would pause
+      // the surviving attachees' reads forever (review P1).
+      listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
+      listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
+
       // (1) stop intake, (2) 503 pending + drain, (3) WS Close(1001),
       // (4) cancel + join IO, (5) bridge last (RFC 0024, lifecycle).
       const bool last =
@@ -1530,31 +1587,34 @@ void ServerConnection::read_next() {
                              ? beast::get_lowest_layer(*tls_stream_)
                              : *plain_stream_;
   stream_timeout.expires_after(config.idle_timeout);
-  const auto on_read = asio::bind_executor(
+  // Headers first: route admission happens BEFORE the body is read, so a
+  // request the bridge cannot hold stays unread in the kernel instead of
+  // being retained per-connection (review P1; RFC 0024, flow control).
+  const auto on_headers = asio::bind_executor(
       strand_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
         if (ec) {
           self->close();
           return;
         }
-        self->request_ = self->parser_->release();
-        self->on_request();
+        self->on_headers();
       });
   if (tls_stream_.has_value()) {
-    http::async_read(*tls_stream_, buffer_, *parser_, on_read);
+    http::async_read_header(*tls_stream_, buffer_, *parser_, on_headers);
   } else {
-    http::async_read(*plain_stream_, buffer_, *parser_, on_read);
+    http::async_read_header(*plain_stream_, buffer_, *parser_, on_headers);
   }
 }
 
-void ServerConnection::on_request() {
-  const auto method = method_from(request_.method());
+void ServerConnection::on_headers() {
+  const auto &header = parser_->get();
+  const auto method = method_from(header.method());
   if (!method.has_value()) {
     send_simple_response(http::status::not_implemented,
                          "unsupported method", false);
     return;
   }
-  const std::string_view target{request_.target().data(),
-                                request_.target().size()};
+  const std::string_view target{header.target().data(),
+                                header.target().size()};
   const auto query_start = target.find('?');
   const std::string_view path = target.substr(0, query_start);
   // Malformed percent-encoding is a client error, not an unmatched route
@@ -1562,13 +1622,15 @@ void ServerConnection::on_request() {
   // matcher agree on the same bytes.
   auto decoded_path = RouteTable::decode_path(path);
   if (!decoded_path.has_value()) {
-    send_simple_response(http::status::bad_request,
-                         "malformed percent-encoding", false);
+    respond_after_headers(http::status::bad_request,
+                          "malformed percent-encoding");
     return;
   }
   decoded_path_ = std::move(*decoded_path);
 
-  if (websocket::is_upgrade(request_)) {
+  if (websocket::is_upgrade(header)) {
+    // Upgrade requests carry no body, so the message is already complete.
+    request_ = parser_->release();
     auto matched = listener_->match(*method, path, true);
     if (!matched.has_value()) {
       send_simple_response(http::status::not_found, "no such route", false);
@@ -1585,11 +1647,111 @@ void ServerConnection::on_request() {
     matched = listener_->match(HttpMethod::Get, path, false);
   }
   if (!matched.has_value()) {
-    send_simple_response(http::status::not_found, "no such route",
-                         request_.keep_alive());
+    respond_after_headers(http::status::not_found, "no such route");
     return;
   }
-  dispatch_http(std::move(*matched), request_.keep_alive());
+  admit_and_read_body(std::move(*matched));
+}
+
+void ServerConnection::respond_after_headers(http::status status,
+                                             std::string_view body) {
+  if (parser_->is_done()) {
+    // No body follows: framing is intact, keep-alive can be honoured.
+    request_ = parser_->release();
+    send_simple_response(status, body, request_.keep_alive());
+    return;
+  }
+  // An unread body follows; closing after the response keeps the framing
+  // sound without reading bytes the graph will never see.
+  send_simple_response(status, body, false);
+}
+
+void ServerConnection::admit_and_read_body(MatchedRoute matched) {
+  if (shutting_down_) {
+    close();
+    return;
+  }
+  const auto &header = parser_->get();
+  std::size_t header_bytes = 0;
+  for (const auto &field : header) {
+    header_bytes += field.name_string().size() + field.value().size();
+  }
+  // Projection mirrors build_server_request's retained estimate; without a
+  // Content-Length (chunked) the body limit is the only bound.
+  const auto content_length = parser_->content_length();
+  const std::size_t projected_body =
+      content_length.has_value() ? static_cast<std::size_t>(*content_length)
+                                 : config_->max_body_bytes;
+  const std::size_t projected =
+      projected_body + header_bytes + header.target().size() + 512;
+  const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
+  if (runtime->try_admit_ingress(projected)) {
+    admitted_runtime_ = runtime;
+    admitted_bytes_ = projected;
+    read_body(std::move(matched));
+    return;
+  }
+  if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
+    // Over the limit the transport answers itself; the body stays unread,
+    // so the connection closes after the response to keep framing sound.
+    send_simple_response(http::status::service_unavailable,
+                         "server is at capacity", false);
+    return;
+  }
+  // Backpressure: the body stays in the kernel; retry admission when the
+  // HTTP tier resumes, or on a timer when no pauser is registered (the
+  // admission window can be exhausted before a watermark fires).
+  auto held = std::make_shared<MatchedRoute>(std::move(matched));
+  if (listener_->reads_paused(WebListener::ReadTier::Http)) {
+    listener_->park_for_resume(
+        WebListener::ReadTier::Http, [self = shared_from_this(), held] {
+          asio::post(self->strand_, [self, held] {
+            self->admit_and_read_body(std::move(*held));
+          });
+        });
+    return;
+  }
+  auto retry = std::make_shared<asio::steady_timer>(listener_->io_context());
+  retry->expires_after(std::chrono::milliseconds{50});
+  retry->async_wait(asio::bind_executor(
+      strand_,
+      [self = shared_from_this(), held, retry](beast::error_code ec) {
+        if (!ec && !self->shutting_down_) {
+          self->admit_and_read_body(std::move(*held));
+        }
+      }));
+}
+
+void ServerConnection::read_body(MatchedRoute matched) {
+  auto &stream_timeout = tls_stream_.has_value()
+                             ? beast::get_lowest_layer(*tls_stream_)
+                             : *plain_stream_;
+  stream_timeout.expires_after(config_->idle_timeout);
+  auto held = std::make_shared<MatchedRoute>(std::move(matched));
+  const auto on_read = asio::bind_executor(
+      strand_,
+      [self = shared_from_this(), held](beast::error_code ec, std::size_t) {
+        if (ec) {
+          self->release_admission();
+          self->close();
+          return;
+        }
+        self->request_ = self->parser_->release();
+        self->dispatch_http(std::move(*held), self->request_.keep_alive());
+      });
+  if (tls_stream_.has_value()) {
+    http::async_read(*tls_stream_, buffer_, *parser_, on_read);
+  } else {
+    http::async_read(*plain_stream_, buffer_, *parser_, on_read);
+  }
+}
+
+void ServerConnection::release_admission() noexcept {
+  if (admitted_runtime_) {
+    admitted_runtime_->release_ingress(admitted_bytes_);
+    admitted_runtime_.reset();
+    admitted_bytes_ = 0;
+  }
 }
 
 Value ServerConnection::peer_value(const WebBindings &b) {
@@ -1691,11 +1853,14 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
                              std::move(server_request), retained_bytes)) {
     runtime->unregister_pending(request_id);
     if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
+      release_admission();
       // Over the hard limit the transport answers itself; the graph never
       // sees the request (RFC 0024, flow control).
       send_simple_response(http::status::service_unavailable,
                            "server is at capacity", keep_alive);
     } else {
+      // The admission stays held through the retry: it accounts for the
+      // fully-read body this connection retains meanwhile.
       // Backpressure: leave the request unanswered until capacity returns.
       auto self = shared_from_this();
       auto retry = std::make_shared<asio::steady_timer>(
@@ -1711,6 +1876,8 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
     }
     return;
   }
+  // The bridge accounts the pushed request from here on.
+  release_admission();
   pending_request_id_ = request_id;
   request_keep_alive_ = keep_alive;
   pending_is_head_ = request_.method() == http::verb::head;
@@ -2074,16 +2241,33 @@ void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
     ws_close(websocket::close_code{1013}, "server is at capacity");
     return;
   }
-  // Hold the frame and retry when the WS tier resumes.  No further read is
-  // issued meanwhile, so TCP backpressure propagates to the peer.
+  // Hold the frame and retry.  No further read is issued meanwhile, so TCP
+  // backpressure propagates to the peer.
   auto held = std::make_shared<Value>(std::move(inbound));
-  listener_->park_for_resume(
-      WebListener::ReadTier::Ws,
-      [self = shared_from_this(), held, bytes] {
-        asio::post(self->strand_, [self, held, bytes] {
-          self->deliver_ws_ingress(std::move(*held), bytes);
+  if (listener_->reads_paused(WebListener::ReadTier::Ws)) {
+    listener_->park_for_resume(
+        WebListener::ReadTier::Ws,
+        [self = shared_from_this(), held, bytes] {
+          asio::post(self->strand_, [self, held, bytes] {
+            self->deliver_ws_ingress(std::move(*held), bytes);
+          });
         });
-      });
+    return;
+  }
+  // The push failed with no pauser registered (a watermark race, or the
+  // record limit outpacing the byte watermark): parking would re-run
+  // immediately and spin on the strand, so wait out the race on a timer
+  // instead (review P1).
+  auto retry =
+      std::make_shared<asio::steady_timer>(listener_->io_context());
+  retry->expires_after(std::chrono::milliseconds{50});
+  retry->async_wait(asio::bind_executor(
+      strand_,
+      [self = shared_from_this(), held, bytes, retry](beast::error_code ec) {
+        if (!ec && !self->shutting_down_) {
+          self->deliver_ws_ingress(std::move(*held), bytes);
+        }
+      }));
 }
 
 void ServerConnection::ws_read_continue() {
@@ -2262,7 +2446,10 @@ void ServerConnection::ws_close(websocket::close_code code,
   }
 }
 
-void ServerConnection::close() { close_socket_only(); }
+void ServerConnection::close() {
+  release_admission();
+  close_socket_only();
+}
 
 void ServerConnection::close_socket_only() {
   beast::error_code ec;
