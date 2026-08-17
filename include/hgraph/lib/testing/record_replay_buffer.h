@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/date_time.h>
 
 #include <array>

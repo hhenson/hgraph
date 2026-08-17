@@ -143,6 +143,10 @@ namespace hgraph::python_bridge
     [[nodiscard]] nb::object series_to_py(const Series &series);
     [[nodiscard]] Value      py_arrow_to_series(nb::handle object);
 
+    /** True when a Python compatibility frame store is installed in
+        ``state`` (py_persistence.cpp — the persistence binding unit). */
+    [[nodiscard]] bool python_frame_store_active(GlobalStateView state);
+
     /** meta -> registered python Enum class (backs the core enum ops'
         python conversion; cleared on registry reset). */
     [[nodiscard]] std::unordered_map<const ValueTypeMetaData *, nb::object> &enum_class_registry();

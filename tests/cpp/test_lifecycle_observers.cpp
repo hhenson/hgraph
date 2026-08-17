@@ -12,6 +12,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>

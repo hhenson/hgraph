@@ -130,9 +130,19 @@ Follow the standard family layout:
    register_graph_overload<normalize, normalize_tsl_map>();
    ```
 
-5. Add a new family registration function to
-   `register_standard_operators()` when introducing a standard family. An
-   extension should expose and call its own explicit registration entry point.
+5. Add a new family registration function to the standard installer
+   (`install_standard_operators()` inside `registration.cpp`) when
+   introducing a standard family. An extension exposes its own explicit
+   registration entry point that records a KEYED INSTALLER and runs the
+   installer list (RFC 0025 checkpoint 3):
+
+   ```cpp
+   OperatorRegistry::instance().register_installer("my.extension", &install_fn);
+   OperatorRegistry::instance().run_installers();
+   ```
+
+   Registry resets keep installer intent, so one rebuild call replays the
+   extension's registration exactly as core's — idempotent between resets.
 
 When a new standard family is genuinely needed, also add its definition header
 to `operators/operators.h`, its implementation header to
@@ -142,8 +152,10 @@ creating a one-operator family.
 
 Never register from a static initializer. Registries are reset between tests,
 and candidate patterns borrow interned type metadata. Register standard types
-first, then overloads, once per registry lifetime. Tests that need standard
-operators call `stdlib::register_standard_operators()` before wiring.
+first, then overloads. Tests that need standard operators call
+`stdlib::register_standard_operators()` before wiring; it replays every
+registered installer (core and extensions) not yet applied since the last
+reset, so repeated calls are safe.
 
 ## Connect the same registry to Python
 

@@ -2,7 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
 
 #include <hgraph/lib/std/operators/impl/data_frame_impl.h>
-#include <hgraph/lib/std/operators/impl/table_impl.h>
+#include <hgraph/lib/std/operators/table_rows.h>
 
 #include <arrow/array.h>
 #include <arrow/table.h>

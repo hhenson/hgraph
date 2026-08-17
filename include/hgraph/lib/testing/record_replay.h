@@ -1,8 +1,7 @@
 #ifndef HGRAPH_LIB_TESTING_RECORD_REPLAY_H
 #define HGRAPH_LIB_TESTING_RECORD_REPLAY_H
 
-#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>  // in-memory record/replay backends
-#include <hgraph/lib/testing/record_replay_buffer.h>                  // cycle-aligned buffer-format helpers
+#include <hgraph/lib/testing/record_replay_buffer.h>  // cycle-aligned buffer-format helpers
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/value/value.h>
 
@@ -15,11 +14,13 @@
 namespace hgraph::testing
 {
     /**
-     * The in-memory graph testing toolkit's seed/read API over the cycle-aligned
+     * The in-memory graph TESTING toolkit's seed/read API over the cycle-aligned
      * buffer (``record_replay_buffer.h``): seed a replay source's buffer and read
-     * a record sink's back. This is the harness umbrella: it also pulls in the
-     * record/replay OPERATOR backends (``stdlib::dense_record_impl`` /
-     * ``stdlib::replay_impl``, ``record_replay_memory_impl.h``) that tests wire.
+     * a record sink's back. Explicitly testing-owned (RFC 0025 checkpoint 3):
+     * this header carries no operator implementations — a test that wires the
+     * in-memory record/replay backends directly includes
+     * ``operators/impl/record_replay_memory_impl.h`` itself, and production
+     * persistence code depends on neither.
      *
      * The buffer is a value-layer **mutable** ``List`` stored in ``GlobalState``
      * under a string key and **cycle-aligned**: index ``i`` is evaluation time

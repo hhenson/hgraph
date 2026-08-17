@@ -6,6 +6,7 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/switch_node.h>
 #include <hgraph/lib/testing/mock_runtime.h>
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/types/graph_wiring.h>

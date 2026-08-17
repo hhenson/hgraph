@@ -157,9 +157,15 @@ NB_MODULE(_hgraph_kafka, module) {
   python_bridge::register_native_scalar_type<KafkaFailurePolicy>(
       failure_policy);
 
-  register_kafka_types();
-  register_graph_overload<RegisterKafkaServiceOperator,
-                          RegisterKafkaServiceGraph>();
+  // Keyed installer (RFC 0025 checkpoint 3): survives registry resets so
+  // the next rebuild replays this extension exactly as it replays core.
+  hgraph::OperatorRegistry::instance().register_installer(
+      "hgraph.kafka", +[] {
+        register_kafka_types();
+        register_graph_overload<RegisterKafkaServiceOperator,
+                                RegisterKafkaServiceGraph>();
+      });
+  hgraph::OperatorRegistry::instance().run_installers();
 
   nb::enum_<testing::MockProduceError>(module, "MockProduceError")
       .value("RETRIABLE", testing::MockProduceError::Retriable)

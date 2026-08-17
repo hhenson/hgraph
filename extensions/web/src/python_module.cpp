@@ -163,7 +163,13 @@ NB_MODULE(_hgraph_web, module) {
   python_bridge::register_native_scalar_type<WebHttpVersionPolicy>(
       version_policy);
 
-  register_web_types();
-  register_graph_overload<RegisterWebServerOperator, RegisterWebServerGraph>();
-  register_graph_overload<RegisterWebClientOperator, RegisterWebClientGraph>();
+  // Keyed installer (RFC 0025 checkpoint 3): survives registry resets so
+  // the next rebuild replays this extension exactly as it replays core.
+  hgraph::OperatorRegistry::instance().register_installer(
+      "hgraph.web", +[] {
+        register_web_types();
+        register_graph_overload<RegisterWebServerOperator, RegisterWebServerGraph>();
+        register_graph_overload<RegisterWebClientOperator, RegisterWebClientGraph>();
+      });
+  hgraph::OperatorRegistry::instance().run_installers();
 }

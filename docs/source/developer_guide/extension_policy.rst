@@ -48,6 +48,19 @@ An extension follows the same C++-first model as the core:
   implementation of runtime semantics.
 * The extension links the installed shared hgraph targets and shared nanobind
   runtime. It must not statically embed another hgraph registry universe.
+* Operator registration is a **keyed installer** (RFC 0025 checkpoint 3):
+  the native module's import path calls
+  ``OperatorRegistry::register_installer("<distribution key>", &install_fn)``
+  followed by ``run_installers()``.  A registry reset keeps installer
+  intent and clears only its applied state, so the next rebuild
+  (``register_standard_operators()`` or ``run_installers()``) replays the
+  extension's registration exactly as core's — never register from a
+  static initializer, and never maintain a manual re-registration list.
+* An extension implementing operator overloads consumes SUPPORTED public
+  headers only (for durable recording: the operator markers in
+  ``lib/std/operators/io.h`` and the table seam in
+  ``lib/std/operators/table_rows.h``); ``operators/impl/`` headers are
+  core-internal.
 * Static scalar policies select overloads during wiring. A genuinely dynamic
   policy composes a graph-level switch.
 * Public hot paths avoid repeated string policy checks, reflection, allocation,

@@ -292,6 +292,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
 hgraph_add_test_objects(hgraph_record_test_objects
     test_json.cpp
     test_record_replay.cpp
+    test_operator_installers.cpp
     test_record_replay_config.cpp
     test_record_replay_frame.cpp
     test_record_replay_partitioned.cpp

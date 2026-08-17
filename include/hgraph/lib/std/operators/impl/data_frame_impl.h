@@ -2,7 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_DATA_FRAME_IMPL_H
 
 #include <hgraph/lib/std/operators/data_frame.h>
-#include <hgraph/lib/std/operators/impl/table_impl.h>
+#include <hgraph/lib/std/operators/table_rows.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>

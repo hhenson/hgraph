@@ -108,6 +108,37 @@ except ValueError:
 else:
     raise RuntimeError("built-in native-schema registration was replaced")
 
+# The extension also registered an external record/replay backend
+# ("probe.mem") for the CORE operator markers through public installed
+# headers (RFC 0025 checkpoint 3). Selecting its backend id resolves its
+# overloads from unchanged hgraph imports, on the Python surface.
+from hgraph import TS as _TS, graph, record, replay, set_record_replay_model
+
+with hgraph.GlobalState() as _probe_state:
+    set_record_replay_model("probe.mem")
+
+    @graph
+    def _probe_record(ts: _TS[int]):
+        record(ts, key="probe_out")
+
+    eval_node(_probe_record, [7, 8])
+    assert _probe_state[":probe:probe_out.n"] == 2
+    assert _probe_state[":probe:probe_out.0"] == 7
+    assert _probe_state[":probe:probe_out.1"] == 8
+
+    @graph
+    def _probe_replay() -> _TS[int]:
+        return replay("probe_out", _TS[int])
+
+    assert eval_node(_probe_replay) == [7, 8]
+
+# reset_registries replays the extension installer exactly as core's.
+_hgraph.reset_registries()
+with hgraph.GlobalState() as _probe_state:
+    set_record_replay_model("probe.mem")
+    eval_node(_probe_record, [9])
+    assert _probe_state[":probe:probe_out.0"] == 9
+
 print(f"installed Python extension consumer passed: registry={address:#x}")
 """,
                 str(module_dir),

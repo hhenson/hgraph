@@ -173,10 +173,16 @@ installing the extension" needs a defined load point.  The contract:
   ``hgraph::persistence::register_frame_backend()`` that registers the
   durable operator overloads and claims the
   ``"hgraph.persistence.frame"`` identifier.  Registration goes through
-  the same installer mechanism core's standard-operator setup uses, so a
-  registry reset-and-rebuild (the testing path through
-  ``record_replay::reset()``) replays extension registration exactly as
-  it replays core's — the extension does not strand on reset.
+  the **registration-installer mechanism** (checkpoint 3):
+  ``OperatorRegistry::register_installer(key, fn)`` records keyed
+  registration INTENT that survives ``reset()`` (which clears only the
+  applied flags along with the overload table), and
+  ``OperatorRegistry::run_installers()`` applies every installer not yet
+  applied since the last reset.  Core's own
+  ``register_standard_operators()`` is the first installer
+  (``"hgraph.stdlib"``), so one rebuild call replays extension
+  registration exactly as it replays core's — the extension does not
+  strand on reset, and entry points stay idempotent between resets.
 * **Python load trigger.**  Durable behaviour is only ever *requested*
   through backend selection.  The single backend-normalisation choke
   point in ``hgraph._wiring._state`` (graph default and per-call
@@ -555,8 +561,11 @@ C++ — operator implementations and seams:
        (``recording_columns`` et al., ``TableRecordingOptions``)
      - core
      - 3
-     - Promoted from the ``impl`` header to a supported public core
-       header so the extension consumes it without private includes.
+     - Promoted to the supported public header
+       ``lib/std/operators/table_rows.h`` (previously-internal
+       ``emit_rows`` / ``apply_rows`` / ``to_table_mode_meta`` /
+       ``clear_ts_table_layouts`` exported with it); the extension
+       consumes it without private includes.
    * - ``impl/table_impl.h`` — reads of ``record_replay::config`` inside
        generic ``to_table`` / ``from_table``
      - removal
@@ -572,14 +581,24 @@ C++ — operator implementations and seams:
 
 C++ — testing harness (``lib/testing/record_replay.h``,
 ``record_replay_buffer.h``, the dense buffer/seed API): **core** — the
-harness data layer stays in a core-only build (checkpoint 3 renames it
-explicitly testing-owned).  ``standard_scalar_bindings.cpp``'s
-``ReplayCursorState`` binding follows the memory backend: core.  The
-``extensions/analytics`` test that includes the memory ``impl`` header
-directly is re-pointed at the public seam at checkpoint 3.
+harness data layer stays in a core-only build.  Checkpoint 3 made the
+testing ownership explicit by DECOUPLING rather than renaming: the
+harness seed/read header no longer pulls in the record/replay operator
+implementations (a consumer that wires the in-memory backends directly
+includes ``operators/impl/record_replay_memory_impl.h`` itself), so
+production persistence code depends on neither.
+``standard_scalar_bindings.cpp``'s ``ReplayCursorState`` binding follows
+the memory backend: core.  The ``extensions/analytics`` test that
+included the memory ``impl`` header directly is re-pointed at the public
+operator markers (wired through registry resolution under the
+``"testing"`` backend).
 
 Python bindings — ``python/py_state_services.cpp`` (split at
-checkpoint 3 into core state/services and extension persistence units):
+checkpoint 3: the frame-store surface — the Python compatibility store
+machinery, ``_frame_store_contains`` / ``_frame_store_read`` /
+``_set_python_frame_store`` / ``_restore_python_frame_store``, and the
+durable recording-option enum slots — moved to ``python/py_persistence.cpp``
+(``bind_persistence``), the unit checkpoints 4/5 relocate wholesale):
 
 .. list-table::
    :header-rows: 1

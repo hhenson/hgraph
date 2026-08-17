@@ -605,6 +605,36 @@ namespace hgraph
         overloads_[impl.name].push_back(std::move(impl));
     }
 
+    void OperatorRegistry::register_installer(std::string_view key, void (*installer)())
+    {
+        for (Installer &entry : installers_)
+        {
+            if (entry.key == key)
+            {
+                // Replace the callback, keep the applied state: entry points
+                // stay idempotent between resets.
+                entry.fn = installer;
+                return;
+            }
+        }
+        installers_.push_back(Installer{.key = std::string{key}, .fn = installer});
+    }
+
+    void OperatorRegistry::run_installers()
+    {
+        for (Installer &entry : installers_)
+        {
+            if (entry.applied || entry.fn == nullptr)
+            {
+                continue;
+            }
+            // Flag first: an installer that (indirectly) re-enters the
+            // rebuild must not replay itself.
+            entry.applied = true;
+            entry.fn();
+        }
+    }
+
     Value OperatorRegistry::evaluate_const(std::string_view name, std::span<const WiringArg> args,
                                            const TSValueTypeMetaData *expected_output,
                                            GlobalStateView global_state) const
@@ -835,6 +865,10 @@ namespace hgraph
         mesh_scopes_.clear();
         context_scopes_.clear();
         record_replay::reset();   // config + mode scopes (types/record_replay.h)
+        // Registration INTENT survives the reset: clear only the applied
+        // flags so the next run_installers() replays every installer —
+        // extensions exactly as core (RFC 0025 checkpoint 3).
+        for (Installer &entry : installers_) { entry.applied = false; }
     }
 
     void OperatorRegistry::push_context_scope(std::string_view name, WiringPortRef port, const void *wiring)

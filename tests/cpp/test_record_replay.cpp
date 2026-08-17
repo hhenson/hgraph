@@ -5,6 +5,7 @@
 // on the builder, runs the executor, and reads the recorded per-cycle output back
 // out of the graph's GlobalState.
 
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>

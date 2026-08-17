@@ -1,5 +1,13 @@
 #include <hgraph/lib/std/standard_types.h>
+#include <hgraph/lib/std/operators/io.h>
 #include <hgraph/lib/std/operators/table.h>
+#include <hgraph/runtime/node_scheduler.h>
+#include <hgraph/runtime/runtime.h>
+#include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/operator_dispatch.h>
+#include <hgraph/types/record_replay.h>
+#include <hgraph/types/registry_reset.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/registry_snapshot.h>
@@ -119,6 +127,143 @@ namespace
         &emit_consumer_table,
         &apply_consumer_table,
     };
+
+    // ------------------------------------------------------------------
+    // A trivial EXTERNAL record/replay backend (RFC 0025 checkpoint 3):
+    // registers overloads of the core operator markers through public
+    // installed headers only, guarded on its own backend id. Recordings
+    // are plain GlobalState scalars (":probe:<key>.<i>" + a count) —
+    // deliberately naive; the point is the seam, not the storage.
+    // ------------------------------------------------------------------
+
+    constexpr std::string_view kProbeBackend{"probe.mem"};
+
+    [[nodiscard]] std::string probe_key(std::string_view key, std::string_view suffix)
+    {
+        return ":probe:" + std::string{key} + "." + std::string{suffix};
+    }
+
+    [[nodiscard]] hgraph::Int probe_count(hgraph::GlobalStateView gs, std::string_view key)
+    {
+        const auto value = gs.get(probe_key(key, "n"));
+        return value.valid() ? value.checked_as<hgraph::Int>() : hgraph::Int{0};
+    }
+
+    struct probe_record_impl
+    {
+        static constexpr auto name = "probe_record";
+
+        static bool requires_(const hgraph::ResolutionMap &, hgraph::OperatorCallContext context)
+        {
+            return hgraph::record_replay::effective_backend_is(context, kProbeBackend);
+        }
+
+        static auto defaults()
+        {
+            return std::tuple{hgraph::arg<"key">(hgraph::Str{"out"}),
+                              hgraph::arg<"recordable_id">(hgraph::Str{""}),
+                              hgraph::arg<"model">(hgraph::Str{})};
+        }
+
+        static void eval(hgraph::In<"ts", hgraph::TsVar<"S">, hgraph::InputValidity::Unchecked> ts,
+                         hgraph::Scalar<"key", hgraph::Str> key,
+                         hgraph::Scalar<"recordable_id", hgraph::Str>,
+                         hgraph::Scalar<"model", hgraph::Str>, hgraph::GlobalStateView gs)
+        {
+            if (!ts.modified()) { return; }
+            const hgraph::Int n = probe_count(gs, key.value());
+            gs.set(probe_key(key.value(), std::to_string(n)), hgraph::Value{ts.value()});
+            gs.set(probe_key(key.value(), "n"), hgraph::Value{hgraph::Int{n + 1}});
+        }
+    };
+
+    struct probe_replay_impl
+    {
+        static constexpr auto name              = "probe_replay";
+        static constexpr bool schedule_on_start = true;
+
+        static bool requires_(const hgraph::ResolutionMap &, hgraph::OperatorCallContext context)
+        {
+            return hgraph::record_replay::effective_backend_is(context, kProbeBackend);
+        }
+
+        static auto defaults()
+        {
+            return std::tuple{hgraph::arg<"recordable_id">(hgraph::Str{""}),
+                              hgraph::arg<"model">(hgraph::Str{})};
+        }
+
+        static void eval(hgraph::Scalar<"key", hgraph::Str> key,
+                         hgraph::Scalar<"recordable_id", hgraph::Str>,
+                         hgraph::Scalar<"model", hgraph::Str>, hgraph::GlobalStateView gs,
+                         hgraph::NodeScheduler sched, hgraph::Out<hgraph::TsVar<"O">> out)
+        {
+            const hgraph::Int n = probe_count(gs, key.value());
+            const auto cursor_key = probe_key(key.value(), "i");
+            const auto cursor = gs.get(cursor_key);
+            const hgraph::Int i = cursor.valid() ? cursor.checked_as<hgraph::Int>() : hgraph::Int{0};
+            if (i >= n) { return; }
+            hgraph::apply_delta(out, gs.get(probe_key(key.value(), std::to_string(i))));
+            gs.set(cursor_key, hgraph::Value{hgraph::Int{i + 1}});
+            if (i + 1 < n) { sched.schedule(hgraph::MIN_TD); }
+        }
+    };
+
+    void install_probe_backend()
+    {
+        hgraph::register_overload<hgraph::stdlib::record, probe_record_impl>();
+        hgraph::register_overload<hgraph::stdlib::replay, probe_replay_impl>();
+    }
+
+    void check_probe_backend_round_trip()
+    {
+        using namespace hgraph;
+
+        // Registration intent recorded once; the rebuild call replays it —
+        // including after a full registry reset (the extension contract).
+        OperatorRegistry::instance().register_installer("hgraph.test.probe",
+                                                        &install_probe_backend);
+        OperatorRegistry::instance().run_installers();
+
+        const auto run_round_trip = [] {
+            Wiring wiring;
+            record_replay::set_config(
+                wiring.global_state(),
+                record_replay::RecordReplayConfig{.backend = std::string{kProbeBackend}});
+            auto source = wire<stdlib::replay, TS<Int>>(wiring, Str{"in"});
+            wire<stdlib::record>(wiring, source, Str{"out"});
+
+            GraphBuilder graph_builder = std::move(wiring).finish();
+            const auto   seed          = graph_builder.global_state();
+            seed.set(probe_key("in", "0"), Value{Int{11}});
+            seed.set(probe_key("in", "1"), Value{Int{22}});
+            seed.set(probe_key("in", "n"), Value{Int{2}});
+
+            GraphExecutorBuilder executor_builder;
+            executor_builder.graph_builder(std::move(graph_builder))
+                .start_time(MIN_ST)
+                .end_time(MIN_ST + MIN_TD * 6);
+            GraphExecutorValue executor = executor_builder.make_executor();
+            auto               view     = executor.view();
+            view.run();
+
+            const auto state = view.graph().global_state();
+            if (probe_count(state, "out") != 2 ||
+                state.get(probe_key("out", "0")).checked_as<Int>() != 11 ||
+                state.get(probe_key("out", "1")).checked_as<Int>() != 22)
+            {
+                throw std::runtime_error(
+                    "probe record/replay backend did not round trip through the installed SDK");
+            }
+        };
+
+        run_round_trip();
+
+        // Reset-and-rebuild: intent survives, one call restores the backend.
+        reset_all_registries();
+        OperatorRegistry::instance().run_installers();
+        run_round_trip();
+    }
 }  // namespace
 
 int main()
@@ -393,6 +538,8 @@ int main()
     {
         throw std::runtime_error("installed Arrow frame metadata codec is unusable");
     }
+
+    check_probe_backend_round_trip();
 
     return 0;
 }

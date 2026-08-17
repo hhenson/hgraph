@@ -6,6 +6,7 @@
 // delta builders) for TS / SIGNAL / TSS / TSD / TSL / TSB / TSW.
 
 #include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>

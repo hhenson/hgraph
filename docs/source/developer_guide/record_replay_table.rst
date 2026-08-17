@@ -615,7 +615,11 @@ record/replay backend's fused Arrow route; the frame round-trip remains
 reachable through ``TS[Frame[...]]`` payloads below). Python-parity rules:
 
 - **Row layout** (synthesised once per resolved input TS schema + configured
-  bitemporal names, the serializer-ops pattern):
+  bitemporal names, the serializer-ops pattern; since RFC 0025 checkpoint 3
+  the layout/traversal seam is the SUPPORTED public header
+  ``lib/std/operators/table_rows.h`` — the seam a durable-backend extension
+  consumes — with ``impl/table_impl.h`` keeping only the operator
+  implementations over it):
   ``[date_key, as_of_key, {removed, *key-cols}(per TSD level), *value-cols]``.
   Value columns are the ``TableConverter`` flattening (bundles dotted).
   Partition-key columns follow Python's naming: level *N* of a TSD
