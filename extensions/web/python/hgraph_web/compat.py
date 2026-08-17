@@ -52,6 +52,12 @@ Deliberate deviations:
   one segment, so ``/echo/`` is a 404.
 * **A mid-pattern ``(.*)`` captures one segment**, not several: only the final
   group can span segments.
+* **An optional separator before a trailing capture serves two routes.**  The
+  released REST route is spelled ``"{url}/?(.*)"``; one native pattern cannot
+  express it, so compat serves ``{url}/*arg0`` and ``{url}``, and pads
+  ``url_parsed_args`` to the tornado group count so the bare route still
+  reports the empty capture the released handler saw.  ``{url}/`` is not
+  served, and no other optional character is accepted.
 * **``HEAD``, ``PATCH``, ``OPTIONS`` and ``TRACE`` are answered 405** by the
   compat layer itself (matching tornado's unimplemented-method response,
   including its HTML body) without invoking the handler.  ``GET``, ``POST``,
@@ -60,23 +66,29 @@ Deliberate deviations:
 * **Responses default to ``Content-Type: text/html; charset=UTF-8``** when the
   handler sets no content type, which is tornado's ``RequestHandler`` default.
   Tornado's ``Server``/``Date`` headers are the native transport's business.
-* **WebSocket handshakes are always accepted.**  The native transport upgrades
-  before the graph sees the connection, so a ``connect_response`` of ``False``
-  closes the socket immediately after the upgrade instead of rejecting the
-  handshake.  ``connect_response`` of ``True`` is a no-op.
+* **A rejected WebSocket closes with code 1000.**  Both transports complete
+  the upgrade before the graph sees the connection, so a ``connect_response``
+  of ``False`` closes an accepted socket in either — but the released handler
+  closed with no code at all, where compat sends a normal closure.
+  ``connect_response`` of ``True`` is a no-op.
 * **Handler state is keyed per request id, and per connection id for
   WebSockets**, as released — but a handler graph created for a key sends its
   first service request on the following engine cycle (the nested-client
   hand-off described in the services design record).
 
+The advanced tier is reproduced too: ``http_server_adaptor`` /
+``http_server_adaptor_impl`` and ``websocket_server_adaptor`` with its helper
+and implementation registration tokens accept the released explicit wiring
+(``from_graph``/``to_graph`` clients discovered off the wiring context), lowered
+so each route owns a native serve stream instead of a shared queue partitioned
+by request URL.  Handlers do not go through the adaptor at all, so a graph may
+mix both without one seeing the other's routes.
+
 Not reproduced (import these from the released package if you need them):
 
-* ``http_server_adaptor`` / ``http_server_adaptor_impl`` /
-  ``websocket_server_adaptor`` / ``websocket_server_adaptor_helper`` /
-  ``websocket_server_adaptor_impl`` — the adaptor *interfaces* used for
-  explicit ``from_graph``/``to_graph`` wiring.  Compat lowers handlers straight
-  onto the native services, so there is no adaptor to bind.
-* ``rest_handler`` and the ``Rest*`` request/response values.
+* ``rest_handler`` and the ``Rest*`` request/response values are not defined
+  here; the released ``hgraph.adaptors.tornado._rest_handler`` keeps them and
+  now lowers them onto this module's ``http_server_handler``.
 * The HTTP and WebSocket *client* adaptors (``http_client_adaptor``,
   ``websocket_client_adaptor``, ``Credentials``) — use
   :func:`hgraph_web.web_http_request` and :func:`hgraph_web.web_ws_connect`.
@@ -90,13 +102,16 @@ Additions (not part of the released surface):
   port, so a graph can observe :func:`hgraph_web.web_server_stats` for it.
 * ``register_http_server_adaptor(port, config=...)`` and its WebSocket twin
   accept an optional :class:`~hgraph_web.WebServerConfig`; its ``port`` is
-  replaced by the registered port.
+  replaced by the registered port.  Without one, the server is configured with
+  a 250ms shutdown drain rather than the transport's 5s default: the released
+  teardown cancelled outstanding requests at once, so the longer drain reads as
+  a graph that will not stop.  A supplied config is used as given.
 """
 
 import email.utils
 import inspect
 import weakref
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from http.cookies import CookieError, SimpleCookie
 from typing import Generic, TypeVar
@@ -112,14 +127,20 @@ from hgraph import (
     TSB,
     TSD,
     TimeSeriesSchema,
+    adaptor,
+    adaptor_impl,
     combine,
     compute_node,
+    from_graph,
     graph,
     map_,
+    merge,
+    register_adaptor,
+    to_graph,
 )
 from hgraph._types import _TsExpr
 from hgraph._wiring import _GraphFn, _PyNode
-from hgraph._wiring._core import _current_wiring
+from hgraph._wiring._core import _current_wiring, _wiring_stack
 from hgraph._wiring._operator import _is_hidden_node_parameter
 
 from . import (
@@ -153,9 +174,14 @@ __all__ = (
     "WebSocketResponse",
     "WebSocketServerRequest",
     "compat_service_path",
+    "http_server_adaptor",
+    "http_server_adaptor_impl",
     "http_server_handler",
     "register_http_server_adaptor",
     "register_websocket_server_adaptor",
+    "websocket_server_adaptor",
+    "websocket_server_adaptor_helper",
+    "websocket_server_adaptor_impl",
     "websocket_server_handler",
 )
 
@@ -163,6 +189,11 @@ __all__ = (
 # The released ``BaseHandler.prepare`` installs this pair whenever no
 # authentication callback is registered, and compat has no callback hook.
 _ANONYMOUS_USER = ("Anonymous", "Anonymous")
+# The released adaptor cancelled outstanding work the moment its routes
+# stopped, so the transport's multi-second shutdown drain would show up as a
+# stalled graph teardown that no released user ever saw.  This keeps a flush
+# window without the stall; pass a config to choose your own.
+_COMPAT_DRAIN_MS = 250
 _DEFAULT_CONTENT_TYPE = "text/html; charset=UTF-8"
 _COMPAT_STATE_KEY = "hgraph-web.tornado-compatibility-state"
 
@@ -322,8 +353,24 @@ _LITERAL_METACHARACTERS = frozenset("[]{}*+?|^$")
 _REST_BODIES = frozenset({".*", ".*?", ".+", ".+?"})
 
 
-def _translate_pattern(pattern: str) -> str:
-    """Translate a tornado URL pattern into a native ``WebRoute`` pattern."""
+@dataclass(frozen=True)
+class _CompatRoute:
+    """The native routes one tornado URL pattern serves.
+
+    ``patterns`` is usually one route.  ``rest_handler`` spells its URL as
+    ``"{url}/?(.*)"`` — an optional separator before the trailing capture —
+    which one native pattern cannot express, so that form serves two: the
+    captured route and the bare one.  ``captures`` is the number of groups the
+    tornado pattern declares, which is what ``url_parsed_args`` must always
+    carry however few the matched route filled in.
+    """
+
+    patterns: tuple[str, ...]
+    captures: int
+
+
+def _translate_pattern(pattern: str) -> _CompatRoute:
+    """Translate a tornado URL pattern into the native routes it serves."""
 
     body = pattern
     if body.startswith("^"):
@@ -334,6 +381,7 @@ def _translate_pattern(pattern: str) -> str:
         raise _pattern_error(pattern, "must start with '/'")
 
     translated: list[str] = []
+    optional: list[str] | None = None
     captures = 0
     index = 0
     while index < len(body):
@@ -365,6 +413,17 @@ def _translate_pattern(pattern: str) -> str:
             rest = group in _REST_BODIES and index == len(body)
             translated.append(f"*{name}" if rest else f"{{{name}}}")
             continue
+        if character == "?":
+            # Only the separator before a trailing capture may be optional:
+            # that is the one regex option the released REST route relies on.
+            if translated[-1:] != ["/"] or optional is not None:
+                raise _pattern_error(
+                    pattern,
+                    "may only make the separator before a trailing capture optional",
+                )
+            optional = translated[:-1]
+            index += 1
+            continue
         if character in _LITERAL_METACHARACTERS:
             raise _pattern_error(
                 pattern,
@@ -372,7 +431,16 @@ def _translate_pattern(pattern: str) -> str:
             )
         translated.append(character)
         index += 1
-    return "".join(translated)
+
+    patterns = ["".join(translated)]
+    if optional is not None:
+        if captures != 1 or not patterns[0].endswith(("*arg0", "{arg0}")):
+            raise _pattern_error(
+                pattern,
+                "may only make the separator before a trailing capture optional",
+            )
+        patterns.append("".join(optional))
+    return _CompatRoute(tuple(patterns), captures)
 
 
 # ---------------------------------------------------------------------------
@@ -433,13 +501,23 @@ def _capture_index(param) -> int:
         return 0
 
 
-def _compat_request(server_request, url: str) -> HttpRequest:
+def _parsed_args(path_params, captures: int) -> tuple[str, ...]:
+    """The captures in declaration order, padded to the pattern's group count.
+
+    A tornado group that matched nothing still arrives as an empty string; the
+    bare route of an optional-separator pattern fills none of them.
+    """
+
+    values = tuple(param.value for param in sorted(path_params, key=_capture_index))
+    return values + ("",) * (captures - len(values))
+
+
+def _compat_request(server_request, url: str, captures: int) -> HttpRequest:
     inbound = server_request.request
     headers = _collapse_headers(inbound.headers)
-    captures = sorted(inbound.path_params, key=_capture_index)
     arguments = dict(
         url=url,
-        url_parsed_args=tuple(param.value for param in captures),
+        url_parsed_args=_parsed_args(inbound.path_params, captures),
         query=_collapse_query(inbound.query),
         headers=headers,
         cookies=_parse_cookies(headers.get("Cookie", "")),
@@ -512,12 +590,13 @@ def _to_compat_requests(
     put: TS[WebHttpServerRequest],
     delete: TS[WebHttpServerRequest],
     url: str,
+    captures: int,
 ) -> TSD[int, TS[HttpRequest]]:
     requests = {}
     for served in (get, post, put, delete):
         if served.modified:
             value = served.value
-            requests[value.request_id] = _compat_request(value, url)
+            requests[value.request_id] = _compat_request(value, url, captures)
     return requests or None
 
 
@@ -560,18 +639,17 @@ def _response_key(request_id: TS[int], response: TS[WebHttpResponse]) -> TS[int]
 
 @compute_node
 def _ws_connections(
-    event: TS[WsEvent], url: str
+    event: TS[WsEvent], url: str, captures: int
 ) -> TSD[int, TS[WebSocketConnectRequest]]:
     value = event.value
     if value.state != WsConnectionState.OPEN:
         return {value.connection_id: REMOVE_IF_EXISTS}
     inbound = value.request.request
     headers = _collapse_headers(inbound.headers)
-    captures = sorted(inbound.path_params, key=_capture_index)
     return {
         value.connection_id: WebSocketConnectRequest(
             url=url,
-            url_parsed_args=tuple(param.value for param in captures),
+            url_parsed_args=_parsed_args(inbound.path_params, captures),
             headers=headers,
             cookies=_parse_cookies(headers.get("Cookie", "")),
             auth=_ANONYMOUS_USER,
@@ -579,26 +657,41 @@ def _ws_connections(
     }
 
 
-@compute_node
-def _ws_text_messages(frame: TS[WsInboundFrame]) -> TSD[int, TS[tuple[str, ...]]]:
-    value = frame.value
-    payload = value.frame
-    if payload.kind is WsFrameKind.TEXT:
-        return {value.connection_id: (payload.text,)}
-    if payload.kind is WsFrameKind.BINARY:
-        return {value.connection_id: (payload.data.decode(),)}
-    return None
+# The close event has to erase the message key as well as the connection key:
+# the handler instance lives for as long as either key does, so releasing only
+# one of them would leave a connection's graph running after it closed.
+@compute_node(valid=())
+def _ws_text_messages(
+    frame: TS[WsInboundFrame], event: TS[WsEvent]
+) -> TSD[int, TS[tuple[str, ...]]]:
+    messages = {}
+    if event.modified and event.value.state != WsConnectionState.OPEN:
+        messages[event.value.connection_id] = REMOVE_IF_EXISTS
+    if frame.modified:
+        value = frame.value
+        payload = value.frame
+        if payload.kind is WsFrameKind.TEXT:
+            messages[value.connection_id] = (payload.text,)
+        elif payload.kind is WsFrameKind.BINARY:
+            messages[value.connection_id] = (payload.data.decode(),)
+    return messages or None
 
 
-@compute_node
-def _ws_binary_messages(frame: TS[WsInboundFrame]) -> TSD[int, TS[tuple[bytes, ...]]]:
-    value = frame.value
-    payload = value.frame
-    if payload.kind is WsFrameKind.BINARY:
-        return {value.connection_id: (payload.data,)}
-    if payload.kind is WsFrameKind.TEXT:
-        return {value.connection_id: (payload.text.encode(),)}
-    return None
+@compute_node(valid=())
+def _ws_binary_messages(
+    frame: TS[WsInboundFrame], event: TS[WsEvent]
+) -> TSD[int, TS[tuple[bytes, ...]]]:
+    messages = {}
+    if event.modified and event.value.state != WsConnectionState.OPEN:
+        messages[event.value.connection_id] = REMOVE_IF_EXISTS
+    if frame.modified:
+        value = frame.value
+        payload = value.frame
+        if payload.kind is WsFrameKind.BINARY:
+            messages[value.connection_id] = (payload.data,)
+        elif payload.kind is WsFrameKind.TEXT:
+            messages[value.connection_id] = (payload.text.encode(),)
+    return messages or None
 
 
 @compute_node(valid=())
@@ -630,18 +723,17 @@ def _ws_send_key(connection_id: TS[int], frame: TS[WsFrame]) -> TS[int]:
 
 @dataclass
 class _CompatState:
-    servers: dict = None
+    servers: dict = field(default_factory=dict)
     http_port: int = None
     ws_port: int = None
-
-    def __post_init__(self):
-        self.servers = {}
 
     def register(self, port: int, config: WebServerConfig) -> str:
         path = compat_service_path(port)
         if port not in self.servers:
-            server_config = WebServerConfig(port=port) if config is None else replace(
-                config, port=port
+            server_config = (
+                WebServerConfig(port=port, shutdown_drain_timeout_ms=_COMPAT_DRAIN_MS)
+                if config is None
+                else replace(config, port=port)
             )
             register_web_server(server_config, path=path)
             self.servers[port] = server_config
@@ -654,7 +746,11 @@ class _CompatState:
 
 
 def _compat_state() -> _CompatState:
-    return _current_wiring()._acquire_extension_state(_COMPAT_STATE_KEY, _CompatState)
+    # Adaptor implementations are wired in their own context, so the
+    # registration state hangs off the application's root wiring and is shared
+    # by handlers, registrations, and implementations alike.
+    _current_wiring()
+    return _wiring_stack[0]._acquire_extension_state(_COMPAT_STATE_KEY, _CompatState)
 
 
 def _serving_path(port: int, what: str) -> str:
@@ -703,20 +799,31 @@ def _keyed_bundle_field_types(annotation) -> dict[str, _TsExpr] | None:
     }
 
 
-def _serve_requests(url: str, pattern: str, path: str):
+def _serve(route: _CompatRoute, method: HttpMethod, path: str, upgrade: bool = False):
+    """One request stream for a method across every pattern of ``route``.
+
+    The transport delivers one request per engine cycle across all routes, and
+    a path matches at most one of a route's patterns, so merging their streams
+    cannot lose a request.
+    """
+
+    served = [
+        web_serve(WebRoute(method, pattern), path=path)["request"]
+        for pattern in route.patterns
+    ]
+    return served[0] if len(served) == 1 else merge(*served)
+
+
+def _serve_requests(url: str, route: _CompatRoute, path: str):
     """Serve one tornado route: the four handled methods, keyed by request id."""
 
-    streams = [
-        web_serve(WebRoute(method, pattern), path=path)["request"]
-        for method in _HANDLED_METHODS
-    ]
+    streams = [_serve(route, method, path) for method in _HANDLED_METHODS]
     for method in _REJECTED_METHODS:
-        served = web_serve(WebRoute(method, pattern), path=path)
-        request = served["request"]
+        request = _serve(route, method, path)
         web_respond(
             _server_request_id(request), _method_not_allowed(request), path=path
         )
-    return _to_compat_requests(*streams, url=url)
+    return _to_compat_requests(*streams, url=url, captures=route.captures)
 
 
 def _wire_responses(responses, path: str) -> None:
@@ -735,7 +842,7 @@ class _HttpServerHandler:
         self._fn = fn if isinstance(fn, (_GraphFn, _PyNode)) else graph(fn)
         self.url = url
         self.__name__ = getattr(fn, "__name__", "http_server_handler")
-        self.pattern = _translate_pattern(url)
+        self.route = _translate_pattern(url)
 
         target = getattr(fn, "fn", fn)
         signature = inspect.signature(target, eval_str=True)
@@ -788,7 +895,7 @@ class _HttpServerHandler:
         bound = self.__signature__.bind(*args, **kwargs)
         bound.apply_defaults()
 
-        requests = _serve_requests(self.url, self.pattern, path)
+        requests = _serve_requests(self.url, self.route, path)
         if self._single:
             responses = map_(self._fn, requests, *bound.args, **bound.kwargs)
         else:
@@ -824,6 +931,86 @@ def http_server_handler(fn=None, *, url: str):
     return handler
 
 
+@adaptor
+def http_server_adaptor(
+    response: TSD[int, TS[HttpResponse]],
+    path: str,
+) -> TSD[int, TS[HttpRequest]]:
+    """Expose a graph request/response stream as an HTTP route."""
+
+
+def _adaptor_routes(interface, clients, ordering, label: str, generic: bool):
+    """The released client walk: validate, dedup to base routes, then order.
+
+    Ordering follows handler declaration order as it did on tornado, where it
+    selected route precedence.  Native routing is specificity-ordered, so here
+    it only fixes the order routes are wired in.
+    """
+
+    endpoints = set()
+    routes = []
+    seen = set()
+    for endpoint, type_map, _node, receive in clients:
+        if type_map and not generic:
+            raise TypeError(f"{label} server adaptor does not support generic bindings")
+        if (endpoint, receive) in endpoints:
+            raise ValueError(
+                f"duplicate {label} adaptor client for {endpoint!r} and direction {receive}")
+        endpoints.add((endpoint, receive))
+        base = endpoint.removesuffix("/from_graph").removesuffix("/to_graph")
+        if base not in seen:
+            routes.append(base)
+            seen.add(base)
+    priority = {route: index for index, route in enumerate(ordering)}
+    routes.sort(key=lambda base: priority.get(
+        interface.path_from_full_path(base), len(priority)))
+    return routes
+
+
+@adaptor_impl(interfaces=())
+def http_server_adaptor_impl(path: str, port: int = 80) -> None:
+    """Serve every requested HTTP route from the compatibility server.
+
+    Each route owns its own native serve stream, so the released
+    queue/partition/merge plumbing has no counterpart here.
+    """
+    from hgraph import WiringGraphContext
+
+    routes = _adaptor_routes(
+        http_server_adaptor,
+        WiringGraphContext.instance().registered_service_clients(http_server_adaptor),
+        _HTTP_SERVER_HANDLERS,
+        label="HTTP",
+        generic=False,
+    )
+    service_path = _compat_state().register(port, None)
+    for base in routes:
+        url = http_server_adaptor.path_from_full_path(base)
+        requests = _serve_requests(url, _translate_pattern(url), service_path)
+        to_graph(http_server_adaptor, requests, path=base)
+        _wire_responses(from_graph(http_server_adaptor, path=base), service_path)
+
+
+class _HttpServerAdaptorHelperRegistration:
+    """Compatibility marker for explicitly wired HTTP handler graphs.
+
+    Handlers reach the transport directly, so the marker deliberately leaves
+    ownership with the shared implementation instead of registering a second
+    implementation per route.
+    """
+
+    __name__ = "http_server_adaptor_helper"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path, port
+        if resolution_dict:
+            raise TypeError("http_server_adaptor_helper is not generic")
+
+
+_http_server_adaptor_helper = _HttpServerAdaptorHelperRegistration()
+
+
 def register_http_server_adaptor(port: int, config: WebServerConfig = None) -> None:
     """Register the HTTP server implementation and wire automatic handlers."""
     state = _compat_state()
@@ -831,6 +1018,8 @@ def register_http_server_adaptor(port: int, config: WebServerConfig = None) -> N
         raise ValueError("one wiring graph cannot register the HTTP server on two ports")
     state.register(port, config)
     state.http_port = port
+    register_adaptor(None, _http_server_adaptor_helper, port=port)
+    register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
     for _url, handler in tuple(_HTTP_SERVER_HANDLERS.items()):
         if handler.auto_wire:
             handler()
@@ -845,7 +1034,7 @@ class _WebSocketServerHandler:
         self._fn = fn if isinstance(fn, (_GraphFn, _PyNode)) else graph(fn)
         self.url = url
         self.__name__ = getattr(fn, "__name__", "websocket_server_handler")
-        self.pattern = _translate_pattern(url)
+        self.route = _translate_pattern(url)
 
         target = getattr(fn, "fn", fn)
         signature = inspect.signature(target, eval_str=True)
@@ -894,7 +1083,7 @@ class _WebSocketServerHandler:
         bound = self.__signature__.bind(*args, **kwargs)
         bound.apply_defaults()
 
-        requests = _serve_connections(self.url, self.pattern, path, self.message_type)
+        requests = _serve_connections(self.url, self.route, path, self.message_type)
         if self._single:
             responses = map_(self._fn, requests, *bound.args, **bound.kwargs)
         else:
@@ -905,16 +1094,18 @@ class _WebSocketServerHandler:
         return responses
 
 
-def _serve_connections(url: str, pattern: str, path: str, message_type: type):
-    served = web_ws_serve(
-        WebRoute(HttpMethod.GET, pattern, upgrade=True), path=path
-    )
-    connections = _ws_connections(served["event"], url=url)
-    messages = (
-        _ws_text_messages(served["frame"])
-        if message_type is str
-        else _ws_binary_messages(served["frame"])
-    )
+def _serve_connections(url: str, route: _CompatRoute, path: str, message_type: type):
+    served = [
+        web_ws_serve(WebRoute(HttpMethod.GET, pattern, upgrade=True), path=path)
+        for pattern in route.patterns
+    ]
+    events = served[0]["event"] if len(served) == 1 else merge(
+        *(entry["event"] for entry in served))
+    frames = served[0]["frame"] if len(served) == 1 else merge(
+        *(entry["frame"] for entry in served))
+    connections = _ws_connections(events, url=url, captures=route.captures)
+    to_messages = _ws_text_messages if message_type is str else _ws_binary_messages
+    messages = to_messages(frames, events)
     request_bundle = TSB[WebSocketServerRequest[message_type]]
 
     @graph
@@ -954,6 +1145,68 @@ def websocket_server_handler(fn=None, *, url: str):
     return handler
 
 
+@adaptor
+def websocket_server_adaptor(
+    response: TSD[int, TSB[WebSocketResponse[STR_OR_BYTES]]],
+    path: str,
+) -> TSD[int, TSB[WebSocketServerRequest[STR_OR_BYTES]]]:
+    """Expose a typed graph request/response stream as a WebSocket route."""
+
+
+def _wire_websocket_message_type(port: int, message_type: type, entries) -> None:
+    interface = websocket_server_adaptor[STR_OR_BYTES:message_type]
+    service_path = _compat_state().register(port, None)
+    for base in entries:
+        url = interface.path_from_full_path(base)
+        requests = _serve_connections(
+            url, _translate_pattern(url), service_path, message_type)
+        to_graph(interface, requests, path=base)
+        _wire_ws_responses(
+            from_graph(interface, path=base), service_path, message_type)
+
+
+@adaptor_impl(interfaces=())
+def _websocket_server_catch_all(path: str, port: int = 80) -> None:
+    from hgraph import WiringGraphContext
+    from hgraph.reflection import resolved_type
+
+    grouped = {str: [], bytes: []}
+    for client in WiringGraphContext.instance().registered_service_clients(
+            websocket_server_adaptor):
+        grouped[resolved_type(client[1][STR_OR_BYTES])].append(client)
+    for message_type, clients in grouped.items():
+        if not clients:
+            continue
+        interface = websocket_server_adaptor[STR_OR_BYTES:message_type]
+        routes = _adaptor_routes(
+            interface,
+            clients,
+            _WEBSOCKET_SERVER_HANDLERS,
+            label="WebSocket",
+            generic=True,
+        )
+        _wire_websocket_message_type(port, message_type, routes)
+
+
+class _WebSocketServerAdaptorHelperRegistration:
+    """Compatibility marker for explicitly wired WebSocket handler graphs.
+
+    Specialized graph-side clients are discovered by the shared catch-all, so
+    the marker must not compete with it for ownership.
+    """
+
+    __name__ = "websocket_server_adaptor_helper"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path, port
+        if resolution_dict:
+            raise TypeError("websocket_server_adaptor_helper resolves from its handlers")
+
+
+websocket_server_adaptor_helper = _WebSocketServerAdaptorHelperRegistration()
+
+
 def register_websocket_server_adaptor(
     port: int, config: WebServerConfig = None
 ) -> None:
@@ -965,6 +1218,27 @@ def register_websocket_server_adaptor(
         )
     state.register(port, config)
     state.ws_port = port
+    register_adaptor(None, websocket_server_adaptor_helper, port=port)
+    register_adaptor(
+        "websocket_server_adaptor", _websocket_server_catch_all, port=port)
     for _url, handler in tuple(_WEBSOCKET_SERVER_HANDLERS.items()):
         if handler.auto_wire:
             handler()
+
+
+class _WebSocketServerAdaptorImplementation:
+    """Public registration token for the shared typed server implementation."""
+
+    __name__ = "websocket_server_adaptor_impl"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path
+        if resolution_dict:
+            raise TypeError(
+                "websocket_server_adaptor_impl resolves message types from its handlers"
+            )
+        register_websocket_server_adaptor(port)
+
+
+websocket_server_adaptor_impl = _WebSocketServerAdaptorImplementation()

@@ -37,6 +37,20 @@ def isolated_handler_registry(monkeypatch):
     monkeypatch.setattr(compat, "_WEBSOCKET_SERVER_HANDLERS", {})
 
 
+def _server_config():
+    """The bound port is discovered from stats, so the interval must be short.
+
+    The drains keep teardown from dominating the suite: the transport waits its
+    full drain timeout at shutdown even with nothing in flight.
+    """
+
+    return web.WebServerConfig(stats_interval_ms=50, shutdown_drain_timeout_ms=250)
+
+
+def _client_config():
+    return web.WebClientConfig(shutdown_drain_timeout_ms=250)
+
+
 @pytest.fixture
 def free_tcp_port():
     with socket.socket() as sock:
@@ -86,10 +100,8 @@ def _call(port, target, *, method=None, headers=(), body=b"", extra=None):
 
     @hg.graph
     def app():
-        compat.register_http_server_adaptor(
-            port, web.WebServerConfig(stats_interval_ms=50)
-        )
-        web.register_web_client(web.WebClientConfig(), path="api")
+        compat.register_http_server_adaptor(port, _server_config())
+        web.register_web_client(_client_config(), path="api")
         if extra is not None:
             extra()
         result = web.web_http_request(
@@ -247,18 +259,59 @@ def test_a_keyed_auxiliary_output_stays_observable(free_tcp_port):
     def capture_audit(audit: hg.TSD[int, hg.TS[str]]) -> None:
         audits.extend(value.value for _, value in audit.modified_items())
 
+    def wire_handler():
+        # Wiring a handler twice in one graph is idempotent, as released.
+        first = handler()
+        assert handler() is first
+        capture_audit(first.audit)
+
     # An auxiliary-output handler is never auto-wired: the released adaptor
     # requires it to be called so the rest of its output stays observable.
     assert handler.auto_wire is False
     response = _call(
-        free_tcp_port,
-        f"/compat-aux-{free_tcp_port}",
-        extra=lambda: capture_audit(handler().audit),
+        free_tcp_port, f"/compat-aux-{free_tcp_port}", extra=wire_handler
     )
 
     assert response.status == 202
     assert response.body == f"handled:/compat-aux-{free_tcp_port}".encode()
     assert audits == ["HttpGetRequest"]
+
+
+def test_an_explicit_adaptor_client_serves_its_own_route(free_tcp_port):
+    """The advanced tier: a route wired through ``http_server_adaptor``.
+
+    The client is discovered by the registered implementation, which serves the
+    route from the same compatibility server the handlers use.
+    """
+    route = f"/compat-adaptor-{free_tcp_port}/(.*)"
+    received = []
+
+    @hg.compute_node
+    def handle(
+        requests: hg.TSD[int, hg.TS[compat.HttpRequest]],
+    ) -> hg.TSD[int, hg.TS[compat.HttpResponse]]:
+        responses = {}
+        for request_id, request in requests.modified_items():
+            received.append(request.value)
+            responses[request_id] = compat.HttpResponse(
+                status_code=203, body=request.value.url_parsed_args[0].encode()
+            )
+        return responses
+
+    def wire_adaptor():
+        feedback = hg.feedback(hg.TSD[int, hg.TS[compat.HttpResponse]])
+        feedback(handle(compat.http_server_adaptor(feedback(), path=route)))
+
+    response = _call(
+        free_tcp_port,
+        f"/compat-adaptor-{free_tcp_port}/widget",
+        extra=wire_adaptor,
+    )
+
+    assert response.status == 203
+    assert response.body == b"widget"
+    assert [type(value) for value in received] == [compat.HttpGetRequest]
+    assert received[0].url == route
 
 
 def test_an_unimplemented_method_is_answered_405(free_tcp_port):
@@ -282,17 +335,60 @@ def test_an_unimplemented_method_is_answered_405(free_tcp_port):
 
 
 def test_translating_a_tornado_pattern_rejects_what_it_cannot_map():
-    assert compat._translate_pattern("/echo/(.*)") == "/echo/*arg0"
-    assert compat._translate_pattern("^/echo/(.*)$") == "/echo/*arg0"
-    assert compat._translate_pattern(r"/a/(\w+)/b/([^/]+)") == "/a/{arg0}/b/{arg1}"
-    assert compat._translate_pattern("/plain") == "/plain"
+    def patterns(url):
+        return compat._translate_pattern(url).patterns
+
+    assert patterns("/echo/(.*)") == ("/echo/*arg0",)
+    assert patterns("^/echo/(.*)$") == ("/echo/*arg0",)
+    assert patterns(r"/a/(\w+)/b/([^/]+)") == ("/a/{arg0}/b/{arg1}",)
+    assert patterns("/plain") == ("/plain",)
+    # The released REST route: an optional separator before the capture, which
+    # one native pattern cannot express.
+    assert patterns("/rest/?(.*)") == ("/rest/*arg0", "/rest")
+    assert compat._translate_pattern("/rest/?(.*)").captures == 1
 
     with pytest.raises(ValueError, match="whole path segment"):
         compat._translate_pattern("/prefix-(.*)")
     with pytest.raises(ValueError, match="named or non-capturing"):
         compat._translate_pattern("/(?P<name>.*)")
     with pytest.raises(ValueError, match="unsupported regular-expression"):
-        compat._translate_pattern("/items?")
+        compat._translate_pattern("/items*")
+    with pytest.raises(ValueError, match="separator before a trailing capture"):
+        compat._translate_pattern("/items?/x")
+
+
+def test_an_invalid_handler_signature_is_rejected_at_declaration():
+    with pytest.raises(TypeError, match="requires a 'request'"):
+
+        @compat.http_server_handler(url="/invalid/missing-request")
+        def missing_request(value: hg.TS[int]) -> hg.TS[compat.HttpResponse]:
+            return value
+
+    with pytest.raises(TypeError, match="HTTP handler request must be"):
+
+        @compat.http_server_handler(url="/invalid/request-type")
+        def wrong_request(request: hg.TS[int]) -> hg.TS[compat.HttpResponse]:
+            return request
+
+    with pytest.raises(TypeError, match="HTTP handler output must be"):
+
+        @compat.http_server_handler(url="/invalid/response-type")
+        def wrong_response(request: hg.TS[compat.HttpRequest]) -> hg.TS[int]:
+            return request
+
+
+def test_wiring_a_handler_before_registering_the_server_is_an_error(free_tcp_port):
+    @compat.http_server_handler(url=f"/compat-unregistered-{free_tcp_port}")
+    @hg.compute_node
+    def handler(request: hg.TS[compat.HttpRequest]) -> hg.TS[compat.HttpResponse]:
+        return compat.HttpResponse(status_code=200)
+
+    @hg.graph
+    def app() -> None:
+        handler()
+
+    with pytest.raises(RuntimeError, match="register_http_server_adaptor"):
+        hg.run_graph(app, end_time=hg.utc_now() + timedelta(seconds=1))
 
 
 def test_a_websocket_handler_echoes_a_frame_per_connection(free_tcp_port):
@@ -332,10 +428,8 @@ def test_a_websocket_handler_echoes_a_frame_per_connection(free_tcp_port):
 
     @hg.graph
     def app():
-        compat.register_websocket_server_adaptor(
-            free_tcp_port, web.WebServerConfig(stats_interval_ms=50)
-        )
-        web.register_web_client(web.WebClientConfig(), path="api")
+        compat.register_websocket_server_adaptor(free_tcp_port, _server_config())
+        web.register_web_client(_client_config(), path="api")
         key = client_key(
             web.web_server_stats(path=compat.compat_service_path(free_tcp_port))
         )
@@ -352,3 +446,57 @@ def test_a_websocket_handler_echoes_a_frame_per_connection(free_tcp_port):
     assert len(connected) == 1
     assert connected[0].url == f"/compat-ws-{free_tcp_port}"
     assert [frame.text for frame in observed] == ["echo:ping"]
+
+
+def test_a_rejected_websocket_connection_is_closed(free_tcp_port):
+    """The native transport upgrades before the graph sees the connection.
+
+    A ``connect_response`` of ``False`` therefore closes an accepted socket
+    instead of refusing the handshake — the deviation recorded in compat's
+    parity notes.
+    """
+    states = []
+
+    @compat.websocket_server_handler(url=f"/compat-ws-deny-{free_tcp_port}")
+    @hg.compute_node
+    def handler(
+        request: hg.TSB[compat.WebSocketServerRequest[str]],
+    ) -> hg.TSB[compat.WebSocketResponse[str]]:
+        if request["connect_request"].modified:
+            return {"connect_response": False}
+        return None
+
+    @hg.compute_node
+    def client_key(stats: hg.TS[web.WebServerStats]) -> hg.TS[web.WsClientKey]:
+        if stats.value.listening_port == 0:
+            return None
+        return web.WsClientKey(
+            f"ws://127.0.0.1:{free_tcp_port}/compat-ws-deny-{free_tcp_port}"
+        )
+
+    @hg.sink_node
+    def capture(event: hg.TS[web.WsEvent], _api: hg.EvaluationEngineApi = None):
+        states.append(event.value.state)
+        if event.value.state != web.WsConnectionState.OPEN:
+            _api.request_engine_stop()
+
+    @hg.graph
+    def app():
+        compat.register_websocket_server_adaptor(free_tcp_port, _server_config())
+        web.register_web_client(_client_config(), path="api")
+        client = web.web_ws_connect(
+            client_key(
+                web.web_server_stats(path=compat.compat_service_path(free_tcp_port))
+            ),
+            path="api",
+        )
+        capture(client["event"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=hg.utc_now() + timedelta(seconds=20),
+    )
+
+    assert states[0] == web.WsConnectionState.OPEN
+    assert states[-1] != web.WsConnectionState.OPEN

@@ -312,7 +312,10 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
     )
     typed_lazy_names = {element.value for element in typing_all.value.elts}
     public_registry_names = {
-        name for name in _hgraph.operator_names() if not name.startswith("__")
+        name for name in _hgraph.operator_names()
+        # Namespaced extension operators are typed by their extension, not by
+        # hgraph's stub (see the same filter in tools.api_inventory).
+        if not name.startswith("__") and "." not in name
     } - OPERATOR_OVERRIDE_NAMES
     explicitly_typed_names = public_registry_names & set(hgraph.__all__)
     assert typed_lazy_names | explicitly_typed_names == public_registry_names

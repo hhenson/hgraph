@@ -1,7 +1,13 @@
-"""Tornado-backed HTTP adaptors.
+"""The released HTTP, REST, and WebSocket adaptor surface.
 
-The transport is optional; install ``hgraph[web]`` before importing this
-package.
+The server transport is the native one: ``http_server_handler``,
+``websocket_server_handler``, their adaptors, and the released request/response
+values are re-exported from :mod:`hgraph_web.compat`, which reproduces the
+released semantics — defects included — on hgraph-web (RFC 0024).  Install the
+optional ``hgraph-web`` distribution to use this package.
+
+The client adaptors and the REST tier are still Tornado-backed and additionally
+need ``hgraph[web]``.  New code should use :mod:`hgraph_web` directly.
 """
 
 from .http_client_adaptor import (
