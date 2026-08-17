@@ -62,6 +62,15 @@ boundary.
 Ownership boundary
 ------------------
 
+.. note::
+   **Ownership revised by** :doc:`rfc_0025_hgraph_persistence`
+   (2026-08-17): core keeps the capture/restore *mechanics* below
+   (eligibility, consistency boundary, restore lifecycle, type-erased
+   checkpoint operations, traversal and identity, replay suppression);
+   the durable checkpoint and input-journal *formats*, the durable
+   checkpoint-store contract, publication, recovery selection, and
+   retention move to the ``hgraph-persistence`` extension.
+
 Core owns:
 
 * checkpoint eligibility and deterministic-run declarations;

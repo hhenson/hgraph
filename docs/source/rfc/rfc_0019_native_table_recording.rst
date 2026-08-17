@@ -9,6 +9,14 @@ RFC 0019: Native Table Recording for Partitioned Time-Series
 Summary
 -------
 
+.. note::
+   **Ownership revised by** :doc:`rfc_0025_hgraph_persistence`
+   (2026-08-17): the recorder, recording projection, segmentation, and
+   the immutable/segmented recording protocol specified here move to the
+   ``hgraph-persistence`` extension.  The table layout/traversal
+   functions durable recording drives become a supported public core
+   header; the recording semantics below stand unchanged.
+
 Make the native recorder own the data-frame recording path — ``TSD``
 partitions, removals, and multi-row frames, including a frame-valued leaf below
 ``TSD`` — so recording is one implementation rather than two and the per-tick

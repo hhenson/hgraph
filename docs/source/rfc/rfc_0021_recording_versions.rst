@@ -14,6 +14,11 @@ RFC 0021: Recording Versions and Continued Recording
    key fails — has a named successor rather than an implied one. Nothing here
    is settled, and the open questions at the end outnumber the answers.
 
+   **Scope revised by** :doc:`rfc_0025_hgraph_persistence` (2026-08-17):
+   recording versions, continued recording, and their reconciliation with
+   run/checkpoint lineage are ``hgraph-persistence`` scope — any eventual
+   proposal here lands in the extension, not in core.
+
 Summary
 -------
 

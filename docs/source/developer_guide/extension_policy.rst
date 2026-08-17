@@ -13,8 +13,14 @@ Ownership boundary
 ------------------
 
 ``hgraph`` owns the C++ runtime, type and operator systems, graph execution,
-generic persistence contracts, and the public facilities required for another
-library to join the same process-wide runtime safely.
+and the public facilities required for another library to join the same
+process-wide runtime safely.  For persistence specifically
+(:doc:`../rfc/rfc_0025_hgraph_persistence`): core owns the runtime
+*participation contracts* — record/replay/compare operator markers, modes
+and recordable identity, in-memory reference backends, and the state
+capture/restore mechanics — while persistence *implementations* and
+storage policy (durable stores, formats, journals, versions, retention,
+recovery selection) live in extensions.
 
 A downstream extension owns its domain values, policies, algorithms, reusable
 graphs, adapters, and optional Python facade. Domain-specific work should
