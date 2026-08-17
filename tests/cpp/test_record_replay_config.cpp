@@ -102,6 +102,28 @@ TEST_CASE("comparison summary: core-neutral publication and total query")
     CHECK_FALSE(comparison_summary(state, "other.__compare__").has_value());
 }
 
+TEST_CASE("recovery seeds: an unrecognised backend is a pointed error")
+{
+    using namespace hgraph::record_replay;
+    hgraph::GlobalContext context;
+    const auto            state = context.state().view();
+    const auto *schema = hgraph::TypeRegistry::instance().ts(
+        hgraph::scalar_descriptor<hgraph::Int>::value_meta());
+
+    // Open selection (RFC 0025): the seed resolver dispatches over exactly
+    // the ids core serves; an extension-owned or unknown identifier must
+    // never silently read through the transitional frame path.
+    set_config(state, RecordReplayConfig{.backend = "acme.custom"});
+    CHECK_THROWS_AS((void)recorded_seed_resolver(state, "book.trades", schema, MIN_ST),
+                    std::runtime_error);
+
+    // The ids core serves keep resolving (no recording -> empty seed).
+    set_config(state, RecordReplayConfig{.backend = std::string{MEMORY}});
+    CHECK_FALSE(recorded_seed_resolver(state, "book.trades", schema, MIN_ST).has_value());
+    set_config(state, RecordReplayConfig{.backend = std::string{TESTING}});
+    CHECK_FALSE(recorded_seed_resolver(state, "book.trades", schema, MIN_ST).has_value());
+}
+
 TEST_CASE("comparison summary: registration survives a registry reset")
 {
     using namespace hgraph::record_replay;

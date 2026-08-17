@@ -379,6 +379,7 @@ namespace hgraph::stdlib
         static auto defaults() { return std::tuple{arg<"model">(Str{})}; }
 
         static void start(Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
+                          GlobalStateView gs,
                           State<record_replay_memory_detail::MemoryCompareState> state)
         {
             // A bare compare outside any recordable scope has no id to
@@ -389,6 +390,12 @@ namespace hgraph::stdlib
             {
                 fq_key = record_replay::fq_recordable_id(traits, recordable_id.value()) +
                          ".__compare__";
+                // Zero the published summary NOW: a rerun over the same
+                // GlobalState that receives no ticks must report 0/0 (the
+                // frame compare's stop publishes exactly that), never the
+                // previous run's counts.
+                record_replay::publish_comparison_summary(gs, fq_key,
+                                                          record_replay::ComparisonSummary{});
             }
             state.set(record_replay_memory_detail::MemoryCompareState{.fq_key = std::move(fq_key)});
         }
