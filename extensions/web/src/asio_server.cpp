@@ -666,7 +666,8 @@ public:
   [[nodiscard]] bool push_request_reserved(Value route, Value request,
                                            std::size_t retained_bytes,
                                            std::size_t reserved_bytes);
-  void push_ws_event(Value route, Value event, std::size_t retained_bytes);
+  [[nodiscard]] bool push_ws_event(Value route, Value event,
+                                   std::size_t retained_bytes);
   [[nodiscard]] bool push_ws_frame_reserved(Value route, Value inbound_frame,
                                             std::size_t retained_bytes,
                                             std::size_t reserved_bytes);
@@ -1736,6 +1737,21 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
   if (listener_) {
     listener_->check_route_conflicts(this, false, added);
   }
+  for (const Value &route : added) {
+    // Route-aware floor: a maximal request on this route (its envelope
+    // route copy and capture names included) must fit an empty ingress
+    // channel, or Backpressure could park it forever (review P1).
+    if (config_->ingress.bytes <
+        config_->max_body_bytes + 6 * config_->max_header_bytes + 1024 +
+            2 * route_weight(route)) {
+      throw std::invalid_argument(
+          "Web ingress_byte_limit cannot admit a maximal request on route "
+          "'" +
+          std::string{
+              route.view().as_bundle().at("pattern").checked_as<Str>()} +
+          "'");
+    }
+  }
   std::vector<Value> announce;
   for (const Value &route : added) {
     announce.push_back(route.clone());
@@ -1768,16 +1784,23 @@ void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
     listener_->check_route_conflicts(this, true, added);
   }
   for (const Value &route : added) {
-    // Route-aware floor: every maximal message on this route must fit an
-    // empty channel including the envelope's route copy (review P1).
+    // Route-aware floor: BOTH the maximal message and the largest
+    // lifecycle record (the Open event carries the upgrade request's
+    // metadata and capture names) must fit — the payload lane for the
+    // former, and the guaranteed control lane for the latter (review P1).
     const std::size_t weight = route_weight(route);
+    const std::size_t open_event_worst =
+        3 * config_->max_header_bytes + 2 * weight + 1024;
     if (config_->ws_ingress.bytes <
-        config_->ws_max_message_bytes + 256 + weight) {
+            config_->ws_max_message_bytes + 256 + weight ||
+        config_->ws_ingress.bytes < open_event_worst ||
+        kControlLaneBytes < open_event_worst) {
       throw std::invalid_argument(
-          "Web ws_ingress_byte_limit cannot admit a maximal message on "
-          "route '" +
-          std::string{route.view().as_bundle().at("pattern").checked_as<Str>()} +
-          "' (needs ws_max_message_bytes + 256 + route pattern bytes)");
+          "Web ws_ingress_byte_limit cannot admit route '" +
+          std::string{
+              route.view().as_bundle().at("pattern").checked_as<Str>()} +
+          "': a maximal message and its largest lifecycle record must both "
+          "fit (control lane included)");
     }
   }
   rebuild(ws_routes_, ws_master_, std::move(added), std::move(removed));
@@ -1835,7 +1858,7 @@ bool WebServerRuntime::push_request_reserved(Value route, Value request,
       retained_bytes, reserved_bytes);
 }
 
-void WebServerRuntime::push_ws_event(Value route, Value event,
+bool WebServerRuntime::push_ws_event(Value route, Value event,
                                      std::size_t retained_bytes) {
   // Connection lifecycle is graph data and must never be lost (review P1):
   // an event the payload lane cannot take goes through the control lane,
@@ -1845,11 +1868,12 @@ void WebServerRuntime::push_ws_event(Value route, Value event,
                                       {"route", std::move(route)},
                                       {"event", std::move(event)},
                                   });
-  if (!bridge_.value->push(index(ServerChannel::WsIngress), envelope.clone(),
-                           retained_bytes)) {
-    static_cast<void>(bridge_.value->push_control(
-        index(ServerChannel::WsIngress), envelope.clone(), retained_bytes));
+  if (bridge_.value->push(index(ServerChannel::WsIngress), envelope.clone(),
+                          retained_bytes)) {
+    return true;
   }
+  return bridge_.value->push_control(index(ServerChannel::WsIngress),
+                                     envelope.clone(), retained_bytes);
 }
 
 [[nodiscard]] bool
@@ -2212,6 +2236,13 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
                                 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
+  // Absolute oversize rejection: a request that cannot fit even an EMPTY
+  // channel must never enter the Backpressure retry loop (review P1).
+  if (projected > runtime->config().ingress.bytes) {
+    send_simple_response(http::status::payload_too_large,
+                         "request cannot fit the ingress limit", false);
+    return;
+  }
   if (runtime->reserve_request(projected)) {
     admitted_runtime_ = runtime;
     admitted_bytes_ = projected;
@@ -2655,7 +2686,7 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
         }
         self->ws_ = true;
         const auto &b = runtime->bindings();
-        runtime->push_ws_event(
+        const bool open_delivered = runtime->push_ws_event(
             self->ws_route_->clone(),
             build_on(b.ws_event,
                      {
@@ -2667,6 +2698,20 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
             // route weight — adding it again could overcharge a genuinely
             // fitting event off the control lane (review P1).
             request_bytes + 512);
+        if (!open_delivered) {
+          // A connection whose Open event the graph never saw must not
+          // proceed: the graph could neither serve nor close it
+          // (review P1).
+          runtime->count_drop();
+          runtime->emit_event(WebSeverity::Warning, Str{"server"},
+                              Str{"ws_ingress"},
+                              Str{"WebSocket Open event could not be "
+                                  "delivered; closing the connection"},
+                              0, true, false, self->ws_connection_id_);
+          runtime->unregister_ws_connection(self->ws_connection_id_);
+          self->close();
+          return;
+        }
         // Beast no longer needs the upgrade request; releasing it keeps
         // the single-counted accounting honest for the WebSocket's whole
         // lifetime (review P1).
@@ -2711,7 +2756,7 @@ void ServerConnection::ws_read_next() {
                                            reason.reason.size()}};
           }
           const auto &b = runtime->bindings();
-          runtime->push_ws_event(
+          static_cast<void>(runtime->push_ws_event(
               self->ws_route_->clone(),
               build_on(b.ws_event,
                        {
@@ -2723,7 +2768,7 @@ void ServerConnection::ws_read_next() {
                            {"close_code", b.number(close_code)},
                            {"close_reason", b.string(close_reason)},
                        }),
-              close_reason.size() + self->ws_route_weight_ + 512);
+              close_reason.size() + self->ws_route_weight_ + 512));
           self->close();
           return;
         }
@@ -3331,6 +3376,12 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
                                 stream.decoded_path.size() + query_size +
                                 params_bytes +
                                 route_weight(*stream.matched.route) + 512;
+  // Absolute oversize rejection: never park what can never fit
+  // (review P1).
+  if (projected > runtime->config().ingress.bytes) {
+    respond_transport(stream_id, 413, "request cannot fit the ingress limit");
+    return;
+  }
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
@@ -3473,6 +3524,21 @@ void H2Driver::account_stream_data(std::int32_t stream_id) {
     // now that transport copies are released at dispatch: the graph copy
     // is the only survivor, single-counted (review P1).
     const std::size_t pending = data_pending + stream.trailer_unaccounted;
+    if (stream.reserved + pending >
+        stream.matched.runtime->config().ingress.bytes) {
+      // Incremental growth that can NEVER fit: release the held window
+      // and answer, mirroring the body-cap path (review P1).
+      engine_.consume(stream_id, stream.unaccounted);
+      unaccounted_total_ -=
+          std::min(unaccounted_total_,
+                   stream.unaccounted + stream.trailer_unaccounted);
+      stream.unaccounted = 0;
+      stream.trailer_unaccounted = 0;
+      respond_transport(stream_id, 413,
+                        "request cannot fit the ingress limit");
+      resume_stalled_read();
+      return;
+    }
     if (stream.matched.runtime->grow_request_reservation(pending)) {
       stream.reserved += pending;
       stream.unaccounted = 0;
