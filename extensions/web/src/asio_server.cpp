@@ -794,17 +794,12 @@ public:
 
   void retire_runtime(const WebServerRuntime *runtime) override {
     asio::post(strand_, [self = shared_from_this(), runtime] {
-      // Only close when the stopping runtime owns this connection's
-      // current activity; an idle keep-alive connection (or one serving
-      // another attachee) must keep serving (review P1).
-      if (self->ws_) {
-        if (self->ws_runtime_.get() == runtime) {
-          self->connection_shutdown();
-        }
-        return;
-      }
-      if (self->pending_request_id_ >= 0 &&
-          self->pending_runtime_ == runtime) {
+      // Close only when the stopping runtime owns this connection's
+      // CURRENT activity — from route match (admission wait, body read,
+      // WS handshake) through the answered response; an idle keep-alive
+      // or a connection serving another attachee keeps serving
+      // (review P1).
+      if (self->serving_runtime_ == runtime) {
         self->connection_shutdown();
       }
     });
@@ -932,7 +927,10 @@ private:
   std::string decoded_path_{};
   std::size_t admitted_bytes_{};
   std::shared_ptr<WebServerRuntime> admitted_runtime_{};
-  const WebServerRuntime *pending_runtime_{};
+  // The runtime this connection is working FOR, tracked from route match
+  // (admission wait, body read, WS handshake) through completion, so a
+  // stopping runtime can retire pre-dispatch work too (review P1).
+  const WebServerRuntime *serving_runtime_{};
   std::size_t ws_reserved_bytes_{};
   std::size_t ws_unaccounted_bytes_{};
   // Message bytes accumulate here — storage the reservation accounts —
@@ -1079,6 +1077,10 @@ private:
     std::size_t unaccounted{};
     bool admitted{};
     bool admission_in_flight{};
+    // True while this stream's header block is counted in the
+    // connection's unaccounted bound; cleared exactly once, on admission
+    // (into the reservation) or on release (review P1).
+    bool headers_counted{};
     bool end_stream_seen{};
     bool discarding{};
     Int request_id{-1};
@@ -1958,6 +1960,7 @@ void ServerConnection::read_next() {
     close();
     return;
   }
+  serving_runtime_ = nullptr;  // a fresh request cycle owns nothing yet
   if (listener_->reads_paused(WebListener::ReadTier::Http)) {
     read_parked_ = true;
     listener_->park_for_resume(
@@ -2076,6 +2079,7 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
   const std::size_t projected =
       projected_body + header_bytes + header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
+  serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
     admitted_runtime_ = runtime;
     admitted_bytes_ = projected;
@@ -2258,7 +2262,6 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
     return;
   }
   pending_request_id_ = request_id;
-  pending_runtime_ = runtime.get();
   request_keep_alive_ = keep_alive;
   pending_is_head_ = request_.method() == http::verb::head;
 }
@@ -2472,6 +2475,7 @@ void ServerConnection::send_simple_response(http::status status,
 
 void ServerConnection::accept_ws(MatchedRoute matched) {
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
+  serving_runtime_ = runtime.get();
   ws_runtime_ = runtime;
   ws_route_ = matched.route.clone();
   ws_connection_id_ = runtime->register_ws_connection(shared_from_this());
@@ -3030,15 +3034,16 @@ void H2Driver::close() {
 }
 
 void H2Driver::release_stream(std::int32_t, Stream &stream) {
+  // Subtract exactly what this stream contributed: header bytes only
+  // while their flag is set (early-error streams that were refused
+  // before counting contribute nothing) — a mismatched subtraction here
+  // would steal accounting from other blocked streams and prematurely
+  // resume reads (review P1).
   const std::size_t header_part =
-      stream.admitted ? 0 : stream.header_bytes + stream.target.size();
+      stream.headers_counted ? stream.header_bytes + stream.target.size() : 0;
+  stream.headers_counted = false;
   const std::size_t buffered =
       stream.unaccounted + stream.trailer_unaccounted + header_part;
-  if (!stream.admitted) {
-    // release runs at most once per stream; mark so a second call cannot
-    // double-subtract the header part.
-    stream.admitted = true;
-  }
   if (buffered != 0) {
     unaccounted_total_ -= std::min(unaccounted_total_, buffered);
     stream.unaccounted = 0;
@@ -3070,6 +3075,19 @@ void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
   for (const auto &[name, value] : stream.headers) {
     stream.header_bytes += name.size() + value.size();
   }
+  // The connection metadata bound is HARD inside a single receive(): one
+  // socket read can decode many HPACK-compressed blocks, so a block that
+  // would cross the bound is refused before it is retained, and EVERY
+  // retained stream — early-error paths included — is accounted the same
+  // way (review P1).
+  const std::size_t header_part = stream.header_bytes + stream.target.size();
+  if (unaccounted_total_ + header_part >
+      static_cast<std::size_t>(config_->h2_initial_window_bytes)) {
+    engine_.reset_stream(stream_id, H2StreamError::RefusedStream);
+    return;
+  }
+  unaccounted_total_ += header_part;
+  stream.headers_counted = true;
   const auto method_value = method_from_token(method);
   if (!method_value.has_value()) {
     streams_.emplace(stream_id, std::move(stream));
@@ -3102,10 +3120,6 @@ void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
     return;
   }
   stream.matched = std::move(*matched);
-  // Until admission succeeds the header block is buffered driver memory,
-  // so it counts toward the connection's unaccounted bound — otherwise
-  // header-only streams could exceed the one-window claim (review P1).
-  unaccounted_total_ += stream.header_bytes + stream.target.size();
   streams_.emplace(stream_id, std::move(stream));
   admit_stream(stream_id);
 }
@@ -3131,9 +3145,12 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
-    const std::size_t header_part = stream.header_bytes + stream.target.size();
-    unaccounted_total_ -= std::min(unaccounted_total_, header_part);
-    resume_stalled_read();
+    if (stream.headers_counted) {
+      stream.headers_counted = false;
+      unaccounted_total_ -= std::min(
+          unaccounted_total_, stream.header_bytes + stream.target.size());
+      resume_stalled_read();
+    }
     account_stream_data(stream_id);
     return;
   }
@@ -3369,9 +3386,27 @@ void H2Driver::respond_transport(std::int32_t stream_id, int status,
     release_stream(stream_id, found->second);
     found->second.discarding = true;
   }
-  static_cast<void>(engine_.submit_response(
-      stream_id, status, H2Headers{{"content-type", "text/plain"}},
-      std::string{body}, {}));
+  // Transport answers obey the same outbound budgets as graph responses:
+  // a slow peer accumulating error responses is reset instead of growing
+  // buffered metadata past the configured bounds (review P1).
+  const std::size_t weight = body.size() + 256;
+  if (outstanding_response_bytes_ + weight >
+          static_cast<std::size_t>(config_->outbound_byte_limit) ||
+      outstanding_response_messages_ >=
+          static_cast<std::size_t>(config_->outbound_message_limit)) {
+    engine_.reset_stream(stream_id, H2StreamError::EnhanceYourCalm);
+    pump_writes();
+    return;
+  }
+  if (engine_.submit_response(stream_id, status,
+                              H2Headers{{"content-type", "text/plain"}},
+                              std::string{body}, {}) &&
+      found != streams_.end()) {
+    outstanding_response_bytes_ += weight;
+    ++outstanding_response_messages_;
+    found->second.response_bytes += weight;
+    found->second.response_submitted = true;
+  }
   pump_writes();
 }
 
