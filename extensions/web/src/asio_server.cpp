@@ -1045,32 +1045,30 @@ public:
       if (self->closed_) {
         return;
       }
-      // Only the stopping runtime's streams retire; a shared listener's
-      // other attachees keep this connection serving (review P1).
-      std::vector<std::int32_t> retiring;
-      for (const auto &[stream_id, stream] : self->streams_) {
-        if (stream.matched.runtime.get() == runtime && !stream.discarding) {
-          retiring.push_back(stream_id);
-        }
-      }
-      for (const std::int32_t stream_id : retiring) {
-        self->respond_transport(stream_id, 503, "server shutting down");
-      }
+      // Stamp FIRST, respond after: a small 503 or RST can reach
+      // on_stream_closed inside the very pump that sends it, erasing the
+      // stream — stamping afterwards would let the retirement token
+      // release while that socket write is still outstanding (review P1).
       // Delivery reports already queued for the retiring runtime release
-      // the barrier only when their carrying write completes (review P1).
+      // the barrier only when their carrying write completes.
       for (auto &report : self->pending_flush_reports_) {
         if (report.runtime.get() == runtime) {
           report.barrier = barrier;
         }
       }
-      // The barrier rides EVERY stream of the retiring runtime to its
-      // terminal event (close/reset/write failure) — an output-queue
-      // sentinel would release while a zero-window client still blocks a
-      // submitted response (review P1).
+      std::vector<std::int32_t> retiring;
       for (auto &[stream_id, stream] : self->streams_) {
         if (stream.matched.runtime.get() == runtime) {
           stream.retire_barrier = barrier;
+          if (!stream.discarding) {
+            retiring.push_back(stream_id);
+          }
         }
+      }
+      // Only the stopping runtime's streams retire; a shared listener's
+      // other attachees keep this connection serving.
+      for (const std::int32_t stream_id : retiring) {
+        self->respond_transport(stream_id, 503, "server shutting down");
       }
       if (!retiring.empty() && !self->closed_) {
         self->pump_writes();
@@ -1773,6 +1771,14 @@ void WebServerRuntime::unregister_ws_connection(Int connection_id) noexcept {
 bool WebServerRuntime::push_request_reserved(Value route, Value request,
                                              std::size_t retained_bytes,
                                              std::size_t reserved_bytes) {
+  if (retained_bytes > reserved_bytes) {
+    // Admission projects the exact derived sizes, so this cannot happen
+    // by construction; if it ever does, surface it instead of letting a
+    // silent clamp mask the under-accounting (review P2).
+    emit_event(WebSeverity::Warning, Str{"server"}, Str{"accounting"},
+               Str{"request retained estimate exceeded its reservation"});
+    retained_bytes = reserved_bytes;
+  }
   return bridge_.value->push_reserved(
       index(ServerChannel::Request),
       build_on(bindings_.request_envelope,
@@ -1780,7 +1786,7 @@ bool WebServerRuntime::push_request_reserved(Value route, Value request,
                    {"route", std::move(route)},
                    {"request", std::move(request)},
                }),
-      std::min(retained_bytes, reserved_bytes), reserved_bytes);
+      retained_bytes, reserved_bytes);
 }
 
 void WebServerRuntime::push_ws_event(Value route, Value event,
@@ -2138,11 +2144,25 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
       : content_length.has_value()
           ? static_cast<std::size_t>(*content_length)
           : config_->max_body_bytes;
-  // The Beast source is released at dispatch, so headers single-count;
-  // the target weighs 4x to bound its request-controlled derivations
-  // (decoded path, query pairs, path-parameter values).
-  const std::size_t projected =
-      projected_body + header_bytes + 4 * header.target().size() + 512;
+  // The derived sizes are already known at admission — decoded path,
+  // query slice, and the MATCHED parameter names and values (route
+  // patterns can carry capture names with no length relation to the
+  // target) — so the projection uses them exactly (review P2).
+  const std::string_view admission_target{header.target().data(),
+                                          header.target().size()};
+  const auto admission_query = admission_target.find('?');
+  const std::size_t query_size =
+      admission_query == std::string_view::npos
+          ? 0
+          : admission_target.size() - admission_query - 1;
+  std::size_t params_bytes = 0;
+  for (const auto &[name, value] : matched.params) {
+    params_bytes += name.size() + value.size();
+  }
+  const std::size_t projected = projected_body + header_bytes +
+                                admission_target.size() +
+                                decoded_path_.size() + query_size +
+                                params_bytes + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
@@ -2594,6 +2614,11 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
                          {"request", server_request.clone()},
                      }),
             request_bytes + 512);
+        // Beast no longer needs the upgrade request; releasing it keeps
+        // the single-counted accounting honest for the WebSocket's whole
+        // lifetime (review P1).
+        self->request_ = http::request<http::string_body>{};
+        self->decoded_path_ = std::string{};
         self->ws_read_continue();
       });
   if (tls_stream_.has_value()) {
@@ -3221,12 +3246,24 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   // Header admission mirrors h1: the header block plus envelope overhead
   // reserves before any DATA window is released; the body then grows the
   // same reservation chunk-by-chunk (RFC 0024, flow control).
-  // Transport copies are released once the graph value is built, so the
-  // reservation single-counts the headers; the target weighs 4x to bound
-  // its request-controlled derivations (decoded path, query pairs,
-  // path-parameter values, each <= the target).
-  const std::size_t projected =
-      stream.header_bytes + 4 * stream.target.size() + 512;
+  // The derived sizes are already known at admission — decoded path,
+  // query slice, and the MATCHED parameter names and values (route
+  // patterns can carry capture names with no length relation to the
+  // target) — so the projection uses them exactly instead of a
+  // target-multiplier bound (review P2).
+  const std::string_view target_view{stream.target};
+  const auto admission_query = target_view.find('?');
+  const std::size_t query_size =
+      admission_query == std::string_view::npos
+          ? 0
+          : target_view.size() - admission_query - 1;
+  std::size_t params_bytes = 0;
+  for (const auto &[name, value] : stream.matched.params) {
+    params_bytes += name.size() + value.size();
+  }
+  const std::size_t projected = stream.header_bytes + stream.target.size() +
+                                stream.decoded_path.size() + query_size +
+                                params_bytes + 512;
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
