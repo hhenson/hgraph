@@ -162,6 +162,34 @@ implementation recognises is an explicit wiring-time error naming the
 backend and, when the identifier is namespaced
 (``hgraph.persistence.*``), the distribution expected to provide it.
 
+Activation: selecting the backend is the load point
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Installing a wheel executes no code, so "durable overloads arrive by
+installing the extension" needs a defined load point.  The contract:
+
+* **Native registration entry point.**  ``_hgraph_persistence`` exposes
+  and calls on import an idempotent
+  ``hgraph::persistence::register_frame_backend()`` that registers the
+  durable operator overloads and claims the
+  ``"hgraph.persistence.frame"`` identifier.  Registration goes through
+  the same installer mechanism core's standard-operator setup uses, so a
+  registry reset-and-rebuild (the testing path through
+  ``record_replay::reset()``) replays extension registration exactly as
+  it replays core's — the extension does not strand on reset.
+* **Python load trigger.**  Durable behaviour is only ever *requested*
+  through backend selection.  The single backend-normalisation choke
+  point in ``hgraph._wiring._state`` (graph default and per-call
+  override alike), on seeing a ``hgraph.persistence.*`` identifier,
+  lazily imports ``hgraph_persistence`` — importing the native module
+  runs the registration above — and raises the pointed install error if
+  the import fails.  An explicit ``import hgraph_persistence`` activates
+  identically and remains supported.
+
+User imports of the operator surface (``hgraph.record`` et al.) are
+therefore genuinely unchanged: activation rides the configuration change
+users already make to choose a durable backend, never a new import.
+
 Extension configuration is separate
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -186,7 +214,13 @@ flush thresholds.
 
 Generic core table operators (``to_table`` / ``from_table``) must not
 read persistence configuration; they receive their own explicit table
-options and defaults.
+options and defaults.  The bitemporal vocabulary — the date/as-of column
+keys and the optional fixed as-of override — is **generic table
+configuration and stays core**, owned by those options: converting a
+time series to bitemporal rows requires an as-of stamp whether or not
+anything durable consumes the rows.  ``FrameRecordingConfig`` above
+carries the extension's *own* copies of these fields (sharing the
+defaults is a vocabulary convenience, not a read of core table state).
 
 Core-neutral comparison summaries
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -548,17 +582,18 @@ checkpoint 3 into core state/services and extension persistence units):
      - core
      - —
      - Mode scope bindings; unchanged.
-   * - ``_set_record_replay_config``, ``_set_as_of``
+   * - ``_set_record_replay_config``
      - core
      - 2
-     - Re-shaped over ``RecordReplayConfig``; ``as_of`` moves to the
-       extension configuration (the binding follows it).
-   * - ``_set_table_schema_date_key`` / ``_set_table_schema_as_of_key``
-       / ``_table_schema_keys``
+     - Re-shaped over ``RecordReplayConfig{backend}``.
+   * - ``_set_as_of``, ``_set_table_schema_date_key`` /
+       ``_set_table_schema_as_of_key`` / ``_table_schema_keys``
      - core
      - 2
-     - Re-based on the generic table operators' OWN options (they no
-       longer write record/replay configuration).
+     - Re-pointed at the generic table operators' OWN options (core
+       state: bitemporal keys + fixed as-of); they no longer write
+       record/replay configuration.  The durable recorder keeps its own
+       ``FrameRecordingConfig`` copies (checkpoint 5).
    * - ``IN_MEMORY`` / ``IN_MEMORY_DENSE`` module attrs
      - shim
      - 2→8
@@ -615,7 +650,9 @@ Python package surface:
      - core
      - —
      - Operator contracts; durable overloads arrive by installing the
-       extension, with no import-path change.
+       extension, with no import-path change — activated at backend
+       selection per *Activation: selecting the backend is the load
+       point*.
    * - ``RecordReplayEnum``, ``RecordReplayContext``,
        ``record_replay_scope``, ``component``, ``RECORDABLE_STATE``
      - core
@@ -626,8 +663,9 @@ Python package surface:
      - core
      - 2
      - Accept released vocabulary, translating legacy model names to
-       backend ids during deprecation; ``set_as_of`` forwards to the
-       extension configuration when the durable backend is active.
+       backend ids during deprecation; ``set_as_of`` writes the generic
+       table options (core state) — the durable recorder reads its own
+       configuration.
    * - ``IN_MEMORY`` / ``IN_MEMORY_DENSE`` / ``DATA_FRAME``
        (``hgraph.__all__``)
      - shim
