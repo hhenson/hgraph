@@ -391,6 +391,18 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_non_negative(self.ping_interval_ms, "ping interval")
         _require_non_negative(self.pong_timeout_ms, "pong timeout")
         _require_non_negative(self.stats_interval_ms, "stats interval")
+        # Mirrors the native builders: a single maximal payload must always
+        # fit an empty ingress channel, or Backpressure would hold it forever.
+        if self.ingress_byte_limit < self.max_body_bytes + self.max_header_bytes + 512:
+            raise ValueError(
+                "Web ingress_byte_limit must cover one maximal request "
+                "(max_body_bytes + max_header_bytes + 512)"
+            )
+        if self.ws_ingress_byte_limit < self.ws_max_message_bytes + 256:
+            raise ValueError(
+                "Web ws_ingress_byte_limit must cover one maximal message "
+                "(ws_max_message_bytes + 256)"
+            )
 
 
 @dataclass(frozen=True)
@@ -432,6 +444,10 @@ class WebClientConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_non_negative(self.keep_alive_ms, "keep-alive")
         _require_non_negative(self.max_redirects, "max_redirects")
         _require_positive(self.max_response_bytes, "max_response_bytes")
+        # Mirrors the native builder: the 512-byte envelope overhead is
+        # charged against this limit.
+        if self.max_response_bytes < 1024:
+            raise ValueError("Web max_response_bytes must be at least 1024")
         _require_positive(self.ingress_record_limit, "ingress record limit")
         _require_positive(self.ingress_byte_limit, "ingress byte limit")
         _require_pct_watermarks(self.watermark_high_pct, self.watermark_low_pct)
@@ -442,6 +458,13 @@ class WebClientConfig(CompoundScalar, namespace=_NAMESPACE):
         _require_positive(self.ws_ingress_byte_limit, "WS ingress byte limit")
         _require_positive(self.ws_max_frame_bytes, "WS frame limit")
         _require_positive(self.ws_max_message_bytes, "WS message limit")
+        # Mirrors the native builder: a single maximal message must always
+        # fit an empty WS ingress channel.
+        if self.ws_ingress_byte_limit < self.ws_max_message_bytes + 256:
+            raise ValueError(
+                "Web ws_ingress_byte_limit must cover one maximal message "
+                "(ws_max_message_bytes + 256)"
+            )
         _require_non_negative(self.ping_interval_ms, "ping interval")
         _require_non_negative(self.pong_timeout_ms, "pong timeout")
         _require_non_negative(self.stats_interval_ms, "stats interval")

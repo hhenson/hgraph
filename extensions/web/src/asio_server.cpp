@@ -24,6 +24,7 @@
 #include <openssl/x509.h>
 
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <compare>
@@ -559,11 +560,13 @@ public:
       const std::shared_ptr<ServerConnection> &connection);
   void unregister_ws_connection(Int connection_id) noexcept;
 
-  [[nodiscard]] bool push_request(Value route, Value request,
-                                  std::size_t retained_bytes);
+  [[nodiscard]] bool push_request_reserved(Value route, Value request,
+                                           std::size_t retained_bytes,
+                                           std::size_t reserved_bytes);
   void push_ws_event(Value route, Value event, std::size_t retained_bytes);
-  [[nodiscard]] bool push_ws_frame(Value route, Value inbound_frame,
-                                   std::size_t retained_bytes);
+  [[nodiscard]] bool push_ws_frame_reserved(Value route, Value inbound_frame,
+                                            std::size_t retained_bytes,
+                                            std::size_t reserved_bytes);
   [[nodiscard]] Value delivery_report(Int request_id, WebDeliveryStatus status,
                                       Int error_code = 0,
                                       const Str &message = {});
@@ -578,28 +581,25 @@ public:
   }
 
   // Ingress admission (review P1): a connection reserves its projected
-  // retained bytes BEFORE reading the request body, so concurrent
-  // connections cannot each hold a fully-read body while the bridge is
-  // full — the excess stays unread in the kernel (RFC 0024, flow control).
-  // The reservation is released when the request is pushed (the bridge
-  // accounts it from then on) or abandoned.
-  [[nodiscard]] bool try_admit_ingress(std::size_t bytes) noexcept {
-    const std::size_t limit = config_->ingress.bytes;
-    const std::size_t bridge_bytes =
-        bridge_.value->payload_retained_bytes(index(ServerChannel::Request));
-    std::size_t current = in_flight_ingress_.load(std::memory_order_relaxed);
-    while (true) {
-      if (bytes > limit - std::min(bridge_bytes + current, limit)) {
-        return false;
-      }
-      if (in_flight_ingress_.compare_exchange_weak(
-              current, current + bytes, std::memory_order_relaxed)) {
-        return true;
-      }
-    }
+  // retained bytes on the bridge BEFORE reading the request body or arming
+  // a WebSocket message read, so concurrent connections cannot each hold a
+  // full payload while the bridge is full — the excess stays unread in the
+  // kernel (RFC 0024, flow control).  The bridge's reservation covers the
+  // record and byte limits under one lock, and the reserved push cannot
+  // fail, so an admitted payload never needs a retry that would retain it
+  // outside the bridge.
+  [[nodiscard]] bool reserve_request(std::size_t bytes) {
+    return bridge_.value->reserve(index(ServerChannel::Request), bytes);
   }
-  void release_ingress(std::size_t bytes) noexcept {
-    in_flight_ingress_.fetch_sub(bytes, std::memory_order_relaxed);
+  void release_request_reservation(std::size_t bytes) noexcept {
+    bridge_.value->release_reservation(index(ServerChannel::Request), bytes);
+  }
+  [[nodiscard]] bool reserve_ws_ingress(std::size_t bytes) {
+    return bridge_.value->reserve(index(ServerChannel::WsIngress), bytes);
+  }
+  void release_ws_reservation(std::size_t bytes) noexcept {
+    bridge_.value->release_reservation(index(ServerChannel::WsIngress),
+                                       bytes);
   }
 
 private:
@@ -670,6 +670,7 @@ public:
 
   ~ServerConnection() {
     release_admission();
+    release_ws_reservation_held();
     listener_->connection_closed();
   }
 
@@ -766,6 +767,7 @@ private:
   void ws_read_next();
   void ws_read_continue();
   void deliver_ws_ingress(Value inbound, std::size_t bytes);
+  void release_ws_reservation_held() noexcept;
   void write_response(Int request_id, const Value &response, Int client_id,
                       const std::shared_ptr<WebServerRuntime> &runtime);
   void finish_response(beast::error_code ec, Int client_id, Int request_id,
@@ -807,6 +809,7 @@ private:
   std::string decoded_path_{};
   std::size_t admitted_bytes_{};
   std::shared_ptr<WebServerRuntime> admitted_runtime_{};
+  std::size_t ws_reserved_bytes_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
   std::shared_ptr<WebServerRuntime> ws_runtime_{};
@@ -964,6 +967,20 @@ void WebListener::set_reads_paused(ReadTier tier, const void *token,
   {
     std::lock_guard lock{mutex_};
     if (paused) {
+      // Only attached runtimes may pause: a watermark callback racing a
+      // stop() could otherwise re-add the departing runtime's token after
+      // its withdrawal, leaving the shared listener paused forever once
+      // bridge.stop() discards the callback (review P1).  detach() and
+      // this check share mutex_, so the window is closed.
+      const bool attached =
+          std::any_of(runtimes_.begin(), runtimes_.end(),
+                      [token](const auto &runtime) {
+                        return static_cast<const void *>(runtime.get()) ==
+                               token;
+                      });
+      if (!attached) {
+        return;
+      }
       pause_tokens_[index].insert(token);
     } else {
       pause_tokens_[index].erase(token);
@@ -1167,16 +1184,17 @@ void WebServerRuntime::stop() noexcept {
   stopping_.store(true, std::memory_order_release);
   try {
     if (listener_) {
-      // Withdraw this runtime's pause tokens first: bridge_.stop() below
-      // discards the watermark callback, so a token left behind would pause
-      // the surviving attachees' reads forever (review P1).
-      listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
-      listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
-
       // (1) stop intake, (2) 503 pending + drain, (3) WS Close(1001),
       // (4) cancel + join IO, (5) bridge last (RFC 0024, lifecycle).
       const bool last =
           ListenerRegistry::instance().release(listener_, this);
+
+      // Withdraw this runtime's pause tokens AFTER detaching: from here the
+      // listener refuses new pauses from this runtime, so a watermark
+      // callback racing this stop cannot re-add the token that
+      // bridge_.stop() below would orphan (review P1).
+      listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
+      listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
 
       std::vector<std::shared_ptr<ServerConnection>> connections;
       {
@@ -1323,16 +1341,17 @@ void WebServerRuntime::unregister_ws_connection(Int connection_id) noexcept {
   ws_connections_.erase(connection_id);
 }
 
-bool WebServerRuntime::push_request(Value route, Value request,
-                                    std::size_t retained_bytes) {
-  return bridge_.value->push(
+bool WebServerRuntime::push_request_reserved(Value route, Value request,
+                                             std::size_t retained_bytes,
+                                             std::size_t reserved_bytes) {
+  return bridge_.value->push_reserved(
       index(ServerChannel::Request),
       build_on(bindings_.request_envelope,
                {
                    {"route", std::move(route)},
                    {"request", std::move(request)},
                }),
-      retained_bytes);
+      std::min(retained_bytes, reserved_bytes), reserved_bytes);
 }
 
 void WebServerRuntime::push_ws_event(Value route, Value event,
@@ -1352,16 +1371,18 @@ void WebServerRuntime::push_ws_event(Value route, Value event,
   }
 }
 
-[[nodiscard]] bool WebServerRuntime::push_ws_frame(Value route,
-                                                   Value inbound_frame,
-                                                   std::size_t retained_bytes) {
-  return bridge_.value->push(index(ServerChannel::WsIngress),
-                             build_on(bindings_.ws_ingress_envelope,
-                                      {
-                                          {"route", std::move(route)},
-                                          {"frame", std::move(inbound_frame)},
-                                      }),
-                             retained_bytes);
+[[nodiscard]] bool
+WebServerRuntime::push_ws_frame_reserved(Value route, Value inbound_frame,
+                                         std::size_t retained_bytes,
+                                         std::size_t reserved_bytes) {
+  return bridge_.value->push_reserved(
+      index(ServerChannel::WsIngress),
+      build_on(bindings_.ws_ingress_envelope,
+               {
+                   {"route", std::move(route)},
+                   {"frame", std::move(inbound_frame)},
+               }),
+      std::min(retained_bytes, reserved_bytes), reserved_bytes);
 }
 
 void WebServerRuntime::report(std::size_t channel, Int client_id,
@@ -1685,7 +1706,7 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
   const std::size_t projected =
       projected_body + header_bytes + header.target().size() + 512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
-  if (runtime->try_admit_ingress(projected)) {
+  if (runtime->reserve_request(projected)) {
     admitted_runtime_ = runtime;
     admitted_bytes_ = projected;
     read_body(std::move(matched));
@@ -1748,7 +1769,7 @@ void ServerConnection::read_body(MatchedRoute matched) {
 
 void ServerConnection::release_admission() noexcept {
   if (admitted_runtime_) {
-    admitted_runtime_->release_ingress(admitted_bytes_);
+    admitted_runtime_->release_request_reservation(admitted_bytes_);
     admitted_runtime_.reset();
     admitted_bytes_ = 0;
   }
@@ -1819,7 +1840,10 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
   }
   // The bridge accounts for real payload memory, so byte limits and
   // watermarks bound what a peer can make the graph retain (review P1).
-  retained_bytes = request_.body().size() + header_bytes + target.size() + 512;
+  // Moving the body out empties the Beast message, so once the value is
+  // pushed the connection itself no longer retains the payload.
+  Bytes body{std::move(request_.body())};
+  retained_bytes = body.data.size() + header_bytes + target.size() + 512;
 
   Value request = build_on(
       b.http_request,
@@ -1830,7 +1854,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
           {"query", b.params(parse_query(query))},
           {"path_params", b.params(matched.params)},
           {"headers", b.headers(headers)},
-          {"body", b.bytes(Bytes{request_.body()})},
+          {"body", b.bytes(body)},
           {"trailers", b.headers({})},
       });
   return build_on(b.server_request,
@@ -1849,35 +1873,20 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   std::size_t retained_bytes = 0;
   Value server_request =
       build_server_request(matched, request_id, retained_bytes);
-  if (!runtime->push_request(matched.route.clone(),
-                             std::move(server_request), retained_bytes)) {
+  // The reserved push consumes the admission taken before the body read;
+  // capacity was decided there, so no retry can retain a body outside the
+  // bridge (review P1).  It fails only once the bridge stops accepting.
+  const bool pushed = runtime->push_request_reserved(
+      matched.route.clone(), std::move(server_request), retained_bytes,
+      admitted_bytes_);
+  admitted_runtime_.reset();
+  admitted_bytes_ = 0;
+  if (!pushed) {
     runtime->unregister_pending(request_id);
-    if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
-      release_admission();
-      // Over the hard limit the transport answers itself; the graph never
-      // sees the request (RFC 0024, flow control).
-      send_simple_response(http::status::service_unavailable,
-                           "server is at capacity", keep_alive);
-    } else {
-      // The admission stays held through the retry: it accounts for the
-      // fully-read body this connection retains meanwhile.
-      // Backpressure: leave the request unanswered until capacity returns.
-      auto self = shared_from_this();
-      auto retry = std::make_shared<asio::steady_timer>(
-          listener_->io_context());
-      retry->expires_after(std::chrono::milliseconds{50});
-      retry->async_wait(asio::bind_executor(
-          strand_, [self, matched = std::move(matched), keep_alive,
-                    retry](beast::error_code ec) mutable {
-            if (!ec && !self->shutting_down_) {
-              self->dispatch_http(std::move(matched), keep_alive);
-            }
-          }));
-    }
+    send_simple_response(http::status::service_unavailable,
+                         "server shutting down", false);
     return;
   }
-  // The bridge accounts the pushed request from here on.
-  release_admission();
   pending_request_id_ = request_id;
   request_keep_alive_ = keep_alive;
   pending_is_head_ = request_.method() == http::verb::head;
@@ -2156,6 +2165,7 @@ void ServerConnection::ws_read_next() {
       strand_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
         const std::shared_ptr<WebServerRuntime> runtime = self->ws_runtime_;
         if (ec) {
+          self->release_ws_reservation_held();
           runtime->unregister_ws_connection(self->ws_connection_id_);
           const bool orderly = ec == websocket::error::closed;
           Int close_code = 1005;
@@ -2221,19 +2231,35 @@ void ServerConnection::ws_read_next() {
 }
 
 void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
+  // Capacity was reserved before the read was armed (review P1), so the
+  // reserved push cannot fail for lack of space; false means the bridge
+  // has stopped accepting and the connection is being torn down.
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
-  const bool backpressure =
-      runtime->config().inbound_overflow == WebInboundOverflow::Backpressure;
-  // Under Backpressure the frame must survive a failed push so the parked
-  // retry can resend it, so the push consumes a clone; Reject never retries.
-  Value to_push = backpressure ? inbound.clone() : std::move(inbound);
-  if (runtime->push_ws_frame(ws_route_.clone(), std::move(to_push), bytes)) {
+  const std::size_t reserved = ws_reserved_bytes_;
+  ws_reserved_bytes_ = 0;
+  if (runtime->push_ws_frame_reserved(ws_route_.clone(), std::move(inbound),
+                                      bytes, reserved)) {
     ws_read_continue();
+  }
+}
+
+void ServerConnection::ws_read_continue() {
+  if (shutting_down_) {
     return;
   }
-  // The bridge is over its hard limit despite the watermark: apply the
-  // explicit inbound policy — frames are never silently lost.
-  if (!backpressure) {
+  // A message read may retain up to the message limit before any push, so
+  // the capacity is reserved BEFORE the read is armed and transferred to
+  // the queued value on delivery — concurrent reads across connections are
+  // bounded by ws_ingress_byte_limit, not by connection count (review P1).
+  const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
+  const std::size_t reservation =
+      runtime->config().ws_max_message_bytes + 256;
+  if (runtime->reserve_ws_ingress(reservation)) {
+    ws_reserved_bytes_ = reservation;
+    ws_read_next();
+    return;
+  }
+  if (runtime->config().inbound_overflow == WebInboundOverflow::Reject) {
     runtime->count_drop();
     runtime->emit_event(WebSeverity::Warning, Str{"server"}, Str{"ws_ingress"},
                         Str{"WebSocket ingress rejected at the hard limit"}, 0,
@@ -2241,39 +2267,9 @@ void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
     ws_close(websocket::close_code{1013}, "server is at capacity");
     return;
   }
-  // Hold the frame and retry.  No further read is issued meanwhile, so TCP
-  // backpressure propagates to the peer.
-  auto held = std::make_shared<Value>(std::move(inbound));
-  if (listener_->reads_paused(WebListener::ReadTier::Ws)) {
-    listener_->park_for_resume(
-        WebListener::ReadTier::Ws,
-        [self = shared_from_this(), held, bytes] {
-          asio::post(self->strand_, [self, held, bytes] {
-            self->deliver_ws_ingress(std::move(*held), bytes);
-          });
-        });
-    return;
-  }
-  // The push failed with no pauser registered (a watermark race, or the
-  // record limit outpacing the byte watermark): parking would re-run
-  // immediately and spin on the strand, so wait out the race on a timer
-  // instead (review P1).
-  auto retry =
-      std::make_shared<asio::steady_timer>(listener_->io_context());
-  retry->expires_after(std::chrono::milliseconds{50});
-  retry->async_wait(asio::bind_executor(
-      strand_,
-      [self = shared_from_this(), held, bytes, retry](beast::error_code ec) {
-        if (!ec && !self->shutting_down_) {
-          self->deliver_ws_ingress(std::move(*held), bytes);
-        }
-      }));
-}
-
-void ServerConnection::ws_read_continue() {
-  if (shutting_down_) {
-    return;
-  }
+  // Backpressure: no read is armed, so TCP backpressure propagates.  Wake
+  // on the watermark resume when a pauser is registered; otherwise poll —
+  // reservations occupy capacity without engaging the payload watermark.
   if (listener_->reads_paused(WebListener::ReadTier::Ws)) {
     listener_->park_for_resume(
         WebListener::ReadTier::Ws, [self = shared_from_this()] {
@@ -2281,7 +2277,21 @@ void ServerConnection::ws_read_continue() {
         });
     return;
   }
-  ws_read_next();
+  auto retry = std::make_shared<asio::steady_timer>(listener_->io_context());
+  retry->expires_after(std::chrono::milliseconds{50});
+  retry->async_wait(asio::bind_executor(
+      strand_, [self = shared_from_this(), retry](beast::error_code ec) {
+        if (!ec && !self->shutting_down_) {
+          self->ws_read_continue();
+        }
+      }));
+}
+
+void ServerConnection::release_ws_reservation_held() noexcept {
+  if (ws_reserved_bytes_ != 0 && ws_runtime_) {
+    ws_runtime_->release_ws_reservation(ws_reserved_bytes_);
+    ws_reserved_bytes_ = 0;
+  }
 }
 
 void ServerConnection::queue_ws_frame(
@@ -2448,6 +2458,7 @@ void ServerConnection::ws_close(websocket::close_code code,
 
 void ServerConnection::close() {
   release_admission();
+  release_ws_reservation_held();
   close_socket_only();
 }
 

@@ -278,6 +278,7 @@ public:
                                    std::size_t reserved_bytes) {
     PushSourceSender wake;
     Int generation{};
+    std::function<void(bool)> pause;
     {
       std::lock_guard lock{mutex_};
       auto &state = at(channel);
@@ -304,9 +305,21 @@ public:
         generation = ++state.generation;
         wake = state.sender;
       }
+      // Reserved pushes count toward the same payload watermark as plain
+      // pushes; without this a reservation-fed channel would never engage
+      // pause/resume.
+      if (!state.paused && state.watermark.callback &&
+          (state.payload_records >= state.watermark.high.records ||
+           state.payload_bytes >= state.watermark.high.bytes)) {
+        state.paused = true;
+        pause = state.watermark.callback;
+      }
     }
     if (wake.valid()) {
       wake.send(generation);
+    }
+    if (pause) {
+      pause(true);
     }
     return true;
   }

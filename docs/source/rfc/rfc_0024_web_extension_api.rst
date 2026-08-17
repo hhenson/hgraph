@@ -527,10 +527,23 @@ Every queue is bounded in records and bytes.  At the configured high
 watermark (default 80%) the transport stops issuing socket reads — HTTP/1.1
 backpressure propagates naturally through TCP; the client pauses transfers
 with ``curl_easy_pause``; the future h2 session withholds window updates —
-and resumes below the low watermark (default 50%).  At the hard limit the
-explicit ``inbound_overflow`` policy applies: ``Backpressure`` leaves the
-request unread in the kernel; ``Reject`` answers 503 from the transport
-without graph involvement.
+and resumes below the low watermark (default 50%).
+
+Server ingress admission is reservation-based, so payload memory outside
+the bridge is bounded by the same limits as memory inside it.  An HTTP
+connection reads headers first, projects the request's retained bytes from
+``Content-Length`` (the body limit when chunked), and reserves that on the
+ingress channel — records and bytes under one lock — before reading the
+body; the reserved push then transfers the reservation to the queued value
+and cannot fail for lack of space.  A WebSocket connection reserves
+``ws_max_message_bytes`` before arming each message read, so concurrent
+in-flight reads across all connections are bounded by
+``ws_ingress_byte_limit``, not by connection count.  On reservation
+failure the explicit ``inbound_overflow`` policy applies: ``Backpressure``
+leaves the request unread in the kernel (no read is armed); ``Reject``
+answers 503 / closes 1013 from the transport without graph involvement.
+Configuration floors guarantee a single maximal payload always fits an
+empty channel, so an admitted wait always terminates.
 
 Outbound, each connection owns a bounded queue on its strand.  A slow
 WebSocket consumer triggers the explicit ``slow_consumer_policy``: ``Close``
