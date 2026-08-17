@@ -333,11 +333,29 @@ method_from_token(std::string_view token) noexcept {
 
 class WebServerRuntime;
 
+struct CompiledRoutes {
+  RouteTable table{RouteTable::build({})};
+  std::vector<Value> routes{};
+};
+
 struct MatchedRoute {
   std::shared_ptr<WebServerRuntime> runtime{};
-  Value route{};
+  // The route is SHARED, not cloned: the snapshot pin keeps the pointed-at
+  // value alive across concurrent route swaps, so a backpressured request
+  // holds O(1) route memory instead of an owning copy per request
+  // (review P1).  The single owning copy is the envelope clone at push,
+  // which the retained estimate accounts via route_weight().
+  std::shared_ptr<const CompiledRoutes> snapshot{};
+  const Value *route{};
   NamedPairs params{};
 };
+
+/** The bytes the envelope's owning route copy retains (pattern + fixed
+ * fields); route patterns are server-defined but can be long relative to
+ * tiny requests, so they are accounted, not assumed (review P1). */
+[[nodiscard]] std::size_t route_weight(const Value &route) {
+  return route.view().as_bundle().at("pattern").checked_as<Str>().size() + 64;
+}
 
 // ---------------------------------------------------------------------------
 // Listener: owns the io_context pool and acceptor for one (address, port).
@@ -533,11 +551,6 @@ private:
 
 // ---------------------------------------------------------------------------
 // Runtime
-
-struct CompiledRoutes {
-  RouteTable table{RouteTable::build({})};
-  std::vector<Value> routes{};
-};
 
 // Lock-free published-snapshot access for io threads.  Apple's libc++ does
 // not provide std::atomic<std::shared_ptr>, and GCC deprecates the free
@@ -962,7 +975,12 @@ private:
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
   std::shared_ptr<WebServerRuntime> ws_runtime_{};
-  Value ws_route_{};
+  // Shared route for the WebSocket lifetime: the snapshot pin replaces a
+  // per-connection owning clone (review P1); envelope clones are per-push
+  // and accounted via ws_route_weight_.
+  std::shared_ptr<const CompiledRoutes> ws_route_snapshot_{};
+  const Value *ws_route_{};
+  std::size_t ws_route_weight_{};
   std::optional<http::response<http::string_body>> outgoing_{};
   std::optional<http::response<http::empty_body>> chunk_head_{};
   std::optional<http::response_serializer<http::empty_body>> chunk_serializer_{};
@@ -1293,7 +1311,8 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
     const auto snapshot = upgrade ? runtime->ws_routes() : runtime->http_routes();
     const auto matched = snapshot->table.match(method, path);
     if (matched.matched) {
-      return MatchedRoute{runtime, snapshot->routes[matched.entry_index].clone(),
+      return MatchedRoute{runtime, snapshot,
+                          &snapshot->routes[matched.entry_index],
                           matched.params};
     }
   }
@@ -2162,7 +2181,8 @@ void ServerConnection::admit_and_read_body(MatchedRoute matched) {
   const std::size_t projected = projected_body + header_bytes +
                                 admission_target.size() +
                                 decoded_path_.size() + query_size +
-                                params_bytes + 512;
+                                params_bytes + route_weight(*matched.route) +
+                                512;
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   if (runtime->reserve_request(projected)) {
@@ -2309,7 +2329,8 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
     params_bytes += name.size() + value.size();
   }
   retained_bytes = body.data.size() + header_bytes + target.size() +
-                   decoded_path_.size() + query.size() + params_bytes + 512;
+                   decoded_path_.size() + query.size() + params_bytes +
+                   route_weight(*matched.route) + 512;
 
   Value request = build_on(
       b.http_request,
@@ -2343,7 +2364,7 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   // capacity was decided there, so no retry can retain a body outside the
   // bridge (review P1).  It fails only once the bridge stops accepting.
   const bool pushed = runtime->push_request_reserved(
-      matched.route.clone(), std::move(server_request), retained_bytes,
+      matched.route->clone(), std::move(server_request), retained_bytes,
       admitted_bytes_);
   admitted_runtime_.reset();
   admitted_bytes_ = 0;
@@ -2573,7 +2594,9 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
   const std::shared_ptr<WebServerRuntime> runtime = matched.runtime;
   serving_runtime_ = runtime.get();
   ws_runtime_ = runtime;
-  ws_route_ = matched.route.clone();
+  ws_route_snapshot_ = matched.snapshot;
+  ws_route_ = matched.route;
+  ws_route_weight_ = route_weight(*ws_route_);
   ws_connection_id_ = runtime->register_ws_connection(shared_from_this());
 
   const auto &config = runtime->config();
@@ -2606,14 +2629,14 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
         self->ws_ = true;
         const auto &b = runtime->bindings();
         runtime->push_ws_event(
-            self->ws_route_.clone(),
+            self->ws_route_->clone(),
             build_on(b.ws_event,
                      {
                          {"connection_id", b.number(self->ws_connection_id_)},
                          {"state", b.enum_value(WsConnectionState::Open)},
                          {"request", server_request.clone()},
                      }),
-            request_bytes + 512);
+            request_bytes + self->ws_route_weight_ + 512);
         // Beast no longer needs the upgrade request; releasing it keeps
         // the single-counted accounting honest for the WebSocket's whole
         // lifetime (review P1).
@@ -2659,7 +2682,7 @@ void ServerConnection::ws_read_next() {
           }
           const auto &b = runtime->bindings();
           runtime->push_ws_event(
-              self->ws_route_.clone(),
+              self->ws_route_->clone(),
               build_on(b.ws_event,
                        {
                            {"connection_id",
@@ -2670,7 +2693,7 @@ void ServerConnection::ws_read_next() {
                            {"close_code", b.number(close_code)},
                            {"close_reason", b.string(close_reason)},
                        }),
-              close_reason.size() + 512);
+              close_reason.size() + self->ws_route_weight_ + 512);
           self->close();
           return;
         }
@@ -2702,7 +2725,7 @@ void ServerConnection::ws_continue_message() {
   std::string payload{std::move(ws_message_)};
   ws_message_ = std::string{};
   const auto &b = runtime->bindings();
-  const std::size_t frame_bytes = payload.size() + 256;
+  const std::size_t frame_bytes = payload.size() + 256 + ws_route_weight_;
   Value frame =
       text ? build_on(b.ws_frame,
                       {
@@ -2730,7 +2753,7 @@ void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
   const std::size_t reserved = ws_reserved_bytes_;
   ws_reserved_bytes_ = 0;
-  if (runtime->push_ws_frame_reserved(ws_route_.clone(), std::move(inbound),
+  if (runtime->push_ws_frame_reserved(ws_route_->clone(), std::move(inbound),
                                       bytes, reserved)) {
     ws_read_continue();
   }
@@ -2755,7 +2778,8 @@ void ServerConnection::ws_account_chunk() {
   // The first chunk of a message takes the record slot and the envelope
   // overhead; later chunks grow the same reservation by bytes only.
   const bool first = ws_reserved_bytes_ == 0;
-  const std::size_t wanted = first ? pending + 256 : pending;
+  const std::size_t wanted =
+      first ? pending + 256 + ws_route_weight_ : pending;
   const bool accounted = first ? runtime->reserve_ws_ingress(wanted)
                                : runtime->grow_ws_reservation(wanted);
   if (accounted) {
@@ -3263,7 +3287,8 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   }
   const std::size_t projected = stream.header_bytes + stream.target.size() +
                                 stream.decoded_path.size() + query_size +
-                                params_bytes + 512;
+                                params_bytes +
+                                route_weight(*stream.matched.route) + 512;
   if (runtime->reserve_request(projected)) {
     stream.admitted = true;
     stream.reserved = projected;
@@ -3484,7 +3509,7 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
   const std::size_t retained =
       stream.body.size() + stream.header_bytes + stream.trailer_bytes +
       stream.target.size() + stream.decoded_path.size() + query.size() +
-      params_bytes + 512;
+      params_bytes + route_weight(*stream.matched.route) + 512;
   Value request = build_on(
       b.http_request,
       {
@@ -3520,7 +3545,7 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
   const std::size_t reserved = stream.reserved;
   stream.reserved = 0;
   const bool pushed = runtime->push_request_reserved(
-      stream.matched.route.clone(), std::move(server_request), retained,
+      stream.matched.route->clone(), std::move(server_request), retained,
       reserved);
   if (!pushed) {
     runtime->unregister_pending(request_id);
@@ -3528,7 +3553,8 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
     return;
   }
   stream.target = std::string{};
-  stream.matched.route = Value{};
+  stream.matched.route = nullptr;
+  stream.matched.snapshot.reset();
   stream.request_id = request_id;
   request_to_stream_[request_id] = stream_id;
 }
