@@ -10,6 +10,20 @@ hgraph change.
 The lifecycle, required sections, numbering, and proposal/implementation
 workflow are defined by :doc:`rfc_0000`.
 
+Research notes
+--------------
+
+Research notes capture design evidence and open questions before a numbered
+RFC fixes a public contract. They are informative rather than normative.
+
+.. toctree::
+   :maxdepth: 1
+
+   research_layered_network_services
+
+RFC catalogue
+-------------
+
 .. toctree::
    :maxdepth: 2
 
