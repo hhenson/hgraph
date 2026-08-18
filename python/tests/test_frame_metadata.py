@@ -10,6 +10,7 @@ from hgraph import (
     TS,
     frame_metadata,
     has_frame_metadata,
+    len_,
     pass_through,
     without_frame_metadata,
     with_frame_metadata,
@@ -54,6 +55,12 @@ def test_typed_frame_metadata_is_encoded_in_arrow_schema_and_round_trips():
         context=SnapshotContext(desk="systematic", sequence=3),
     )
     value = with_frame_metadata(table, metadata)
+
+    assert eval_node(
+        len_,
+        [value],
+        resolution_dict={"ts": TS[Frame[PriceRow, SnapshotMetadata]]},
+    ) == [1]
 
     assert isinstance(value, pa.Table)
     assert value.schema.metadata[b"external.owner"] == b"research"

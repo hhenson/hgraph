@@ -1763,7 +1763,7 @@ are fixed when the graph is built.
    Stream whose prefix is removed.
 
 ``count`` : scalar; ``int``
-   Non-negative number of ticks to discard, fixed at wiring time.
+   Non-negative number of ticks to discard, fixed at wiring time. Optional in overloads that show ``= ...``.
 
 ``period`` : scalar; ``timedelta``
    Tick count or elapsed interval controlling the temporal operation.
@@ -1784,8 +1784,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   drop(ts: TS[SCALAR], count: int) -> TS[SCALAR]
-   drop(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE
+   drop(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]
+   drop(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE
    drop(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
 
 .. _python-operator-emit:
@@ -3808,7 +3808,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``
    Collection, mapping, string, or supported structural value.
 
 Returns
@@ -7096,7 +7096,7 @@ are fixed when the graph is built.
    Stream to truncate.
 
 ``count`` : scalar; ``int``
-   Non-negative number of ticks to forward, fixed at wiring time.
+   Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
 ``reset`` : time-series; ``SIGNAL``
    Optional signal that clears the operator's accumulated state when it ticks.
@@ -7117,9 +7117,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   take(ts: TS[SCALAR], count: int) -> TS[SCALAR]
-   take(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE
-   take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int) -> TIME_SERIES_TYPE
+   take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]
+   take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE
+   take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE
 
 .. _python-operator-temporal_bucket:
 

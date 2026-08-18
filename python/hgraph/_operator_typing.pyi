@@ -1543,7 +1543,7 @@ class _drop_Operator(_Protocol):
        Stream whose prefix is removed.
 
     ``count`` : scalar; ``int``
-       Non-negative number of ticks to discard, fixed at wiring time.
+       Non-negative number of ticks to discard, fixed at wiring time. Optional in overloads that show ``= ...``.
 
     ``period`` : scalar; ``timedelta``
        Tick count or elapsed interval controlling the temporal operation.
@@ -1562,8 +1562,8 @@ class _drop_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``drop(ts: TS[SCALAR], count: int) -> TS[SCALAR]``
-    - ``drop(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
+    - ``drop(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]``
+    - ``drop(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE``
     - ``drop(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -1572,7 +1572,7 @@ class _drop_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, ts: _WiringPort | object, count: int) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, count: int = ...) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, period: _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3736,7 +3736,7 @@ class _len__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``
        Collection, mapping, string, or supported structural value.
 
     Returns
@@ -7230,7 +7230,7 @@ class _take_Operator(_Protocol):
        Stream to truncate.
 
     ``count`` : scalar; ``int``
-       Non-negative number of ticks to forward, fixed at wiring time.
+       Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
     ``reset`` : time-series; ``SIGNAL``
        Optional signal that clears the operator's accumulated state when it ticks.
@@ -7249,9 +7249,9 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``take(ts: TS[SCALAR], count: int) -> TS[SCALAR]``
-    - ``take(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
-    - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int) -> TIME_SERIES_TYPE``
+    - ``take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]``
+    - ``take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE``
+    - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -7259,9 +7259,9 @@ class _take_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, ts: _WiringPort | object, count: int) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, count: int = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, reset: _WiringPort, count: int) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, reset: _WiringPort, count: int = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 take: _take_Operator

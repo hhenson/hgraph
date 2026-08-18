@@ -671,6 +671,7 @@ def test_take():
         return take(ts, count)
 
     assert eval_node(g, [1, 2, 3, 4, 5], 3) == [1, 2, 3, None, None]
+    assert eval_node(take, [1, 2, 3]) == [1, None, None]
 
 
 def test_take_w_reset():
@@ -680,6 +681,12 @@ def test_take_w_reset():
 
     assert eval_node(g, [1, 2, 3, 4, 5, 6, 7], [None, None, None, True], 2) == [1, 2, None, 4, 5, None, None]
 
+    @graph
+    def default_count(ts: TS[int], reset: TS[bool]) -> TS[int]:
+        return take(ts, reset)
+
+    assert eval_node(default_count, [1, 2, 3, 4], [None, None, True]) == [1, None, 3, None]
+
 
 def test_drop():
     @graph
@@ -687,6 +694,7 @@ def test_drop():
         return drop(ts, count)
 
     assert eval_node(drop, [1, 2, 3, 4, 5], 3) == [None, None, None, 4, 5]
+    assert eval_node(drop, [1, 2, 3]) == [None, 2, 3]
 
 
 def test_drop_timedelta():
