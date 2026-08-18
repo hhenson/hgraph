@@ -46,8 +46,14 @@ namespace hgraph
     struct TSCheckpointImage;
 
     /** One constructed slot of a keyed kind (TSS/TSD), pending-erase included. */
-    struct HGRAPH_EXPORT TSCheckpointSlotImage
+    struct TSCheckpointSlotImage
     {
+        TSCheckpointSlotImage() = default;
+        TSCheckpointSlotImage(const TSCheckpointSlotImage &) = delete;
+        TSCheckpointSlotImage &operator=(const TSCheckpointSlotImage &) = delete;
+        TSCheckpointSlotImage(TSCheckpointSlotImage &&) noexcept = default;
+        TSCheckpointSlotImage &operator=(TSCheckpointSlotImage &&) noexcept = default;
+
         std::size_t slot_id{0};
         /** False = constructed but pending erase. */
         bool live{true};
@@ -59,7 +65,7 @@ namespace hgraph
     };
 
     /** One retained window element with its ORIGINAL evaluation timestamp. */
-    struct HGRAPH_EXPORT TSCheckpointWindowEntry
+    struct TSCheckpointWindowEntry
     {
         Value value{};
         DateTime time{MIN_DT};
@@ -71,8 +77,14 @@ namespace hgraph
      * interned runtime schema — valid for the in-memory strategy within one
      * process; a durable strategy replaces it with a canonical descriptor.
      */
-    struct HGRAPH_EXPORT TSCheckpointImage
+    struct TSCheckpointImage
     {
+        TSCheckpointImage() = default;
+        TSCheckpointImage(const TSCheckpointImage &) = delete;
+        TSCheckpointImage &operator=(const TSCheckpointImage &) = delete;
+        TSCheckpointImage(TSCheckpointImage &&) noexcept = default;
+        TSCheckpointImage &operator=(TSCheckpointImage &&) noexcept = default;
+
         TSTypeKind kind{TSTypeKind::TS};
         const TSValueTypeMetaData *schema{nullptr};
         /** ``MIN_DT`` = never ticked (invalid). */
@@ -107,7 +119,7 @@ namespace hgraph
     };
 
     /** Path-addressed reason a validation or capture refused. */
-    struct HGRAPH_EXPORT TSCheckpointDiagnostics
+    struct TSCheckpointDiagnostics
     {
         std::string path{};
         std::string reason{};
@@ -118,7 +130,7 @@ namespace hgraph
      * import is only reachable through one of these; the executor's restore
      * operation owns creation (tests use ``begin`` directly).
      */
-    class HGRAPH_EXPORT TSCheckpointRestoreGuard
+    class TSCheckpointRestoreGuard
     {
       public:
         [[nodiscard]] static TSCheckpointRestoreGuard begin() noexcept
@@ -135,7 +147,7 @@ namespace hgraph
      * representation's interned ops context (the same pointer as
      * ``TSDataOps::context``); ``memory`` is the node's storage.
      */
-    struct HGRAPH_EXPORT TSCheckpointOps
+    struct TSCheckpointOps
     {
         /** False = this representation refuses checkpointing (conservative,
             path-addressed refusal at eligibility time). */
