@@ -23,6 +23,59 @@ def _current_wiring():
     return _wiring_stack[-1]
 
 
+# Operators whose durable overloads register from hgraph-persistence
+# (RFC 0025). replay_const has no in-memory implementation at all.
+_DURABLE_OPERATORS = frozenset({"record", "replay", "compare", "replay_const"})
+
+# Wiring-time kwargs adaptation for record/replay, registered by
+# hgraph_persistence.compat (the 0.5 override-registry translation). Module
+# state, not registry state: it survives native registry resets, exactly like
+# the compat storage classes that install it.
+_record_replay_wiring_adapter = None
+
+
+def register_record_replay_wiring_adapter(adapter):
+    """Install the record/replay wiring-kwargs adapter (RFC 0025 compat seam)."""
+    global _record_replay_wiring_adapter
+    _record_replay_wiring_adapter = adapter
+
+
+def _durable_wiring_hint(name):
+    """The missing-extension diagnosis for a durable operator's wiring failure.
+
+    Wiring diagnoses the missing backend (RFC 0025): a resolution failure on a
+    record/replay operator is unexplained when the cause is that the durable
+    overloads never registered — either the optional distribution is absent, or
+    it is installed but nothing selected a durable backend, so it never loaded.
+    Availability is probed without importing (importing would register the
+    overloads as an error-path side effect).
+    """
+    if name not in _DURABLE_OPERATORS:
+        return ""
+    import importlib.util
+    import sys
+
+    if "hgraph_persistence" in sys.modules:
+        return ""
+    try:
+        spec = importlib.util.find_spec("hgraph_persistence")
+    except ModuleNotFoundError:
+        spec = None
+    if spec is None:
+        return (
+            "\n(durable record/replay overloads are provided by the optional "
+            "'hgraph-persistence' distribution; install it with "
+            "`pip install hgraph-persistence` — the built-in backends are "
+            "'memory' and 'testing')"
+        )
+    return (
+        "\n(hgraph-persistence is installed but not loaded: durable overloads "
+        "register when a durable backend is selected — for example "
+        "hg.set_record_replay_config(hg.DATA_FRAME) or a per-call "
+        "model=hg.DATA_FRAME — or on `import hgraph_persistence`)"
+    )
+
+
 class WiringPort:
     """A time-series edge source; supports hgraph's operator sugar."""
 
@@ -92,7 +145,7 @@ def wire(name, *args, __output_type__=None, **kwargs):
         # std::invalid_argument surfaces as ValueError; both are wiring-time.
         # (RequirementsNotMetWiringError arrives ALREADY typed - the C++
         # resolver throws OperatorRequirementsError, translated directly.)
-        raise WiringError(str(error)) from error
+        raise WiringError(str(error) + _durable_wiring_hint(name)) from error
     return WiringPort(result) if result is not None else None
 
 
@@ -335,7 +388,7 @@ class _OperatorFunction:
         self._resolutions = resolutions
 
     def __call__(self, *args, **kwargs):
-        if self.__name__ in ("record", "replay", "compare") and kwargs.get("model"):
+        if self.__name__ in _DURABLE_OPERATORS and kwargs.get("model"):
             # A per-call ``model=`` selects the backend for this node alone,
             # so it is an extension load point exactly like the graph-level
             # configuration setter (RFC 0025) — without the import, the
@@ -344,18 +397,13 @@ class _OperatorFunction:
             from ._state import _ensure_backend_extension
 
             _ensure_backend_extension(kwargs["model"])
-        if self.__name__ in ("record", "replay"):
-            from ._state import GlobalState
-
-            if (GlobalState.has_instance()
-                    and GlobalState.instance().get("__record_replay_model__") == _hgraph.DATA_FRAME):
-                # release/0.5's data-frame override registry is translated at
-                # the Python wiring boundary into native scalar options. The
-                # adaptor remains unloaded for ordinary in-memory recording.
-                from ..adaptors.data_frame._data_frame_record_replay import (
-                    _legacy_record_replay_kwargs,
-                )
-                kwargs = _legacy_record_replay_kwargs(self.__name__, args, kwargs)
+        if self.__name__ in ("record", "replay") and _record_replay_wiring_adapter is not None:
+            # release/0.5's data-frame override registry is translated at the
+            # Python wiring boundary into native scalar options. The adapter is
+            # registered by hgraph_persistence.compat when its storage surface
+            # loads (RFC 0025: core wiring must not import adaptor modules) and
+            # is a no-op unless a compatibility storage is active.
+            kwargs = _record_replay_wiring_adapter(self.__name__, args, kwargs)
         if (self.__name__ == "apply" and args
                 and "tp" not in kwargs and "output_type" not in kwargs
                 and self._output_type is None and callable(args[0])

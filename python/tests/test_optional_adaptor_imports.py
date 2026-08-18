@@ -158,6 +158,24 @@ def test_per_call_durable_model_names_the_missing_persistence_extension():
             assert "pip install hgraph-persistence" in str(error)
         else:
             raise AssertionError("per-call durable model wired without hgraph-persistence")
+
+        # Wiring failures on the durable operators also diagnose the missing
+        # distribution: replay_const has no in-memory implementation, so its
+        # resolution failure names the install, not just "no operator".
+        from hgraph import GlobalState
+        from hgraph.test import eval_node
+
+        @hg.graph
+        def use_replay_const() -> TS[int]:
+            return hg.replay_const[TS[int]](key="price")
+
+        try:
+            with GlobalState():
+                eval_node(use_replay_const)
+        except Exception as error:
+            assert "pip install hgraph-persistence" in str(error), str(error)
+        else:
+            raise AssertionError("replay_const wired without hgraph-persistence")
         """
     )
     python_path = os.pathsep.join(

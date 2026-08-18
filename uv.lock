@@ -435,6 +435,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dataframe = [
+    { name = "hgraph-persistence" },
     { name = "polars" },
 ]
 delta = [
@@ -520,6 +521,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'sql'", specifier = ">=1.4" },
     { name = "duckdb", marker = "extra == 'test'", specifier = ">=1.4" },
     { name = "frozendict", specifier = ">=2.4" },
+    { name = "hgraph-persistence", marker = "extra == 'dataframe'", editable = "extensions/persistence" },
     { name = "hgraph-web", marker = "extra == 'web'", editable = "extensions/web" },
     { name = "hypothesis", marker = "extra == 'parity'", specifier = ">=6" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6" },

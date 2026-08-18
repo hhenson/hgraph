@@ -49,6 +49,75 @@ def test_per_call_model_selection_loads_the_extension():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_per_call_model_on_replay_const_loads_the_extension():
+    # replay_const's durable overload accepts a per-call ``model=`` (the
+    # operator has no in-memory implementation), so that call shape is a load
+    # point exactly like record/replay/compare's (PR #507 review finding).
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "sys.meta_path = [finder for finder in sys.meta_path"
+        " if 'ScikitBuild' not in type(finder).__name__]\n"
+        "import hgraph as hg\n"
+        "from hgraph import TS\n"
+        "assert 'hgraph_persistence' not in sys.modules\n"
+        "try:\n"
+        "    hg.replay_const[TS[int]](key='price', model=hg.DATA_FRAME)\n"
+        "except RuntimeError:\n"
+        "    pass  # no active wiring — the load fires before wiring begins\n"
+        "assert 'hgraph_persistence' in sys.modules, 'selection did not load'\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_unloaded_extension_wiring_failure_names_the_activation_paths():
+    # With hgraph-persistence INSTALLED but never loaded, a durable operator's
+    # wiring failure explains that overloads register on backend selection
+    # (RFC 0025's "wiring diagnoses the missing backend") rather than leaving
+    # an unexplained resolution failure. Clean interpreter: this suite's own
+    # imports must not mask the unloaded state.
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "sys.meta_path = [finder for finder in sys.meta_path"
+        " if 'ScikitBuild' not in type(finder).__name__]\n"
+        "import hgraph as hg\n"
+        "from hgraph import TS, GlobalState\n"
+        "from hgraph.test import eval_node\n"
+        "assert 'hgraph_persistence' not in sys.modules\n"
+        "@hg.graph\n"
+        "def g() -> TS[int]:\n"
+        "    return hg.replay_const[TS[int]](key='price')\n"
+        "try:\n"
+        "    with GlobalState():\n"
+        "        eval_node(g)\n"
+        "except Exception as error:\n"
+        "    assert 'installed but not loaded' in str(error), str(error)\n"
+        "    assert 'set_record_replay_config' in str(error), str(error)\n"
+        "else:\n"
+        "    raise AssertionError('replay_const wired without activation')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_durable_replay_overload_registers_partition_signature():
     # Moved from core's test_native_docstrings when the partitioned frame
     # replay overload became extension-registered (RFC 0025 checkpoint 4).

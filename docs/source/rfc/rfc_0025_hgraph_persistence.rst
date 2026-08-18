@@ -454,10 +454,27 @@ Python compatibility store; ``hgraph_persistence`` with the
 lazily importing the extension (the activation contract, live);
 ``hgraph.adaptors.data_frame`` as the guarded lazy re-export; and the
 frame test suites relocated (C++ Catch2 suite and the Python suites) —
-core keeps memory/testing coverage only.  Remaining from checkpoint 5:
-the explicit missing-extension diagnostics polish and the ``dataframe``
-extra gaining ``hgraph-persistence`` (deferred with the ``uv.lock``
-regeneration).
+core keeps memory/testing coverage only.
+
+Checkpoint 5 is complete.  The operator-implementation move landed with
+checkpoint 4 (the recorded sequencing decision above); the merged PR's
+review round additionally made the per-call ``model=`` argument a load
+point (the activation contract's "graph default and per-call override
+alike", which only the graph-level setter had implemented).  The
+remainder landed separately: **explicit missing-extension diagnostics**
+— a wiring failure on ``record``/``replay``/``compare``/``replay_const``
+appends a pointed diagnosis when the durable overloads never registered,
+distinguishing "the distribution is absent (``pip install
+hgraph-persistence``)" from "installed but not loaded (select a durable
+backend, or import the package)", probed without importing so the error
+path cannot register overloads as a side effect — the core→adaptor
+back-edge removed (the 0.5 override-registry translation
+``_legacy_record_replay_kwargs`` lives in ``hgraph_persistence.compat``,
+which registers it through core's
+``register_record_replay_wiring_adapter`` seam when the storage surface
+loads; core wiring imports no adaptor modules) — and the ``dataframe``
+extra now installs ``hgraph-persistence`` (workspace-sourced,
+``uv.lock`` regenerated).
 
 Appendix: symbol and migration inventory
 ----------------------------------------
