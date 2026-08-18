@@ -256,9 +256,8 @@ int main()
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
     static_assert(GRAPH_OPS_ABI_VERSION == 7);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 11: TSCheckpointOps joined TSDataOps as a separately selected,
-    // non-null cold-path policy (RFC 0023).
-    static_assert(TS_DATA_OPS_ABI_VERSION == 11);
+    // ABI 10: the never-dispatched reset_delta hook was removed.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 10);
     static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
     static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));

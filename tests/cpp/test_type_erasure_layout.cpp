@@ -76,9 +76,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
-    // ABI 11: TSCheckpointOps joined TSDataOps as a separately selected,
-    // non-null cold-path policy (RFC 0023).
-    static_assert(TS_DATA_OPS_ABI_VERSION == 11);
+    // ABI 10: the never-dispatched reset_delta hook was removed.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 10);
     static_assert(sizeof(TSRoleTypeRef) == sizeof(void *));
     static_assert(sizeof(TSDataObserverSet) == sizeof(void *));
     static_assert(sizeof(TSData) == sizeof(void *) * 3);

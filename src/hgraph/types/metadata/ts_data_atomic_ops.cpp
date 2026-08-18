@@ -46,14 +46,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 .allows_mutation           = true,
                 .direct_native_value       = value_storage == ValueStorageVariant::Native,
                 .current_state_ops         = &ts_current_state_detail::current_state_ops_for(kind),
-                // REF checkpoints are locators resolved by the restore
-                // lifecycle (RFC 0023 step 6) and land with the graph walk;
-                // python-only storage has no native value plane to image.
-                .checkpoint_ops =
-                    (kind == TSTypeKind::REF ||
-                     value_storage == ValueStorageVariant::PythonOnly)
-                        ? &ts_checkpoint_detail::unsupported_checkpoint_ops()
-                        : &atomic_checkpoint_ops(),
                 .layout_impl               = &atomic_layout,
                 .tracking_impl             = &atomic_tracking,
                 .mutable_tracking_impl     = &atomic_mutable_tracking,
@@ -201,88 +193,6 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *layout = atomic_layout(context);
             return layout->value_binding.ops_ref().dynamic_storage_metrics(
                 atomic_value_memory(context, memory));
-        }
-
-        // ----- checkpoint ops (RFC 0023): exact capture / quiet import -----
-
-        static void atomic_checkpoint_capture(const void *context, const void *memory,
-                                              TSCheckpointImage &out)
-        {
-            const auto *layout = atomic_layout(context);
-            const auto *tracking = atomic_tracking(context, memory);
-            out.kind = entry(context).ops.kind;
-            out.modified_time = tracking->last_modified_time;
-            if (tracking->last_modified_time != MIN_DT)
-            {
-                out.value = Value{
-                    ValueView{layout->value_binding, atomic_value_memory(context, memory)}};
-            }
-        }
-
-        static bool atomic_checkpoint_validate(const void *context,
-                                               const TSCheckpointImage &image,
-                                               TSCheckpointDiagnostics &why)
-        {
-            const auto &self = entry(context);
-            if (image.kind != self.ops.kind)
-            {
-                why.reason = "checkpoint image kind does not match this endpoint";
-                return false;
-            }
-            if (image.modified_time == MIN_DT) { return true; }
-            if (!image.value.has_value())
-            {
-                why.reason = "a ticked atomic image carries no value";
-                return false;
-            }
-            if (!atomic_value_binding_compatible(image.value.binding(),
-                                                 self.layout.value_binding))
-            {
-                why.reason = "checkpoint value schema does not match the bound value schema";
-                return false;
-            }
-            return true;
-        }
-
-        static void atomic_checkpoint_import(const void *context, void *memory,
-                                             const TSCheckpointImage &image,
-                                             const TSCheckpointRestoreGuard &)
-        {
-            TSCheckpointDiagnostics why;
-            if (!atomic_checkpoint_validate(context, image, why))
-            {
-                throw std::invalid_argument("TSData atomic checkpoint import: " + why.reason);
-            }
-            const auto *layout = atomic_layout(context);
-            if (image.modified_time != MIN_DT)
-            {
-                // Quiet write: value ops directly (never a mutation view),
-                // then a DIRECT tracking stamp — no record_modified, no
-                // parent notification, no observer wake, original time kept.
-                layout->value_binding.ops_ref().copy_assign_from(
-                    layout->value_binding,
-                    atomic_mutable_value_memory(context, memory),
-                    image.value.binding(),
-                    image.value.view().data());
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                if (entry(context).storage == ValueStorageVariant::NativeWithPythonCache)
-                {
-                    invalidate_python_value(context, memory);
-                }
-#endif
-            }
-            atomic_mutable_tracking(context, memory)->last_modified_time = image.modified_time;
-        }
-
-        [[nodiscard]] static const TSCheckpointOps &atomic_checkpoint_ops() noexcept
-        {
-            static const TSCheckpointOps table{
-                .supported = true,
-                .capture_impl = &atomic_checkpoint_capture,
-                .validate_impl = &atomic_checkpoint_validate,
-                .import_impl = &atomic_checkpoint_import,
-            };
-            return table;
         }
 
         /** Same binding, or distinct schema identities over ONE layout

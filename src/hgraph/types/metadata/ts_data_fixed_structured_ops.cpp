@@ -317,7 +317,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 .inspection_ops            = &inspection_ops(),
                 .current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(schema->kind),
-                .checkpoint_ops            = &fixed_checkpoint_ops(),
                 .layout_impl               = &fixed_layout,
                 .tracking_impl             = &fixed_tracking,
                 .mutable_tracking_impl     = &fixed_mutable_tracking,
@@ -542,93 +541,6 @@ namespace hgraph::ts_data_plan_factory_detail
         static void fixed_record_child_modified(const void *context, void *memory, std::size_t child_id, DateTime)
         {
             mark_tsb_value_field_valid(ctx(context), memory, child_id);
-        }
-
-        // ----- checkpoint ops (RFC 0023): exact capture / quiet import -----
-
-        static void fixed_checkpoint_capture(const void *context, const void *memory,
-                                             TSCheckpointImage &out)
-        {
-            const auto *state = ctx(context);
-            out.kind = state->schema->kind;
-            out.modified_time = fixed_tracking(context, memory)->last_modified_time;
-            out.children.reserve(state->element_count());
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const auto child = state->element_type(index);
-                const auto &ops = child_ops(child);
-                TSCheckpointImage child_image;
-                ops.checkpoint_ops->capture_impl(ops.context,
-                                                 child_data(state, memory, index), child_image);
-                child_image.schema = child.schema();
-                out.children.push_back(std::move(child_image));
-            }
-        }
-
-        static bool fixed_checkpoint_validate(const void *context,
-                                              const TSCheckpointImage &image,
-                                              TSCheckpointDiagnostics &why)
-        {
-            const auto *state = ctx(context);
-            if (image.kind != state->schema->kind)
-            {
-                why.reason = "checkpoint image kind does not match this endpoint";
-                return false;
-            }
-            if (image.children.size() != state->element_count())
-            {
-                why.reason = "checkpoint image child count does not match this endpoint";
-                return false;
-            }
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const auto &ops = child_ops(state->element_type(index));
-                if (!ops.checkpoint_ops->validate_impl(ops.context, image.children[index], why))
-                {
-                    why.path = "[" + std::to_string(index) + "]" +
-                               (why.path.empty() ? "" : "/" + why.path);
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        static void fixed_checkpoint_import(const void *context, void *memory,
-                                            const TSCheckpointImage &image,
-                                            const TSCheckpointRestoreGuard &guard)
-        {
-            TSCheckpointDiagnostics why;
-            if (!fixed_checkpoint_validate(context, image, why))
-            {
-                throw std::invalid_argument("fixed TSData checkpoint import: " + why.path +
-                                            (why.path.empty() ? "" : ": ") + why.reason);
-            }
-            const auto *state = ctx(context);
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const auto &ops = child_ops(state->element_type(index));
-                ops.checkpoint_ops->import_impl(ops.context, child_data(state, memory, index),
-                                                image.children[index], guard);
-                // Replay the value-layer validity bit a live publication
-                // would have set — the bundle's second, required encoding
-                // of child validity — without any notification.
-                if (image.children[index].modified_time != MIN_DT)
-                {
-                    mark_tsb_value_field_valid(state, memory, index);
-                }
-            }
-            fixed_mutable_tracking(context, memory)->last_modified_time = image.modified_time;
-        }
-
-        [[nodiscard]] static const TSCheckpointOps &fixed_checkpoint_ops() noexcept
-        {
-            static const TSCheckpointOps table{
-                .supported = true,
-                .capture_impl = &fixed_checkpoint_capture,
-                .validate_impl = &fixed_checkpoint_validate,
-                .import_impl = &fixed_checkpoint_import,
-            };
-            return table;
         }
 
         [[nodiscard]] static const void *fixed_delta_memory(const void *, const void *memory) noexcept

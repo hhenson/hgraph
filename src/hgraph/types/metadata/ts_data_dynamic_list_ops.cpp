@@ -379,7 +379,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     .ownership_ops             = &ownership_ops(),
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSL),
-                    .checkpoint_ops            = &dynamic_checkpoint_ops(),
                     .layout_impl               = &dynamic_layout,
                     .tracking_impl             = &dynamic_tracking,
                     .mutable_tracking_impl     = &dynamic_mutable_tracking,
@@ -757,91 +756,6 @@ namespace hgraph::ts_data_plan_factory_detail
                                                       DateTime modified_time)
             {
                 storage(memory).record_child_modified(child_id, modified_time);
-            }
-
-            // --- checkpoint ops (RFC 0023): exact capture / quiet import ---
-
-            static void dynamic_checkpoint_capture(const void *context, const void *memory,
-                                                   TSCheckpointImage &out)
-            {
-                const auto &store = storage(memory);
-                out.kind = TSTypeKind::TSL;
-                out.modified_time = store.tracking().last_modified_time;
-                const auto element_type = ctx(context)->element_type;
-                const auto &element_table = child_ops(element_type);
-                out.children.reserve(store.size());
-                for (std::size_t index = 0; index < store.size(); ++index)
-                {
-                    TSCheckpointImage child_image;
-                    element_table.checkpoint_ops->capture_impl(
-                        element_table.context, store.child_memory(index), child_image);
-                    child_image.schema = element_type.schema();
-                    out.children.push_back(std::move(child_image));
-                }
-                // The modified-index ring and delta-window header are
-                // per-cycle representation; the durable shape is size().
-            }
-
-            static bool dynamic_checkpoint_validate(const void *context,
-                                                    const TSCheckpointImage &image,
-                                                    TSCheckpointDiagnostics &why)
-            {
-                if (image.kind != TSTypeKind::TSL)
-                {
-                    why.reason = "checkpoint image kind does not match this endpoint";
-                    return false;
-                }
-                const auto element_type = ctx(context)->element_type;
-                const auto &element_table = child_ops(element_type);
-                for (std::size_t index = 0; index < image.children.size(); ++index)
-                {
-                    if (!element_table.checkpoint_ops->validate_impl(
-                            element_table.context, image.children[index], why))
-                    {
-                        why.path = "[" + std::to_string(index) + "]" +
-                                   (why.path.empty() ? "" : "/" + why.path);
-                        return false;
-                    }
-                }
-                return true;
-            }
-
-            static void dynamic_checkpoint_import(const void *context, void *memory,
-                                                  const TSCheckpointImage &image,
-                                                  const TSCheckpointRestoreGuard &guard)
-            {
-                TSCheckpointDiagnostics why;
-                if (!dynamic_checkpoint_validate(context, image, why))
-                {
-                    throw std::invalid_argument("dynamic TSL checkpoint import: " + why.path +
-                                                (why.path.empty() ? "" : ": ") + why.reason);
-                }
-                auto &store = storage(memory);
-                const auto element_type = ctx(context)->element_type;
-                // Grow to the captured shape without touching tracking or the
-                // delta ring; child construction happens without parent-link
-                // attachment here — the restore lifecycle reattaches the tree
-                // exactly as fresh construction does.
-                store.ensure_size(image.children.size(), element_type);
-                const auto &element_table = child_ops(element_type);
-                for (std::size_t index = 0; index < image.children.size(); ++index)
-                {
-                    element_table.checkpoint_ops->import_impl(
-                        element_table.context, store.child_memory(index),
-                        image.children[index], guard);
-                }
-                store.mutable_tracking().last_modified_time = image.modified_time;
-            }
-
-            [[nodiscard]] static const TSCheckpointOps &dynamic_checkpoint_ops() noexcept
-            {
-                static const TSCheckpointOps table{
-                    .supported = true,
-                    .capture_impl = &dynamic_checkpoint_capture,
-                    .validate_impl = &dynamic_checkpoint_validate,
-                    .import_impl = &dynamic_checkpoint_import,
-                };
-                return table;
             }
 
             [[nodiscard]] static std::size_t dynamic_modified_index_count(const void *,

@@ -504,14 +504,6 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return slot < value_published_.size() && value_published_.test(slot);
             }
-            /** Checkpoint rebuild (RFC 0023): restore the durable
-                has-ever-published plane (it survives reset_delta and drives
-                whether a later removal emits a removed event). */
-            void checkpoint_set_value_published(std::size_t slot)
-            {
-                ensure_delta_capacity();
-                if (slot < value_published_.size()) { value_published_.set(slot); }
-            }
             [[nodiscard]] const void *key_at_slot(std::size_t slot) const { return keys_[slot]; }
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
             {
@@ -1058,7 +1050,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     .allows_mutation           = mutable_storage,
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSS),
-                    .checkpoint_ops            = &tss_checkpoint_ops(),
                     .layout_impl               = &tss_layout,
                     .tracking_impl             = &tss_tracking,
                     .mutable_tracking_impl     = &tss_mutable_tracking,
@@ -1608,145 +1599,6 @@ namespace hgraph::ts_data_plan_factory_detail
             static void tss_reserve(const void *, void *memory, std::size_t capacity)
             {
                 storage<Storage>(memory).reserve(capacity);
-            }
-
-            // --- checkpoint ops (RFC 0023): exact capture / quiet import ---
-
-            static constexpr bool k_is_tsd = std::is_same_v<Storage, TSDSlotStorage>;
-
-            static void tss_checkpoint_capture(const void *, const void *memory,
-                                               TSCheckpointImage &out)
-            {
-                const auto &store = storage<Storage>(memory);
-                out.kind = k_is_tsd ? TSTypeKind::TSD : TSTypeKind::TSS;
-                out.modified_time = store.tracking().last_modified_time;
-                out.slot_capacity = store.slot_capacity();
-                const auto key_binding = store.key_binding();
-                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                {
-                    if (!store.slot_occupied(slot)) { continue; }
-                    TSCheckpointSlotImage entry;
-                    entry.slot_id = slot;
-                    entry.live = store.slot_live(slot);
-                    entry.key = Value{ValueView{key_binding, store.key_at_slot(slot)}};
-                    if constexpr (k_is_tsd)
-                    {
-                        entry.value_published = store.slot_value_published(slot);
-                        const auto element_type = store.element_type();
-                        const auto &element_table = element_type.ops_ref();
-                        auto child_image = std::make_unique<TSCheckpointImage>();
-                        element_table.checkpoint_ops->capture_impl(
-                            element_table.context, store.child_at_slot(slot), *child_image);
-                        child_image->schema = element_type.schema();
-                        entry.child = std::move(child_image);
-                    }
-                    out.slots.push_back(std::move(entry));
-                }
-                out.free_slots = store.keys().checkpoint_free_slot_order();
-                out.pending_erase_slots = store.keys().checkpoint_pending_erase_order();
-                if constexpr (k_is_tsd)
-                {
-                    out.key_set_modified_time = store.key_set_tracking().last_modified_time;
-                }
-                // added_/removed_/modified_ bitsets and delta_time_ are the
-                // per-cycle delta window; they are not part of the image.
-            }
-
-            static bool tss_checkpoint_validate(const void *context,
-                                                const TSCheckpointImage &image,
-                                                TSCheckpointDiagnostics &why)
-            {
-                const auto *state = static_cast<const TSSContextBase *>(context);
-                const auto expected_kind = k_is_tsd ? TSTypeKind::TSD : TSTypeKind::TSS;
-                if (image.kind != expected_kind)
-                {
-                    why.reason = "checkpoint image kind does not match this endpoint";
-                    return false;
-                }
-                const auto bound = state->set_layout.key_binding;
-                for (const auto &entry : image.slots)
-                {
-                    if (entry.slot_id >= image.slot_capacity)
-                    {
-                        why.path = "slot[" + std::to_string(entry.slot_id) + "]";
-                        why.reason = "slot id exceeds the captured capacity";
-                        return false;
-                    }
-                    if (!entry.key.has_value())
-                    {
-                        why.path = "slot[" + std::to_string(entry.slot_id) + "]";
-                        why.reason = "slot carries no key value";
-                        return false;
-                    }
-                    const auto source = entry.key.binding();
-                    if (source != bound && (source == nullptr || bound == nullptr ||
-                                            source.plan() != bound.plan()))
-                    {
-                        why.path = "slot[" + std::to_string(entry.slot_id) + "]";
-                        why.reason = "slot key schema does not match the bound key schema";
-                        return false;
-                    }
-                    if constexpr (k_is_tsd)
-                    {
-                        if (entry.child == nullptr)
-                        {
-                            why.path = "slot[" + std::to_string(entry.slot_id) + "]";
-                            why.reason = "TSD slot carries no child image";
-                            return false;
-                        }
-                    }
-                }
-                return true;
-            }
-
-            static void tss_checkpoint_import(const void *context, void *memory,
-                                              const TSCheckpointImage &image,
-                                              const TSCheckpointRestoreGuard &guard)
-            {
-                TSCheckpointDiagnostics why;
-                if (!tss_checkpoint_validate(context, image, why))
-                {
-                    throw std::invalid_argument("keyed checkpoint import: " + why.path +
-                                                (why.path.empty() ? "" : ": ") + why.reason);
-                }
-                auto &store = storage<Storage>(memory);
-                store.reserve(image.slot_capacity);
-                for (const auto &entry : image.slots)
-                {
-                    store.keys().checkpoint_import_slot(entry.slot_id, entry.key.view(),
-                                                        entry.live);
-                    if constexpr (k_is_tsd)
-                    {
-                        const auto element_type = store.element_type();
-                        const auto &element_table = element_type.ops_ref();
-                        element_table.checkpoint_ops->import_impl(
-                            element_table.context, store.child_memory_for_write(entry.slot_id),
-                            *entry.child, guard);
-                        if (entry.value_published)
-                        {
-                            store.checkpoint_set_value_published(entry.slot_id);
-                        }
-                    }
-                }
-                store.keys().checkpoint_set_slot_lists(image.free_slots,
-                                                       image.pending_erase_slots);
-                store.mutable_tracking().last_modified_time = image.modified_time;
-                if constexpr (k_is_tsd)
-                {
-                    store.mutable_key_set_tracking().last_modified_time =
-                        image.key_set_modified_time;
-                }
-            }
-
-            [[nodiscard]] static const TSCheckpointOps &tss_checkpoint_ops() noexcept
-            {
-                static const TSCheckpointOps table{
-                    .supported = true,
-                    .capture_impl = &tss_checkpoint_capture,
-                    .validate_impl = &tss_checkpoint_validate,
-                    .import_impl = &tss_checkpoint_import,
-                };
-                return table;
             }
 
             static void tss_subscribe_slot_observer(const void *, void *memory, SlotObserver *observer)

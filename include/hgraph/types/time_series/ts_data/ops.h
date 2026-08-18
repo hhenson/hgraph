@@ -3,7 +3,6 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/storage_metrics.h>
-#include <hgraph/types/time_series/ts_data/checkpoint_ops.h>
 #include <hgraph/types/time_series/ts_data/current_state_ops.h>
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
@@ -224,10 +223,6 @@ namespace hgraph
         // recover a representation from ``kind``.
         const TSCurrentStateOps *current_state_ops{
             &ts_current_state_detail::missing_current_state_ops()};
-        // Exact checkpoint capture / quiet import (RFC 0023): the same
-        // separately selected, non-null, cold-path policy shape.
-        const TSCheckpointOps *checkpoint_ops{
-            &ts_checkpoint_detail::unsupported_checkpoint_ops()};
 
         const TSDataLayout *(*layout_impl)(const void *context) = &ts_data_detail::missing_layout;
         const TSDataTracking *(*tracking_impl)(const void *context,
