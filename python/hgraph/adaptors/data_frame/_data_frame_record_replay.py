@@ -5,7 +5,6 @@ import pyarrow as pa
 
 from hgraph import (
     AUTO_RESOLVE,
-    DATA_FRAME,
     MAX_DT,
     OUT,
     Frame,
@@ -106,53 +105,10 @@ def get_data_frame_record_overrides(key, recordable_id, global_state=None):
     )
 
 
-def _legacy_record_replay_kwargs(name, args, kwargs):
-    """Translate the 0.5 override registry into native call-site options.
-
-    This is wiring-only compatibility. The native recorder still receives
-    explicit immutable scalar options and does not consult Python state at
-    runtime.
-    """
-    if not GlobalState.has_instance():
-        return kwargs
-    state = GlobalState.instance()
-    if state.get("__record_replay_model__") != DATA_FRAME:
-        return kwargs
-    import sys as _sys
-    _storage_cls = getattr(_sys.modules[__name__], "DataFrameStorage")
-    if _storage_cls.instance(state) is None:
-        return kwargs
-
-    key_position = 1 if name == "record" else 0
-    key = kwargs.get("key", args[key_position] if len(args) > key_position else "out")
-    recordable_id_position = 2 if name == "record" else 1
-    recordable_id = kwargs.get(
-        "recordable_id",
-        args[recordable_id_position] if len(args) > recordable_id_position else None,
-    )
-    options = get_data_frame_record_overrides(key, recordable_id, state)
-    translated = dict(kwargs)
-
-    if name == "record":
-        from hgraph import RecordAsOf, RecordRemoves
-
-        translated.setdefault(
-            # The 0.5 flag controls whether the column is present; it does not
-            # override a fixed graph-level ``set_as_of`` value.  ``INHERIT``
-            # preserves that distinction while still tracking evaluation time
-            # when no fixed value is configured.  Callers can continue to pass
-            # ``RecordAsOf.TRACK`` explicitly when they want that override.
-            "as_of", RecordAsOf.INHERIT if options.get("track_as_of", True) else RecordAsOf.OMIT
-        )
-        translated.setdefault(
-            "removes", RecordRemoves.TRACK if options.get("track_removes", False) else RecordRemoves.OMIT
-        )
-    if name in ("record", "replay"):
-        if options.get("partition_keys") is not None:
-            translated.setdefault("partition_names", tuple(options["partition_keys"]))
-        if options.get("remove_partition_keys") is not None:
-            translated.setdefault("removed_names", tuple(options["remove_partition_keys"]))
-    return translated
+# The 0.5 override-registry translation into native call-site options moved
+# to hgraph_persistence.compat (RFC 0025 checkpoint 5): it only acts under an
+# ACTIVE DataFrameStorage, and core wiring must not import adaptor modules —
+# the compat surface registers the wiring adapter itself when it loads.
 
 
 # These names are compatibility views over the C++-owned record/replay nodes.

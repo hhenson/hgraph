@@ -96,6 +96,9 @@ perspective = [
     "tornado>=6.5",
 ]
 dataframe = [
+    # Durable record/replay — DataFrameStorage and the frame store — is
+    # served by the hgraph-persistence extension (RFC 0025).
+    "hgraph-persistence>=0.8.0",
     "polars>=1.32",
 ]
 docs = [
@@ -129,6 +132,7 @@ Issues = "https://github.com/hhenson/hgraph/issues"
 
 [tool.uv.sources]
 hgraph = {workspace = true}
+hgraph-persistence = {workspace = true}
 hgraph-web = {workspace = true}
 
 [tool.uv.workspace]

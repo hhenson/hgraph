@@ -427,14 +427,18 @@ memory, local and S3 paths stay entirely in C++. Store callbacks receive the
 Arrow table in the established naive-UTC Python timestamp form, never the
 optional user-facing Polars presentation, because Arrow schema metadata is part
 of the persisted recording contract. The legacy override registry is translated
-at wiring time into explicit native record/replay options.
+at wiring time into explicit native record/replay options — by
+``hgraph_persistence.compat``, registered through core's
+``register_record_replay_wiring_adapter`` seam when the storage surface loads
+(RFC 0025 checkpoint 5: core wiring imports no adaptor modules).
 
 RFC 0019 completes this backend with per-record column projection,
 Tick/Sample/Snap recording, keyed frame expansion, and optional native
-segmentation. Tests: ``tests/cpp/test_record_replay_frame.cpp``,
-``tests/cpp/test_record_replay_partitioned.cpp``,
-``python/tests/test_native_table_recording.py``, and
-``python/tests/test_python_frame_store.py``.
+segmentation. Tests (relocated with the extraction, RFC 0025 checkpoint 4):
+``extensions/persistence/tests/test_record_replay_frame.cpp``,
+``extensions/persistence/tests/test_record_replay_partitioned.cpp``,
+``extensions/persistence/python/tests/test_native_table_recording.py``, and
+``extensions/persistence/python/tests/test_python_frame_store.py``.
 
 Step 5 — landed (first pass)
 ----------------------------
