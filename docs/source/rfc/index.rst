@@ -53,3 +53,4 @@ RFC catalogue
    rfc_0023_graph_checkpoint_recovery
    rfc_0024_web_extension_api
    rfc_0025_hgraph_persistence
+   rfc_0026_versioned_dataflow_fabric
