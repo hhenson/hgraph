@@ -12,6 +12,43 @@ def check(condition, message):
         raise AssertionError(message)
 
 
+def test_per_call_model_selection_loads_the_extension():
+    # A per-call ``model=`` is an extension load point exactly like the
+    # graph-level setter (RFC 0025): in a fresh process that never imports
+    # hgraph_persistence, the documented ``hg.record(..., model=hg.DATA_FRAME)``
+    # flow must register the durable overloads itself. Run in a clean
+    # interpreter so this suite's own imports cannot mask the load.
+    import os
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        # Editable-install finders would shadow PYTHONPATH with a different
+        # checkout's package; drop them first (a no-op in CI).
+        "sys.meta_path = [finder for finder in sys.meta_path"
+        " if 'ScikitBuild' not in type(finder).__name__]\n"
+        "import hgraph as hg\n"
+        "from hgraph import TS, GlobalState, MIN_ST, MIN_TD, set_as_of\n"
+        "from hgraph.test import eval_node\n"
+        "assert 'hgraph_persistence' not in sys.modules\n"
+        "with GlobalState():\n"
+        "    set_as_of(MIN_ST + MIN_TD * 30)\n"
+        "    eval_node(hg.record[TS[int]], ts=[1, 2, 3], key='ts',\n"
+        "              recordable_id='percall', model=hg.DATA_FRAME)\n"
+        "    assert 'hgraph_persistence' in sys.modules, 'selection did not load'\n"
+        "    import hgraph_persistence\n"
+        "    assert hgraph_persistence.frame_store_contains('percall.ts')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_durable_replay_overload_registers_partition_signature():
     # Moved from core's test_native_docstrings when the partitioned frame
     # replay overload became extension-registered (RFC 0025 checkpoint 4).

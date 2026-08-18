@@ -247,7 +247,14 @@ _LEGACY_BACKENDS = {
 }
 
 
-def set_record_replay_config(model):
+def _ensure_backend_extension(model):
+    """Load the distribution serving an extension backend id.
+
+    Selecting a backend is the extension LOAD POINT (RFC 0025), whether the
+    selection is the graph-level configuration or a per-call ``model=``
+    argument: importing the extension registers its overloads with the shared
+    runtime. Returns the normalized backend id.
+    """
     # The 0.5 data-frame adaptor exported a private-looking model sentinel
     # which became part of the user surface. Keep accepting it while the C++
     # runtime has one canonical backend id per implementation (RFC 0025).
@@ -255,12 +262,9 @@ def set_record_replay_config(model):
         _hgraph.DATA_FRAME if model == _LEGACY_DATA_FRAME_RECORD_REPLAY else model
     )
     backend = _LEGACY_BACKENDS.get(backend, backend)
-    if backend.startswith("hgraph.persistence."):
-        # Selecting the backend is the LOAD POINT (RFC 0025): importing the
-        # extension registers its overloads with the shared runtime, and
-        # selection starts a new recording session.
+    if isinstance(backend, str) and backend.startswith("hgraph.persistence."):
         try:
-            import hgraph_persistence
+            import hgraph_persistence  # noqa: F401
         except ModuleNotFoundError as error:
             if error.name != "hgraph_persistence":
                 raise
@@ -270,6 +274,16 @@ def set_record_replay_config(model):
                 "`pip install hgraph-persistence`",
                 name="hgraph_persistence",
             ) from error
+    return backend
+
+
+def set_record_replay_config(model):
+    backend = _ensure_backend_extension(model)
+    if backend.startswith("hgraph.persistence."):
+        # Graph-level selection also starts a new recording session (a fresh
+        # native store unless a user-owned python compat store is active).
+        import hgraph_persistence
+
         hgraph_persistence.start_recording_session(GlobalState.instance())
     _hgraph._set_record_replay_config(GlobalState.instance()._impl, backend)
     # python-readable mirror (backend-gated python overloads read it in their

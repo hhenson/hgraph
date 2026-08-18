@@ -335,6 +335,15 @@ class _OperatorFunction:
         self._resolutions = resolutions
 
     def __call__(self, *args, **kwargs):
+        if self.__name__ in ("record", "replay", "compare") and kwargs.get("model"):
+            # A per-call ``model=`` selects the backend for this node alone,
+            # so it is an extension load point exactly like the graph-level
+            # configuration setter (RFC 0025) — without the import, the
+            # durable overloads are unregistered and resolution fails even
+            # with hgraph-persistence installed.
+            from ._state import _ensure_backend_extension
+
+            _ensure_backend_extension(kwargs["model"])
         if self.__name__ in ("record", "replay"):
             from ._state import GlobalState
 
