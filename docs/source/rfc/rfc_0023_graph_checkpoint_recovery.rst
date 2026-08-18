@@ -59,6 +59,73 @@ Kafka sink cannot claim exactly-once consume/process/produce until consumed
 offsets, graph state, and produced effects share a checkpoint/transaction
 boundary.
 
+Prior art
+---------
+
+The lifecycle design below was reviewed against seven comparable systems
+(2026-08-18) before implementation began.  The column that matters is how
+each system splits WHAT is captured automatically from what a user hook
+must do, and how capture relates to stopping.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 30 30 24
+
+   * - System
+     - Lifecycle shape
+     - Hook surface and defaults
+     - Lesson adopted here
+   * - iOS / UIKit
+     - active → background → suspended → terminated; cold-restore from
+       saved state
+     - scene delegates + ``NSUserActivity`` restorable state; system UI
+       snapshot by default, opt-in hooks per scene
+     - suspension is bounded and may never be followed by resume; restore
+       is a NEW process rebuilding from the saved state
+   * - JVM CRaC
+     - running → checkpoint → (exit) → restore
+     - ``Resource{beforeCheckpoint, afterRestore}`` registered in a global
+       context; notified in order, restored in reverse; open resources
+       MUST be closed before the checkpoint
+     - the paired-hook shape itself; open-resource closure maps to this
+       RFC's external bindings and gated ingress
+   * - Apache Flink
+     - periodic checkpoints (job keeps running) plus user-triggered
+       savepoints including stop-with-savepoint
+     - ``CheckpointedFunction{snapshotState, initializeState}``; the SAME
+       hook serves both triggers; **managed state needs no hooks at all**
+     - the two-trigger split over one mechanism, and
+       managed-state-by-default (this RFC's generic ``TSCheckpointOps``
+       capture)
+   * - Android
+     - ``onSaveInstanceState``/``onRestoreInstanceState``; the process may
+       be killed with no further notice
+     - view-hierarchy state saved automatically; explicit hooks for the
+       rest
+     - write-before-suspend discipline; defaults plus overrides
+   * - Akka Persistence, Temporal, Durable Functions
+     - event sourcing: journal plus snapshots, recovery by replay
+     - deterministic replay is the default; snapshots are an optimisation
+     - the checkpoint-plus-input-journal shape this RFC already adopts
+   * - CRIU / Firecracker / AWS SnapStart
+     - transparent process/VM memory image
+     - SnapStart added CRaC-style runtime hooks BECAUSE pure transparency
+       fails: restored clones share RNG seeds, ids, and dead connections
+     - transparent byte-image capture stays rejected (see Alternatives);
+       restore hooks must re-establish uniqueness and liveness
+   * - Erlang/OTP
+     - ``terminate``/``init`` plus ``code_change``
+     - per-``gen_server`` callbacks; state handed through upgrades
+     - migration/versioning is a separate axis (kept separate here and in
+       RFC 0022)
+
+Every one of the seven converges on the same four decisions this RFC
+takes: paired before-capture/after-restore hooks with registration; a
+default capture path that handles declared state without user code; the
+same hook pair serving both an online capture and a capture-then-stop;
+and restore constructing a new instance rather than reviving a stopped
+one in place.
+
 Ownership boundary
 ------------------
 
@@ -122,6 +189,24 @@ Terminology
    graph identity, executor semantics, logical bounds, seeds, and other
    reproducibility inputs.  These fields remain exact even when a checkpoint
    permits contract-compatible resource substitution.
+
+``snapshot``
+   The lifecycle verb that captures a checkpoint image at the next
+   successful root evaluation-cycle boundary while the graph CONTINUES
+   RUNNING (Flink's checkpoint; the online trigger of the node hook pair).
+
+``suspend``
+   The lifecycle verb that captures a checkpoint image at the next
+   successful root evaluation-cycle boundary and then performs an ORDINARY
+   stop (Flink's stop-with-savepoint; iOS backgrounding).  The process may
+   exit afterwards; a suspended run is resumed only by ``restore``
+   constructing a new graph instance.
+
+``serialisation strategy``
+   The registered destination and encoding a capture hands its image to,
+   selected by identifier: core serves an in-memory default; durable
+   strategies register from ``hgraph-persistence``'s keyed installer; an
+   unregistered identifier is a pointed error.
 
 ``semantic state``
    State which changes future graph outputs and cannot be reconstructed from
@@ -293,6 +378,121 @@ endpoints and dynamic instances first, then rebinds references and forwarding
 aliases.  A reference targeting an endpoint outside the checkpointed graph is
 an external binding and requires a manifested binding restore contract; an
 unmanifested external reference makes the graph ineligible.
+
+Persistence lifecycle: snapshot, suspend, restore
+-------------------------------------------------
+
+Persistence is a LIFECYCLE beside start/stop, agreed 2026-08-18 against
+the prior-art review above (decision recorded here; the tracking issue's
+checkpoint plan is unchanged — these verbs organise its mechanics).
+
+Vocabulary and the two triggers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Three verbs over one capture mechanism:
+
+* ``snapshot`` — request a capture; the executor consumes the request at
+  the next successful root cycle boundary (the consistency boundary
+  below), produces the checkpoint image, hands it to the selected
+  serialisation strategy, and the graph CONTINUES RUNNING.
+* ``suspend`` — ``snapshot`` followed by an ORDINARY stop.  Stop semantics
+  are unchanged (edges unbind, input slots deactivate, push-source queues
+  clear): the stop-as-step-toward-erase ruling holds because resumption is
+  always ``restore`` constructing a new instance.  The capture walk itself
+  mutates nothing — subscriptions, edge bindings, input activation, and
+  forwarding links remain fully intact until the stop that FOLLOWS it.
+* ``restore`` — the distinct executor operation already specified in
+  `Restore lifecycle`_: rebuild through ordinary wiring, validate
+  manifests, quiet-import, rebuild derived state, start in ``Restore``
+  mode with ingress gated.
+
+An in-memory freeze/thaw (suspending a live instance and reviving it in
+place) is deliberately NOT part of this design — see Alternatives.
+
+.. note::
+   ``pause``/``resume`` are RESERVED vocabulary in this runtime: they name
+   the intra-cycle mesh coroutine-yield protocol (``evaluate`` returning
+   ``false`` plus the graph evaluation cursor).  The persistence lifecycle
+   never reuses those words; the "paused graph cursor" disqualifier in the
+   consistency boundary refers to exactly that mesh protocol.
+
+The node hook pair
+~~~~~~~~~~~~~~~~~~
+
+Nodes and graphs participate through an OPTIONAL hook pair beside
+start/stop, named for what they do (capture, not suspension), and serving
+BOTH triggers:
+
+.. code-block:: cpp
+
+   static void snapshot(/* node injectables, */ SnapshotContext &);
+   static void restore(/* node injectables, */ RestoreContext &);
+
+* ``snapshot`` runs inside every capture — online snapshot and suspend
+  alike.  ``SnapshotContext`` exposes the serialisation strategy, the
+  trigger (``Snapshot`` or ``Suspend``), and the engine time of the cut.
+  Its job is what generic capture cannot know: flush or quiesce external
+  resources before the cut (the CRaC ``beforeCheckpoint`` role) and append
+  extra semantic state through the strategy.
+* ``restore`` runs during restore-lifecycle step 8 (derived-state
+  rebuild), after quiet import.  ``RestoreContext`` exposes the strategy
+  reader and the ``Fresh``/``Restore`` distinction.  Its job is the
+  SnapStart lesson: re-establish connections, uniqueness (ids, RNG,
+  clocks), and any derived caches.
+
+**Defaults: the hook augments, it never replaces.**  Exactly as a user
+``start`` augments the framework's input-slot activation, a user
+``snapshot`` augments the standard capture: declared endpoint state, the
+hidden error output, and recordable state are ALWAYS captured by the
+per-type-representation implementation (``TSCheckpointOps`` walking owned
+endpoints) whether or not a hook exists.  A node with only declared state
+therefore needs NO persistence code at all — Flink's managed-state
+principle.  Fully replacing generic capture remains the advanced
+``NodeCheckpointOps`` path used by dynamic-graph owners.
+
+**Zero cost when unused**, grounded in the existing start/stop cost
+model: the hooks are detected at reflection time like ``start``/``stop``
+(absent hook = one empty callback per node TYPE, nothing per instance),
+the transition walk runs only when a capture was actually requested, and
+ordinary evaluation never consults them — preserving this RFC's
+no-per-node-checkpoint-branch performance rule.  The Python bridge
+follows its existing per-phase enabled-flag pattern, and a Python
+snapshot/restore hook disqualifies the fast compute path exactly as a
+start/stop hook does today.
+
+The serialisation strategy seam
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Where the captured image GOES is a registered strategy, following the
+``register_seed_resolver`` precedent: core serves an in-memory default
+strategy inline (tests, in-process restore); ``hgraph-persistence``
+registers durable strategies from its keyed installer so registry
+reset-and-rebuild replays them; selecting an unregistered strategy id is
+a pointed error, never a silent no-op.  Defaults follow the established
+asymmetry: a capture-side default may refuse ("not configured") when
+durable semantics are requested, while restore/teardown-side defaults are
+benign no-ops.  ``CheckpointStore`` (below) is the durable half of this
+seam and remains extension-owned under RFC 0025.
+
+Ordering and executor integration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The snapshot walk visits nodes in REVERSE rank order (stop's direction —
+downstream state is captured before anything upstream of it can be
+touched); the restore walk runs FORWARD (start's direction), matching the
+restore lifecycle's parent-before-child rule.  Executor integration adds
+capture phases dispatched through the existing phase-runner seam, which
+calls directly when no runner is installed.  Suspend's stop then follows
+the existing stop path unchanged.
+
+Push sources and suspend: a push-source policy's ``stop`` discards its
+undrained inbound queue today.  Under this lifecycle that is CORRECT for
+suspend: events not yet applied at the cut are outside the image by
+definition and are owned by the input journal (recoverable mode makes an
+event durable before its mutation is visible), so the discarded queue
+content is exactly the journal tail replayed on restore.  A source
+binding without journal coverage declares its weaker loss model, as the
+consistency boundary already requires.
 
 Checkpoint operation tables
 ---------------------------
@@ -637,7 +837,8 @@ result handles:
 
 .. code-block:: python
 
-   checkpoint = hg.request_checkpoint("run-id")
+   checkpoint = hg.request_snapshot("run-id")   # capture; keeps running
+   hg.suspend("run-id")                         # capture, then ordinary stop
    hg.restore_graph(graph, checkpoint="latest", replay_to=target)
 
 The exact asynchronous handle is settled during implementation.  Python does
@@ -696,7 +897,10 @@ Implementation stages
 Stage 1: exact static-graph checkpoint in memory
    Land RFC 0022, ``TSCheckpointOps``, quiet endpoint import, recordable state,
    scheduler state, root-cycle capture, exact manifest validation, and
-   uninterrupted-versus-restored native tests for static graphs.
+   uninterrupted-versus-restored native tests for static graphs — organised
+   as the persistence lifecycle above: the ``snapshot``/``suspend`` executor
+   verbs, the node ``snapshot``/``restore`` hook pair with its contexts, and
+   the serialisation-strategy registry with the in-memory default.
 
 Stage 2: dynamic topology and references
    Add chosen-slot key import, map/mesh/reduce/switch child traversal and
@@ -773,6 +977,14 @@ Pause external senders for the entire durable write
    evaluator boundary; the input journal carries later events while immutable
    objects are written asynchronously.
 
+In-memory freeze/thaw (suspend a live instance and revive it in place)
+   Rejected.  It bends the stop-as-step-toward-erase ruling, and none of
+   the seven systems in the prior-art review revive a stopped instance in
+   place — iOS cold-restores from saved state, CRaC restores into a new
+   process, Flink resumes a new job from the savepoint.  ``suspend`` is
+   therefore capture followed by an ordinary stop, and resumption is
+   always ``restore`` constructing a new graph instance.
+
 Put checkpoint operations on each concrete node through RTTI/downcasts
    Rejected.  It breaks the public type-erasure boundary and prevents installed
    extensions from participating safely.
@@ -784,7 +996,9 @@ Unresolved questions
   or adds a universal post-observer stabilization boundary.
 * Whether recoverable push sources journal raw accepted payloads as well as
   canonical graph-observed emissions, or leave the former entirely to their
-  binding delivery contract.
+  binding delivery contract — and, relatedly, whether suspend gains an
+  explicit queue-drain policy operation or continues to rely wholly on the
+  journal tail for events pending at the cut (the current design).
 * The maximum manifest-chain depth before automatic physical compaction.
 * Whether graph migration belongs in this RFC's eventual implementation or a
   separate RFC after exact restore has production evidence.
@@ -854,8 +1068,14 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-Not started.  The RFC records the graph-level contract intentionally deferred
-by RFC 0017 and the durable checkpoint/store gap named by the extension policy.
+The persistence lifecycle — the ``snapshot``/``suspend``/``restore``
+verbs, the node ``snapshot``/``restore`` hook pair, the
+augmentation-not-replacement default rule, and the serialisation-strategy
+seam — was agreed against the prior-art review and recorded 2026-08-18.
+Implementation is otherwise not started; RFC 0022 (the identity
+prerequisite) is under way separately.  The RFC records the graph-level
+contract intentionally deferred by RFC 0017 and the durable
+checkpoint/store gap named by the extension policy.
 
 References
 ----------

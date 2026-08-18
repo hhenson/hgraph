@@ -63,9 +63,9 @@ stateDiagram-v2
 | Method | Description | Called When |
 |--------|-------------|-------------|
 | `initialise()` | One-time setup, allocate resources | Before first start |
-| `start()` | Begin active operation | Each run/resume |
+| `start()` | Begin active operation | Once per graph instance |
 | `eval()` | Perform computation | Each scheduled tick |
-| `stop()` | Pause operation | End run or pause |
+| `stop()` | Teardown step toward disposal | End of run (never restarted; ruling 2026-07-04) |
 | `dispose()` | Release all resources | Final cleanup |
 
 ### 2.3 Lifecycle Guarantees
