@@ -596,6 +596,14 @@ class _PyNode:
         scope = _hgraph.ResolutionScope()
         for name, resolved in self._pins.items():
             self._bind_resolved(scope, name, resolved)
+        requested_output = None
+        if self.has_output and self._default_type_var is not None:
+            requested_output = scope.find_ts(_type_var_name(self._default_type_var))
+            if requested_output is not None:
+                if not scope.match(_pattern_of(self._out_tp), requested_output):
+                    raise IncorrectTypeBinding(
+                        f"{self.__name__}: requested output {requested_output!r} "
+                        f"does not match {self._out_tp!r}")
         bound = self._signature.bind_partial(*args, **kwargs)
         scalar_values = dict(lifecycle_scalar_values)
         # Pre-collect scalar values so callable active=/valid= policies can
@@ -901,7 +909,8 @@ class _PyNode:
             node_kwargs[f"{phase}_config"] = "".join(lifecycle_layout)
             node_kwargs[f"{phase}_scalars"] = _hgraph.any_list(lifecycle_scalars)
         if self.has_output:
-            out_tp = self._out_tp
+            out_tp = (_TsExpr(requested_output, f"requested[{self._out_tp!r}]")
+                      if requested_output is not None else self._out_tp)
             if isinstance(out_tp, (_GenericTsExpr, _TypeVarSentinel)):
                 resolved = scope.resolve_ts(_pattern_of(out_tp))
                 if resolved is not None:

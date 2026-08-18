@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Callable, Type, TypeVar
 
-from hgraph import CompoundScalar, graph, TSL, TS, SIZE, Size, AUTO_RESOLVE, SCALAR, SCALAR_1, compute_node
+from hgraph import CompoundScalar, DEFAULT, K, OUT, TIME_SERIES_TYPE, graph, TSD, TSL, TS, SIZE, Size, AUTO_RESOLVE, SCALAR, SCALAR_1, compute_node
 from hgraph import const
 from hgraph.reflection import fields
 from hgraph.test import eval_node
@@ -50,3 +50,44 @@ def test_graph_receives_auto_resolved_compound_scalar_type():
         return const(len(fields(tp)))
 
     assert eval_node(field_count, [Config(7)]) == [1]
+
+
+def test_graph_requires_receives_type_resolved_from_type_argument():
+    key_type_var = TypeVar("key_type_var")
+    observed = []
+
+    def requires(mapping, key_type, value_col):
+        observed.append((key_type, value_col))
+        return key_type is str and value_col == "value"
+
+    @graph(requires=requires)
+    def key_name(
+        tsd_type: type[TSD[key_type_var, TS[int]]],
+        key_type: type[key_type_var] = AUTO_RESOLVE,
+        value_col: str = "value",
+    ) -> TS[str]:
+        return key_type.__name__
+
+    @graph
+    def app() -> TS[str]:
+        return key_name(TSD[str, TS[int]])
+
+    assert eval_node(app) == ["str"]
+    assert observed == [(str, "value")]
+
+
+def test_node_auto_resolve_uses_explicit_output_specialization():
+    observed = []
+
+    @compute_node
+    def keyed(
+        value: TS[int],
+        key_type: type[K] = AUTO_RESOLVE,
+        value_type: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        _output_type: type[TSD[K, TIME_SERIES_TYPE]] = DEFAULT[OUT],
+    ) -> TSD[K, TIME_SERIES_TYPE]:
+        observed.append((key_type, value_type))
+        return {"key": value.value}
+
+    assert eval_node(keyed[TSD[str, TS[int]]], [3]) == [{"key": 3}]
+    assert observed == [(str, TS[int])]
