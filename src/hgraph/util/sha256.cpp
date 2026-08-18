@@ -1,5 +1,6 @@
 #include <hgraph/util/sha256.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace hgraph::util

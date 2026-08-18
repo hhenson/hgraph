@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace hgraph::manifest
 {
@@ -392,6 +393,20 @@ namespace hgraph::manifest
 
     namespace
     {
+        // Explicitly bounded byte-wise ordering. The defaulted vector<byte>
+        // three-way compare trips gcc-14's -Wstringop-overread (a memcmp
+        // bound it cannot prove below PTRDIFF_MAX); the min() bound here is
+        // provable and the ordering is identical.
+        bool canonical_bytes_less(const std::vector<std::byte> &lhs,
+                                  const std::vector<std::byte> &rhs)
+        {
+            const std::size_t common = std::min(lhs.size(), rhs.size());
+            const int compared =
+                common == 0 ? 0 : std::memcmp(lhs.data(), rhs.data(), common);
+            if (compared != 0) { return compared < 0; }
+            return lhs.size() < rhs.size();
+        }
+
         void encode_atomic(CanonicalWriter &writer, const ValueView &value,
                            const ValueTypeMetaData *meta)
         {
@@ -487,7 +502,7 @@ namespace hgraph::manifest
                     encode_manifest_scalar(element_writer, element);
                     encoded.push_back(element_writer.take());
                 }
-                std::sort(encoded.begin(), encoded.end());
+                std::sort(encoded.begin(), encoded.end(), canonical_bytes_less);
                 writer.varint(encoded.size());
                 for (const auto &bytes : encoded) { writer.bytes_field(bytes); }
             },
@@ -503,7 +518,9 @@ namespace hgraph::manifest
                     encoded.emplace_back(key_writer.take(), value_writer.take());
                 }
                 std::sort(encoded.begin(), encoded.end(),
-                          [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
+                          [](const auto &lhs, const auto &rhs) {
+                              return canonical_bytes_less(lhs.first, rhs.first);
+                          });
                 writer.varint(encoded.size());
                 for (const auto &[key_bytes, value_bytes] : encoded)
                 {
