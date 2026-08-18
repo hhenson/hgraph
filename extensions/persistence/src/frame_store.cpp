@@ -1,4 +1,4 @@
-#include <hgraph/types/frame_store.h>
+#include <hgraph/persistence/frame_store.h>
 #include <hgraph/util/scope.h>
 
 #include <arrow/filesystem/filesystem.h>
@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace hgraph::store
+namespace hgraph::persistence::store
 {
     namespace
     {
@@ -615,4 +615,4 @@ namespace hgraph::store
 #endif
     }
 
-}  // namespace hgraph::store
+}  // namespace hgraph::persistence::store

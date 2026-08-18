@@ -137,6 +137,11 @@ the reference process.
 ``--reference-python`` and ``--candidate-python`` select already-provisioned
 interpreters.  ``--candidate-wheel`` installs a pre-built stable-ABI wheel,
 which is how CI reuses the wheel already built by the distribution workflow.
+``--candidate-extra-wheel`` (repeatable) installs additional first-party
+extension wheels beside the core wheel: the reference 0.5 line serves the
+frame-recording scenarios natively, so the candidate environment needs
+``hgraph-persistence`` for the durable record/replay recipes to remain a
+parity comparison rather than a packaging difference (RFC 0025).
 
 Recipe Contract
 ---------------

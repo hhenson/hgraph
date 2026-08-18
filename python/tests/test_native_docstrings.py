@@ -130,10 +130,12 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             for (parameters, _, _, _, _, has_output, output_pattern) in overloads
         )
 
+        # The partitioned (partition_names/removed_names) replay overload
+        # registers from hgraph-persistence (RFC 0025); core documents the
+        # in-memory shapes.
         replay_overloads = _hgraph.operator_overload_signatures("replay")
         assert any(
-            ("partition_names", False, "tuple[str, ...]", True) in parameters
-            and ("removed_names", False, "tuple[str, ...]", True) in parameters
+            ("recordable_id", False, "str", True) in parameters
             for parameters, *_ in replay_overloads
         )
 

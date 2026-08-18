@@ -9,7 +9,6 @@
 #include "py_wiring.h"
 #include "py_bindings.h"
 
-#include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/table_config.h>
@@ -355,25 +354,12 @@ namespace hgraph::python_bridge
         });
 
     // Record/replay configuration is copied with the Python thread's seed.
+    // (Selecting an extension backend additionally starts that backend's
+    // recording session — the python choke point in hgraph._wiring._state
+    // lazily imports the owning extension for that; core knows no stores.)
     m.def("_set_record_replay_config", [](GlobalState &state, const std::string &backend) {
-        // ``set_config`` normalises legacy model names; the frame-backend
-        // check below must see the same answer, so translate up front.
-        record_replay::RecordReplayConfig config{.backend = backend};
-        if (backend == "DataFrame" || backend == "hgraph.persistence.frame")
-        {
-            // Explicitly selecting the native frame backend starts a new
-            // recording session. Do not carry immutable keys from an earlier
-            // native run through the long-lived implicit Python GlobalState.
-            // A Python compatibility store is user-owned and remains installed
-            // so `with DataFrameStorage(): set_record_replay_model(...)` keeps
-            // the legacy ordering contract.
-            if (!python_frame_store_active(state.view()))
-            {
-                record_replay::set_frame_store(
-                    state.view(), store::make_frame_store(store::FrameStoreConfig{}));
-            }
-        }
-        record_replay::set_config(state.view(), std::move(config));
+        record_replay::set_config(state.view(),
+                                  record_replay::RecordReplayConfig{.backend = backend});
     });
     m.def("_set_pooled_compound_scalar_storage",
           [](GlobalState &state, bool enabled) {
@@ -1360,6 +1346,10 @@ namespace hgraph::python_bridge
         .def("__str__", [](const PyTimeSeries &self) { return nb::str(self.value()); })
         .def("__repr__", [](const PyTimeSeries &self) { return nb::str("TimeSeries({})").format(self.value()); });
     m.def("_set_cmp_result_enum", [](nb::object enum_class) { cmp_result_enum_slot() = std::move(enum_class); });
+    m.def("_set_record_as_of_enum",
+          [](nb::object enum_class) { record_as_of_enum_slot() = std::move(enum_class); });
+    m.def("_set_record_removes_enum",
+          [](nb::object enum_class) { record_removes_enum_slot() = std::move(enum_class); });
     m.def("_set_divide_by_zero_enum",
           [](nb::object enum_class) { divide_by_zero_enum_slot() = std::move(enum_class); });
     m.def("_set_to_table_mode_enum",

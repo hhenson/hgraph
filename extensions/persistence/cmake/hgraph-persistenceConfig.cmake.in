@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(hgraph CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/hgraph_persistence_arrow.cmake")
+if(TARGET hgraph::nanobind)
+    hgraph_persistence_find_arrow(PREFER_PYARROW)
+else()
+    hgraph_persistence_find_arrow()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/hgraphPersistenceTargets.cmake")
+
+check_required_components(hgraph-persistence)

@@ -60,6 +60,10 @@ jobs:
           path: analytics-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
+          name: persistence-distribution-wheel-${{ inputs.os }}
+          path: persistence-dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
           name: web-distribution-wheel-${{ inputs.os }}
           path: web-dist
       - name: Sync test dependencies
@@ -91,6 +95,12 @@ jobs:
               "uv", "pip", "install", "--python", str(venv_python),
               "--no-deps", str(analytics_wheels[0]),
           ])
+          persistence_wheels = list(Path("persistence-dist").glob("*.whl"))
+          assert len(persistence_wheels) == 1, persistence_wheels
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python),
+              "--no-deps", str(persistence_wheels[0]),
+          ])
           web_wheels = list(Path("web-dist").glob("*.whl"))
           assert len(web_wheels) == 1, web_wheels
           subprocess.check_call([
@@ -105,6 +115,8 @@ jobs:
         run: uv run --no-sync --no-build python -m pytest extensions/kafka/python/tests -q
       - name: Run analytics extension suite
         run: uv run --no-sync --no-build python -m pytest extensions/analytics/python/tests -q
+      - name: Run persistence extension suite
+        run: uv run --no-sync --no-build python -m pytest extensions/persistence/python/tests -q
       - name: Run web extension suite
         run: uv run --no-sync --no-build python -m pytest extensions/web/python/tests -q
       - name: Build installed Python extension consumer

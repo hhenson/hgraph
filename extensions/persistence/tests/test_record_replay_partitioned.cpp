@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/persistence/recording_store.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/compact_storage.h>
@@ -26,6 +27,44 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+namespace test_detail
+{
+    /** The moved tests' store shims: the process-global store forms died at
+        RFC 0025 checkpoint 4, so the no-state spellings resolve against the
+        ambient GlobalContext state the test established. */
+    [[nodiscard]] inline hgraph::GlobalStateView active_state()
+    {
+        return hgraph::GlobalContext::active_state()->view();
+    }
+    inline void store_write(std::string_view key, hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(active_state(), key, std::move(frame));
+    }
+    inline void store_write(hgraph::GlobalStateView state, std::string_view key,
+                            hgraph::Frame frame)
+    {
+        hgraph::persistence::store_write(state, key, std::move(frame));
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(std::string_view key)
+    {
+        return hgraph::persistence::store_read(active_state(), key);
+    }
+    [[nodiscard]] inline hgraph::Frame store_read(hgraph::GlobalStateView state,
+                                                  std::string_view key)
+    {
+        return hgraph::persistence::store_read(state, key);
+    }
+    [[nodiscard]] inline bool store_contains(std::string_view key)
+    {
+        return hgraph::persistence::store_contains(active_state(), key);
+    }
+    [[nodiscard]] inline bool store_contains(hgraph::GlobalStateView state, std::string_view key)
+    {
+        return hgraph::persistence::store_contains(state, key);
+    }
+}  // namespace test_detail
+
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
@@ -34,6 +73,7 @@
 namespace
 {
     using namespace hgraph;
+using namespace hgraph::persistence::store;
     using namespace hgraph::testing;
     using namespace std::string_literals;
 
@@ -313,8 +353,8 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
 
     (void)eval_node<RecordGraph<PriceDict>>(values<Value>(first, second, third));
 
-    REQUIRE(record_replay::store_contains("book.ticks"));
-    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(test_detail::store_contains("book.ticks"));
+    const Frame recorded = test_detail::store_read("book.ticks");
     // One row per (key, tick): two keys on the first tick, one on each after.
     CHECK(frame_rows(recorded) == 4);
 
@@ -333,7 +373,7 @@ TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key "
 
     (void)eval_node<TrackedRecordGraph<NestedPriceDict>>(values<Value>(first, removed));
 
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     REQUIRE(frame_rows(recorded) == 3);
     const auto inner_key = recorded.table->GetColumnByName("__key_2__");
     REQUIRE(inner_key != nullptr);
@@ -349,14 +389,14 @@ TEST_CASE("partitioned record/replay: a compound TSD key round-trips through "
     use_frame_backend(context);
 
     const Frame recorded = compound_key_frame();
-    record_replay::store_write("book.ticks", recorded);
+    test_detail::store_write("book.ticks", recorded);
 
     // Replaying this threw outright until the key could be rebuilt from the
     // columns it was flattened into.
     (void)eval_node<EchoGraph<LegDict>>();
 
-    REQUIRE(record_replay::store_contains("book.echo"));
-    const Frame echo = record_replay::store_read("book.echo");
+    REQUIRE(test_detail::store_contains("book.echo"));
+    const Frame echo = test_detail::store_read("book.echo");
     REQUIRE(frame_rows(echo) == 2);
 
     // The key columns must come back exactly as they went in - a key rebuilt
@@ -385,7 +425,7 @@ TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole "
 
     (void)eval_node<RecordGraph<TS<FrameOf<Row>>>>(values<Frame>(first, second));
 
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     // Four recorded rows - three from the first tick, one from the second.
     REQUIRE(frame_rows(recorded) == 4);
 
@@ -411,20 +451,20 @@ TEST_CASE("partitioned record/replay: frame-valued leaves beneath a TSD "
 
     (void)eval_node<RecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(values<Value>(first, second));
 
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     REQUIRE(frame_rows(recorded) == 6);
     REQUIRE(recorded.table->GetColumnByName("__key_1__") != nullptr);
 
     // Re-recording the replayed keyed frames proves that replay groups each
     // key's row run back into one Frame tick before descending into the TSD.
     (void)eval_node<EchoGraph<TSD<Str, TS<FrameOf<Row>>>>>();
-    const Frame echoed = record_replay::store_read("book.echo");
+    const Frame echoed = test_detail::store_read("book.echo");
     REQUIRE(echoed.has_value());
     CHECK(echoed.table->Equals(*recorded.table));
 
     (void)eval_node<TableRoundTripRecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(
         values<Value>(first, second));
-    const Frame table_echo = record_replay::store_read("book.table_echo");
+    const Frame table_echo = test_detail::store_read("book.table_echo");
     REQUIRE(table_echo.has_value());
     CHECK(table_echo.table->Equals(*recorded.table));
 }
@@ -439,11 +479,11 @@ TEST_CASE("partitioned record/replay: a keyed frame removal round-trips")
     const Value removed = dict_delta<Str, TS<FrameOf<Row>>>({}, {Str{"one"}});
 
     (void)eval_node<TrackedRecordGraph<TSD<Str, TS<FrameOf<Row>>>>>(values<Value>(first, removed));
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     REQUIRE(frame_rows(recorded) == 3);
 
     (void)eval_node<TrackedEchoGraph<TSD<Str, TS<FrameOf<Row>>>>>();
-    const Frame echoed = record_replay::store_read("book.echo");
+    const Frame echoed = test_detail::store_read("book.echo");
     REQUIRE(echoed.has_value());
     CHECK(echoed.table->Equals(*recorded.table));
 }
@@ -457,7 +497,7 @@ TEST_CASE("partitioned record/replay: zero-row frame ticks are rejected explicit
     CHECK_THROWS_WITH(
         (void)eval_node<RecordGraph<TS<FrameOf<Row>>>>(values<Frame>(empty)),
         Catch::Matchers::ContainsSubstring("zero-row Frame ticks cannot be recorded"));
-    CHECK_FALSE(record_replay::store_contains("book.ticks"));
+    CHECK_FALSE(test_detail::store_contains("book.ticks"));
 }
 
 TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
@@ -470,7 +510,7 @@ TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
 
     (void)eval_node<PrefixedRecordGraph<TS<FrameOf<Row>>>>(values<Frame>(first, second));
 
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     // The prefix is what keeps a frame's columns clear of the bitemporal and
     // key columns, so it has to actually reach the recording.
     REQUIRE(recorded.table->GetColumnByName("px_a") != nullptr);
@@ -551,7 +591,7 @@ TEST_CASE("partitioned record/replay: a stored column named like a canonical "
     // decoy this test passes for the wrong reason.
     REQUIRE(stored.table->GetColumnByName("__key_1__") != nullptr);
     REQUIRE(stored.table->GetColumnByName("symbol") != nullptr);
-    record_replay::store_write("book.ticks", stored);
+    test_detail::store_write("book.ticks", stored);
 
     // Renaming `symbol` -> `__key_1__` collided with the decoy and made this
     // recording unreadable. Resolving to a column INDEX instead leaves the
@@ -596,7 +636,7 @@ TEST_CASE("record/replay: a call selects its backend independently of the graph"
 
     // A frame reached the frame store, which only the frame-backend overload
     // writes to - the in-memory overloads record into GlobalState instead.
-    CHECK(record_replay::store_contains("local.ticks"));
+    CHECK(test_detail::store_contains("local.ticks"));
 }
 
 namespace
@@ -667,7 +707,7 @@ TEST_CASE("partitioned record/replay: a mistyped as-of projection is refused, no
 
     (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
         values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
-    REQUIRE(record_replay::store_read("book.ticks").table->GetColumnByName("revision") != nullptr);
+    REQUIRE(test_detail::store_read("book.ticks").table->GetColumnByName("revision") != nullptr);
 
     // The as-of column MAY be absent - a recording with as_of: Omit has none -
     // so resolution tolerates a miss there. But naming one asserts it exists.
@@ -685,7 +725,7 @@ TEST_CASE("partitioned record/replay: an omitted renamed as-of projection is ref
 
     (void)eval_node<RenamedAsOfRecordGraph<PriceDict>>(
         values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})));
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     REQUIRE(recorded.table->schema()->metadata() != nullptr);
     CHECK(recorded.table->schema()
               ->metadata()
@@ -710,7 +750,7 @@ TEST_CASE("partitioned record/replay: an omitted renamed removal projection is r
     const auto  ticks = values<Value>(added, removed);
     (void)eval_node<RenamedRemovalRecordGraph<PriceDict>>(ticks);
 
-    const Frame recorded = record_replay::store_read("book.ticks");
+    const Frame recorded = test_detail::store_read("book.ticks");
     REQUIRE(recorded.table->schema()->metadata() != nullptr);
     CHECK(recorded.table->schema()
               ->metadata()

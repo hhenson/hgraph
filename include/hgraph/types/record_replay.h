@@ -2,7 +2,6 @@
 #define HGRAPH_TYPES_RECORD_REPLAY_H
 
 #include <hgraph/hgraph_export.h>
-#include <hgraph/types/frame_store.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/util/date_time.h>
 
@@ -149,45 +148,20 @@ namespace hgraph::record_replay
         ~scope();
     };
 
-    /** Register an owning type-erased process fallback store. */
-    HGRAPH_EXPORT void set_frame_store(store::FrameStore frame_store);
-    /** The active process fallback store. */
-    [[nodiscard]] HGRAPH_EXPORT const store::FrameStore &frame_store();
+    /**
+     * RECOVER seed resolution is dispatched by backend id (RFC 0025):
+     * core serves its own in-memory ids; an extension registers a resolver
+     * for each backend id it owns — from its keyed installer, so a registry
+     * reset-and-rebuild replays it. Selecting a backend with no registered
+     * resolver during RECOVER is a pointed error.
+     */
+    using SeedResolver = Value (*)(GlobalStateView state, std::string_view fq_key,
+                                   const TSValueTypeMetaData *schema, DateTime start_time);
 
-    /** Install a configured store for one ``GlobalState`` scope. The state
-        owns a copy of the erased handle and therefore shares its context
-        across every graph run bound to that state. */
-    HGRAPH_EXPORT void set_frame_store(GlobalStateView state, store::FrameStore frame_store);
+    HGRAPH_EXPORT void register_seed_resolver(std::string_view backend, SeedResolver resolver);
 
-    /** Remove the graph-selected store; subsequent operations use the process
-        fallback store. */
-    HGRAPH_EXPORT void clear_frame_store(GlobalStateView state);
-
-    /** The graph-selected store, or an empty handle when none is installed. */
-    [[nodiscard]] HGRAPH_EXPORT store::FrameStore frame_store(GlobalStateView state);
-
-    /** Convenience wrappers over the active store. */
-    HGRAPH_EXPORT void                store_write(std::string_view key, Frame frame);
-    [[nodiscard]] HGRAPH_EXPORT Frame store_read(std::string_view key);
-    [[nodiscard]] HGRAPH_EXPORT bool  store_contains(std::string_view key);
-
-    /** GlobalState-scoped store operations. A store installed in ``state``
-        wins; otherwise these use the process-lifetime fallback above. Runtime
-        nodes use these overloads so storage follows the graph state that
-        selected it. */
-    HGRAPH_EXPORT void store_write(GlobalStateView state, std::string_view key, Frame frame);
-    [[nodiscard]] HGRAPH_EXPORT Frame store_read(GlobalStateView state, std::string_view key);
-    [[nodiscard]] HGRAPH_EXPORT bool  store_contains(GlobalStateView state, std::string_view key);
-
-    /** RFC 0019's immutable segmented-recording object protocol. */
-    [[nodiscard]] HGRAPH_EXPORT Frame segmented_recording_marker();
-    [[nodiscard]] HGRAPH_EXPORT Frame segmented_recording_manifest(std::size_t segments,
-                                                                   std::size_t rows);
-    [[nodiscard]] HGRAPH_EXPORT bool  is_segmented_recording(const Frame &frame) noexcept;
-    [[nodiscard]] HGRAPH_EXPORT std::string segment_key(std::string_view key, std::size_t segment);
-    [[nodiscard]] HGRAPH_EXPORT std::string completion_key(std::string_view key);
-
-    /** Reset transient scopes and the registered content store to defaults. */
+    /** Reset transient wiring scopes (mode stack, seed-resolver registry —
+        the latter replayed by the registration installers). */
     HGRAPH_EXPORT void reset() noexcept;
 }  // namespace hgraph::record_replay
 
@@ -219,25 +193,11 @@ namespace hgraph
                                                                  std::string_view  recordable_id);
 
         /**
-         * The ``replay_const`` read (Python's wiring-time recorded-state
-         * read; the const-evaluable form of ``replay``): the LAST recorded
-         * value under ``fq_key`` with value-time <= ``tm`` and as-of <=
-         * ``as_of``, reconstructed at schema ``meta``. Returns an empty
-         * ``Value`` when nothing qualifies. A plain function per the
-         * const_fn ruling — wiring code calls it directly (wrap with
-         * ``const_`` for a source); the bridge exposes it eagerly.
-         */
-        [[nodiscard]] HGRAPH_EXPORT Value replay_const_value(GlobalStateView          state,
-                                                             std::string_view         fq_key,
-                                                             const ValueTypeMetaData *meta,
-                                                             DateTime                 tm = MAX_DT,
-                                                             DateTime as_of = MAX_DT);
-
-        /**
-         * The RECOVER seed resolver (``GraphBuilder::StartSeed::ResolveFn``
-         * shape): the last recorded value at or before the start time,
-         * honouring the configured as-of override. Registered on seeds by
-         * ``component<G>`` under ``Mode::Recover``.
+         * The RECOVER seed read ``component<G>``'s recovering pass-through
+         * calls under ``Mode::Recover``: the last recorded value at or
+         * before the start time. Dispatched by the effective backend —
+         * in-memory ids read the ``:memory:`` buffer; extension ids go to
+         * their registered ``SeedResolver``.
          */
         [[nodiscard]] HGRAPH_EXPORT Value recorded_seed_resolver(GlobalStateView            state,
                                                                  std::string_view           fq_key,

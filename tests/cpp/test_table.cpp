@@ -210,7 +210,7 @@ namespace
         apply_current_value(out, wrapped.view());
     }
 
-    const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
+    [[maybe_unused]] const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
                                                      &emit_presence_only_extension_scalar,
                                                      &apply_all_null_extension_scalar};
     const TableTypeOps empty_extension_table_ops{&describe_empty_extension_scalar,
@@ -743,31 +743,6 @@ TEST_CASE("table type ops: an extension supplies describe emit and apply once "
     CHECK(extension_applies == 2);
 }
 
-TEST_CASE("table type ops: stored replay dispatches through the extension "
-          "operation")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(
-        context.state().view(),
-        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    const auto *schema =
-        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
-    extension_describes = 0;
-    extension_emits = 0;
-    extension_applies = 0;
-    register_table_type_ops(schema, extension_table_ops);
-
-    const auto expected =
-        values<ExtensionTableScalar>(ExtensionTableScalar{2}, none, ExtensionTableScalar{5});
-    (void)eval_node<ExtensionRecordGraph>(expected);
-    CHECK_OUTPUT(eval_node<ExtensionReplayGraph>(), expected);
-
-    CHECK(extension_describes == 1);
-    CHECK(extension_emits == 2);
-    CHECK(extension_applies == 2);
-}
-
 TEST_CASE("table type ops: a registered child composes beneath a TSB")
 {
     stdlib::register_standard_operators();
@@ -784,62 +759,6 @@ TEST_CASE("table type ops: a registered child composes beneath a TSB")
         eval_node<NestedExtensionTableRoundTripGraph<NestedExtensionBundle>>(
             values<Value>(first, none, second)),
         values<Value>(first, none, second));
-
-    CHECK(extension_describes == 1);
-    CHECK(extension_emits == 2);
-    CHECK(extension_applies == 2);
-}
-
-TEST_CASE("table type ops: a registered child records and replays beneath a TSD")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(
-        context.state().view(),
-        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    const auto *child_schema =
-        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
-    extension_describes = 0;
-    extension_emits = 0;
-    extension_applies = 0;
-    register_table_type_ops(child_schema, extension_table_ops);
-
-    const Value first = dict_delta<Str, TS<ExtensionTableScalar>>(
-        {{Str{"one"}, ExtensionTableScalar{1}}, {Str{"two"}, ExtensionTableScalar{2}}});
-    const Value second = dict_delta<Str, TS<ExtensionTableScalar>>(
-        {{Str{"one"}, ExtensionTableScalar{4}}});
-    const auto expected = values<Value>(first, second);
-
-    (void)eval_node<NestedExtensionRecordGraph<NestedExtensionDict>>(expected);
-    CHECK_OUTPUT(eval_node<NestedExtensionReplayGraph<NestedExtensionDict>>(), expected);
-
-    CHECK(extension_describes == 1);
-    CHECK(extension_emits == 3);
-    CHECK(extension_applies == 3);
-}
-
-TEST_CASE("table type ops: a nested all-null child row survives persisted replay")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(
-        context.state().view(),
-        record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-    const auto *child_schema =
-        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
-    extension_describes = 0;
-    extension_emits = 0;
-    extension_applies = 0;
-    register_table_type_ops(child_schema, all_null_extension_table_ops);
-
-    const Value input = dict_delta<Str, TS<ExtensionTableScalar>>(
-        {{Str{"one"}, ExtensionTableScalar{1}}, {Str{"two"}, ExtensionTableScalar{2}}});
-    const Value expected = dict_delta<Str, TS<ExtensionTableScalar>>(
-        {{Str{"one"}, ExtensionTableScalar{77}}, {Str{"two"}, ExtensionTableScalar{77}}});
-
-    (void)eval_node<NestedExtensionRecordGraph<NestedExtensionDict>>(values<Value>(input));
-    CHECK_OUTPUT(eval_node<NestedExtensionReplayGraph<NestedExtensionDict>>(),
-                 values<Value>(expected));
 
     CHECK(extension_describes == 1);
     CHECK(extension_emits == 2);

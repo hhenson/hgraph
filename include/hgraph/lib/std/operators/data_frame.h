@@ -1,10 +1,13 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_DATA_FRAME_H
 #define HGRAPH_LIB_STD_OPERATORS_DATA_FRAME_H
 
+#include <hgraph/lib/std/operators/table_rows.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+
+#include <span>
 
 namespace hgraph::stdlib
 {
@@ -228,5 +231,18 @@ namespace hgraph::stdlib
         };
     }  // namespace data_frame
 }  // namespace hgraph::stdlib
+
+namespace hgraph::stdlib::data_frame_detail
+{
+    /** Select the latest visible revision for each value-time/partition and
+        discard rows before ``start_time``. A multi-row frame tick retains
+        every row belonging to its selected revision. Public (RFC 0025,
+        checkpoint 4): bitemporal revision selection is part of the supported
+        replay seam a durable-backend extension consumes. */
+    [[nodiscard]] HGRAPH_EXPORT Frame select_replay_frame(
+        const Frame &frame, const table_ts_detail::TsTableLayout &layout,
+        std::span<const int> columns, DateTime as_of_time, DateTime start_time);
+}  // namespace hgraph::stdlib::data_frame_detail
+
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_DATA_FRAME_H

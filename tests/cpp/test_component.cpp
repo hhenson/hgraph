@@ -268,23 +268,6 @@ TEST_CASE("component: C++ recordable state works through eval_node")
                  values<Int>(1, 2, 3, none, 4));
 }
 
-TEST_CASE("component: Record mode records the named inputs and __out__ while passing values through")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    CHECK_OUTPUT(eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none)),
-                 values<Int>(11, 21, 23));
-
-    CHECK(record_replay::store_contains("calc.lhs"));
-    CHECK(record_replay::store_contains("calc.rhs"));
-    CHECK(record_replay::store_contains("calc.__out__"));
-    CHECK(frame_rows(record_replay::store_read("calc.lhs")) == 2);
-    CHECK(frame_rows(record_replay::store_read("calc.__out__")) == 3);
-}
-
 TEST_CASE("component: in-memory mode records timestamped values and replays them")
 {
     stdlib::register_standard_operators();
@@ -449,126 +432,12 @@ TEST_CASE("component: in-memory recording preserves changing polymorphic event l
     }
 }
 
-TEST_CASE("component: Replay mode replaces live inputs with the recordings")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
-
-    // Different live inputs - the recorded ones win.
-    CHECK_OUTPUT(eval_node<ReplayHarness>(values<Int>(100, 100, 100), values<Int>(100, 100, 100)),
-                 values<Int>(11, 21, 23));
-}
-
-TEST_CASE("component: ReplayOutput mode replays the recorded output directly")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
-
-    CHECK_OUTPUT(eval_node<ReplayOutputHarness>(values<Int>(100), values<Int>(100)),
-                 values<Int>(11, 21, 23));
-}
-
-TEST_CASE("component: nested components chain fully-qualified ids through the scope")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    CHECK_OUTPUT(eval_node<NestedHarness>(values<Int>(5)), values<Int>(10));
-    CHECK(record_replay::store_contains("outer.ts"));
-    CHECK(record_replay::store_contains("outer.__out__"));
-    CHECK(record_replay::store_contains("outer.inner.ts"));
-    CHECK(record_replay::store_contains("outer.inner.__out__"));
-}
-
 TEST_CASE("component: no ambient mode wires plainly; active mode without an id throws")
 {
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<PlainHarness>(values<Int>(2), values<Int>(3)), values<Int>(5));
     CHECK_THROWS_AS((void)eval_node<NoIdHarness>(values<Int>(1), values<Int>(1)), std::invalid_argument);
-}
-
-TEST_CASE("component: Recover seeds inputs at start from the recordings; live ticks override")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    // Record: lhs ticks 1 @t0 and 3 @t2; rhs ticks 10 @t0 and 20 @t1.
-    (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
-
-    // Recover (same start time): the seeds are the values recorded AT OR
-    // BEFORE the start time - lhs=1, rhs=10 - so cycle 0 computes 11 with
-    // SILENT live inputs; the live lhs=100 @t1 then overrides (100+10).
-    CHECK_OUTPUT(eval_node<RecoverHarness>(values<Int>(none, 100), values<Int>(none, none)),
-                 values<Int>(11, 110));
-}
-
-TEST_CASE("component: Compare recomputes from recorded inputs and records per-tick equality")
-{
-    stdlib::register_standard_operators();
-    {
-        GlobalContext context;
-        record_replay::set_config(context.state().view(),
-                                  record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-        (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
-
-        // Same computation: every recomputed tick matches the recording.
-        (void)eval_node<CompareHarness<SumGraph>>(values<Int>(100), values<Int>(100));
-        auto matched = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
-        REQUIRE(matched.has_value());
-        CHECK(matched->compared == 3);
-        CHECK(matched->mismatches == 0);
-
-        // The query is total: an unknown key is nullopt, not an error.
-        CHECK_FALSE(record_replay::comparison_summary(context.state().view(), "nowhere.__compare__")
-                        .has_value());
-    }
-
-    // A comparison result is itself an immutable per-run recording. Start a
-    // new run, with its own graph-scoped store, to compare the regressed
-    // computation (product instead of sum) against the same baseline.
-    {
-        GlobalContext context;
-        record_replay::set_config(context.state().view(),
-                                  record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-        (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
-        (void)eval_node<CompareHarness<ProductGraph>>(values<Int>(100), values<Int>(100));
-        auto regressed = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
-        REQUIRE(regressed.has_value());
-        CHECK(regressed->compared == 3);
-        CHECK(regressed->mismatches == 3);
-    }
-}
-
-TEST_CASE("compare: a one-sided value is recorded as a mismatch")
-{
-    stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::RecordReplayConfig{.backend = "hgraph.persistence.frame"});
-
-    // cycle 0: lhs=1, rhs invalid -> mismatch. cycle 1: rhs=1 arrives and
-    // lhs still holds 1 -> equal. cycle 2: lhs=5 vs rhs=1 -> mismatch.
-    (void)eval_node<DirectCompareGraph>(values<Int>(1, none, 5), values<Int>(none, 1, none));
-
-    auto summary = record_replay::comparison_summary(context.state().view(), "sided.__compare__");
-    REQUIRE(summary.has_value());
-    CHECK(summary->compared == 3);
-    CHECK(summary->mismatches == 2);
 }
 
 TEST_CASE("compare: a fresh memory compare run zeroes the published summary")

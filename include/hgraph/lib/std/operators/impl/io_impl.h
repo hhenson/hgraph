@@ -135,7 +135,7 @@ namespace hgraph::stdlib
 
     // The in-memory record/replay/compare backends live in their own
     // discoverable home (``impl/record_replay_memory_impl.h``), the sibling of
-    // the frame backend (``impl/record_replay_frame_impl.h``).
+    // the durable frame backend (hgraph-persistence, RFC 0025).
 
     /** ``null_sink`` implementation: a single generic sink that consumes ``ts`` and does nothing. */
     struct null_sink_impl

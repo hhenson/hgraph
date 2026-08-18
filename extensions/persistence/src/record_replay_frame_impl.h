@@ -1,8 +1,9 @@
-#ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
-#define HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
+#ifndef HGRAPH_PERSISTENCE_RECORD_REPLAY_FRAME_IMPL_H
+#define HGRAPH_PERSISTENCE_RECORD_REPLAY_FRAME_IMPL_H
 
-#include <hgraph/lib/std/operators/impl/data_frame_impl.h>
+#include <hgraph/lib/std/operators/data_frame.h>
 #include <hgraph/lib/std/operators/table_rows.h>
+#include <hgraph/persistence/recording_store.h>
 
 #include <arrow/array.h>
 #include <arrow/table.h>
@@ -25,15 +26,12 @@
 #include <utility>
 #include <vector>
 
-namespace hgraph::stdlib
+namespace hgraph::persistence
 {
+    using namespace hgraph::stdlib;
+
     namespace record_replay_frame_detail
     {
-        /** The durable backend identifier this transitional in-core backend
-            answers to. The id and these overloads move to hgraph-persistence
-            at RFC 0025 checkpoint 5; core defines no extension identifiers. */
-        inline constexpr std::string_view FRAME_BACKEND{"hgraph.persistence.frame"};
-
         [[nodiscard]] inline std::string frame_key(const TraitsView &traits,
                                                    std::string_view  recordable_id,
                                                    std::string_view  key)
@@ -289,8 +287,8 @@ namespace hgraph::stdlib
             {
                 return;
             }
-            record_replay::store_write(
-                gs, record_replay::segment_key(handle.fq_key, handle.next_segment),
+            store_write(
+                gs, segment_key(handle.fq_key, handle.next_segment),
                 finish_recording_frame(handle));
             ++handle.next_segment;
             handle.total_rows += static_cast<std::size_t>(rows);
@@ -314,8 +312,8 @@ namespace hgraph::stdlib
         {
             while (true)
             {
-                Frame next = record_replay::store_read(
-                    gs, record_replay::segment_key(handle.fq_key, handle.next_segment));
+                Frame next = store_read(
+                    gs, segment_key(handle.fq_key, handle.next_segment));
                 if (!next.has_value())
                 {
                     handle.frame = Frame{};
@@ -344,25 +342,26 @@ namespace hgraph::stdlib
     {
         record_replay_frame_detail::ReplayHandle *handle{nullptr};
     };
-}  // namespace hgraph::stdlib
+}  // namespace hgraph::persistence
 
 namespace hgraph::static_schema_detail
 {
     template <>
-    struct scalar_name<stdlib::FrameRecorderState>
+    struct scalar_name<persistence::FrameRecorderState>
     {
         static constexpr std::string_view value{"FrameRecorderState"};
     };
 
     template <>
-    struct scalar_name<stdlib::FrameReplayState>
+    struct scalar_name<persistence::FrameReplayState>
     {
         static constexpr std::string_view value{"FrameReplayState"};
     };
 }  // namespace hgraph::static_schema_detail
 
-namespace hgraph::stdlib
+namespace hgraph::persistence
 {
+    using namespace hgraph::stdlib;
     /**
      * The Arrow data-frame record/replay backend (design record, step 4;
      * backend ``"hgraph.persistence.frame"``). ``record`` appends one bitemporal
@@ -393,7 +392,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
+            return record_replay::effective_backend_is(context, FRAME_BACKEND);
         }
 
         static void start(
@@ -454,19 +453,15 @@ namespace hgraph::stdlib
             handle->flush_interval = flush_interval.value();
             handle->last_flush = now;
 
-            auto selected_store = record_replay::frame_store(gs);
-            if (!selected_store)
-            {
-                selected_store = record_replay::frame_store();
-            }
+            auto selected_store = ensure_frame_store(gs);
             const bool native_segments = selected_store.supports_segmented_recordings();
             const bool flush_requested =
                 handle->flush_rows > 0 || handle->flush_interval > TimeDelta{0};
             if (native_segments &&
-                (record_replay::store_contains(gs, handle->fq_key) ||
-                 record_replay::store_contains(gs, record_replay::segment_key(handle->fq_key, 0)) ||
-                 (flush_requested && record_replay::store_contains(
-                                         gs, record_replay::completion_key(handle->fq_key)))))
+                (store_contains(gs, handle->fq_key) ||
+                 store_contains(gs, segment_key(handle->fq_key, 0)) ||
+                 (flush_requested && store_contains(
+                                         gs, completion_key(handle->fq_key)))))
             {
                 throw std::runtime_error("recording key already exists: " + handle->fq_key);
             }
@@ -475,8 +470,8 @@ namespace hgraph::stdlib
             {
                 // Claim the logical key before publishing the first immutable
                 // segment. A Python compatibility store never reaches here.
-                record_replay::store_write(gs, handle->fq_key,
-                                           record_replay::segmented_recording_marker());
+                store_write(gs, handle->fq_key,
+                                           segmented_recording_marker());
             }
             state.set(FrameRecorderState{handle.release()});  // owned by node State until stop
         }
@@ -549,13 +544,13 @@ namespace hgraph::stdlib
             if (handle->segmented)
             {
                 record_replay_frame_detail::flush_segment(*handle, gs);
-                record_replay::store_write(gs, record_replay::completion_key(handle->fq_key),
-                                           record_replay::segmented_recording_manifest(
+                store_write(gs, completion_key(handle->fq_key),
+                                           segmented_recording_manifest(
                                                handle->next_segment, handle->total_rows));
             }
             else
             {
-                record_replay::store_write(
+                store_write(
                     gs, handle->fq_key,
                     record_replay_frame_detail::finish_recording_frame(*handle));
             }
@@ -579,7 +574,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
+            return record_replay::effective_backend_is(context, FRAME_BACKEND);
         }
 
         static void start(
@@ -595,12 +590,12 @@ namespace hgraph::stdlib
             using record_replay_frame_detail::ReplayHandle;
             const auto fq_key =
                 record_replay_frame_detail::frame_key(traits, recordable_id.value(), key.value());
-            Frame stored = record_replay::store_read(gs, fq_key);
+            Frame stored = store_read(gs, fq_key);
             if (!stored.has_value())
             {
                 throw std::runtime_error("replay: no recorded frame under '" + fq_key + "'");
             }
-            const bool  segmented = record_replay::is_segmented_recording(stored);
+            const bool  segmented = is_segmented_recording(stored);
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  config = table::config(gs);
             const auto &layout = table_ts_detail::ts_table_layout(erased.schema(), config.date_key,
@@ -724,11 +719,11 @@ namespace hgraph::stdlib
             extension-owned identifier must produce the no-match wiring
             error — or an extension's own overload — never silently fall
             into the built-in frame compare. */
+        /** Guarded on exactly this extension's backend id (RFC 0025): the
+            in-memory compare — memory AND testing — is core's. */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::effective_backend_is(context, record_replay::TESTING) ||
-                   record_replay::effective_backend_is(context,
-                                                       record_replay_frame_detail::FRAME_BACKEND);
+            return record_replay::effective_backend_is(context, FRAME_BACKEND);
         }
 
         static auto defaults()
@@ -790,7 +785,7 @@ namespace hgraph::stdlib
             {
                 return;
             }
-            record_replay::store_write(gs, handle->fq_key, handle->recorder.finish());
+            store_write(gs, handle->fq_key, handle->recorder.finish());
             // The detailed rows above are this implementation's own business;
             // the cross-implementation contract is the neutral summary.
             record_replay::publish_comparison_summary(
@@ -819,7 +814,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::effective_backend_is(context, record_replay_frame_detail::FRAME_BACKEND);
+            return record_replay::effective_backend_is(context, FRAME_BACKEND);
         }
 
         static Value const_eval(const TSValueTypeMetaData *resolved_output,
@@ -834,7 +829,7 @@ namespace hgraph::stdlib
                                             "required for the eager (const) call");
             }
             const auto config = table::config(context.global_state);
-            return record_replay::replay_const_value(
+            return replay_const_value(
                 context.global_state, *recordable_id + "." + (key != nullptr ? *key : Str{}),
                 resolved_output->value_schema, tm != nullptr ? *tm : MAX_DT,
                 config.as_of.value_or(MAX_DT));
@@ -846,7 +841,7 @@ namespace hgraph::stdlib
         {
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  cutoff = tm.value() == MAX_DT ? now : tm.value();
-            Value       value = record_replay::replay_const_value(
+            Value       value = replay_const_value(
                 gs,
                 record_replay::fq_recordable_id(traits, recordable_id.value()) + "." + key.value(),
                 erased.schema()->value_schema, cutoff,
@@ -860,6 +855,6 @@ namespace hgraph::stdlib
 
     /** Register the data-frame record/replay backend overloads. */
     void register_record_replay_frame_operators();
-}  // namespace hgraph::stdlib
+}  // namespace hgraph::persistence
 
-#endif  // HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
+#endif  // HGRAPH_PERSISTENCE_RECORD_REPLAY_FRAME_IMPL_H

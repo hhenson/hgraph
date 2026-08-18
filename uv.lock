@@ -15,6 +15,7 @@ members = [
     "hgraph",
     "hgraph-analytics",
     "hgraph-kafka",
+    "hgraph-persistence",
     "hgraph-web",
 ]
 
@@ -603,6 +604,26 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "frozendict", specifier = ">=2" },
+    { name = "hgraph", editable = "." },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "hgraph-persistence"
+version = "0.0.0"
+source = { editable = "extensions/persistence" }
+dependencies = [
+    { name = "hgraph" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
     { name = "hgraph", editable = "." },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
 ]

@@ -117,3 +117,58 @@ def test_legacy_kafka_shim_does_not_load_an_absent_extension():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_per_call_durable_model_names_the_missing_persistence_extension():
+    # A per-call ``model=`` selecting a durable backend is an extension load
+    # point (RFC 0025). Without hgraph-persistence the wiring call must raise
+    # the pointed install error, not an unexplained overload-resolution
+    # failure. The blocker keeps the assertion meaningful in environments
+    # where the extension IS installed (the wheel-test legs).
+    script = textwrap.dedent(
+        """
+        import sys
+
+        # Editable-install finders would shadow PYTHONPATH with a different
+        # checkout's package; drop them first (a no-op in CI).
+        sys.meta_path = [
+            finder for finder in sys.meta_path
+            if "ScikitBuild" not in type(finder).__name__
+        ]
+
+        class BlockPersistenceExtension:
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.partition(".")[0] == "hgraph_persistence":
+                    raise ModuleNotFoundError(
+                        f"blocked optional extension: {fullname}",
+                        name="hgraph_persistence",
+                    )
+                return None
+
+        sys.meta_path.insert(0, BlockPersistenceExtension())
+
+        import hgraph as hg
+        from hgraph import TS
+
+        assert "hgraph_persistence" not in sys.modules
+        try:
+            hg.record[TS[int]](ts=None, key="ts", model=hg.DATA_FRAME)
+        except ModuleNotFoundError as error:
+            assert error.name == "hgraph_persistence"
+            assert "pip install hgraph-persistence" in str(error)
+        else:
+            raise AssertionError("per-call durable model wired without hgraph-persistence")
+        """
+    )
+    python_path = os.pathsep.join(
+        filter(None, (str(ROOT / "python"), os.environ.get("PYTHONPATH")))
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": python_path},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr

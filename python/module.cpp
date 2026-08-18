@@ -160,7 +160,6 @@ NB_MODULE(_hgraph, m)
     bind_ports(m);
     bind_wiring(m);
     bind_state_and_services(m);
-    bind_persistence(m);
 
     m.def("_registry_generation", [] { return python_registry_generation; });
     // Rebuild the process logger (and its sinks) on demand: spdlog's Windows

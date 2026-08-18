@@ -73,6 +73,7 @@ option(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS "Run debugger subprocess smoke tests w
 option(HGRAPH_BUILD_KAFKA_EXTENSION "Build the first-party Kafka extension" OFF)
 option(HGRAPH_BUILD_ANALYTICS_EXTENSION "Build the first-party analytics extension" OFF)
 option(HGRAPH_BUILD_WEB_EXTENSION "Build the first-party web extension" OFF)
+option(HGRAPH_BUILD_PERSISTENCE_EXTENSION "Build the first-party persistence extension" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -796,6 +797,10 @@ endif()
 
 if(HGRAPH_BUILD_WEB_EXTENSION)
     add_subdirectory(extensions/web)
+endif()
+
+if(HGRAPH_BUILD_PERSISTENCE_EXTENSION)
+    add_subdirectory(extensions/persistence)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")

@@ -14,10 +14,6 @@ import pytest
 
 import hgraph as hg
 from hgraph import GlobalState, TS, set_as_of, set_record_replay_model
-from hgraph.adaptors.data_frame import (
-    DATA_FRAME_RECORD_REPLAY,
-    MemoryDataFrameStorage,
-)
 from hgraph.test import eval_node
 
 
@@ -28,33 +24,6 @@ def _frame(values):
         "__as_of__": stamps,
         "value": values,
     })
-
-
-def test_record_replay_model_set_inside_the_graph_is_honoured():
-    # The client scenario: configuration applied DURING WIRING, inside the
-    # graph function, on the selected state — no nested GlobalState.
-    @hg.graph
-    def wired(ts: TS[int]) -> TS[int]:
-        set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
-        set_as_of(hg.MIN_ST + hg.MIN_TD * 30)
-        return hg.replay[TS[int]](key="ts", recordable_id="client")
-
-    with GlobalState(), MemoryDataFrameStorage() as storage:
-        storage.write_frame("client.ts", _frame([7, 8]))
-        assert eval_node(wired, [None, None]) == [7, 8]
-
-
-def test_record_replay_model_set_in_graph_with_implicit_state():
-    with MemoryDataFrameStorage() as storage:
-        storage.write_frame("implicit.ts", _frame([42]))
-
-        @hg.graph
-        def wired(ts: TS[int]) -> TS[int]:
-            set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
-            set_as_of(hg.MIN_ST + hg.MIN_TD * 30)
-            return hg.replay[TS[int]](key="ts", recordable_id="implicit")
-
-        assert eval_node(wired, [None]) == [42]
 
 
 def test_wiring_time_state_entries_reach_the_run_and_copy_back():
@@ -85,7 +54,7 @@ def test_nested_global_state_activation_stays_a_loud_error():
     @hg.graph
     def wired(ts: TS[int]) -> TS[int]:
         with GlobalState():
-            set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
+            set_record_replay_model("InMemory")
         return ts
 
     with GlobalState():

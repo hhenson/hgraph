@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 211
    * - Public operator groups
-     - 188
+     - 187
    * - Public submodules
      - 18
 
@@ -313,8 +313,8 @@ whose curated signatures remain authoritative.
      - ``6 overload groups``
      - 17 native overloads across 6 groups; explicit helper
    * - :ref:`compare <python-operator-compare>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None``
+     - 1 native overload; lazy operator
    * - :ref:`concat <python-operator-concat>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -649,8 +649,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`record <python-operator-record>`
-     - ``3 overloads``
-     - 3 native overloads; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`reduce <python-operator-reduce>`
      - ``9 overloads``
      - 9 native overloads; explicit helper
@@ -667,10 +667,7 @@ whose curated signatures remain authoritative.
      - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`replay <python-operator-replay>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
-   * - :ref:`replay_const <python-operator-replay_const>`
-     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ..., model: str = ...) -> OUT``
+     - ``replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`replay_data_frame <python-operator-replay_data_frame>`
      - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT``
