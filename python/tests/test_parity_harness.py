@@ -680,8 +680,17 @@ def test_candidate_extra_wheels_install_beside_the_core_wheel(
             str(python),
             "--reinstall",
             str(core_wheel.resolve()),
+        ],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--reinstall",
+            "--no-deps",
             str(extra_wheel.resolve()),
-        ]
+        ],
     ]
     _core_only_python, _identity, core_only_fingerprint = (
         environments.ensure_candidate_environment(candidate_wheel=core_wheel)

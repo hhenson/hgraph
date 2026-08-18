@@ -170,9 +170,24 @@ def ensure_candidate_environment(
                 str(python),
                 "--reinstall",
                 str(candidate_wheel),
-                *[str(wheel) for wheel in extra_wheels],
             ]
         )
+        if extra_wheels:
+            # --no-deps: an unreleased candidate carries version 0.0.0, which
+            # can never satisfy the extension's released hgraph requirement
+            # (the same install shape as the wheel-test workflow).
+            _run(
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(python),
+                    "--reinstall",
+                    "--no-deps",
+                    *[str(wheel) for wheel in extra_wheels],
+                ]
+            )
         marker.write_text(fingerprint + "\n")
     return python, environment_identity(python), fingerprint
 

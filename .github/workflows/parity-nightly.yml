@@ -61,14 +61,25 @@ jobs:
       # candidate environment (RFC 0025); build its wheel against the
       # candidate core SDK. Like the core candidate wheel, it is an
       # unrepaired campaign-internal artifact, not a release wheel.
-      - name: Install the candidate core SDK and extension build tools
-        # The SDK wheel is the artifact built above (--no-deps: nothing is
-        # resolved from an index); every index-resolved tool is pinned.
+      - name: Install the candidate core SDK
+        # The wheel is this run's own artifact; --no-deps resolves nothing
+        # from an index (same install shape as release-platform-wheel).
+        shell: python
         run: |
-          python -m pip install --no-deps dist/*.whl
-          python -m pip install --only-binary=:all: \
-            "build==1.5.0" "scikit-build-core==1.0.3" "nanobind==2.13.0" \
-            "ninja==1.13.0" "pyarrow==25.0.0"
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call(
+              [sys.executable, "-m", "pip", "install", "--no-deps", str(wheels[0])]
+          )
+      - name: Install extension build tools
+        run: >-
+          python -m pip install --only-binary=:all:
+          "build==1.5.0" "scikit-build-core==1.0.3" "nanobind==2.13.0"
+          "ninja==1.13.0" "pyarrow==25.0.0"
       - name: Locate the installed core SDK
         shell: python
         run: |
