@@ -318,6 +318,161 @@ TEST_CASE("checkpoint: duration TSW restores without pruning historical entries"
     CHECK(window.time_at(1) == t2);
 }
 
+TEST_CASE("checkpoint: TSS round-trips slots, planes, and free-list order", "[ts_checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int32_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tss = registry.tss(int32_meta);
+
+    const auto t1 = MIN_ST + TimeDelta{1};
+    const auto t2 = t1 + TimeDelta{1};
+    const auto t3 = t2 + TimeDelta{1};
+
+    TSOutput original{*tss};
+    {
+        auto root = original.data_view();
+        auto set = root.as_set();
+        { auto m = set.begin_mutation(t1); REQUIRE(m.add(Value{1}.view())); REQUIRE(m.add(Value{2}.view())); }
+        { auto m = set.begin_mutation(t2); REQUIRE(m.remove(Value{1}.view())); }
+    }
+
+    const auto image = capture_checkpoint(original.data_view());
+    CHECK(image.kind == TSTypeKind::TSS);
+    CHECK(image.modified_time == t2);
+    REQUIRE(image.slots.size() == 2);  // one live, one pending erase
+    CHECK(image.pending_erase_slots.size() == 1);
+
+    TSOutput restored{*tss};
+    TSCheckpointDiagnostics why;
+    REQUIRE(validate_checkpoint(restored.data_view(), image, why));
+    import_checkpoint(restored.data_view(), image, TSCheckpointRestoreGuard::begin());
+
+    CHECK(restored.data_view().last_modified_time() == t2);
+    {
+        const auto value = restored.view(t2 + TimeDelta{1}).value().as_set();
+        CHECK(value.size() == 1);
+        CHECK(value.contains(Value{2}.view()));
+        CHECK_FALSE(value.contains(Value{1}.view()));
+    }
+
+    // THE determinism property the exact free-list restore exists for: the
+    // next insert after restore must land on the same slot the uninterrupted
+    // run would have chosen (the pending slot flushes, then LIFO reuse).
+    {
+        auto original_root = original.data_view();
+        auto original_set = original_root.as_set();
+        auto restored_root = restored.data_view();
+        auto restored_set = restored_root.as_set();
+        { auto m = original_set.begin_mutation(t3); REQUIRE(m.add(Value{3}.view())); }
+        { auto m = restored_set.begin_mutation(t3); REQUIRE(m.add(Value{3}.view())); }
+    }
+    const auto original_after = capture_checkpoint(original.data_view());
+    const auto restored_after = capture_checkpoint(restored.data_view());
+    REQUIRE(original_after.slots.size() == restored_after.slots.size());
+    for (std::size_t index = 0; index < original_after.slots.size(); ++index)
+    {
+        CHECK(original_after.slots[index].slot_id == restored_after.slots[index].slot_id);
+        CHECK(original_after.slots[index].live == restored_after.slots[index].live);
+    }
+    CHECK(original_after.free_slots == restored_after.free_slots);
+    CHECK(original_after.pending_erase_slots == restored_after.pending_erase_slots);
+}
+
+TEST_CASE("checkpoint: TSD round-trips keys, children, and both clocks", "[ts_checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int32_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsd = registry.tsd(int32_meta, registry.ts(int32_meta));
+
+    const auto t1 = MIN_ST + TimeDelta{1};
+    const auto t2 = t1 + TimeDelta{1};
+    const auto t3 = t2 + TimeDelta{1};
+
+    TSOutput original{*tsd};
+    {
+        auto root = original.data_view();
+        auto dict = root.as_dict();
+        {
+            auto m = dict.begin_mutation(t1);
+            auto child = m.at(Value{10}.view());
+            auto cm = child.begin_mutation(t1);
+            REQUIRE(cm.copy_value_from(Value{100}.view()));
+        }
+        {
+            auto m = dict.begin_mutation(t2);
+            auto child = m.at(Value{20}.view());
+            auto cm = child.begin_mutation(t2);
+            REQUIRE(cm.copy_value_from(Value{200}.view()));
+        }
+        {
+            auto m = dict.begin_mutation(t3);
+            REQUIRE(m.erase(Value{10}.view()));
+        }
+    }
+
+    const auto image = capture_checkpoint(original.data_view());
+    CHECK(image.kind == TSTypeKind::TSD);
+    CHECK(image.modified_time == t3);
+    CHECK(image.key_set_modified_time == t3);
+    REQUIRE(image.slots.size() == 2);
+    bool saw_live_child = false;
+    for (const auto &slot : image.slots)
+    {
+        REQUIRE(slot.child != nullptr);
+        if (slot.live)
+        {
+            saw_live_child = true;
+            CHECK(slot.value_published);
+            CHECK(slot.child->modified_time == t2);
+            CHECK(slot.child->value.view().checked_as<std::int32_t>() == 200);
+        }
+    }
+    CHECK(saw_live_child);
+
+    TSOutput restored{*tsd};
+    TSCheckpointDiagnostics why;
+    REQUIRE(validate_checkpoint(restored.data_view(), image, why));
+    import_checkpoint(restored.data_view(), image, TSCheckpointRestoreGuard::begin());
+
+    CHECK(restored.data_view().last_modified_time() == t3);
+    {
+        const auto value = restored.view(t3 + TimeDelta{1}).value().as_map();
+        REQUIRE(value.size() == 1);
+        CHECK(value.at(Value{20}.view()).checked_as<std::int32_t>() == 200);
+        CHECK_FALSE(value.contains(Value{10}.view()));
+    }
+    {
+        // The restored child carries its ORIGINAL modification time and a
+        // parent link, exactly as the uninterrupted run's child does.
+        auto restored_root = restored.data_view();
+        auto dict = restored_root.as_dict();
+        auto child = dict.at(Value{20}.view());
+        REQUIRE(child.valid());
+        CHECK(child.last_modified_time() == t2);
+        CHECK(child.has_parent());
+    }
+
+    // Determinism across restore: the next key lands on the same slot.
+    const auto t4 = t3 + TimeDelta{1};
+    for (TSOutput *output : {&original, &restored})
+    {
+        auto root = output->data_view();
+        auto dict = root.as_dict();
+        auto m = dict.begin_mutation(t4);
+        auto child = m.at(Value{30}.view());
+        auto cm = child.begin_mutation(t4);
+        REQUIRE(cm.copy_value_from(Value{300}.view()));
+    }
+    const auto original_after = capture_checkpoint(original.data_view());
+    const auto restored_after = capture_checkpoint(restored.data_view());
+    REQUIRE(original_after.slots.size() == restored_after.slots.size());
+    for (std::size_t index = 0; index < original_after.slots.size(); ++index)
+    {
+        CHECK(original_after.slots[index].slot_id == restored_after.slots[index].slot_id);
+    }
+    CHECK(original_after.free_slots == restored_after.free_slots);
+}
+
 TEST_CASE("checkpoint: REF representations refuse conservatively", "[ts_checkpoint]")
 {
     auto &registry = TypeRegistry::instance();

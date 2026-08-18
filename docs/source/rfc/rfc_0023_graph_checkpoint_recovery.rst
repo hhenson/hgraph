@@ -1099,10 +1099,35 @@ The persistence lifecycle — the ``snapshot``/``suspend``/``restore``
 verbs, the node ``snapshot``/``restore`` hook pair, the
 augmentation-not-replacement default rule, and the serialisation-strategy
 seam — was agreed against the prior-art review and recorded 2026-08-18.
-Implementation is otherwise not started; RFC 0022 (the identity
-prerequisite) is under way separately.  The RFC records the graph-level
-contract intentionally deferred by RFC 0017 and the durable
-checkpoint/store gap named by the extension policy.
+
+``TSCheckpointOps`` is implemented for the endpoint representations
+(stage 1 in-memory form: the image holds owned ``Value``s and original
+``DateTime``s; byte encoding belongs to the durable strategy).  It joins
+``TSDataOps`` as the fourth separately selected, non-null, cold-path
+erased policy; capture/validate/quiet-import cover TS/SIGNAL, TSB, fixed
+and dynamic TSL, TSS, TSD, and both TSW forms.  Decisions recorded
+during implementation: quiet import writes value ops directly and stamps
+tracking without ``record_modified`` (no parent re-stamp, no observer
+wake); the TSB value-layer validity words are replayed explicitly; keyed
+kinds reconstruct slots at their EXACT ids and restore the free-list and
+pending-erase orderings verbatim (``KeySlotStore`` gained the
+chosen-slot import this RFC required), with the representation-internal
+value mirror driven through the ordinary slot observers; TSD's
+independent key-set clock and its durable ``value_published`` plane are
+part of the image; TSW rebuilds entries with their original per-entry
+timestamps through a new representation primitive (never through
+``push``, which prunes and re-stamps); per-cycle delta planes are never
+captured; imported children receive parent links exactly as fresh
+construction attaches them.  ``REF`` refuses conservatively until the
+graph-walk stage supplies its locator representation, and python-only
+value storage refuses pending the bridge story.
+
+The remainder of stage 1 (recordable/scheduler state, the node walker,
+the executor ``snapshot``/``suspend`` verbs, the strategy registry, and
+uninterrupted-versus-restored graph tests) is under way; RFC 0022
+stage 1 (the identity prerequisite) is implemented separately.  The RFC
+records the graph-level contract intentionally deferred by RFC 0017 and
+the durable checkpoint/store gap named by the extension policy.
 
 References
 ----------
