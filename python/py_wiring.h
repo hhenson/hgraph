@@ -411,7 +411,9 @@ namespace hgraph::python_bridge
         }
 
         [[nodiscard]] nb::tuple push_source(PyTsType ts_type, bool conflate,
-                                            nb::object on_start,
+                                            PyNodeHandle fn,
+                                            std::string config,
+                                            PyScalarValue scalars,
                                             std::optional<std::string> node_label)
         {
             ensure_open();
@@ -419,16 +421,31 @@ namespace hgraph::python_bridge
             slot->schema  = ts_type.meta;
             auto policy   = conflate ? make_push_source_conflating_policy(*ts_type.meta)
                                      : make_push_source_queue_policy(*ts_type.meta);
-            NodeBuilder builder = make_push_source_node(
-                *ts_type.meta, std::move(policy), [slot, on_start](PushSourceSender sender) {
-                    slot->sender = std::move(sender);
-                    slot->type_realization = slot->sender.type_realization();
-                    if (!on_start.is_none())
-                    {
-                        // hgraph's @push_queue contract: the wrapped function
-                        // IS the start lifecycle hook, invoked with the sender.
-                        on_start(nb::cast(PySender{slot}));
-                    }
+            const bool uses_scheduler = config.find('d') != std::string::npos;
+            const bool uses_global_state = config.find('g') != std::string::npos;
+            const bool uses_evaluation_clock =
+                config.find_first_of("cde") != std::string::npos;
+            NodeBuilder builder = make_push_source_node_with_view(
+                *ts_type.meta, std::move(policy),
+                PushSourceNodeExtension{
+                    .on_start = [slot, fn, config](
+                        PushSourceSender sender, const NodeView &view,
+                        DateTime evaluation_time) {
+                        slot->sender = std::move(sender);
+                        slot->type_realization = slot->sender.type_realization();
+                        py_call_push_queue_start(
+                            fn.record->fn, config, view.scalars(),
+                            PySender{slot}, view, evaluation_time);
+                    },
+                    .on_stop = [](const NodeView &view) {
+                        py_release_push_queue_state(view);
+                    },
+                    .state_schema = scalar_descriptor<PyStateRef>::value_meta(),
+                    .scalar_schema = scalars.value.schema(),
+                    .uses_scheduler = uses_scheduler,
+                    .uses_global_state = uses_global_state,
+                    .uses_evaluation_clock = uses_evaluation_clock,
+                    .uses_python_values = true,
                 }, true);
             std::string diagnostic_label;
             for (const auto &component : wiring_ref().current_wiring_path())
@@ -444,7 +461,7 @@ namespace hgraph::python_bridge
             };
             WiringPortRef ref = wiring_ref().add_unique_node(std::type_index(typeid(py_push_source_tag)),
                                                              std::move(builder), std::span<const WiringPortRef>{},
-                                                             Value{});
+                                                             std::move(scalars.value));
             return nb::make_tuple(PyPort{std::move(ref)}, PySender{std::move(slot)});
         }
 

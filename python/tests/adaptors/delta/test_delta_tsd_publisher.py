@@ -5,7 +5,7 @@ import pyarrow as pa
 from frozendict import frozendict
 
 from hgraph import (
-    CompoundScalar, Frame, GlobalState, MIN_ST, MIN_TD, TS, TSB,
+    SCALAR, CompoundScalar, Frame, GlobalState, MIN_ST, MIN_TD, TS, TSB,
     TSD, graph, set_as_of,
 )
 from hgraph.adaptors.delta.delta_tsd_publisher import tsd_to_frame_batched
@@ -50,7 +50,7 @@ def _inputs():
 def test_tsd_to_frame_batches_scalar_values():
     @graph
     def app(tsd: TSD[str, TS[_Row]]) -> TS[Frame]:
-        return tsd_to_frame_batched(
+        return tsd_to_frame_batched[SCALAR:str](
             tsd, max_rows=2, flush_period=timedelta(milliseconds=1))
 
     as_of = MIN_ST + 10 * MIN_TD

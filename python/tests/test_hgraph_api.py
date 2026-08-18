@@ -89,6 +89,78 @@ def test_run_graph_returns_time_value_pairs():
     check(result == [(hg.MIN_ST, 11)], f"run_graph: {result}")
 
 
+def test_eval_node_supports_real_time_push_queues():
+    state = hg.GlobalState()
+    state["eval_node_test_value"] = 7
+    injected = []
+
+    @hg.push_queue(TS[int])
+    def source(
+        sender,
+        value: int,
+        local_state: hg.STATE = None,
+        clock: hg.CLOCK = None,
+        scheduler: hg.SCHEDULER = None,
+        engine: hg.EvaluationEngineApi = None,
+        _global_state: hg.GlobalState = None,
+        traits: hg.Traits = None,
+        logger: hg.LOGGER = None,
+        node: hg.NODE = None,
+    ):
+        local_state.value = value
+        injected.append((
+            isinstance(local_state, hg.STATE),
+            isinstance(clock, hg.CLOCK),
+            isinstance(scheduler, hg.SCHEDULER),
+            isinstance(engine, hg.EvaluationEngineApi),
+            isinstance(traits, hg.Traits),
+            isinstance(logger, hg.LOGGER),
+            isinstance(node, hg.NODE),
+        ))
+        sender(_global_state["eval_node_test_value"])
+
+    @graph
+    def app() -> TS[int]:
+        return source(7)
+
+    start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    with hg.GlobalContext(state):
+        check(
+            eval_node(
+                app,
+                __run_mode__=hg.EvaluationMode.REAL_TIME,
+                __start_time__=start,
+                __end_time__=start + datetime.timedelta(milliseconds=100),
+                __elide__=True,
+            ) == [7],
+            "real-time eval_node push queue",
+        )
+    check(injected == [(True,) * 7], "push queue injectables")
+
+
+def test_real_time_push_queue_supports_typed_state():
+    @hg.push_queue(TS[int])
+    def source(sender, state: hg.STATE[dict] = None):
+        state["value"] = 11
+        sender(state["value"])
+
+    @graph
+    def app() -> TS[int]:
+        return source()
+
+    start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    check(
+        eval_node(
+            app,
+            __run_mode__=hg.EvaluationMode.REAL_TIME,
+            __start_time__=start,
+            __end_time__=start + datetime.timedelta(milliseconds=100),
+            __elide__=True,
+        ) == [11],
+        "real-time push queue typed state",
+    )
+
+
 def test_tss_and_filtering():
     @graph
     def evens(a: TS[int]) -> TS[int]:

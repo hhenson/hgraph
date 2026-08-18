@@ -1276,8 +1276,36 @@ class _PushQueue:
             raise TypeError(f"@push_queue '{self.__name__}' requires a sender parameter")
         self._signature = signature.replace(
             parameters=parameters[1:], return_annotation=tp)
+        user_parameters = []
+        layout = []
+        scalar_specs = []
+        keyword_names = []
+        for parameter in parameters[1:]:
+            if isinstance(parameter.annotation, _StateExpr):
+                layout.append("Q")
+                scalar_specs.append((None, parameter.annotation.factory))
+            elif (marker := _INJECTABLE_MARKERS.get(parameter.annotation)) is not None:
+                layout.append(marker)
+            else:
+                layout.append("s")
+                scalar_specs.append((parameter.name, None))
+                user_parameters.append(parameter)
+            if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+                keyword_names.append(parameter.name)
+        self._user_signature = self._signature.replace(parameters=user_parameters)
+        self._config = "".join(layout)
+        if keyword_names:
+            self._config += "|" + ",".join(keyword_names)
+        self._scalar_specs = tuple(scalar_specs)
         self._wiring_signature = self._signature
         self.__signature__ = self._signature
+        for parameter in parameters[1:]:
+            if (parameter.annotation in _INJECTABLE_MARKERS
+                    or isinstance(parameter.annotation, _StateExpr)):
+                if parameter.default is not None:
+                    raise TypeError(
+                        f"injectable parameter '{parameter.name}' of "
+                        f"'{self.__name__}' must default to None")
         self._resolvers = dict(resolvers) if resolvers else None
         self._requires = requires
         self._label = label
@@ -1291,7 +1319,7 @@ class _PushQueue:
 
     def __call__(self, *args, **kwargs):
         _warn_deprecated(self.__name__, self._deprecated)
-        bound_call = self._signature.bind(*args, **kwargs)
+        bound_call = self._user_signature.bind(*args, **kwargs)
         bound_call.apply_defaults()
         scalar_values = dict(bound_call.arguments)
         scope = _hgraph.ResolutionScope()
@@ -1311,13 +1339,14 @@ class _PushQueue:
         if not isinstance(out_tp, _TsExpr):
             raise TypeError(f"@push_queue '{self.__name__}' needs a resolved TS[...] output type")
         w = _current_wiring()
-        fn = self.fn
-
-        def on_start(sender):
-            fn(sender.send, *bound_call.args, **bound_call.kwargs)
+        scalars = [
+            factory if name is None else bound_call.arguments[name]
+            for name, factory in self._scalar_specs
+        ]
 
         port, _sender = w.push_source(
-            _unwrap(out_tp), self.conflate, on_start,
+            _unwrap(out_tp), self.conflate, _hgraph.node_ref(self.fn),
+            self._config, _hgraph.any_list(scalars),
             self._label or self.__name__)
         return WiringPort(port)
 

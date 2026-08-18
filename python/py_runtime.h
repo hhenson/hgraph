@@ -27,6 +27,14 @@ namespace hgraph::python_bridge
         py_nodes.cpp. */
     void apply_py_result(nb::handle result, Out<TsVar<"O">> &out);
 
+    void py_call_push_queue_start(nb::handle fn, std::string_view config,
+                                  const ValueView &scalars,
+                                  const PySender &sender,
+                                  const NodeView &node,
+                                  DateTime evaluation_time);
+
+    void py_release_push_queue_state(const NodeView &node);
+
     /** Copy a window's evaluation timestamps into the value layer's standard
         NumPy-compatible one-dimensional buffer.  The scalar binding owns the
         dtype conversion (DateTime -> datetime64[us]); the window remains the

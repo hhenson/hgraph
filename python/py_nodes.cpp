@@ -1565,6 +1565,52 @@ struct op_recover_pt
 
 } // namespace
 
+namespace hgraph::python_bridge {
+void py_call_push_queue_start(nb::handle fn, std::string_view config,
+                              const ValueView &scalars,
+                              const PySender &sender,
+                              const NodeView &node,
+                              DateTime evaluation_time) {
+  const auto shape = parse_py_call_shape(config);
+  State<PyStateRef> state{node.state()};
+  NodeScheduler scheduler;
+  if (node.has_scheduler()) {
+    auto executor = node.graph().executor();
+    const bool supports_wall_clock =
+        executor.valid() &&
+        executor.schema()->mode == GraphExecutorMode::RealTime;
+    scheduler = NodeScheduler{
+        node.scheduler_state(), node.graph_value(), node.node_index(),
+        evaluation_time, node.started(), node.evaluation_clock(),
+        supports_wall_clock};
+  }
+  const auto engine = node.graph().executor().engine_control();
+
+  translate_python_error([&] {
+    nb::list call_args;
+    call_args.append(nb::cast(sender).attr("send"));
+    auto lease = py_ts_lease_for_node(state);
+    auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
+    nb::object runtime_state = py_runtime_global_state_for_call(
+        shape.layout, node.global_state(), lease, state.get().call_lease);
+    py_assemble_lifecycle_args(
+        shape.layout, scalars, &state, nullptr, evaluation_time, scheduler,
+        runtime_state, engine, lease, node, call_args);
+    auto call_kwargs = py_peel_kwargs(call_args, shape.kw_names);
+    nb::object callable = nb::borrow(fn);
+    (void)py_call_with_contexts(callable, call_args, std::nullopt,
+                                std::move(call_kwargs));
+    invalid.release();
+    lease.invalidate();
+  });
+}
+
+void py_release_push_queue_state(const NodeView &node) {
+  State<PyStateRef> state{node.state()};
+  py_release_state(state);
+}
+} // namespace hgraph::python_bridge
+
 template <> struct std::hash<PyGenStateRef> {
   [[nodiscard]] std::size_t
   operator()(const PyGenStateRef &ref) const noexcept {

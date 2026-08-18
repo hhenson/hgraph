@@ -1320,7 +1320,8 @@ namespace hgraph::python_bridge
              nb::arg("snapshot") = false,
              nb::arg("_on_prepared") = nb::none())
         .def("push_source", &PyWiring::push_source, nb::arg("ts_type"), nb::arg("conflate") = false,
-             nb::arg("on_start") = nb::none(), nb::arg("node_label") = nb::none());
+             nb::arg("fn"), nb::arg("config"), nb::arg("scalars"),
+             nb::arg("node_label") = nb::none());
 
     m.def(
         "component",

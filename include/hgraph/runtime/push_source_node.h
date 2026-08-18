@@ -114,6 +114,20 @@ namespace hgraph
     };
 
     using PushSourceStartCallback = std::function<void(PushSourceSender)>;
+    using PushSourceStartViewCallback =
+        std::function<void(PushSourceSender, const NodeView &, DateTime)>;
+
+    struct PushSourceNodeExtension
+    {
+        PushSourceStartViewCallback          on_start{};
+        std::function<void(const NodeView &)> on_stop{};
+        const ValueTypeMetaData              *state_schema{nullptr};
+        const ValueTypeMetaData              *scalar_schema{nullptr};
+        bool                                  uses_scheduler{false};
+        bool                                  uses_global_state{false};
+        bool                                  uses_evaluation_clock{false};
+        bool                                  uses_python_values{false};
+    };
 
     [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_policy(
         PushSourcePolicyKind kind,
@@ -155,6 +169,14 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_push_source_node(
         const TSValueTypeMetaData &output_schema,
         PushSourceStartCallback on_start = {});
+
+    /** Python and other dynamic runtimes use this form to project graph-scoped
+     * injectables into the start callback. */
+    [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_push_source_node_with_view(
+        const TSValueTypeMetaData &output_schema,
+        PushSourcePolicy policy,
+        PushSourceNodeExtension extension,
+        bool requires_phase_runner = false);
 
     /**
      * Build a root push source which may also run under a simulation executor.
