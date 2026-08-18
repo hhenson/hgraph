@@ -388,7 +388,7 @@ class _OperatorFunction:
         self._resolutions = resolutions
 
     def __call__(self, *args, **kwargs):
-        if self.__name__ in ("record", "replay", "compare") and kwargs.get("model"):
+        if self.__name__ in _DURABLE_OPERATORS and kwargs.get("model"):
             # A per-call ``model=`` selects the backend for this node alone,
             # so it is an extension load point exactly like the graph-level
             # configuration setter (RFC 0025) — without the import, the
