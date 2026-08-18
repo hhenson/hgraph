@@ -53,6 +53,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/time_series/endpoint_owner.cpp
     hgraph/types/time_series/endpoint_schema.cpp
     hgraph/types/time_series/ts_data/base_view.cpp
+    hgraph/types/time_series/ts_data/checkpoint.cpp
     hgraph/types/time_series/ts_data/dict_view.cpp
     hgraph/types/time_series/ts_data/indexed_view.cpp
     hgraph/types/time_series/ts_data/ops.cpp
