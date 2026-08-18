@@ -92,5 +92,10 @@ namespace hgraph
     {
         const auto &ops = checkpoint_ops_for(data);
         ops.import_impl(data.ops().context, data.storage_ref().data(), image, guard);
+        // Children materialised by the import (dynamic TSL elements, keyed
+        // slots) need their parent links attached exactly as fresh
+        // construction attaches them; the walk is idempotent for children
+        // that already existed.
+        detail::attach_owned_ts_data_parents(TSDataView{data.storage_ref()});
     }
 }  // namespace hgraph

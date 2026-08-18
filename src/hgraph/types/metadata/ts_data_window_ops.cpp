@@ -157,6 +157,26 @@ namespace hgraph::ts_data_plan_factory_detail
                 evicted_time_ = modified_time;
             }
 
+            /**
+             * Checkpoint rebuild (RFC 0023): append one restored entry with
+             * its ORIGINAL evaluation time. Unlike ``push``, this never
+             * prunes, evicts, or re-stamps — entries arrive oldest→newest
+             * from an exact image and lazy expiry resumes on the first live
+             * push after restore.
+             */
+            void checkpoint_append(const ValueView &source, DateTime original_time)
+            {
+                ensure_capacity(size_ + 1);
+                append(source, original_time);
+            }
+
+            /** Checkpoint rebuild: restore the evicted/cleared plane verbatim. */
+            void checkpoint_set_evicted(Value evicted, DateTime time) noexcept
+            {
+                evicted_ = std::move(evicted);
+                evicted_time_ = time;
+            }
+
             [[nodiscard]] const void *element_at(std::size_t index) const
             {
                 if (index >= size_) { throw std::out_of_range("TSW window storage index out of range"); }
@@ -847,6 +867,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .allows_mutation           = true,
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSW),
+                    .checkpoint_ops            = &window_checkpoint_ops(),
                     .layout_impl               = &window_layout,
                     .tracking_impl             = &window_tracking,
                     .mutable_tracking_impl     = &window_mutable_tracking,
@@ -880,6 +901,102 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.cleared_time_impl = &window_cleared_time;
                 ops.evicted_time_impl    = &window_evicted_time;
                 ops.evicted_element_impl = &window_evicted_element;
+            }
+
+            // --- checkpoint ops (RFC 0023): exact capture / quiet import ---
+
+            static void window_checkpoint_capture(const void *context, const void *memory,
+                                                  TSCheckpointImage &out)
+            {
+                const auto *common = static_cast<const TSWContextCommon *>(context);
+                const auto &window = storage<Storage>(window_value_memory(context, memory));
+                out.kind = TSTypeKind::TSW;
+                out.modified_time = window_tracking(context, memory)->last_modified_time;
+                out.window.reserve(window.size());
+                for (std::size_t index = 0; index < window.size(); ++index)
+                {
+                    out.window.push_back(TSCheckpointWindowEntry{
+                        .value = Value{ValueView{common->layout->element_binding,
+                                                 window.element_at(index)}},
+                        .time = window.time_at(index),
+                    });
+                }
+                if (window.evicted_element().has_value())
+                {
+                    out.evicted = window.evicted_element().clone();
+                }
+                out.evicted_time = window.evicted_time();
+            }
+
+            static bool window_checkpoint_validate(const void *context,
+                                                   const TSCheckpointImage &image,
+                                                   TSCheckpointDiagnostics &why)
+            {
+                const auto *common = static_cast<const TSWContextCommon *>(context);
+                if (image.kind != TSTypeKind::TSW)
+                {
+                    why.reason = "checkpoint image kind does not match this endpoint";
+                    return false;
+                }
+                const auto bound = common->layout->element_binding;
+                for (std::size_t index = 0; index < image.window.size(); ++index)
+                {
+                    const auto &entry = image.window[index];
+                    if (!entry.value.has_value())
+                    {
+                        why.path = "[" + std::to_string(index) + "]";
+                        why.reason = "window entry carries no value";
+                        return false;
+                    }
+                    const auto source = entry.value.binding();
+                    if (source != bound && (source == nullptr || bound == nullptr ||
+                                            source.plan() != bound.plan()))
+                    {
+                        why.path = "[" + std::to_string(index) + "]";
+                        why.reason = "window entry schema does not match the bound element schema";
+                        return false;
+                    }
+                    if (index > 0 && entry.time < image.window[index - 1].time)
+                    {
+                        why.path = "[" + std::to_string(index) + "]";
+                        why.reason = "window entry times are not non-decreasing";
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            static void window_checkpoint_import(const void *context, void *memory,
+                                                 const TSCheckpointImage &image,
+                                                 const TSCheckpointRestoreGuard &)
+            {
+                TSCheckpointDiagnostics why;
+                if (!window_checkpoint_validate(context, image, why))
+                {
+                    throw std::invalid_argument("TSW checkpoint import: " + why.path +
+                                                (why.path.empty() ? "" : ": ") + why.reason);
+                }
+                auto &window = storage<Storage>(window_mutable_value_memory(context, memory));
+                for (const auto &entry : image.window)
+                {
+                    window.checkpoint_append(entry.value.view(), entry.time);
+                }
+                window.checkpoint_set_evicted(
+                    image.evicted.has_value() ? image.evicted.clone() : Value{},
+                    image.evicted_time);
+                window_mutable_tracking(context, memory)->last_modified_time =
+                    image.modified_time;
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &window_checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps table{
+                    .supported = true,
+                    .capture_impl = &window_checkpoint_capture,
+                    .validate_impl = &window_checkpoint_validate,
+                    .import_impl = &window_checkpoint_import,
+                };
+                return table;
             }
 
             [[nodiscard]] static DateTime window_evicted_time(const void *context, const void *memory) noexcept

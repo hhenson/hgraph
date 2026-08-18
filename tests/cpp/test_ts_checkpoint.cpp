@@ -201,6 +201,123 @@ TEST_CASE("checkpoint: fixed TSL round-trips per-index state", "[ts_checkpoint]"
     CHECK(restored.view(t2 + TimeDelta{1}).all_valid());
 }
 
+TEST_CASE("checkpoint: dynamic TSL round-trips shape and children", "[ts_checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int32_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsl = registry.tsl(registry.ts(int32_meta), 0);
+
+    const auto t1 = MIN_ST + TimeDelta{1};
+    const auto t2 = t1 + TimeDelta{1};
+
+    TSOutput original{*tsl};
+    {
+        auto element_0 = original.data_view().ensure_indexed_child_at(0);
+        auto element_1 = original.data_view().ensure_indexed_child_at(1);
+        { auto m = element_0.begin_mutation(t1); REQUIRE(m.copy_value_from(Value{10}.view())); }
+        { auto m = element_1.begin_mutation(t2); REQUIRE(m.copy_value_from(Value{20}.view())); }
+    }
+
+    const auto image = capture_checkpoint(original.data_view());
+    CHECK(image.kind == TSTypeKind::TSL);
+    REQUIRE(image.children.size() == 2);  // the durable shape
+
+    TSOutput restored{*tsl};
+    CHECK(restored.data_view().indexed_child_count() == 0);
+    import_checkpoint(restored.data_view(), image, TSCheckpointRestoreGuard::begin());
+
+    REQUIRE(restored.data_view().indexed_child_count() == 2);
+    auto restored_0 = restored.data_view().indexed_child_at(0);
+    auto restored_1 = restored.data_view().indexed_child_at(1);
+    CHECK(restored_0.last_modified_time() == t1);
+    CHECK(restored_1.last_modified_time() == t2);
+    // Imported children carry parent links exactly as grown children do.
+    CHECK(restored_0.has_parent());
+    CHECK(restored_1.has_parent());
+    CHECK(restored.data_view().last_modified_time() == t2);
+}
+
+TEST_CASE("checkpoint: TSW round-trips entries with ORIGINAL timestamps", "[ts_checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int32_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsw = registry.tsw(int32_meta, 3, 1);
+
+    const auto t1 = MIN_ST + TimeDelta{1};
+    const auto t2 = t1 + TimeDelta{7};
+    const auto t3 = t2 + TimeDelta{7};
+    const auto t4 = t3 + TimeDelta{7};
+
+    TSOutput original{*tsw};
+    {
+        auto root = original.data_view();
+        auto window = root.as_window();
+        { auto m = window.begin_mutation(t1); m.push(Value{1}.view()); }
+        { auto m = window.begin_mutation(t2); m.push(Value{2}.view()); }
+        { auto m = window.begin_mutation(t3); m.push(Value{3}.view()); }
+        { auto m = window.begin_mutation(t4); m.push(Value{4}.view()); }  // evicts 1
+    }
+
+    const auto image = capture_checkpoint(original.data_view());
+    CHECK(image.kind == TSTypeKind::TSW);
+    CHECK(image.modified_time == t4);
+    REQUIRE(image.window.size() == 3);
+    CHECK(image.window[0].time == t2);
+    CHECK(image.window[2].time == t4);
+    CHECK(image.window[0].value.view().checked_as<std::int32_t>() == 2);
+    REQUIRE(image.evicted.has_value());  // the pushed-out element survives
+    CHECK(image.evicted.view().checked_as<std::int32_t>() == 1);
+    CHECK(image.evicted_time == t4);
+
+    TSOutput restored{*tsw};
+    TSCheckpointDiagnostics why;
+    REQUIRE(validate_checkpoint(restored.data_view(), image, why));
+    import_checkpoint(restored.data_view(), image, TSCheckpointRestoreGuard::begin());
+
+    CHECK(restored.data_view().last_modified_time() == t4);
+    auto restored_root = restored.data_view();
+    auto window = restored_root.as_window();
+    REQUIRE(window.size() == 3);
+    CHECK(window.time_at(0) == t2);  // ORIGINAL per-entry times
+    CHECK(window.time_at(1) == t3);
+    CHECK(window.time_at(2) == t4);
+    CHECK(window.at(0).checked_as<std::int32_t>() == 2);
+    CHECK(window.at(2).checked_as<std::int32_t>() == 4);
+    CHECK(restored.view(t4 + TimeDelta{1}).all_valid());
+}
+
+TEST_CASE("checkpoint: duration TSW restores without pruning historical entries",
+          "[ts_checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int32_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsw = registry.tsw_duration(int32_meta, TimeDelta{20}, TimeDelta{0});
+
+    const auto t1 = MIN_ST + TimeDelta{1};
+    const auto t2 = t1 + TimeDelta{15};
+
+    TSOutput original{*tsw};
+    {
+        auto root = original.data_view();
+        auto window = root.as_window();
+        { auto m = window.begin_mutation(t1); m.push(Value{1}.view()); }
+        { auto m = window.begin_mutation(t2); m.push(Value{2}.view()); }
+    }
+
+    const auto image = capture_checkpoint(original.data_view());
+    REQUIRE(image.window.size() == 2);
+
+    // A naive replay through push would prune t1 against t2 - 20; the quiet
+    // import must retain both entries exactly.
+    TSOutput restored{*tsw};
+    import_checkpoint(restored.data_view(), image, TSCheckpointRestoreGuard::begin());
+    auto restored_root = restored.data_view();
+    auto window = restored_root.as_window();
+    REQUIRE(window.size() == 2);
+    CHECK(window.time_at(0) == t1);
+    CHECK(window.time_at(1) == t2);
+}
+
 TEST_CASE("checkpoint: REF representations refuse conservatively", "[ts_checkpoint]")
 {
     auto &registry = TypeRegistry::instance();
