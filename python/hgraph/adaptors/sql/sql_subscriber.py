@@ -1,4 +1,5 @@
 import logging
+import re
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -14,6 +15,7 @@ from hgraph.adaptors.data_catalogue.subscribe import (
 from hgraph.stream import Data, Stream, StreamStatus
 
 from .sql_adaptor import sql_read_adaptor
+from .sql_connection import process_substitution
 
 __all__ = ("SqlDataSource",)
 
@@ -25,7 +27,12 @@ class SqlDataSource(DataSource):
     query: str
 
     def render(self, **options):
-        return self.query.format(**options)
+        query = re.sub(
+            r"(?<!\{)\{([^{}]*)\}(?!\})",
+            lambda match: process_substitution(match.group(1), scope="query"),
+            self.query,
+        )
+        return query.format(**options)
 
 
 @compute_node(

@@ -6,10 +6,16 @@ import pyarrow as pa
 from frozendict import frozendict
 
 import hgraph as hg
-from hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataEnvironment, DataEnvironmentEntry
+from hgraph.adaptors.data_catalogue import (
+    DataCatalogue, DataCatalogueEntry, DataEnvironment, DataEnvironmentEntry,
+    Scope,
+)
 from hgraph.adaptors.data_catalogue.publish import publish, publish_adaptor_impl
 from hgraph.adaptors.sql import (
+    BatchSqlDataSource,
     SQLWriteMode,
+    sql_adaptor_batch,
+    sql_adaptor_batch_impl,
     sql_execute_adaptor,
     sql_execute_adaptor_impl,
     sql_read_adaptor,
@@ -17,7 +23,9 @@ from hgraph.adaptors.sql import (
     sql_write_adaptor,
     sql_write_adaptor_impl,
 )
+from hgraph.adaptors.sql.sql_connection import parse_connection_params
 from hgraph.adaptors.sql.sql_publisher import SqlDataSink
+from hgraph.adaptors.sql.sql_subscriber import SqlDataSource
 from hgraph.adaptors.sql.sql_adaptor_raw import (
     sql_read_adaptor_raw,
     sql_execute_adaptor_raw_impl,
@@ -30,6 +38,12 @@ from hgraph.stream import StreamStatus
 @dataclass(frozen=True)
 class _Row(hg.CompoundScalar):
     name: str
+    value: int
+
+
+@dataclass(frozen=True)
+class _BatchRow(hg.CompoundScalar):
+    symbol: str
     value: int
 
 
@@ -268,3 +282,96 @@ def test_catalogue_publish_routes_to_sql_write_adaptor(tmp_path):
 
     with sqlite3.connect(database) as connection:
         assert connection.execute("select name, value from rows").fetchall() == [("a", 1)]
+
+
+def test_sql_batch_adaptor_coalesces_and_filters_requests(tmp_path):
+    database = tmp_path / "batch.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("create table rows (symbol text, value integer)")
+        connection.executemany(
+            "insert into rows values (?, ?)", [("A", 1), ("B", 2)])
+
+    class _SymbolSequenceScope(Scope):
+        def in_scope(self, value):
+            return isinstance(value, str)
+
+        def adjust(self, value):
+            if isinstance(value, str):
+                return value
+            return ", ".join(f"'{item}'" for item in value)
+
+    source = BatchSqlDataSource(
+        source_path="database",
+        name="rows",
+        query="select symbol, value from rows where symbol in ({symbol})",
+        filters={"symbol": "symbol = '{0}'"},
+    )
+    scope = frozendict({"symbol": _SymbolSequenceScope()})
+    captured = {}
+
+    @hg.sink_node
+    def capture(
+        name: str,
+        response: hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame[_BatchRow]]]],
+        engine: hg.EvaluationEngineApi = None,
+    ):
+        if response.status.value is StreamStatus.OK:
+            captured[name] = response["values"].value.to_pylist()
+            if len(captured) == 2:
+                engine.request_engine_stop()
+
+    @hg.graph
+    def app():
+        hg.register_adaptor(
+            "database", sql_adaptor_batch_impl,
+            batch_period=timedelta(milliseconds=10))
+        hg.register_adaptor(
+            f"sqlite:///{database}", sql_read_adaptor_raw_impl)
+        capture("A", sql_adaptor_batch[_BatchRow](
+            source, scope, {"symbol": "A"}, path="database"))
+        capture("B", sql_adaptor_batch[_BatchRow](
+            source, scope, {"symbol": "B"}, path="database"))
+
+    with hg.GlobalContext(hg.GlobalState()):
+        with _environment(database):
+            hg.run_graph(
+                app, run_mode=hg.EvaluationMode.REAL_TIME,
+                end_time=_end_time())
+
+    assert captured == {
+        "A": [{"symbol": "A", "value": 1}],
+        "B": [{"symbol": "B", "value": 2}],
+    }
+
+
+def test_sql_query_substitutions(monkeypatch):
+    import hgraph.adaptors.sql.sql_connection as connection_module
+
+    monkeypatch.setattr(
+        connection_module, "get_secret",
+        lambda name: {"password": "secret-value"})
+    monkeypatch.setenv("SQL_TEST_VALUE", "environment-value")
+    environment = DataEnvironment()
+    environment.add_entry(DataEnvironmentEntry("other", "catalogue-value"))
+    source = SqlDataSource(
+        source_path="database",
+        query=(
+            "select '{secret:database/password}', '{$SQL_TEST_VALUE}', "
+            "'{dataenv:other}', '{symbol}'"
+        ),
+    )
+
+    with environment:
+        assert source.render(symbol="ABC") == (
+            "select 'secret-value', 'environment-value', "
+            "'catalogue-value', 'ABC'"
+        )
+
+
+def test_connection_substitution_preserves_literal_braces():
+    scheme, path, options = parse_connection_params(
+        "mssql+pyodbc://server/database?driver={ODBC Driver 18 for SQL Server}")
+
+    assert scheme == "mssql+pyodbc"
+    assert path == "mssql+pyodbc://server/database"
+    assert options == {"driver": "{ODBC Driver 18 for SQL Server}"}
