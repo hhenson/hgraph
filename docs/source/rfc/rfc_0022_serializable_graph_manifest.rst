@@ -482,8 +482,66 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-Not started.  This RFC defines the identity prerequisite before graph
-checkpoint implementation begins.
+Stage 1 is implemented (public headers ``hgraph/manifest/canonical.h``,
+``hgraph/manifest/schema_descriptor.h``, ``hgraph/manifest/graph_manifest.h``;
+tests ``tests/cpp/test_graph_manifest.cpp``).  Decisions recorded during
+implementation:
+
+* **Canonical grammar.**  LEB128 varints, zigzag signed varints, IEEE-754
+  little-endian fixed64 floats, varint-length-delimited byte strings and
+  nested scopes, ascending fixed field tags.  The writer/reader live in
+  ``hgraph::manifest`` free of manifest semantics, answering the open
+  question about sharing with RFC 0017: this layer IS the shared
+  substrate, defined here first because RFC 0017 is unimplemented.
+* **Schema descriptors.**  Recursive structural encoding of
+  ``ValueTypeMetaData``/``TSValueTypeMetaData`` — kind, the full flags
+  word, atomic identity through a stable wire-atomic enumeration (core
+  scalars) or the registered name (extension/python scalars, following
+  the named-bundle nominal rule), children, fixed sizes, TSW window
+  parameters, named-bundle nominal identity (namespace, local name,
+  generic arguments, discriminator).  Synthesis is cold-path and
+  computed on demand — no cache, no lock, no registry-reset coupling.
+  The conformance reference is ``time_series_schema_equivalent``.
+* **Identity id.**  ``ManifestId`` is SHA-256 (self-contained
+  ``hgraph/util/sha256.h``; the digest is a lookup/integrity device, not
+  a security boundary) over the canonical descriptor with the format
+  version as domain-separation prefix; the descriptor bytes remain the
+  compared identity.
+* **Node identity (stage 1).**  Semantic name (``NodeTypeMetaData``
+  display name) plus ``TypeRecord::implementation_label``; the full
+  ``package/facility/implementation/semver`` identity and overload
+  provenance land with stage 2's registration work.
+* **Node labels are NOT in the canonical descriptor.**  A label edit
+  must not change the manifest id; labels travel in the diagnostic
+  rendering, not the identity.
+* **Scalar values.**  Canonical schema-directed encoding covers the
+  core atomics including the full engine date/time family (temporal
+  RFC 0002 types encode by semantic content — ``ZoneId`` by IANA name,
+  never its process-local slot), enums, and tuple/bundle/list
+  composites, with set and map content emitted in canonical
+  encoded-key order.  A ``WiredFn``
+  scalar encodes as its REGISTERED identity — the lifted kernel's
+  authored name or the operator marker's name — never a function
+  address or RTTI name; an anonymous callable, and any value without a
+  canonical encoding (``Any``, queues/cyclic buffers, live handles,
+  ``PyNodeRef``), makes the graph non-manifestable with a
+  path-addressed ``ManifestCaptureError``.  ``NodeManifestOps``
+  (stage 2) supersedes the ``WiredFn`` rule with authored descriptors
+  and gives nested-graph owners their child-template encoding.
+* **Capture point.**  The finished ``GraphBuilder`` (after
+  ``Wiring::finish``/``snapshot``, before ``make_executor``); node and
+  edge order is the builder's canonical ranked order.  Node identity
+  includes the EFFECTIVE output endpoint annotation (the per-instance
+  override, falling back to the node type's schema annotation exactly
+  as runtime construction does) and the error-capture options
+  (traceback depth, value capture) alongside the capture flag.
+* **Strict decoding.**  Every scope field appears exactly once; a
+  missing or duplicated required field rejects the descriptor — a
+  well-formed frame around an empty or torn descriptor never decodes
+  into a valid manifest.
+
+Stages 2–4 (nested templates and implementation registration, binding
+and run manifests, checkpoint integration) are not started.
 
 References
 ----------
