@@ -1154,11 +1154,29 @@ namespace hgraph
                 const auto child_field = std::ranges::find_if(fields, [&](const auto &field) {
                     return parent_field.name != nullptr && field.first == parent_field.name;
                 });
-                if (child_field == fields.end() || child_field->second != parent_field.type)
+                if (child_field == fields.end())
                 {
                     throw std::invalid_argument(
                         "bundle '" + qualified_name + "' must preserve inherited field '" +
                         std::string{parent_field.name != nullptr ? parent_field.name : ""} + "'");
+                }
+                if (parent_field.type->is_named_bundle()){
+                    if (!bundle_is_a(child_field->second, parent_field.type))
+                    {
+                        throw std::invalid_argument(
+                            "bundle '" + qualified_name + "' field '" +
+                            std::string{parent_field.name != nullptr ? parent_field.name : ""} + "' "
+                            " of type '" + std::string{child_field->second->name()} + "' " +
+                            "must be covariant with parent type '" +
+                            std::string{parent_field.type->name()} + "'");
+                    }
+                } 
+                else if (child_field->second != parent_field.type)
+                {
+                    throw std::invalid_argument(
+                        "bundle '" + qualified_name + "' field '" +
+                        std::string{parent_field.name != nullptr ? parent_field.name : ""} + "' must match parent type '" +
+                        std::string{parent_field.type->name()} + "'");
                 }
             }
         }

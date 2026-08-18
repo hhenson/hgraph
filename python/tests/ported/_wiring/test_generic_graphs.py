@@ -164,3 +164,20 @@ def test_union_wiring():
 
     assert eval_node(g, [None, 1, 2, 3]) == [None, "1", "2", "3"]
     assert eval_node(h, [None, "a", "b", "c"]) == [None, "a", "b", "c"]
+
+
+def test_union_wiring_with_pep_604_syntax():
+    @compute_node
+    def union_fn(x: TS[int] | TS[str]) -> TS[str]:
+        return str(x.value)
+
+    @graph
+    def g(i: TS[int]) -> TS[str]:
+        return union_fn(i)
+
+    @graph
+    def h(s: TS[str]) -> TS[str]:
+        return union_fn(s)
+
+    assert eval_node(g, [None, 1, 2, 3]) == [None, "1", "2", "3"]
+    assert eval_node(h, [None, "a", "b", "c"]) == [None, "a", "b", "c"]
