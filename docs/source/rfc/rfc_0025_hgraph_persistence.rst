@@ -270,6 +270,15 @@ lineage-based recovery selection, incremental images, compaction,
 retention, GC).  The detailed mechanics remain specified by RFC 0023,
 re-read under this RFC's ownership boundary.
 
+The persistence LIFECYCLE recorded in RFC 0023 (2026-08-18) follows the
+same split: core owns the ``snapshot``/``suspend``/``restore`` verbs, the
+node-level ``snapshot``/``restore`` hook pair beside start/stop, the
+generic default capture (declared state needs no user code), and the
+serialisation-strategy REGISTRY with its in-memory default;
+``hgraph-persistence`` registers durable strategies from its keyed
+installer, exactly as it registers its record/replay backend and seed
+resolver today.
+
 Packaging, namespaces, and identifiers
 --------------------------------------
 
