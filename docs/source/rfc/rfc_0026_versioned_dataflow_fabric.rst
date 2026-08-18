@@ -414,7 +414,6 @@ the same registered scalar types rather than independent structures.
            Int                               format_version;
            Str                               data_id;
            RevisionId                        revision;
-           std::optional<RevisionId>          previous_revision;
            DataVersion                       output_version;
            Str                               schema_fingerprint;
            Str                               payload_checksum;
@@ -606,6 +605,11 @@ its predecessor.  A new revision is required when either:
 
 * one or more immediate input versions changed; or
 * the output version changed because the publisher received an output tick.
+
+The predecessor is always ``revision - 1`` and is not stored in the revision
+record.  Unlike data versions, revision ids have no gaps.  A missing preceding
+slot is therefore a malformed history rather than an alternate lineage which
+needs an explicit parent reference.
 
 No revision is written for an identical tuple.  The full immutable revision is
 stored at:
