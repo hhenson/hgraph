@@ -472,10 +472,19 @@ intended shape is:
    }
 
 ``data_id``, ``mode``, ``as_of`` and an explicit dependency selection are
-wiring-time scalars.  A time-varying data id would change the durable identity
-and is therefore not accepted by this operator.  Applications requiring a
-dynamic family wire keyed component graphs explicitly rather than branch on a
-string in the publisher's evaluation path.
+wiring-time scalars.  An explicit ``Live``, ``Replay`` or ``Snapshot`` mode
+selects its concrete source overload during wiring.  ``Auto`` selects a
+dedicated auto source whose ``start`` lifecycle resolves the final
+``EngineControlView::mode()`` through ``FabricConfig`` and binds the chosen
+ingress strategy once for that run.  This is the native propagation contract:
+``GraphExecutorBuilder::mode()`` remains authoritative even though it is set
+after the ``GraphBuilder`` has been wired.  Neither the auto source nor the
+selected source branches on executor mode in ``eval``.
+
+A time-varying data id would change the durable identity and is therefore not
+accepted by this operator.  Applications requiring a dynamic family wire keyed
+component graphs explicitly rather than branch on a string in the publisher's
+evaluation path.
 
 Python authoring
 ~~~~~~~~~~~~~~~~
@@ -726,8 +735,14 @@ The publication sequence for a candidate revision ``R`` is:
 Kafka acknowledgement precedes the revision-slot race so an accepted revision
 never lacks a previously acknowledged notification.  It does mean Kafka can
 contain proposals which did not win.  A subscriber treats every message as a
-wake-up, reads or validates the corresponding durable revision slot, and
-ignores a payload which differs from the accepted slot.
+wake-up and reads or validates the corresponding durable revision slot.  If
+the slot exists, the accepted slot is processed even when its payload differs
+from the notice.  If the slot does not yet exist and the accepted head is still
+below ``R``, the subscriber retains one ahead-of-storage proposal for that data
+id and retries durable validation with bounded backoff.  It discards the
+proposal only when the slot proves a different winner or accepted history has
+advanced past it.  This closes the race in which Kafka delivery precedes the
+revision commit without requiring periodic polling of every ``latest`` key.
 
 The immutable revision slot is the publication commit point.  ``latest`` and
 the as-of index make discovery efficient but can be repaired from a completed
@@ -792,8 +807,9 @@ Crash boundaries
      - It is ignored because no revision names it.
    * - After Kafka acknowledgement, before revision creation
      - A harmless proposal exists on Kafka
-     - Subscribers validate the absent/different slot and load the accepted
-       head.
+     - Subscribers retain and retry an ahead-of-storage proposal while the
+       accepted head remains below it.  A later slot is processed; a different
+       winner or later accepted head causes the proposal to be discarded.
    * - After revision creation, before as-of/latest
      - The accepted immutable revision is ahead of its indexes
      - The live notice can be consumed; publisher or subscriber startup repairs
@@ -834,6 +850,13 @@ with that contract.  The topic consumer observes all partitions required by
 the fabric binding.  The coordinator discards unrelated ids after key parsing
 and retains notices for root ids and the dynamically discovered transitive
 closure of their forests.
+
+An acknowledged proposal whose revision slot is not yet visible is retained
+separately from the accepted head and retried with bounded backoff.  This is a
+targeted continuation of a Kafka wake-up, not a store-wide polling loop.  The
+queue remains conflated and bounded to one newest proposal per data id.  A
+proposal does not participate in cut resolution until its immutable slot has
+been created and validated.
 
 Subscription and consistency
 ----------------------------
@@ -938,8 +961,11 @@ One forest resolver returns:
    revisions and hidden lineage metadata may still advance.
 
 ``Pending``
-   Required data, revisions or a compatible acknowledgement have not arrived.
-   The previous exposed cut remains active.
+   Accepted state is valid, but a compatible acknowledgement has not arrived,
+   or an ahead-of-storage proposal has not committed yet.  The previous
+   exposed cut remains active.  An accepted revision never becomes
+   ``Pending`` merely because an immutable object which it references is
+   absent.
 
 ``Ambiguous``
    Consistent closures exist but none is a unique greatest closure under the
@@ -951,8 +977,11 @@ One forest resolver returns:
    error; historical self-predecessors are excluded from this check.
 
 ``Corrupt``
-   An object is missing, fails checksum/schema validation, has a malformed
-   path/record, or violates monotonic revision invariants.
+   An immutable object required by an accepted revision is missing, fails
+   checksum/schema validation, has a malformed path/record, or violates
+   monotonic revision invariants.  Missing or stale derived ``latest`` and
+   as-of indexes are repaired from contiguous accepted revision slots where
+   possible rather than reclassifying the accepted history.
 
 ``Pending``, ``Ambiguous``, ``Cyclic`` and ``Corrupt`` affect only publishers
 and root inputs which depend on that forest.  Other forests continue.
@@ -997,7 +1026,8 @@ An implementation may optimise or memoise it only if it returns the same cut:
 
        search({}, root requirements from observed heads)
 
-       if no solution and required objects are absent: return Pending
+       if an accepted revision or immutable object it names is absent:
+           return Corrupt
        if no solution because of validated incompatibility: return Pending
 
        greatest = solution which component-wise dominates every other
@@ -1051,9 +1081,15 @@ Automatic selection
 * a simulation executor selects ``Replay``.
 
 This keeps ordinary production and test/backtest authoring concise while
-allowing an explicit mode when the caller wants different behaviour.  Mode is
-a wiring-time scalar and selects concrete overload/composition behavior; the
-source does not branch on a mode string for every tick.
+allowing an explicit mode when the caller wants different behaviour.  Explicit
+modes select concrete overload/composition behavior at wiring time.  Because
+the native executor is constructed after graph wiring,
+``SubscriptionMode::Auto`` remains a distinct source specialization until its
+``start`` lifecycle.  At that point it reads the immutable executor mode from
+``EngineControlView``, maps it through ``FabricConfig::default_real_time`` or
+``default_simulation``, and binds the concrete ingress strategy once.  The
+mapping is validated before the initial image is loaded and there is no
+per-tick mode branch or duplicate executor-mode setting in ``GlobalState``.
 
 Live mode
 ~~~~~~~~~
@@ -1082,8 +1118,8 @@ updates; durable startup recovery still provides the latest state.
 Replay mode
 ~~~~~~~~~~~
 
-Simulation uses the as-of indexes, not Kafka.  For a graph interval
-``[start_time, end_time]``:
+Simulation uses the as-of indexes, not Kafka.  For the executor's half-open
+graph interval ``[start_time, end_time)``:
 
 1. find the greatest revision at or before ``start_time`` for each root and
    every ancestry record required to resolve it;
@@ -1095,7 +1131,8 @@ Simulation uses the as-of indexes, not Kafka.  For a graph interval
    forests;
 5. emit a newly ready cut at the as-of time of the revision which made it
    ready; and
-6. stop after ``end_time``.
+6. stop before the first entry whose as-of is greater than or equal to
+   ``end_time``.
 
 If ``start_time`` is ``MIN_ST``, there may be no seed and replay begins with
 the first published revisions.  If a revision advances lineage without
@@ -1275,10 +1312,13 @@ distinguish:
 * Kafka subscription/rebalance/disconnect state; and
 * startup handoff failure.
 
-A transient missing dependency produces ``Pending`` and may resolve when its
-publication arrives.  A validated corrupt object produces ``Corrupt`` and is
-not bypassed by falling back silently to an older latest value.  Independent
-forests continue in both cases.
+An uncommitted proposal or a valid cut waiting for a compatible acknowledgement
+produces ``Pending`` and may resolve when publication completes.  Once an
+accepted revision exists, a missing Frame or immutable ancestry record which it
+references produces ``Corrupt``; it is not held indefinitely and is not
+bypassed by falling back silently to an older latest value.  Missing or stale
+derived indexes are repaired when contiguous accepted revision slots prove the
+correct value.  Independent forests continue in all cases.
 
 The extension must expose enough metrics to observe notification lag, durable
 read latency, pending-forest age, resolver backtracking, conflated notices,
@@ -1507,7 +1547,9 @@ Publication
 * same-millisecond version collision with equal and unequal checksums;
 * every crash boundary in the publication table;
 * stale latest/as-of repair; and
-* Kafka proposal validation against the winning revision slot.
+* Kafka proposal validation against the winning revision slot; and
+* ahead-of-storage proposal retention and retry when delivery wins the race
+  with revision-slot creation.
 
 Resolution
 ~~~~~~~~~~
@@ -1519,14 +1561,16 @@ Resolution
 * forest merge and split after dependency-set changes;
 * shared subscriptions driving several publishers;
 * historical self-predecessor without an ordinary cycle;
-* ordinary cycle, missing ancestry, corrupt checksum, schema mismatch and
-  ambiguous maximal cuts; and
+* ordinary cycle, missing immutable accepted ancestry reported as corrupt,
+  corrupt checksum, schema mismatch and ambiguous maximal cuts; and
 * no regression of an already exposed root version.
 
 Modes and lifecycle
 ~~~~~~~~~~~~~~~~~~~
 
 * live initial image and notification handoff with updates at every race point;
+* native ``Auto`` selection from real-time and simulation executor modes after
+  graph wiring and before source startup completes;
 * duplicate, stale, invalid, out-of-order and conflated Kafka messages;
 * slow clients skipping intermediate versions;
 * reconnect reconciliation;
