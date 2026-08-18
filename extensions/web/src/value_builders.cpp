@@ -92,6 +92,33 @@ namespace hgraph::web
                 throw std::invalid_argument(std::string{"Web "} + std::string{what} + " has the wrong schema");
             }
         }
+
+        void require_literal_static_path(std::string_view path, std::string_view what) {
+            if (path.empty() || path.front() != '/') {
+                throw std::invalid_argument("Web " + std::string{what} + " must start with '/'");
+            }
+            std::size_t start = 1;
+            while (true) {
+                const auto slash = path.find('/', start);
+                const auto segment =
+                    path.substr(start, slash == std::string_view::npos ? std::string_view::npos : slash - start);
+                if (!segment.empty() &&
+                    (segment.front() == '*' || segment.find('{') != std::string_view::npos ||
+                     segment.find('}') != std::string_view::npos)) {
+                    throw std::invalid_argument("Web " + std::string{what} + " must be exact literal paths");
+                }
+                if (slash == std::string_view::npos) { return; }
+                start = slash + 1;
+            }
+        }
+
+        [[nodiscard]] Str normalize_static_directory_prefix(Str prefix) {
+            require_literal_static_path(prefix, "static directory URL prefixes");
+            while (prefix.size() > 1 && prefix.back() == '/') {
+                prefix.pop_back();
+            }
+            return prefix;
+        }
     }  // namespace
 
     TlsServerConfigBuilder &TlsServerConfigBuilder::cert_path(Str value) {
@@ -319,6 +346,18 @@ namespace hgraph::web
         return *this;
     }
 
+    ServerConfigBuilder &ServerConfigBuilder::static_file(Str url, Str file, Str content_type, Str cache_control) {
+        static_files_.push_back(make_static_file(std::move(url), std::move(file), std::move(content_type),
+                                                 std::move(cache_control)));
+        return *this;
+    }
+
+    ServerConfigBuilder &ServerConfigBuilder::static_directory(Str url_prefix, Str directory, Str cache_control) {
+        static_directories_.push_back(
+            make_static_directory(std::move(url_prefix), std::move(directory), std::move(cache_control)));
+        return *this;
+    }
+
     ServerConfigBuilder &ServerConfigBuilder::ingress_limits(Int records, Int bytes) {
         ingress_record_limit_ = records;
         ingress_byte_limit_   = bytes;
@@ -456,6 +495,8 @@ namespace hgraph::web
             {"idle_timeout_ms", atomic(idle_timeout_ms_)},
             {"keep_alive_timeout_ms", atomic(keep_alive_timeout_ms_)},
             {"bind_deferred", atomic(Bool{bind_deferred_})},
+            {"static_files", homogeneous_tuple<WebStaticFile>(static_files_)},
+            {"static_directories", homogeneous_tuple<WebStaticDirectory>(static_directories_)},
             {"ingress_record_limit", atomic(ingress_record_limit_)},
             {"ingress_byte_limit", atomic(ingress_byte_limit_)},
             {"ws_ingress_record_limit", atomic(ws_ingress_record_limit_)},
@@ -689,6 +730,8 @@ namespace hgraph::web
         static_cast<void>(scalar_descriptor<WebParam>::value_meta());
         static_cast<void>(scalar_descriptor<WebPeer>::value_meta());
         static_cast<void>(scalar_descriptor<WebRoute>::value_meta());
+        static_cast<void>(scalar_descriptor<WebStaticFile>::value_meta());
+        static_cast<void>(scalar_descriptor<WebStaticDirectory>::value_meta());
         static_cast<void>(scalar_descriptor<HttpRequest>::value_meta());
         static_cast<void>(scalar_descriptor<HttpServerRequest>::value_meta());
         static_cast<void>(scalar_descriptor<HttpResponse>::value_meta());
@@ -727,6 +770,29 @@ namespace hgraph::web
             {"method", atomic(method)},
             {"pattern", atomic(std::move(pattern))},
             {"upgrade", atomic(Bool{upgrade})},
+        });
+    }
+
+    Value make_static_file(Str url, Str file, Str content_type, Str cache_control) {
+        register_web_types();
+        require_literal_static_path(url, "static file URLs");
+        if (file.empty()) { throw std::invalid_argument("Web static files require a filesystem path"); }
+        return bundle<WebStaticFile>({
+            {"url", atomic(std::move(url))},
+            {"file", atomic(std::move(file))},
+            {"content_type", atomic(std::move(content_type))},
+            {"cache_control", atomic(std::move(cache_control))},
+        });
+    }
+
+    Value make_static_directory(Str url_prefix, Str directory, Str cache_control) {
+        register_web_types();
+        url_prefix = normalize_static_directory_prefix(std::move(url_prefix));
+        if (directory.empty()) { throw std::invalid_argument("Web static directories require a filesystem path"); }
+        return bundle<WebStaticDirectory>({
+            {"url_prefix", atomic(std::move(url_prefix))},
+            {"directory", atomic(std::move(directory))},
+            {"cache_control", atomic(std::move(cache_control))},
         });
     }
 

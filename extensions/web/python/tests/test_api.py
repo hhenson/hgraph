@@ -27,6 +27,8 @@ def test_public_values_bind_the_native_web_schemas() -> None:
         "WebParam",
         "WebPeer",
         "WebRoute",
+        "WebStaticFile",
+        "WebStaticDirectory",
         "HttpRequest",
         "HttpServerRequest",
         "HttpResponse",
@@ -150,6 +152,8 @@ def test_config_defaults_match_the_native_builders() -> None:
         server.keep_alive_timeout_ms,
     ) == (30_000, 60_000, 15_000)
     assert server.bind_deferred is False
+    assert server.static_files == ()
+    assert server.static_directories == ()
     assert (server.ingress_record_limit, server.ingress_byte_limit) == (
         10_000,
         64 * 1024 * 1024,
@@ -299,6 +303,30 @@ def test_config_defaults_match_the_native_builders() -> None:
         ),
         (lambda: web.WebRoute(web.HttpMethod.GET, "echo"), "must start with '/'"),
         (lambda: web.WebRoute(web.HttpMethod.GET, ""), "must start with '/'"),
+        (
+            lambda: web.WebStaticFile("favicon.ico", "/tmp/favicon.ico"),
+            "must start with '/'",
+        ),
+        (
+            lambda: web.WebStaticFile("/{name}", "/tmp/favicon.ico"),
+            "exact literal paths",
+        ),
+        (
+            lambda: web.WebStaticFile("/favicon.ico", ""),
+            "require a filesystem path",
+        ),
+        (
+            lambda: web.WebStaticDirectory("assets", "/tmp/assets"),
+            "must start with '/'",
+        ),
+        (
+            lambda: web.WebStaticDirectory("/assets/{name}", "/tmp/assets"),
+            "exact literal paths",
+        ),
+        (
+            lambda: web.WebStaticDirectory("/assets", ""),
+            "require a filesystem path",
+        ),
         (lambda: web.HttpResponse(99), "status must be 100..599"),
         (lambda: web.HttpResponse(600), "status must be 100..599"),
         (lambda: web.WebHeader(""), "header names cannot be empty"),

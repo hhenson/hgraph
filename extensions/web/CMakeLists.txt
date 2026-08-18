@@ -33,7 +33,7 @@ if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
 
-if(HGRAPH_WEB_BUILD_PYTHON)
+if(HGRAPH_WEB_BUILD_PYTHON AND PROJECT_IS_TOP_LEVEL)
     get_target_property(_hgraph_web_core_links hgraph::options INTERFACE_LINK_LIBRARIES)
     if("Python::Python" IN_LIST _hgraph_web_core_links)
         message(FATAL_ERROR
@@ -301,11 +301,21 @@ endif()
 
 if(HGRAPH_WEB_BUILD_PYTHON)
     find_package(Python 3.12 COMPONENTS Interpreter Development.Module Development.SABIModule REQUIRED)
-    if(NOT COMMAND hgraph_add_python_module OR NOT TARGET hgraph::nanobind)
+    if(COMMAND hgraph_add_python_module AND TARGET hgraph::nanobind)
+        hgraph_add_python_module(_hgraph_web STABLE_ABI NOMINSIZE src/python_module.cpp)
+    elseif(NOT PROJECT_IS_TOP_LEVEL AND COMMAND nanobind_add_module)
+        if(HGRAPH_BUILD_SHARED)
+            set(_hgraph_web_nanobind_linkage NB_SHARED)
+        else()
+            set(_hgraph_web_nanobind_linkage NB_STATIC)
+        endif()
+        nanobind_add_module(_hgraph_web STABLE_ABI NOMINSIZE
+            ${_hgraph_web_nanobind_linkage} src/python_module.cpp)
+        unset(_hgraph_web_nanobind_linkage)
+    else()
         message(FATAL_ERROR
             "HGRAPH_WEB_BUILD_PYTHON requires a Python-enabled installed hgraph SDK")
     endif()
-    hgraph_add_python_module(_hgraph_web STABLE_ABI NOMINSIZE src/python_module.cpp)
     target_link_libraries(_hgraph_web PRIVATE hgraph::web)
     if(APPLE)
         set_target_properties(_hgraph_web PROPERTIES

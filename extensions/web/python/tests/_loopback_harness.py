@@ -14,11 +14,12 @@ SERVER_PATH = "site"
 CLIENT_PATH = "api"
 
 
-def register_loopback() -> None:
+def register_loopback(server_config: web.WebServerConfig | None = None) -> None:
     """Register the loopback server/client pair (call inside a graph)."""
 
     web.register_web_server(
-        web.WebServerConfig(port=0, stats_interval_ms=50), path=SERVER_PATH
+        server_config or web.WebServerConfig(port=0, stats_interval_ms=50),
+        path=SERVER_PATH,
     )
     web.register_web_client(web.WebClientConfig(), path=CLIENT_PATH)
 

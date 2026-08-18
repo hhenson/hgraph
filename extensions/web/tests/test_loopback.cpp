@@ -21,6 +21,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -58,6 +60,7 @@ void require(bool condition, std::string message) {
 
 inline std::atomic<int> listening_port{0};
 inline std::atomic<int> close_test_port{0};
+inline std::atomic<int> static_file_port{0};
 inline std::atomic<int> observed_query_count{0};
 inline std::atomic<int> observed_dup_header_count{0};
 inline std::atomic<int> respond_delivered_count{0};
@@ -68,6 +71,8 @@ inline std::atomic<int> ws_server_closed_count{0};
 inline std::atomic<int> ws_server_failed_count{0};
 inline std::atomic<Int> ws_server_close_code{0};
 inline Value observed_ws_frame{};
+inline std::filesystem::path static_file_path{};
+inline std::filesystem::path static_directory_root{};
 
 void release_test_state() { observed_ws_frame = Value{}; }
 
@@ -100,6 +105,22 @@ struct CloseStatsCapture {
                                                .as_bundle()
                                                .at("listening_port")
                                                .checked_as<Int>()));
+  }
+};
+
+struct StaticStatsCapture {
+  static constexpr auto name = "web_loopback_static_stats_capture";
+
+  static void
+  eval(In<"stats", TS<WebServerStats>, InputValidity::Unchecked> stats) {
+    if (!stats.valid() || !stats.modified()) {
+      return;
+    }
+    static_file_port.store(static_cast<int>(stats.base()
+                                                .value()
+                                                .as_bundle()
+                                                .at("listening_port")
+                                                .checked_as<Int>()));
   }
 };
 
@@ -360,6 +381,19 @@ struct LoopbackGraph {
     static_cast<void>(
         ws_send(w, close_path, ws_send_request(w, close_id, close_frame)));
     static_cast<void>(wire<CloseStatsCapture>(w, server_stats(w, close_path)));
+
+    const auto static_path = service::path("web-loopback-static");
+    register_server(
+        w, static_path,
+        server_config()
+            .port(0)
+            .stats_interval(50ms)
+            .outbound_limits(1'000, 1'024)
+            .static_file("/favicon.ico", static_file_path.string())
+            .static_directory("/assets", static_directory_root.string())
+            .build());
+    static_cast<void>(
+        wire<StaticStatsCapture>(w, server_stats(w, static_path)));
   }
 };
 
@@ -384,6 +418,18 @@ struct LoopbackGraph {
   }
   throw std::runtime_error(
       "the close-test server did not report its listening port");
+}
+
+[[nodiscard]] int await_static_file_port() {
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (const int port = static_file_port.load(); port != 0) {
+      return port;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  throw std::runtime_error(
+      "the static-file server did not report its listening port");
 }
 
 [[nodiscard]] tcp::endpoint loopback_endpoint(int port) {
@@ -422,6 +468,39 @@ int main() {
     hgraph::stdlib::register_standard_operators();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     register_web_types();
+    static_file_path =
+        std::filesystem::temp_directory_path() / "hgraph_web_loopback.ico";
+    static_directory_root =
+        std::filesystem::temp_directory_path() / "hgraph_web_loopback_assets";
+    {
+      std::ofstream output(static_file_path, std::ios::binary);
+      output << "ICON";
+      require(output.good(), "failed to create the static-file test asset");
+    }
+    std::filesystem::create_directories(static_directory_root / "nested");
+    {
+      std::ofstream output(static_directory_root / "nested" / "app.js",
+                           std::ios::binary);
+      output << "console.log('ok');";
+      require(output.good(),
+              "failed to create the static-directory test asset");
+    }
+    {
+      std::ofstream output(static_directory_root / "large.bin",
+                           std::ios::binary);
+      std::string big(8 * 1024, '\0');
+      for (std::size_t i = 0; i != big.size(); ++i) {
+        big[i] = static_cast<char>('A' + static_cast<char>(i % 23));
+      }
+      output.write(big.data(), static_cast<std::streamsize>(big.size()));
+      require(output.good(),
+              "failed to create the large static test asset");
+    }
+    const auto remove_static_file = hgraph::make_scope_exit([] {
+      std::error_code ec;
+      std::filesystem::remove(static_file_path, ec);
+      std::filesystem::remove_all(static_directory_root, ec);
+    });
 
     auto executor =
         start_realtime(build_graph<LoopbackGraph>(), TimeDelta{30'000'000});
@@ -430,7 +509,66 @@ int main() {
 
     const int port = await_listening_port();
     const int server_close_port = await_close_test_port();
+    const int favicon_port = await_static_file_port();
     asio::io_context ioc;
+
+    {
+      const auto response = sync_get(ioc, favicon_port, "/favicon.ico");
+      require(response.result_int() == 200,
+              "the static file route did not answer 200");
+      require(response.body() == "ICON",
+              "the static file body did not round-trip");
+      require(response["Content-Type"] == "image/x-icon",
+              "the static file content type was not inferred");
+    }
+
+    {
+      const auto response =
+          sync_get(ioc, favicon_port, "/favicon.ico", {}, bhttp::verb::head);
+      require(response.result_int() == 200,
+              "the static file HEAD did not answer 200");
+      require(response.body().empty(),
+              "the static file HEAD response carried a body");
+      require(response["Content-Length"] == "4",
+              "the static file HEAD did not advertise the entity length");
+    }
+
+    {
+      const auto response = sync_get(ioc, favicon_port, "/assets/nested/app.js");
+      require(response.result_int() == 200,
+              "the static directory route did not answer 200");
+      require(response.body() == "console.log('ok');",
+              "the static directory body did not round-trip");
+      require(response["Content-Type"] == "text/javascript; charset=utf-8",
+              "the static directory content type was not inferred");
+    }
+
+    {
+      const auto response =
+          sync_get(ioc, favicon_port, "/assets/nested/app.js", {},
+                   bhttp::verb::head);
+      require(response.result_int() == 200,
+              "the static directory HEAD did not answer 200");
+      require(response.body().empty(),
+              "the static directory HEAD response carried a body");
+      require(response["Content-Length"] == "18",
+              "the static directory HEAD did not advertise the entity length");
+    }
+
+    {
+      const auto response =
+          sync_get(ioc, favicon_port, "/assets/%2e%2e/app.js");
+      require(response.result_int() == 404,
+              "a static-directory traversal attempt did not answer 404");
+    }
+
+    {
+      const auto response = sync_get(ioc, favicon_port, "/assets/large.bin");
+      require(response.result_int() == 200,
+              "the large static asset did not answer 200");
+      require(response.body().size() == 8 * 1024,
+              "the large static asset did not stream completely");
+    }
 
     {
       const auto response =

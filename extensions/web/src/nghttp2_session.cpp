@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -49,6 +50,7 @@ struct ResponseState {
   std::string status{};
   std::string body{};
   std::size_t offset{};
+  std::unique_ptr<std::ifstream> file{};
   H2Headers trailers{};
 };
 
@@ -223,11 +225,24 @@ nghttp2_ssize read_response_body(nghttp2_session *session, int32_t stream_id,
     return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
   }
   ResponseState &response = found->second;
-  const std::size_t remaining = response.body.size() - response.offset;
-  const std::size_t take = std::min(remaining, length);
-  std::memcpy(buffer, response.body.data() + response.offset, take);
-  response.offset += take;
-  if (response.offset == response.body.size()) {
+  std::size_t take = 0;
+  bool eof = false;
+  if (response.file) {
+    response.file->read(reinterpret_cast<char *>(buffer),
+                        static_cast<std::streamsize>(length));
+    take = static_cast<std::size_t>(response.file->gcount());
+    eof = response.file->eof();
+    if (!eof && !response.file->good()) {
+      return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+    }
+  } else {
+    const std::size_t remaining = response.body.size() - response.offset;
+    take = std::min(remaining, length);
+    std::memcpy(buffer, response.body.data() + response.offset, take);
+    response.offset += take;
+    eof = response.offset == response.body.size();
+  }
+  if (eof) {
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
     if (!response.trailers.empty()) {
       *data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
@@ -350,8 +365,13 @@ bool H2Engine::submit_response(std::int32_t stream_id, int status,
                                const H2Headers &headers, std::string body,
                                const H2Headers &trailers) {
   auto [slot, inserted] = impl_->responses.emplace(
-      stream_id, ResponseState{std::to_string(status), std::move(body), 0,
-                               trailers});
+      stream_id,
+      ResponseState{
+          std::to_string(status),
+          std::move(body),
+          0,
+          nullptr,
+          trailers});
   if (!inserted) {
     return false;
   }
@@ -368,6 +388,42 @@ bool H2Engine::submit_response(std::int32_t stream_id, int status,
   const int rc = nghttp2_submit_response2(impl_->session, stream_id,
                                           nva.data(), nva.size(),
                                           with_body ? &provider : nullptr);
+  if (rc != 0) {
+    impl_->responses.erase(stream_id);
+    return false;
+  }
+  return true;
+}
+
+bool H2Engine::submit_file_response(std::int32_t stream_id, int status,
+                                    const H2Headers &headers,
+                                    std::string path,
+                                    const H2Headers &trailers) {
+  auto file = std::make_unique<std::ifstream>(path, std::ios::binary);
+  if (!*file) {
+    return false;
+  }
+  auto [slot, inserted] = impl_->responses.emplace(
+      stream_id,
+      ResponseState{
+          std::to_string(status),
+          "",
+          0,
+          std::move(file),
+          trailers});
+  if (!inserted) {
+    return false;
+  }
+  std::vector<nghttp2_nv> nva;
+  nva.reserve(headers.size() + 1);
+  nva.push_back(make_nv(":status", slot->second.status));
+  for (const auto &[name, value] : headers) {
+    nva.push_back(make_nv(name, value));
+  }
+  nghttp2_data_provider2 provider{};
+  provider.read_callback = read_response_body;
+  const int rc = nghttp2_submit_response2(impl_->session, stream_id,
+                                          nva.data(), nva.size(), &provider);
   if (rc != 0) {
     impl_->responses.erase(stream_id);
     return false;

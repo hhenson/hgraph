@@ -94,6 +94,8 @@ namespace hgraph::web
         ServerConfigBuilder &idle_timeout(std::chrono::milliseconds value);
         ServerConfigBuilder &keep_alive_timeout(std::chrono::milliseconds value);
         ServerConfigBuilder &bind_deferred(bool value);
+        ServerConfigBuilder &static_file(Str url, Str file, Str content_type = {}, Str cache_control = {});
+        ServerConfigBuilder &static_directory(Str url_prefix, Str directory, Str cache_control = {});
         ServerConfigBuilder &h2_max_concurrent_streams(Int value);
         ServerConfigBuilder &h2_initial_window_bytes(Int value);
         ServerConfigBuilder &ingress_limits(Int records, Int bytes);
@@ -123,6 +125,8 @@ namespace hgraph::web
         Int                   idle_timeout_ms_{60'000};
         Int                   keep_alive_timeout_ms_{15'000};
         bool                  bind_deferred_{false};
+        std::vector<Value>    static_files_{};
+        std::vector<Value>    static_directories_{};
         Int                   ingress_record_limit_{10'000};
         Int                   ingress_byte_limit_{64 * 1024 * 1024};
         Int                   ws_ingress_record_limit_{10'000};
@@ -207,6 +211,10 @@ namespace hgraph::web
     [[nodiscard]] HGRAPH_WEB_EXPORT ClientConfigBuilder client_config();
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_route(HttpMethod method, Str pattern, bool upgrade = false);
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Value make_static_file(Str url, Str file, Str content_type = {}, Str cache_control = {});
+
+    [[nodiscard]] HGRAPH_WEB_EXPORT Value make_static_directory(Str url_prefix, Str directory, Str cache_control = {});
 
     [[nodiscard]] HGRAPH_WEB_EXPORT Value make_headers(std::vector<WebHeaderInput> values);
 
