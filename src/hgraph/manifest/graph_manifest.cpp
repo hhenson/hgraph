@@ -38,6 +38,8 @@ namespace hgraph::manifest
         constexpr std::uint32_t k_node_tag_selectors = 13;
         constexpr std::uint32_t k_node_tag_scalars = 14;
 
+        constexpr std::uint32_t k_node_tag_error_capture = 15;
+
         // Edge-level tags.
         constexpr std::uint32_t k_edge_tag_source_node = 1;
         constexpr std::uint32_t k_edge_tag_source_kind = 2;
@@ -142,8 +144,13 @@ namespace hgraph::manifest
 
             scope.tag(k_node_tag_input_endpoint);
             append_endpoint_annotation(scope, node.input_endpoint());
+            // The EFFECTIVE annotation: runtime construction falls back to the
+            // schema annotation when the per-instance override is empty
+            // (nested owners rely on it for forwarding/ownership roles).
             scope.tag(k_node_tag_output_endpoint);
-            append_endpoint_annotation(scope, node.output_endpoint());
+            append_endpoint_annotation(scope, !node.output_endpoint().empty()
+                                                  ? node.output_endpoint()
+                                                  : schema->output_endpoint_schema);
 
             scope.tag(k_node_tag_selectors);
             {
@@ -172,6 +179,17 @@ namespace hgraph::manifest
                     }
                 }
                 scope.scope(scalars);
+            }
+
+            scope.tag(k_node_tag_error_capture);
+            {
+                // The capture options change the emitted NodeError content
+                // (traceback depth, captured values), so they are identity
+                // alongside the captures_errors bit.
+                CanonicalWriter capture;
+                capture.varint(schema->error_capture.trace_back_depth);
+                capture.varint(schema->error_capture.capture_values ? 1u : 0u);
+                scope.scope(capture);
             }
 
             writer.scope(scope);
@@ -236,6 +254,7 @@ namespace hgraph::manifest
             DecodedEndpoint output_endpoint;
             std::vector<std::byte> selectors;
             std::vector<std::byte> scalars;
+            std::vector<std::byte> error_capture;
         };
 
         struct DecodedEdge
@@ -254,6 +273,39 @@ namespace hgraph::manifest
             std::vector<DecodedNode> nodes;
             std::vector<DecodedEdge> edges;
         };
+
+        // Required-field discipline: every tag in a scope appears exactly
+        // once; a missing or duplicated required field rejects the descriptor
+        // (RFC 0022: readers never guess what an omission means).
+        void mark_seen(std::uint32_t &seen, std::uint32_t tag, const char *scope_name)
+        {
+            if (tag == 0 || tag > 31)
+            {
+                throw CanonicalDecodeError(
+                    fmt::format("unknown required field in {} descriptor", scope_name));
+            }
+            const std::uint32_t bit = 1u << tag;
+            if ((seen & bit) != 0)
+            {
+                throw CanonicalDecodeError(
+                    fmt::format("duplicate field {} in {} descriptor", tag, scope_name));
+            }
+            seen |= bit;
+        }
+
+        void require_seen(std::uint32_t seen, std::uint32_t first_tag, std::uint32_t last_tag,
+                          const char *scope_name)
+        {
+            for (std::uint32_t tag = first_tag; tag <= last_tag; ++tag)
+            {
+                if ((seen & (1u << tag)) == 0)
+                {
+                    throw CanonicalDecodeError(
+                        fmt::format("missing required field {} in {} descriptor", tag,
+                                    scope_name));
+                }
+            }
+        }
 
         DecodedEndpoint decode_endpoint(CanonicalReader reader)
         {
@@ -277,9 +329,12 @@ namespace hgraph::manifest
         DecodedNode decode_node(CanonicalReader reader)
         {
             DecodedNode node;
+            std::uint32_t seen = 0;
             while (!reader.at_end())
             {
-                switch (reader.tag())
+                const auto field_tag = reader.tag();
+                mark_seen(seen, field_tag, "node");
+                switch (field_tag)
                 {
                 case k_node_tag_semantic_name: node.semantic_name = reader.string_field(); break;
                 case k_node_tag_implementation: node.implementation = reader.string_field(); break;
@@ -301,19 +356,26 @@ namespace hgraph::manifest
                     break;
                 case k_node_tag_selectors: node.selectors = owned_bytes(reader.bytes_field()); break;
                 case k_node_tag_scalars: node.scalars = owned_bytes(reader.bytes_field()); break;
+                case k_node_tag_error_capture:
+                    node.error_capture = owned_bytes(reader.bytes_field());
+                    break;
                 default:
                     throw CanonicalDecodeError("unknown required field in node descriptor");
                 }
             }
+            require_seen(seen, k_node_tag_semantic_name, k_node_tag_error_capture, "node");
             return node;
         }
 
         DecodedEdge decode_edge(CanonicalReader reader)
         {
             DecodedEdge edge;
+            std::uint32_t seen = 0;
             while (!reader.at_end())
             {
-                switch (reader.tag())
+                const auto field_tag = reader.tag();
+                mark_seen(seen, field_tag, "edge");
+                switch (field_tag)
                 {
                 case k_edge_tag_source_node: edge.source_node = reader.varint(); break;
                 case k_edge_tag_source_kind: edge.source_kind = reader.varint(); break;
@@ -338,6 +400,7 @@ namespace hgraph::manifest
                     throw CanonicalDecodeError("unknown required field in edge descriptor");
                 }
             }
+            require_seen(seen, k_edge_tag_source_node, k_edge_tag_target_path, "edge");
             return edge;
         }
 
@@ -345,9 +408,12 @@ namespace hgraph::manifest
         {
             DecodedGraph graph;
             CanonicalReader reader{descriptor};
+            std::uint32_t seen = 0;
             while (!reader.at_end())
             {
-                switch (reader.tag())
+                const auto field_tag = reader.tag();
+                mark_seen(seen, field_tag, "graph");
+                switch (field_tag)
                 {
                 case k_graph_tag_version: graph.format_version = reader.varint(); break;
                 case k_graph_tag_label: graph.label = reader.string_field(); break;
@@ -373,6 +439,7 @@ namespace hgraph::manifest
                     throw CanonicalDecodeError("unknown required field in graph descriptor");
                 }
             }
+            require_seen(seen, k_graph_tag_version, k_graph_tag_edges, "graph");
             return graph;
         }
 
@@ -529,6 +596,8 @@ namespace hgraph::manifest
             }
             compare_bytes(result, base + "/selectors", lhs.selectors, rhs.selectors);
             compare_bytes(result, base + "/scalars", lhs.scalars, rhs.scalars);
+            compare_bytes(result, base + "/error_capture", lhs.error_capture,
+                          rhs.error_capture);
         }
 
         if (expected_graph.edges.size() != actual_graph.edges.size())

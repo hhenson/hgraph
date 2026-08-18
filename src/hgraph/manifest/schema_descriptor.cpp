@@ -407,6 +407,37 @@ namespace hgraph::manifest
             return lhs.size() < rhs.size();
         }
 
+        void encode_instant_bound(CanonicalWriter &writer, const Instant &value)
+        {
+            writer.svarint(value.time_since_epoch().count());
+        }
+
+        void encode_civil_date_bound(CanonicalWriter &writer, const CivilDate &value)
+        {
+            writer.svarint(
+                static_cast<std::int64_t>(std::chrono::sys_days{value}.time_since_epoch().count()));
+        }
+
+        // Canonical range form: one state byte derived from the public
+        // predicates, then the bounds that exist.
+        template <typename T, typename BoundEncoder>
+        void encode_range(CanonicalWriter &writer, const TimeRange<T> &range,
+                          BoundEncoder &&encode_bound)
+        {
+            std::uint64_t state = 0;
+            if (range.empty()) { state |= 1u << 0; }
+            if (range.lower_unbounded()) { state |= 1u << 1; }
+            if (range.upper_unbounded()) { state |= 1u << 2; }
+            if (range.lower_boundary() == Boundary::Closed) { state |= 1u << 3; }
+            if (range.upper_boundary() == Boundary::Closed) { state |= 1u << 4; }
+            writer.varint(state);
+            if (const auto start = range.start(); start.has_value())
+            {
+                encode_bound(writer, *start);
+            }
+            if (const auto end = range.end(); end.has_value()) { encode_bound(writer, *end); }
+        }
+
         void encode_atomic(CanonicalWriter &writer, const ValueView &value,
                            const ValueTypeMetaData *meta)
         {
@@ -460,6 +491,54 @@ namespace hgraph::manifest
             case WireAtomic::Time:
                 writer.svarint(value.checked_as<Time>().microseconds);
                 return;
+            case WireAtomic::CivilDateTime:
+                writer.svarint(value.checked_as<CivilDateTime>().epoch_microseconds());
+                return;
+            case WireAtomic::Period: {
+                const auto &period = value.checked_as<Period>();
+                writer.svarint(period.total_months());
+                writer.svarint(period.days());
+                return;
+            }
+            case WireAtomic::ZoneId: {
+                // Identity by IANA name; the slot/generation payload is
+                // process-local. An invalid/default zone encodes empty.
+                const auto &zone = value.checked_as<ZoneId>();
+                writer.string_field(zone.valid() ? zone.name() : std::string_view{});
+                return;
+            }
+            case WireAtomic::ZonedDateTime: {
+                const auto &zoned = value.checked_as<ZonedDateTime>();
+                writer.svarint(zoned.instant().time_since_epoch().count());
+                writer.string_field(zoned.zone().valid() ? zoned.zone().name()
+                                                         : std::string_view{});
+                writer.svarint(zoned.offset_seconds());
+                return;
+            }
+            case WireAtomic::InstantRange:
+                encode_range(writer, value.checked_as<InstantRange>(), encode_instant_bound);
+                return;
+            case WireAtomic::CivilDateRange:
+                encode_range(writer, value.checked_as<CivilDateRange>(), encode_civil_date_bound);
+                return;
+            case WireAtomic::InstantRangeSet: {
+                const auto &ranges = value.checked_as<InstantRangeSet>();
+                writer.varint(ranges.size());
+                for (const auto &range : ranges)
+                {
+                    encode_range(writer, range, encode_instant_bound);
+                }
+                return;
+            }
+            case WireAtomic::CivilDateRangeSet: {
+                const auto &ranges = value.checked_as<CivilDateRangeSet>();
+                writer.varint(ranges.size());
+                for (const auto &range : ranges)
+                {
+                    encode_range(writer, range, encode_civil_date_bound);
+                }
+                return;
+            }
             default:
                 throw UnsupportedManifestValue(fmt::format(
                     "scalar type '{}' has no canonical manifest encoding", meta->name()));

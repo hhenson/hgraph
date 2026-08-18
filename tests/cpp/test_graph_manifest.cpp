@@ -269,6 +269,88 @@ TEST_CASE("manifest encode/decode round-trips and verifies", "[manifest]")
     CHECK_THROWS_AS(manifest::decode_graph(torn), manifest::CanonicalDecodeError);
 }
 
+TEST_CASE("a framed descriptor missing required fields is rejected", "[manifest]")
+{
+    using namespace hgraph::manifest;
+
+    // An empty descriptor omits every required graph field; the frame itself
+    // is well-formed, so acceptance would silently validate a torn manifest.
+    CanonicalWriter frame;
+    frame.varint(k_manifest_format_version);
+    frame.bytes_field({});
+    CHECK_THROWS_AS(decode_graph(frame.bytes()), CanonicalDecodeError);
+
+    // A duplicated field is rejected too.
+    CanonicalWriter descriptor;
+    descriptor.tag(1);
+    descriptor.varint(k_manifest_format_version);
+    descriptor.tag(1);
+    descriptor.varint(k_manifest_format_version);
+    CanonicalWriter duplicate_frame;
+    duplicate_frame.varint(k_manifest_format_version);
+    duplicate_frame.bytes_field(descriptor.bytes());
+    CHECK_THROWS_AS(decode_graph(duplicate_frame.bytes()), CanonicalDecodeError);
+}
+
+TEST_CASE("temporal scalar arguments have canonical encodings", "[manifest]")
+{
+    using namespace hgraph::manifest;
+
+    const auto encode = [](const Value &value) {
+        CanonicalWriter writer;
+        encode_manifest_scalar(writer, value.view());
+        return writer.take();
+    };
+
+    const auto period = encode(Value{Period{1, 2, 3}});
+    CHECK_FALSE(period.empty());
+    CHECK(period == encode(Value{Period{1, 2, 3}}));
+    CHECK_FALSE(period == encode(Value{Period{1, 2, 4}}));
+
+    const auto civil = encode(Value{CivilDateTime::from_epoch_microseconds(123456789)});
+    CHECK_FALSE(civil.empty());
+    CHECK_FALSE(civil == encode(Value{CivilDateTime::from_epoch_microseconds(987654321)}));
+
+    const auto zone = encode(Value{ZoneId{"Europe/London"}});
+    CHECK_FALSE(zone == encode(Value{ZoneId{"America/New_York"}}));
+
+    const auto zoned = encode(Value{
+        ZonedDateTime::from_resolved(Instant{TimeDelta{1000000}}, ZoneId{"UTC"}, 0)});
+    CHECK_FALSE(zoned.empty());
+
+    const auto range = encode(Value{InstantRange::bounded(Instant{TimeDelta{1}},
+                                                          Instant{TimeDelta{100}})});
+    const auto open_range = encode(Value{InstantRange::from(Instant{TimeDelta{1}})});
+    CHECK_FALSE(range == open_range);
+
+    const auto range_set = encode(Value{InstantRangeSet{}});
+    CHECK_FALSE(range_set.empty());
+}
+
+TEST_CASE("error-capture options participate in node identity", "[manifest]")
+{
+    GraphBuilder plain = wire_sum_graph(42, 8);
+    GraphBuilder captured = wire_sum_graph(42, 8);
+
+    // Rebind one node with error capture: the manifest must differ and the
+    // difference must name the node's capture identity (options included).
+    const auto *error_schema = captured.nodes()[2].type().schema()->error_output_schema;
+    if (error_schema == nullptr)
+    {
+        auto &registry = TypeRegistry::instance();
+        error_schema = registry.ts(registry.register_scalar<Int>("int"));
+    }
+    captured.node_at(2) = captured.node_at(2).with_error_capture(
+        error_schema, ErrorCaptureOptions{.trace_back_depth = 7, .capture_values = true});
+
+    const auto expected = manifest::capture(plain);
+    const auto actual = manifest::capture(captured);
+    CHECK_FALSE(expected.id() == actual.id());
+
+    const auto result = manifest::validate(expected, actual);
+    REQUIRE_FALSE(result.identical());
+}
+
 TEST_CASE("values without a canonical encoding are refused with a reason", "[manifest]")
 {
     auto &registry = TypeRegistry::instance();

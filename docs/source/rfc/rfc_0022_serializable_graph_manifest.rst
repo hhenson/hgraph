@@ -515,8 +515,11 @@ implementation:
   must not change the manifest id; labels travel in the diagnostic
   rendering, not the identity.
 * **Scalar values.**  Canonical schema-directed encoding covers the
-  core atomics, enums, and tuple/bundle/list composites, with set and
-  map content emitted in canonical encoded-key order.  A ``WiredFn``
+  core atomics including the full engine date/time family (temporal
+  RFC 0002 types encode by semantic content — ``ZoneId`` by IANA name,
+  never its process-local slot), enums, and tuple/bundle/list
+  composites, with set and map content emitted in canonical
+  encoded-key order.  A ``WiredFn``
   scalar encodes as its REGISTERED identity — the lifted kernel's
   authored name or the operator marker's name — never a function
   address or RTTI name; an anonymous callable, and any value without a
@@ -527,7 +530,15 @@ implementation:
   and gives nested-graph owners their child-template encoding.
 * **Capture point.**  The finished ``GraphBuilder`` (after
   ``Wiring::finish``/``snapshot``, before ``make_executor``); node and
-  edge order is the builder's canonical ranked order.
+  edge order is the builder's canonical ranked order.  Node identity
+  includes the EFFECTIVE output endpoint annotation (the per-instance
+  override, falling back to the node type's schema annotation exactly
+  as runtime construction does) and the error-capture options
+  (traceback depth, value capture) alongside the capture flag.
+* **Strict decoding.**  Every scope field appears exactly once; a
+  missing or duplicated required field rejects the descriptor — a
+  well-formed frame around an empty or torn descriptor never decodes
+  into a valid manifest.
 
 Stages 2–4 (nested templates and implementation registration, binding
 and run manifests, checkpoint integration) are not started.

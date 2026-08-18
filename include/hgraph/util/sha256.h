@@ -12,6 +12,8 @@
  * not a security boundary).
  */
 
+#include <hgraph/hgraph_export.h>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -28,7 +30,7 @@ namespace hgraph::util
     };
 
     /** Streaming SHA-256 hasher. */
-    class Sha256 final
+    class HGRAPH_EXPORT Sha256 final
     {
       public:
         Sha256() noexcept;
@@ -46,10 +48,10 @@ namespace hgraph::util
     };
 
     /** One-shot digest of a byte span. */
-    [[nodiscard]] Sha256Digest sha256(std::span<const std::byte> data) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT Sha256Digest sha256(std::span<const std::byte> data) noexcept;
 
     /** Render a digest as lowercase hex (diagnostics only, 64 chars). */
-    [[nodiscard]] std::array<char, 64> sha256_hex(const Sha256Digest &digest) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT std::array<char, 64> sha256_hex(const Sha256Digest &digest) noexcept;
 }  // namespace hgraph::util
 
 #endif  // HGRAPH_UTIL_SHA256_H

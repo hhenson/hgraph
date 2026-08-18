@@ -22,6 +22,7 @@
  * 0022's conservative refusal, surfaced with a path by the caller.
  */
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/manifest/canonical.h>
 
 #include <stdexcept>
@@ -37,23 +38,23 @@ namespace hgraph
 namespace hgraph::manifest
 {
     /** A value/scalar cannot participate in a manifest; ``what()`` says why. */
-    class UnsupportedManifestValue : public std::runtime_error
+    class HGRAPH_EXPORT UnsupportedManifestValue : public std::runtime_error
     {
       public:
         using std::runtime_error::runtime_error;
     };
 
     /** Append the canonical descriptor for a value-layer schema. */
-    void append_value_descriptor(CanonicalWriter &writer, const ValueTypeMetaData *meta);
+    HGRAPH_EXPORT void append_value_descriptor(CanonicalWriter &writer, const ValueTypeMetaData *meta);
 
     /** Append the canonical descriptor for a time-series schema. */
-    void append_ts_descriptor(CanonicalWriter &writer, const TSValueTypeMetaData *meta);
+    HGRAPH_EXPORT void append_ts_descriptor(CanonicalWriter &writer, const TSValueTypeMetaData *meta);
 
     /** The canonical descriptor bytes for a value-layer schema. */
-    [[nodiscard]] std::vector<std::byte> value_descriptor(const ValueTypeMetaData *meta);
+    [[nodiscard]] HGRAPH_EXPORT std::vector<std::byte> value_descriptor(const ValueTypeMetaData *meta);
 
     /** The canonical descriptor bytes for a time-series schema. */
-    [[nodiscard]] std::vector<std::byte> ts_descriptor(const TSValueTypeMetaData *meta);
+    [[nodiscard]] HGRAPH_EXPORT std::vector<std::byte> ts_descriptor(const TSValueTypeMetaData *meta);
 
     /**
      * Append a scalar value in canonical schema-directed binary form.
@@ -63,14 +64,14 @@ namespace hgraph::manifest
      * of supported values (set and map content is emitted in canonical
      * encoded-key order). Throws ``UnsupportedManifestValue`` otherwise.
      */
-    void encode_manifest_scalar(CanonicalWriter &writer, const ValueView &value);
+    HGRAPH_EXPORT void encode_manifest_scalar(CanonicalWriter &writer, const ValueView &value);
 
     /**
      * Whether a schema's values can be canonically encoded; when not,
      * ``reason`` (optional) receives a stable human-readable explanation.
      */
-    [[nodiscard]] bool manifest_scalar_encodable(const ValueTypeMetaData *meta,
-                                                 std::string *reason = nullptr);
+    [[nodiscard]] HGRAPH_EXPORT bool manifest_scalar_encodable(
+        const ValueTypeMetaData *meta, std::string *reason = nullptr);
 }  // namespace hgraph::manifest
 
 #endif  // HGRAPH_MANIFEST_SCHEMA_DESCRIPTOR_H
