@@ -95,7 +95,7 @@ This is deliberately a *latest-state* protocol:
 
 Atomic does not mean small.  A Frame can contain a substantial dataset.  It
 means that a data version is either wholly visible or not visible and that its
-schema and checksum are validated as one object.
+schema and object integrity are validated as one object.
 
 Why versions are not enough
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -415,8 +415,6 @@ the same registered scalar types rather than independent structures.
            Str                               data_id;
            RevisionId                        revision;
            DataVersion                       output_version;
-           Str                               schema_fingerprint;
-           Str                               payload_checksum;
            HomogeneousTuple<DataDependency>  dependencies;
            std::optional<DataVersion>         self_predecessor;
            DateTime                          as_of;
@@ -436,10 +434,16 @@ duplicate id.  It is the complete immediate fabric dependency set for that
 publication.  It does not contain the output data id; an optional prior-self
 edge uses ``self_predecessor`` instead.
 
-``schema_fingerprint`` identifies the canonical Arrow schema fixed by the
-first accepted version of the data id.  ``payload_checksum`` verifies object
-integrity.  Equal checksums do not suppress a version: an output tick is the
-publisher's explicit statement that it produced a new atomic result.
+The revision does not duplicate the Frame's Arrow schema or persistence-owned
+integrity metadata.  The first accepted Frame fixes the data id's schema, and
+subsequent Frames are validated against it through the persistence value
+contract.  An output tick is still the publisher's explicit statement that it
+produced a new atomic result, even when the value is equal to the prior Frame.
+
+``self_predecessor`` is optional provenance for the specific case where a
+publisher constructed the output from a prior version of the same data id.  It
+is not populated merely because one version follows another, and it is not
+required for recovery, replay or consistency resolution.
 
 The revision intentionally contains no publisher or process identity.  The
 data id and accepted contents are the publication provenance.  Operational
@@ -635,18 +639,19 @@ is intentional: a revision describes compatibility with versioned state, not
 an immutable globally timed proof of every transitive revision selected at the
 original publication instant.
 
-Historical self-predecessors
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Optional historical self-predecessor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A live updater may construct ``A`` version 8 from ``A`` version 7.  Recording
 ``A:7`` as an ordinary dependency of ``A:8`` would require two current versions
 of the same id and appear cyclic.  ``self_predecessor=7`` instead identifies a
 temporal state chain.
 
-The resolver retains and can traverse that edge for provenance, but it does
-not add ``A:7`` to the current frontier and does not use the predecessor's
-other ancestry to constrain a cut containing ``A:8``.  General feedback such
-as ``A -> B -> A`` is not covered by this exception and is rejected.
+The field preserves the temporal derivation chain for audit and provenance.
+The consistency resolver ignores it: it does not add ``A:7`` to the current
+frontier or use the predecessor's ancestry to constrain a cut containing
+``A:8``.  General feedback such as ``A -> B -> A`` is not covered by this
+provenance field and is rejected.
 
 As-of index and latest pointer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -696,9 +701,11 @@ implementation language.  Before implementation acceptance the exact byte
 encoding and media type must be fixed, deterministic, bounds-checked, and
 covered by golden C++/Python fixtures.  Unknown format versions fail closed.
 
-The Frame object carries its Arrow schema; the revision repeats only its
-fingerprint and payload checksum.  A reader validates the path id, revision id,
-schema fingerprint and checksum before exposing the value.
+The Frame object and persistence format carry the Arrow schema and any
+integrity metadata.  A reader validates the revision encoding, path id and
+revision id, then loads ``output_version`` through the persistence value
+contract.  Schema and payload integrity are therefore checked at the Frame
+boundary rather than duplicated in revision metadata.
 
 Publication protocol
 --------------------
@@ -763,7 +770,7 @@ allows downstream forests to become consistent without copying the Frame.
 
 An output tick without a fabric-input change, for example from a schedule,
 creates a new data version and revision using the current input tuple.  An
-output tick always means a new version even when its checksum matches the prior
+output tick always means a new version even when its value equals the prior
 Frame.
 
 Competing publishers
@@ -782,12 +789,13 @@ revision.  A future input or scheduled output tick may naturally create a
 later candidate from the newly observed head.
 
 Two writers can select the same millisecond version.  The Frame write is also
-conditional.  A writer which finds an existing object at that path verifies
-its schema and checksum; a mismatch loses the attempt before revision
-publication, while an identical object may be reused.  Writers selecting
-different candidate versions can leave an unreferenced loser object, which is
-harmless because discovery follows accepted revisions rather than listing the
-``data`` prefix.
+conditional.  The persistence layer may recognise an existing object as an
+idempotent retry of the same immutable Frame; any conflicting object at that
+path loses the attempt before revision publication.  This comparison does not
+add schema or integrity fields to ``DataRevision``.  Writers selecting different
+candidate versions can leave an unreferenced loser object, which is harmless
+because discovery follows accepted revisions rather than listing the ``data``
+prefix.
 
 Crash boundaries
 ~~~~~~~~~~~~~~~~
@@ -978,10 +986,11 @@ One forest resolver returns:
 
 ``Corrupt``
    An immutable object required by an accepted revision is missing, fails
-   checksum/schema validation, has a malformed path/record, or violates
-   monotonic revision invariants.  Missing or stale derived ``latest`` and
-   as-of indexes are repaired from contiguous accepted revision slots where
-   possible rather than reclassifying the accepted history.
+   persistence integrity or fixed-schema validation, has a malformed
+   path/record, or violates monotonic revision invariants.  Missing or stale
+   derived ``latest`` and as-of indexes are repaired from contiguous accepted
+   revision slots where possible rather than reclassifying the accepted
+   history.
 
 ``Pending``, ``Ambiguous``, ``Cyclic`` and ``Corrupt`` affect only publishers
 and root inputs which depend on that forest.  Other forests continue.
@@ -1020,7 +1029,7 @@ An implementation may optimise or memoise it only if it returns the same cut:
 
                select revision
                add its ordinary dependency version requirements
-               retain, but do not constrain with, its self_predecessor
+               ignore its self_predecessor for consistency resolution
                search(selected, frontier_requirements)
                undo selection
 
@@ -1303,7 +1312,7 @@ distinguish:
 * missing data, revision, as-of or latest objects;
 * incomplete first publication;
 * malformed metadata and unsupported format versions;
-* checksum and fixed-schema mismatch;
+* persistence integrity and fixed-schema failure;
 * non-contiguous or non-monotonic revision history;
 * ordinary dependency cycles;
 * ambiguous maximal cuts;
@@ -1544,9 +1553,9 @@ Publication
 * scheduled output with unchanged dependencies;
 * duplicate accepted tuple suppression;
 * first-writer-wins process overlap and unconditional loser drop;
-* same-millisecond version collision with equal and unequal checksums;
+* idempotent same-object retry and conflicting same-millisecond version writes;
 * every crash boundary in the publication table;
-* stale latest/as-of repair; and
+* stale latest/as-of repair;
 * Kafka proposal validation against the winning revision slot; and
 * ahead-of-storage proposal retention and retry when delivery wins the race
   with revision-slot creation.
@@ -1562,7 +1571,7 @@ Resolution
 * shared subscriptions driving several publishers;
 * historical self-predecessor without an ordinary cycle;
 * ordinary cycle, missing immutable accepted ancestry reported as corrupt,
-  corrupt checksum, schema mismatch and ambiguous maximal cuts; and
+  corrupt Frame, schema mismatch and ambiguous maximal cuts; and
 * no regression of an already exposed root version.
 
 Modes and lifecycle
