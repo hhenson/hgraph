@@ -539,6 +539,99 @@ strategies under an ``impl`` boundary.  Their ops pointers are non-null, with a
 canonical unsupported/no-op table as appropriate.  They are cold-path
 contracts and add no evaluation-time lookup.
 
+.. _Proposed TSCheckpointOps design:
+
+Proposed ``TSCheckpointOps`` design
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A prototype was built against a full survey of the time-series layer's
+physical state and then withdrawn so the design could be agreed here
+first.  This section records what that exercise established, as the
+concrete proposal under review — not as landed behaviour.
+
+**Where the table lives.**  ``TSDataOps`` already carries three
+separately selected, non-null erased policies (ownership, inspection,
+current-state transfer).  ``TSCheckpointOps`` is proposed as a fourth,
+selected per interned representation context rather than by
+``TSTypeKind``, with a canonical refusing table as the default.  Adding
+it moves ``TS_DATA_OPS_ABI_VERSION`` (10 → 11), which the in-tree layout
+test and the installed-SDK consumer both pin.
+
+**Image form.**  Stage 1 captures an owned in-memory image — owned
+``Value``s and original ``DateTime``s — rather than encoded bytes;
+byte encoding belongs to the durable serialisation strategy, which RFC
+0025 places in the extension.  The image is move-only: it owns nested
+child images, and a silent copy would be both expensive and (on MSVC,
+where ``dllexport`` forces definition of every member) a compile error.
+
+**Per-kind payloads** the survey establishes as REQUIRED:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Kind
+     - Exact image content
+   * - ``TS`` / ``SIGNAL``
+     - current value (absent when never ticked) and the node's original
+       modification time
+   * - ``TSB`` / fixed ``TSL``
+     - parent time plus each child's recursive image; the bundle's
+       value-layer validity words are a SECOND, required encoding of
+       child validity and must be replayed on import
+   * - dynamic ``TSL``
+     - element count is the durable shape (the modified-index ring and
+       delta-window header are per-cycle) plus each child's image
+   * - ``TSS``
+     - slot capacity; every constructed slot's id, live/pending-erase
+       state and key; and the free-list and pending-erase orderings
+       VERBATIM
+   * - ``TSD``
+     - the ``TSS`` content plus per-slot child images, the durable
+       ``value_published`` plane (it survives delta reset and decides
+       whether a later removal emits a removed event), and the key
+       set's INDEPENDENT modification clock
+   * - ``TSW``
+     - retained entries oldest→newest each with its ORIGINAL evaluation
+       timestamp, plus the evicted/cleared plane; window readiness
+       (``all_valid``, ``full``) is derived and recomputed
+   * - ``REF``
+     - deferred: a reference holds process addresses, so its image is a
+       graph-relative locator resolved at restore step 6.  Until the
+       graph walk supplies that, ``REF`` refuses conservatively
+
+**Quiet-import write paths.**  Every existing mutation path publishes.
+The proposal writes values through the representation's value operations
+directly (never a mutation view) and stamps tracking by assignment
+rather than ``record_modified`` — so no parent re-stamp, no observer
+wake, no consumer scheduling, and original times survive.  Two
+representation-owned primitives do not exist today and must be added:
+
+* a keyed **chosen-slot key import** (``KeySlotStore``), reconstructing
+  a slot at an EXACT id in either the live or the pending-erase state,
+  and restoring both slot orderings verbatim.  Slot ids are identity —
+  they are the parent child-id and the checkpoint locator — and the
+  free-list's LIFO order encodes the erase history that decides every
+  future key→slot assignment.  The acceptance property is that after a
+  restore, the NEXT insert lands on the slot the uninterrupted run would
+  have chosen.
+* a window **append-with-original-time**.  ``push`` stamps every element
+  with one time and, for duration windows, prunes as it appends — so
+  replaying history through it silently drops the oldest entries.
+
+**Never captured.**  Per-cycle delta planes (added/removed/modified
+bitsets, delta windows, the dynamic-list modified ring), observer lists,
+parent links, index structures and cached Python wrappers.  Parent links
+are reattached by the ordinary ownership walk after import, exactly as
+fresh construction attaches them.
+
+**Open for review.**  Whether the ABI bump is acceptable now or should
+be batched; whether python-only value storage refuses (as proposed) or
+gains a bridge-owned capture; whether the keyed value mirror should be
+driven through the ordinary slot observers (as proposed) or an explicit
+restore-mode path; and whether the image should be the in-memory form at
+all, or encode through the strategy from the outset.
+
 Quiet import
 ------------
 
@@ -1099,9 +1192,14 @@ The persistence lifecycle — the ``snapshot``/``suspend``/``restore``
 verbs, the node ``snapshot``/``restore`` hook pair, the
 augmentation-not-replacement default rule, and the serialisation-strategy
 seam — was agreed against the prior-art review and recorded 2026-08-18.
-Implementation is otherwise not started; RFC 0022 (the identity
-prerequisite) is under way separately.  The RFC records the graph-level
-contract intentionally deferred by RFC 0017 and the durable
+
+Mechanics are NOT implemented.  A ``TSCheckpointOps`` prototype was
+built against the full physical-state survey and then withdrawn
+(2026-08-18) so the design could be agreed at the RFC level first; its
+findings are recorded in `Proposed TSCheckpointOps design`_ below as the
+concrete proposal under review.  RFC 0022 stage 1 (the identity
+prerequisite) is implemented separately.  The RFC records the
+graph-level contract intentionally deferred by RFC 0017 and the durable
 checkpoint/store gap named by the extension policy.
 
 References
