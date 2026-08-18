@@ -253,7 +253,7 @@ namespace
 
     struct DedupHarness
     {
-        static constexpr auto name = "component_dedup_harness";
+        [[maybe_unused]] static constexpr auto name = "component_dedup_harness";
 
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
         {

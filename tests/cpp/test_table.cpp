@@ -210,7 +210,7 @@ namespace
         apply_current_value(out, wrapped.view());
     }
 
-    const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
+    [[maybe_unused]] const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
                                                      &emit_presence_only_extension_scalar,
                                                      &apply_all_null_extension_scalar};
     const TableTypeOps empty_extension_table_ops{&describe_empty_extension_scalar,

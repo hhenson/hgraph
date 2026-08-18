@@ -355,6 +355,7 @@ jobs:
             --exclude libarrow.so.2500 \
             --exclude libarrow_compute.so.2500 \
             --exclude libarrow_acero.so.2500 \
+            --exclude libparquet.so.2500 \
             --exclude libhgraph_runtime.so \
             --exclude libhgraph_wiring.so \
             --exclude libhgraph_stdlib.so \
@@ -576,7 +577,8 @@ jobs:
           root = f"hgraph_persistence-{version}"
           for required in (
               "CMakeLists.txt",
-              "include/hgraph/persistence/operators.h",
+              "include/hgraph/persistence/frame_store.h",
+              "include/hgraph/persistence/recording_store.h",
               "python/hgraph_persistence/__init__.py",
           ):
               assert f"{root}/{required}" in names, required

@@ -152,7 +152,7 @@ namespace
         apply_current_value(out, cell.view());
     }
 
-    const TableTypeOps polymorphic_event_table_ops{
+    [[maybe_unused]] const TableTypeOps polymorphic_event_table_ops{
         &describe_polymorphic_event, &emit_polymorphic_event,
         &apply_polymorphic_event};
 
@@ -214,17 +214,10 @@ namespace
     const TableTypeOps all_null_extension_table_ops{&describe_all_null_extension_scalar,
                                                      &emit_presence_only_extension_scalar,
                                                      &apply_all_null_extension_scalar};
-    const TableTypeOps empty_extension_table_ops{&describe_empty_extension_scalar,
+    [[maybe_unused]] const TableTypeOps empty_extension_table_ops{&describe_empty_extension_scalar,
                                                   &emit_presence_only_extension_scalar,
                                                   &apply_empty_extension_scalar};
 
-    [[nodiscard]] std::int64_t timestamp_at(const Frame &frame, const std::string &column,
-                                            std::int64_t row)
-    {
-        const auto chunked = frame.table->GetColumnByName(column);
-        REQUIRE(chunked != nullptr);
-        return static_cast<const arrow::TimestampArray &>(*chunked->chunk(0)).Value(row);
-    }
 }  // namespace
 
 namespace
