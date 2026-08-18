@@ -1,5 +1,8 @@
 set(HGRAPH_RUNTIME_SOURCES
     hgraph/version.cpp
+    hgraph/util/sha256.cpp
+    hgraph/manifest/schema_descriptor.cpp
+    hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp

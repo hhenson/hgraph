@@ -216,6 +216,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_erased_wiring.cpp
     test_error_handling.cpp
     test_eval_node.cpp
+    test_graph_manifest.cpp
     test_graph_wiring.cpp
     test_nested_wiring.cpp
     test_operators.cpp

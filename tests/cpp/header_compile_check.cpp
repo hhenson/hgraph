@@ -3,6 +3,9 @@
 // compiler chases through the heavier portions of memory_utils, the
 // slot stores, and intern_table.
 
+#include <hgraph/manifest/canonical.h>
+#include <hgraph/manifest/graph_manifest.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/type_meta_data.h>
