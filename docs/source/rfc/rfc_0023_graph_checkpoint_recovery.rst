@@ -197,10 +197,12 @@ Terminology
 
 ``suspend``
    The lifecycle verb that captures a checkpoint image at the next
-   successful root evaluation-cycle boundary and then performs an ORDINARY
-   stop (Flink's stop-with-savepoint; iOS backgrounding).  The process may
-   exit afterwards; a suspended run is resumed only by ``restore``
-   constructing a new graph instance.
+   successful root evaluation-cycle boundary and then — once the
+   serialisation strategy has durably published the checkpoint — performs
+   an ORDINARY stop (Flink's stop-with-savepoint; iOS backgrounding).  A
+   publication failure leaves the graph running.  The process may exit
+   afterwards; a suspended run is resumed only by ``restore`` constructing
+   a new graph instance.
 
 ``serialisation strategy``
    The registered destination and encoding a capture hands its image to,
@@ -395,10 +397,17 @@ Three verbs over one capture mechanism:
   the next successful root cycle boundary (the consistency boundary
   below), produces the checkpoint image, hands it to the selected
   serialisation strategy, and the graph CONTINUES RUNNING.
-* ``suspend`` — ``snapshot`` followed by an ORDINARY stop.  Stop semantics
-  are unchanged (edges unbind, input slots deactivate, push-source queues
-  clear): the stop-as-step-toward-erase ruling holds because resumption is
-  always ``restore`` constructing a new instance.  The capture walk itself
+* ``suspend`` — ``snapshot`` followed by an ORDINARY stop, gated on
+  publication: the stop begins only after the serialisation strategy has
+  DURABLY PUBLISHED the checkpoint (for the in-memory strategy, after the
+  image is handed over).  A publication failure or lost run-head CAS
+  leaves the graph RUNNING and reports the suspend as failed — a live run
+  is never torn down without a selected restorable checkpoint.  (Online
+  ``snapshot`` keeps the asynchronous encode/write model; only suspend's
+  stop waits.)  Stop semantics are otherwise unchanged (edges unbind,
+  input slots deactivate, push-source queues clear): the
+  stop-as-step-toward-erase ruling holds because resumption is always
+  ``restore`` constructing a new instance.  The capture walk itself
   mutates nothing — subscriptions, edge bindings, input activation, and
   forwarding links remain fully intact until the stop that FOLLOWS it.
 * ``restore`` — the distinct executor operation already specified in
@@ -431,9 +440,15 @@ BOTH triggers:
 * ``snapshot`` runs inside every capture — online snapshot and suspend
   alike.  ``SnapshotContext`` exposes the serialisation strategy, the
   trigger (``Snapshot`` or ``Suspend``), and the engine time of the cut.
-  Its job is what generic capture cannot know: flush or quiesce external
-  resources before the cut (the CRaC ``beforeCheckpoint`` role) and append
-  extra semantic state through the strategy.
+  Its job is what generic capture cannot know: prepare external state for
+  the cut and append extra semantic state through the strategy.  The
+  trigger bounds how disruptive that preparation may be: under the online
+  ``Snapshot`` trigger the graph continues immediately and the walk
+  provides no post-capture callback, so the hook must be NON-DISRUPTIVE —
+  flush/sync, never close or quiesce a resource the running graph still
+  needs.  Closing external resources (the full CRaC ``beforeCheckpoint``
+  role) belongs to the ``Suspend`` trigger, where the ordinary stop
+  follows anyway.
 * ``restore`` runs during restore-lifecycle step 8 (derived-state
   rebuild), after quiet import.  ``RestoreContext`` exposes the strategy
   reader and the ``Fresh``/``Restore`` distinction.  Its job is the
@@ -486,13 +501,18 @@ calls directly when no runner is installed.  Suspend's stop then follows
 the existing stop path unchanged.
 
 Push sources and suspend: a push-source policy's ``stop`` discards its
-undrained inbound queue today.  Under this lifecycle that is CORRECT for
-suspend: events not yet applied at the cut are outside the image by
-definition and are owned by the input journal (recoverable mode makes an
-event durable before its mutation is visible), so the discarded queue
-content is exactly the journal tail replayed on restore.  A source
-binding without journal coverage declares its weaker loss model, as the
-consistency boundary already requires.
+undrained inbound queue today.  Events already APPLIED at the cut are in
+the journal (recoverable mode makes an event durable before its mutation
+is visible) and replay on restore.  A payload ACCEPTED into the policy
+queue but not yet applied has no journal entry — the journal records
+graph-observed input, not transport queues — so suspend may only discard
+it when the source binding's declared guarantee covers it: a durable
+upstream cursor that redelivers unacknowledged input, accepted-input
+journaling (an open question below), or an explicitly declared weaker
+loss model.  A recoverable binding with none of these must drain its
+pending queue through the journal before suspend's stop proceeds; the
+consistency boundary's source-guarantee rule already names these three
+options, and suspend adds no fourth.
 
 Checkpoint operation tables
 ---------------------------
@@ -996,9 +1016,16 @@ Unresolved questions
   or adds a universal post-observer stabilization boundary.
 * Whether recoverable push sources journal raw accepted payloads as well as
   canonical graph-observed emissions, or leave the former entirely to their
-  binding delivery contract — and, relatedly, whether suspend gains an
-  explicit queue-drain policy operation or continues to rely wholly on the
-  journal tail for events pending at the cut (the current design).
+  binding delivery contract — and, relatedly, whether the
+  drain-through-journal step suspend requires of a recoverable binding
+  without durable-cursor coverage becomes an explicit push-source policy
+  operation or stays a binding-level obligation.
+* Whether the node hook pair gains a third, after-capture callback for the
+  online ``Snapshot`` trigger (CRaC's ``afterRestore`` also fires in the
+  process that CONTINUES after a checkpoint, letting it reopen resources).
+  The recorded design instead restricts the online hook to non-disruptive
+  preparation; the extra callback is added only if evidence shows flush
+  semantics are insufficient for a real online-capture consumer.
 * The maximum manifest-chain depth before automatic physical compaction.
 * Whether graph migration belongs in this RFC's eventual implementation or a
   separate RFC after exact restore has production evidence.
