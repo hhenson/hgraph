@@ -105,6 +105,9 @@ def _prepare(args) -> object:
         reference_python=_path(getattr(args, "reference_python", None)),
         candidate_python=_path(getattr(args, "candidate_python", None)),
         candidate_wheel=_path(getattr(args, "candidate_wheel", None)),
+        candidate_extra_wheels=tuple(
+            Path(raw) for raw in (getattr(args, "candidate_extra_wheel", None) or ())
+        ),
     )
 
 
@@ -497,6 +500,13 @@ def _environment_arguments(parser) -> None:
     parser.add_argument("--reference-python")
     parser.add_argument("--candidate-python")
     parser.add_argument("--candidate-wheel")
+    parser.add_argument(
+        "--candidate-extra-wheel",
+        action="append",
+        help="additional first-party wheel installed into the candidate "
+        "environment (repeatable; e.g. hgraph-persistence for the durable "
+        "record/replay scenarios)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

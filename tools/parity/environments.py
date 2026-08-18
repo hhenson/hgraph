@@ -137,6 +137,7 @@ def ensure_candidate_environment(
     *,
     interpreter: Path | str = sys.executable,
     candidate_wheel: Path | None = None,
+    candidate_extra_wheels: tuple[Path, ...] = (),
 ) -> tuple[Path, dict, str]:
     key = _environment_key(interpreter)
     venv = PARITY_ROOT / "envs" / f"candidate-{key}"
@@ -149,6 +150,14 @@ def ensure_candidate_environment(
     else:
         candidate_wheel = candidate_wheel.resolve()
         fingerprint = _sha256(candidate_wheel)
+    # First-party extensions (hgraph-persistence serves the durable
+    # record/replay scenarios, RFC 0025) install beside the core wheel and
+    # participate in the environment fingerprint.
+    extra_wheels = tuple(path.resolve() for path in candidate_extra_wheels)
+    for wheel in extra_wheels:
+        fingerprint = hashlib.sha256(
+            (fingerprint + _sha256(wheel)).encode()
+        ).hexdigest()
     marker = venv / ".wheel-fingerprint"
     installed = marker.read_text().strip() if marker.exists() else ""
     if installed != fingerprint:
@@ -161,6 +170,7 @@ def ensure_candidate_environment(
                 str(python),
                 "--reinstall",
                 str(candidate_wheel),
+                *[str(wheel) for wheel in extra_wheels],
             ]
         )
         marker.write_text(fingerprint + "\n")
@@ -173,6 +183,7 @@ def prepare_environments(
     reference_python: Path | None = None,
     candidate_python: Path | None = None,
     candidate_wheel: Path | None = None,
+    candidate_extra_wheels: tuple[Path, ...] = (),
 ) -> ParityEnvironments:
     if reference_python is None:
         reference_python, reference_identity = ensure_reference_environment(
@@ -186,12 +197,13 @@ def prepare_environments(
             ensure_candidate_environment(
                 interpreter=interpreter,
                 candidate_wheel=candidate_wheel,
+                candidate_extra_wheels=candidate_extra_wheels,
             )
         )
     else:
-        if candidate_wheel is not None:
+        if candidate_wheel is not None or candidate_extra_wheels:
             raise ValueError(
-                "candidate_wheel cannot be combined with candidate_python"
+                "candidate wheels cannot be combined with candidate_python"
             )
         candidate_python = candidate_python.absolute()
         candidate_identity = environment_identity(candidate_python)

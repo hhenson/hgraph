@@ -461,7 +461,7 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
 // Hidden by default ([.]): it needs an endpoint, so it is opt-in rather than a
 // failure for everyone else, and a Catch2 skip reports as a CTest failure
 // because catch_discover_tests does not set SKIP_RETURN_CODE. Run it with:
-//     ./hgraph_unit_tests "[s3]"
+//     ./hgraph_persistence_tests "[s3]"
 TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3]")
 {
     const char *endpoint = std::getenv("HGRAPH_S3_TEST_ENDPOINT");

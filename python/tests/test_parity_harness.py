@@ -643,6 +643,54 @@ def test_reference_environment_stays_on_the_python_first_0_5_line(
     ]
 
 
+def test_candidate_extra_wheels_install_beside_the_core_wheel(
+    monkeypatch, tmp_path
+):
+    # First-party extension wheels (hgraph-persistence for the durable
+    # record/replay scenarios, RFC 0025) ride the candidate environment and
+    # its cache fingerprint.
+    import tools.parity.environments as environments
+
+    commands = []
+    python = tmp_path / "candidate-python"
+    core_wheel = tmp_path / "hgraph-0.0.0-cp312-abi3-test.whl"
+    extra_wheel = tmp_path / "hgraph_persistence-0.0.0-cp312-abi3-test.whl"
+    core_wheel.write_bytes(b"core")
+    extra_wheel.write_bytes(b"persistence")
+    (tmp_path / "envs" / "candidate-test").mkdir(parents=True)
+    monkeypatch.setattr(environments, "PARITY_ROOT", tmp_path)
+    monkeypatch.setattr(environments, "_environment_key", lambda _interpreter: "test")
+    monkeypatch.setattr(environments, "_ensure_venv", lambda _path, _interpreter: python)
+    monkeypatch.setattr(environments, "_run", commands.append)
+    monkeypatch.setattr(
+        environments, "environment_identity", lambda _interpreter: {}
+    )
+
+    _python, _identity, fingerprint = environments.ensure_candidate_environment(
+        candidate_wheel=core_wheel,
+        candidate_extra_wheels=(extra_wheel,),
+    )
+
+    assert commands == [
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--reinstall",
+            str(core_wheel.resolve()),
+            str(extra_wheel.resolve()),
+        ]
+    ]
+    _core_only_python, _identity, core_only_fingerprint = (
+        environments.ensure_candidate_environment(candidate_wheel=core_wheel)
+    )
+    assert fingerprint != core_only_fingerprint
+    marker = tmp_path / "envs" / "candidate-test" / ".wheel-fingerprint"
+    assert marker.read_text().strip() == core_only_fingerprint
+
+
 def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
     import tools.parity.environments as environments
 

@@ -1,7 +1,9 @@
 """Contracts for the generated Python API inventory and typing surface."""
 
 import ast
+import os
 from pathlib import Path
+import pickle
 import re
 import subprocess
 import sys
@@ -20,6 +22,49 @@ from tools.api_inventory import (
     collect_authoring_api,
     collect_inventory,
 )
+
+
+_EXTENSION_MODULES = ("hgraph_persistence", "hgraph_web", "hgraph_kafka", "hgraph_analytics")
+_core_inventory_cache = None
+
+
+def collect_core_inventory():
+    """collect_inventory() from the core registry only.
+
+    Installed extensions register additional overloads into the process-global
+    native registry when another test imports them (hgraph-persistence adds
+    ``replay_const`` and the durable record/replay shapes). The generated files
+    document the core surface (RFC 0025), so collect the comparison baseline in
+    a clean interpreter whenever an extension module is loaded here.
+    """
+    global _core_inventory_cache
+    if not any(
+        name == extension or name.startswith(extension + ".")
+        for name in sys.modules
+        for extension in _EXTENSION_MODULES
+    ):
+        return collect_inventory()
+    if _core_inventory_cache is None:
+        script = (
+            "import pickle, sys\n"
+            # Editable-install finders would shadow the propagated sys.path
+            # with a different build's native module; drop them first.
+            "sys.meta_path = [finder for finder in sys.meta_path"
+            " if 'ScikitBuild' not in type(finder).__name__]\n"
+            "from tools.api_inventory import collect_inventory\n"
+            "sys.stdout.buffer.write(pickle.dumps(collect_inventory()))\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=DEFAULT_RST.parents[3],
+            capture_output=True,
+            # The baseline must read the same native module as this process,
+            # just without the extension imports test ordering brought in.
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        )
+        assert result.returncode == 0, result.stderr.decode()
+        _core_inventory_cache = pickle.loads(result.stdout)
+    return _core_inventory_cache
 
 
 def test_generated_api_inventory_is_current():
@@ -70,7 +115,7 @@ def test_root_exports_cover_supported_authoring_types_and_helpers():
 
 
 def test_lazy_operators_are_typed_without_expanding_wildcard_imports():
-    inventory = collect_inventory()
+    inventory = collect_core_inventory()
     operator_names = {entry["name"] for entry in inventory["operators"]}
 
     assert "add_" in operator_names
@@ -80,7 +125,7 @@ def test_lazy_operators_are_typed_without_expanding_wildcard_imports():
 
 
 def test_registered_override_kernels_are_grouped_under_public_operators():
-    inventory = collect_inventory()
+    inventory = collect_core_inventory()
     operators = {entry["name"]: entry for entry in inventory["operators"]}
 
     assert OPERATOR_OVERRIDE_NAMES.isdisjoint(operators)
@@ -95,7 +140,7 @@ def test_registered_override_kernels_are_grouped_under_public_operators():
 
 
 def test_operator_inventory_preserves_complete_native_overloads():
-    inventory = collect_inventory()
+    inventory = collect_core_inventory()
     assert all(operator["documentation"] for operator in inventory["operators"])
     add = next(entry for entry in inventory["operators"] if entry["name"] == "add_")
 
@@ -161,7 +206,7 @@ def test_structured_doxygen_operator_documentation_is_preserved():
 
 
 def test_operator_catalogue_exposes_every_operator_signature_and_documentation():
-    inventory = collect_inventory()
+    inventory = collect_core_inventory()
     source = DEFAULT_OPERATOR_CATALOGUE.read_text(encoding="utf-8")
 
     assert source.count(".. _python-operator-") == len(inventory["operators"])
@@ -314,12 +359,13 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
                 for target in node.targets)
     )
     typed_lazy_names = {element.value for element in typing_all.value.elts}
+    # The core inventory already folds override kernels and drops namespaced
+    # extension operators (typed by their extensions, not by hgraph's stub) —
+    # and, unlike the live registry, it is immune to extension-registered
+    # operators such as hgraph-persistence's replay_const.
     public_registry_names = {
-        name for name in _hgraph.operator_names()
-        # Namespaced extension operators are typed by their extension, not by
-        # hgraph's stub (see the same filter in tools.api_inventory).
-        if not name.startswith("__") and "." not in name
-    } - OPERATOR_OVERRIDE_NAMES
+        entry["name"] for entry in collect_core_inventory()["operators"]
+    }
     explicitly_typed_names = public_registry_names & set(hgraph.__all__)
     assert typed_lazy_names | explicitly_typed_names == public_registry_names
     assert typed_lazy_names.isdisjoint(explicitly_typed_names)

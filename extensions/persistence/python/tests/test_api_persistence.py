@@ -12,6 +12,21 @@ def check(condition, message):
         raise AssertionError(message)
 
 
+def test_durable_replay_overload_registers_partition_signature():
+    # Moved from core's test_native_docstrings when the partitioned frame
+    # replay overload became extension-registered (RFC 0025 checkpoint 4).
+    import _hgraph
+
+    import hgraph_persistence  # noqa: F401  (registers the frame overloads)
+
+    replay_overloads = _hgraph.operator_overload_signatures("replay")
+    assert any(
+        ("partition_names", False, "tuple[str, ...]", True) in parameters
+        and ("removed_names", False, "tuple[str, ...]", True) in parameters
+        for parameters, *_ in replay_overloads
+    )
+
+
 def test_component_record_replay_modes():
     hg.set_record_replay_config(hg.DATA_FRAME)
     M = hg.RecordReplayEnum

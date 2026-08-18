@@ -1,36 +1,17 @@
 """Polars presentation of the durable storage surfaces (moved with
-hgraph-persistence, RFC 0025 checkpoint 4)."""
+hgraph-persistence, RFC 0025 checkpoint 4).
 
-"""Pin issue #80: the polars_frames compatibility switch.
-
-When enabled (feature flag ``polars_frames`` — ``HGRAPH_POLARS_FRAMES=true``
-or the hgraph_features config file), outbound Frame/Series values surface as
-``polars.DataFrame``/``polars.Series`` instead of ``pyarrow.Table``/``Array``.
-Inbound polars is accepted regardless of the switch (anything exposing
-``__arrow_c_stream__`` converts on ingest). Arrow remains the canonical
-runtime substrate; the switch is a Python-boundary veneer only.
+The polars_frames switch itself (issue #80) is pinned by core's
+``test_polars_frames``; this file covers only the durable-store reads.
 """
-
-import os
-import subprocess
-import sys
-from dataclasses import dataclass
-from pathlib import Path
 
 import pyarrow as pa
 import pytest
 
 import _hgraph
-from hgraph import CompoundScalar, Frame, Series, TS, pass_through
-from hgraph.test import eval_node
+from hgraph import TS
 
 polars = pytest.importorskip("polars")
-
-
-@dataclass(frozen=True)
-class PriceRow(CompoundScalar):
-    instrument: str
-    value: float
 
 
 @pytest.fixture
@@ -41,10 +22,6 @@ def polars_frames():
         yield
     finally:
         _hgraph.set_polars_frames(previous)
-
-
-def _price_table():
-    return pa.table({"instrument": ["A", "B"], "value": [101.5, 7.25]})
 
 
 def test_frame_store_read_presents_naive_utc_timestamps():
