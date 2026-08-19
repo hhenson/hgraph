@@ -257,7 +257,7 @@ Execution and testing
        evaluation error.
 
 
-.. py:function:: hgraph.test.eval_node(node, *args, output_type=None, resolution_dict=None, __trace__=False, __trace_wiring__=False, __observers__=None, __start_time__=None, __end_time__=None, __scalars__=None, __elide__=False, **kwargs)
+.. py:function:: hgraph.test.eval_node(node, *args, output_type=None, resolution_dict=None, __trace__=False, __trace_wiring__=False, __observers__=None, __start_time__=None, __end_time__=None, __scalars__=None, __elide__=False, __run_mode__='simulation', **kwargs)
 
    Evaluate a graph or node against per-cycle test input vectors.
 
@@ -278,6 +278,8 @@ Execution and testing
    :param __end_time__: Explicit evaluation bound.
    :param __scalars__: Mapping of wiring-time scalar arguments.
    :param __elide__: Return only cycles in which the output ticks.
+   :param __run_mode__: ``EvaluationMode.SIMULATION`` or
+       ``EvaluationMode.REAL_TIME``.
    :param kwargs: Named per-cycle input vectors or wiring-time scalar values.
    :return: One output value per simulated cycle, using ``None`` for cycles
        without an output tick; sink nodes return ``None``.

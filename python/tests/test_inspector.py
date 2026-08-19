@@ -454,7 +454,7 @@ def test_inspector_serves_and_expands_the_graph_while_it_is_running():
         assert next(
             row for row in rows if row["id"] == push_id
         )["value"].endswith(" items in the queue")
-        assert children_of(expand(push_id), push_id) == {"OUTPUT"}
+        assert children_of(expand(push_id), push_id) == {"OUTPUT", "SCALARS"}
 
         sink_id = next(
             row["id"]
