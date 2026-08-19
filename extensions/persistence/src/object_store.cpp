@@ -30,7 +30,7 @@ namespace hgraph::persistence::store
     ObjectStore::ObjectStore() noexcept = default;
 
     ObjectStore::ObjectStore(std::shared_ptr<void> context, const ObjectStoreOps &ops)
-        : context_(std::move(context)), ops_(&ops)
+        : context_(std::move(context)), ops_(ops)
     {
         if (!context_)
         {
@@ -44,7 +44,7 @@ namespace hgraph::persistence::store
     }
 
     ObjectStore::ObjectStore(ObjectStore &&other) noexcept
-        : context_(std::move(other.context_)), ops_(std::exchange(other.ops_, &empty_ops()))
+        : context_(std::move(other.context_)), ops_(std::exchange(other.ops_, empty_ops()))
     {
     }
 
@@ -53,7 +53,7 @@ namespace hgraph::persistence::store
         if (this != &other)
         {
             context_ = std::move(other.context_);
-            ops_ = std::exchange(other.ops_, &empty_ops());
+            ops_ = std::exchange(other.ops_, empty_ops());
         }
         return *this;
     }
@@ -62,13 +62,13 @@ namespace hgraph::persistence::store
                                                     std::span<const std::byte> data) const
     {
         require_valid_key(key);
-        return ops_->put_immutable(context_.get(), key, data);
+        return ops_.put_immutable(context_.get(), key, data);
     }
 
     std::optional<StoredObject> ObjectStore::get(std::string_view key) const
     {
         require_valid_key(key);
-        return ops_->get(context_.get(), key);
+        return ops_.get(context_.get(), key);
     }
 
     ObjectListPage ObjectStore::list(std::string_view                prefix,
@@ -97,7 +97,7 @@ namespace hgraph::persistence::store
         {
             throw std::invalid_argument("object store list limit is too large");
         }
-        return ops_->list(context_.get(), prefix, start_after, limit);
+        return ops_.list(context_.get(), prefix, start_after, limit);
     }
 
     CompareExchangeResult ObjectStore::compare_exchange_ref(
@@ -109,17 +109,17 @@ namespace hgraph::persistence::store
         {
             throw std::invalid_argument("an expected object version must not be empty");
         }
-        return ops_->compare_exchange_ref(context_.get(), key, expected_version, desired);
+        return ops_.compare_exchange_ref(context_.get(), key, expected_version, desired);
     }
 
-    void ObjectStore::clear() const { ops_->clear(context_.get()); }
+    void ObjectStore::clear() const { ops_.clear(context_.get()); }
 
     ObjectStore::operator bool() const noexcept { return context_ != nullptr; }
 
     void ObjectStore::reset() noexcept
     {
         context_.reset();
-        ops_ = &empty_ops();
+        ops_ = empty_ops();
     }
 
     ObjectStore make_object_store(ObjectStoreConfig config)

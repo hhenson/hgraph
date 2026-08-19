@@ -62,9 +62,9 @@ namespace
         std::optional<StoredObject> object{};
     };
 
-    [[nodiscard]] const ObjectStoreOps &probe_ops()
+    [[nodiscard]] ObjectStoreOps probe_ops()
     {
-        static const ObjectStoreOps ops{
+        return ObjectStoreOps{
             [](void *context, std::string_view, std::span<const std::byte> data) {
                 auto &probe = *static_cast<ProbeStore *>(context);
                 probe.object = StoredObject{ObjectBytes{data.begin(), data.end()}, "probe"};
@@ -84,7 +84,6 @@ namespace
             },
             [](void *context) { static_cast<ProbeStore *>(context)->object.reset(); },
         };
-        return ops;
     }
 
     void check_store_contract(ObjectStore store)
@@ -207,7 +206,9 @@ TEST_CASE("object store: public facade owns an erased strategy and has a "
 
     auto                      context = std::make_shared<ProbeStore>();
     const std::weak_ptr<void> lifetime = context;
-    ObjectStore               store{context, probe_ops()};
+    // A downstream strategy may build its operations table on demand. The
+    // handle must own that table rather than borrow this temporary.
+    ObjectStore store{context, probe_ops()};
     ObjectStore               copy = store;
     context.reset();
 
@@ -509,4 +510,10 @@ TEST_CASE("object store: S3 uses conditional writes, ETags, and ordered discover
     check_concurrent_winners(store, "race");
     store.clear();
     store.reset();
+
+    auto missing_bucket = location;
+    missing_bucket.bucket += "-missing";
+    auto invalid_store = make_object_store(ObjectStoreConfig{missing_bucket});
+    CHECK_THROWS_AS(invalid_store.get("absent"), ObjectStoreError);
+    invalid_store.reset();
 }

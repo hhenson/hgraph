@@ -26,6 +26,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <mutex>
 #include <stdexcept>
 #include <unordered_map>
@@ -467,7 +468,22 @@ namespace hgraph::persistence::store
             {
                 throw std::invalid_argument("a local frame store requires a root directory");
             }
-            auto root = local->root;
+            const auto      configured_root = local->root;
+            std::error_code error;
+            std::filesystem::create_directories(configured_root, error);
+            if (error)
+            {
+                throw std::runtime_error("create local frame-store root '" + configured_root +
+                                         "': " + error.message());
+            }
+            const auto resolved_root = std::filesystem::canonical(configured_root, error);
+            if (error)
+            {
+                throw std::runtime_error("resolve local frame-store root '" + configured_root +
+                                         "': " + error.message());
+            }
+            auto root = resolved_root.string();
+            std::get<LocalLocation>(config.location).root = root;
             auto fs = std::make_shared<arrow::fs::LocalFileSystem>();
             check(fs->CreateDir(root, true), "create store root");
             auto object_store = make_object_store(ObjectStoreConfig{config.location});

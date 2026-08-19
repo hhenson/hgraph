@@ -69,6 +69,45 @@ namespace hgraph::persistence::store::impl
             bool               capture_object{false};
         };
 
+        [[nodiscard]] std::string_view response_payload(const CurlResponse &response) noexcept
+        {
+            if (!response.body.empty())
+            {
+                return response.body;
+            }
+            if (response.data.empty())
+            {
+                return {};
+            }
+            return {reinterpret_cast<const char *>(response.data.data()), response.data.size()};
+        }
+
+        [[nodiscard]] std::optional<std::string_view> s3_error_code(
+            const CurlResponse &response) noexcept
+        {
+            constexpr std::string_view open{"<Code>"};
+            constexpr std::string_view close{"</Code>"};
+            const auto                 payload = response_payload(response);
+            const auto                 begin = payload.find(open);
+            if (begin == std::string_view::npos)
+            {
+                return std::nullopt;
+            }
+            const auto value_begin = begin + open.size();
+            const auto end = payload.find(close, value_begin);
+            if (end == std::string_view::npos)
+            {
+                return std::nullopt;
+            }
+            return payload.substr(value_begin, end - value_begin);
+        }
+
+        [[nodiscard]] bool is_missing_s3_key(const CurlResponse &response) noexcept
+        {
+            const auto code = s3_error_code(response);
+            return response.status == 404 && code && *code == "NoSuchKey";
+        }
+
         [[nodiscard]] std::string_view trim_header_value(std::string_view value)
         {
             while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
@@ -130,7 +169,7 @@ namespace hgraph::persistence::store::impl
                     const auto            available = max_error_body > response.body.size()
                                                           ? max_error_body - response.body.size()
                                                           : 0;
-                    response.body.append(data, std::min(length, available));
+                    response.body.append(data, (std::min)(length, available));
                 }
             }
             catch (...)
@@ -251,7 +290,7 @@ namespace hgraph::persistence::store::impl
             {
                 CurlHeaders headers;
                 auto        response = signed_request(key, "GET", headers, {}, true);
-                if (response.status == 404)
+                if (is_missing_s3_key(response))
                 {
                     return std::nullopt;
                 }
@@ -449,9 +488,10 @@ namespace hgraph::persistence::store::impl
                                                         std::string_view    key,
                                                         const CurlResponse &response)
             {
+                const auto payload = response_payload(response);
                 throw ObjectStoreError(std::string{operation} + " for key '" + std::string{key} +
                                        "' returned HTTP " + std::to_string(response.status) +
-                                       (response.body.empty() ? "" : ": " + response.body));
+                                       (payload.empty() ? "" : ": " + std::string{payload}));
             }
 
             S3Location                               location_{};

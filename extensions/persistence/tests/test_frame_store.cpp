@@ -143,6 +143,28 @@ namespace
         std::filesystem::path path_;
     };
 
+    class CurrentPathGuard
+    {
+      public:
+        explicit CurrentPathGuard(const std::filesystem::path &path)
+            : original_(std::filesystem::current_path())
+        {
+            std::filesystem::current_path(path);
+        }
+        CurrentPathGuard(const CurrentPathGuard &) = delete;
+        CurrentPathGuard &operator=(const CurrentPathGuard &) = delete;
+        ~CurrentPathGuard()
+        {
+            std::error_code ignored;
+            std::filesystem::current_path(original_, ignored);
+        }
+
+        void set(const std::filesystem::path &path) { std::filesystem::current_path(path); }
+
+      private:
+        std::filesystem::path original_;
+    };
+
     [[nodiscard]] FrameStoreConfig local_config(const TempDir &dir, Format format)
     {
         FrameStoreConfig config;
@@ -306,6 +328,27 @@ TEST_CASE("frame store: a local store persists frames as files")
     {
         CHECK(entry.path().filename().string().find(".hgraph-tmp-") == std::string::npos);
     }
+}
+
+TEST_CASE("frame store: a relative local root is resolved once")
+{
+    TempDir workspace{"relative_root"};
+    std::filesystem::create_directories(workspace.string());
+    CurrentPathGuard current_path{workspace.string()};
+
+    FrameStoreConfig config;
+    config.location = LocalLocation{"objects"};
+    auto store = make_frame_store(config);
+
+    const auto elsewhere = std::filesystem::path{workspace.string()} / "elsewhere";
+    std::filesystem::create_directories(elsewhere);
+    current_path.set(elsewhere);
+
+    store.write("run/value", make_frame());
+    CHECK(store.contains("run/value"));
+    CHECK(store.read("run/value").table->num_rows() == 2);
+    store.clear();
+    CHECK_FALSE(store.contains("run/value"));
 }
 
 TEST_CASE("frame store: both formats round-trip a frame")

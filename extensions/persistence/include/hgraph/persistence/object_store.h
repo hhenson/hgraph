@@ -97,7 +97,9 @@ namespace hgraph::persistence::store
      * Reads return ``std::nullopt`` only for an absent key; backend failures
      * throw ``ObjectStoreError`` and are never reclassified as absence or a
      * conditional-write conflict. Version tokens are opaque and meaningful
-     * only to the store which returned them.
+     * only to the store which returned them. The operations table supplied to
+     * the constructor is copied into the handle, so downstream strategies may
+     * construct it dynamically without imposing a separate lifetime contract.
      */
     class HGRAPH_PERSISTENCE_EXPORT ObjectStore final
     {
@@ -129,7 +131,7 @@ namespace hgraph::persistence::store
         [[nodiscard]] static const ObjectStoreOps &empty_ops() noexcept;
 
         std::shared_ptr<void> context_{};
-        const ObjectStoreOps *ops_{&empty_ops()};
+        ObjectStoreOps        ops_{empty_ops()};
     };
 
     [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT ObjectStore make_object_store(ObjectStoreConfig config);
