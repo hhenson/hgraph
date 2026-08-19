@@ -1219,7 +1219,8 @@ Lowering a graph over Arrow frames
 It wires each input ``Frame`` through the native ``from_data_frame`` source,
 invokes the graph through ``WiredFn``, snapshots output ticks with
 ``to_data_frame``, and concatenates those snapshots into one result frame. No
-record/replay backend or process-global frame store is involved.
+record/replay backend is involved, and it needs no ``hgraph-persistence``
+install: ``lower`` is core stdlib over the core ``Frame`` value kind.
 
 Input frames follow the graph's time-series ``Port`` parameter order. Scalar
 ``TS<T>`` uses ``date`` and ``value`` columns by default; ``TSD<K, TS<T>>``

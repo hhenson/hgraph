@@ -643,7 +643,9 @@ Types and scalars
        ``__arrow_c_stream__``; frame reads yield ``pyarrow.Table`` and
        consumers use ``pl.from_arrow``. The to-frame ``convert`` family, the
        DATA_FRAME record/replay model (``recordable_id`` +
-       ``set_data_frame_overrides``), the data-source generators, join,
+       ``set_data_frame_overrides``, now served by ``hgraph-persistence``
+       under backend id ``"hgraph.persistence.frame"``), the data-source
+       generators, join,
        structural filters, group/ungroup, sorting, concatenation, column
        replacement/projection, and Series-to-tuple conversion execute
        Arrow-native. Python expression filters are retained for the
