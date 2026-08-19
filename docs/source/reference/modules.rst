@@ -38,7 +38,8 @@ Adaptor packages
      - Purpose
      - Installation
    * - ``hgraph.adaptors.data_frame``
-     - Arrow/Polars data sources and frame record/replay
+     - Arrow/Polars data sources; durable record/replay resolves lazily from
+       ``hgraph-persistence``
      - ``hgraph[dataframe]``
    * - ``hgraph.adaptors.sql``
      - SQL sources, sinks and batch access
@@ -68,6 +69,12 @@ Adaptor packages
      - Run child graph engines on worker threads
      - core package
 
-Kafka is a separate first-party extension distribution, ``hgraph-kafka``, not
-an extra of the core wheel. Each module's exact public names are listed in
-:doc:`python_api_inventory`.
+``hgraph-kafka``, ``hgraph-analytics``, ``hgraph-web`` and
+``hgraph-persistence`` are separate first-party extension distributions, not
+extras of the core wheel — though an extra may depend on one, as
+``hgraph[dataframe]`` depends on ``hgraph-persistence``. The durable
+record/replay surface reached through ``hgraph.adaptors.data_frame`` keeps its
+released import paths and resolves lazily from that distribution, raising a
+pointed install error only when a durable name is used; the name mapping is in
+:doc:`../user_guide/persistence_migration`. Each module's exact public names
+are listed in :doc:`python_api_inventory`.

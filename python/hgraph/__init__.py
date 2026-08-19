@@ -19,7 +19,7 @@ from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, RE
                      NUMBER, NUMBER_2,
                      DEFAULT, REF, K, V, SCHEMA, TS_SCHEMA,
                      SIGNAL, WINDOW_SIZE, WINDOW_SIZE_MIN, WindowSize, Array, ts_schema, ENUM)
-from ._compat import (CmpResult, DivideByZero, RecordAsOf, RecordRemoves,
+from ._compat import (CmpResult, DivideByZero,
                       exception_time_series, try_except,
                       TryExceptResult, TryExceptTsdMapResult, NodeError,
                       OperatorWiringNodeClass, BoolResult, CompoundScalar, JSON, TimeSeriesReference,
@@ -82,12 +82,28 @@ def _persistence():
 
 
 def frame_store_contains(key, global_state=None):
-    """Whether the active graph's frame store contains ``key``."""
+    """Whether the active graph's frame store contains ``key``.
+
+    Deprecated: the frame store belongs to hgraph-persistence (RFC 0025).
+    """
+    from ._deprecation import warn_moved_to_persistence
+
+    warn_moved_to_persistence(
+        "hgraph.frame_store_contains", "hgraph_persistence.frame_store_contains"
+    )
     return _persistence().frame_store_contains(key, global_state)
 
 
 def frame_store_read(key, global_state=None):
-    """Load one complete frame from the active graph's frame store."""
+    """Load one complete frame from the active graph's frame store.
+
+    Deprecated: the frame store belongs to hgraph-persistence (RFC 0025).
+    """
+    from ._deprecation import warn_moved_to_persistence
+
+    warn_moved_to_persistence(
+        "hgraph.frame_store_read", "hgraph_persistence.frame_store_read"
+    )
     return _persistence().frame_store_read(key, global_state)
 
 TimeSeries = _hgraph.TimeSeries
@@ -101,8 +117,6 @@ _hgraph._set_set_delta_class(_SetDelta)
 _hgraph._set_delta_shaper(_simplify_delta)
 _hgraph._set_cmp_result_enum(CmpResult)
 _hgraph._set_divide_by_zero_enum(DivideByZero)
-_hgraph._set_record_as_of_enum(RecordAsOf)
-_hgraph._set_record_removes_enum(RecordRemoves)
 
 from ._wiring import _Combine as _CombineClass
 combine = _CombineClass()
@@ -157,11 +171,28 @@ drop_dups = operator_function("dedup")
 _EXTENSION_OPERATOR_CONTRACTS = frozenset({"replay_const"})
 
 
+# Durable recording option vocabularies moved to hgraph-persistence at
+# RFC 0025 checkpoint 5. The C++ names moved outright (pre-1.0); these
+# Python spellings remain as deprecated aliases for the whole pre-1.0
+# bridge release and are removed at 1.0, with the rest of the compatibility
+# layer (RFC 0025 "Deprecation and removal policy", RFC 0005).
+_MOVED_TO_PERSISTENCE = frozenset({"RecordAsOf", "RecordRemoves"})
+
+
 def __getattr__(name):
     if name in _OPERATOR_NAMES or name in _EXTENSION_OPERATOR_CONTRACTS:
         fn = operator_function(name)
         globals()[name] = fn  # cache
         return fn
+    if name in _MOVED_TO_PERSISTENCE:
+        from ._deprecation import warn_moved_to_persistence
+
+        warn_moved_to_persistence(
+            f"hgraph.{name}", f"hgraph_persistence.{name}", stacklevel=3
+        )
+        value = getattr(_persistence(), name)
+        globals()[name] = value  # cache
+        return value
     if name == "WindowResult":
         from ._compat import _window_result
         globals()[name] = _window_result()  # lazy: its annotations subscript TS[...]
@@ -170,7 +201,10 @@ def __getattr__(name):
 
 
 def __dir__():
-    return sorted(set(globals()) | _OPERATOR_NAMES | _EXTENSION_OPERATOR_CONTRACTS)
+    return sorted(
+        set(globals()) | _OPERATOR_NAMES | _EXTENSION_OPERATOR_CONTRACTS
+        | _MOVED_TO_PERSISTENCE
+    )
 
 
 __all__ = [

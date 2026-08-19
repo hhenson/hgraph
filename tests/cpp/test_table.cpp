@@ -799,3 +799,52 @@ TEST_CASE("table type ops: registry reset withdraws exact-schema overrides")
         TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
     CHECK(&table_type_ops(reseeded_schema) != &extension_table_ops);
 }
+
+TEST_CASE("table type ops: registering operators does not strand a pre-reset override")
+{
+    // Withdrawal is lazy, so whatever marks the caches "current" must also
+    // empty them. Registering the standard operators clears the layout cache;
+    // when it also re-stamped the generation, the overrides were marked
+    // current without being emptied and the sweep never fired again -- a stale
+    // override then answered for whatever schema next landed on its recycled
+    // address, and the run died in apply with a checked_as type mismatch.
+    //
+    // Whether the address is actually recycled is up to the allocator, so the
+    // sequence repeats: the defect this pins reproduced in roughly one run in
+    // ten, which a single pass would miss.
+    for (int attempt = 0; attempt < 25; ++attempt)
+    {
+        const auto *schema =
+            TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+        register_table_type_ops(schema, extension_table_ops);
+
+        reset_all_registries();
+        stdlib::register_standard_operators();
+
+        const auto *reseeded =
+            TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+        REQUIRE(&table_type_ops(reseeded) != &extension_table_ops);
+    }
+}
+
+TEST_CASE("table type ops: an override registered after a reset is not swept away")
+{
+    // Withdrawal is lazy: the overrides live above reset_all_registries() in
+    // the link order, so they drop themselves when the type registry's reset
+    // generation moves rather than being cleared by it. Registering re-stamps
+    // that generation, so a pre-reset entry still in the map when a new one is
+    // written would never be collected -- and the sweep, once it did run,
+    // would take the new entry with it.
+    const auto *stale =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    register_table_type_ops(stale, extension_table_ops);
+
+    reset_all_registries();
+
+    const auto *schema =
+        TypeRegistry::instance().ts(scalar_descriptor<ExtensionTableScalar>::value_meta());
+    register_table_type_ops(schema, extension_table_ops);
+    CHECK(&table_type_ops(schema) == &extension_table_ops);
+    // A second resolution runs the sweep again; the override must survive it.
+    CHECK(&table_type_ops(schema) == &extension_table_ops);
+}

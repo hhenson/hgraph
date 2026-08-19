@@ -401,7 +401,7 @@ stateDiagram-v2
 | **Initialized** | One-time setup, cache preparation |
 | **Started** | Active operation, resources acquired |
 | **Evaluating** | Processing data in evaluation loop |
-| **Stopped** | Paused, resources may be released |
+| **Stopped** | Teardown step toward disposal (never restarted; ruling 2026-07-04) |
 | **Disposed** | Final cleanup, no recovery possible |
 
 ---

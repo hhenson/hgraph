@@ -368,6 +368,14 @@ conversion and DataFrame storage metadata. Inside a Python node, declare a
 ``DataFrameStorage.write_frame`` directly; runtime code must not call
 ``GlobalState.instance()``.
 
+``DataFrameStorage`` and the rest of the durable surface are served by the
+optional ``hgraph-persistence`` distribution (RFC 0025), which
+``hgraph[dataframe]`` installs. The released
+``hgraph.adaptors.data_frame`` import paths still resolve them, and the two
+table-schema setters above are core — but using a durable name without the
+extension installed raises a pointed install error. The complete name and
+backend mapping is in :doc:`persistence_migration`.
+
 Individual recordings can override the graph defaults. Supply the same
 projection to ``replay``; current recordings persist this contract in Arrow
 schema metadata and reject a mismatch at graph start:

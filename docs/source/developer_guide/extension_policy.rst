@@ -186,9 +186,10 @@ the serialized artifact.
 Durable checkpoint and store contract
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Priority: medium.** The core has typed record/replay and in-memory/Arrow
-foundations, but long-running applications still need a generic durable store
-and checkpoint/recovery contract. Any proposal must define consistency
+**Priority: medium.** Core has the typed record/replay participation contracts
+and the in-memory reference backends, and ``hgraph-persistence`` has the
+durable Arrow stores, but long-running applications still need a generic
+checkpoint/recovery contract spanning the two. Any proposal must define consistency
 boundaries, schema/version migration, idempotency, and the relation between
 recorded inputs, node state, and external effects.
 

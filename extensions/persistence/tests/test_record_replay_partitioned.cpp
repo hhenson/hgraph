@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/persistence/recording_options.h>
 #include <hgraph/persistence/recording_store.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -199,7 +200,7 @@ using namespace hgraph::persistence::store;
         static Port<TS_> compose(Wiring &w, Port<TS_> ts)
         {
             wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
-                                 arg<"removes">(stdlib::RecordRemoves::Track));
+                                 arg<"removes">(persistence::RecordRemoves::Track));
             return ts;
         }
     };
@@ -232,7 +233,7 @@ using namespace hgraph::persistence::store;
             auto out = wire<stdlib::replay, TS_>(w, Str{"ticks"}, arg<"recordable_id">(Str{"book"}))
                            .template as<TS_>();
             wire<stdlib::record>(w, out, Str{"echo"}, arg<"recordable_id">(Str{"book"}),
-                                 arg<"removes">(stdlib::RecordRemoves::Track));
+                                 arg<"removes">(persistence::RecordRemoves::Track));
             return out;
         }
     };
@@ -678,7 +679,7 @@ namespace
         static Port<TS_> compose(Wiring &w, Port<TS_> ts)
         {
             wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
-                                 arg<"removes">(stdlib::RecordRemoves::Track),
+                                 arg<"removes">(persistence::RecordRemoves::Track),
                                  arg<"removed_names">(names_tuple({"gone"})));
             return ts;
         }

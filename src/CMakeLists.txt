@@ -1,5 +1,8 @@
 set(HGRAPH_RUNTIME_SOURCES
     hgraph/version.cpp
+    hgraph/util/sha256.cpp
+    hgraph/manifest/schema_descriptor.cpp
+    hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
@@ -191,6 +194,23 @@ if(HGRAPH_BUILD_SHARED)
                     $<$<CONFIG:RelWithDebInfo>:-fno-semantic-interposition>
                     $<$<CONFIG:MinSizeRel>:-fno-semantic-interposition>
                 )
+            endforeach()
+        endif()
+
+        if(NOT HGRAPH_BUILD_PYTHON_BINDINGS AND NOT HGRAPH_ENABLE_PYTHON_USER_NODES)
+            # Keep the library layering enforceable on Linux. Mach-O rejects an
+            # undefined symbol when the shared library is linked; ELF defers it
+            # to load time. So a call from a LOWER library into a HIGHER one
+            # (hgraph_wiring naming an hgraph_stdlib symbol, which is exactly
+            # what reset_all_registries() did) links cleanly here and fails only
+            # on macOS — far from the edit that caused it, and invisible to a
+            # Linux-only shared CI leg. Ask the ELF linker for the same answer.
+            #
+            # Python-enabled builds are excluded: their runtime legitimately
+            # leaves interpreter symbols to be resolved by the process that
+            # imports the extension module.
+            foreach(_hgraph_target IN ITEMS hgraph_runtime hgraph_wiring hgraph_stdlib)
+                target_link_options(${_hgraph_target} PRIVATE LINKER:--no-undefined)
             endforeach()
         endif()
 

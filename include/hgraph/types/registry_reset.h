@@ -9,12 +9,21 @@
 // processes never reset.
 //
 // The ONE exception is a cache that sits ABOVE this function in the link order
-// (hgraph_stdlib links hgraph_runtime, not the reverse), which reset_all_registries()
-// cannot name without inverting the dependency. Such a cache compares
-// ``TypeRegistry::reset_generation()`` and drops itself when it moves — see
-// ``ts_table_layout``. That is self-invalidating, not a second teardown
-// sequence: no caller has to remember it. Do NOT use it to opt a
-// reachable cache out of the list above.
+// (hgraph_stdlib links hgraph_wiring links hgraph_runtime, never the reverse),
+// which reset_all_registries() cannot name without inverting the dependency.
+// Such a cache compares ``TypeRegistry::reset_generation()`` and drops itself
+// when it moves — see ``ts_table_layout`` and the table type-ops overrides
+// beside it. That is self-invalidating, not a second teardown sequence: no
+// caller has to remember it. Do NOT use it to opt a reachable cache out of the
+// list above.
+//
+// This is a LINK constraint, not a style preference. Calling an hgraph_stdlib
+// symbol from here compiles, and on ELF it even links — the undefined symbol
+// is simply deferred to load time — so a Linux-only CI leg reports nothing.
+// Mach-O's default ``-undefined error`` rejects it outright, so the failure
+// surfaces as a broken macOS shared build far from the edit that caused it.
+// Every clear named below is defined in hgraph_runtime or hgraph_wiring; keep
+// it that way.
 #ifndef HGRAPH_TYPES_REGISTRY_RESET_H
 #define HGRAPH_TYPES_REGISTRY_RESET_H
 

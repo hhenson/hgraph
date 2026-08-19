@@ -5,6 +5,7 @@ serialized because the stack and native operator registry are process-wide;
 the serialization ends once the native executor has been built, so distinct
 executors may run concurrently. ``_wiring_stack`` is THE single list object:
 tests and C++ re-entry mutate it in place; nothing may rebind it."""
+import re
 import threading
 
 import _hgraph
@@ -40,17 +41,76 @@ def register_record_replay_wiring_adapter(adapter):
     _record_replay_wiring_adapter = adapter
 
 
-def _durable_wiring_hint(name):
+# Operators with NO in-memory implementation: core declares the contract and
+# only hgraph-persistence registers an overload, so a resolution failure on
+# one of these is a candidate for the missing-extension diagnosis whatever
+# backend is configured.
+_EXTENSION_ONLY_OPERATORS = frozenset({"replay_const"})
+
+# The native resolver reports a resolution failure two ways, and a missing
+# extension shows up as EITHER: overloads exist but none matched the call, or
+# the operator marker itself is absent because only the extension registers
+# one. Anything else -- an argument type error, a bad key -- is not about
+# which overloads are registered and must not attract install advice.
+_NO_MATCHING_OVERLOAD = "no matching overload for operator"
+_NO_SUCH_OPERATOR = re.compile(r"no operator '[^']*' is registered")
+
+
+def _is_resolution_failure(message):
+    return _NO_MATCHING_OVERLOAD in message or _NO_SUCH_OPERATOR.search(message) is not None
+
+
+def _durable_backend_selected(kwargs):
+    """Whether a durable backend is actually in play for this call."""
+    model = (kwargs or {}).get("model")
+    if model is None:
+        try:
+            from ._state import GlobalState
+
+            model = GlobalState.instance().get("__record_replay_model__")
+        except Exception:  # no active global state — nothing was selected
+            return False
+    if model is None:
+        return False
+    try:
+        from ._state import _LEGACY_BACKENDS, _LEGACY_DATA_FRAME_RECORD_REPLAY
+
+        if model == _LEGACY_DATA_FRAME_RECORD_REPLAY:
+            model = _hgraph.DATA_FRAME
+        model = _LEGACY_BACKENDS.get(model, model)
+    except Exception:  # translation is best-effort; the id check still holds
+        pass
+    # The SAME prefix the load point in _ensure_backend_extension recognises.
+    # Backend selection is open, so an independently registered backend may
+    # legitimately use another "hgraph.*" id; blaming persistence for it would
+    # be the very misattribution this function exists to stop.
+    return isinstance(model, str) and model.startswith("hgraph.persistence.")
+
+
+def _durable_wiring_hint(name, kwargs=None, message=""):
     """The missing-extension diagnosis for a durable operator's wiring failure.
 
-    Wiring diagnoses the missing backend (RFC 0025): a resolution failure on a
-    record/replay operator is unexplained when the cause is that the durable
-    overloads never registered — either the optional distribution is absent, or
-    it is installed but nothing selected a durable backend, so it never loaded.
+    Wiring diagnoses the missing backend (RFC 0025), but only where the durable
+    path is genuinely implicated. Two gates keep it honest:
+
+    * The failure must be a resolution failure. Appending install advice to an
+      argument-type error sends the caller after a distribution they do not
+      need.
+    * Selecting a durable backend IS the extension load point, at graph level
+      or per call, and an absent distribution raises a pointed error THERE. So
+      for ``record``/``replay``/``compare`` an unloaded extension means no
+      durable backend was ever selected and the failure is unrelated. Only
+      ``replay_const``, which has no in-memory implementation at all, can fail
+      this way without a durable selection.
+
     Availability is probed without importing (importing would register the
     overloads as an error-path side effect).
     """
     if name not in _DURABLE_OPERATORS:
+        return ""
+    if not _is_resolution_failure(message):
+        return ""
+    if name not in _EXTENSION_ONLY_OPERATORS and not _durable_backend_selected(kwargs):
         return ""
     import importlib.util
     import sys
@@ -145,7 +205,8 @@ def wire(name, *args, __output_type__=None, **kwargs):
         # std::invalid_argument surfaces as ValueError; both are wiring-time.
         # (RequirementsNotMetWiringError arrives ALREADY typed - the C++
         # resolver throws OperatorRequirementsError, translated directly.)
-        raise WiringError(str(error) + _durable_wiring_hint(name)) from error
+        message = str(error)
+        raise WiringError(message + _durable_wiring_hint(name, kwargs, message)) from error
     return WiringPort(result) if result is not None else None
 
 

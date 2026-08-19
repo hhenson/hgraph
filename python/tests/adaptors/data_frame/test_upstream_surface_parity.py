@@ -67,20 +67,26 @@ def test_package_root_has_exact_curated_surface():
 
 
 def test_private_module_paths_match_upstream_import_sites():
-    # Upstream's _lift imports from the private module path; user code copies it.
+    # Upstream's _lift imports from the private module path; user code copies
+    # it. The backend sentinel is core (it selects the backend); the durable
+    # recording state moved to hgraph-persistence at RFC 0025 checkpoint 5 and
+    # resolves through the same private path when it is installed.
     from hgraph.adaptors.data_frame._data_frame_record_replay import (  # noqa: F401
         DATA_FRAME_RECORD_REPLAY,
-        DATA_FRAME_RECORD_REPLAY_PATH,
-        DATA_FRAME_RECORD_OVERRIDES,
-    )
-    # The storage classes resolve through the same private path when the
-    # optional hgraph-persistence distribution is installed (RFC 0025).
-    pytest.importorskip("hgraph_persistence")
-    from hgraph.adaptors.data_frame._data_frame_record_replay import (  # noqa: F401
-        MemoryDataFrameStorage,
     )
 
     assert DATA_FRAME_RECORD_REPLAY == ":data_frame:__data_frame_record_replay__"
+
+    pytest.importorskip("hgraph_persistence")
+    from hgraph.adaptors.data_frame._data_frame_record_replay import (  # noqa: F401
+        DATA_FRAME_RECORD_OVERRIDES,
+        DATA_FRAME_RECORD_REPLAY_PATH,
+        MemoryDataFrameStorage,
+        get_data_frame_record_overrides,
+        set_data_frame_overrides,
+        set_data_frame_record_path,
+    )
+
     assert DATA_FRAME_RECORD_REPLAY_PATH == ":data_frame:__path__"
     assert DATA_FRAME_RECORD_OVERRIDES == ":data_frame:__overrides__"
 
