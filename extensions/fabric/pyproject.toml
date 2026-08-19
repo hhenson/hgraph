@@ -1,0 +1,48 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.12",
+    "nanobind==2.13.0",
+    "pyarrow>=25,<26",
+    "hgraph>=0.8.0",
+    "hgraph-persistence>=0.8.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "hgraph-fabric"
+version = "0.0.0"
+description = "Versioned dataflow fabric for recurring hgraph computations"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = ["hgraph>=0.8.0", "hgraph-persistence>=0.8.0"]
+
+[project.urls]
+Homepage = "https://github.com/hhenson/hgraph"
+Repository = "https://github.com/hhenson/hgraph.git"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.scikit-build]
+cmake.source-dir = "."
+cmake.args = [
+    "-DHGRAPH_FABRIC_BUILD_PYTHON=ON",
+    "-DBUILD_TESTING=OFF",
+]
+install.components = ["Python", "Development"]
+wheel.packages = ["python/hgraph_fabric"]
+wheel.py-api = "cp312"
+sdist.include = [
+    "CMakeLists.txt",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "cmake/**",
+    "include/**",
+    "python/**",
+    "src/**",
+    "tests/**",
+    "test_package/**",
+    "tools/**",
+]

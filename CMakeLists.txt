@@ -74,6 +74,7 @@ option(HGRAPH_BUILD_KAFKA_EXTENSION "Build the first-party Kafka extension" OFF)
 option(HGRAPH_BUILD_ANALYTICS_EXTENSION "Build the first-party analytics extension" OFF)
 option(HGRAPH_BUILD_WEB_EXTENSION "Build the first-party web extension" OFF)
 option(HGRAPH_BUILD_PERSISTENCE_EXTENSION "Build the first-party persistence extension" OFF)
+option(HGRAPH_BUILD_FABRIC_EXTENSION "Build the first-party versioned dataflow fabric extension" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -768,6 +769,14 @@ endif()
 
 if(HGRAPH_BUILD_PERSISTENCE_EXTENSION)
     add_subdirectory(extensions/persistence)
+endif()
+
+if(HGRAPH_BUILD_FABRIC_EXTENSION)
+    if(NOT TARGET hgraph::persistence)
+        message(FATAL_ERROR
+            "HGRAPH_BUILD_FABRIC_EXTENSION requires HGRAPH_BUILD_PERSISTENCE_EXTENSION=ON")
+    endif()
+    add_subdirectory(extensions/fabric)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")

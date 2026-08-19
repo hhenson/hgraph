@@ -608,6 +608,9 @@ The concrete persistence spelling is resolved with the prerequisite store
 contract described above.  ``prefix`` and every data id use the common
 persistence key validation rules.  A configuration error fails at wiring or
 start; it never falls back from S3/Kafka to process memory.
+The two ``Auto`` defaults may select only ``Live`` or ``Replay``.  They cannot
+select ``Auto`` recursively or ``Snapshot``, because a snapshot requires the
+explicit ``as_of`` carried by its operator call.
 
 Dependency discovery
 --------------------
@@ -766,12 +769,63 @@ lifecycle rules must not delete fabric prefixes behind the protocol's back.
 Revision serialisation
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Revision, as-of and latest objects use a versioned canonical metadata encoding
-owned by ``hgraph-fabric`` and stored through ``hgraph-persistence``.  The
-semantic fields above are independent of JSON, a binary value codec or an
-implementation language.  Before implementation acceptance the exact byte
-encoding and media type must be fixed, deterministic, bounds-checked, and
-covered by golden C++/Python fixtures.  Unknown format versions fail closed.
+Revision, as-of and latest objects use the fabric-owned ``HGFM`` binary
+envelope and are stored through ``hgraph-persistence``.  Version 1 starts with
+this eight-byte header:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 20 60
+
+   * - Bytes
+     - Type
+     - Meaning
+   * - 0--3
+     - four octets
+     - ASCII magic ``HGFM``
+   * - 4
+     - unsigned byte
+     - envelope version, exactly ``1``
+   * - 5
+     - unsigned byte
+     - object kind: revision ``1``, as-of reference ``2`` or latest reference
+       ``3``
+   * - 6--7
+     - unsigned 16-bit
+     - big-endian flags
+
+A revision permits only flag bit 0, which states that
+``self_predecessor`` is present.  Its payload is, in order:
+
+.. code-block:: text
+
+   revision             uint64 big-endian
+   output_version       uint64 big-endian
+   as_of                 int64 epoch microseconds, big-endian two's complement
+   data_id               uint32 byte length + UTF-8 bytes
+   dependency_count      uint32 big-endian
+   dependencies          repeated (uint32 id length + UTF-8 id + uint64 version)
+   self_predecessor      uint64, only when flag bit 0 is set
+
+Revision, output and dependency versions are positive and fit the public
+signed 64-bit contract.  Dependencies are strictly increasing by their UTF-8
+data-id byte sequence, contain no duplicate or self id, and are limited to
+65,535 entries.  A data id is non-empty valid UTF-8, contains no Unicode
+control code point and occupies at most 4,096 bytes.  The complete object is
+limited to 16 MiB.
+
+As-of and latest references set flags to zero and contain one positive
+big-endian ``uint64`` revision id after the header.  Their media types are,
+respectively:
+
+* ``application/vnd.hgraph.fabric.revision.v1+binary``;
+* ``application/vnd.hgraph.fabric.as-of.v1+binary``; and
+* ``application/vnd.hgraph.fabric.latest.v1+binary``.
+
+Unknown versions, kinds or flags, non-canonical field order, malformed UTF-8,
+bounds violations and trailing bytes fail closed.  The fixtures under
+``extensions/fabric/tests/fixtures`` are consumed by both the C++ and Python
+tests, fixing one language-independent byte representation.
 
 The Frame object and persistence format carry the Arrow schema and any
 integrity metadata.  A reader validates the revision encoding, path id and
