@@ -114,9 +114,10 @@ def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
     assert '"${HGRAPH_PYARROW_ARROW_RUNTIME}"' in python_cmake
     assert '"${HGRAPH_PYARROW_COMPUTE_RUNTIME}"' in python_cmake
     assert '"${HGRAPH_PYARROW_ACERO_RUNTIME}"' in python_cmake
-    # RFC 0016 links Parquet; a linked DLL left out of the wheel is an
-    # ImportError on the user's machine, not a build failure here.
-    assert '"${HGRAPH_PYARROW_PARQUET_RUNTIME}"' in python_cmake
+    # Core links NO Parquet (RFC 0025 checkpoint 5 moved the frame store to
+    # hgraph-persistence, which resolves parquet from the pyarrow package).
+    # Staging it here would ship durable-store policy in the core wheel.
+    assert '"${HGRAPH_PYARROW_PARQUET_RUNTIME}"' not in python_cmake
 
 
 def test_wheel_installs_generated_native_stub_and_typed_package_marker():
@@ -477,3 +478,58 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def test_core_owns_no_durable_store_build_policy():
+    """Parquet and S3 are hgraph-persistence's (RFC 0025 checkpoint 5).
+
+    Core detected Parquet, linked it, exported its feature macros on the
+    public interface and required it from the installed CMake package while
+    no core source used it — forcing core-only consumers to resolve a
+    durable-store dependency and letting the extension inherit answers
+    computed for a different purpose.
+    """
+    core_cmake = (ROOT / "CMakeLists.txt").read_text()
+    python_cmake = (ROOT / "python/CMakeLists.txt").read_text()
+
+    for forbidden in ("HGRAPH_WITH_PARQUET", "HGRAPH_WITH_S3",
+                      "Parquet::parquet_shared", "find_dependency(Parquet"):
+        assert forbidden not in core_cmake, forbidden
+        assert forbidden not in python_cmake, forbidden
+
+    # The extension owns the detection and names its macros for itself.
+    extension_cmake = (ROOT / "extensions/persistence/CMakeLists.txt").read_text()
+    assert "HGRAPH_PERSISTENCE_WITH_PARQUET=1" in extension_cmake
+    assert "HGRAPH_PERSISTENCE_WITH_S3=1" in extension_cmake
+    arrow_cmake = (
+        ROOT / "extensions/persistence/cmake/hgraph_persistence_arrow.cmake"
+    ).read_text()
+    assert "${HGRAPH_WITH_PARQUET}" not in arrow_cmake, (
+        "the extension must not inherit a parent build's Parquet answer"
+    )
+
+
+def test_core_owns_no_durable_recording_vocabulary():
+    """The recording option enums and override registry are extension-owned.
+
+    Core keeps only deprecated Python aliases (RFC 0025 checkpoint 5); the
+    C++ enums moved outright.
+    """
+    io_header = (ROOT / "include/hgraph/lib/std/operators/io.h").read_text()
+    assert "RecordAsOf" not in io_header
+    assert "RecordRemoves" not in io_header
+
+    compat = (ROOT / "python/hgraph/_compat.py").read_text()
+    assert "class RecordAsOf" not in compat
+    assert "class RecordRemoves" not in compat
+
+    core_init = (ROOT / "python/hgraph/__init__.py").read_text()
+    assert "_MOVED_TO_PERSISTENCE" in core_init, "the deprecated aliases must remain"
+
+    # The override registry lives beside the translation that reads it, and
+    # the extension no longer imports it back out of core.
+    extension_compat = (
+        ROOT / "extensions/persistence/python/hgraph_persistence/compat.py"
+    ).read_text()
+    assert "def get_data_frame_record_overrides(" in extension_compat
+    assert "from hgraph.adaptors.data_frame" not in extension_compat

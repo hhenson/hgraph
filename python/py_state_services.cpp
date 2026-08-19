@@ -1346,10 +1346,6 @@ namespace hgraph::python_bridge
         .def("__str__", [](const PyTimeSeries &self) { return nb::str(self.value()); })
         .def("__repr__", [](const PyTimeSeries &self) { return nb::str("TimeSeries({})").format(self.value()); });
     m.def("_set_cmp_result_enum", [](nb::object enum_class) { cmp_result_enum_slot() = std::move(enum_class); });
-    m.def("_set_record_as_of_enum",
-          [](nb::object enum_class) { record_as_of_enum_slot() = std::move(enum_class); });
-    m.def("_set_record_removes_enum",
-          [](nb::object enum_class) { record_removes_enum_slot() = std::move(enum_class); });
     m.def("_set_divide_by_zero_enum",
           [](nb::object enum_class) { divide_by_zero_enum_slot() = std::move(enum_class); });
     m.def("_set_to_table_mode_enum",

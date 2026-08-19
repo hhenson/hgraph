@@ -9,11 +9,11 @@
 #include <arrow/status.h>
 #include <arrow/table.h>
 
-#if defined(HGRAPH_WITH_S3)
+#if defined(HGRAPH_PERSISTENCE_WITH_S3)
 #include <arrow/filesystem/s3fs.h>
 #endif
 
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
 #include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/properties.h>
@@ -112,14 +112,14 @@ namespace hgraph::persistence::store
 
     void finalize_s3() noexcept
     {
-#if defined(HGRAPH_WITH_S3)
+#if defined(HGRAPH_PERSISTENCE_WITH_S3)
         (void)arrow::fs::EnsureS3Finalized();
 #endif
     }
 
     bool parquet_available() noexcept
     {
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
         return true;
 #else
         return false;
@@ -391,7 +391,7 @@ namespace hgraph::persistence::store
                     break;
                 }
                 case Format::Parquet:
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
                 {
                     auto props = parquet::WriterProperties::Builder()
                                      .compression(parquet_codec(compression))
@@ -409,7 +409,7 @@ namespace hgraph::persistence::store
                 }
 #else
                     throw std::runtime_error("this build has no Parquet support; configure "
-                                             "with HGRAPH_WITH_PARQUET");
+                                             "with HGRAPH_PERSISTENCE_WITH_PARQUET");
 #endif
                 }
             }
@@ -425,7 +425,7 @@ namespace hgraph::persistence::store
                     return unwrap(reader->ToTable(), "read IPC table");
                 }
                 case Format::Parquet:
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
                 {
                     auto reader = unwrap(parquet::arrow::OpenFile(in, arrow::default_memory_pool()),
                                          "open Parquet reader");
@@ -433,7 +433,7 @@ namespace hgraph::persistence::store
                 }
 #else
                     throw std::runtime_error("this build has no Parquet support; configure "
-                                             "with HGRAPH_WITH_PARQUET");
+                                             "with HGRAPH_PERSISTENCE_WITH_PARQUET");
 #endif
                 }
                 return nullptr;
@@ -456,7 +456,7 @@ namespace hgraph::persistence::store
                 return nullptr;
             }
 
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
             [[nodiscard]] static arrow::Compression::type parquet_codec(Compression compression)
             {
                 switch (compression)
@@ -498,7 +498,7 @@ namespace hgraph::persistence::store
             return ops;
         }
 
-#if defined(HGRAPH_WITH_S3)
+#if defined(HGRAPH_PERSISTENCE_WITH_S3)
         /**
          * Arrow requires a process-global S3 init before first use and a
          * matching finalize: "you MUST call FinalizeS3 before the end of the
@@ -552,7 +552,7 @@ namespace hgraph::persistence::store
         }
 
         const auto &s3 = std::get<S3Location>(config.location);
-#if defined(HGRAPH_WITH_S3)
+#if defined(HGRAPH_PERSISTENCE_WITH_S3)
         if (s3.bucket.empty())
         {
             throw std::invalid_argument("an S3 frame store requires a bucket");
@@ -611,7 +611,7 @@ namespace hgraph::persistence::store
             filesystem_store_ops()};
 #else
         (void)s3;
-        throw std::runtime_error("this build has no S3 support; configure with HGRAPH_WITH_S3");
+        throw std::runtime_error("this build has no S3 support; configure with HGRAPH_PERSISTENCE_WITH_S3");
 #endif
     }
 

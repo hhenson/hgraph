@@ -168,34 +168,6 @@ namespace hgraph::stdlib
     {
     };
 
-    /**
-     * Whether a recording carries an as-of column (RFC 0019).
-     *
-     * ``Inherit`` defers to the wiring-time table configuration, which
-     * is what makes the configuration LOCAL with a global default rather than
-     * a second override registry keyed on name.
-     */
-    enum class RecordAsOf : std::int64_t
-    {
-        Inherit,
-        Track,   ///< an as-of column carrying the evaluation as-of
-        Omit,    ///< no as-of column at all
-    };
-
-    /**
-     * Whether a recording carries a removed flag per TSD level (RFC 0019).
-     *
-     * Omitting them means a removal records NOTHING - the stream simply stops
-     * carrying that key, which is how most data streams are consumed. Tracking
-     * them makes a removal an explicit row.
-     */
-    enum class RecordRemoves : std::int64_t
-    {
-        Inherit,
-        Omit,
-        Track,
-    };
-
     /** Persist source ticks through the active record/replay backend.
         The effective location combines graph recordable context with ``key``.
         @param ts Stream to record.
@@ -218,7 +190,6 @@ namespace hgraph::stdlib
         @par Python example
         @code{.py}
         hg.record(price, key="price")
-        hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
         @endcode */
     struct record : Operator<"record", In<"ts", TsVar<"S">>, Scalar<"key", Str>>
     {
@@ -282,77 +253,5 @@ namespace hgraph::stdlib
     };
 }  // namespace hgraph::stdlib
 
-namespace hgraph::static_schema_detail
-{
-    template <>
-    struct scalar_name<hgraph::stdlib::RecordAsOf>
-    {
-        static constexpr std::string_view value{"RecordAsOf"};
-    };
-
-    template <>
-    struct scalar_name<hgraph::stdlib::RecordRemoves>
-    {
-        static constexpr std::string_view value{"RecordRemoves"};
-    };
-}  // namespace hgraph::static_schema_detail
-
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-
-namespace hgraph
-{
-    /** Python conversion binds to the type AT DEFINITION (type-erasure rule).
-        These carry no dedicated enum slot, so they cross as their integer
-        member - which an IntEnum on the Python side accepts either way. */
-    template <>
-    struct python_conversion_traits<stdlib::RecordAsOf>
-    {
-        static nb::object to_python(const stdlib::RecordAsOf &value)
-        {
-            return nb::cast(static_cast<std::int64_t>(value));
-        }
-
-        static stdlib::RecordAsOf from_python(nb::handle source)
-        {
-            if (nb::hasattr(source, "value"))
-            {
-                return static_cast<stdlib::RecordAsOf>(nb::cast<std::int64_t>(source.attr("value")));
-            }
-            return static_cast<stdlib::RecordAsOf>(nb::cast<std::int64_t>(source));
-        }
-    };
-
-    template <>
-    struct python_conversion_traits<stdlib::RecordRemoves>
-    {
-        static nb::object to_python(const stdlib::RecordRemoves &value)
-        {
-            return nb::cast(static_cast<std::int64_t>(value));
-        }
-
-        static stdlib::RecordRemoves from_python(nb::handle source)
-        {
-            if (nb::hasattr(source, "value"))
-            {
-                return static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(source.attr("value")));
-            }
-            return static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(source));
-        }
-    };
-}  // namespace hgraph
-#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
-
-namespace hgraph
-{
-    // Public operator-policy scalars cross independently built extension
-    // boundaries; keep one canonical plan/ops address in hgraph_stdlib.
-    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
-    MemoryUtils::plan_for<stdlib::RecordAsOf>() noexcept;
-    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::RecordAsOf>() noexcept;
-    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
-    MemoryUtils::plan_for<stdlib::RecordRemoves>() noexcept;
-    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::RecordRemoves>() noexcept;
-}  // namespace hgraph
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_IO_H

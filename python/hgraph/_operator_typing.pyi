@@ -19,8 +19,7 @@ from _hgraph import (AmbiguousTimePolicy as _AmbiguousTimePolicy,
                      NonexistentTimePolicy as _NonexistentTimePolicy,
                      Period as _Period, ZoneId as _ZoneId,
                      ZonedDateTime as _ZonedDateTime)
-from ._compat import (CmpResult as _CmpResult, DivideByZero as _DivideByZero,
-                      RecordAsOf as _RecordAsOf, RecordRemoves as _RecordRemoves)
+from ._compat import CmpResult as _CmpResult, DivideByZero as _DivideByZero
 from ._table import ToTableMode as _ToTableMode
 from ._wiring import WiringPort as _WiringPort
 
@@ -5935,7 +5934,6 @@ class _record_Operator(_Protocol):
     .. code-block:: python
 
        hg.record(price, key="price")
-       hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
 
     Accepted native overloads:
 

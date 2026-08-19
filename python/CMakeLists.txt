@@ -115,15 +115,14 @@ if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
     #
     # Every library linked into the extension has to appear here: one missing
     # DLL is not a link error, it is an ImportError on the user's machine.
-    # RFC 0016 added Parquet, which is why it is in the list.
+    # Parquet is NOT staged here: core links no Parquet (RFC 0025 checkpoint
+    # 5 moved the frame store to hgraph-persistence, which resolves
+    # parquet.dll from the pyarrow package on Windows).
     set(_hgraph_wheel_arrow_dlls
         "${HGRAPH_PYARROW_ARROW_RUNTIME}"
         "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
         "${HGRAPH_PYARROW_ACERO_RUNTIME}"
     )
-    if(HGRAPH_WITH_PARQUET)
-        list(APPEND _hgraph_wheel_arrow_dlls "${HGRAPH_PYARROW_PARQUET_RUNTIME}")
-    endif()
     install(FILES
         ${_hgraph_wheel_arrow_dlls}
         ${_hgraph_pyarrow_support_dlls}

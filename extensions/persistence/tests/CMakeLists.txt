@@ -30,6 +30,17 @@ target_link_libraries(hgraph_persistence_tests
 )
 target_compile_features(hgraph_persistence_tests PRIVATE cxx_std_23)
 
+# The store's optional-backend cases compile against the SAME feature answers
+# the library was built with. They used to arrive through core's exported
+# interface; the extension owns these macros now (RFC 0025 checkpoint 5), so
+# the test target states its own dependency on them.
+if(HGRAPH_PERSISTENCE_WITH_PARQUET)
+    target_compile_definitions(hgraph_persistence_tests PRIVATE HGRAPH_PERSISTENCE_WITH_PARQUET=1)
+endif()
+if(HGRAPH_PERSISTENCE_WITH_S3)
+    target_compile_definitions(hgraph_persistence_tests PRIVATE HGRAPH_PERSISTENCE_WITH_S3=1)
+endif()
+
 add_test(NAME hgraph_persistence.tests COMMAND hgraph_persistence_tests)
 if(COMMAND hgraph_configure_test_runtime_paths)
     hgraph_configure_test_runtime_paths(hgraph_persistence.tests)

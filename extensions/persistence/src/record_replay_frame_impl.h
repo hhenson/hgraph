@@ -3,6 +3,7 @@
 
 #include <hgraph/lib/std/operators/data_frame.h>
 #include <hgraph/lib/std/operators/table_rows.h>
+#include <hgraph/persistence/recording_options.h>
 #include <hgraph/persistence/recording_store.h>
 
 #include <arrow/array.h>

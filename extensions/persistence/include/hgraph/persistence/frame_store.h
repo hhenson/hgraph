@@ -30,7 +30,7 @@ namespace hgraph::persistence::store
     {
         /** Arrow IPC. Available wherever hgraph links libarrow. */
         ArrowIpc,
-        /** Parquet. Requires libparquet — see HGRAPH_WITH_PARQUET. */
+        /** Parquet. Requires libparquet — see HGRAPH_PERSISTENCE_WITH_PARQUET. */
         Parquet,
     };
 

@@ -25,9 +25,84 @@ __all__ = (
     "BaseDataFrameStorage",
     "FileBasedDataFrameStorage",
     "MemoryDataFrameStorage",
+    "DATA_FRAME_RECORD_REPLAY_PATH",
+    "DATA_FRAME_RECORD_OVERRIDES",
+    "set_data_frame_record_path",
+    "set_data_frame_overrides",
+    "get_data_frame_record_overrides",
 )
 
+# The GlobalState keys are public upstream surface (imported by user code);
+# the private aliases below are retained for the existing internal call sites.
+DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
+DATA_FRAME_RECORD_OVERRIDES = ":data_frame:__overrides__"
+_PATH_KEY = DATA_FRAME_RECORD_REPLAY_PATH
+_OVERRIDES_KEY = DATA_FRAME_RECORD_OVERRIDES
 _STORAGE_KEY = ":data_frame:__storage__"
+
+
+def set_data_frame_record_path(path):
+    GlobalState.instance()[_PATH_KEY] = Path(path)
+
+
+class _OverrideState:
+    def __init__(self):
+        self.data = {
+            "all": {
+                "track_as_of": True,
+                "track_removes": False,
+                "partition_keys": None,
+                "remove_partition_keys": None,
+            },
+            "key": {},
+            "recordable_id": {},
+            "key_recordable_id": {},
+        }
+
+
+def _overrides(state=None):
+    state = state or GlobalState.instance()
+    value = state.get(_OVERRIDES_KEY)
+    if value is None:
+        value = _OverrideState()
+        state[_OVERRIDES_KEY] = value
+    return value.data
+
+
+def set_data_frame_overrides(
+    key=None,
+    recordable_id=None,
+    track_as_of=None,
+    track_removes=None,
+    partition_keys=None,
+    remove_partition_keys=None,
+):
+    overrides = _overrides()
+    if key is None and recordable_id is None:
+        target = overrides["all"]
+    elif key is None:
+        target = overrides["recordable_id"].setdefault(recordable_id, {})
+    elif recordable_id is None:
+        target = overrides["key"].setdefault(key, {})
+    else:
+        target = overrides["key_recordable_id"].setdefault((recordable_id, key), {})
+    target.update(
+        track_as_of=True if track_as_of is None else track_as_of,
+        track_removes=True if track_removes is None else track_removes,
+        partition_keys=partition_keys,
+        remove_partition_keys=remove_partition_keys,
+    )
+
+
+def get_data_frame_record_overrides(key, recordable_id, global_state=None):
+    overrides = _overrides(global_state)
+    return (
+        overrides["all"]
+        | overrides["recordable_id"].get(recordable_id, {})
+        | overrides["key"].get(key, {})
+        | overrides["key_recordable_id"].get((recordable_id, key), {})
+    )
+
 
 
 class WriteMode(Enum):
@@ -269,9 +344,6 @@ def _legacy_record_replay_kwargs(name, args, kwargs):
     runtime.
     """
     from hgraph import DATA_FRAME
-    from hgraph.adaptors.data_frame._data_frame_record_replay import (
-        get_data_frame_record_overrides,
-    )
 
     if not GlobalState.has_instance():
         return kwargs
@@ -292,7 +364,7 @@ def _legacy_record_replay_kwargs(name, args, kwargs):
     translated = dict(kwargs)
 
     if name == "record":
-        from hgraph import RecordAsOf, RecordRemoves
+        from . import RecordAsOf, RecordRemoves
 
         translated.setdefault(
             # The 0.5 flag controls whether the column is present; it does not
