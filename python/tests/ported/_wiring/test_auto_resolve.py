@@ -91,3 +91,18 @@ def test_node_auto_resolve_uses_explicit_output_specialization():
 
     assert eval_node(keyed[TSD[str, TS[int]]], [3]) == [{"key": 3}]
     assert observed == [(str, TS[int])]
+
+
+def test_node_materializes_default_scalar_type_argument():
+    @dataclass(frozen=True)
+    class Row(CompoundScalar):
+        value: int
+
+    @compute_node
+    def schema_name(
+        value: TS[int],
+        schema: type[SCALAR] = DEFAULT[SCALAR],
+    ) -> TS[str]:
+        return schema.__name__
+
+    assert eval_node(schema_name[Row], [1]) == ["Row"]

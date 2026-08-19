@@ -411,17 +411,11 @@ class _PyNode:
         return frozenset(result)
 
     @staticmethod
-    def _resolved_auto_value(scope, param):
-        """Project a C++ resolution-scope binding into a Python node scalar."""
-        import typing
-
+    def _resolved_type_var_value(scope, sentinel):
+        """Project a resolved type variable into its Python wiring value."""
         from .._types import _TsExpr, _type_var_name
 
-        arguments = typing.get_args(param.annotation)
-        if typing.get_origin(param.annotation) is not type or not arguments:
-            raise WiringError(
-                f"AUTO_RESOLVE parameter '{param.name}' needs a type[TYPEVAR] annotation")
-        name = _type_var_name(arguments[0])
+        name = _type_var_name(sentinel)
         if (scalar := scope.find_scalar(name)) is not None:
             return _hgraph.python_type_for_value(scalar)
         if (ts := scope.find_ts(name)) is not None:
@@ -429,8 +423,21 @@ class _PyNode:
         if (size := scope.find_size(name)) is not None:
             from ._graph import _ResolvedSize
             return _ResolvedSize(size)
-        raise WiringError(
-            f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) from the wired arguments")
+        raise WiringError(f"could not resolve type variable {sentinel!r}")
+
+    @staticmethod
+    def _resolved_auto_value(scope, param):
+        """Project a C++ resolution-scope binding into a Python node scalar."""
+        arguments = typing.get_args(param.annotation)
+        if typing.get_origin(param.annotation) is not type or not arguments:
+            raise WiringError(
+                f"AUTO_RESOLVE parameter '{param.name}' needs a type[TYPEVAR] annotation")
+        try:
+            return _PyNode._resolved_type_var_value(scope, arguments[0])
+        except WiringError as error:
+            raise WiringError(
+                f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) "
+                "from the wired arguments") from error
 
     def _diagnostic_label(self, scalar_values=None):
         """User-facing node identity for diagnostics (issue #247): trace,
@@ -632,8 +639,12 @@ class _PyNode:
             self._apply_resolvers(scope, scalar_values)
         from .._types import AUTO_RESOLVE
         for param in self._params:
-            if scalar_values.get(param.name, _MISSING) is AUTO_RESOLVE:
+            scalar_value = scalar_values.get(param.name, _MISSING)
+            if scalar_value is AUTO_RESOLVE:
                 scalar_values[param.name] = self._resolved_auto_value(scope, param)
+            elif isinstance(scalar_value, (_TypeVarSentinel, typing.TypeVar)):
+                scalar_values[param.name] = self._resolved_type_var_value(
+                    scope, scalar_value)
         active_policy = self._active
         valid_policy = self._valid
         all_valid_policy = self._all_valid
@@ -792,7 +803,8 @@ class _PyNode:
                 if value is None and isinstance(param.annotation, (_TsExpr,)):
                     # unwired optional ts input: a never-ticking source
                     value = wire("nothing", output_type=param.annotation)
-            if value is AUTO_RESOLVE:
+            if value is AUTO_RESOLVE or isinstance(
+                    value, (_TypeVarSentinel, typing.TypeVar)):
                 value = scalar_values[param.name]
             if not isinstance(value, WiringPort) and _is_time_series_annotation(
                     param.annotation) and value is not None \
