@@ -82,12 +82,28 @@ def _persistence():
 
 
 def frame_store_contains(key, global_state=None):
-    """Whether the active graph's frame store contains ``key``."""
+    """Whether the active graph's frame store contains ``key``.
+
+    Deprecated: the frame store belongs to hgraph-persistence (RFC 0025).
+    """
+    from ._deprecation import warn_moved_to_persistence
+
+    warn_moved_to_persistence(
+        "hgraph.frame_store_contains", "hgraph_persistence.frame_store_contains"
+    )
     return _persistence().frame_store_contains(key, global_state)
 
 
 def frame_store_read(key, global_state=None):
-    """Load one complete frame from the active graph's frame store."""
+    """Load one complete frame from the active graph's frame store.
+
+    Deprecated: the frame store belongs to hgraph-persistence (RFC 0025).
+    """
+    from ._deprecation import warn_moved_to_persistence
+
+    warn_moved_to_persistence(
+        "hgraph.frame_store_read", "hgraph_persistence.frame_store_read"
+    )
     return _persistence().frame_store_read(key, global_state)
 
 TimeSeries = _hgraph.TimeSeries
@@ -169,13 +185,10 @@ def __getattr__(name):
         globals()[name] = fn  # cache
         return fn
     if name in _MOVED_TO_PERSISTENCE:
-        import warnings
+        from ._deprecation import warn_moved_to_persistence
 
-        warnings.warn(
-            f"hgraph.{name} moved to hgraph-persistence in 0.8; import it from "
-            f"'hgraph_persistence' instead. The alias is removed in 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
+        warn_moved_to_persistence(
+            f"hgraph.{name}", f"hgraph_persistence.{name}", stacklevel=3
         )
         value = getattr(_persistence(), name)
         globals()[name] = value  # cache
