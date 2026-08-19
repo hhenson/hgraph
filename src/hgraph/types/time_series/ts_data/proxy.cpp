@@ -9,6 +9,7 @@
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/utils/value_slot_store.h>
@@ -92,8 +93,9 @@ namespace hgraph
         struct TSDProxyContextKey
         {
             const TSValueTypeMetaData *schema{nullptr};
-            TSRoleTypeRef           element_type{};
-            TypeRole                   role{TypeRole::Invalid};
+            ValueTypeRef                key_binding{};
+            TSRoleTypeRef               element_type{};
+            TypeRole                    role{TypeRole::Invalid};
 
             [[nodiscard]] bool operator==(const TSDProxyContextKey &) const noexcept = default;
         };
@@ -103,6 +105,7 @@ namespace hgraph
             [[nodiscard]] std::size_t operator()(const TSDProxyContextKey &key) const noexcept
             {
                 std::size_t seed = std::hash<const void *>{}(key.schema);
+                seed = combine_hash(seed, std::hash<ValueTypeRef>{}(key.key_binding));
                 const auto h = std::hash<const TypeRecord *>{}(key.element_type.record());
                 seed ^= h + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
                 return combine_hash(seed, static_cast<std::size_t>(key.role));
@@ -130,7 +133,8 @@ namespace hgraph
             ValueTypeRef removed_set_binding{nullptr};
             ValueTypeRef modified_map_binding{nullptr};
 
-            TSDProxyContext(const TSValueTypeMetaData &schema_, TSRoleTypeRef element_type_, TypeRole role_)
+            TSDProxyContext(const TSValueTypeMetaData &schema_, ValueTypeRef key_binding_,
+                            TSRoleTypeRef element_type_, TypeRole role_)
                 : schema(&schema_),
                   plan(&MemoryUtils::plan_for<TSDProxy>()),
                   element_type(ts_data_plan_factory_detail::tsd_value_projection_type(element_type_, role_)),
@@ -148,6 +152,10 @@ namespace hgraph
                 {
                     throw std::logic_error("TSDProxy element binding does not match the TSD element schema");
                 }
+                if (!key_binding_ || key_binding_.schema() != schema->key_type())
+                {
+                    throw std::logic_error("TSDProxy key binding does not match the TSD key schema");
+                }
 
                 const auto &element_ops    = element_type.ops_ref();
                 const auto *element_layout = element_ops.layout_impl(element_ops.context);
@@ -156,7 +164,7 @@ namespace hgraph
                     throw std::logic_error("TSDProxy element layout is not resolved");
                 }
 
-                layout.key_binding           = ValuePlanFactory::instance().type_for(schema->key_type());
+                layout.key_binding           = key_binding_;
                 layout.element_type          = element_type;
                 layout.element_layout        = element_layout;
                 layout.element_value_binding = element_layout->value_binding;
@@ -1417,16 +1425,25 @@ namespace hgraph
             return mutex;
         }
 
-        [[nodiscard]] const TSDProxyContext &tsd_proxy_context_for(const TSValueTypeMetaData &schema,
-                                                                   TSRoleTypeRef element_type,
-                                                                   TypeRole role)
+        [[nodiscard]] const TSDProxyContext &tsd_proxy_context_for(
+            const TSValueTypeMetaData &schema, TSRoleTypeRef element_type,
+            TypeRole role, ValueTypeRef key_binding)
         {
+            if (!key_binding)
+            {
+                const auto *snapshot = active_type_realization();
+                key_binding = snapshot != nullptr
+                                  ? snapshot->graph_type_for(schema.key_type())
+                                  : ValuePlanFactory::instance().type_for(
+                                        schema.key_type());
+            }
             std::lock_guard lock(tsd_proxy_context_mutex());
             auto &contexts = tsd_proxy_contexts();
-            const TSDProxyContextKey key{&schema, element_type, role};
+            const TSDProxyContextKey key{&schema, key_binding, element_type, role};
             if (const auto it = contexts.find(key); it != contexts.end()) { return *it->second; }
 
-            auto context = std::make_unique<TSDProxyContext>(schema, element_type, role);
+            auto context = std::make_unique<TSDProxyContext>(
+                schema, key_binding, element_type, role);
             const auto *result = context.get();
             contexts.emplace(key, std::move(context));
             return *result;
@@ -2066,17 +2083,21 @@ namespace hgraph
     }
 
     TSDataTypeRef tsd_proxy_data_type_for(const TSValueTypeMetaData &schema,
-                                          TSRoleTypeRef element_type)
+                                          TSRoleTypeRef element_type,
+                                          ValueTypeRef key_binding)
     {
-        const auto &context = tsd_proxy_context_for(schema, element_type, TypeRole::Data);
+        const auto &context = tsd_proxy_context_for(
+            schema, element_type, TypeRole::Data, key_binding);
         return TSDataTypeRef::checked(intern_ts_type(
             schema, TypeRole::Data, *context.plan, context.dict_ops, "ts.tsd.proxy.data"));
     }
 
     TSOutputTypeRef tsd_proxy_output_type_for(const TSValueTypeMetaData &schema,
-                                              TSRoleTypeRef element_type)
+                                              TSRoleTypeRef element_type,
+                                              ValueTypeRef key_binding)
     {
-        const auto &context = tsd_proxy_context_for(schema, element_type, TypeRole::Output);
+        const auto &context = tsd_proxy_context_for(
+            schema, element_type, TypeRole::Output, key_binding);
         return TSOutputTypeRef::checked(intern_ts_type(
             schema, TypeRole::Output, *context.plan, context.dict_ops, "ts.tsd.proxy.output"));
     }

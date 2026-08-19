@@ -1341,7 +1341,9 @@ namespace hgraph::detail
             if (data_type.plan() == &MemoryUtils::plan_for<TSDProxy>())
             {
                 auto view = data.view();
-                output_type = tsd_proxy_output_type_for(schema, view.as_dict().layout().element_type);
+                output_type = tsd_proxy_output_type_for(
+                    schema, view.as_dict().layout().element_type,
+                    view.as_dict().layout().key_binding);
             }
             else
             {
