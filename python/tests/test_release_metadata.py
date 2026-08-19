@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tools.validate_release import (
     RELEASE_PACKAGES,
@@ -109,25 +110,66 @@ def test_shared_release_checks_all_pypi_packages():
     ]
 
 
+def _publish_jobs() -> dict[str, str]:
+    """Every job that uploads to PyPI, mapped to the package it uploads.
+
+    Driven by the publish ACTION rather than by scraping URLs: a job that runs
+    ``pypa/gh-action-pypi-publish`` is a release of something, so if it does
+    not identify what, that is itself the failure. Scraping ``environment.url``
+    alone would silently skip such a job and report agreement.
+    """
+    workflow = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[2]
+            / ".github"
+            / "workflows"
+            / "release-wheels.yml"
+        ).read_text()
+    )
+
+    published: dict[str, str] = {}
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        steps = job.get("steps") or []
+        if not any(
+            str(step.get("uses", "")).startswith("pypa/gh-action-pypi-publish")
+            for step in steps
+        ):
+            continue
+        environment = job.get("environment")
+        url = environment.get("url", "") if isinstance(environment, dict) else ""
+        match = re.fullmatch(r"https://pypi\.org/p/(\S+)", str(url))
+        assert match, (
+            f"publish job {job_name!r} uploads to PyPI but does not name its "
+            "package; give it an `environment.url` of https://pypi.org/p/<name> "
+            "so release validation can cover it"
+        )
+        published[job_name] = match.group(1)
+    return published
+
+
 def test_every_published_package_is_validated():
     # The publish jobs gate on validate-release, so a package the workflow
     # publishes but the validator does not know about is released without its
     # version ever being checked -- and a collision fails the tag part-way
     # through, after the earlier packages are already on PyPI. hgraph-web was
     # in exactly that state.
-    workflow = (
-        Path(__file__).resolve().parents[2]
-        / ".github"
-        / "workflows"
-        / "release-wheels.yml"
-    ).read_text()
-    published = set(re.findall(r"url:\s*https://pypi\.org/p/(\S+)", workflow))
+    published = _publish_jobs()
 
-    assert published, "no PyPI publish targets found in the release workflow"
-    assert published == set(RELEASE_PACKAGES), (
+    assert published, "no PyPI publish jobs found in the release workflow"
+    assert set(published.values()) == set(RELEASE_PACKAGES), (
         "the release workflow and RELEASE_PACKAGES disagree: "
-        f"published only {sorted(published - set(RELEASE_PACKAGES))}, "
-        f"validated only {sorted(set(RELEASE_PACKAGES) - published)}"
+        f"published only {sorted(set(published.values()) - set(RELEASE_PACKAGES))}, "
+        f"validated only {sorted(set(RELEASE_PACKAGES) - set(published.values()))}"
+    )
+
+
+def test_each_publish_job_uploads_a_distinct_package():
+    # Two jobs pointing at one package would make the set comparison above
+    # pass while some other package went unpublished.
+    published = _publish_jobs()
+
+    assert len(set(published.values())) == len(published), (
+        f"publish jobs share a package: {sorted(published.items())}"
     )
 
 
