@@ -35,7 +35,11 @@ __all__ = (
 # Preserve the 0.5 public sentinel: downstream code imports it directly and
 # uses it with ``set_record_replay_model``. The state setter translates this
 # compatibility name to the native ``DataFrame`` model.
-DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
+#
+# Served through __getattr__ rather than bound eagerly so that reading it can
+# warn: it is a shim like the rest of this surface, and a module constant
+# assigned here would be fetched without passing through any code of ours.
+_DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 # The 0.5 override-registry translation into native call-site options moved
 # to hgraph_persistence.compat (RFC 0025 checkpoint 5): it only acts under an
 # ACTIVE DataFrameStorage, and core wiring must not import adaptor modules —
@@ -71,8 +75,25 @@ def __getattr__(name):
     # The storage surface lives in the optional hgraph-persistence
     # distribution (RFC 0025); the pointed install error fires when a
     # durable name is USED, never at import of this module.
+    from ..._deprecation import (
+        warn_deprecated_compat_name,
+        warn_moved_to_persistence,
+    )
+
+    if name == "DATA_FRAME_RECORD_REPLAY":
+        # The replacement is NOT in hgraph_persistence.compat, which does not
+        # define this name: a caller selecting a backend wants the id.
+        warn_deprecated_compat_name(
+            "hgraph.adaptors.data_frame.DATA_FRAME_RECORD_REPLAY",
+            "hgraph_persistence.FRAME_BACKEND",
+        )
+        globals()[name] = _DATA_FRAME_RECORD_REPLAY
+        return _DATA_FRAME_RECORD_REPLAY
     if name not in _STORAGE_EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warn_moved_to_persistence(
+        f"hgraph.adaptors.data_frame.{name}", f"hgraph_persistence.compat.{name}"
+    )
     try:
         from hgraph_persistence import compat
     except ModuleNotFoundError as error:

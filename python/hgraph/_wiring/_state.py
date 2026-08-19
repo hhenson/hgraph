@@ -258,9 +258,25 @@ def _ensure_backend_extension(model):
     # The 0.5 data-frame adaptor exported a private-looking model sentinel
     # which became part of the user surface. Keep accepting it while the C++
     # runtime has one canonical backend id per implementation (RFC 0025).
-    backend = (
-        _hgraph.DATA_FRAME if model == _LEGACY_DATA_FRAME_RECORD_REPLAY else model
-    )
+    from .._deprecation import warn_deprecated_compat_name
+
+    if model == _LEGACY_DATA_FRAME_RECORD_REPLAY:
+        warn_deprecated_compat_name(
+            "the DATA_FRAME_RECORD_REPLAY record/replay model",
+            "the backend id hgraph_persistence.FRAME_BACKEND",
+            stacklevel=4,
+        )
+        backend = _hgraph.DATA_FRAME
+    else:
+        backend = model
+    if backend in _LEGACY_BACKENDS:
+        # A silent translation is not a deprecation: these were described as
+        # living in a deprecation window while emitting nothing at all.
+        warn_deprecated_compat_name(
+            f"the {backend!r} record/replay model",
+            f"the backend id {_LEGACY_BACKENDS[backend]!r}",
+            stacklevel=4,
+        )
     backend = _LEGACY_BACKENDS.get(backend, backend)
     if isinstance(backend, str) and backend.startswith("hgraph.persistence."):
         try:
@@ -364,7 +380,12 @@ class RecordReplayContext(record_replay_scope):
 
 
 def set_record_replay_model(model):
-    """hgraph parity alias for set_record_replay_config."""
+    """hgraph parity alias for set_record_replay_config (deprecated)."""
+    from .._deprecation import warn_deprecated_compat_name
+
+    warn_deprecated_compat_name(
+        "hgraph.set_record_replay_model", "hgraph.set_record_replay_config"
+    )
     set_record_replay_config(model)
 
 def comparison_summary(fq_key):
