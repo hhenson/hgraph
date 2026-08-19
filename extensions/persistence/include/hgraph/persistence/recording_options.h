@@ -70,6 +70,24 @@ namespace hgraph::static_schema_detail
     };
 }  // namespace hgraph::static_schema_detail
 
+namespace hgraph
+{
+    // These scalars cross independently built consumer boundaries, so they
+    // need ONE canonical plan/ops address: without the extern declarations a
+    // downstream DSO implicitly instantiates its own function-local statics
+    // and ``register_scalar`` then rejects the same schema arriving with a
+    // different (plan, ops) pair. The definitions live in the extension
+    // library, mirroring the stdlib scalar-binding pattern.
+    extern template HGRAPH_PERSISTENCE_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<persistence::RecordAsOf>() noexcept;
+    extern template HGRAPH_PERSISTENCE_EXPORT const ValueOps &
+    ops_for<persistence::RecordAsOf>() noexcept;
+    extern template HGRAPH_PERSISTENCE_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<persistence::RecordRemoves>() noexcept;
+    extern template HGRAPH_PERSISTENCE_EXPORT const ValueOps &
+    ops_for<persistence::RecordRemoves>() noexcept;
+}  // namespace hgraph
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
 
