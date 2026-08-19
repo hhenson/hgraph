@@ -439,7 +439,7 @@ struct FabricKafkaDependencyGraph {
             wiring, hgk::make_produce_record(
                         hg::Bytes{std::string{REVISION_PAYLOAD}},
                         hg::Bytes{std::string{DATA_ID}}, {}, std::nullopt,
-                        hg::Int{0}, hg::Str{CANDIDATE_TOKEN}));
+                        std::nullopt, hg::Str{CANDIDATE_TOKEN}));
     auto delivery = hgk::publish(
         wiring, path,
         hgk::publish_request(wiring, hg::Str{FABRIC_TOPIC}, candidate));
