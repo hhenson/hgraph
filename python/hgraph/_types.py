@@ -354,6 +354,10 @@ def _substitute_typevars(tp, substitutions):
 def _compound_specialization_token(tp):
     import typing
 
+    if isinstance(tp, _TsExpr):
+        return repr(tp.handle)
+    if isinstance(tp, _hgraph.TsType):
+        return repr(tp)
     if isinstance(tp, _hgraph.ValueType):
         return tp.local_name or tp.name
     origin = typing.get_origin(tp)
