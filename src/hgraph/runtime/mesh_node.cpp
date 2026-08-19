@@ -415,6 +415,12 @@ register_mesh_node_context(MeshNodeSpec spec,
   };
 }
 
+void visit_mesh_child(const void *raw_context, const NodeBuilder &,
+                      void *visitor_context, ChildGraphVisitor visitor) {
+  const auto &context = *static_cast<const MeshNodeContext *>(raw_context);
+  visitor(visitor_context, context.spec.child.graph_builder);
+}
+
 [[nodiscard]] std::vector<std::unique_ptr<MeshSubscribeContext>> &
 mesh_subscribe_contexts() noexcept {
   static auto *contexts =
@@ -1643,11 +1649,16 @@ NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
               entries_offset,
           graph_pointer_offset, true),
   };
-  descriptor.ops.extended_view_context = &register_mesh_node_context(
+  const auto &context = register_mesh_node_context(
       std::move(spec),
       std::move(access),
       descriptor.storage_plan->component(mesh_storage_field_name).offset,
       key_binding, graph_layout);
+  descriptor.ops.extended_view_context = &context;
+  descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
+      .context = &context,
+      .visit_impl = &visit_mesh_child,
+  };
 
   return NodeBuilder::from_descriptor(std::move(descriptor));
 }

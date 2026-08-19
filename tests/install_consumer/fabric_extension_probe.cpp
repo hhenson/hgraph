@@ -19,10 +19,11 @@
 namespace hgraph_install_consumer {
 namespace {
 // RFC 0026 checkpoint 0: an installed extension can defer a source,
-// discover that marked source through public wiring edges from a sink,
-// bind the source after composition, and select its runtime mode once in
-// start. This deliberately remains a consumer-side proof rather than
-// introducing fabric policy or a new hook in core.
+// discover that marked source through public wiring edges and compiled child
+// graph plans from a sink, bind the source after composition, and select its
+// runtime mode once in start. This deliberately remains a consumer-side proof;
+// core supplies only the general child-plan inspection contract, never fabric
+// policy.
 
 constexpr std::string_view kDependencyCount{":fabric_probe:dependency_count"};
 constexpr std::string_view kSinkValue{":fabric_probe:sink_value"};
@@ -59,6 +60,8 @@ struct FabricProbeSubscription {
   hgraph::Port<hgraph::TS<hgraph::Int>> value;
   FabricProbeDependencyHandle dependency;
 };
+
+[[nodiscard]] FabricProbeSubscription subscribe(hgraph::Wiring &wiring);
 
 /** Installed proof source: one startup schedule, one output tick, and no
     runtime policy branch. ``start`` selects the immutable executor mode;
@@ -103,10 +106,12 @@ struct FabricProbeIndependentSource {
   }
 };
 
-struct FabricProbeNestedPassThrough {
+struct FabricProbeNestedSubscription {
   static hgraph::Port<hgraph::TS<hgraph::Int>>
-  compose(hgraph::Wiring &wiring, hgraph::Port<hgraph::TS<hgraph::Int>> value) {
-    return hgraph::wire<hgraph::stdlib::pass_through_node>(wiring, value)
+  compose(hgraph::Wiring &wiring) {
+    auto subscribed = subscribe(wiring);
+    return hgraph::wire<hgraph::stdlib::pass_through_node>(wiring,
+                                                           subscribed.value)
         .template as<hgraph::TS<hgraph::Int>>();
   }
 };
@@ -122,10 +127,33 @@ struct FabricProbePlanner {
   std::vector<FabricProbePublisher> publishers;
   bool finalizer_registered{false};
 
+  struct SourceCollection {
+    std::unordered_set<const hgraph::WiringInstance *> wiring_nodes;
+    std::unordered_set<const hgraph::GraphBuilder *> compiled_graphs;
+    std::size_t marked_sources{0};
+  };
+
+  [[nodiscard]] static hgraph::NodeTypeRef marked_source_type() {
+    static const hgraph::NodeTypeRef type = [] {
+      hgraph::NodeBuilder builder;
+      builder.implementation<FabricProbeModeSource>();
+      return builder.type();
+    }();
+    return type;
+  }
+
+  static void collect_compiled_graph(const hgraph::GraphBuilder &graph,
+                                     SourceCollection &collection);
+
+  static void collect_compiled_child(void *raw_collection,
+                                     const hgraph::GraphBuilder &child) {
+    collect_compiled_graph(
+        child, *static_cast<SourceCollection *>(raw_collection));
+  }
+
   static void collect_marked_sources(
       const hgraph::WiringPortRef &source,
-      std::unordered_set<const hgraph::WiringInstance *> &visited,
-      std::size_t &marked_sources) {
+      SourceCollection &collection) {
     using SourceKind = hgraph::WiringPortRef::SourceKind;
 
     switch (source.source_kind()) {
@@ -133,7 +161,7 @@ struct FabricProbePlanner {
       return;
     case SourceKind::Structural:
       for (const auto &child : source.structural_children()) {
-        collect_marked_sources(child, visited, marked_sources);
+        collect_marked_sources(child, collection);
       }
       return;
     case SourceKind::Delayed: {
@@ -142,19 +170,20 @@ struct FabricProbePlanner {
         throw std::logic_error(
             "fabric probe encountered an unbound deferred source");
       }
-      collect_marked_sources(*resolved, visited, marked_sources);
+      collect_marked_sources(*resolved, collection);
       return;
     }
     case SourceKind::Peered: {
       const hgraph::WiringInstance *node = source.peered_node();
-      if (!visited.insert(node).second) {
+      if (!collection.wiring_nodes.insert(node).second) {
         return;
       }
       if (node->definition == std::type_index(typeid(FabricProbeModeSource))) {
-        ++marked_sources;
+        ++collection.marked_sources;
       }
+      node->builder.visit_child_graphs(&collection, &collect_compiled_child);
       for (const auto &input : node->inputs) {
-        collect_marked_sources(input.source, visited, marked_sources);
+        collect_marked_sources(input.source, collection);
       }
       return;
     }
@@ -175,29 +204,42 @@ struct FabricProbePlanner {
     }
 
     for (const auto &publisher : publishers) {
-      std::unordered_set<const hgraph::WiringInstance *> visited;
-      std::size_t marked_sources{0};
+      SourceCollection collection;
       if (publisher.explicit_dependencies.empty()) {
-        collect_marked_sources(publisher.value, visited, marked_sources);
+        collect_marked_sources(publisher.value, collection);
       } else {
         for (const auto &dependency : publisher.explicit_dependencies) {
           if (dependency.root_identity() != wiring.identity()) {
             throw std::logic_error("fabric probe explicit dependency belongs "
                                    "to another wired root");
           }
-          collect_marked_sources(dependency.source(), visited, marked_sources);
+          collect_marked_sources(dependency.source(), collection);
         }
       }
-      if (marked_sources != 1) {
+      if (collection.marked_sources != 1) {
         throw std::logic_error(
             "fabric probe did not discover exactly one upstream marked source");
       }
       wiring.global_state().set(
           kDependencyCount, hgraph::Value{hgraph::Int{
-                                static_cast<std::int64_t>(marked_sources)}});
+                                static_cast<std::int64_t>(
+                                    collection.marked_sources)}});
     }
   }
 };
+
+void FabricProbePlanner::collect_compiled_graph(
+    const hgraph::GraphBuilder &graph, SourceCollection &collection) {
+  if (!collection.compiled_graphs.insert(&graph).second) {
+    return;
+  }
+  for (const hgraph::NodeBuilder &node : graph.nodes()) {
+    if (node.type() == marked_source_type()) {
+      ++collection.marked_sources;
+    }
+    node.visit_child_graphs(&collection, &collect_compiled_child);
+  }
+}
 
 [[nodiscard]] std::shared_ptr<FabricProbePlanner>
 planner_for(hgraph::Wiring &wiring) {
@@ -234,9 +276,7 @@ void publish(
 
 struct FabricNestedExtensionProbeGraph {
   static void compose(hgraph::Wiring &wiring) {
-    auto subscribed = subscribe(wiring);
-    auto forwarded =
-        hgraph::nested_<FabricProbeNestedPassThrough>(wiring, subscribed.value);
+    auto forwarded = hgraph::nested_<FabricProbeNestedSubscription>(wiring);
     publish(wiring, forwarded);
   }
 };

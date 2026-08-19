@@ -264,6 +264,15 @@ namespace hgraph
             return result;
         }
 
+        void visit_reduce_child(const void *raw_context,
+                                const NodeBuilder &,
+                                void *visitor_context,
+                                ChildGraphVisitor visitor)
+        {
+            const auto &context = *static_cast<const ReduceNodeContext *>(raw_context);
+            visitor(visitor_context, context.spec.child.graph_builder);
+        }
+
         /** Where an aggregate currently comes from, without materialising it. */
         struct Aggregate
         {
@@ -1510,9 +1519,14 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &reduce_evaluate_impl;
         descriptor.ops.storage_metrics_impl  = &reduce_storage_metrics;
         descriptor.ops.extended_view_type_id = ReduceNodeView::node_view_type_id();
-        descriptor.ops.extended_view_context = &register_reduce_node_context(
+        const auto &context = register_reduce_node_context(
             std::move(spec), descriptor.storage_plan->component(reduce_storage_field_name).offset,
             graph_layout, collection_ops, publication_ops);
+        descriptor.ops.extended_view_context = &context;
+        descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
+            .context = &context,
+            .visit_impl = &visit_reduce_child,
+        };
 
         return NodeBuilder::from_descriptor(std::move(descriptor));
     }

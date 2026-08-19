@@ -6,6 +6,7 @@
 #include <hgraph/runtime/evaluation_trace.h>
 #include <hgraph/runtime/graph_diagnostics.h>
 #include <hgraph/runtime/lifecycle_observer.h>
+#include <hgraph/runtime/child_graph_inspection.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/context_node.h>

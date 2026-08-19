@@ -321,6 +321,18 @@ namespace hgraph
             return *context;
         }
 
+        void visit_map_child(const void *, const NodeBuilder &owner,
+                             void *visitor_context, ChildGraphVisitor visitor)
+        {
+            const ValueView scalar_context = owner.scalars().view();
+            const auto &context = scalar_context.checked_as<MapNodeContextPtr>();
+            if (!context)
+            {
+                throw std::logic_error("map node builder has no compiled child context");
+            }
+            visitor(visitor_context, context->spec.child.graph_builder);
+        }
+
         [[nodiscard]] NodeStorageMetrics map_storage_metrics(
             const void *raw_context, const void *memory) noexcept
         {
@@ -1442,6 +1454,9 @@ namespace hgraph
             descriptor.storage_plan->component(map_storage_field_name).offset,
             graph_layout);
         descriptor.ops.extended_view_context = descriptor.storage_plan;
+        descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
+            .visit_impl = &visit_map_child,
+        };
 
         static const std::byte runtime_type_id{};
         NodeBuilder builder = NodeBuilder::from_canonical_descriptor(

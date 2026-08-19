@@ -64,6 +64,15 @@ namespace hgraph
             };
         }
 
+        void visit_single_nested_child(const void *raw_context,
+                                       const NodeBuilder &,
+                                       void *visitor_context,
+                                       ChildGraphVisitor visitor)
+        {
+            const auto &context = *static_cast<const SingleNestedGraphNodeContext *>(raw_context);
+            visitor(visitor_context, context.spec.graph_builder);
+        }
+
         [[nodiscard]] SingleNestedGraphNodeView checked_nested_view(const NodeView &view)
         {
             return view.as<SingleNestedGraphNodeView>();
@@ -262,12 +271,17 @@ namespace hgraph
         descriptor.ops.evaluate_impl = &single_nested_graph_evaluate_impl;
         descriptor.ops.storage_metrics_impl = &single_nested_storage_metrics;
         descriptor.ops.extended_view_type_id = SingleNestedGraphNodeView::node_view_type_id();
-        descriptor.ops.extended_view_context = &register_single_nested_graph_context(
+        const auto &context = register_single_nested_graph_context(
             std::move(spec),
             options,
             descriptor.storage_plan->component(child_graph_field_name).offset,
             descriptor.storage_plan->component(child_graph_memory_field_name).offset,
             child_graph_layout);
+        descriptor.ops.extended_view_context = &context;
+        descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
+            .context = &context,
+            .visit_impl = &visit_single_nested_child,
+        };
 
         return descriptor;
     }
