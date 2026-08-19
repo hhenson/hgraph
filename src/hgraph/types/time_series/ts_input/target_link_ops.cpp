@@ -1027,11 +1027,11 @@ namespace hgraph::detail
             return target.as_window().size();
         }
 
-        [[nodiscard]] const void *target_link_window_element_at(const void *context,
-                                                                const void *memory,
-                                                                std::size_t index)
+        [[nodiscard]] ValueView target_link_window_element_at(const void *context,
+                                                              const void *memory,
+                                                              std::size_t index)
         {
-            return target_link_window_view(context, memory).at(index).data();
+            return target_link_window_view(context, memory).at(index);
         }
 
         [[nodiscard]] DateTime target_link_window_time_at(const void *context,
@@ -1041,11 +1041,48 @@ namespace hgraph::detail
             return target_link_window_view(context, memory).time_at(index);
         }
 
-        [[nodiscard]] const void *target_link_window_time_element_at(const void *context,
-                                                                     const void *memory,
-                                                                     std::size_t index)
+        [[nodiscard]] ValueView target_link_window_time_element_at(const void *context,
+                                                                   const void *memory,
+                                                                   std::size_t index)
         {
-            return target_link_window_view(context, memory).time_value_at(index).data();
+            return target_link_window_view(context, memory).time_value_at(index);
+        }
+
+        [[nodiscard]] DateTime target_link_window_cleared_time(const void *context,
+                                                                const void *memory) noexcept
+        {
+            return fallback_on_exception(MIN_DT, [&] {
+                auto target = target_link_target_view(context, memory);
+                if (!target.valid()) { return MIN_DT; }
+                const auto &ops = static_cast<const TSWDataOps &>(target.ops());
+                return ops.cleared_time_impl != nullptr
+                           ? ops.cleared_time_impl(ops.context, target.data())
+                           : MIN_DT;
+            });
+        }
+
+        [[nodiscard]] DateTime target_link_window_evicted_time(const void *context,
+                                                                const void *memory) noexcept
+        {
+            return fallback_on_exception(MIN_DT, [&] {
+                auto target = target_link_target_view(context, memory);
+                if (!target.valid()) { return MIN_DT; }
+                const auto &ops = static_cast<const TSWDataOps &>(target.ops());
+                return ops.evicted_time_impl != nullptr
+                           ? ops.evicted_time_impl(ops.context, target.data())
+                           : MIN_DT;
+            });
+        }
+
+        [[nodiscard]] ValueView target_link_window_evicted_element(const void *context,
+                                                                    const void *memory)
+        {
+            auto target = target_link_target_view(context, memory);
+            if (!target.valid()) { return {}; }
+            const auto &ops = static_cast<const TSWDataOps &>(target.ops());
+            return ops.evicted_element_impl != nullptr
+                       ? ops.evicted_element_impl(ops.context, target.data())
+                       : ValueView{};
         }
 
         [[nodiscard]] std::size_t target_link_window_capacity(const void *context, const void *memory) noexcept
@@ -1493,6 +1530,9 @@ namespace hgraph::detail
                 context->ops.capacity_impl = &target_link_window_capacity;
                 context->ops.full_impl = &target_link_window_full;
                 context->ops.push_impl = &target_link_window_push;
+                context->ops.cleared_time_impl = &target_link_window_cleared_time;
+                context->ops.evicted_time_impl = &target_link_window_evicted_time;
+                context->ops.evicted_element_impl = &target_link_window_evicted_element;
                 context->active_layout = &context->layout;
                 context->active_ops = &context->ops;
                 return finish_target_link_context(std::move(storage), *context);
@@ -1513,6 +1553,9 @@ namespace hgraph::detail
             context->ops.capacity_impl = &target_link_window_capacity;
             context->ops.full_impl = &target_link_window_full;
             context->ops.push_impl = &target_link_window_push;
+            context->ops.cleared_time_impl = &target_link_window_cleared_time;
+            context->ops.evicted_time_impl = &target_link_window_evicted_time;
+            context->ops.evicted_element_impl = &target_link_window_evicted_element;
             context->active_layout = &context->layout;
             context->active_ops = &context->ops;
             return finish_target_link_context(std::move(storage), *context);

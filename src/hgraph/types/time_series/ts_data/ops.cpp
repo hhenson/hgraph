@@ -180,10 +180,7 @@ namespace hgraph::ts_data_detail
         {
             return {};
         }
-        const void *sentinel_window_element(const void *, const void *, std::size_t) noexcept
-        {
-            return nullptr;
-        }
+        ValueView sentinel_window_element(const void *, const void *, std::size_t) noexcept { return {}; }
         DateTime sentinel_window_time(const void *, const void *, std::size_t) noexcept { return MIN_DT; }
         bool     sentinel_window_full(const void *, const void *) noexcept { return false; }
 
@@ -462,7 +459,7 @@ namespace hgraph::ts_data_detail
 
     std::size_t missing_window_size(const void *, const void *) { missing_ts_data_op("window size"); }
 
-    const void *missing_window_element(const void *, const void *, std::size_t)
+    ValueView missing_window_element(const void *, const void *, std::size_t)
     {
         missing_ts_data_op("window element");
     }
@@ -472,7 +469,7 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("window element time");
     }
 
-    const void *missing_window_time_element(const void *, const void *, std::size_t)
+    ValueView missing_window_time_element(const void *, const void *, std::size_t)
     {
         missing_ts_data_op("window time element");
     }
