@@ -5,10 +5,14 @@
 It decouples recurring graph components through immutable, complete `Frame`
 versions and contiguous lineage revisions.
 
-The current checkpoint establishes the installed C++/Python contract,
-canonical metadata encoding, run-scoped configuration, and broker-free memory
-notifier. Later RFC checkpoints add durable publication, dependency planning,
-consistent-cut resolution, subscription modes, and Kafka notification.
+The current implementation establishes the installed C++/Python operator and
+value contracts, canonical durable keys and metadata, run-scoped
+configuration, and broker-free memory notification. Its native publication
+state machine writes each Frame before proposing a revision, waits for an
+asynchronous notifier acknowledgement before racing the immutable revision
+slot, and repairs the derived as-of/latest indexes from contiguous accepted
+history. Later RFC checkpoints connect that machinery to wiring-time
+dependency planning, consistent-cut resolution, subscription modes, and Kafka.
 
 Native consumers call `hgraph::fabric::register_fabric_operators()` and link
 `hgraph::fabric`. Python consumers import `hgraph_fabric`; importing the package

@@ -14,6 +14,7 @@ endif()
 add_executable(hgraph_fabric_tests
     registry_test_listener.cpp
     test_public_contracts.cpp
+    test_publication.cpp
 )
 target_link_libraries(hgraph_fabric_tests
     PRIVATE hgraph::fabric Catch2::Catch2WithMain)
