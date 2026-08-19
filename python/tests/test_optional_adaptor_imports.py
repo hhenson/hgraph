@@ -190,3 +190,27 @@ def test_per_call_durable_model_names_the_missing_persistence_extension():
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_moved_persistence_aliases_warn_and_name_their_removal_release():
+    # RFC 0025's deprecation policy: a shim warns, naming its replacement AND
+    # the release that removes it. This is the one persistence shim that
+    # already warned, and nothing asserted it fired -- only a source grep,
+    # which cannot tell a warning from a silent forward. The release is 1.0,
+    # when the whole compatibility layer goes (RFC 0005); it said 0.9.
+    import pytest
+
+    import hgraph
+
+    for name in ("RecordAsOf", "RecordRemoves"):
+        # __getattr__ caches the resolved value, so a second access would not
+        # warn again; drop it to test the first access every time.
+        hgraph.__dict__.pop(name, None)
+        expected = rf"hgraph\.{name}.*hgraph_persistence.*removed in 1\.0"
+        with pytest.warns(DeprecationWarning, match=expected):
+            try:
+                getattr(hgraph, name)
+            except ModuleNotFoundError as error:
+                # Core-only install: the warning fires before the pointed
+                # install error, so the assertion holds either way.
+                assert error.name == "hgraph_persistence"

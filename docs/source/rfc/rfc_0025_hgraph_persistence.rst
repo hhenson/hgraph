@@ -329,6 +329,102 @@ Compatibility and migration
   must define re-registration behaviour for installed extensions —
   decided at checkpoint 3 and recorded here when implemented.
 
+Deprecation and removal policy
+------------------------------
+
+**Status: agreed** (2026-08-19). Checkpoint 8 executes against this section.
+The compatibility layer is retained in full through the pre-1.0 bridge
+release and removed at 1.0, along with the ``hgraph.adaptors`` package
+itself; nothing here is removed before then.
+
+The extraction left a set of compatibility surfaces in core. As of the
+checkpoint-5 audit exactly ONE of them warns — the ``hgraph.RecordAsOf`` /
+``hgraph.RecordRemoves`` aliases — while the legacy backend constants and
+the ``hgraph.adaptors.data_frame`` storage surface translate silently, some
+under comments describing a "deprecation window" that emits nothing. A user
+of those gets no signal at all until the name disappears.
+
+Three rules apply to every surface classified **shim** in `Appendix: symbol
+and migration inventory`_:
+
+* **A shim warns.** Resolving it emits ``DeprecationWarning`` naming both
+  the replacement and the release that removes it. A silent translation is
+  not a deprecation. Graphs and operators carry the message through
+  ``deprecated=`` on the decorator and let the wiring layer emit it
+  (``_warn_deprecated``); module ``__getattr__`` hooks and plain functions
+  call ``warnings.warn(..., DeprecationWarning, stacklevel=2)`` directly.
+  This is the analytics extraction's mechanism (``_analytics_compat.py``)
+  with one addition: those messages name no removal release, and these must.
+* **A shim is tested.** A test asserts the warning actually fires, with
+  ``pytest.warns(DeprecationWarning, match=...)`` around the USE. A
+  structural check that the shim exists cannot tell a warning from a silent
+  forward, and today's only warning has exactly that non-test.
+* **A shim is not the seam.** The extension mechanism itself is permanent
+  API and must never warn.
+
+One removal release: 1.0
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are no tiers. **Every shim below warns from the pre-1.0 bridge release
+and is removed in 1.0**, which is :doc:`rfc_0005_hgraph_1_0_api`'s existing
+rule rather than a new one: renamed surfaces get a warning shim "in a
+designated pre-1.0 bridge release only; 1.0 carries the new names
+exclusively", and the ``hgraph.adaptors`` namespace "exists in that bridge as
+warning shims and does not exist in 1.0".
+
+That settles the whole persistence compatibility surface at once, because it
+is entirely contained in the bridge release:
+
+* **Core-namespace names** — ``hgraph.RecordAsOf``, ``hgraph.RecordRemoves``,
+  ``hgraph.frame_store_contains``, ``hgraph.frame_store_read``. Replacement:
+  the same names from ``hgraph_persistence``.
+* **The 0.5 adaptor surface** — every export of
+  ``hgraph.adaptors.data_frame._data_frame_record_replay``: ``WriteMode``,
+  ``DataFrameStorage``, ``BaseDataFrameStorage``,
+  ``FileBasedDataFrameStorage``, ``MemoryDataFrameStorage``,
+  ``replay_data_frame``, ``set_data_frame_record_path``,
+  ``set_data_frame_overrides``, ``get_data_frame_record_overrides``, and the
+  ``DATA_FRAME_RECORD_REPLAY_PATH`` / ``DATA_FRAME_RECORD_OVERRIDES``
+  constants. Replacement: the corresponding
+  ``hgraph_persistence.compat`` name. This whole group goes with the
+  ``hgraph.adaptors`` namespace, so its removal is not a persistence
+  decision to take separately.
+* **The backend sentinel** — ``DATA_FRAME_RECORD_REPLAY``. Its replacement is
+  **not** in ``hgraph_persistence.compat``, which does not define it: a user
+  selecting a backend wants ``hgraph_persistence.FRAME_BACKEND`` (the
+  ``"hgraph.persistence.frame"`` id). Naming ``compat`` here would send them
+  to an ``AttributeError``.
+* **Legacy model constants** — ``InMemory``, ``InMemoryDense`` and
+  ``DataFrame`` translating to ``"memory"``, ``"testing"`` and
+  ``"hgraph.persistence.frame"``, and ``set_record_replay_model`` aliasing
+  ``set_record_replay_config``. Replacement: the backend id, or
+  ``FRAME_BACKEND`` for the durable one.
+
+The bridge release is not imminent — basic 0.5 compatibility comes first — so
+the warning window is long by construction. That is the argument for warning
+on everything now rather than staging it: the cost of an early warning is a
+line of output, and the cost of a late one is a user who never saw it.
+
+**A correction this obliges.** ``hgraph.RecordAsOf`` /
+``hgraph.RecordRemoves`` currently warn that the alias "is removed in 0.9".
+Under this policy that is wrong, and it is the one shim message a user can
+already be reading. It must say 1.0.
+
+The seam is not a shim
+~~~~~~~~~~~~~~~~~~~~~~
+
+These are how an extension participates. They are permanent public API,
+carry no removal date, and must not warn:
+
+* ``replay_const`` in core's extension-operator contracts — core owns the
+  operator contract; the extension registers the overload.
+* the backend-id load point that imports the distribution when a
+  ``hgraph.persistence.*`` id is selected, at graph level or per call;
+* ``register_record_replay_wiring_adapter`` and the adapter slot the
+  extension's ``compat`` module installs into; and
+* the missing-extension wiring diagnosis, which is a diagnostic rather than
+  a compatibility shim.
+
 Performance and memory
 ----------------------
 
