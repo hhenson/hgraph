@@ -62,13 +62,13 @@ compatibility oracle.
 ``.github/workflows/release-wheels.yml`` builds one ``cp312-abi3`` wheel for Linux x86_64,
 Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
 CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
-core, Kafka, and analytics wheels and source distributions through PyPI trusted
-publishing.
+core, Kafka, analytics, web, and persistence wheels and source distributions
+through PyPI trusted publishing.
 Standalone C++ validation runs independently in
 ``.github/workflows/native-cpp.yml``. It covers native Linux and macOS builds,
 plus a fully optimized Linux shared-library build with IPO, the complete native
-test suite, installation, and downstream core, Kafka, and analytics SDK
-consumers. This deliberately expensive validation remains visible on pull
+test suite, installation, and downstream core, Kafka, analytics, web, and
+persistence SDK consumers. This deliberately expensive validation remains visible on pull
 requests and ``main`` without delaying or gating publication of wheel artifacts.
 The tag is the shared release version authority: the publish jobs restamp the
 metadata of artifacts already tested for that exact commit, rather than
@@ -84,7 +84,10 @@ sentinel; it is never the version published to PyPI.  CMake's numeric
 ``project(VERSION)`` and ``docs/source/conf.py`` track the current C++ API line
 independently.  Packaging tests enforce these relationships and the release
 workflow validates the tag syntax and rejects a version already present for
-either package on PyPI. The PyPI trusted publishers are bound to the
+any published package on PyPI. Every package the workflow publishes must appear
+in ``RELEASE_PACKAGES``; the publish jobs gate on that validation, so a
+distribution missing from it would be published unvalidated and a collision
+would fail the tag part-way through. The PyPI trusted publishers are bound to the
 ``release-wheels.yml`` workflow and
 the GitHub ``release`` environment.
 
@@ -191,6 +194,12 @@ extension can be built independently, for example::
    CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
      uv build --wheel --package hgraph-analytics --python 3.12
 
+   CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
+     uv build --wheel --package hgraph-web --python 3.12
+
+   CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
+     uv build --wheel --package hgraph-persistence --python 3.12
+
 The Kafka C++ targets can also be included in a repository build with
 ``HGRAPH_BUILD_KAFKA_EXTENSION=ON``.  That option is off by default: a normal
 core configure neither resolves nor links librdkafka.  A standalone native
@@ -204,14 +213,21 @@ repository build; standalone consumers find ``hgraph-analytics`` and link
 and CMake package as well as the stable-ABI Python registration module, so the
 same distribution is usable by C++ and Python authoring environments.
 
+The web and persistence packages have the same shape.
+``HGRAPH_BUILD_WEB_EXTENSION=ON`` and ``HGRAPH_BUILD_PERSISTENCE_EXTENSION=ON``
+include them in a repository build; standalone consumers find ``hgraph-web`` or
+``hgraph-persistence`` and link ``hgraph::web`` or ``hgraph::persistence``. Both
+options are off by default, so a normal core configure resolves neither their
+dependencies nor their targets.
+
 Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 and tests. Cross-cutting changes are tested against core at the same commit,
 while the resulting wheels remain separate distribution artifacts. During the
-current release line, core, Kafka, and analytics are co-versioned and
-co-released: a bare ``<version>`` tag validates that the version is new for all
-three packages, restamps their distributions, and publishes each package.
-Independent extension tags are intentionally not part of this release
-workflow.
+current release line, core, Kafka, analytics, web, and persistence are
+co-versioned and co-released: a bare ``<version>`` tag validates that the
+version is new for all five packages, restamps their distributions, and
+publishes each package. Independent extension tags are intentionally not part
+of this release workflow.
 
 The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
 CMake configure consumes the installed core SDK.  In-repository CI installs
