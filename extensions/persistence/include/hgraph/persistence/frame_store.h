@@ -2,21 +2,20 @@
 #define HGRAPH_PERSISTENCE_FRAME_STORE_H
 
 #include <hgraph/persistence/export.h>
+#include <hgraph/persistence/store_location.h>
 #include <hgraph/types/frame.h>
 
 #include <memory>
 #include <optional>
-#include <string>
 #include <string_view>
-#include <variant>
 
 /**
  * Object-store frame persistence (RFC 0016).
  *
  * A configured content store: keyed frames written to memory, a local
  * filesystem, or S3, in Arrow IPC or Parquet. Record/replay is the first
- * consumer through the owning, type-erased ``persistence::store::FrameStore``; the store
- * itself knows nothing about record/replay.
+ * consumer through the owning, type-erased ``persistence::store::FrameStore``;
+ * the store itself knows nothing about record/replay.
  *
  * The frame is the unit. A frame carries its own description in its Arrow
  * schema metadata (RFC 0001), and both formats preserve it, so a stored frame
@@ -41,60 +40,6 @@ namespace hgraph::persistence::store
         Snappy,
         Zstd,
     };
-
-    /** Frames live in process memory; nothing is persisted. */
-    struct MemoryLocation
-    {
-    };
-
-    /** Frames live under a directory. */
-    struct LocalLocation
-    {
-        std::string root{};
-    };
-
-    /** How S3 credentials are obtained. */
-    struct Credentials
-    {
-        /** The standard AWS chain: environment, profile, container, instance. */
-        struct Ambient
-        {
-        };
-        struct Explicit
-        {
-            std::string                access_key_id{};
-            std::string                secret_access_key{};
-            std::optional<std::string> session_token{};
-        };
-        /** Reserved configuration spelling. The Arrow backend rejects this
-         * directly; set AWS_PROFILE and select Ambient instead. */
-        struct Profile
-        {
-            std::string name{};
-        };
-        /** Assume a role using credentials resolved from the ambient chain. */
-        struct AssumeRole
-        {
-            std::string                role_arn{};
-            std::optional<std::string> session_name{};
-        };
-
-        std::variant<Ambient, Explicit, Profile, AssumeRole> source{Ambient{}};
-    };
-
-    /** Frames live in an S3 bucket. */
-    struct S3Location
-    {
-        std::string bucket{};
-        std::string prefix{};
-        /** Unset resolves the region through the ambient chain. */
-        std::optional<std::string> region{};
-        /** Set to point at an S3-compatible endpoint (MinIO, LocalStack). */
-        std::optional<std::string> endpoint_override{};
-        Credentials                credentials{};
-    };
-
-    using Location = std::variant<MemoryLocation, LocalLocation, S3Location>;
 
     struct FrameStoreConfig
     {
@@ -122,33 +67,6 @@ namespace hgraph::persistence::store
         bool (*contains)(void *context, std::string_view key);
         void (*clear)(void *context);
     };
-
-    /**
-     * Validate a store key (RFC 0016 decision: transparent paths, validated).
-     *
-     * A key is an object-path suffix and ``/`` nests, so a bucket browses as a
-     * tree. Rejected: empty keys, absolute keys, trailing ``/``, empty
-     * segments, ``.``/``..`` segments, backslashes, and control characters.
-     *
-     * Applied by EVERY backend, memory included, so a key that would fail
-     * against S3 fails identically in a unit test.
-     *
-     * @returns the reason when invalid; ``std::nullopt`` when the key is valid.
-     */
-    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::optional<std::string> validate_key(std::string_view key);
-
-    /** Throws ``std::invalid_argument`` when ``validate_key`` rejects the key. */
-    HGRAPH_PERSISTENCE_EXPORT void require_valid_key(std::string_view key);
-
-    /**
-     * Shut the S3 layer down. Call before process exit when S3 has been used.
-     *
-     * Arrow requires a matching finalize for its process-global S3 init, and
-     * it cannot be automated: running it from std::atexit or a static
-     * destructor happens after Arrow's own statics are gone and terminates the
-     * process. Safe to call when S3 was never used, and safe to call twice.
-     */
-    HGRAPH_PERSISTENCE_EXPORT void finalize_s3() noexcept;
 
     /** True when this build links a Parquet implementation. */
     [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT bool parquet_available() noexcept;

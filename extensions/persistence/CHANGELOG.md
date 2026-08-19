@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added the reusable C++ `ObjectStore` contract required by RFC 0023 and RFC
+  0026: atomic immutable objects, typed absence and backend failures, ordered
+  prefix paging, and conditional references across memory, local, and S3
+  strategies. Immutable local/S3 `FrameStore` publication now uses the same
+  atomic backend path.
+
 - Extracted from hgraph core (RFC 0025, checkpoint 4): FrameStore and
   all store backends, the frame-backed record/replay/compare overloads,
   the segmented-recording protocol, the durable replay_const read, and

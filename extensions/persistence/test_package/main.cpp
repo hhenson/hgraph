@@ -1,4 +1,5 @@
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/object_store.h>
 #include <hgraph/persistence/recording_store.h>
 
 #include <hgraph/lib/std/std_operators.h>
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -115,6 +117,27 @@ namespace
         // registers is covered by the in-tree installer tests and the Python
         // extension consumer.
     }
+
+    void check_object_store_contract()
+    {
+        using namespace hgraph::persistence::store;
+        auto              store = make_object_store(ObjectStoreConfig{});
+        const std::string value{"installed-object"};
+        const auto        data = std::as_bytes(std::span{value.data(), value.size()});
+
+        const auto created = store.put_immutable("consumer/object", data);
+        require(created.status == ImmutableWriteStatus::Created,
+                "installed object store created an immutable object");
+        const auto loaded = store.get("consumer/object");
+        require(loaded.has_value() && loaded->data.size() == data.size(),
+                "installed object store read the immutable object");
+
+        const auto head = store.compare_exchange_ref("consumer/latest", {}, data);
+        require(head.exchanged && head.current.has_value(),
+                "installed object store created a conditional reference");
+        require(store.list("consumer/", {}, 10).objects.size() == 2,
+                "installed object store listed its ordered namespace");
+    }
 }  // namespace
 
 int main()
@@ -153,6 +176,8 @@ int main()
         require(hgp::is_segmented_recording(marker),
                 "segmented-recording marker recognised");
         require(hgp::segment_key("k", 2) == "k.2", "segment key shape");
+
+        check_object_store_contract();
 
         // The store and the protocol exist for the operators built on them:
         // run those operators in a graph.

@@ -143,6 +143,28 @@ namespace
         std::filesystem::path path_;
     };
 
+    class CurrentPathGuard
+    {
+      public:
+        explicit CurrentPathGuard(const std::filesystem::path &path)
+            : original_(std::filesystem::current_path())
+        {
+            std::filesystem::current_path(path);
+        }
+        CurrentPathGuard(const CurrentPathGuard &) = delete;
+        CurrentPathGuard &operator=(const CurrentPathGuard &) = delete;
+        ~CurrentPathGuard()
+        {
+            std::error_code ignored;
+            std::filesystem::current_path(original_, ignored);
+        }
+
+        void set(const std::filesystem::path &path) { std::filesystem::current_path(path); }
+
+      private:
+        std::filesystem::path original_;
+    };
+
     [[nodiscard]] FrameStoreConfig local_config(const TempDir &dir, Format format)
     {
         FrameStoreConfig config;
@@ -308,6 +330,27 @@ TEST_CASE("frame store: a local store persists frames as files")
     }
 }
 
+TEST_CASE("frame store: a relative local root is resolved once")
+{
+    TempDir workspace{"relative_root"};
+    std::filesystem::create_directories(workspace.string());
+    CurrentPathGuard current_path{workspace.string()};
+
+    FrameStoreConfig config;
+    config.location = LocalLocation{"objects"};
+    auto store = make_frame_store(config);
+
+    const auto elsewhere = std::filesystem::path{workspace.string()} / "elsewhere";
+    std::filesystem::create_directories(elsewhere);
+    current_path.set(elsewhere);
+
+    store.write("run/value", make_frame());
+    CHECK(store.contains("run/value"));
+    CHECK(store.read("run/value").table->num_rows() == 2);
+    store.clear();
+    CHECK_FALSE(store.contains("run/value"));
+}
+
 TEST_CASE("frame store: both formats round-trip a frame")
 {
     TempDir dir{"formats"};
@@ -441,7 +484,6 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
     named_profile.location = std::move(profile_location);
     CHECK_THROWS_WITH(make_frame_store(named_profile),
                       Catch::Matchers::ContainsSubstring("set AWS_PROFILE"));
-    finalize_s3();
 #endif
 }
 
@@ -477,7 +519,7 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
 
     S3Location location;
     location.bucket = bucket_name != nullptr ? bucket_name : "hgraph-test";
-    location.prefix = "frame-store";
+    location.prefix = "/frame-store/";
     location.region = "us-east-1";
     location.endpoint_override = endpoint;
     if (key_id != nullptr && secret != nullptr)
@@ -517,6 +559,4 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
     auto cleanup = make_frame_store(cleanup_config);
     cleanup.clear();
     cleanup.reset();
-    // The application owns S3 shutdown; see finalize_s3's contract.
-    finalize_s3();
 }
