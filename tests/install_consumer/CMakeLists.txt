@@ -4,7 +4,7 @@ project(hgraph_install_consumer LANGUAGES CXX)
 
 find_package(hgraph CONFIG REQUIRED)
 
-add_executable(hgraph_install_consumer main.cpp)
+add_executable(hgraph_install_consumer main.cpp fabric_extension_probe.cpp)
 target_link_libraries(hgraph_install_consumer PRIVATE hgraph::core)
 if(COMMAND hgraph_link_python_embedding)
     # Python-enabled wheel runtimes resolve their stable-ABI symbols from an

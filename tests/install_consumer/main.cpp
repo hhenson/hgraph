@@ -1,3 +1,5 @@
+#include "fabric_extension_probe.h"
+
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/lib/std/operators/table.h>
@@ -511,6 +513,7 @@ int main()
     }
 
     check_probe_backend_round_trip();
+    hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;
 }

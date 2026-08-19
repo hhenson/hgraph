@@ -318,6 +318,15 @@ execution and extension authoring:
 Core does not name fabric data ids, versions, revisions, stores, topics,
 subscription modes or consistency policies.
 
+The public extension seam has been validated from a separately built installed
+SDK consumer.  A fabric-shaped proof can retain one wiring-owned plan, defer
+and bind its source in an idempotent pre-rank finalizer, discover marked sources
+through public upstream edges (including an owning nested-graph node), and use
+a typed same-root subscription handle when the data edge is deliberately
+hidden.  The source selects simulation or real-time behavior once in
+``start`` from ``EngineControlView``; its ``eval`` has no mode branch.  No
+fabric-specific core hook is required by this proof.
+
 hgraph-persistence owns
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -332,12 +341,12 @@ duplicate:
 * object reads and prefix/range discovery; and
 * compare/exchange of small named references such as ``latest``.
 
-The released ``FrameStore`` has ``write/read/contains/clear`` operations and
-does not yet expose all of the immutable-object, ordered-index and conditional
-reference operations required here.  Before fabric implementation,
-``hgraph-persistence`` must expose the reusable object-store portion already
+``hgraph-persistence`` now exposes the reusable public ``ObjectStore`` contract
 anticipated by :doc:`rfc_0023_graph_checkpoint_recovery` and RFC 0025's durable
-checkpoint work.  That contract remains persistence-owned.  Fabric must not
+checkpoint work.  Its memory, local-filesystem and S3 strategies provide typed
+immutable creation, typed reads, paginated ordered listing and conditional
+reference publication; ``FrameStore`` uses the same atomic backend semantics.
+That contract remains persistence-owned.  Fabric must consume it rather than
 grow a private second S3 client or put persistence types back into core.
 
 hgraph-kafka owns
