@@ -21,6 +21,8 @@ SDIST_REQUIRED = {
     "src/CMakeLists.txt",
     "tests/install_consumer/CMakeLists.txt",
     "tests/install_consumer/check.py",
+    "tests/install_consumer/fabric_extension_probe.cpp",
+    "tests/install_consumer/fabric_extension_probe.h",
     "tests/python_extension_consumer/CMakeLists.txt",
     "tests/python_extension_consumer/check.py",
     "tests/python_extension_consumer/module.cpp",

@@ -40,6 +40,10 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ValueTypeRef>);
     static_assert(sizeof(NodeTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<NodeTypeRef>);
+    // ABI 5 adds the cold-path compiled-child inspection contract.
+    static_assert(NODE_OPS_ABI_VERSION == 5);
+    static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
+    static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
     static_assert(GRAPH_OPS_ABI_VERSION == 7);
