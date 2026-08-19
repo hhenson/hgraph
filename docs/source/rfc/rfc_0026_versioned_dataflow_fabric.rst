@@ -409,6 +409,58 @@ registration-installer mechanism so registry rebuilds reapply its operator and
 value registrations.  Selecting a fabric backend or explicitly importing
 ``hgraph_fabric`` is the Python load point.
 
+Checkpoint-0 dependency baseline
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The installed public dependency baseline is the 0.8 API family, proven at
+0.8.0.  A native fabric consumer uses these CMake packages and targets:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 32 36
+
+   * - Package
+     - Imported target
+     - Fabric use
+   * - ``hgraph``
+     - ``hgraph::core``
+     - graph/operator authoring, ``Frame`` and runtime services
+   * - ``hgraph-persistence``
+     - ``hgraph::persistence``
+     - immutable objects, ordered listing, conditional references and Frames
+   * - ``hgraph-kafka``
+     - ``hgraph::kafka``
+     - keyed notification publish, delivery reports and subscriptions
+
+``tests/fabric_dependency_consumer`` is configured only against an installed
+SDK and links the two extension targets, which carry the core target
+transitively.  It proves one native process can create/read/list immutable
+metadata, conditionally advance a head, round-trip a Frame, and send and
+receive a keyed Kafka notification after observing its correlated broker
+delivery report.
+
+The probe also fixes the future fabric-owned Kafka profile without changing
+the general Kafka extension's valid policies.  Fabric requires idempotent
+production with ``acks=all`` (or ``-1``), ``Fail`` rather than ``Drop`` at
+consumer and final producer queue boundaries, and an unfiltered independent
+subscription to every partition of its configured topic.  Startup uses
+``Committed`` with ``Earliest`` fallback and explicit commits after durable
+validation.  This retains proposals which race ahead of their immutable slot,
+while keeping the durable head authoritative.  ``Recovering`` and ``Live``
+provide the public lifecycle boundary needed to load and reconcile the durable
+image; records received before that handoff completes are retained and
+conflated by fabric in checkpoint 6.
+
+The partition count of a fabric topic is a deployment invariant.  Expanding
+an existing topic would both remap keyed data ids and leave an independently
+assigned running subscriber unaware of the new partition until it restarts.
+An installation which needs a different partition count creates a new fabric
+topic/namespace and migrates deliberately.
+
+The installed probe uses librdkafka's in-process protocol cluster.  External
+broker restart, rebalance and retention tests remain part of the checkpoint-6
+actual-broker gate; checkpoint 0 does not claim those production tests.
+
 Public value contract
 ---------------------
 
