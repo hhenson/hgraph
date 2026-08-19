@@ -75,5 +75,6 @@ extras of the core wheel — though an extra may depend on one, as
 ``hgraph[dataframe]`` depends on ``hgraph-persistence``. The durable
 record/replay surface reached through ``hgraph.adaptors.data_frame`` keeps its
 released import paths and resolves lazily from that distribution, raising a
-pointed install error only when a durable name is used. Each module's exact
-public names are listed in :doc:`python_api_inventory`.
+pointed install error only when a durable name is used; the name mapping is in
+:doc:`../user_guide/persistence_migration`. Each module's exact public names
+are listed in :doc:`python_api_inventory`.
