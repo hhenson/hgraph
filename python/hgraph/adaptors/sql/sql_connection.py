@@ -85,6 +85,20 @@ class SqlAdaptorConnectionSnowflake(SqlAdaptorConnection):
 
 get_secret = None
 
+#: The prefixes ``process_substitution`` resolves. Anything else is passed
+#: back through unchanged for the caller to interpret.
+SUBSTITUTION_PREFIXES = ("secret:", "$", "dataenv:")
+
+
+def is_substitution(value: str) -> bool:
+    """Whether ``{value}`` names a substitution rather than a format field.
+
+    A caller that follows substitution with ``str.format`` must tell the two
+    apart: a substituted value is DATA whose braces need escaping, while a
+    format field must be left intact for ``format`` to fill.
+    """
+    return value.startswith(SUBSTITUTION_PREFIXES)
+
 
 def process_substitution(value: str, scope: str = "connection") -> str:
     if value.startswith("secret:"):

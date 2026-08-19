@@ -15,7 +15,7 @@ from hgraph.adaptors.data_catalogue.subscribe import (
 from hgraph.stream import Data, Stream, StreamStatus
 
 from .sql_adaptor import sql_read_adaptor
-from .sql_connection import process_substitution
+from .sql_connection import is_substitution, process_substitution
 
 __all__ = ("SqlDataSource",)
 
@@ -27,11 +27,20 @@ class SqlDataSource(DataSource):
     query: str
 
     def render(self, **options):
-        query = re.sub(
-            r"(?<!\{)\{([^{}]*)\}(?!\})",
-            lambda match: process_substitution(match.group(1), scope="query"),
-            self.query,
-        )
+        def substitute(match):
+            name = match.group(1)
+            if not is_substitution(name):
+                # A format field: hand it back untouched for format() below.
+                return match.group(0)
+            # A substituted value is DATA, not a template. Escape its braces
+            # so format() renders them literally: a secret of 'p{word}' would
+            # otherwise be read as a field and raise KeyError, or be silently
+            # rewritten when 'word' happens to be among the options -- and a
+            # value crafted with '{0.__class__}' could read the options back.
+            value = process_substitution(name, scope="query")
+            return value.replace("{", "{{").replace("}", "}}")
+
+        query = re.sub(r"(?<!\{)\{([^{}]*)\}(?!\})", substitute, self.query)
         return query.format(**options)
 
 

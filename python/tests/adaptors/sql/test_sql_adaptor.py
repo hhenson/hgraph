@@ -368,6 +368,68 @@ def test_sql_query_substitutions(monkeypatch):
         )
 
 
+def test_query_substitution_treats_substituted_values_as_data(monkeypatch):
+    """A substituted value is data, not a further format template.
+
+    Substitutions are injected before ``str.format`` runs, so braces arriving
+    inside a secret, environment variable or data-environment path used to be
+    re-read as format fields: a KeyError when the name was absent, and a
+    silent rewrite when it happened to be supplied.
+    """
+    import hgraph.adaptors.sql.sql_connection as connection_module
+
+    monkeypatch.setattr(
+        connection_module, "get_secret",
+        lambda name: {"password": "p{word}"})
+    monkeypatch.setenv("SQL_BRACE_VALUE", "{symbol}")
+
+    source = SqlDataSource(
+        source_path="database",
+        query="select '{secret:database/password}', '{$SQL_BRACE_VALUE}', '{symbol}'",
+    )
+
+    # 'word' is not supplied: this raised KeyError('word') before.
+    assert source.render(symbol="ABC") == (
+        "select 'p{word}', '{symbol}', 'ABC'"
+    )
+
+    # And when the brace content IS a supplied option, the secret must still
+    # come through verbatim rather than being quietly rewritten to 'pXYZ'.
+    assert source.render(symbol="ABC", word="XYZ") == (
+        "select 'p{word}', '{symbol}', 'ABC'"
+    )
+
+
+def test_query_substitution_does_not_expose_options_through_format(monkeypatch):
+    import hgraph.adaptors.sql.sql_connection as connection_module
+
+    # A substituted value must never be able to reach into the option values.
+    monkeypatch.setattr(
+        connection_module, "get_secret",
+        lambda name: {"password": "{symbol.__class__}"})
+
+    source = SqlDataSource(
+        source_path="database",
+        query="select '{secret:database/password}', '{symbol}'",
+    )
+
+    assert source.render(symbol="ABC") == (
+        "select '{symbol.__class__}', 'ABC'"
+    )
+
+
+def test_substitution_prefixes_agree_with_the_resolver():
+    import hgraph.adaptors.sql.sql_connection as connection_module
+
+    # is_substitution drives the escaping decision, so it must recognise
+    # exactly what process_substitution resolves -- no more, no less.
+    for prefix in connection_module.SUBSTITUTION_PREFIXES:
+        assert connection_module.is_substitution(f"{prefix}anything")
+    assert not connection_module.is_substitution("symbol")
+    # The resolver passes non-substitutions straight back through.
+    assert connection_module.process_substitution("symbol") == "{symbol}"
+
+
 def test_connection_substitution_preserves_literal_braces():
     scheme, path, options = parse_connection_params(
         "mssql+pyodbc://server/database?driver={ODBC Driver 18 for SQL Server}")
