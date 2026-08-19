@@ -21,6 +21,18 @@ using namespace hgraph::python_bridge;
 
 namespace hgraph::python_bridge
 {
+    namespace
+    {
+        nb::object operator_scalar_to_py(const ValueView &value)
+        {
+            if (const auto *type = value.try_as<PyTsMetaRef>())
+            {
+                return nb::cast(PyTsType{type->meta});
+            }
+            return value_to_py(value);
+        }
+    }  // namespace
+
     void register_builtin_native_scalar_types()
     {
         const nb::module_ builtins = nb::module_::import_("builtins");
@@ -1489,7 +1501,7 @@ namespace hgraph::python_bridge
                             context.args[i].scalar_value.has_value())
                         {
                             scalars[nb::str(context.params[i].name.c_str())] =
-                                value_to_py(context.args[i].scalar_value.view());
+                                operator_scalar_to_py(context.args[i].scalar_value.view());
                         }
                     }
                     nb::object resolved = resolver_fn(nb::cast(scope), scalars);
@@ -1511,7 +1523,7 @@ namespace hgraph::python_bridge
                             context.args[i].scalar_value.has_value())
                         {
                             scalars[nb::str(context.params[i].name.c_str())] =
-                                value_to_py(context.args[i].scalar_value.view());
+                                operator_scalar_to_py(context.args[i].scalar_value.view());
                         }
                     }
                     return nb::cast<bool>(requires_fn(nb::cast(scope), scalars));
@@ -1532,7 +1544,7 @@ namespace hgraph::python_bridge
                         else { py_args.append(nb::cast(PyPort{arg.port})); }
                     }
                     else if (!arg.scalar_value.has_value()) { py_args.append(nb::none()); }
-                    else { py_args.append(value_to_py(arg.scalar_value.view())); }
+                    else { py_args.append(operator_scalar_to_py(arg.scalar_value.view())); }
                 }
                 nb::dict py_kwargs;
                 for (const auto &[kw_name, port] : kwargs)

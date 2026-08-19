@@ -7,14 +7,16 @@ import inspect
 
 import _hgraph
 
-from .._types import (_ContextExpr, _TsExpr, _type_var_name,
+from .._types import (_ContextExpr, _TsExpr, _TypeVarSentinel, _type_var_name,
                       wiring_signature_of as _wiring_signature_of)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
 from ._markers import (_INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _is_object_vt)
 from ._resolution import (_BindingsMap, _apply_resolvers,
-                          _invoke_resolution_callable)
+                          _bind_native_resolution, _binding_for_type_value,
+                          _invoke_resolution_callable, _match_type_argument,
+                          _python_value_for_binding, _resolution_binding)
 
 
 def _is_hidden_node_parameter(parameter):
@@ -143,17 +145,46 @@ def _requires_bridge(user_requires):
     return _check
 
 
-def _resolvers_bridge(user_resolvers):
+def _resolvers_bridge(user_resolvers, type_carriers=(), output_pattern=None):
     """Run Python decorator resolvers during C++ overload selection.
 
     Output-only type variables must be resolved before the registry can select
     a candidate, so waiting for the wire trampoline is too late.
     """
-    if not user_resolvers:
+    if not user_resolvers and not type_carriers:
         return None
 
     def _resolve(scope, scalars):
-        _apply_resolvers(scope, user_resolvers, dict(scalars))
+        scalar_values = dict(scalars)
+
+        def apply_type_carriers(required):
+            for parameter_name, placeholder, type_argument in type_carriers:
+                supplied = _binding_for_type_value(
+                    scalar_values.get(parameter_name))
+                if supplied is not None:
+                    _bind_native_resolution(scope, placeholder, supplied)
+                binding = supplied or _resolution_binding(scope, placeholder)
+                if binding is None and _type_var_name(placeholder) == "OUT" \
+                        and output_pattern is not None:
+                    resolved_output = scope.resolve_ts(output_pattern)
+                    if resolved_output is not None:
+                        scope.bind_ts("OUT", resolved_output)
+                        binding = ("ts", resolved_output)
+                if binding is None:
+                    if required:
+                        raise WiringError(
+                            f"type carrier '{parameter_name}' could not resolve "
+                            f"{placeholder!r}")
+                    continue
+                if not _match_type_argument(scope, type_argument, binding):
+                    raise WiringError(
+                        f"type carrier '{parameter_name}' resolved "
+                        f"{placeholder!r} to a type that does not match "
+                        f"{type_argument!r}")
+
+        apply_type_carriers(required=False)
+        _apply_resolvers(scope, user_resolvers, scalar_values)
+        apply_type_carriers(required=True)
         return scope
 
     return _resolve
@@ -189,11 +220,24 @@ def _overload_wire_trampoline(impl):
         try:
             wrap = lambda a: WiringPort(a) if isinstance(a, _hgraph.Port) else a
             values = [wrap(value) for value in args]
-            from .._types import AUTO_RESOLVE, _type_var_name
+            from .._types import AUTO_RESOLVE, _TypeVarSentinel, _type_var_name
             import typing
 
             for index, (parameter, value) in enumerate(zip(call_parameters, values)):
-                if value is not AUTO_RESOLVE or typing.get_origin(parameter.annotation) is not type:
+                if typing.get_origin(parameter.annotation) is not type:
+                    continue
+                concrete = _binding_for_type_value(value)
+                if (concrete is not None
+                        and isinstance(parameter.default, (_TypeVarSentinel, typing.TypeVar))):
+                    values[index] = _python_value_for_binding(
+                        parameter.default, concrete)
+                    continue
+                if isinstance(value, (_TypeVarSentinel, typing.TypeVar)):
+                    binding = _resolution_binding(resolution_scope, value)
+                    if binding is not None:
+                        values[index] = _python_value_for_binding(value, binding)
+                    continue
+                if value is not AUTO_RESOLVE:
                     continue
                 type_arguments = typing.get_args(parameter.annotation)
                 if not type_arguments:
@@ -265,6 +309,7 @@ def _register_overload(target, impl, requires=None):
     sig = (getattr(impl, "_wiring_signature", None)
            or _wiring_signature_of(fn)[0])
     param_options, variadic, has_kwargs = [], False, False
+    type_carriers = []
     kwargs_pattern = None
     positional = None
     for parameter in sig.parameters.values():
@@ -330,6 +375,11 @@ def _register_overload(target, impl, requires=None):
                     ),)
                 else:
                     patterns = (_scalar_pattern(annotation),)
+        annotation_args = typing.get_args(annotation)
+        if (typing.get_origin(annotation) is type and annotation_args
+                and isinstance(parameter.default, (_TypeVarSentinel, typing.TypeVar))):
+            type_carriers.append(
+                (parameter.name, parameter.default, annotation_args[0]))
         if parameter.default is inspect.Parameter.empty:
             param_options.append(tuple((parameter.name, pattern) for pattern in patterns))
         else:
@@ -350,7 +400,8 @@ def _register_overload(target, impl, requires=None):
     from itertools import product
 
     wire_fn = _overload_wire_trampoline(impl)
-    resolver_fn = _resolvers_bridge(getattr(impl, "_resolvers", None))
+    resolver_fn = _resolvers_bridge(
+        getattr(impl, "_resolvers", None), type_carriers, output)
     requires_fn = _requires_bridge(requires)
     for params in product(*param_options):
         _hgraph.register_python_overload(

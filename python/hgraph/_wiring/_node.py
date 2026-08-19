@@ -21,7 +21,9 @@ from ._markers import (STATE, _INJECTABLE_MARKERS, _MISSING,
                        _is_object_vt, _tsw_kind, _unbounded_tuple_kind)
 from ._operator import _register_overload, _run_requires
 from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
-                          _bind_resolution, _invoke_resolution_callable)
+                          _bind_resolution, _binding_for_type_value,
+                          _invoke_resolution_callable, _match_type_argument,
+                          _python_value_for_binding, _resolution_binding)
 
 
 def _warn_deprecated(name, deprecated):
@@ -413,17 +415,27 @@ class _PyNode:
     @staticmethod
     def _resolved_type_var_value(scope, sentinel):
         """Project a resolved type variable into its Python wiring value."""
-        from .._types import _TsExpr, _type_var_name
-
-        name = _type_var_name(sentinel)
-        if (scalar := scope.find_scalar(name)) is not None:
-            return _hgraph.python_type_for_value(scalar)
-        if (ts := scope.find_ts(name)) is not None:
-            return _TsExpr(ts, f"resolved[{name}]")
-        if (size := scope.find_size(name)) is not None:
-            from ._graph import _ResolvedSize
-            return _ResolvedSize(size)
+        if (binding := _resolution_binding(scope, sentinel)) is not None:
+            return _python_value_for_binding(sentinel, binding)
         raise WiringError(f"could not resolve type variable {sentinel!r}")
+
+    @staticmethod
+    def _resolved_placeholder_value(scope, param, placeholder):
+        """Validate and materialize a type-valued placeholder default."""
+        arguments = typing.get_args(param.annotation)
+        if typing.get_origin(param.annotation) is not type or not arguments:
+            raise WiringError(
+                f"type variable default for '{param.name}' needs a type[...] annotation")
+        binding = _resolution_binding(scope, placeholder)
+        if binding is None:
+            raise WiringError(
+                f"could not resolve type variable {placeholder!r} for '{param.name}'")
+        if not _match_type_argument(scope, arguments[0], binding):
+            resolved = _python_value_for_binding(placeholder, binding)
+            raise WiringError(
+                f"resolved type argument {resolved!r} for '{param.name}' does not "
+                f"match {arguments[0]!r}")
+        return _python_value_for_binding(placeholder, binding)
 
     @staticmethod
     def _resolved_auto_value(scope, param):
@@ -643,8 +655,15 @@ class _PyNode:
             if scalar_value is AUTO_RESOLVE:
                 scalar_values[param.name] = self._resolved_auto_value(scope, param)
             elif isinstance(scalar_value, (_TypeVarSentinel, typing.TypeVar)):
-                scalar_values[param.name] = self._resolved_type_var_value(
-                    scope, scalar_value)
+                scalar_values[param.name] = self._resolved_placeholder_value(
+                    scope, param, scalar_value)
+            elif (typing.get_origin(param.annotation) is type
+                  and (binding := _binding_for_type_value(scalar_value)) is not None):
+                type_argument = typing.get_args(param.annotation)[0]
+                if not _match_type_argument(scope, type_argument, binding):
+                    raise WiringError(
+                        f"type argument {scalar_value!r} for '{param.name}' does not "
+                        f"match {type_argument!r}")
         active_policy = self._active
         valid_policy = self._valid
         all_valid_policy = self._all_valid
