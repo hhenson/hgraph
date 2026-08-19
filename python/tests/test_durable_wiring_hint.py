@@ -22,8 +22,13 @@ import hgraph as hg
 from hgraph._wiring._core import _durable_wiring_hint
 
 _INSTALL_ADVICE = "hgraph-persistence"
+# The native resolver has TWO resolution-failure wordings and the hint must
+# read both: overloads registered but none matched, and the operator marker
+# absent entirely. The second is how replay_const fails without the extension,
+# and gating on the first alone silently dropped the diagnosis for it.
 _RECORD_FAILURE = "no matching overload for operator 'record' with 2 argument(s)"
-_REPLAY_CONST_FAILURE = (
+_REPLAY_CONST_FAILURE = "no operator 'replay_const' is registered"
+_REPLAY_CONST_NO_OVERLOAD = (
     "no matching overload for operator 'replay_const' with 1 argument(s)"
 )
 
@@ -77,11 +82,29 @@ def test_another_vendors_backend_is_not_blamed_on_persistence(extension_unloaded
     assert _durable_wiring_hint("record", {"model": "hgraph.custom"}, _RECORD_FAILURE) == ""
 
 
-def test_extension_only_operator_is_diagnosed_without_a_selection(extension_unloaded):
+@pytest.mark.parametrize(
+    "failure", [_REPLAY_CONST_FAILURE, _REPLAY_CONST_NO_OVERLOAD], ids=["absent", "no-overload"]
+)
+def test_extension_only_operator_is_diagnosed_without_a_selection(
+    failure, extension_unloaded
+):
     # replay_const has no in-memory implementation, so it can fail this way
-    # with no durable backend configured at all.
-    assert _INSTALL_ADVICE in _durable_wiring_hint(
-        "replay_const", {}, _REPLAY_CONST_FAILURE
+    # with no durable backend configured at all -- and it fails with EITHER
+    # wording depending on whether the marker itself got registered.
+    assert _INSTALL_ADVICE in _durable_wiring_hint("replay_const", {}, failure)
+
+
+def test_a_non_resolution_error_mentioning_registration_is_not_a_resolution_failure(
+    extension_unloaded,
+):
+    # The "absent operator" wording is matched by shape, not by the loose
+    # substring "is registered", so an unrelated message carrying those words
+    # does not attract install advice.
+    assert (
+        _durable_wiring_hint(
+            "replay_const", {}, "the recordable id is registered to another graph"
+        )
+        == ""
     )
 
 

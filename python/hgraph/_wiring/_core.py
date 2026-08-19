@@ -5,6 +5,7 @@ serialized because the stack and native operator registry are process-wide;
 the serialization ends once the native executor has been built, so distinct
 executors may run concurrently. ``_wiring_stack`` is THE single list object:
 tests and C++ re-entry mutate it in place; nothing may rebind it."""
+import re
 import threading
 
 import _hgraph
@@ -45,6 +46,18 @@ def register_record_replay_wiring_adapter(adapter):
 # one of these is a candidate for the missing-extension diagnosis whatever
 # backend is configured.
 _EXTENSION_ONLY_OPERATORS = frozenset({"replay_const"})
+
+# The native resolver reports a resolution failure two ways, and a missing
+# extension shows up as EITHER: overloads exist but none matched the call, or
+# the operator marker itself is absent because only the extension registers
+# one. Anything else -- an argument type error, a bad key -- is not about
+# which overloads are registered and must not attract install advice.
+_NO_MATCHING_OVERLOAD = "no matching overload for operator"
+_NO_SUCH_OPERATOR = re.compile(r"no operator '[^']*' is registered")
+
+
+def _is_resolution_failure(message):
+    return _NO_MATCHING_OVERLOAD in message or _NO_SUCH_OPERATOR.search(message) is not None
 
 
 def _durable_backend_selected(kwargs):
@@ -95,7 +108,7 @@ def _durable_wiring_hint(name, kwargs=None, message=""):
     """
     if name not in _DURABLE_OPERATORS:
         return ""
-    if "no matching overload" not in message:
+    if not _is_resolution_failure(message):
         return ""
     if name not in _EXTENSION_ONLY_OPERATORS and not _durable_backend_selected(kwargs):
         return ""
