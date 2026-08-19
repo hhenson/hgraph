@@ -6,8 +6,9 @@ from functools import lru_cache
 import pyarrow as pa
 
 from hgraph import (
-    AUTO_RESOLVE, SCHEMA, STATE, TABLE, CompoundScalar, Frame, TS, TSD,
-    compute_node, map_, rekey, schedule, sink_node, str_, table_schema, to_table,
+    AUTO_RESOLVE, SCALAR, SCHEMA, STATE, TABLE, V, CompoundScalar, Frame, TS,
+    TSD, compute_node, graph, map_, rekey, schedule, sink_node, str_,
+    table_schema, to_table,
 )
 from hgraph._types import _TsExpr
 from hgraph._wiring import _unwrap
@@ -15,7 +16,7 @@ from hgraph.adaptors.data_catalogue import DataEnvironment
 from hgraph.stream import StreamStatus
 
 from .delta_adaptor_raw import (
-    DeltaSchemaMode, DeltaWriteMode, delta_write_adaptor_raw,
+    DeltaSchemaMode, DeltaWriteMode, _TIME_STREAM, delta_write_adaptor_raw,
 )
 
 __all__ = ("publish_tsd_to_delta_table", "tsd_to_frame_batched")
@@ -113,21 +114,23 @@ def _tsd_to_frame_batched(
         batched, schema_names=names), frame_schema)
 
 
+@graph
 def tsd_to_frame_batched(
-    tsd: TSD,
+    tsd: TSD[SCALAR, V],
     max_rows: TS[int] = DEFAULT_DELTA_PUBLISH_BATCH_SIZE,
     flush_period: TS[timedelta] = DEFAULT_DELTA_PUBLISH_FLUSH_PERIOD,
-):
+) -> TS[Frame]:
     return _tsd_to_frame_batched(
         tsd, max_rows=max_rows, flush_period=flush_period)[0]
 
 
+@graph
 def publish_tsd_to_delta_table(
     table_name: str,
-    tsd: TSD,
+    tsd: TSD[SCALAR, V],
     max_rows: TS[int] = DEFAULT_DELTA_PUBLISH_BATCH_SIZE,
     flush_period: TS[timedelta] = DEFAULT_DELTA_PUBLISH_FLUSH_PERIOD,
-):
+) -> _TIME_STREAM:
     frame, frame_schema = _tsd_to_frame_batched(
         tsd, max_rows=max_rows, flush_period=flush_period)
     cache_location = DataEnvironment.current().get_entry(

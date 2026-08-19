@@ -372,6 +372,11 @@ if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
         )
     endif()
     target_link_libraries(hgraph_private_dependencies INTERFACE fmt::fmt)
+    # Public authoring headers use fmt types. Keep the implementation library
+    # private to the hgraph DSOs while exposing fetched headers to in-tree
+    # extensions; installed wheel SDKs receive the same headers below.
+    target_include_directories(hgraph_options INTERFACE
+        $<BUILD_INTERFACE:${fmt_SOURCE_DIR}/include>)
 elseif(_hgraph_fmt_fetched)
     target_link_libraries(hgraph_options INTERFACE
         $<BUILD_INTERFACE:fmt::fmt>
@@ -562,6 +567,10 @@ if(NOT spdlog_FOUND)
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     target_link_libraries(hgraph_private_dependencies INTERFACE spdlog::spdlog)
+    # LoggerView is public, so in-tree extensions need the fetched spdlog
+    # headers even though the compiled spdlog library remains DSO-private.
+    target_include_directories(hgraph_options INTERFACE
+        $<BUILD_INTERFACE:${spdlog_SOURCE_DIR}/include>)
 elseif(spdlog_FOUND)
     target_link_libraries(hgraph_options INTERFACE spdlog::spdlog)
 else()

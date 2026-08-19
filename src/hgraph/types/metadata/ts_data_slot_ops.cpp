@@ -1522,9 +1522,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<Storage>(memory).next_removed_slot(previous);
             }
 
-            [[nodiscard]] static const void *tss_key_at_slot(const void *, const void *memory, std::size_t slot)
+            [[nodiscard]] static ValueView tss_key_at_slot(const void *context, const void *memory,
+                                                           std::size_t slot)
             {
-                return storage<Storage>(memory).key_at_slot(slot);
+                return ValueView{ctx(context)->set_layout.key_binding,
+                                 storage<Storage>(memory).key_at_slot(slot)};
             }
 
             [[nodiscard]] static bool tss_contains(const void *, const void *memory, const ValueView &key)

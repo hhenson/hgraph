@@ -135,7 +135,7 @@ namespace hgraph
     {
         if (!slot_occupied(slot)) { throw std::out_of_range("TSSDataView::at_slot: slot is not occupied"); }
         const auto &ops = set_ops();
-        return ValueView{layout().key_binding, ops.key_at_slot_impl(ops.context, storage_.data(), slot)};
+        return ops.key_at_slot_impl(ops.context, storage_.data(), slot);
     }
 
     bool TSSDataView::contains(const ValueView &key) const

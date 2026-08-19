@@ -892,10 +892,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<Storage>(window_value_memory(context, memory)).cleared_time();
             }
 
-            [[nodiscard]] static const void *window_evicted_element(const void *context, const void *memory) noexcept
+            [[nodiscard]] static ValueView window_evicted_element(const void *context, const void *memory) noexcept
             {
                 const auto &window = storage<Storage>(window_value_memory(context, memory));
-                return window.evicted_element().has_value() ? window.evicted_element().view().data() : nullptr;
+                return window.evicted_element().has_value() ? window.evicted_element().view() : ValueView{};
             }
 
             void configure_value_ops()
@@ -1000,10 +1000,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<Storage>(window_value_memory(context, memory)).size();
             }
 
-            [[nodiscard]] static const void *window_element_at(const void *context, const void *memory,
-                                                               std::size_t index)
+            [[nodiscard]] static ValueView window_element_at(const void *context, const void *memory,
+                                                             std::size_t index)
             {
-                return storage<Storage>(window_value_memory(context, memory)).element_at(index);
+                const auto *self = ctx(context);
+                return ValueView{self->layout->element_binding,
+                                 storage<Storage>(window_value_memory(context, memory)).element_at(index)};
             }
 
             [[nodiscard]] static DateTime window_time_at(const void *context, const void *memory,
@@ -1012,10 +1014,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<Storage>(window_value_memory(context, memory)).time_at(index);
             }
 
-            [[nodiscard]] static const void *window_time_element_at(const void *context, const void *memory,
-                                                                    std::size_t index)
+            [[nodiscard]] static ValueView window_time_element_at(const void *context, const void *memory,
+                                                                  std::size_t index)
             {
-                return storage<Storage>(window_value_memory(context, memory)).time_element_at(index);
+                const auto *self = ctx(context);
+                return ValueView{self->layout->time_binding,
+                                 storage<Storage>(window_value_memory(context, memory)).time_element_at(index)};
             }
 
             static void window_push(const void *context, void *memory, const ValueView &source,

@@ -28,11 +28,14 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -82,6 +85,19 @@ struct TlsServerSettings {
   Value raw{};
 };
 
+struct StaticFileConfig {
+  Str url{};
+  Str file{};
+  Str content_type{};
+  Str cache_control{};
+};
+
+struct StaticDirectoryConfig {
+  Str url_prefix{};
+  Str directory{};
+  Str cache_control{};
+};
+
 struct ServerRuntimeConfig {
   // The whole WebServerConfig value: sharing a port requires the FULL
   // configuration to match, not just TLS — the first attachee's listener
@@ -98,6 +114,8 @@ struct ServerRuntimeConfig {
   std::chrono::milliseconds idle_timeout{};
   std::chrono::milliseconds keep_alive_timeout{};
   bool bind_deferred{};
+  std::vector<StaticFileConfig> static_files{};
+  std::vector<StaticDirectoryConfig> static_directories{};
   OutputLimits ingress{};
   OutputLimits ws_ingress{};
   Int watermark_high_pct{};
@@ -137,6 +155,41 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   return std::chrono::milliseconds{value};
 }
 
+void validate_literal_static_path(std::string_view path,
+                                  std::string_view what) {
+  if (path.empty() || !path.starts_with('/')) {
+    throw std::invalid_argument("Web " + std::string{what} +
+                                " must start with '/'");
+  }
+  std::size_t start = 1;
+  while (true) {
+    const auto slash = path.find('/', start);
+    const auto segment =
+        path.substr(start, slash == std::string_view::npos
+                               ? std::string_view::npos
+                               : slash - start);
+    if (!segment.empty() &&
+        (segment.front() == '*' ||
+         segment.find('{') != std::string_view::npos ||
+         segment.find('}') != std::string_view::npos)) {
+      throw std::invalid_argument(
+          "Web " + std::string{what} + " must be exact literal paths");
+    }
+    if (slash == std::string_view::npos) {
+      return;
+    }
+    start = slash + 1;
+  }
+}
+
+[[nodiscard]] Str normalize_static_directory_prefix(Str prefix) {
+  validate_literal_static_path(prefix, "static directory URL prefixes");
+  while (prefix.size() > 1 && prefix.back() == '/') {
+    prefix.pop_back();
+  }
+  return prefix;
+}
+
 [[nodiscard]] ServerRuntimeConfig parse_server_config(const Value &value) {
   if (value.schema() != scalar_descriptor<WebServerConfig>::value_meta()) {
     throw std::invalid_argument("Web server requires WebServerConfig");
@@ -165,6 +218,35 @@ milliseconds_field(const ValueView &field, std::string_view name) {
   result.keep_alive_timeout = milliseconds_field(
       root.at("keep_alive_timeout_ms"), "keep-alive timeout");
   result.bind_deferred = root.at("bind_deferred").checked_as<Bool>();
+  for (const auto file : root.at("static_files").as_list()) {
+    const auto fields = file.as_bundle();
+    StaticFileConfig config{
+        fields.at("url").checked_as<Str>(),
+        fields.at("file").checked_as<Str>(),
+        fields.at("content_type").checked_as<Str>(),
+        fields.at("cache_control").checked_as<Str>(),
+    };
+    validate_literal_static_path(config.url, "static file URLs");
+    if (config.file.empty()) {
+      throw std::invalid_argument(
+          "Web static files require a filesystem path");
+    }
+    result.static_files.push_back(std::move(config));
+  }
+  for (const auto directory : root.at("static_directories").as_list()) {
+    const auto fields = directory.as_bundle();
+    StaticDirectoryConfig config{
+        normalize_static_directory_prefix(
+            fields.at("url_prefix").checked_as<Str>()),
+        fields.at("directory").checked_as<Str>(),
+        fields.at("cache_control").checked_as<Str>(),
+    };
+    if (config.directory.empty()) {
+      throw std::invalid_argument(
+          "Web static directories require a filesystem path");
+    }
+    result.static_directories.push_back(std::move(config));
+  }
   result.ingress = OutputLimits{
       positive_size(root.at("ingress_record_limit"), "ingress record limit"),
       positive_size(root.at("ingress_byte_limit"), "ingress byte limit"),
@@ -338,6 +420,12 @@ struct CompiledRoutes {
   std::vector<Value> routes{};
 };
 
+struct CompiledStaticFiles {
+  RouteTable table{RouteTable::build({})};
+  std::vector<StaticFileConfig> files{};
+  std::vector<StaticDirectoryConfig> directories{};
+};
+
 struct MatchedRoute {
   std::shared_ptr<WebServerRuntime> runtime{};
   // The route is SHARED, not cloned: the snapshot pin keeps the pointed-at
@@ -351,6 +439,12 @@ struct MatchedRoute {
   // owned (request-derived).  Materialized into owning pairs only after
   // admission (review P1).
   std::vector<std::pair<std::string_view, std::string>> params{};
+};
+
+struct MatchedStaticFile {
+  const StaticFileConfig *file{};
+  const StaticDirectoryConfig *directory{};
+  std::string path{};
 };
 
 [[nodiscard]] WebBindings::NamedPairs
@@ -371,6 +465,171 @@ materialize_params(
   return route.view().as_bundle().at("pattern").checked_as<Str>().size() + 64;
 }
 
+[[nodiscard]] CompiledStaticFiles
+compile_static_files(const std::vector<StaticFileConfig> &files,
+                     const std::vector<StaticDirectoryConfig> &directories) {
+  CompiledStaticFiles compiled;
+  std::vector<RouteTable::Entry> entries;
+  entries.reserve(files.size());
+  compiled.files = files;
+  for (const StaticFileConfig &file : compiled.files) {
+    entries.push_back(RouteTable::Entry{HttpMethod::Get, std::string{file.url}});
+  }
+  compiled.directories = directories;
+  std::sort(compiled.directories.begin(), compiled.directories.end(),
+            [](const StaticDirectoryConfig &lhs,
+               const StaticDirectoryConfig &rhs) {
+              return lhs.url_prefix.size() > rhs.url_prefix.size();
+            });
+  compiled.table = RouteTable::build(std::move(entries));
+  return compiled;
+}
+
+struct StaticFileTarget {
+  std::string file{};
+  std::string content_type{};
+  std::string cache_control{};
+};
+
+[[nodiscard]] std::string
+infer_content_type(const StaticFileTarget &file) {
+  if (!file.content_type.empty()) {
+    return file.content_type;
+  }
+  const auto extension = std::filesystem::path{std::string{file.file}}
+                             .extension()
+                             .string();
+  std::string lowered;
+  lowered.reserve(extension.size());
+  for (const unsigned char character : extension) {
+    lowered.push_back(
+        static_cast<char>(std::tolower(character)));
+  }
+  if (lowered == ".ico") return "image/x-icon";
+  if (lowered == ".svg") return "image/svg+xml";
+  if (lowered == ".html" || lowered == ".htm") return "text/html; charset=utf-8";
+  if (lowered == ".css") return "text/css; charset=utf-8";
+  if (lowered == ".js" || lowered == ".mjs") return "text/javascript; charset=utf-8";
+  if (lowered == ".json") return "application/json";
+  if (lowered == ".txt") return "text/plain; charset=utf-8";
+  if (lowered == ".png") return "image/png";
+  if (lowered == ".jpg" || lowered == ".jpeg") return "image/jpeg";
+  if (lowered == ".gif") return "image/gif";
+  if (lowered == ".webp") return "image/webp";
+  if (lowered == ".wasm") return "application/wasm";
+  return "application/octet-stream";
+}
+
+struct ResolvedStaticFile {
+  http::status status{http::status::ok};
+  std::string file{};
+  std::size_t size{};
+  std::string content_type{"text/plain"};
+  std::string cache_control{};
+  std::string body{};
+};
+
+[[nodiscard]] ResolvedStaticFile
+static_text_response(http::status status, std::string body) {
+  return ResolvedStaticFile{status, "", 0, "text/plain", "", std::move(body)};
+}
+
+[[nodiscard]] ResolvedStaticFile
+resolve_static_file(const StaticFileTarget &file) {
+  namespace fs = std::filesystem;
+
+  const fs::path path{std::string{file.file}};
+  std::error_code ec;
+  const auto status = fs::status(path, ec);
+  if (ec || !fs::exists(status) || !fs::is_regular_file(status)) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+  const auto size = fs::file_size(path, ec);
+  if (ec) {
+    return static_text_response(http::status::internal_server_error,
+                                "static file error");
+  }
+  return {http::status::ok, path.string(), static_cast<std::size_t>(size),
+          infer_content_type(file), std::string{file.cache_control}, ""};
+}
+
+[[nodiscard]] std::optional<std::string_view>
+static_directory_relative_path(std::string_view prefix,
+                               std::string_view path) {
+  if (prefix == "/") {
+    if (path.size() <= 1 || !path.starts_with('/')) {
+      return std::nullopt;
+    }
+    return path.substr(1);
+  }
+  if (path == prefix || !path.starts_with(prefix) ||
+      path.size() <= prefix.size() || path[prefix.size()] != '/') {
+    return std::nullopt;
+  }
+  return path.substr(prefix.size() + 1);
+}
+
+[[nodiscard]] bool path_within_root(const std::filesystem::path &root,
+                                    const std::filesystem::path &path) {
+  auto root_it = root.begin();
+  auto path_it = path.begin();
+  for (; root_it != root.end(); ++root_it, ++path_it) {
+    if (path_it == path.end() || *root_it != *path_it) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] ResolvedStaticFile
+load_static_directory_file(const StaticDirectoryConfig &directory,
+                           std::string_view request_path) {
+  namespace fs = std::filesystem;
+
+  const auto relative = static_directory_relative_path(directory.url_prefix,
+                                                       request_path);
+  if (!relative.has_value() || relative->empty()) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+
+  const fs::path relative_path{std::string{*relative}};
+  if (relative_path.is_absolute()) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+  for (const auto &part : relative_path) {
+    if (part == "." || part == "..") {
+      return static_text_response(http::status::not_found, "no such file");
+    }
+  }
+
+  const fs::path root{std::string{directory.directory}};
+  std::error_code ec;
+  const auto root_status = fs::status(root, ec);
+  if (ec || !fs::exists(root_status) || !fs::is_directory(root_status)) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+
+  const fs::path target = root / relative_path;
+  const auto target_status = fs::status(target, ec);
+  if (ec || !fs::exists(target_status) || !fs::is_regular_file(target_status)) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+
+  const auto canonical_root = fs::weakly_canonical(root, ec);
+  if (ec) {
+    return static_text_response(http::status::internal_server_error,
+                                "static file error");
+  }
+  const auto canonical_target = fs::weakly_canonical(target, ec);
+  if (ec || !path_within_root(canonical_root, canonical_target)) {
+    return static_text_response(http::status::not_found, "no such file");
+  }
+
+  return resolve_static_file(
+      StaticFileTarget{canonical_target.string(), "",
+                       std::string{directory.cache_control}});
+}
+
 // ---------------------------------------------------------------------------
 // Listener: owns the io_context pool and acceptor for one (address, port).
 // Several server runtimes may attach (RFC 0024, routing/port sharing); the
@@ -382,10 +641,10 @@ class PendingTarget;
 class WebListener : public std::enable_shared_from_this<WebListener> {
 public:
   WebListener(std::string address, std::uint16_t port, Value config_identity,
-              std::size_t io_threads)
+              std::size_t io_threads, CompiledStaticFiles static_files)
       : address_{std::move(address)}, port_{port},
         config_identity_{std::move(config_identity)}, io_threads_{io_threads},
-        acceptor_{io_context_} {}
+        acceptor_{io_context_}, static_files_{std::move(static_files)} {}
 
   ~WebListener() { stop_io(); }
 
@@ -435,6 +694,9 @@ public:
 
   [[nodiscard]] std::optional<MatchedRoute>
   match(HttpMethod method, std::string_view path, bool upgrade);
+
+  [[nodiscard]] std::optional<MatchedStaticFile>
+  match_static(HttpMethod method, std::string_view path) const;
 
   /** Cross-attachee duplicate detection (RFC 0024, port sharing): an
    * identical (method, pattern) served by two runtimes would otherwise be
@@ -497,6 +759,7 @@ private:
   std::vector<std::weak_ptr<PendingTarget>> live_connections_{};
   std::array<std::set<const void *>, 2> pause_tokens_{};
   std::array<std::vector<std::function<void()>>, 2> parked_{};
+  CompiledStaticFiles static_files_{};
 };
 
 class ListenerRegistry {
@@ -508,7 +771,9 @@ public:
 
   [[nodiscard]] std::shared_ptr<WebListener>
   acquire(const std::string &address, std::uint16_t port, const Value &config,
-          std::size_t io_threads, std::shared_ptr<WebServerRuntime> runtime) {
+          std::size_t io_threads, std::shared_ptr<WebServerRuntime> runtime,
+          const std::vector<StaticFileConfig> &static_files,
+          const std::vector<StaticDirectoryConfig> &static_directories) {
     std::lock_guard lock{mutex_};
     const auto key = std::make_pair(address, port);
     if (port != 0) {
@@ -528,8 +793,9 @@ public:
         }
       }
     }
-    auto listener =
-        std::make_shared<WebListener>(address, port, config.clone(), io_threads);
+    auto listener = std::make_shared<WebListener>(
+        address, port, config.clone(), io_threads,
+        compile_static_files(static_files, static_directories));
     listener->attach(std::move(runtime));
     if (port != 0) {
       listeners_[key] = listener;
@@ -927,6 +1193,8 @@ private:
   void read_next();
   void on_headers();
   void respond_after_headers(http::status status, std::string_view body);
+  void serve_static_after_headers(const MatchedStaticFile &file,
+                                  bool suppress_body);
   void admit_and_read_body(MatchedRoute matched);
   void read_body(MatchedRoute matched);
   void release_admission() noexcept;
@@ -951,6 +1219,14 @@ private:
                 WsConnectionState terminal_state);
   void finish_ws(WsConnectionState state, Int close_code, Str close_reason);
   void release_ws_terminal_reservation() noexcept;
+  void send_buffer_response(http::status status, std::string body,
+                            bool keep_alive, std::string_view content_type,
+                            std::string_view cache_control,
+                            std::optional<std::size_t> content_length = std::nullopt);
+  void send_file_response(http::status status, std::string path,
+                          std::size_t content_length, bool keep_alive,
+                          std::string_view content_type,
+                          std::string_view cache_control);
   void send_simple_response(http::status status, std::string_view body,
                             bool keep_alive);
   void close();
@@ -1010,8 +1286,11 @@ private:
   const Value *ws_route_{};
   std::size_t ws_route_weight_{};
   std::optional<http::response<http::string_body>> outgoing_{};
+  std::optional<http::response<http::file_body>> outgoing_file_{};
   std::optional<http::response<http::empty_body>> chunk_head_{};
   std::optional<http::response_serializer<http::empty_body>> chunk_serializer_{};
+  std::optional<http::response_serializer<http::file_body>>
+      outgoing_file_serializer_{};
   std::string chunk_body_{};
   http::fields chunk_trailers_{};
   struct QueuedWsFrame {
@@ -1204,6 +1483,8 @@ private:
   void maybe_dispatch(std::int32_t stream_id);
   void respond_transport(std::int32_t stream_id, int status,
                          std::string_view body);
+  void respond_static(std::int32_t stream_id, const MatchedStaticFile &file,
+                      bool suppress_body);
   void write_stream_response(Int request_id, const Value &response,
                              Int client_id,
                              const std::shared_ptr<WebServerRuntime> &runtime);
@@ -1348,6 +1629,29 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
   return std::nullopt;
 }
 
+std::optional<MatchedStaticFile>
+WebListener::match_static(HttpMethod method, std::string_view path) const {
+  if (method != HttpMethod::Get && method != HttpMethod::Head) {
+    return std::nullopt;
+  }
+  // ``path`` arrives decoded from the header boundary, and the directory
+  // branch below already treats it that way; decoding it again here rejected
+  // any mount whose decoded name contains a literal '%'.
+  const auto matched = static_files_.table.match_decoded(HttpMethod::Get, path);
+  if (!matched.matched) {
+    for (const StaticDirectoryConfig &directory : static_files_.directories) {
+      if (const auto relative =
+              static_directory_relative_path(directory.url_prefix, path);
+          relative.has_value() && !relative->empty()) {
+        return MatchedStaticFile{nullptr, &directory, std::string{path}};
+      }
+    }
+    return std::nullopt;
+  }
+  return MatchedStaticFile{&static_files_.files[matched.entry_index], nullptr,
+                           std::string{path}};
+}
+
 void WebListener::retire_runtime_connections(
     const WebServerRuntime *runtime, std::shared_ptr<const void> barrier) {
   std::vector<std::weak_ptr<PendingTarget>> live;
@@ -1380,6 +1684,34 @@ void WebListener::check_route_conflicts(const WebServerRuntime *applying,
                                         const std::vector<Value> &added) {
   if (added.empty()) {
     return;
+  }
+  if (!upgrade) {
+    for (const Value &route : added) {
+      const auto fields = route.view().as_bundle();
+      if (fields.at("method").checked_as<HttpMethod>() != HttpMethod::Get) {
+        continue;
+      }
+      const auto pattern = fields.at("pattern").checked_as<Str>();
+      for (const StaticFileConfig &file : static_files_.files) {
+        if (file.url == pattern) {
+          throw std::invalid_argument(
+              "Web route " + std::string{enum_name(HttpMethod::Get)} + " " +
+              std::string{pattern} + " from service path '" +
+              std::string{applying->path()} +
+              "' conflicts with a static file mount on this port");
+        }
+      }
+      for (const StaticDirectoryConfig &directory : static_files_.directories) {
+        if (static_directory_relative_path(directory.url_prefix, pattern)
+                .has_value()) {
+          throw std::invalid_argument(
+              "Web route " + std::string{enum_name(HttpMethod::Get)} + " " +
+              std::string{pattern} + " from service path '" +
+              std::string{applying->path()} +
+              "' conflicts with a static directory mount on this port");
+        }
+      }
+    }
   }
   std::vector<std::shared_ptr<WebServerRuntime>> runtimes;
   {
@@ -1565,7 +1897,8 @@ void WebServerRuntime::start() {
 
   listener_ = ListenerRegistry::instance().acquire(
       std::string{config_->bind_address}, config_->port,
-      config_->config_identity, config_->io_threads, shared_from_this());
+      config_->config_identity, config_->io_threads, shared_from_this(),
+      config_->static_files, config_->static_directories);
   try {
     if (!config_->bind_deferred) {
       listener_->ensure_listening();
@@ -2196,12 +2529,44 @@ void ServerConnection::on_headers() {
     return;
   }
 
-  auto matched = listener_->match(*method, path, false);
-  if (!matched.has_value() && *method == HttpMethod::Head) {
+  if (*method == HttpMethod::Get) {
+    if (const auto static_file =
+            listener_->match_static(*method, decoded_path_)) {
+      serve_static_after_headers(*static_file, false);
+      return;
+    }
+    auto matched = listener_->match(*method, path, false);
+    if (!matched.has_value()) {
+      respond_after_headers(http::status::not_found, "no such route");
+      return;
+    }
+    admit_and_read_body(std::move(*matched));
+    return;
+  }
+
+  if (*method == HttpMethod::Head) {
+    auto matched = listener_->match(HttpMethod::Head, path, false);
+    if (matched.has_value()) {
+      admit_and_read_body(std::move(*matched));
+      return;
+    }
+    if (const auto static_file =
+            listener_->match_static(HttpMethod::Head, decoded_path_)) {
+      serve_static_after_headers(*static_file, true);
+      return;
+    }
     // Standard HTTP: HEAD is GET without the body, so a GET route serves it
     // (the transport suppresses the body on the way out).
     matched = listener_->match(HttpMethod::Get, path, false);
+    if (!matched.has_value()) {
+      respond_after_headers(http::status::not_found, "no such route");
+      return;
+    }
+    admit_and_read_body(std::move(*matched));
+    return;
   }
+
+  auto matched = listener_->match(*method, path, false);
   if (!matched.has_value()) {
     respond_after_headers(http::status::not_found, "no such route");
     return;
@@ -2220,6 +2585,37 @@ void ServerConnection::respond_after_headers(http::status status,
   // An unread body follows; closing after the response keeps the framing
   // sound without reading bytes the graph will never see.
   send_simple_response(status, body, false);
+}
+
+void ServerConnection::serve_static_after_headers(const MatchedStaticFile &file,
+                                                  bool suppress_body) {
+  ResolvedStaticFile resolved =
+      file.file != nullptr
+          ? resolve_static_file(
+                StaticFileTarget{std::string{file.file->file},
+                                 std::string{file.file->content_type},
+                                 std::string{file.file->cache_control}})
+          : load_static_directory_file(*file.directory, file.path);
+  const bool keep_alive = parser_->is_done() && !shutting_down_;
+  const std::size_t content_length =
+      resolved.file.empty() ? resolved.body.size() : resolved.size;
+  if (parser_->is_done()) {
+    request_ = parser_->release();
+  }
+  if (!suppress_body && !resolved.file.empty() &&
+      resolved.status == http::status::ok) {
+    send_file_response(resolved.status, std::move(resolved.file),
+                       content_length, keep_alive, resolved.content_type,
+                       resolved.cache_control);
+    return;
+  }
+  send_buffer_response(resolved.status,
+                       suppress_body ? std::string{} : std::move(resolved.body),
+                       keep_alive, resolved.content_type,
+                       resolved.cache_control,
+                       suppress_body
+                           ? std::optional<std::size_t>{content_length}
+                           : std::nullopt);
 }
 
 void ServerConnection::admit_and_read_body(MatchedRoute matched) {
@@ -2626,6 +3022,8 @@ void ServerConnection::finish_response(
     const std::shared_ptr<WebServerRuntime> &runtime, bool keep_alive) {
   writing_ = false;
   outgoing_.reset();
+  outgoing_file_serializer_.reset();
+  outgoing_file_.reset();
   chunk_serializer_.reset();
   chunk_head_.reset();
   chunk_body_.clear();
@@ -2646,16 +3044,31 @@ void ServerConnection::finish_response(
 void ServerConnection::send_simple_response(http::status status,
                                             std::string_view body,
                                             bool keep_alive) {
+  send_buffer_response(status, std::string{body}, keep_alive, "text/plain", "",
+                       std::nullopt);
+}
+
+void ServerConnection::send_buffer_response(http::status status, std::string body,
+                                            bool keep_alive,
+                                            std::string_view content_type,
+                                            std::string_view cache_control,
+                                            std::optional<std::size_t> content_length) {
   if (writing_) {
     return;
   }
   outgoing_.emplace();
   outgoing_->version(11);
   outgoing_->result(status);
-  outgoing_->set(http::field::content_type, "text/plain");
-  outgoing_->body() = std::string{body};
+  outgoing_->set(http::field::content_type, content_type);
+  if (!cache_control.empty()) {
+    outgoing_->set(http::field::cache_control, cache_control);
+  }
+  outgoing_->body() = std::move(body);
   outgoing_->keep_alive(keep_alive && !shutting_down_);
   outgoing_->prepare_payload();
+  if (content_length.has_value()) {
+    outgoing_->content_length(*content_length);
+  }
   writing_ = true;
   const bool continue_reading = keep_alive && !shutting_down_;
   const auto on_write = asio::bind_executor(
@@ -2664,6 +3077,8 @@ void ServerConnection::send_simple_response(http::status status,
                                                     std::size_t) {
         self->writing_ = false;
         self->outgoing_.reset();
+        self->outgoing_file_serializer_.reset();
+        self->outgoing_file_.reset();
         if (ec || !continue_reading) {
           self->close();
         } else {
@@ -2674,6 +3089,55 @@ void ServerConnection::send_simple_response(http::status status,
     http::async_write(*tls_stream_, *outgoing_, on_write);
   } else {
     http::async_write(*plain_stream_, *outgoing_, on_write);
+  }
+}
+
+void ServerConnection::send_file_response(http::status status, std::string path,
+                                          std::size_t content_length,
+                                          bool keep_alive,
+                                          std::string_view content_type,
+                                          std::string_view cache_control) {
+  if (writing_) {
+    return;
+  }
+  beast::error_code ec;
+  outgoing_file_.emplace();
+  outgoing_file_->version(11);
+  outgoing_file_->result(status);
+  outgoing_file_->set(http::field::content_type, content_type);
+  if (!cache_control.empty()) {
+    outgoing_file_->set(http::field::cache_control, cache_control);
+  }
+  outgoing_file_->body().open(path.c_str(), beast::file_mode::scan, ec);
+  if (ec) {
+    outgoing_file_.reset();
+    send_simple_response(http::status::internal_server_error,
+                         "static file error", keep_alive);
+    return;
+  }
+  outgoing_file_->content_length(content_length);
+  outgoing_file_->keep_alive(keep_alive && !shutting_down_);
+  outgoing_file_serializer_.emplace(*outgoing_file_);
+  writing_ = true;
+  const bool continue_reading = keep_alive && !shutting_down_;
+  const auto on_write = asio::bind_executor(
+      strand_,
+      [self = shared_from_this(), continue_reading](beast::error_code ec,
+                                                    std::size_t) {
+        self->writing_ = false;
+        self->outgoing_file_serializer_.reset();
+        self->outgoing_file_.reset();
+        self->outgoing_.reset();
+        if (ec || !continue_reading) {
+          self->close();
+        } else {
+          self->read_next();
+        }
+      });
+  if (tls_stream_.has_value()) {
+    http::async_write(*tls_stream_, *outgoing_file_serializer_, on_write);
+  } else {
+    http::async_write(*plain_stream_, *outgoing_file_serializer_, on_write);
   }
 }
 
@@ -3448,13 +3912,55 @@ void H2Driver::on_request_headers(std::int32_t stream_id, std::string method,
   }
   stream.decoded_path = std::move(*decoded_path);
 
-  auto matched = listener_->match(stream.method, path, false);
-  if (!matched.has_value() && stream.method == HttpMethod::Head) {
+  if (stream.method == HttpMethod::Get) {
+    if (const auto static_file =
+            listener_->match_static(HttpMethod::Get, stream.decoded_path)) {
+      streams_.emplace(stream_id, std::move(stream));
+      respond_static(stream_id, *static_file, false);
+      return;
+    }
+    auto matched = listener_->match(HttpMethod::Get, path, false);
+    if (!matched.has_value()) {
+      streams_.emplace(stream_id, std::move(stream));
+      respond_transport(stream_id, 404, "no such route");
+      return;
+    }
+    stream.matched = std::move(*matched);
+    streams_.emplace(stream_id, std::move(stream));
+    admit_stream(stream_id);
+    return;
+  }
+
+  if (stream.method == HttpMethod::Head) {
+    auto matched = listener_->match(HttpMethod::Head, path, false);
+    if (matched.has_value()) {
+      stream.matched = std::move(*matched);
+      streams_.emplace(stream_id, std::move(stream));
+      admit_stream(stream_id);
+      return;
+    }
+    if (const auto static_file =
+            listener_->match_static(HttpMethod::Head, stream.decoded_path)) {
+      streams_.emplace(stream_id, std::move(stream));
+      respond_static(stream_id, *static_file, true);
+      return;
+    }
     // Standard HTTP: HEAD is GET without the body (transport suppresses
     // the body on the way out), exactly like the h1 path.
     matched = listener_->match(HttpMethod::Get, path, false);
     stream.head_fallback = matched.has_value();
+    if (!matched.has_value()) {
+      streams_.emplace(stream_id, std::move(stream));
+      respond_transport(stream_id, 404, "no such route");
+      return;
+    }
+    stream.matched = std::move(*matched);
+    streams_.emplace(stream_id, std::move(stream));
+    admit_stream(stream_id);
+    return;
   }
+
+  auto matched = listener_->match(stream.method, path, false);
   if (!matched.has_value()) {
     streams_.emplace(stream_id, std::move(stream));
     respond_transport(stream_id, 404, "no such route");
@@ -3814,6 +4320,91 @@ void H2Driver::respond_transport(std::int32_t stream_id, int status,
     ++outstanding_response_messages_;
     found->second.response_bytes += weight;
     found->second.response_submitted = true;
+  }
+  pump_writes();
+}
+
+void H2Driver::respond_static(std::int32_t stream_id,
+                              const MatchedStaticFile &file,
+                              bool suppress_body) {
+  ResolvedStaticFile resolved =
+      file.file != nullptr
+          ? resolve_static_file(
+                StaticFileTarget{std::string{file.file->file},
+                                 std::string{file.file->content_type},
+                                 std::string{file.file->cache_control}})
+          : load_static_directory_file(*file.directory, file.path);
+  const std::size_t content_length =
+      resolved.file.empty() ? resolved.body.size() : resolved.size;
+  const auto found = streams_.find(stream_id);
+  if (found != streams_.end()) {
+    Stream &stream = found->second;
+    release_stream(stream_id, stream);
+    stream.discarding = true;
+  }
+
+  std::string body =
+      suppress_body || !resolved.file.empty() ? std::string{}
+                                              : std::move(resolved.body);
+  H2Headers headers{{"content-type", resolved.content_type}};
+  if (resolved.status == http::status::ok || suppress_body) {
+    headers.emplace_back("content-length", std::to_string(content_length));
+  }
+  if (!resolved.cache_control.empty()) {
+    headers.emplace_back("cache-control", resolved.cache_control);
+  }
+
+  const std::size_t buffered_body =
+      resolved.file.empty() ? body.size() : std::min<std::size_t>(64 * 1024, content_length);
+  std::size_t weight = buffered_body + 256;
+  for (const auto &[name, value] : headers) {
+    weight += name.size() + value.size();
+  }
+  if (outstanding_response_bytes_ + weight >
+          static_cast<std::size_t>(config_->outbound_byte_limit) ||
+      outstanding_response_messages_ >=
+          static_cast<std::size_t>(config_->outbound_message_limit)) {
+    engine_.reset_stream(stream_id, H2StreamError::EnhanceYourCalm);
+    pump_writes();
+    return;
+  }
+
+  const bool submitted =
+      !suppress_body && !resolved.file.empty() &&
+              resolved.status == http::status::ok
+          ? engine_.submit_file_response(stream_id, static_cast<int>(resolved.status),
+                                         headers, std::move(resolved.file), {})
+          : engine_.submit_response(stream_id, static_cast<int>(resolved.status),
+                                    headers, std::move(body), {});
+  if (submitted) {
+    if (found != streams_.end()) {
+      outstanding_response_bytes_ += weight;
+      ++outstanding_response_messages_;
+      found->second.response_bytes += weight;
+      found->second.response_submitted = true;
+    }
+  } else {
+    // The submit can fail after the metadata resolved -- a configured file
+    // that has since been removed or become unreadable is the ordinary case.
+    // Something must still finish the stream: returning here would leave the
+    // peer waiting on it forever, where the HTTP/1 path answers 500.
+    static constexpr std::string_view kStaticFileError{"static file error"};
+    const bool answered = engine_.submit_response(
+        stream_id, static_cast<int>(http::status::internal_server_error),
+        H2Headers{{"content-type", "text/plain"}},
+        std::string{kStaticFileError}, {});
+    if (answered) {
+      if (found != streams_.end()) {
+        const std::size_t error_weight = kStaticFileError.size() + 256;
+        outstanding_response_bytes_ += error_weight;
+        ++outstanding_response_messages_;
+        found->second.response_bytes += error_weight;
+        found->second.response_submitted = true;
+      }
+    } else {
+      // Even the fallback was refused; reset rather than leak the stream.
+      engine_.reset_stream(stream_id, H2StreamError::InternalError);
+    }
   }
   pump_writes();
 }

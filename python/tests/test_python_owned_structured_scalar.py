@@ -238,6 +238,35 @@ def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
     ]
 
 
+def test_covariant_python_owned_field_reuses_inherited_native_schema():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        expiry: str
+
+    @dataclass(frozen=True)
+    class Envelope:
+        instrument: Instrument
+
+    @dataclass(frozen=True)
+    class FutureEnvelope(Envelope):
+        instrument: Future
+
+    native_fields = dict(_value_type(FutureEnvelope).fields)
+    assert native_fields["instrument"] == _value_type(Instrument)
+    assert fields(FutureEnvelope)["instrument"] is Future
+
+    @compute_node
+    def is_future(value: TS[FutureEnvelope]) -> TS[bool]:
+        return isinstance(value.value.instrument, Future)
+
+    future = Future("ES", "2026-09")
+    assert eval_node(is_future, [FutureEnvelope(future)]) == [True]
+
+
 def test_tsd_of_generic_python_dataclass_bundles_tears_down_cleanly():
     T = TypeVar("T")
 

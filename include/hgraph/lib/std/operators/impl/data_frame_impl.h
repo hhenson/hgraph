@@ -498,6 +498,23 @@ namespace hgraph::stdlib
         }
     };
 
+    /** Row count for any Frame scalar, including metadata-qualified frames. */
+    struct len_frame_impl
+    {
+        static constexpr auto name = "len_frame";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
+        {
+            const auto *meta = resolution.find_scalar("F");
+            return meta != nullptr && TypeRegistry::instance().is_frame(meta);
+        }
+
+        static void eval(In<"ts", TS<ScalarVar<"F">>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(frame_rows(ts.base().value().checked_as<Frame>())));
+        }
+    };
+
     /** Arrow-native frame ordering. The row schema is preserved exactly. */
     struct sorted_frame_impl
     {

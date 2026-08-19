@@ -62,6 +62,15 @@ public:
    * the whole match, leaving the transport to answer 400. */
   [[nodiscard]] Match match(HttpMethod method, std::string_view path) const;
 
+  /** Match a path whose segments are ALREADY percent-decoded.
+   *
+   * The transport decodes once at the header boundary, so a caller holding
+   * that result must not hand it back to `match`: a mounted path whose
+   * decoded form contains a literal '%' (``/100%.txt``, reached as
+   * ``/100%25.txt``) would be re-read as a broken escape and fail to match. */
+  [[nodiscard]] Match match_decoded(HttpMethod method,
+                                    std::string_view path) const;
+
   [[nodiscard]] const std::vector<Entry> &entries() const noexcept {
     return entries_;
   }

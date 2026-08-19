@@ -354,6 +354,10 @@ def _substitute_typevars(tp, substitutions):
 def _compound_specialization_token(tp):
     import typing
 
+    if isinstance(tp, _TsExpr):
+        return repr(tp.handle)
+    if isinstance(tp, _hgraph.TsType):
+        return repr(tp)
     if isinstance(tp, _hgraph.ValueType):
         return tp.local_name or tp.name
     origin = typing.get_origin(tp)
@@ -836,6 +840,27 @@ def _python_object_namespace(scalar):
     return f"{scalar.__module__}.{qualname.rsplit('.', 1)[0]}"
 
 
+def _is_covariant_python_object_field(annotation, inherited_annotation):
+    """Whether a Python-owned field safely narrows an inherited object type.
+
+    Python reflection should keep the narrower annotation, while the native
+    bundle schema reuses the inherited field type so the parent prefix remains
+    stable.
+    """
+    import typing
+
+    annotation = typing.get_origin(annotation) or annotation
+    inherited_annotation = typing.get_origin(inherited_annotation) or inherited_annotation
+    return (
+        isinstance(annotation, type)
+        and isinstance(inherited_annotation, type)
+        and _is_python_object_class(annotation)
+        and _is_python_object_class(inherited_annotation)
+        and annotation is not inherited_annotation
+        and issubclass(annotation, inherited_annotation)
+    )
+
+
 def _python_mutual_recursive_component(scalar):
     graph = {}
 
@@ -1006,6 +1031,15 @@ def _python_object_value_type(scalar, type_args=()):
     for field_name, field_type in annotations.items():
         field_type = _substitute_typevars(field_type, substitutions)
         if field_name in inherited_fields and field_name not in local_annotations:
+            fields.append((field_name, inherited_fields[field_name]))
+            continue
+        if (
+            field_name in inherited_fields
+            and field_name in inherited_annotations
+            and _is_covariant_python_object_field(
+                field_type, inherited_annotations[field_name]
+            )
+        ):
             fields.append((field_name, inherited_fields[field_name]))
             continue
         if _is_self_recursive_annotation(field_type, scalar, substitutions):
@@ -1854,10 +1888,16 @@ class _TsExpr:
         # the native schema remains the non-None time-series type.
         if other is None or other is type(None):
             return self
-        return NotImplemented
+        import typing
+
+        return typing.Union[self, other]
 
     def __ror__(self, other):
-        return self.__or__(other)
+        if other is None or other is type(None):
+            return self
+        import typing
+
+        return typing.Union[other, self]
 
 
 def _resolve(ts):
@@ -2844,10 +2884,16 @@ class _GenericTsExpr:
     def __or__(self, other):
         if other is None or other is type(None):
             return self
-        return NotImplemented
+        import typing
+
+        return typing.Union[self, other]
 
     def __ror__(self, other):
-        return self.__or__(other)
+        if other is None or other is type(None):
+            return self
+        import typing
+
+        return typing.Union[other, self]
 
 
 # SIGNAL - an input consumed for its ticks only; any time-series type binds.

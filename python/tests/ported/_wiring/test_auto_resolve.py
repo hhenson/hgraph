@@ -2,7 +2,13 @@
 from dataclasses import dataclass
 from typing import Callable, Type, TypeVar
 
-from hgraph import CompoundScalar, graph, TSL, TS, SIZE, Size, AUTO_RESOLVE, SCALAR, SCALAR_1, compute_node
+import pytest
+
+from hgraph import (
+    AUTO_RESOLVE, DEFAULT, K, OUT, SCALAR, SCALAR_1, SIZE,
+    TIME_SERIES_TYPE, CompoundScalar, Size, TS, TSD, TSL, WiringError,
+    compute_node, graph, operator,
+)
 from hgraph import const
 from hgraph.reflection import fields
 from hgraph.test import eval_node
@@ -50,3 +56,95 @@ def test_graph_receives_auto_resolved_compound_scalar_type():
         return const(len(fields(tp)))
 
     assert eval_node(field_count, [Config(7)]) == [1]
+
+
+def test_graph_requires_receives_type_resolved_from_type_argument():
+    key_type_var = TypeVar("key_type_var")
+    observed = []
+
+    def requires(mapping, key_type, value_col):
+        observed.append((key_type, value_col))
+        return key_type is str and value_col == "value"
+
+    @graph(requires=requires)
+    def key_name(
+        tsd_type: type[TSD[key_type_var, TS[int]]],
+        key_type: type[key_type_var] = AUTO_RESOLVE,
+        value_col: str = "value",
+    ) -> TS[str]:
+        return key_type.__name__
+
+    @graph
+    def app() -> TS[str]:
+        return key_name(TSD[str, TS[int]])
+
+    assert eval_node(app) == ["str"]
+    assert observed == [(str, "value")]
+
+
+def test_node_auto_resolve_uses_explicit_output_specialization():
+    observed = []
+
+    @compute_node
+    def keyed(
+        value: TS[int],
+        key_type: type[K] = AUTO_RESOLVE,
+        value_type: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        _output_type: type[TSD[K, TIME_SERIES_TYPE]] = DEFAULT[OUT],
+    ) -> TSD[K, TIME_SERIES_TYPE]:
+        observed.append((key_type, value_type))
+        return {"key": value.value}
+
+    assert eval_node(keyed[TSD[str, TS[int]]], [3]) == [{"key": 3}]
+    assert observed == [(str, TS[int])]
+
+
+def test_node_materializes_default_scalar_type_argument():
+    @dataclass(frozen=True)
+    class Row(CompoundScalar):
+        value: int
+
+    @compute_node
+    def schema_name(
+        value: TS[int],
+        schema: type[SCALAR] = DEFAULT[SCALAR],
+    ) -> TS[str]:
+        return schema.__name__
+
+    assert eval_node(schema_name[Row], [1]) == ["Row"]
+
+
+def test_output_type_carrier_binds_nested_scalar_and_rejects_wrong_ts_kind():
+    @dataclass(frozen=True)
+    class Row(CompoundScalar):
+        value: int
+
+    observed = []
+
+    @operator
+    def typed(value: TS[int], to: type[OUT] = DEFAULT[OUT]) -> OUT: ...
+
+    @compute_node(
+        overloads=typed,
+        resolvers={SCALAR_1: lambda mapping: Row if SCALAR in mapping else str},
+    )
+    def typed_ts(
+        value: TS[int],
+        to: type[TS[SCALAR]] = OUT,
+        scalar_type: type[SCALAR] = AUTO_RESOLVE,
+        resolved_after_carrier: type[SCALAR_1] = AUTO_RESOLVE,
+    ) -> OUT:
+        observed.append((to, scalar_type, resolved_after_carrier))
+        return Row(value.value)
+
+    assert eval_node(typed[TS[Row]], [7]) == [Row(7)]
+    assert observed == [(TS[Row], Row, Row)]
+
+    assert eval_node(typed, [8], to=TS[Row]) == [Row(8)]
+    assert observed == [(TS[Row], Row, Row), (TS[Row], Row, Row)]
+
+    with pytest.raises(WiringError):
+        eval_node(typed[TSD[str, TS[int]]], [7])
+
+    with pytest.raises(WiringError):
+        eval_node(typed[TS[Row]], [7], to=TSD[str, TS[int]])

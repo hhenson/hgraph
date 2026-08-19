@@ -29,8 +29,10 @@ from hgraph import (
     contains_,
     compute_node,
     const,
+    default,
     default_path,
     eq_,
+    filter_,
     flip,
     flip_keys,
     getitem_,
@@ -43,6 +45,7 @@ from hgraph import (
     merge,
     min_,
     not_,
+    nothing,
     partition,
     reference_service,
     register_service,
@@ -247,6 +250,115 @@ def test_tsd_get_items_refs():
         [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
         [None, {1}, {2}, {Removed(2)}, None],
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
+
+
+@dataclass(frozen=True)
+class CompoundKey(CompoundScalar):
+    key: str
+    group: str
+
+
+@dataclass(frozen=True)
+class DerivedCompoundKey(CompoundKey):
+    detail: str
+
+
+class SelectedBundle(TimeSeriesSchema):
+    symbol: TS[str]
+    value: TS[float]
+
+
+@dataclass(frozen=True)
+class SelectedCompoundValue(CompoundScalar):
+    symbol: str
+    value: float
+
+
+@pytest.mark.parametrize("key", [1, CompoundKey(key="one", group="a")])
+def test_tsd_get_bundle_items_records_dereferenced_values(key):
+    key_type = type(key)
+
+    @graph
+    def g(ts: TSD[key_type, TSB[SelectedBundle]]) -> TSD[key_type, TSB[SelectedBundle]]:
+        return ts[ts.key_set]
+
+    value = {key: {"symbol": "TEST", "value": 1.0}}
+    assert eval_node(g, [value]) == [value]
+
+
+def test_tsd_get_lifted_compound_bundle_items_records_dereferenced_values():
+    @graph
+    def g(
+        ts: TSD[CompoundKey, TSB[SelectedCompoundValue]],
+    ) -> TSD[CompoundKey, TSB[SelectedCompoundValue]]:
+        return ts[ts.key_set]
+
+    key = CompoundKey(key="one", group="a")
+    value = {key: {"symbol": "TEST", "value": 1.0}}
+    assert eval_node(g, [value]) == [value]
+
+
+def test_tsd_get_items_after_merge_with_compound_keys():
+    @graph
+    def g(
+        left: TSD[CompoundKey, TS[SelectedCompoundValue]],
+        right: TSD[CompoundKey, TS[SelectedCompoundValue]],
+    ) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        merged = merge(left, right)
+        return merged[merged.key_set]
+
+    key = CompoundKey(key="one", group="a")
+    value = {key: SelectedCompoundValue(symbol="TEST", value=1.0)}
+    assert eval_node(g, [value], [None]) == [value]
+
+
+def test_filter_selected_tsd_with_polymorphic_compound_keys():
+    key = CompoundKey(key="one", group="a")
+    value = {key: SelectedCompoundValue(symbol="TEST", value=1.0)}
+
+    @compute_node
+    def source(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return value if trigger.value else {}
+
+    @graph
+    def select(
+        ts: TSD[CompoundKey, TS[SelectedCompoundValue]],
+    ) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return ts[ts.key_set]
+
+    @graph
+    def g(
+        condition: TS[bool],
+    ) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        merged = merge(source(condition), source(condition))
+        selected = select(merged)
+        return filter_(condition, selected)
+
+    assert eval_node(g, [True]) == [value]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        CompoundKey(key="one", group="a"),
+        DerivedCompoundKey(key="one", group="a", detail="derived"),
+    ],
+)
+def test_default_tsd_with_polymorphic_compound_keys(key):
+    value = {key: SelectedCompoundValue(symbol="TEST", value=1.0)}
+
+    @compute_node
+    def source(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return value if trigger.value else {}
+
+    @graph
+    def g(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return default(
+            nothing(TSD[CompoundKey, TS[SelectedCompoundValue]]),
+            source(trigger),
+        )
+
+    assert eval_node(g, [True]) == [value]
 
 
 def test_tsd_get_items_change_tsd():

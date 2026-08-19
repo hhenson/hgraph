@@ -349,6 +349,14 @@ namespace hgraph::web
 
     using WebRoute = Bundle<"hgraph.web::WebRoute", Field<"method", HttpMethod>, Field<"pattern", Str>, Field<"upgrade", Bool>>;
 
+    using WebStaticFile =
+        Bundle<"hgraph.web::WebStaticFile", Field<"url", Str>, Field<"file", Str>, Field<"content_type", Str>,
+               Field<"cache_control", Str>>;
+
+    using WebStaticDirectory =
+        Bundle<"hgraph.web::WebStaticDirectory", Field<"url_prefix", Str>, Field<"directory", Str>,
+               Field<"cache_control", Str>>;
+
     using HttpRequest = Bundle<"hgraph.web::HttpRequest", Field<"method", HttpMethod>, Field<"target", Str>, Field<"path", Str>,
                                Field<"query", HomogeneousTuple<WebParam>>, Field<"path_params", HomogeneousTuple<WebParam>>,
                                Field<"headers", HomogeneousTuple<WebHeader>>, Field<"body", Bytes>,
@@ -422,13 +430,15 @@ namespace hgraph::web
         "hgraph.web::WebServerConfig", Field<"bind_address", Str>, Field<"port", Int>, Field<"tls", TlsServerConfig>,
         Field<"io_threads", Int>, Field<"max_connections", Int>, Field<"max_header_bytes", Int>, Field<"max_body_bytes", Int>,
         Field<"request_timeout_ms", Int>, Field<"idle_timeout_ms", Int>, Field<"keep_alive_timeout_ms", Int>,
-        Field<"bind_deferred", Bool>, Field<"ingress_record_limit", Int>, Field<"ingress_byte_limit", Int>,
-        Field<"ws_ingress_record_limit", Int>, Field<"ws_ingress_byte_limit", Int>, Field<"watermark_high_pct", Int>,
-        Field<"watermark_low_pct", Int>, Field<"inbound_overflow", WebInboundOverflow>, Field<"outbound_message_limit", Int>,
-        Field<"outbound_byte_limit", Int>, Field<"slow_consumer_policy", WebSlowConsumerPolicy>,
-        Field<"failure_policy", WebFailurePolicy>, Field<"shutdown_drain_timeout_ms", Int>, Field<"ws_max_frame_bytes", Int>,
-        Field<"ws_max_message_bytes", Int>, Field<"ping_interval_ms", Int>, Field<"pong_timeout_ms", Int>,
-        Field<"stats_interval_ms", Int>, Field<"h2_max_concurrent_streams", Int>, Field<"h2_initial_window_bytes", Int>>;
+        Field<"bind_deferred", Bool>, Field<"static_files", HomogeneousTuple<WebStaticFile>>,
+        Field<"static_directories", HomogeneousTuple<WebStaticDirectory>>,
+        Field<"ingress_record_limit", Int>, Field<"ingress_byte_limit", Int>, Field<"ws_ingress_record_limit", Int>,
+        Field<"ws_ingress_byte_limit", Int>, Field<"watermark_high_pct", Int>, Field<"watermark_low_pct", Int>,
+        Field<"inbound_overflow", WebInboundOverflow>, Field<"outbound_message_limit", Int>, Field<"outbound_byte_limit", Int>,
+        Field<"slow_consumer_policy", WebSlowConsumerPolicy>, Field<"failure_policy", WebFailurePolicy>,
+        Field<"shutdown_drain_timeout_ms", Int>, Field<"ws_max_frame_bytes", Int>, Field<"ws_max_message_bytes", Int>,
+        Field<"ping_interval_ms", Int>, Field<"pong_timeout_ms", Int>, Field<"stats_interval_ms", Int>,
+        Field<"h2_max_concurrent_streams", Int>, Field<"h2_initial_window_bytes", Int>>;
 
     using WebClientConfig = Bundle<
         "hgraph.web::WebClientConfig", Field<"http_version_policy", WebHttpVersionPolicy>,

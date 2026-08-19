@@ -103,6 +103,27 @@ def test_fields_mixed_scalar_and_time_series_generic_tsb():
     assert repr(TSB[Edits[K, TIME_SERIES_TYPE]]) == "TSB[Edits]"
 
 
+def test_generic_tsb_specialization_uses_resolved_ts_shape_in_name():
+    from hgraph._types import _TsExpr
+
+    class Values(TimeSeriesSchema):
+        value: TS[int]
+
+    class Edits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
+        edits: TSD[K, TIME_SERIES_TYPE]
+        removes: TSS[K]
+
+    scalar = _TsExpr(TS[int].handle, "resolved[~TIME_SERIES_TYPE]")
+    bundle = _TsExpr(TSB[Values].handle, "resolved[~TIME_SERIES_TYPE]")
+
+    scalar_edits = TSB[Edits[str, scalar]]
+    bundle_edits = TSB[Edits[str, bundle]]
+
+    assert scalar_edits.handle != bundle_edits.handle
+    assert fields(scalar_edits)["edits"] == TSD[str, TS[int]]
+    assert fields(bundle_edits)["edits"] == TSD[str, TSB[Values]]
+
+
 def test_mixed_generic_tsb_rejects_cross_kind_specialization():
     class Edits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
         edits: TSD[K, TIME_SERIES_TYPE]

@@ -20,6 +20,22 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
 import _loopback_harness as harness
 
 
+def _header(response, name):
+    """One response header by case-insensitive name.
+
+    HTTP field names are case-insensitive (RFC 9110 5.1), and this server
+    demonstrates why that matters: graph responses are written through
+    ``H2Headers`` as ``content-type``, while the static-file path goes out via
+    Beast's HTTP/1.1 serialiser as ``Content-Type``. Pinning one spelling
+    tests whichever serialiser happens to answer, not the behaviour. Matches
+    the lookup already used in test_endpoints.py and hgraph_web.compat.
+    """
+    return next(
+        (header.value for header in response.headers if header.name.lower() == name),
+        None,
+    )
+
+
 def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
     """The full loopback: this graph is both the server and the client.
 
@@ -85,9 +101,101 @@ def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
     assert len(observed) == 1
     assert observed[0].status == 200
     assert observed[0].body == b"hello py"
-    assert ("content-type", "text/plain") in tuple(
-        (header.name, header.value) for header in observed[0].headers
+    assert _header(observed[0], "content-type") == "text/plain"
+
+
+def test_a_static_file_mount_is_served_by_the_transport(tmp_path) -> None:
+    observed = []
+    requested = []
+    failures = []
+
+    favicon = tmp_path / "favicon.ico"
+    favicon.write_bytes(b"\x00ICO")
+
+    client_request = harness.port_triggered_request(
+        requested,
+        lambda port: web.HttpClientRequest(
+            web.HttpMethod.GET, f"http://127.0.0.1:{port}/favicon.ico"
+        ),
     )
+    capture, capture_failure = harness.result_captures(observed, failures)
+
+    @hg.graph
+    def app():
+        harness.register_loopback(
+            web.WebServerConfig(
+                port=0,
+                stats_interval_ms=50,
+                static_files=(
+                    web.WebStaticFile("/favicon.ico", str(favicon)),
+                ),
+            )
+        )
+        result = web.web_http_request(
+            client_request(web.web_server_stats(path="site")), path="api"
+        )
+        capture(result["response"])
+        capture_failure(result["failure"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=hg.utc_now() + timedelta(seconds=20),
+    )
+
+    assert failures == []
+    assert len(observed) == 1
+    assert observed[0].status == 200
+    assert observed[0].body == b"\x00ICO"
+    assert _header(observed[0], "content-type") == "image/x-icon"
+
+
+def test_a_static_directory_mount_is_served_by_the_transport(tmp_path) -> None:
+    observed = []
+    requested = []
+    failures = []
+
+    assets = tmp_path / "assets" / "nested"
+    assets.mkdir(parents=True)
+    app_js = assets / "app.js"
+    app_js.write_bytes(b"console.log('ok');")
+
+    client_request = harness.port_triggered_request(
+        requested,
+        lambda port: web.HttpClientRequest(
+            web.HttpMethod.GET, f"http://127.0.0.1:{port}/assets/nested/app.js"
+        ),
+    )
+    capture, capture_failure = harness.result_captures(observed, failures)
+
+    @hg.graph
+    def app():
+        harness.register_loopback(
+            web.WebServerConfig(
+                port=0,
+                stats_interval_ms=50,
+                static_directories=(
+                    web.WebStaticDirectory("/assets", str(tmp_path / "assets")),
+                ),
+            )
+        )
+        result = web.web_http_request(
+            client_request(web.web_server_stats(path="site")), path="api"
+        )
+        capture(result["response"])
+        capture_failure(result["failure"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=hg.utc_now() + timedelta(seconds=20),
+    )
+
+    assert failures == []
+    assert len(observed) == 1
+    assert observed[0].status == 200
+    assert observed[0].body == b"console.log('ok');"
+    assert _header(observed[0], "content-type") == "text/javascript; charset=utf-8"
 
 
 def test_a_refused_connection_arrives_on_the_failure_arm() -> None:

@@ -154,7 +154,7 @@ namespace hgraph
         if (ops.evicted_element_impl == nullptr || ops.evicted_time_impl == nullptr) { return false; }
         return evaluation_time != MIN_DT &&
                ops.evicted_time_impl(ops.context, storage_.data()) == evaluation_time &&
-               ops.evicted_element_impl(ops.context, storage_.data()) != nullptr;
+               ops.evicted_element_impl(ops.context, storage_.data()).has_value();
     }
 
     ValueView TSWDataView::removed_value(DateTime evaluation_time) const
@@ -162,13 +162,16 @@ namespace hgraph
         const auto &ops = window_ops();
         const auto *memory = storage_.data();
         if (ops.evicted_element_impl == nullptr || ops.evicted_time_impl == nullptr || evaluation_time == MIN_DT ||
-            ops.evicted_time_impl(ops.context, memory) != evaluation_time ||
-            ops.evicted_element_impl(ops.context, memory) == nullptr)
+            ops.evicted_time_impl(ops.context, memory) != evaluation_time)
         {
             throw std::logic_error("TSWDataView::removed_value: nothing was evicted this cycle");
         }
-        const auto &data_layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{data_layout.element_binding, ops.evicted_element_impl(ops.context, memory)};
+        auto evicted = ops.evicted_element_impl(ops.context, memory);
+        if (!evicted.has_value())
+        {
+            throw std::logic_error("TSWDataView::removed_value: nothing was evicted this cycle");
+        }
+        return evicted;
     }
 
     bool TSWDataView::cleared(DateTime evaluation_time) const
@@ -204,8 +207,7 @@ namespace hgraph
         {
             throw std::out_of_range("TSWDataView::time_value_at: index out of range");
         }
-        const auto &data_layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{data_layout.time_binding, ops.time_element_at_impl(ops.context, memory, index)};
+        return ops.time_element_at_impl(ops.context, memory, index);
     }
 
     ValueView TSWDataView::at(std::size_t index) const
@@ -216,8 +218,7 @@ namespace hgraph
         {
             throw std::out_of_range("TSWDataView::at: index out of range");
         }
-        const auto &data_layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{data_layout.element_binding, ops.element_at_impl(ops.context, memory, index)};
+        return ops.element_at_impl(ops.context, memory, index);
     }
 
     ValueView TSWDataView::operator[](std::size_t index) const
@@ -233,8 +234,7 @@ namespace hgraph
         {
             throw std::out_of_range("TSWDataView::front on empty window");
         }
-        const auto &data_layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{data_layout.element_binding, ops.element_at_impl(ops.context, memory, 0)};
+        return ops.element_at_impl(ops.context, memory, 0);
     }
 
     ValueView TSWDataView::back() const
@@ -243,9 +243,7 @@ namespace hgraph
         const auto *memory = storage_.data();
         const auto window_size = ops.size_impl(ops.context, memory);
         if (window_size == 0) { throw std::out_of_range("TSWDataView::back on empty window"); }
-        const auto &data_layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{data_layout.element_binding,
-                         ops.element_at_impl(ops.context, memory, window_size - 1)};
+        return ops.element_at_impl(ops.context, memory, window_size - 1);
     }
 
     Range<ValueView> TSWDataView::values() const
@@ -310,15 +308,13 @@ namespace hgraph
     ValueView TSWDataView::project_value(const void *context, const void *memory, std::size_t index)
     {
         const auto &ops = *static_cast<const TSWDataOps *>(context);
-        const auto &layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{layout.element_binding, ops.element_at_impl(ops.context, memory, index)};
+        return ops.element_at_impl(ops.context, memory, index);
     }
 
     ValueView TSWDataView::project_time_value(const void *context, const void *memory, std::size_t index)
     {
         const auto &ops = *static_cast<const TSWDataOps *>(context);
-        const auto &layout = *static_cast<const TSWDataLayout *>(ops.layout_impl(ops.context));
-        return ValueView{layout.time_binding, ops.time_element_at_impl(ops.context, memory, index)};
+        return ops.time_element_at_impl(ops.context, memory, index);
     }
 
     DateTime TSWDataView::project_time(const void *context, const void *memory, std::size_t index)

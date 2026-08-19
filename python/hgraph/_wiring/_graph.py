@@ -261,7 +261,8 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
     C++ resolution scope, then read each sentinel's binding from it."""
     import typing
 
-    from .._types import _TsExpr, _GenericTsExpr, _TypeVarSentinel, _pattern_of
+    from .._types import (_TsExpr, _GenericTsExpr, _TypeVarSentinel,
+                          _pattern_of, _value_type)
 
     scope = _hgraph.ResolutionScope()
     for name, resolved in (seed_bindings or {}).items():
@@ -277,17 +278,29 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
                 scope.match(_pattern_of(param.annotation), _unwrap(value).ts_type)
             except (RuntimeError, ValueError, TypeError):
                 pass   # inconsistent bindings surface at the consuming node
+            continue
+        annotation_args = typing.get_args(param.annotation)
+        if typing.get_origin(param.annotation) is not type or not annotation_args:
+            continue
+        type_parameter = annotation_args[0]
+        try:
+            if (isinstance(type_parameter, (_TsExpr, _GenericTsExpr))
+                    and isinstance(value, (_TsExpr, _hgraph.TsType))):
+                concrete = value.handle if isinstance(value, _TsExpr) else value
+                scope.match(_pattern_of(type_parameter), concrete)
+            elif isinstance(type_parameter, _TypeVarSentinel) and isinstance(value, type):
+                scope.bind_scalar(_type_var_name(type_parameter), _value_type(value))
+        except (RuntimeError, ValueError, TypeError):
+            pass   # inconsistent bindings surface when the graph consumes them
 
-    scalar_values = {
-        name: value for name, value in arguments.items()
-        if not isinstance(value, WiringPort)
-    }
+    scalar_values = {}
+    for name, param in signature.parameters.items():
+        value = arguments.get(name, inspect.Parameter.empty)
+        if value is inspect.Parameter.empty:
+            value = param.default
+        if value is not inspect.Parameter.empty and not isinstance(value, WiringPort):
+            scalar_values[name] = value
     _apply_resolvers(scope, resolvers, scalar_values)
-    if requires is not None:
-        verdict = _run_requires(requires, scope.bindings, scalar_values)
-        if verdict is not True:
-            reason = verdict if isinstance(verdict, str) else "requirements not met"
-            raise WiringError(f"graph requirements not met: {reason}")
 
     resolved = {}
     for name, param in signature.parameters.items():
@@ -314,6 +327,12 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
             continue
         raise WiringError(
             f"AUTO_RESOLVE could not resolve '{name}' ({sentinel!r}) from the wired arguments")
+    scalar_values.update(resolved)
+    if requires is not None:
+        verdict = _run_requires(requires, scope.bindings, scalar_values)
+        if verdict is not True:
+            reason = verdict if isinstance(verdict, str) else "requirements not met"
+            raise WiringError(f"graph requirements not met: {reason}")
     return resolved
 
 class _Component:

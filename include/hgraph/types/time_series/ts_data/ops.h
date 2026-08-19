@@ -85,7 +85,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_slot_capacity(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT bool missing_slot_predicate(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT bool no_structural_delta(const void *, const void *, DateTime) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT const void *missing_key_at_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT ValueView missing_key_at_slot(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT bool missing_contains_key(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_delta_slot(const void *, const void *, std::size_t);
@@ -108,9 +108,9 @@ namespace hgraph
         HGRAPH_EXPORT void missing_unsubscribe_slot_observer(const void *, void *, SlotObserver *);
         [[nodiscard]] HGRAPH_EXPORT const void *missing_child_at_slot(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_window_size(const void *, const void *);
-        [[nodiscard]] HGRAPH_EXPORT const void *missing_window_element(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT ValueView missing_window_element(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT DateTime missing_window_time(const void *, const void *, std::size_t);
-        [[nodiscard]] HGRAPH_EXPORT const void *missing_window_time_element(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT ValueView missing_window_time_element(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_window_capacity(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT bool missing_window_full(const void *, const void *);
         HGRAPH_EXPORT void missing_window_push(const void *, void *, const ValueView &, DateTime);
@@ -323,8 +323,10 @@ namespace hgraph
         std::size_t (*next_removed_slot_impl)(const void *context, const void *memory,
                                               std::size_t previous) =
             &ts_data_detail::missing_next_delta_slot;
-        const void *(*key_at_slot_impl)(const void *context, const void *memory,
-                                        std::size_t slot) = &ts_data_detail::missing_key_at_slot;
+        // The binding and address are one projection contract. Aliases must
+        // never re-label target storage using their own fixed layout.
+        ValueView (*key_at_slot_impl)(const void *context, const void *memory,
+                                      std::size_t slot) = &ts_data_detail::missing_key_at_slot;
         bool (*contains_impl)(const void *context, const void *memory,
                               const ValueView &key) = &ts_data_detail::missing_contains_key;
         std::size_t (*find_slot_impl)(const void *context, const void *memory,
@@ -457,12 +459,14 @@ namespace hgraph
         // through a null fn-ptr (audit finding, 2026-08-16).
         std::size_t (*size_impl)(const void *context,
                                  const void *memory) = &ts_data_detail::missing_window_size;
-        const void *(*element_at_impl)(const void *context, const void *memory,
-                                       std::size_t index) = &ts_data_detail::missing_window_element;
+        // As with keyed slots, a projected window value's binding and address
+        // are one contract. Forwarding strategies must preserve both.
+        ValueView (*element_at_impl)(const void *context, const void *memory,
+                                     std::size_t index) = &ts_data_detail::missing_window_element;
         DateTime (*time_at_impl)(const void *context, const void *memory,
                                  std::size_t index) = &ts_data_detail::missing_window_time;
-        const void *(*time_element_at_impl)(const void *context, const void *memory,
-                                            std::size_t index) = &ts_data_detail::missing_window_time_element;
+        ValueView (*time_element_at_impl)(const void *context, const void *memory,
+                                          std::size_t index) = &ts_data_detail::missing_window_time_element;
         std::size_t (*capacity_impl)(const void *context,
                                      const void *memory) = &ts_data_detail::missing_window_capacity;
         bool (*full_impl)(const void *context, const void *memory) = &ts_data_detail::missing_window_full;
@@ -478,7 +482,7 @@ namespace hgraph
         // removed_value): the time it fell out plus its value memory
         // (nullptr when nothing has been evicted yet).
         DateTime (*evicted_time_impl)(const void *context, const void *memory) = nullptr;
-        const void *(*evicted_element_impl)(const void *context, const void *memory) = nullptr;
+        ValueView (*evicted_element_impl)(const void *context, const void *memory) = nullptr;
     };
 }  // namespace hgraph
 

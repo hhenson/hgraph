@@ -6,6 +6,7 @@ from urllib.parse import quote
 import pyarrow as pa
 
 from hgraph import STATE, TS, generator
+from hgraph.adaptors.data_catalogue import DataEnvironment
 
 __all__ = (
     "SqlAdaptorConnection",
@@ -84,28 +85,54 @@ class SqlAdaptorConnectionSnowflake(SqlAdaptorConnection):
 
 get_secret = None
 
+#: The prefixes ``process_substitution`` resolves. Anything else is passed
+#: back through unchanged for the caller to interpret.
+SUBSTITUTION_PREFIXES = ("secret:", "$", "dataenv:")
 
-def process_substitution(value: str) -> str:
+
+def is_substitution(value: str) -> bool:
+    """Whether ``{value}`` names a substitution rather than a format field.
+
+    A caller that follows substitution with ``str.format`` must tell the two
+    apart: a substituted value is DATA whose braces need escaping, while a
+    format field must be left intact for ``format`` to fill.
+    """
+    return value.startswith(SUBSTITUTION_PREFIXES)
+
+
+def process_substitution(value: str, scope: str = "connection") -> str:
     if value.startswith("secret:"):
         split = value[7:].split("/", 1)
         if get_secret is None:
             raise ValueError(
-                f"get_secret is not defined, cannot get '{value[7:]}'")
+                f"get_secret is not defined, cannot get '{value[7:]}' "
+                f"for {scope} parameter")
         secret = get_secret(split[0])
         if len(split) == 2:
             secret = secret.get(split[1])
         if secret is None:
-            raise ValueError(f"Secret {value[7:]} not set")
+            raise ValueError(
+                f"Secret {value[7:]} not set for {scope} parameter")
         return secret
 
     if value.startswith("$"):
         result = os.environ.get(value[1:])
         if result is None:
             raise ValueError(
-                f"Environment variable {value[1:]} not set for connection parameter")
+                f"Environment variable {value[1:]} not set for {scope} parameter")
         return result
 
-    return value
+    if value.startswith("dataenv:"):
+        environment = DataEnvironment.current()
+        source_path = value[8:]
+        if environment is not None and environment.has_entry(source_path):
+            result = environment.get_entry(source_path).environment_path
+            if result is not None:
+                return result
+        raise ValueError(
+            f"Data environment variable {source_path} not set for {scope} parameter")
+
+    return f"{{{value}}}"
 
 
 def parse_connection_params(path: str):

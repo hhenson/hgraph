@@ -1647,6 +1647,8 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "take_scalar";
 
+        static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
+
         static void start(In<"ts", TS<ScalarVar<"T">>, InputValidity::Unchecked> ts,
                           Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
         {
@@ -1668,6 +1670,8 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "take_delta";
 
+        static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
+
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                           Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
         {
@@ -1688,6 +1692,8 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "drop_scalar";
 
+        static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
+
         static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"count", Int> count,
                          RecordableState<TS<Int>> seen, Out<TS<ScalarVar<"T">>> out)
         {
@@ -1702,6 +1708,8 @@ namespace hgraph::stdlib
     struct drop_impl
     {
         static constexpr auto name = "drop_delta";
+
+        static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", Int> count,
                          RecordableState<TS<Int>> seen, Out<TsVar<"S">> out)
@@ -1720,6 +1728,8 @@ namespace hgraph::stdlib
     {
         /* ``take(ts, reset, count)``: forward the first ``count`` ticks, then
            passivate ts; a reset tick re-arms the counter and reactivates. */
+        static auto defaults() { return std::tuple{arg<"count">(Int{1})}; }
+
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                           Scalar<"count", Int> count, RecordableState<TS<Int>> seen)
         {

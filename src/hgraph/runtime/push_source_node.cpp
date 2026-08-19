@@ -404,7 +404,8 @@ namespace hgraph
             const TSValueTypeMetaData *output_schema{nullptr};
             PushSourcePolicy           policy{};
             std::size_t                policy_storage_offset{0};
-            PushSourceStartCallback    on_start{};
+            PushSourceStartViewCallback on_start{};
+            std::function<void(const NodeView &)> on_stop{};
         };
 
         [[nodiscard]] std::vector<std::unique_ptr<PushSourceNodeContext>> &push_source_node_contexts() noexcept
@@ -417,13 +418,15 @@ namespace hgraph
             const TSValueTypeMetaData &output_schema,
             PushSourcePolicy policy,
             std::size_t policy_storage_offset,
-            PushSourceStartCallback on_start)
+            PushSourceStartViewCallback on_start,
+            std::function<void(const NodeView &)> on_stop)
         {
             auto context = std::make_unique<PushSourceNodeContext>(PushSourceNodeContext{
                 .output_schema = &output_schema,
                 .policy = policy,
                 .policy_storage_offset = policy_storage_offset,
                 .on_start = std::move(on_start),
+                .on_stop = std::move(on_stop),
             });
             const auto *result = context.get();
             push_source_node_contexts().push_back(std::move(context));
@@ -451,7 +454,8 @@ namespace hgraph
             };
         }
 
-        void push_source_start(const PushSourceNodeContext &context, const NodeView &view)
+        void push_source_start(const PushSourceNodeContext &context, const NodeView &view,
+                               DateTime evaluation_time)
         {
             void *storage = policy_storage(context, view.data());
             detail::PushSourcePolicyAccess::start(context.policy, storage, *context.output_schema);
@@ -464,7 +468,7 @@ namespace hgraph
                     context.policy,
                     storage,
                     view.graph().root().executor().push_queue_engine(),
-                    view.graph().type_realization()));
+                    view.graph().type_realization()), view, evaluation_time);
             }
             rollback.release();
         }
@@ -485,6 +489,7 @@ namespace hgraph
         void push_source_stop(const PushSourceNodeContext &context, const NodeView &view)
         {
             detail::PushSourcePolicyAccess::stop(context.policy, policy_storage(context, view.data()));
+            if (context.on_stop) { context.on_stop(view); }
         }
 
         [[nodiscard]] PushSourcePolicy make_policy(const detail::PushSourcePolicyOps &ops,
@@ -658,7 +663,7 @@ namespace hgraph
         NodeBuilder make_push_source_node_with_capability(
             const TSValueTypeMetaData &output_schema,
             PushSourcePolicy policy,
-            PushSourceStartCallback on_start,
+            PushSourceNodeExtension extension,
             bool requires_phase_runner,
             bool simulation_capable)
         {
@@ -673,6 +678,12 @@ namespace hgraph
             schema.node_kind = NodeKind::PushSource;
             schema.simulation_capable_push_source = simulation_capable;
             schema.requires_phase_runner = requires_phase_runner;
+            schema.state_schema = extension.state_schema;
+            schema.scalar_schema = extension.scalar_schema;
+            schema.uses_scheduler = extension.uses_scheduler;
+            schema.uses_global_state = extension.uses_global_state;
+            schema.uses_evaluation_clock = extension.uses_evaluation_clock;
+            schema.uses_python_values = extension.uses_python_values;
 
             const std::array fields{
                 NodeStorageField{
@@ -685,11 +696,12 @@ namespace hgraph
                 output_schema,
                 policy,
                 plan.component(push_source_policy_field_name).offset,
-                std::move(on_start));
+                std::move(extension.on_start),
+                std::move(extension.on_stop));
 
             NodeCallbacks callbacks;
-            callbacks.start = [context](const NodeView &view, DateTime) {
-                push_source_start(*context, view);
+            callbacks.start = [context](const NodeView &view, DateTime evaluation_time) {
+                push_source_start(*context, view, evaluation_time);
             };
             callbacks.evaluate = [context](const NodeView &view, DateTime evaluation_time) {
                 push_source_eval(*context, view, evaluation_time);
@@ -714,7 +726,24 @@ namespace hgraph
                                       bool requires_phase_runner)
     {
         return make_push_source_node_with_capability(
-            output_schema, std::move(policy), std::move(on_start),
+            output_schema, std::move(policy),
+            PushSourceNodeExtension{
+                .on_start = [on_start = std::move(on_start)](
+                    PushSourceSender sender, const NodeView &, DateTime) {
+                    if (on_start) { on_start(std::move(sender)); }
+                },
+            },
+            requires_phase_runner, false);
+    }
+
+    NodeBuilder make_push_source_node_with_view(
+        const TSValueTypeMetaData &output_schema,
+        PushSourcePolicy policy,
+        PushSourceNodeExtension extension,
+        bool requires_phase_runner)
+    {
+        return make_push_source_node_with_capability(
+            output_schema, std::move(policy), std::move(extension),
             requires_phase_runner, false);
     }
 
@@ -735,7 +764,13 @@ namespace hgraph
         bool requires_phase_runner)
     {
         return make_push_source_node_with_capability(
-            output_schema, std::move(policy), std::move(on_start),
+            output_schema, std::move(policy),
+            PushSourceNodeExtension{
+                .on_start = [on_start = std::move(on_start)](
+                    PushSourceSender sender, const NodeView &, DateTime) {
+                    if (on_start) { on_start(std::move(sender)); }
+                },
+            },
             requires_phase_runner, true);
     }
 

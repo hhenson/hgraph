@@ -19,6 +19,8 @@ benchmarks/results/memory-baseline-*.json
 /reports/
 /.parity/
 
-python/_hgraph.abi3.so
+python/**/_*.so
+extensions/**/python/**/_*.so
+
 test_package/build/
 test_package/CMakeUserPresets.json

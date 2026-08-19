@@ -143,7 +143,7 @@ namespace hgraph
     {
         if (!slot_occupied(slot)) { throw std::out_of_range("TSDDataView::key_at_slot: slot is not occupied"); }
         const auto &ops = dict_ops();
-        return ValueView{layout().key_binding, ops.key_at_slot_impl(ops.context, storage_.data(), slot)};
+        return ops.key_at_slot_impl(ops.context, storage_.data(), slot);
     }
 
     ValueView TSDDataView::removed_key_at_slot(std::size_t slot) const
@@ -153,7 +153,7 @@ namespace hgraph
             throw std::out_of_range("TSDDataView::removed_key_at_slot: slot is not removed");
         }
         const auto &ops = dict_ops();
-        return ValueView{layout().key_binding, ops.key_at_slot_impl(ops.context, storage_.data(), slot)};
+        return ops.key_at_slot_impl(ops.context, storage_.data(), slot);
     }
 
     bool TSDDataView::contains(const ValueView &key) const

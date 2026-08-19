@@ -98,3 +98,36 @@ def test_dispatch_2():
 
     # Note: 7th tick is None because there is no change in key value - there is only one Bear related overload and
     # hence the implementation graph is not swapped out so that const(True) node is not ticked.
+
+
+def test_dispatch_2_with_pep_604_ts_union_syntax():
+    class Animal(CompoundScalar): ...
+
+    class Turtle(Animal): ...
+
+    class Food(CompoundScalar): ...
+
+    class Plant(Food): ...
+
+    class Meat(Food): ...
+
+    @operator
+    def eats(animal: TS[Animal], food: TS[Food]) -> TS[bool]: ...
+
+    @graph(overloads=eats)
+    def eats_default(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
+        return False
+
+    @graph(overloads=eats)
+    def turtle_eats_everything(animal: TS[Turtle], food: TS[Plant] | TS[Meat]) -> TS[bool]:
+        return True
+
+    @graph
+    def eat(animal: TS[Animal], food: TS[Food]) -> TS[bool]:
+        return dispatch_(eats, animal, food)
+
+    assert eval_node(
+        eat,
+        [None, Turtle(), None],
+        [None, Plant(), Meat()],
+    ) == [None, True, True]

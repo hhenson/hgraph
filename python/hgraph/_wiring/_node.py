@@ -21,7 +21,9 @@ from ._markers import (STATE, _INJECTABLE_MARKERS, _MISSING,
                        _is_object_vt, _tsw_kind, _unbounded_tuple_kind)
 from ._operator import _register_overload, _run_requires
 from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
-                          _bind_resolution, _invoke_resolution_callable)
+                          _bind_resolution, _binding_for_type_value,
+                          _invoke_resolution_callable, _match_type_argument,
+                          _python_value_for_binding, _resolution_binding)
 
 
 def _warn_deprecated(name, deprecated):
@@ -411,26 +413,43 @@ class _PyNode:
         return frozenset(result)
 
     @staticmethod
+    def _resolved_type_var_value(scope, sentinel):
+        """Project a resolved type variable into its Python wiring value."""
+        if (binding := _resolution_binding(scope, sentinel)) is not None:
+            return _python_value_for_binding(sentinel, binding)
+        raise WiringError(f"could not resolve type variable {sentinel!r}")
+
+    @staticmethod
+    def _resolved_placeholder_value(scope, param, placeholder):
+        """Validate and materialize a type-valued placeholder default."""
+        arguments = typing.get_args(param.annotation)
+        if typing.get_origin(param.annotation) is not type or not arguments:
+            raise WiringError(
+                f"type variable default for '{param.name}' needs a type[...] annotation")
+        binding = _resolution_binding(scope, placeholder)
+        if binding is None:
+            raise WiringError(
+                f"could not resolve type variable {placeholder!r} for '{param.name}'")
+        if not _match_type_argument(scope, arguments[0], binding):
+            resolved = _python_value_for_binding(placeholder, binding)
+            raise WiringError(
+                f"resolved type argument {resolved!r} for '{param.name}' does not "
+                f"match {arguments[0]!r}")
+        return _python_value_for_binding(placeholder, binding)
+
+    @staticmethod
     def _resolved_auto_value(scope, param):
         """Project a C++ resolution-scope binding into a Python node scalar."""
-        import typing
-
-        from .._types import _TsExpr, _type_var_name
-
         arguments = typing.get_args(param.annotation)
         if typing.get_origin(param.annotation) is not type or not arguments:
             raise WiringError(
                 f"AUTO_RESOLVE parameter '{param.name}' needs a type[TYPEVAR] annotation")
-        name = _type_var_name(arguments[0])
-        if (scalar := scope.find_scalar(name)) is not None:
-            return _hgraph.python_type_for_value(scalar)
-        if (ts := scope.find_ts(name)) is not None:
-            return _TsExpr(ts, f"resolved[{name}]")
-        if (size := scope.find_size(name)) is not None:
-            from ._graph import _ResolvedSize
-            return _ResolvedSize(size)
-        raise WiringError(
-            f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) from the wired arguments")
+        try:
+            return _PyNode._resolved_type_var_value(scope, arguments[0])
+        except WiringError as error:
+            raise WiringError(
+                f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) "
+                "from the wired arguments") from error
 
     def _diagnostic_label(self, scalar_values=None):
         """User-facing node identity for diagnostics (issue #247): trace,
@@ -596,6 +615,14 @@ class _PyNode:
         scope = _hgraph.ResolutionScope()
         for name, resolved in self._pins.items():
             self._bind_resolved(scope, name, resolved)
+        requested_output = None
+        if self.has_output and self._default_type_var is not None:
+            requested_output = scope.find_ts(_type_var_name(self._default_type_var))
+            if requested_output is not None:
+                if not scope.match(_pattern_of(self._out_tp), requested_output):
+                    raise IncorrectTypeBinding(
+                        f"{self.__name__}: requested output {requested_output!r} "
+                        f"does not match {self._out_tp!r}")
         bound = self._signature.bind_partial(*args, **kwargs)
         scalar_values = dict(lifecycle_scalar_values)
         # Pre-collect scalar values so callable active=/valid= policies can
@@ -624,8 +651,19 @@ class _PyNode:
             self._apply_resolvers(scope, scalar_values)
         from .._types import AUTO_RESOLVE
         for param in self._params:
-            if scalar_values.get(param.name, _MISSING) is AUTO_RESOLVE:
+            scalar_value = scalar_values.get(param.name, _MISSING)
+            if scalar_value is AUTO_RESOLVE:
                 scalar_values[param.name] = self._resolved_auto_value(scope, param)
+            elif isinstance(scalar_value, (_TypeVarSentinel, typing.TypeVar)):
+                scalar_values[param.name] = self._resolved_placeholder_value(
+                    scope, param, scalar_value)
+            elif (typing.get_origin(param.annotation) is type
+                  and (binding := _binding_for_type_value(scalar_value)) is not None):
+                type_argument = typing.get_args(param.annotation)[0]
+                if not _match_type_argument(scope, type_argument, binding):
+                    raise WiringError(
+                        f"type argument {scalar_value!r} for '{param.name}' does not "
+                        f"match {type_argument!r}")
         active_policy = self._active
         valid_policy = self._valid
         all_valid_policy = self._all_valid
@@ -784,7 +822,8 @@ class _PyNode:
                 if value is None and isinstance(param.annotation, (_TsExpr,)):
                     # unwired optional ts input: a never-ticking source
                     value = wire("nothing", output_type=param.annotation)
-            if value is AUTO_RESOLVE:
+            if value is AUTO_RESOLVE or isinstance(
+                    value, (_TypeVarSentinel, typing.TypeVar)):
                 value = scalar_values[param.name]
             if not isinstance(value, WiringPort) and _is_time_series_annotation(
                     param.annotation) and value is not None \
@@ -901,7 +940,8 @@ class _PyNode:
             node_kwargs[f"{phase}_config"] = "".join(lifecycle_layout)
             node_kwargs[f"{phase}_scalars"] = _hgraph.any_list(lifecycle_scalars)
         if self.has_output:
-            out_tp = self._out_tp
+            out_tp = (_TsExpr(requested_output, f"requested[{self._out_tp!r}]")
+                      if requested_output is not None else self._out_tp)
             if isinstance(out_tp, (_GenericTsExpr, _TypeVarSentinel)):
                 resolved = scope.resolve_ts(_pattern_of(out_tp))
                 if resolved is not None:
@@ -1276,8 +1316,36 @@ class _PushQueue:
             raise TypeError(f"@push_queue '{self.__name__}' requires a sender parameter")
         self._signature = signature.replace(
             parameters=parameters[1:], return_annotation=tp)
+        user_parameters = []
+        layout = []
+        scalar_specs = []
+        keyword_names = []
+        for parameter in parameters[1:]:
+            if isinstance(parameter.annotation, _StateExpr):
+                layout.append("Q")
+                scalar_specs.append((None, parameter.annotation.factory))
+            elif (marker := _INJECTABLE_MARKERS.get(parameter.annotation)) is not None:
+                layout.append(marker)
+            else:
+                layout.append("s")
+                scalar_specs.append((parameter.name, None))
+                user_parameters.append(parameter)
+            if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+                keyword_names.append(parameter.name)
+        self._user_signature = self._signature.replace(parameters=user_parameters)
+        self._config = "".join(layout)
+        if keyword_names:
+            self._config += "|" + ",".join(keyword_names)
+        self._scalar_specs = tuple(scalar_specs)
         self._wiring_signature = self._signature
         self.__signature__ = self._signature
+        for parameter in parameters[1:]:
+            if (parameter.annotation in _INJECTABLE_MARKERS
+                    or isinstance(parameter.annotation, _StateExpr)):
+                if parameter.default is not None:
+                    raise TypeError(
+                        f"injectable parameter '{parameter.name}' of "
+                        f"'{self.__name__}' must default to None")
         self._resolvers = dict(resolvers) if resolvers else None
         self._requires = requires
         self._label = label
@@ -1291,7 +1359,7 @@ class _PushQueue:
 
     def __call__(self, *args, **kwargs):
         _warn_deprecated(self.__name__, self._deprecated)
-        bound_call = self._signature.bind(*args, **kwargs)
+        bound_call = self._user_signature.bind(*args, **kwargs)
         bound_call.apply_defaults()
         scalar_values = dict(bound_call.arguments)
         scope = _hgraph.ResolutionScope()
@@ -1311,13 +1379,14 @@ class _PushQueue:
         if not isinstance(out_tp, _TsExpr):
             raise TypeError(f"@push_queue '{self.__name__}' needs a resolved TS[...] output type")
         w = _current_wiring()
-        fn = self.fn
-
-        def on_start(sender):
-            fn(sender.send, *bound_call.args, **bound_call.kwargs)
+        scalars = [
+            factory if name is None else bound_call.arguments[name]
+            for name, factory in self._scalar_specs
+        ]
 
         port, _sender = w.push_source(
-            _unwrap(out_tp), self.conflate, on_start,
+            _unwrap(out_tp), self.conflate, _hgraph.node_ref(self.fn),
+            self._config, _hgraph.any_list(scalars),
             self._label or self.__name__)
         return WiringPort(port)
 

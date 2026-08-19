@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
@@ -7,6 +8,7 @@
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/types/time_series/ts_input/target_link_structural_state.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -2234,6 +2236,158 @@ TEST_CASE("TSW input removed value is limited to the current evaluation cycle")
     REQUIRE_FALSE(no_tick.has_removed_value());
     REQUIRE_THROWS_AS(no_tick.removed_value(), std::logic_error);
     REQUIRE(no_tick.back().checked_as<std::int32_t>() == 2);
+}
+
+TEST_CASE("forwarding TSData projections preserve target bindings across realizations")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("projection_binding_int32");
+    const auto *text = registry.value_type("str");
+    const auto *base = registry.bundle(
+        "tests.projection_binding", "Base", {{"id", integer}}, {}, true);
+    const auto *leaf = registry.bundle(
+        "tests.projection_binding", "Leaf",
+        {{"id", integer}, {"a", text}, {"b", text}, {"c", text}, {"d", text}}, {base});
+    const auto *scalar_schema = registry.ts(base);
+    const auto *dict_schema = registry.tsd(integer, scalar_schema);
+    const auto *bundle_schema = registry.tsb(
+        "ProjectionBindingBundle", {{"value", scalar_schema}});
+    const auto *window_schema = registry.tsw(base, 1, 1);
+
+    const auto inline_realization = TypeRealizationSnapshot::capture(registry);
+    const TypeRealizationOptions pooled_options{
+        .polymorphic_compound_storage = PolymorphicCompoundStoragePolicy::Pooled,
+    };
+    const auto pooled_realization = TypeRealizationSnapshot::capture(registry, pooled_options);
+    REQUIRE(inline_realization->type_for(base) != pooled_realization->graph_type_for(base));
+
+    CompoundScalarStorage pools = CompoundScalarStorage::make_default();
+    TypeRealizationScope pooled_scope{pooled_realization.get()};
+    CompoundScalarStorageScope pool_scope{pools.view()};
+
+    Value concrete{ValuePlanFactory::instance().type_for(leaf)};
+    auto concrete_fields = concrete.as_bundle().begin_mutation();
+    concrete_fields["id"].set(std::int32_t{7});
+    concrete_fields["a"].set(Str{"a"});
+    concrete_fields["b"].set(Str{"b"});
+    concrete_fields["c"].set(Str{"c"});
+    concrete_fields["d"].set(Str{"d"});
+    const auto pooled_base_binding = pooled_realization->type_for(base);
+    const auto pooled_graph_binding = pooled_realization->graph_type_for(base);
+    REQUIRE(pooled_graph_binding != pooled_base_binding);
+    Value polymorphic{pooled_base_binding};
+    pooled_base_binding.ops_ref().copy_assign_from(
+        pooled_base_binding, polymorphic.begin_mutation().mutable_data(),
+        concrete.binding(), concrete.view().data());
+
+    TSOutput scalar_output{*scalar_schema};
+    TSOutput dict_output{*dict_schema};
+    TSOutput bundle_output{*bundle_schema};
+    const auto *window_plan = ts_data_plan_factory_detail::synthesise_window_plan(
+        *window_schema, pooled_graph_binding);
+    REQUIRE(window_plan != nullptr);
+    const auto *window_component = window_plan->find_component("window");
+    const auto *tracking_component = window_plan->find_component("tracking");
+    REQUIRE(window_component != nullptr);
+    REQUIRE(tracking_component != nullptr);
+    const auto &window_ops = ts_data_plan_factory_detail::window_ts_data_ops(
+        *window_schema, *window_plan, window_component->offset, tracking_component->offset,
+        pooled_graph_binding, TypeRole::Output);
+    TSOutput window_output{TSOutputTypeRef::checked(intern_ts_type(
+        *window_schema, TypeRole::Output, *window_plan, window_ops,
+        "tests.projection-binding.window-output"))};
+    Value key{std::int32_t{1}};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+
+    REQUIRE(scalar_output.view(t1).begin_mutation(t1).copy_value_from(polymorphic.view()));
+    {
+        auto dict_root = dict_output.data_view();
+        auto mutation = dict_root.as_dict().begin_mutation(t1);
+        mutation.set(key.view(), polymorphic.view());
+    }
+    {
+        auto bundle_root = bundle_output.data_view();
+        auto bundle = bundle_root.as_bundle();
+        auto child = bundle.field("value");
+        REQUIRE(child.begin_mutation(t1).copy_value_from(polymorphic.view()));
+    }
+    const auto push_window_value = [&](DateTime time) {
+        auto window_root = window_output.data_view();
+        auto window = window_root.as_window();
+        REQUIRE(window.layout().element_binding == pooled_graph_binding);
+        Value::storage_type graph_value{*pooled_graph_binding.record()};
+        pooled_graph_binding.ops_ref().copy_assign_from(
+            pooled_graph_binding, graph_value.data(), polymorphic.binding(), polymorphic.view().data());
+        window.begin_mutation(time).push(ValueView{pooled_graph_binding, graph_value.data()});
+    };
+    push_window_value(t1);
+    push_window_value(t2);
+
+    TypeRealizationScope inline_scope{inline_realization.get()};
+    TSInput scalar_input{TSInputBuilderFactory::checked_builder_for(
+        *scalar_schema, TSEndpointSchema::peered(scalar_schema))};
+    TSInput dict_input{TSInputBuilderFactory::checked_builder_for(
+        *dict_schema, TSEndpointSchema::peered(dict_schema))};
+    TSInput bundle_input{TSInputBuilderFactory::checked_builder_for(
+        *bundle_schema, TSEndpointSchema::peered(bundle_schema))};
+    TSOutput window_forwarding{TSEndpointSchema::peered(window_schema)};
+    scalar_input.view(nullptr, t2).bind_output(scalar_output.view(t2));
+    dict_input.view(nullptr, t2).bind_output(dict_output.view(t2));
+    bundle_input.view(nullptr, t2).bind_output(bundle_output.view(t2));
+    window_forwarding.view(t2).bind_forwarding_target(window_output.view(t2));
+
+    const auto scalar_target = scalar_output.data_view().value();
+    const auto scalar_link = scalar_input.view(nullptr, t2).data_view().value();
+    REQUIRE(scalar_link.binding() == scalar_target.binding());
+
+    auto dict_target_root = dict_output.data_view();
+    auto dict_target = dict_target_root.as_dict().at(key.view());
+    auto dict_link_root = dict_input.view(nullptr, t2);
+    auto dict_link = dict_link_root.as_dict().data_view().at(key.view());
+    REQUIRE(dict_link.storage_type() == dict_target.storage_type());
+    REQUIRE(dict_link.value().binding() == dict_target.value().binding());
+
+    auto bundle_target_root = bundle_output.data_view();
+    auto bundle_target_view = bundle_target_root.as_bundle();
+    auto bundle_target = bundle_target_view.field("value");
+    auto bundle_link_root = bundle_input.view(nullptr, t2);
+    auto bundle_link_view = bundle_link_root.as_bundle();
+    auto bundle_link_data = bundle_link_view.data_view();
+    auto bundle_link = bundle_link_data.field("value");
+    REQUIRE(bundle_link.storage_type() == bundle_target.storage_type());
+    REQUIRE(bundle_link.value().binding() == bundle_target.value().binding());
+
+    auto window_target_root = window_output.data_view();
+    auto window_target = window_target_root.as_window();
+    auto window_link_root = window_forwarding.data_view();
+    auto window_link = window_link_root.as_window();
+    REQUIRE(window_link.layout().element_binding != window_target.layout().element_binding);
+    REQUIRE(window_link.at(0).binding() == window_target.at(0).binding());
+    REQUIRE(window_link.front().binding() == window_target.front().binding());
+    REQUIRE(window_link.back().binding() == window_target.back().binding());
+    REQUIRE(window_link.time_value_at(0).binding() == window_target.time_value_at(0).binding());
+    REQUIRE(window_link.has_removed_value(t2));
+    REQUIRE(window_link.removed_value(t2).binding() == window_target.removed_value(t2).binding());
+    REQUIRE(window_link.at(0).concrete().schema() == leaf);
+    REQUIRE(window_link.removed_value(t2).concrete().schema() == leaf);
+    auto linked_values = window_link.values();
+    auto target_values = window_target.values();
+    const auto linked_first = *linked_values.begin();
+    const auto target_first = *target_values.begin();
+    REQUIRE(linked_first.binding() == target_first.binding());
+    REQUIRE(linked_first.concrete().schema() == leaf);
+    auto linked_time_values = window_link.time_values();
+    auto target_time_values = window_target.time_values();
+    const auto linked_first_time = *linked_time_values.begin();
+    const auto target_first_time = *target_time_values.begin();
+    REQUIRE(linked_first_time.binding() == target_first_time.binding());
+
+    const auto t3 = t2 + TimeDelta{1};
+    window_target.begin_mutation(t3).clear();
+    REQUIRE(window_link.cleared(t3));
 }
 
 TEST_CASE("TSW ranges use stable ops contexts across data and endpoint roles")

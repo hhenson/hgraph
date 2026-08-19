@@ -506,7 +506,8 @@ def _operator_parameter_annotations(fn):
 def eval_node(node, *args, output_type=None, resolution_dict=None,
               __trace__=False, __trace_wiring__=False, __observers__=None,
               __start_time__=None, __end_time__=None, __scalars__=None,
-              __elide__=False, **kwargs):
+              __elide__=False, __run_mode__=EvaluationMode.SIMULATION,
+              **kwargs):
     """Evaluate a graph or node against per-cycle test input vectors.
 
     ``None`` in a vector means no tick for that cycle. Time-series input types
@@ -526,12 +527,19 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     :param __end_time__: Explicit evaluation bound.
     :param __scalars__: Mapping of wiring-time scalar arguments.
     :param __elide__: Return only cycles in which the output ticks.
+    :param __run_mode__: ``EvaluationMode.SIMULATION`` or
+        ``EvaluationMode.REAL_TIME``.
     :param kwargs: Named per-cycle input vectors or wiring-time scalar values.
     :return: One output value per simulated cycle, using ``None`` for cycles
         without an output tick; sink nodes return ``None``.
     """
     # Upstream-compatible parameter names (node, *args) are the public
     # contract; the implementation keeps its internal vocabulary.
+    if __run_mode__ not in (EvaluationMode.SIMULATION, EvaluationMode.REAL_TIME):
+        raise ValueError(
+            "eval_node __run_mode__ must be EvaluationMode.SIMULATION or "
+            "EvaluationMode.REAL_TIME")
+    realtime = __run_mode__ == EvaluationMode.REAL_TIME
     fn, inputs = node, args
     try:
         fn_sig = inspect.signature(
@@ -640,7 +648,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                              __trace__=__trace__, __trace_wiring__=__trace_wiring__,
                              __observers__=__observers__,
                              __start_time__=__start_time__, __end_time__=__end_time__,
-                             __scalars__=__scalars__, __elide__=__elide__, **kwargs)
+                             __scalars__=__scalars__, __elide__=__elide__,
+                             __run_mode__=__run_mode__, **kwargs)
         named_series = {}
     if named_series:
         by_name = {p.name: i for i, p in enumerate(params)}
@@ -657,7 +666,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                          __trace__=__trace__, __trace_wiring__=__trace_wiring__,
                          __observers__=__observers__,
                          __start_time__=__start_time__, __end_time__=__end_time__,
-                         __scalars__=__scalars__, __elide__=__elide__, **kwargs)
+                         __scalars__=__scalars__, __elide__=__elide__,
+                         __run_mode__=__run_mode__, **kwargs)
     operator_annotations, operator_variadic = _operator_parameter_annotations(fn)
     operator_annotations_by_name = dict(operator_annotations)
     trace = _make_evaluation_trace(__trace__)
@@ -782,6 +792,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         # replay overloads' upstream `_api.start_time` filter — reads this.
         GlobalState.instance()["__start_time__"] = (
             __start_time__ if __start_time__ is not None else _hgraph.MIN_ST)
+        GlobalState.instance()["__evaluation_mode__"] = __run_mode__
         out = fn(*ports, **scalars)
         # Replay values convert AFTER wiring: hgraph surfaces wiring errors
         # before data-conversion errors, and tests pin that order.
@@ -791,7 +802,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                       if isinstance(series, (list, tuple)) and i not in scalar_positions), default=0)
         _finalize_compound_scalar_types()
         if out is None:
-            run = w.run(start_time=__start_time__, end_time=__end_time__, trace=trace,
+            run = w.run(start_time=__start_time__, end_time=__end_time__,
+                        realtime=realtime, trace=trace,
                         observers=tuple(__observers__ or ()))
             return None
         # hgraph parity: a REF graph output records its DEREFERENCED values.
@@ -813,7 +825,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                 [_hgraph.tsl_element(raw, i).dereferenced for i in range(raw.ts_type.fixed_size)]
             )
         w.wire("__harness_record", (record_port, "eval_node::out"), record_kwargs)
-        run = w.run(start_time=__start_time__, end_time=__end_time__, trace=trace,
+        run = w.run(start_time=__start_time__, end_time=__end_time__,
+                    realtime=realtime, trace=trace,
                     observers=tuple(__observers__ or ()))
     finally:
         for line in w.wiring_trace_lines():
@@ -825,7 +838,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         # recording was made SPARSE, so this is just the list).
         return [_simplify_delta(v) for _, v in run.recorded("eval_node::out", sparse=True)]
     recorded = [None if v is None else _simplify_delta(v) for v in run.recorded("eval_node::out")]
-    if __start_time__ is not None and __start_time__ > _hgraph.MIN_ST:
+    if (not realtime and __start_time__ is not None
+            and __start_time__ > _hgraph.MIN_ST):
         # hgraph parity: the result list is aligned to the RUN START (index 0
         # = the first evaluation cycle); run.recorded indexes from MIN_ST.
         recorded = recorded[int((__start_time__ - _hgraph.MIN_ST) / _hgraph.MIN_TD):]

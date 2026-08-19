@@ -114,6 +114,11 @@ public:
                                      std::string body,
                                      const H2Headers &trailers);
 
+  [[nodiscard]] bool submit_file_response(std::int32_t stream_id, int status,
+                                          const H2Headers &headers,
+                                          std::string path,
+                                          const H2Headers &trailers);
+
   /** Reset one stream (admission reject, slow consumer, cancel). */
   void reset_stream(std::int32_t stream_id, H2StreamError error);
 

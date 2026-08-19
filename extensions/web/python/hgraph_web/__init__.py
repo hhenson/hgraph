@@ -67,6 +67,21 @@ def _require_path_xor_pem(path: str, pem: str, what: str) -> None:
         )
 
 
+def _require_literal_static_path(path: str, what: str) -> None:
+    if not path or not path.startswith("/"):
+        raise ValueError(f"Web {what} must start with '/'")
+    for segment in path.split("/")[1:]:
+        if segment.startswith("*") or "{" in segment or "}" in segment:
+            raise ValueError(f"Web {what} must be exact literal paths")
+
+
+def _normalize_static_directory_prefix(prefix: str) -> str:
+    _require_literal_static_path(prefix, "static directory URL prefixes")
+    while len(prefix) > 1 and prefix.endswith("/"):
+        prefix = prefix[:-1]
+    return prefix
+
+
 # Headers, query parameters, and path captures are ALWAYS ordered sequences of
 # name/value pairs, never maps: duplicate names and arrival order are preserved
 # by construction (RFC 0024, public value contract).
@@ -110,6 +125,33 @@ class WebRoute(CompoundScalar, namespace=_NAMESPACE):
     def __post_init__(self) -> None:
         if not self.pattern or not self.pattern.startswith("/"):
             raise ValueError("Web route patterns must start with '/'")
+
+
+@dataclass(frozen=True)
+class WebStaticFile(CompoundScalar, namespace=_NAMESPACE):
+    url: str
+    file: str
+    content_type: str = ""
+    cache_control: str = ""
+
+    def __post_init__(self) -> None:
+        _require_literal_static_path(self.url, "static file URLs")
+        if not self.file:
+            raise ValueError("Web static files require a filesystem path")
+
+
+@dataclass(frozen=True)
+class WebStaticDirectory(CompoundScalar, namespace=_NAMESPACE):
+    url_prefix: str
+    directory: str
+    cache_control: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "url_prefix", _normalize_static_directory_prefix(self.url_prefix)
+        )
+        if not self.directory:
+            raise ValueError("Web static directories require a filesystem path")
 
 
 @dataclass(frozen=True)
@@ -344,6 +386,8 @@ class WebServerConfig(CompoundScalar, namespace=_NAMESPACE):
     idle_timeout_ms: int = 60_000
     keep_alive_timeout_ms: int = 15_000
     bind_deferred: bool = False
+    static_files: tuple[WebStaticFile, ...] = ()
+    static_directories: tuple[WebStaticDirectory, ...] = ()
     ingress_record_limit: int = 10_000
     ingress_byte_limit: int = 64 * 1024 * 1024
     ws_ingress_record_limit: int = 10_000
@@ -732,6 +776,8 @@ __all__ = [
     "WebParam",
     "WebPeer",
     "WebRoute",
+    "WebStaticFile",
+    "WebStaticDirectory",
     "WebServerConfig",
     "WebServerStats",
     "WebTransportError",

@@ -1,15 +1,54 @@
+import logging
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Mapping
 
 from frozendict import frozendict
 
-from hgraph import AUTO_RESOLVE, SCHEMA, TS, TSB, Frame, compute_node, null_sink
-from hgraph.adaptors.data_catalogue import DataSource, DataCatalogueEntry
-from hgraph.adaptors.data_catalogue.subscribe import subscriber_impl_from_graph, subscriber_impl_to_graph
-from hgraph.stream import Data, Stream
+from hgraph import (
+    AUTO_RESOLVE,
+    DEFAULT,
+    LOGGER,
+    SCHEMA,
+    Frame,
+    TS,
+    TSB,
+    TSD,
+    compute_node,
+    convert,
+    exception_time_series,
+    feedback,
+    flip,
+    graph,
+    if_then_else,
+    map_,
+    partition,
+    rekey,
+    service_adaptor,
+    service_adaptor_impl,
+    throttle,
+    unpartition,
+    valid,
+)
+from hgraph.adaptors.data_catalogue import DataEnvironment, DataSource
+from hgraph.adaptors.data_catalogue.data_scopes import Scope
+from hgraph.reflection import fields
+from hgraph.stream import (
+    Data,
+    Stream,
+    StreamStatus,
+)
 
-from .sql_adaptor import sql_read_adaptor, sql_read_adaptor_impl
+from .sql_adaptor_raw import sql_read_adaptor_raw
+from .sql_connection import _require_polars
 
-__all__ = ("BatchSqlDataSource", "sql_adaptor_batch", "sql_adaptor_batch_impl")
+logger = logging.getLogger(__name__)
+
+__all__ = (
+    "BatchSqlDataSource",
+    "sql_adaptor_batch",
+    "sql_adaptor_batch_impl",
+)
 
 
 @dataclass(frozen=True)
@@ -18,53 +57,205 @@ class BatchSqlDataSource(DataSource):
     query: str
     filters: frozendict[str, str] = frozendict()
 
+    def __post_init__(self):
+        if not isinstance(self.filters, frozendict):
+            object.__setattr__(self, "filters", frozendict(self.filters))
+
     def render(self, **options):
         return self.query.format(**options)
 
 
-@subscriber_impl_from_graph
-def subscribe_batch_sql_from_graph(
-    dce: DataCatalogueEntry, ds: TS[BatchSqlDataSource],
-    options: TS[dict[str, object]], request_id: TS[int],
-    _schema: type[SCHEMA] = AUTO_RESOLVE,
-):
-    null_sink(request_id)
-
-
-@subscriber_impl_to_graph
-def subscribe_batch_sql_to_graph(
-    dce: DataCatalogueEntry, ds: TS[BatchSqlDataSource],
-    options: TS[dict[str, object]], request_id: TS[int],
-    _schema: type[SCHEMA] = AUTO_RESOLVE,
+@service_adaptor
+def sql_adaptor_batch(
+    ds: TS[BatchSqlDataSource],
+    scope: TS[Mapping[str, Scope]],
+    options: TS[dict[str, object]],
+    path: str,
+    _schema: type[SCHEMA] = DEFAULT[SCHEMA],
 ) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
-    return sql_adaptor_batch[_schema](
-        ds, dce.scope, options, path=dce.store.source_path)
+    ...
+
+
+@service_adaptor_impl(interfaces=sql_adaptor_batch)
+def sql_adaptor_batch_impl(
+    ds: TSD[int, TS[BatchSqlDataSource]],
+    scope: TSD[int, TS[Mapping[str, Scope]]],
+    options: TSD[int, TS[dict[str, object]]],
+    path: str,
+    batch_period: timedelta = timedelta(seconds=1),
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+) -> TSD[int, TSB[Stream[Data[Frame[SCHEMA]]]]]:
+    environment = DataEnvironment.current()
+    if environment is None:
+        raise RuntimeError(f"No DataEnvironment set up for {path}")
+    connection_string = environment.get_entry(path).environment_path
+
+    ds_batch = throttle(ds, period=batch_period, delay_first_tick=True)
+    options_batch = throttle(options, period=batch_period, delay_first_tick=True)
+    scope_batch = throttle(scope, period=batch_period, delay_first_tick=True)
+
+    request_ids = flip(ds_batch, unique=False)
+    partitioned_options = partition(options_batch, ds_batch)
+    rekeyed_scope = rekey(scope_batch, ds_batch)
+    grouped_queries = map_(
+        lambda key, scoped, opts: render_batch_query(
+            ds=key, scope=scoped, options=opts),
+        scoped=rekeyed_scope,
+        opts=partitioned_options,
+        __keys__=request_ids.key_set,
+    )
+    queries = unpartition(grouped_queries)
+
+    requests = map_(
+        lambda query: sql_read_adaptor_raw.from_graph(
+            path=connection_string, query=query),
+        query=queries,
+    )
+    results = map_(
+        lambda request: sql_read_adaptor_raw.to_graph(
+            path=connection_string, __request_id__=request,
+            __no_ts_inputs__=True),
+        feedback(requests)(),
+    )
+
+    return extract_data(
+        results,
+        feedback(ds_batch)(),
+        feedback(options_batch)(),
+        feedback(scope_batch)(),
+        _schema=_schema,
+    )
+
+
+@compute_node(active=("options",))
+def render_batch_query(
+    ds: TS[BatchSqlDataSource],
+    scope: TS[Mapping[str, Scope]],
+    options: TSD[int, TS[dict[str, object]]],
+) -> TSD[tuple[int, ...], TS[str]]:
+    source = ds.value
+    collected = {}
+    for _, changed_options in options.modified_items():
+        for name, value in changed_options.value.items():
+            if name in source.filters:
+                collected.setdefault(name, []).append(value)
+            else:
+                collected[name] = value
+
+    if not collected:
+        return
+
+    adjusted = {
+        name: item.adjust(collected[name]) if name in collected else item.default()
+        for name, item in scope.value.items()
+    }
+    if any(value is None for value in adjusted.values()):
+        logger.error(
+            "Collected None values for a batch query: %s, incoming options: %s",
+            adjusted,
+            options.delta_value,
+        )
+        return
+
+    return {tuple(options.modified_keys()): source.render(**adjusted)}
+
+
+@graph
+def extract_data(
+    data: TSD[tuple[int, ...], TSB[Stream[Data[Frame]]]],
+    ds: TSD[int, TS[BatchSqlDataSource]],
+    options: TSD[int, TS[dict[str, object]]],
+    scope: TSD[int, TS[Mapping[str, Scope]]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+) -> TSD[int, TSB[Stream[Data[Frame[SCHEMA]]]]]:
+    return map_(
+        filter_data,
+        data=unpack_data(data),
+        ds=ds,
+        options=options,
+        scope=scope,
+        _schema=_schema,
+    )
 
 
 @compute_node
-def _render_batch_query(
-    ds: TS[BatchSqlDataSource], scope: TS[object], options: TS[object]
-) -> TS[str]:
-    values = options.value or {}
-    scopes = scope.value or {}
-    adjusted = {
-        name: item.adjust(values[name]) if name in values else item.default()
-        for name, item in scopes.items()
-    }
-    return ds.value.render(**adjusted)
+def unpack_data(
+    data: TSD[tuple[int, ...], TSB[Stream[Data[Frame]]]],
+) -> TSD[int, TSB[Stream[Data[Frame]]]]:
+    output = {}
+    for keys, value in data.modified_items():
+        if bundle := value.value:
+            output.update({key: bundle for key in keys})
+    return output or None
 
 
-class _BatchSqlAdaptor:
-    def __init__(self, schema=None):
-        self.schema = schema
+@graph
+def filter_data(
+    data: TSB[Stream[Data[Frame]]],
+    ds: TS[BatchSqlDataSource],
+    options: TS[dict[str, object]],
+    scope: TS[Mapping[str, Scope]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
+    filtered_raw = filter_data_(data.values, ds, options, scope, _schema)
+    filtered = convert[TS[Frame[_schema]]](filtered_raw)
+    error = exception_time_series(filtered)
+    output_type = TSB[Stream[Data[Frame[_schema]]]]
+    return output_type.from_ts(
+        status=if_then_else(
+            valid(error),
+            StreamStatus.ERROR,
+            data.status,
+        ),
+        status_msg=if_then_else(
+            valid(error),
+            error.error_msg,
+            data.status_msg,
+        ),
+        timestamp=data.timestamp,
+        values=filtered,
+    )
 
-    def __getitem__(self, schema):
-        return _BatchSqlAdaptor(schema)
 
-    def __call__(self, ds, scope, options, *, path):
-        adaptor = sql_read_adaptor if self.schema is None else sql_read_adaptor[self.schema]
-        return adaptor(_render_batch_query(ds, scope, options), path=path)
+@compute_node(active=("data",))
+def filter_data_(
+    data: TS[object],
+    ds: TS[BatchSqlDataSource],
+    options: TS[dict[str, object]],
+    scope: TS[Mapping[str, Scope]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+    _logger: LOGGER = None,
+) -> TS[Frame]:
+    from hgraph._frame import as_arrow_table
 
+    pl = _require_polars()
+    source = ds.value
+    scope_value = scope.value
+    options_value = options.value
+    expressions = []
+    for name, value in options_value.items():
+        if name in source.filters:
+            adjusted = scope_value[name].adjust(value)
+            expression = source.filters[name].format(
+                adjusted, **{name: adjusted})
+            expressions.append(pl.sql_expr(expression))
 
-sql_adaptor_batch = _BatchSqlAdaptor()
-sql_adaptor_batch_impl = sql_read_adaptor_impl
+    frame = pl.from_arrow(as_arrow_table(data.value))
+    if expressions:
+        frame = frame.filter(*expressions)
+    schema_columns = set(fields(_schema))
+    frame = frame.select(
+        column for column in frame.columns if column in schema_columns)
+
+    if frame.is_empty():
+        adjusted_options = {
+            name: scope_value[name].adjust(value)
+            for name, value in options_value.items()
+            if name in scope_value
+        }
+        _logger.warning(
+            "No data returned from %s with options %s",
+            source.source_path,
+            adjusted_options,
+        )
+    return frame.to_arrow()

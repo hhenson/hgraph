@@ -262,8 +262,8 @@ int main()
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 7);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 10: the never-dispatched reset_delta hook was removed.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 10);
+    // ABI 12: keyed and window TSData projections return binding and memory together.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 12);
     static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
     static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));

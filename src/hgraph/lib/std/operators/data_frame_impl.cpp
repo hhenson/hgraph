@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/operators/impl/data_frame_impl.h>
 
+#include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -1786,6 +1787,7 @@ namespace hgraph::stdlib
 
     void register_data_frame_operators()
     {
+        register_overload<len_, len_frame_impl>();
         register_overload<from_data_frame, from_data_frame_impl>();
         register_overload<from_data_frame_batches, from_data_frame_batches_impl>();
         register_overload<replay_data_frame, replay_data_frame_impl>();
