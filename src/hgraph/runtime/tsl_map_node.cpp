@@ -95,7 +95,7 @@ namespace hgraph
             return *contexts;
         }
 
-        [[nodiscard]] const TslMapNodeContext &register_tsl_map_node_context(TslMapNodeSpec spec,
+        [[nodiscard]] const TslMapNodeContext *register_tsl_map_node_context(TslMapNodeSpec spec,
                                                                              runtime_detail::MappedChildAccessPlan access,
                                                                              std::size_t storage_offset,
                                                                              MemoryUtils::StorageLayout graph_layout) {
@@ -107,7 +107,7 @@ namespace hgraph
             });
             const auto *result  = context.get();
             tsl_map_node_contexts().push_back(std::move(context));
-            return *result;
+            return result;
         }
 
         [[nodiscard]] NodeStorageMetrics tsl_map_storage_metrics(
@@ -122,6 +122,15 @@ namespace hgraph
                 .dynamic_live_bytes = storage.entries.live_bytes(),
                 .dynamic_reserved_bytes = storage.entries.reserved_bytes(),
             };
+        }
+
+        void visit_tsl_map_child(const void *raw_context,
+                                 const NodeBuilder &,
+                                 void *visitor_context,
+                                 ChildGraphVisitor visitor)
+        {
+            const auto &context = *static_cast<const TslMapNodeContext *>(raw_context);
+            visitor(visitor_context, context.spec.child.graph_builder);
         }
 
         [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source) {
@@ -474,9 +483,14 @@ namespace hgraph
             .layout       = debug_exemplar.entries.debug_layout(
                 descriptor.storage_plan->component(tsl_map_storage_field_name).offset + entries_offset, graph_pointer_offset, true),
         };
-        descriptor.ops.extended_view_context = &register_tsl_map_node_context(
+        const auto *context = register_tsl_map_node_context(
             std::move(spec), std::move(access),
             descriptor.storage_plan->component(tsl_map_storage_field_name).offset, graph_layout);
+        descriptor.ops.extended_view_context = context;
+        descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
+            .context = context,
+            .visit_impl = &visit_tsl_map_child,
+        };
 
         return NodeBuilder::from_descriptor(std::move(descriptor));
     }

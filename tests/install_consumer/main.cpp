@@ -1,3 +1,5 @@
+#include "fabric_extension_probe.h"
+
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/lib/std/operators/table.h>
@@ -254,6 +256,10 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
+    // ABI 5 adds the cold-path compiled-child inspection contract.
+    static_assert(NODE_OPS_ABI_VERSION == 5);
+    static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
+    static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 7);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
     // ABI 12: keyed and window TSData projections return binding and memory together.
@@ -511,6 +517,7 @@ int main()
     }
 
     check_probe_backend_round_trip();
+    hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;
 }

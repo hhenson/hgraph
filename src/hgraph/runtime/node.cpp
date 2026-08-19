@@ -26,6 +26,11 @@
 
 namespace hgraph
 {
+    namespace child_graph_inspection_detail
+    {
+        void visit_none(const void *, const NodeBuilder &, void *, ChildGraphVisitor) {}
+    }
+
     namespace
     {
         void schedule_node_from_storage(GraphValue *graph, std::size_t node_index, DateTime modified_time);
@@ -1146,6 +1151,10 @@ namespace hgraph
                 {
                     ops.recordable_state_view_impl = &recordable_state_view_impl;
                 }
+                if (ops.child_graph_inspection.visit_impl == nullptr)
+                {
+                    ops.child_graph_inspection.visit_impl = &child_graph_inspection_detail::visit_none;
+                }
             }
 
             void clear() noexcept
@@ -1189,7 +1198,7 @@ namespace hgraph
             }
             if (record.ops_abi_version != NODE_OPS_ABI_VERSION || record.ops == nullptr)
             {
-                throw std::invalid_argument("NodeTypeRef requires node ops ABI version 1");
+                throw std::invalid_argument("NodeTypeRef requires the current node ops ABI version");
             }
             if (record.capabilities != node_type_capabilities(*record.plan))
             {
@@ -1828,6 +1837,17 @@ namespace hgraph
     {
         if (!type_) { throw std::logic_error("NodeBuilder has no type"); }
         return type_;
+    }
+
+    void NodeBuilder::visit_child_graphs(void *visitor_context, ChildGraphVisitor visitor) const
+    {
+        if (!type_) { throw std::logic_error("NodeBuilder has no type"); }
+        if (visitor == nullptr)
+        {
+            throw std::invalid_argument("NodeBuilder::visit_child_graphs requires a visitor");
+        }
+        const ChildGraphInspectionOps &inspection = type_.ops_ref().child_graph_inspection;
+        inspection.visit_impl(inspection.context, *this, visitor_context, visitor);
     }
 
     NodeBuilder NodeBuilder::with_error_capture(const TSValueTypeMetaData *error_schema,

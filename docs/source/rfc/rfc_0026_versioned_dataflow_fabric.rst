@@ -309,7 +309,8 @@ execution and extension authoring:
 
 * C++ and Python graph/operator authoring;
 * time-series values, root sources and sinks;
-* wiring-time graph inspection and traits;
+* wiring-time graph inspection and traits, including the cold-path
+  ``NodeBuilder::visit_child_graphs`` contract for compiled nested owners;
 * graph-time and real-time scheduling;
 * ``GlobalState`` lifetime and configuration scoping;
 * extension operator registration; and
@@ -317,6 +318,25 @@ execution and extension authoring:
 
 Core does not name fabric data ids, versions, revisions, stores, topics,
 subscription modes or consistency policies.
+
+The public extension seam has been validated from a separately built installed
+SDK consumer.  A fabric-shaped proof can retain one wiring-owned plan, defer
+and bind its source in an idempotent pre-rank finalizer, discover marked sources
+through public upstream edges and through the compiled child plans of nested
+owners, and use a typed same-root subscription handle when the data edge is
+deliberately hidden.  The nested case creates ``subscribe_data`` inside the
+child graph and feeds only the child output to an outer publisher; it therefore
+proves the ownership boundary rather than merely following an outer input.
+The source selects simulation or real-time behavior once in ``start`` from
+``EngineControlView``; its ``eval`` has no mode branch.
+
+The proof exposed one missing generally reusable core seam.  ``NodeBuilder``
+now visits its immediate compiled child graph templates through a passive,
+type-erased cold-path contract.  ``nested_``, ``map_``, ``mesh_``, associative
+and ordered reduce, ``switch_`` and dynamic-TSL map all install the same
+contract; ordinary nodes use its canonical no-op implementation.  Extensions
+recurse explicitly when they need the complete plan forest.  This adds no
+evaluation-path work and carries no fabric ids, lineage or consistency policy.
 
 hgraph-persistence owns
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -332,12 +352,12 @@ duplicate:
 * object reads and prefix/range discovery; and
 * compare/exchange of small named references such as ``latest``.
 
-The released ``FrameStore`` has ``write/read/contains/clear`` operations and
-does not yet expose all of the immutable-object, ordered-index and conditional
-reference operations required here.  Before fabric implementation,
-``hgraph-persistence`` must expose the reusable object-store portion already
+``hgraph-persistence`` now exposes the reusable public ``ObjectStore`` contract
 anticipated by :doc:`rfc_0023_graph_checkpoint_recovery` and RFC 0025's durable
-checkpoint work.  That contract remains persistence-owned.  Fabric must not
+checkpoint work.  Its memory, local-filesystem and S3 strategies provide typed
+immutable creation, typed reads, paginated ordered listing and conditional
+reference publication; ``FrameStore`` uses the same atomic backend semantics.
+That contract remains persistence-owned.  Fabric must consume it rather than
 grow a private second S3 client or put persistence types back into core.
 
 hgraph-kafka owns
@@ -1524,9 +1544,12 @@ implementation should proceed as separately reviewable checkpoints:
    metrics; and
 9. update this RFC to ``Accepted`` with any reviewed implementation differences.
 
-Core changes, if the extension reveals a missing generally reusable runtime
-hook, require their own focused commit and C++/Python parity.  Fabric-specific
-policy stays in the extension.
+The checkpoint-0 proof found and supplied the generally reusable compiled-child
+inspection hook described above.  It lives under the shared C++ wiring path, so
+Python-authored graphs which lower through that path receive the same behavior
+without a second Python runtime implementation.  Any further core hook requires
+its own focused commit and C++/Python behavioral parity.  Fabric-specific policy
+stays in the extension.
 
 Acceptance criteria and test plan
 ---------------------------------

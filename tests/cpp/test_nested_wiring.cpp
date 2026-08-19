@@ -658,6 +658,40 @@ TEST_CASE("nested wiring: every dynamic child graph uses planned or stable in-pl
     CHECK(saw_switch);
 }
 
+TEST_CASE("nested wiring: node builders expose every immediate compiled child through one contract")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    GraphBuilder graph = build_graph<NestedAllocationGraph>();
+    struct Inspection
+    {
+        std::size_t children{0};
+        std::size_t owners{0};
+        bool all_children_non_empty{true};
+    } inspection;
+
+    const auto visitor = [](void *raw, const GraphBuilder &child) {
+        auto &state = *static_cast<Inspection *>(raw);
+        ++state.children;
+        state.all_children_non_empty = state.all_children_non_empty && child.node_count() > 0;
+    };
+
+    for (const NodeBuilder &node : graph.nodes())
+    {
+        const std::size_t before = inspection.children;
+        node.visit_child_graphs(&inspection, visitor);
+        if (inspection.children != before) { ++inspection.owners; }
+    }
+
+    // nested_, map_, mesh_, associative reduce, ordered reduce and switch_
+    // each own one immediate compiled child in this graph. Ordinary nodes use
+    // the same contract and visit nothing.
+    CHECK(inspection.owners == 6);
+    CHECK(inspection.children == 6);
+    CHECK(inspection.all_children_non_empty);
+}
+
 TEST_CASE("nested wiring: a sub-graph with multiple boundary inputs binds each arg")
 {
     using namespace hgraph;

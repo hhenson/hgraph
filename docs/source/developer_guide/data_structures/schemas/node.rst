@@ -215,6 +215,14 @@ shape as the lower layers:
     values belong in builder scalars or runtime storage, not in a canonical
     callback capture.
 
+    ``visit_child_graphs`` is the cold-path inspection surface for immediate
+    compiled child graph templates.  It dispatches through the passive
+    ``ChildGraphInspectionOps`` contract, so an extension can recurse through
+    nested plans without identifying a concrete map, mesh, reduce, switch or
+    single-nested representation.  Ordinary nodes bind the canonical no-op
+    implementation.  The borrowed ``GraphBuilder`` references are valid only
+    during the visitor call, and evaluation never consults this operation.
+
     Graph runtime types are likewise reused only when the graph label, ordered
     node runtime types, edge paths, and push-source boundary all match. Executor
     runtime types are reused by mode and label. Node labels, scalar values,

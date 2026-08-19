@@ -8,6 +8,7 @@
 #define HGRAPH_RUNTIME_NODE_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/child_graph_inspection.h>
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/node_error.h>
@@ -201,6 +202,9 @@ namespace hgraph
                                                    const void *memory) noexcept = nullptr;
         NodeInspectionMetrics (*inspection_metrics_impl)(const void *context,
                                                          const void *memory) noexcept = nullptr;
+
+        /** Cold-path build-time inspection of immediate compiled child graphs. */
+        ChildGraphInspectionOps child_graph_inspection{};
 
         const void *extended_view_type_id{nullptr};
         const void *extended_view_context{nullptr};
@@ -498,6 +502,14 @@ namespace hgraph
 
         [[nodiscard]] NodeTypeRef type() const;
         [[nodiscard]] const TSEndpointSchema &input_endpoint() const noexcept;
+        /**
+         * Visit this node's immediate compiled child graph templates.
+         *
+         * The callback receives borrowed references valid only for the call.
+         * Ordinary nodes visit nothing. Callers recurse explicitly when they
+         * need the complete nested plan forest.
+         */
+        void visit_child_graphs(void *visitor_context, ChildGraphVisitor visitor) const;
         /**
          * Construct this node directly into caller-owned storage matching
          * ``type().checked_plan()``. The caller owns destruction through the

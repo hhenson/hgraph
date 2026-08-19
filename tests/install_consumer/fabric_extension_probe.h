@@ -1,0 +1,8 @@
+#ifndef HGRAPH_INSTALL_CONSUMER_FABRIC_EXTENSION_PROBE_H
+#define HGRAPH_INSTALL_CONSUMER_FABRIC_EXTENSION_PROBE_H
+
+namespace hgraph_install_consumer {
+void check_fabric_core_extension_seam();
+}
+
+#endif // HGRAPH_INSTALL_CONSUMER_FABRIC_EXTENSION_PROBE_H
