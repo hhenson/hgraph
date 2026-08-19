@@ -42,6 +42,7 @@ library authors and performance-sensitive integrations.
 
    python_compatibility
    analytics_migration
+   persistence_migration
 
 .. toctree::
    :maxdepth: 2

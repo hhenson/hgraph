@@ -220,6 +220,14 @@ include them in a repository build; standalone consumers find ``hgraph-web`` or
 options are off by default, so a normal core configure resolves neither their
 dependencies nor their targets.
 
+For persistence that default carries a design rule rather than a convenience:
+durable-store policy — Parquet and S3 detection, the recording option
+vocabularies — belongs to the extension, so a core configure resolves neither
+(RFC 0025). The ``Native C++ / Linux core-only`` leg in ``native-cpp.yml``
+builds core with every extension off and fails if the configure resolves
+Parquet at all, because the other native legs force the extensions on and
+would not notice the dependency coming back.
+
 Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 and tests. Cross-cutting changes are tested against core at the same commit,
 while the resulting wheels remain separate distribution artifacts. During the

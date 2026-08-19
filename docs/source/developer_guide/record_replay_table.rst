@@ -372,18 +372,20 @@ Step 4 — landed
 ---------------
 
 The Arrow data-frame record/replay backend, backend id
-``"hgraph.persistence.frame"`` (RFC 0025: the id belongs to the persistence
-extension; the transitional in-core implementation answers to it until the
-checkpoint-5 move):
+``"hgraph.persistence.frame"``. The id and the implementation both belong to
+the ``hgraph-persistence`` extension; the move completed at RFC 0025
+checkpoint 5, and core now retains only the participation contracts described
+in the earlier steps:
 
 - **The P6 content store** — a graph-scoped, owning type-erased
   ``store::FrameStore`` selected in ``GlobalState``. The handle shares an
   erased context and dispatches through a non-null ``store::FrameStoreOps``
-  table; it is not an abstract base class. Native memory, local-filesystem and
-  S3 representations remain private and own key validation, serialization,
-  compression and immutable-key enforcement. The process fallback uses the
-  same erased handle; graph execution first resolves the store belonging to
-  that graph.
+  table; it is not an abstract base class. The extension's native memory,
+  local-filesystem and S3 representations remain private to it and own key
+  validation, serialization, compression and immutable-key enforcement. Its
+  process fallback uses the same erased handle; graph execution first resolves
+  the store belonging to that graph. (This fallback is the extension's, not a
+  second process-global store in core — see P2 above.)
 - **``TraitsView``** — the node-level injectable completing the traits
   primitive: a transparent stateless injectable (the ``SingleShotScheduler``
   pattern) giving hooks ``trait``/``trait_or`` over the owning graph's
@@ -414,8 +416,8 @@ checkpoint-5 move):
   the last row with value-time <= ``tm`` and as-of <= ``as_of``.
 - **``recorded_seed_resolver``** (``component`` RECOVER) dispatches over
   exactly the backend ids core serves: ``"memory"`` reads the sparse
-  ``:memory:`` buffer; ``"testing"`` and the transitional frame id read
-  through ``replay_const_value``; anything else is a pointed error naming
+  ``:memory:`` buffer and ``"testing"`` reads through
+  ``replay_const_value``; anything else is a pointed error naming
   the backend — extension seed resolution registers with the extension
   (RFC 0025, checkpoints 3/5).
 
@@ -539,15 +541,16 @@ The Compare sink (landed)
 
 The Q-compare ruling realised, re-based on the RFC 0025 core-neutral
 summary at checkpoint 2.  ``compare(lhs, rhs, recordable_id="")`` under
-the ``"testing"`` or frame backend is a sink recording per-tick equality
+the ``"testing"`` backend is a sink recording per-tick equality
 (erased ``ValueView::equals``) into a bitemporal ``Bool`` frame via the
 ``FrameRecorder``, written through the **registered frame store** (P6) at
 stop under ``fq.__compare__``; the memory backend's ``memory_compare``
-keeps the interactive contract (a mismatch fails the run).  Every core
-compare guard names exactly the backend ids it serves — selection is
-open, so an unrecognised or extension-owned identifier produces the
-no-match wiring error (or the extension's own overload), never a silent
-fall-through into the built-in frame compare.  Activation with a
+keeps the interactive contract (a mismatch fails the run).  The frame
+backend's compare is the extension's own overload, registered with it.
+Every core compare guard names exactly the backend ids it serves —
+selection is open, so an unrecognised or extension-owned identifier
+produces the no-match wiring error (or the extension's own overload),
+never a silent fall-through into a frame compare.  Activation with a
 one-sided value IS a mismatch (one series produced where the other did
 not) and is recorded as a failure — never skipped.
 
@@ -680,8 +683,9 @@ Step 7 — native segmented recordings
 ------------------------------------
 
 ``record`` normally retains one run in Arrow builders and writes one immutable
-frame at ``stop``. Native memory, local-filesystem, and S3 stores additionally
-honour the wiring-time ``flush_rows`` and ``flush_interval`` thresholds. A
+frame at ``stop``. The extension's native memory, local-filesystem, and S3
+stores additionally honour the wiring-time ``flush_rows`` and
+``flush_interval`` thresholds. A
 flush happens only after the current evaluation tick has been emitted, so the
 rows of one frame-valued tick are never split between segments.
 
@@ -693,8 +697,9 @@ then probes the next number. An interrupted run therefore replays every fully
 published segment and nothing torn. A writer refuses either a claimed base key
 or a pre-existing ``.0`` legacy/segment key.
 
-Segmentation is intentionally not part of ``FrameStoreOps``. Core identifies
-its own immutable native stores without changing that public ops-table ABI.
+Segmentation is intentionally not part of ``FrameStoreOps``. The extension
+identifies its own immutable native stores without changing that public
+ops-table ABI, which stays core-facing.
 Python and other custom frame stores remain the compatibility seam promised by
 RFC 0019: one complete ``store``/``load``/``has`` frame operation per run,
 even when the call supplied flush thresholds.
