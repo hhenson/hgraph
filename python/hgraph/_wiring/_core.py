@@ -67,7 +67,11 @@ def _durable_backend_selected(kwargs):
         model = _LEGACY_BACKENDS.get(model, model)
     except Exception:  # translation is best-effort; the id check still holds
         pass
-    return isinstance(model, str) and model.startswith("hgraph.")
+    # The SAME prefix the load point in _ensure_backend_extension recognises.
+    # Backend selection is open, so an independently registered backend may
+    # legitimately use another "hgraph.*" id; blaming persistence for it would
+    # be the very misattribution this function exists to stop.
+    return isinstance(model, str) and model.startswith("hgraph.persistence.")
 
 
 def _durable_wiring_hint(name, kwargs=None, message=""):
