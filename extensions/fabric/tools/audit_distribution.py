@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import glob
-import itertools
 import re
 import tarfile
 import zipfile
@@ -58,41 +57,54 @@ SDIST_REQUIRED = (
 )
 
 
-def _assert_required(names: set[str], required: tuple[str, ...], path: Path) -> None:
-    for item in required:
-        if not any(name.endswith(f"/{item}") or name == item for name in names):
-            raise AssertionError(f"{path}: missing {item}")
+def _missing_members(names: set[str], required: tuple[str, ...]) -> list[str]:
+    """Return required archive members not present below any package prefix."""
+
+    return [
+        item
+        for item in required
+        if all(name != item and not name.endswith(f"/{item}") for name in names)
+    ]
+
+
+def _require_members(
+    path: Path, names: set[str], required: tuple[str, ...]
+) -> None:
+    if missing := _missing_members(names, required):
+        raise AssertionError(f"{path}: missing archive members: {', '.join(missing)}")
+
+
+def _require_one(path: Path, description: str, matches: list[str]) -> str:
+    if len(matches) != 1:
+        raise AssertionError(f"{path}: expected one {description}, got {matches}")
+    return matches[0]
 
 
 def _audit_wheel(path: Path) -> None:
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
-        metadata_names = [name for name in names if name.endswith(".dist-info/METADATA")]
-        if len(metadata_names) != 1:
-            raise AssertionError(f"{path}: expected one METADATA file, got {metadata_names}")
-        metadata = archive.read(metadata_names[0]).decode()
+        metadata_name = _require_one(
+            path,
+            "METADATA file",
+            [name for name in names if name.endswith(".dist-info/METADATA")],
+        )
+        metadata = archive.read(metadata_name).decode()
 
-    _assert_required(names, WHEEL_REQUIRED, path)
+    _require_members(path, names, WHEEL_REQUIRED)
     native_modules = [
         name
         for name in names
         if name.startswith("hgraph_fabric/_hgraph_fabric.")
         and name.endswith((".so", ".pyd"))
     ]
-    if len(native_modules) != 1:
-        raise AssertionError(
-            f"{path}: expected one native hgraph_fabric module, got {native_modules}"
-        )
+    _require_one(path, "native hgraph_fabric module", native_modules)
     fabric_libraries = [
         name
         for name in names
         if Path(name).name.startswith(("libhgraph_fabric", "hgraph_fabric"))
         and Path(name).suffix in {".a", ".lib"}
     ]
-    if len(fabric_libraries) != 1:
-        raise AssertionError(
-            f"{path}: expected one native fabric library, got {fabric_libraries}"
-        )
+    _require_one(path, "native fabric library", fabric_libraries)
     forbidden = [
         name
         for name in names
@@ -132,29 +144,29 @@ def _audit_wheel(path: Path) -> None:
 def _audit_sdist(path: Path) -> None:
     with tarfile.open(path, "r:gz") as archive:
         names = set(archive.getnames())
-    _assert_required(names, SDIST_REQUIRED, path)
+    _require_members(path, names, SDIST_REQUIRED)
 
 
-def _audit_distribution(path: Path) -> None:
+def _auditor(path: Path):
     if path.suffix == ".whl":
-        _audit_wheel(path)
-    elif path.name.endswith(".tar.gz"):
-        _audit_sdist(path)
-    else:
-        raise SystemExit(f"unsupported distribution: {path}")
-    print(f"audited {path}")
+        return _audit_wheel
+    if path.name.endswith(".tar.gz"):
+        return _audit_sdist
+    raise SystemExit(f"unsupported distribution: {path}")
 
 
 def main() -> None:
     arguments = argparse.ArgumentParser()
     arguments.add_argument("distributions", nargs="+")
     patterns = arguments.parse_args().distributions
-    matches = itertools.chain.from_iterable(glob.iglob(pattern) for pattern in patterns)
-    paths = sorted(map(Path, set(matches)))
+    paths = sorted(
+        {Path(match) for pattern in patterns for match in glob.iglob(pattern)}
+    )
     if not paths:
         raise SystemExit("no hgraph-fabric distributions matched")
     for distribution in paths:
-        _audit_distribution(distribution)
+        _auditor(distribution)(distribution)
+        print(f"audited {distribution}")
 
 
 if __name__ == "__main__":
