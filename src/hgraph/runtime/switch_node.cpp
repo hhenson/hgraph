@@ -65,7 +65,7 @@ switch_node_contexts() noexcept {
   return *contexts;
 }
 
-[[nodiscard]] const SwitchNodeContext &
+[[nodiscard]] const SwitchNodeContext *
 register_switch_node_context(SwitchNodeSpec spec, std::size_t storage_offset,
                              std::size_t graph_memory_offset,
                              std::size_t graph_slot_stride,
@@ -79,7 +79,7 @@ register_switch_node_context(SwitchNodeSpec spec, std::size_t storage_offset,
   });
   const auto *result = context.get();
   switch_node_contexts().push_back(std::move(context));
-  return *result;
+  return result;
 }
 
 [[nodiscard]] NodeStorageMetrics switch_storage_metrics(
@@ -549,14 +549,14 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
   descriptor.ops.evaluate_impl = &switch_evaluate_impl;
   descriptor.ops.storage_metrics_impl = &switch_storage_metrics;
   descriptor.ops.extended_view_type_id = SwitchNodeView::node_view_type_id();
-  const auto &context = register_switch_node_context(
+  const auto *context = register_switch_node_context(
       std::move(spec),
       descriptor.storage_plan->component(switch_storage_field_name).offset,
       descriptor.storage_plan->component(switch_graph_memory_field_name).offset,
       graph_memory_plan.array_stride(), graph_slot_layout);
-  descriptor.ops.extended_view_context = &context;
+  descriptor.ops.extended_view_context = context;
   descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
-      .context = &context,
+      .context = context,
       .visit_impl = &visit_switch_children,
   };
 

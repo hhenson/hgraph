@@ -230,7 +230,7 @@ namespace hgraph
             return *contexts;
         }
 
-        [[nodiscard]] const ReduceNodeContext &register_reduce_node_context(
+        [[nodiscard]] const ReduceNodeContext *register_reduce_node_context(
             ReduceNodeSpec spec, std::size_t storage_offset, MemoryUtils::StorageLayout graph_layout,
             const ReduceCollectionOps &collection_ops, const ReducePublicationOps &publication_ops)
         {
@@ -243,7 +243,7 @@ namespace hgraph
             });
             const auto *result = context.get();
             reduce_node_contexts().push_back(std::move(context));
-            return *result;
+            return result;
         }
 
         [[nodiscard]] NodeStorageMetrics reduce_storage_metrics(
@@ -1519,12 +1519,12 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &reduce_evaluate_impl;
         descriptor.ops.storage_metrics_impl  = &reduce_storage_metrics;
         descriptor.ops.extended_view_type_id = ReduceNodeView::node_view_type_id();
-        const auto &context = register_reduce_node_context(
+        const auto *context = register_reduce_node_context(
             std::move(spec), descriptor.storage_plan->component(reduce_storage_field_name).offset,
             graph_layout, collection_ops, publication_ops);
-        descriptor.ops.extended_view_context = &context;
+        descriptor.ops.extended_view_context = context;
         descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
-            .context = &context,
+            .context = context,
             .visit_impl = &visit_reduce_child,
         };
 

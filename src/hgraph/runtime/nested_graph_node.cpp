@@ -33,7 +33,7 @@ namespace hgraph
             return *contexts;
         }
 
-        [[nodiscard]] const SingleNestedGraphNodeContext &register_single_nested_graph_context(
+        [[nodiscard]] const SingleNestedGraphNodeContext *register_single_nested_graph_context(
             SingleNestedGraphNodeSpec spec,
             SingleNestedGraphNodeOptions options,
             std::size_t graph_storage_offset,
@@ -49,7 +49,7 @@ namespace hgraph
             });
             const auto *result = context.get();
             single_nested_graph_contexts().push_back(std::move(context));
-            return *result;
+            return result;
         }
 
         [[nodiscard]] NodeStorageMetrics single_nested_storage_metrics(
@@ -271,15 +271,15 @@ namespace hgraph
         descriptor.ops.evaluate_impl = &single_nested_graph_evaluate_impl;
         descriptor.ops.storage_metrics_impl = &single_nested_storage_metrics;
         descriptor.ops.extended_view_type_id = SingleNestedGraphNodeView::node_view_type_id();
-        const auto &context = register_single_nested_graph_context(
+        const auto *context = register_single_nested_graph_context(
             std::move(spec),
             options,
             descriptor.storage_plan->component(child_graph_field_name).offset,
             descriptor.storage_plan->component(child_graph_memory_field_name).offset,
             child_graph_layout);
-        descriptor.ops.extended_view_context = &context;
+        descriptor.ops.extended_view_context = context;
         descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
-            .context = &context,
+            .context = context,
             .visit_impl = &visit_single_nested_child,
         };
 

@@ -121,7 +121,7 @@ namespace hgraph
             return *contexts;
         }
 
-        [[nodiscard]] const OrderedReduceContext &register_ordered_reduce_context(
+        [[nodiscard]] const OrderedReduceContext *register_ordered_reduce_context(
             OrderedReduceNodeSpec spec,
             std::size_t storage_offset,
             MemoryUtils::StorageLayout graph_layout,
@@ -135,7 +135,7 @@ namespace hgraph
             });
             const auto *result = context.get();
             ordered_reduce_contexts().push_back(std::move(context));
-            return *result;
+            return result;
         }
 
         void visit_ordered_reduce_child(const void *raw_context,
@@ -590,14 +590,14 @@ namespace hgraph
         descriptor.ops.evaluate_impl = &ordered_reduce_evaluate_impl;
         descriptor.ops.storage_metrics_impl = &ordered_reduce_storage_metrics;
         descriptor.ops.extended_view_type_id = OrderedReduceNodeView::node_view_type_id();
-        const auto &context = register_ordered_reduce_context(
+        const auto *context = register_ordered_reduce_context(
             std::move(spec),
             descriptor.storage_plan->component(ordered_reduce_storage_field_name).offset,
             graph_layout,
             collection_ops);
-        descriptor.ops.extended_view_context = &context;
+        descriptor.ops.extended_view_context = context;
         descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
-            .context = &context,
+            .context = context,
             .visit_impl = &visit_ordered_reduce_child,
         };
         return NodeBuilder::from_descriptor(std::move(descriptor));
