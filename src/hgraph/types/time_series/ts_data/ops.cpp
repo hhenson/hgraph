@@ -159,6 +159,7 @@ namespace hgraph::ts_data_detail
         // ignores its memory pointer: unbound views carry null data.
         std::size_t sentinel_zero(const void *, const void *) noexcept { return 0; }
         bool        sentinel_false_slot(const void *, const void *, std::size_t) noexcept { return false; }
+        ValueView sentinel_empty_key(const void *, const void *, std::size_t) noexcept { return {}; }
         const void *sentinel_null_slot(const void *, const void *, std::size_t) noexcept { return nullptr; }
         bool        sentinel_contains(const void *, const void *, const ValueView &) noexcept { return false; }
         std::size_t sentinel_find(const void *, const void *, const ValueView &) noexcept
@@ -196,7 +197,7 @@ namespace hgraph::ts_data_detail
             table.slot_removed_impl               = &sentinel_false_slot;
             table.next_added_slot_impl            = &sentinel_next;
             table.next_removed_slot_impl          = &sentinel_next;
-            table.key_at_slot_impl                = &sentinel_null_slot;
+            table.key_at_slot_impl                = &sentinel_empty_key;
             table.contains_impl                   = &sentinel_contains;
             table.find_slot_impl                  = &sentinel_find;
             table.make_values_range_impl          = &sentinel_value_range;
@@ -374,7 +375,7 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("slot predicate");
     }
 
-    const void *missing_key_at_slot(const void *, const void *, std::size_t)
+    ValueView missing_key_at_slot(const void *, const void *, std::size_t)
     {
         missing_ts_data_op("key at slot");
     }

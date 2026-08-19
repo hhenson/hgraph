@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_output/alternative.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_data/proxy.h>
@@ -73,6 +74,17 @@ namespace hgraph::detail
             return alternative_type_for(
                 checked_endpoint_storage_type(endpoint_schema), TypeRole::Output,
                 "ts.alternative.from-ref.output");
+        }
+
+        [[nodiscard]] ValueTypeRef realized_tsd_key_binding(
+            const TSValueTypeMetaData &schema)
+        {
+            const auto binding = value_type_for_active_realization(schema.key_type());
+            if (!binding)
+            {
+                throw std::logic_error("TSD alternative key binding is not resolved");
+            }
+            return binding;
         }
 
         [[nodiscard]] bool field_name_equal(const TSFieldMetaData &lhs, const TSFieldMetaData &rhs) noexcept
@@ -908,7 +920,9 @@ namespace hgraph::detail
                 !time_series_schema_equivalent(&source, &requested))
             {
                 return TSRoleTypeRef{tsd_proxy_data_type_for(
-                    requested, from_ref_interior_type_for(*requested.element_ts(), *source.element_ts())).as_role()};
+                    requested,
+                    from_ref_interior_type_for(*requested.element_ts(), *source.element_ts()),
+                    realized_tsd_key_binding(requested)).as_role()};
             }
             return checked_endpoint_storage_type(from_ref_endpoint_schema_for(&requested));
         }
@@ -1298,7 +1312,8 @@ namespace hgraph::detail
         [[nodiscard]] TSRoleTypeRef to_ref_dict_type_for(const TSValueTypeMetaData &schema)
         {
             return TSRoleTypeRef{tsd_proxy_data_type_for(
-                schema, to_ref_ts_data_type_for(*schema.element_ts())).as_role()};
+                schema, to_ref_ts_data_type_for(*schema.element_ts()),
+                realized_tsd_key_binding(schema)).as_role()};
         }
 
         using ToRefTypeForFn = TSRoleTypeRef (*)(const TSValueTypeMetaData &);

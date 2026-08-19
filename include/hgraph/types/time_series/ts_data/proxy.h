@@ -177,10 +177,10 @@ namespace hgraph
     /** Return the proxy role type for ``schema`` and ``element_type``. */
     [[nodiscard]] TSDataTypeRef tsd_proxy_data_type_for(const TSValueTypeMetaData &schema,
                                                         TSRoleTypeRef element_type,
-                                                        ValueTypeRef key_binding = {});
+                                                        ValueTypeRef key_binding);
     [[nodiscard]] TSOutputTypeRef tsd_proxy_output_type_for(const TSValueTypeMetaData &schema,
                                                             TSRoleTypeRef element_type,
-                                                            ValueTypeRef key_binding = {});
+                                                            ValueTypeRef key_binding);
 
     /** Clear interned proxy type contexts that borrow schema and role-record pointers. */
     void clear_tsd_proxy_contexts() noexcept;

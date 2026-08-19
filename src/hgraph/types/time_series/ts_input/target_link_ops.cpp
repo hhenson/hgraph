@@ -28,7 +28,7 @@ namespace hgraph::detail
         bool (*slot_added)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_removed)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_published)(const TSDataView &target, std::size_t slot) = nullptr;
-        const void *(*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
+        ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*contains)(const TSDataView &target, const ValueView &key) = nullptr;
         std::size_t (*find_slot)(const TSDataView &target, const ValueView &key) = nullptr;
     };
@@ -241,8 +241,7 @@ namespace hgraph::detail
                                                      const TSDataView &target,
                                                      std::size_t slot)
         {
-            const auto *layout = static_cast<const TSSDataLayout *>(&target.layout());
-            return ValueView{layout->key_binding, state.slot_access->key_at_slot(target, slot)};
+            return state.slot_access->key_at_slot(target, slot);
         }
 
         [[nodiscard]] bool target_link_previous_slot_was_published(const void *context,
@@ -332,9 +331,9 @@ namespace hgraph::detail
             return set.slot_live(slot) || set.slot_removed(slot);
         }
 
-        [[nodiscard]] const void *set_access_key_at_slot(const TSDataView &target, std::size_t slot)
+        [[nodiscard]] ValueView set_access_key_at_slot(const TSDataView &target, std::size_t slot)
         {
-            return target.as_set().at_slot(slot).data();
+            return target.as_set().at_slot(slot);
         }
 
         [[nodiscard]] bool set_access_contains(const TSDataView &target, const ValueView &key)
@@ -384,9 +383,9 @@ namespace hgraph::detail
                    (dict.slot_live(slot) && dict.at_slot(slot).has_current_value());
         }
 
-        [[nodiscard]] const void *dict_access_key_at_slot(const TSDataView &target, std::size_t slot)
+        [[nodiscard]] ValueView dict_access_key_at_slot(const TSDataView &target, std::size_t slot)
         {
-            return target.as_dict().key_at_slot(slot).data();
+            return target.as_dict().key_at_slot(slot);
         }
 
         [[nodiscard]] bool dict_access_contains(const TSDataView &target, const ValueView &key)
@@ -593,9 +592,9 @@ namespace hgraph::detail
             return !state->slot_access->contains(current, key);
         }
 
-        [[nodiscard]] const void *target_link_set_key_at_slot(const void *context,
-                                                              const void *memory,
-                                                              std::size_t slot)
+        [[nodiscard]] ValueView target_link_set_key_at_slot(const void *context,
+                                                            const void *memory,
+                                                            std::size_t slot)
         {
             const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
             auto target = target_link_target_view(context, memory);
@@ -628,15 +627,7 @@ namespace hgraph::detail
                                                               const void *memory,
                                                               std::size_t slot)
         {
-            const auto target = target_link_target_view(context, memory);
-            const auto *layout = target.valid()
-                                     ? static_cast<const TSSDataLayout *>(&target.layout())
-                                     : nullptr;
-            if (layout == nullptr)
-            {
-                throw std::logic_error("TSInput target-link key projection requires a bound target layout");
-            }
-            return ValueView{layout->key_binding, target_link_set_key_at_slot(context, memory, slot)};
+            return target_link_set_key_at_slot(context, memory, slot);
         }
 
         [[nodiscard]] ValueView target_link_previous_key_projector(const void *context,

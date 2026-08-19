@@ -9,7 +9,6 @@
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
-#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
 #include <hgraph/types/utils/value_slot_store.h>
@@ -873,11 +872,12 @@ namespace hgraph
                 });
             }
 
-            [[nodiscard]] static const void *key_at_slot(const void *, const void *memory, std::size_t slot)
+            [[nodiscard]] static ValueView key_at_slot(const void *, const void *memory,
+                                                       std::size_t slot)
             {
                 if (!source_available(memory))
                     throw std::logic_error("TSDProxy source is unavailable");
-                return source_dict(memory).key_at_slot(slot).data();
+                return source_dict(memory).key_at_slot(slot);
             }
 
             [[nodiscard]] static bool set_contains(const void *context, const void *memory, const ValueView &key)
@@ -922,7 +922,7 @@ namespace hgraph
 
             [[nodiscard]] static ValueView key_projector(const void *context, const void *memory, std::size_t slot)
             {
-                return ValueView{ctx(context)->layout.key_binding, key_at_slot(context, memory, slot)};
+                return key_at_slot(context, memory, slot);
             }
 
             template <TSDProxySetSurface Surface>
@@ -1429,14 +1429,6 @@ namespace hgraph
             const TSValueTypeMetaData &schema, TSRoleTypeRef element_type,
             TypeRole role, ValueTypeRef key_binding)
         {
-            if (!key_binding)
-            {
-                const auto *snapshot = active_type_realization();
-                key_binding = snapshot != nullptr
-                                  ? snapshot->graph_type_for(schema.key_type())
-                                  : ValuePlanFactory::instance().type_for(
-                                        schema.key_type());
-            }
             std::lock_guard lock(tsd_proxy_context_mutex());
             auto &contexts = tsd_proxy_contexts();
             const TSDProxyContextKey key{&schema, key_binding, element_type, role};

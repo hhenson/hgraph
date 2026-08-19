@@ -85,7 +85,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_slot_capacity(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT bool missing_slot_predicate(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT bool no_structural_delta(const void *, const void *, DateTime) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT const void *missing_key_at_slot(const void *, const void *, std::size_t);
+        [[nodiscard]] HGRAPH_EXPORT ValueView missing_key_at_slot(const void *, const void *, std::size_t);
         [[nodiscard]] HGRAPH_EXPORT bool missing_contains_key(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_next_delta_slot(const void *, const void *, std::size_t);
@@ -323,8 +323,10 @@ namespace hgraph
         std::size_t (*next_removed_slot_impl)(const void *context, const void *memory,
                                               std::size_t previous) =
             &ts_data_detail::missing_next_delta_slot;
-        const void *(*key_at_slot_impl)(const void *context, const void *memory,
-                                        std::size_t slot) = &ts_data_detail::missing_key_at_slot;
+        // The binding and address are one projection contract. Aliases must
+        // never re-label target storage using their own fixed layout.
+        ValueView (*key_at_slot_impl)(const void *context, const void *memory,
+                                      std::size_t slot) = &ts_data_detail::missing_key_at_slot;
         bool (*contains_impl)(const void *context, const void *memory,
                               const ValueView &key) = &ts_data_detail::missing_contains_key;
         std::size_t (*find_slot_impl)(const void *context, const void *memory,

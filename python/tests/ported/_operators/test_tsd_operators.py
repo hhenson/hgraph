@@ -29,6 +29,7 @@ from hgraph import (
     contains_,
     compute_node,
     const,
+    default,
     default_path,
     eq_,
     filter_,
@@ -44,6 +45,7 @@ from hgraph import (
     merge,
     min_,
     not_,
+    nothing,
     partition,
     reference_service,
     register_service,
@@ -331,6 +333,30 @@ def test_filter_selected_tsd_with_polymorphic_compound_keys():
         merged = merge(source(condition), source(condition))
         selected = select(merged)
         return filter_(condition, selected)
+
+    assert eval_node(g, [True]) == [value]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        CompoundKey(key="one", group="a"),
+        DerivedCompoundKey(key="one", group="a", detail="derived"),
+    ],
+)
+def test_default_tsd_with_polymorphic_compound_keys(key):
+    value = {key: SelectedCompoundValue(symbol="TEST", value=1.0)}
+
+    @compute_node
+    def source(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return value if trigger.value else {}
+
+    @graph
+    def g(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
+        return default(
+            nothing(TSD[CompoundKey, TS[SelectedCompoundValue]]),
+            source(trigger),
+        )
 
     assert eval_node(g, [True]) == [value]
 

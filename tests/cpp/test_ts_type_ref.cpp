@@ -796,9 +796,11 @@ TEST_CASE("keyed and reference role records preserve root input and projection t
     REQUIRE(label(composite_dict.layout().element_type) == "ts.tsd.value.input");
 
     const auto proxy_data = tsd_proxy_data_type_for(
-        *tsd, TSRoleTypeRef{factory.data_type_for(ts).as_role()});
+        *tsd, TSRoleTypeRef{factory.data_type_for(ts).as_role()},
+        ValuePlanFactory::instance().type_for(tsd->key_type()));
     const auto proxy_output = tsd_proxy_output_type_for(
-        *tsd, TSRoleTypeRef{factory.output_type_for(ts).as_role()});
+        *tsd, TSRoleTypeRef{factory.output_type_for(ts).as_role()},
+        ValuePlanFactory::instance().type_for(tsd->key_type()));
     REQUIRE(label(proxy_data.as_role()) == "ts.tsd.proxy.data");
     REQUIRE(label(proxy_output.as_role()) == "ts.tsd.proxy.output");
 }

@@ -76,8 +76,10 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
-    // ABI 10: the never-dispatched reset_delta hook was removed.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 10);
+    // ABI 11: keyed TSData returns binding and memory together as ValueView.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 11);
+    using KeyAtSlotFn = ValueView (*)(const void *, const void *, std::size_t);
+    static_assert(std::is_same_v<decltype(TSSDataOps::key_at_slot_impl), KeyAtSlotFn>);
     static_assert(sizeof(TSRoleTypeRef) == sizeof(void *));
     static_assert(sizeof(TSDataObserverSet) == sizeof(void *));
     static_assert(sizeof(TSData) == sizeof(void *) * 3);
