@@ -20,6 +20,22 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
 import _loopback_harness as harness
 
 
+def _header(response, name):
+    """One response header by case-insensitive name.
+
+    HTTP field names are case-insensitive (RFC 9110 5.1), and this server
+    demonstrates why that matters: graph responses are written through
+    ``H2Headers`` as ``content-type``, while the static-file path goes out via
+    Beast's HTTP/1.1 serialiser as ``Content-Type``. Pinning one spelling
+    tests whichever serialiser happens to answer, not the behaviour. Matches
+    the lookup already used in test_endpoints.py and hgraph_web.compat.
+    """
+    return next(
+        (header.value for header in response.headers if header.name.lower() == name),
+        None,
+    )
+
+
 def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
     """The full loopback: this graph is both the server and the client.
 
@@ -85,9 +101,7 @@ def test_a_python_graph_serves_and_calls_itself_over_a_real_socket() -> None:
     assert len(observed) == 1
     assert observed[0].status == 200
     assert observed[0].body == b"hello py"
-    assert ("content-type", "text/plain") in tuple(
-        (header.name, header.value) for header in observed[0].headers
-    )
+    assert _header(observed[0], "content-type") == "text/plain"
 
 
 def test_a_static_file_mount_is_served_by_the_transport(tmp_path) -> None:
@@ -133,9 +147,7 @@ def test_a_static_file_mount_is_served_by_the_transport(tmp_path) -> None:
     assert len(observed) == 1
     assert observed[0].status == 200
     assert observed[0].body == b"\x00ICO"
-    assert ("content-type", "image/x-icon") in tuple(
-        (header.name, header.value) for header in observed[0].headers
-    )
+    assert _header(observed[0], "content-type") == "image/x-icon"
 
 
 def test_a_static_directory_mount_is_served_by_the_transport(tmp_path) -> None:
@@ -183,9 +195,7 @@ def test_a_static_directory_mount_is_served_by_the_transport(tmp_path) -> None:
     assert len(observed) == 1
     assert observed[0].status == 200
     assert observed[0].body == b"console.log('ok');"
-    assert ("content-type", "text/javascript; charset=utf-8") in tuple(
-        (header.name, header.value) for header in observed[0].headers
-    )
+    assert _header(observed[0], "content-type") == "text/javascript; charset=utf-8"
 
 
 def test_a_refused_connection_arrives_on_the_failure_arm() -> None:
