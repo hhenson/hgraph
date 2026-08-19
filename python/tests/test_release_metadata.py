@@ -1,8 +1,13 @@
+import re
 from pathlib import Path
 
 import pytest
 
-from tools.validate_release import parse_release_tag, validate_release
+from tools.validate_release import (
+    RELEASE_PACKAGES,
+    parse_release_tag,
+    validate_release,
+)
 
 
 def _cmake_projects(
@@ -75,7 +80,13 @@ def test_shared_prerelease_uses_numeric_release_core():
         release_exists=lambda _package, _version: False,
     )
 
-    assert release.packages == ("hgraph", "hgraph-kafka", "hgraph-analytics", "hgraph-persistence")
+    assert release.packages == (
+        "hgraph",
+        "hgraph-kafka",
+        "hgraph-analytics",
+        "hgraph-web",
+        "hgraph-persistence",
+    )
     assert release.version == "0.8.0rc1"
     assert release.core == (0, 8, 0)
 
@@ -93,8 +104,31 @@ def test_shared_release_checks_all_pypi_packages():
         ("hgraph", "0.8.0"),
         ("hgraph-kafka", "0.8.0"),
         ("hgraph-analytics", "0.8.0"),
+        ("hgraph-web", "0.8.0"),
         ("hgraph-persistence", "0.8.0"),
     ]
+
+
+def test_every_published_package_is_validated():
+    # The publish jobs gate on validate-release, so a package the workflow
+    # publishes but the validator does not know about is released without its
+    # version ever being checked -- and a collision fails the tag part-way
+    # through, after the earlier packages are already on PyPI. hgraph-web was
+    # in exactly that state.
+    workflow = (
+        Path(__file__).resolve().parents[2]
+        / ".github"
+        / "workflows"
+        / "release-wheels.yml"
+    ).read_text()
+    published = set(re.findall(r"url:\s*https://pypi\.org/p/(\S+)", workflow))
+
+    assert published, "no PyPI publish targets found in the release workflow"
+    assert published == set(RELEASE_PACKAGES), (
+        "the release workflow and RELEASE_PACKAGES disagree: "
+        f"published only {sorted(published - set(RELEASE_PACKAGES))}, "
+        f"validated only {sorted(set(RELEASE_PACKAGES) - published)}"
+    )
 
 
 def test_release_rejects_existing_pypi_version():
