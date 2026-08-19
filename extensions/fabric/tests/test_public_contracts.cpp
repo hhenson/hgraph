@@ -189,9 +189,12 @@ TEST_CASE("memory notifier fans out and conflates each data id")
     auto first = notifier.subscribe();
     auto second = notifier.subscribe();
 
-    notifier.publish({"a", notice("a", 1)});
-    notifier.publish({"b", notice("b", 1)});
-    notifier.publish({"a", notice("a", 2)});
+    CHECK(notifier.publish({"a", notice("a", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(notifier.publish({"b", notice("b", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(notifier.publish({"a", notice("a", 2)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
     CHECK_THROWS_AS(notifier.publish({"a", notice("different", 1)}),
                     std::invalid_argument);
 
@@ -202,7 +205,8 @@ TEST_CASE("memory notifier fans out and conflates each data id")
     CHECK(second.try_pop() == hgf::RevisionNotification{"a", notice("a", 2)});
 
     second.close();
-    notifier.publish({"c", notice("c", 1)});
+    CHECK(notifier.publish({"c", notice("c", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
     CHECK(second.pending() == 0);
     CHECK(first.try_pop() == hgf::RevisionNotification{"c", notice("c", 1)});
 }

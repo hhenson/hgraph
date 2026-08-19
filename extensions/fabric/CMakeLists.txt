@@ -25,9 +25,11 @@ endif()
 
 add_library(hgraph_fabric
     src/config.cpp
+    src/keys.cpp
     src/metadata_codec.cpp
     src/notifier.cpp
     src/operators.cpp
+    src/publication.cpp
     src/types.cpp
     src/value_builders.cpp
     src/impl/memory_notifier.cpp
