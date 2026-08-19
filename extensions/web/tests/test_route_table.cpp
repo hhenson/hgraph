@@ -102,6 +102,36 @@ void test_capture_decoding() {
           "a capture does not absorb an empty final segment");
 }
 
+void test_match_decoded_does_not_decode_again() {
+  // The transport percent-decodes once at the header boundary. Feeding that
+  // result back through match() re-reads a literal '%' as a broken escape, so
+  // a static mount named "/100%.txt" (requested as "/100%25.txt", decoded to
+  // "/100%.txt") could never be served.
+  const auto table = table_of({
+      {HttpMethod::Get, "/100%.txt"},
+      {HttpMethod::Get, "/plain.txt"},
+  });
+
+  require(!table.match(HttpMethod::Get, "/100%.txt").matched,
+          "match() rejects an already-decoded literal '%' as a bad escape");
+  require(table.match_decoded(HttpMethod::Get, "/100%.txt").matched,
+          "match_decoded() serves a path whose decoded name contains '%'");
+
+  // Ordinary paths behave identically through both entry points.
+  require(table.match_decoded(HttpMethod::Get, "/plain.txt").matched,
+          "match_decoded() matches ordinary literals");
+  require(!table.match_decoded(HttpMethod::Get, "/absent.txt").matched,
+          "match_decoded() still reports a genuine miss");
+  require(!table.match_decoded(HttpMethod::Post, "/plain.txt").matched,
+          "match_decoded() honours the method");
+  require(!table.match_decoded(HttpMethod::Get, "relative").matched,
+          "match_decoded() requires an absolute path");
+
+  // And it must NOT decode: an escape stays literal rather than collapsing.
+  require(!table.match_decoded(HttpMethod::Get, "/100%25.txt").matched,
+          "match_decoded() leaves escapes alone instead of decoding them");
+}
+
 void test_multiple_captures() {
   const auto table = table_of({
       {HttpMethod::Get, "/api/{version}/orders/{id}/items"},
@@ -305,6 +335,7 @@ int main() {
     test_literal_routes();
     test_no_match_cases();
     test_capture_decoding();
+    test_match_decoded_does_not_decode_again();
     test_multiple_captures();
     test_rest_capture();
     test_precedence();

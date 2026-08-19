@@ -1634,7 +1634,10 @@ WebListener::match_static(HttpMethod method, std::string_view path) const {
   if (method != HttpMethod::Get && method != HttpMethod::Head) {
     return std::nullopt;
   }
-  const auto matched = static_files_.table.match(HttpMethod::Get, path);
+  // ``path`` arrives decoded from the header boundary, and the directory
+  // branch below already treats it that way; decoding it again here rejected
+  // any mount whose decoded name contains a literal '%'.
+  const auto matched = static_files_.table.match_decoded(HttpMethod::Get, path);
   if (!matched.matched) {
     for (const StaticDirectoryConfig &directory : static_files_.directories) {
       if (const auto relative =
@@ -4373,12 +4376,35 @@ void H2Driver::respond_static(std::int32_t stream_id,
                                          headers, std::move(resolved.file), {})
           : engine_.submit_response(stream_id, static_cast<int>(resolved.status),
                                     headers, std::move(body), {});
-  if (submitted &&
-      found != streams_.end()) {
-    outstanding_response_bytes_ += weight;
-    ++outstanding_response_messages_;
-    found->second.response_bytes += weight;
-    found->second.response_submitted = true;
+  if (submitted) {
+    if (found != streams_.end()) {
+      outstanding_response_bytes_ += weight;
+      ++outstanding_response_messages_;
+      found->second.response_bytes += weight;
+      found->second.response_submitted = true;
+    }
+  } else {
+    // The submit can fail after the metadata resolved -- a configured file
+    // that has since been removed or become unreadable is the ordinary case.
+    // Something must still finish the stream: returning here would leave the
+    // peer waiting on it forever, where the HTTP/1 path answers 500.
+    static constexpr std::string_view kStaticFileError{"static file error"};
+    const bool answered = engine_.submit_response(
+        stream_id, static_cast<int>(http::status::internal_server_error),
+        H2Headers{{"content-type", "text/plain"}},
+        std::string{kStaticFileError}, {});
+    if (answered) {
+      if (found != streams_.end()) {
+        const std::size_t error_weight = kStaticFileError.size() + 256;
+        outstanding_response_bytes_ += error_weight;
+        ++outstanding_response_messages_;
+        found->second.response_bytes += error_weight;
+        found->second.response_submitted = true;
+      }
+    } else {
+      // Even the fallback was refused; reset rather than leak the stream.
+      engine_.reset_stream(stream_id, H2StreamError::InternalError);
+    }
   }
   pump_writes();
 }

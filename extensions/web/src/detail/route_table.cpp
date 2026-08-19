@@ -287,6 +287,33 @@ RouteTable::Match RouteTable::match(HttpMethod method,
   return result;
 }
 
+RouteTable::Match RouteTable::match_decoded(HttpMethod method,
+                                            std::string_view path) const {
+  Match result;
+  const auto value = static_cast<std::int64_t>(method);
+  if (value < 0 || static_cast<std::size_t>(value) >= roots_.size() ||
+      roots_[static_cast<std::size_t>(value)] == npos) {
+    return result;
+  }
+  if (!path.starts_with('/')) {
+    return result;
+  }
+
+  // Deliberately no percent_decode: the caller decoded at the header
+  // boundary. Decoding a second time rejects any path whose decoded form
+  // contains a literal '%', because that '%' then reads as a broken escape.
+  const auto raw = split_segments(path);
+  std::vector<std::string> segments(raw.size());
+  for (std::size_t index = 0; index != raw.size(); ++index) {
+    segments[index] = std::string{raw[index]};
+  }
+
+  std::vector<std::string> captured;
+  static_cast<void>(match_from(roots_[static_cast<std::size_t>(value)],
+                               segments, 0, captured, result));
+  return result;
+}
+
 bool RouteTable::match_from(std::size_t node_index,
                             const std::vector<std::string> &segments,
                             std::size_t position,
