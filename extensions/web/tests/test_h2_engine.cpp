@@ -488,6 +488,37 @@ void test_goaway_finishes_in_flight_and_refuses_new() {
 
 } // namespace
 
+void test_unopenable_file_response_is_reported_not_swallowed() {
+  // The driver relies on this contract to finish the stream itself: a
+  // configured static file can vanish or lose read permission between the
+  // metadata resolving and the response being submitted. If this ever
+  // started returning true, or throwing, the driver's recovery would be
+  // dead code and the peer would wait on the stream forever.
+  RecordingHost host;
+  H2Engine engine{host, H2Settings{}};
+  TestClient client;
+  const auto stream_id = client.submit_request("GET", "/gone.txt", nullptr);
+  pump(client, engine);
+
+  require(!engine.submit_file_response(
+              stream_id, 200, H2Headers{{"content-type", "text/plain"}},
+              "/nonexistent/hgraph-web/definitely-not-here.txt", {}),
+          "an unopenable file must be reported as a failed submit");
+
+  // Nothing may be half-registered: the stream must still be answerable,
+  // which is what lets the driver fall back to a 500 on the same stream.
+  require(engine.submit_response(stream_id, 500,
+                                 H2Headers{{"content-type", "text/plain"}},
+                                 "static file error", {}),
+          "the stream must remain answerable after a failed file submit");
+  pump(client, engine);
+  const auto &stream = client.streams[stream_id];
+  require(stream.status == 500, "the fallback response did not reach the client");
+  require(stream.body == "static file error",
+          "the fallback body did not reach the client");
+  require(stream.closed, "the stream did not complete");
+}
+
 int main() {
   try {
     test_get_round_trip_with_trailers();
@@ -497,6 +528,7 @@ int main() {
     test_client_reset_surfaces_as_cancellation();
     test_max_concurrent_streams_gates_a_compliant_client();
     test_goaway_finishes_in_flight_and_refuses_new();
+    test_unopenable_file_response_is_reported_not_swallowed();
   } catch (const std::exception &error) {
     std::cerr << "hgraph_web_h2_engine_tests failed: " << error.what()
               << "\n";
