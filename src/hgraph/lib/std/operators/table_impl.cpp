@@ -170,16 +170,28 @@ namespace hgraph::stdlib
             };
 
             std::unordered_map<LayoutKey, std::unique_ptr<TsTableLayout>, LayoutKeyHash> g_layouts;
-            /** The registry generation ``g_layouts`` was built against. */
+            /** The registry generation BOTH caches above were built against.
+
+                INVARIANT: stamping this and clearing both caches are one
+                operation, performed only by discard_stale_layouts(). Stamping
+                anywhere else marks the caches current without emptying them,
+                which permanently disarms the sweep below — after that a
+                pre-reset override answers for whatever schema next lands on
+                its recycled address. That is not theoretical: clearing the
+                layouts here used to re-stamp, and because registration clears
+                layouts on every register_standard_operators(), roughly one
+                run in ten resolved a stale override and died in apply with a
+                checked_as type mismatch. */
             std::uint64_t g_layouts_generation{0};
 
-            /** Drop the cache when the registry that owns its keys has been
-                reset: the schema pointers it interns by are freed by that
-                reset, and the next interning can hand the same address to a
-                DIFFERENT type - at which point a stale entry answers for it.
-                register_table_operators() also clears, but only a caller that
-                registers operators reaches it, and building a layout needs
-                nothing but the type registry. */
+            /** Drop both caches when the registry that owns their keys has
+                been reset: the schema pointers they intern by are freed by
+                that reset, and the next interning can hand the same address to
+                a DIFFERENT type - at which point a stale entry answers for it.
+                This is the ONLY withdrawal path. reset_all_registries() cannot
+                call one: it lives in hgraph_wiring and these live in
+                hgraph_stdlib, above it in the link order (see
+                types/registry_reset.h). */
             void discard_stale_layouts()
             {
                 const std::uint64_t generation = TypeRegistry::instance().reset_generation();
@@ -510,8 +522,26 @@ namespace hgraph::stdlib
         void clear_ts_table_layouts() noexcept
         {
             g_layouts.clear();
-            g_layouts_generation = TypeRegistry::instance().reset_generation();
+            // Deliberately does NOT stamp the generation. Stamping is what
+            // disarms the lazy sweep, and the sweep is the only thing that
+            // withdraws the type-ops overrides. A stamp here would strand a
+            // pre-reset override permanently: registration clears layouts on
+            // every register_standard_operators(), so the sweep would never
+            // fire again and a stale override would answer for whatever
+            // schema next lands on that recycled address.
+            // Only discard_stale_layouts(), which drops BOTH caches, stamps.
         }
+
+        /** Named entry point for the self-invalidation above.
+
+            These caches sit ABOVE ``reset_all_registries()`` in the link order
+            (hgraph_stdlib links hgraph_wiring, not the reverse), so that
+            function cannot name them — see ``types/registry_reset.h``. They
+            therefore drop themselves when the registry owning their keys has
+            moved on. Every entry point that reads either cache must come
+            through here first, or a stale entry answers for a recycled schema
+            address. */
+        void discard_stale_table_state() noexcept { discard_stale_layouts(); }
 
         const ValueTypeMetaData *to_table_mode_meta()
         {
@@ -1708,12 +1738,19 @@ namespace hgraph
         {
             throw std::invalid_argument("table type ops must provide describe, emit and apply");
         }
+        // Drop pre-reset state BEFORE inserting: the map is keyed by schema
+        // pointer, and clear_ts_table_layouts() below re-stamps the generation,
+        // so a stale entry surviving this call would never be collected again.
+        stdlib::table_ts_detail::discard_stale_table_state();
         g_table_type_ops_overrides[schema] = &ops;
         stdlib::table_ts_detail::clear_ts_table_layouts();
     }
 
     const TableTypeOps &table_type_ops(const TSValueTypeMetaData *schema)
     {
+        // Layout building reaches this through ts_table_layout(), which has
+        // already discarded; a direct caller has not.
+        stdlib::table_ts_detail::discard_stale_table_state();
         if (const auto it = g_table_type_ops_overrides.find(schema);
             it != g_table_type_ops_overrides.end())
         {
@@ -1724,6 +1761,12 @@ namespace hgraph
 
     void clear_table_type_ops() noexcept
     {
+        // An EAGER clear, for a caller that wants the memory back at a known
+        // point. It is deliberately NOT part of reset_all_registries(): that
+        // function lives in hgraph_wiring and cannot name a symbol defined in
+        // hgraph_stdlib without inverting the library dependency (it did, and
+        // macOS shared builds failed to link). Correctness comes from the
+        // generation check above, not from anyone remembering to call this.
         g_table_type_ops_overrides.clear();
         stdlib::table_ts_detail::clear_ts_table_layouts();
     }
