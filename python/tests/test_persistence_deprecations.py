@@ -135,3 +135,26 @@ def test_the_removal_release_has_exactly_one_definition():
         _deprecation.deprecated_compat_name("a", "b"),
     ):
         assert REMOVAL in message
+
+
+def test_replay_data_frame_graph_warns_when_wired():
+    # An eagerly defined @graph never reaches the module __getattr__, so it
+    # carries its deprecation through the wiring layer instead. Wire it for
+    # real rather than checking the flag: the policy is that the warning fires
+    # at the point of USE.
+    import pyarrow as pa
+
+    from hgraph.adaptors.data_frame import replay_data_frame
+
+    frame = pa.table(
+        {
+            "__date_time__": [hg.MIN_ST, hg.MIN_ST + hg.MIN_TD],
+            "__as_of__": [hg.MIN_ST, hg.MIN_ST],
+            "value": [10, 30],
+        }
+    )
+    with pytest.warns(
+        DeprecationWarning,
+        match=rf"replay_data_frame.*hgraph\.replay_data_frame.*removed in {REMOVAL}",
+    ):
+        assert hg.eval_node(replay_data_frame[hg.TS[int]], frame) == [10, 30]

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
+from hgraph._deprecation import deprecated_compat_name as _deprecated_compat_name
 from hgraph import (
     AUTO_RESOLVE,
     MAX_DT,
@@ -118,7 +119,15 @@ def _as_arrow(value):
     return table
 
 
-@graph
+@graph(
+    # An eagerly defined graph never reaches this module's __getattr__, so it
+    # opts into the wiring layer's deprecation instead: the message is emitted
+    # when the graph is WIRED. Its replacement is the core operator it wraps —
+    # this shim goes with the hgraph.adaptors package, not to the extension.
+    deprecated=_deprecated_compat_name(
+        "hgraph.adaptors.data_frame.replay_data_frame", "hgraph.replay_data_frame"
+    )
+)
 def replay_data_frame(
     data_frame: Frame,
     schema: object = None,
