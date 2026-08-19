@@ -74,13 +74,21 @@ Python name changes
      - ``hgraph_persistence.compat.set_data_frame_record_path``
    * - ``hgraph.adaptors.data_frame.set_data_frame_overrides``
      - ``hgraph_persistence.compat.set_data_frame_overrides``
-   * - ``hgraph.adaptors.data_frame.get_data_frame_record_overrides``
+   * - ``hgraph.adaptors.data_frame._data_frame_record_replay``
+       ``.get_data_frame_record_overrides``
      - ``hgraph_persistence.compat.get_data_frame_record_overrides``
 
 The ``hgraph.adaptors.data_frame`` spellings above continue to resolve; the
 table records where the implementation now lives so new code can import it
-directly. ``hgraph.RecordAsOf`` and ``hgraph.RecordRemoves`` are different:
-they emit a ``DeprecationWarning`` and are removed in 0.9.
+directly. One name is an exception, and the table gives its real path:
+``get_data_frame_record_overrides`` was never re-exported at package level and
+is reachable only through the private ``_data_frame_record_replay`` module —
+as are ``DATA_FRAME_RECORD_REPLAY_PATH`` and ``DATA_FRAME_RECORD_OVERRIDES``.
+
+None of this survives 1.0. Per :doc:`../rfc/rfc_0005_hgraph_1_0_api`, the
+``hgraph.adaptors`` namespace exists only as warning shims in the pre-1.0
+bridge release and does not exist in 1.0, so treat every row in this table as
+work to do before then rather than a permanent alias.
 
 Backend and model names
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -114,8 +122,10 @@ operators:
 
 .. code-block:: cpp
 
-   #include <hgraph/persistence/frame_store.h>
-   #include <hgraph/persistence/recording_options.h>
+   #include <hgraph/lib/std/std_operators.h>          // register_standard_operators
+   #include <hgraph/persistence/recording_store.h>     // register_frame_backend
+   #include <hgraph/persistence/frame_store.h>         // store::FrameStore
+   #include <hgraph/persistence/recording_options.h>   // RecordAsOf, RecordRemoves
 
    namespace hgp = hgraph::persistence;
 
@@ -132,6 +142,12 @@ Header and symbol moves:
      - New persistence name
    * - ``hgraph/types/frame_store.h``
      - ``hgraph/persistence/frame_store.h``
+   * - ``hgraph::store`` (namespace)
+     - ``hgraph::persistence::store`` — the whole store surface moved with the
+       header, so ``FrameStore``, ``FrameStoreOps``, ``FrameStoreConfig``,
+       ``make_frame_store`` and ``Compression`` all requalify. Changing the
+       include alone leaves every former ``hgraph::store::`` reference
+       uncompilable.
    * - ``hgraph::stdlib::RecordAsOf``
      - ``hgraph::persistence::RecordAsOf``
    * - ``hgraph::stdlib::RecordRemoves``
