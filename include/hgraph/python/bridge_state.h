@@ -58,8 +58,6 @@ struct HGRAPH_LOCAL PythonValueHolder {
 /** The recording-shape policy enums (RFC 0019). Registered like the enums
     above so a Python member converts to the C++ scalar the ``record``
     overload declares, rather than to a boxed Python object. */
-[[nodiscard]] HGRAPH_EXPORT nb::object &record_as_of_enum_slot();
-[[nodiscard]] HGRAPH_EXPORT nb::object &record_removes_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &to_table_mode_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &removed_sentinel_slot();
 

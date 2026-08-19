@@ -10,11 +10,14 @@ function(hgraph_persistence_find_arrow)
     cmake_parse_arguments(PARSE_ARGV 0 _hgraph_persistence_arrow
         "PREFER_PYARROW" "" "")
 
+    # A parent build may already have resolved the Arrow VALUE runtime (core
+    # links arrow/compute/acero for its Frame value kind). Parquet and S3 are
+    # DURABLE STORE policy and are this extension's alone to decide (RFC 0025
+    # checkpoint 5) - never inherited from the parent, whose answers may have
+    # been computed for a different purpose or not at all.
+    set(_hgraph_persistence_arrow_resolved OFF)
     if(TARGET Arrow::arrow_shared OR TARGET Arrow::arrow_static)
-        # Parent build already resolved Arrow; mirror its feature answers.
-        set(HGRAPH_PERSISTENCE_WITH_PARQUET "${HGRAPH_WITH_PARQUET}" PARENT_SCOPE)
-        set(HGRAPH_PERSISTENCE_WITH_S3 "${HGRAPH_WITH_S3}" PARENT_SCOPE)
-        return()
+        set(_hgraph_persistence_arrow_resolved ON)
     endif()
 
     if(_hgraph_persistence_arrow_PREFER_PYARROW)
@@ -78,16 +81,18 @@ for line in (include.as_posix(), arrow_link if isinstance(arrow_link, str) else 
                 "PyArrow headers not found under ${_hgraph_persistence_arrow_include}")
         endif()
 
-        add_library(Arrow::arrow_shared SHARED IMPORTED GLOBAL)
-        set_target_properties(Arrow::arrow_shared PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_persistence_arrow_include}")
-        if(WIN32)
+        if(NOT _hgraph_persistence_arrow_resolved)
+            add_library(Arrow::arrow_shared SHARED IMPORTED GLOBAL)
             set_target_properties(Arrow::arrow_shared PROPERTIES
-                IMPORTED_IMPLIB "${_hgraph_persistence_arrow_link}"
-                IMPORTED_LOCATION "${_hgraph_persistence_arrow_runtime}")
-        else()
-            set_target_properties(Arrow::arrow_shared PROPERTIES
-                IMPORTED_LOCATION "${_hgraph_persistence_arrow_link}")
+                INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_persistence_arrow_include}")
+            if(WIN32)
+                set_target_properties(Arrow::arrow_shared PROPERTIES
+                    IMPORTED_IMPLIB "${_hgraph_persistence_arrow_link}"
+                    IMPORTED_LOCATION "${_hgraph_persistence_arrow_runtime}")
+            else()
+                set_target_properties(Arrow::arrow_shared PROPERTIES
+                    IMPORTED_LOCATION "${_hgraph_persistence_arrow_link}")
+            endif()
         endif()
 
         if(_hgraph_persistence_parquet STREQUAL "1" AND NOT TARGET Parquet::parquet_shared)
@@ -117,7 +122,9 @@ for line in (include.as_posix(), arrow_link if isinstance(arrow_link, str) else 
         return()
     endif()
 
-    find_package(Arrow CONFIG REQUIRED)
+    if(NOT _hgraph_persistence_arrow_resolved)
+        find_package(Arrow CONFIG REQUIRED)
+    endif()
     find_package(Parquet CONFIG QUIET)
     if(TARGET Parquet::parquet_shared OR TARGET Parquet::parquet_static)
         set(HGRAPH_PERSISTENCE_WITH_PARQUET ON PARENT_SCOPE)

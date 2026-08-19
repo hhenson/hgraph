@@ -511,14 +511,6 @@ namespace hgraph::python_bridge
         {
             return Value{static_cast<stdlib::DivideByZero>(nb::cast<std::int64_t>(object.attr("value")))};
         }
-        if (record_as_of_enum_slot().is_valid() && nb::isinstance(object, record_as_of_enum_slot()))
-        {
-            return Value{static_cast<stdlib::RecordAsOf>(nb::cast<std::int64_t>(object.attr("value")))};
-        }
-        if (record_removes_enum_slot().is_valid() && nb::isinstance(object, record_removes_enum_slot()))
-        {
-            return Value{static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(object.attr("value")))};
-        }
         if (to_table_mode_enum_slot().is_valid() && nb::isinstance(object, to_table_mode_enum_slot()))
         {
             return Value{static_cast<stdlib::ToTableMode>(nb::cast<std::int64_t>(object.attr("value")))};

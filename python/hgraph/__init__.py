@@ -19,7 +19,7 @@ from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, RE
                      NUMBER, NUMBER_2,
                      DEFAULT, REF, K, V, SCHEMA, TS_SCHEMA,
                      SIGNAL, WINDOW_SIZE, WINDOW_SIZE_MIN, WindowSize, Array, ts_schema, ENUM)
-from ._compat import (CmpResult, DivideByZero, RecordAsOf, RecordRemoves,
+from ._compat import (CmpResult, DivideByZero,
                       exception_time_series, try_except,
                       TryExceptResult, TryExceptTsdMapResult, NodeError,
                       OperatorWiringNodeClass, BoolResult, CompoundScalar, JSON, TimeSeriesReference,
@@ -101,8 +101,6 @@ _hgraph._set_set_delta_class(_SetDelta)
 _hgraph._set_delta_shaper(_simplify_delta)
 _hgraph._set_cmp_result_enum(CmpResult)
 _hgraph._set_divide_by_zero_enum(DivideByZero)
-_hgraph._set_record_as_of_enum(RecordAsOf)
-_hgraph._set_record_removes_enum(RecordRemoves)
 
 from ._wiring import _Combine as _CombineClass
 combine = _CombineClass()
@@ -157,11 +155,30 @@ drop_dups = operator_function("dedup")
 _EXTENSION_OPERATOR_CONTRACTS = frozenset({"replay_const"})
 
 
+# Durable recording option vocabularies moved to hgraph-persistence at
+# RFC 0025 checkpoint 5. The C++ names moved outright (pre-1.0); these
+# Python spellings remain as deprecated aliases for the deprecation window
+# and are removed at checkpoint 8.
+_MOVED_TO_PERSISTENCE = frozenset({"RecordAsOf", "RecordRemoves"})
+
+
 def __getattr__(name):
     if name in _OPERATOR_NAMES or name in _EXTENSION_OPERATOR_CONTRACTS:
         fn = operator_function(name)
         globals()[name] = fn  # cache
         return fn
+    if name in _MOVED_TO_PERSISTENCE:
+        import warnings
+
+        warnings.warn(
+            f"hgraph.{name} moved to hgraph-persistence in 0.8; import it from "
+            f"'hgraph_persistence' instead. The alias is removed in 0.9.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        value = getattr(_persistence(), name)
+        globals()[name] = value  # cache
+        return value
     if name == "WindowResult":
         from ._compat import _window_result
         globals()[name] = _window_result()  # lazy: its annotations subscript TS[...]
@@ -170,7 +187,10 @@ def __getattr__(name):
 
 
 def __dir__():
-    return sorted(set(globals()) | _OPERATOR_NAMES | _EXTENSION_OPERATOR_CONTRACTS)
+    return sorted(
+        set(globals()) | _OPERATOR_NAMES | _EXTENSION_OPERATOR_CONTRACTS
+        | _MOVED_TO_PERSISTENCE
+    )
 
 
 __all__ = [

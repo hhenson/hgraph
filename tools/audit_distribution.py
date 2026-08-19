@@ -119,13 +119,15 @@ def _audit_wheel(path: Path) -> int:
     ):
         raise AuditError("wheel does not contain the _hgraph extension")
 
-    # RFC 0016: the extension links Parquet wherever it links Arrow. Windows has
-    # no rpath, so the wheel stages those DLLs explicitly, and one left out of
-    # the list surfaces only as an ImportError the first time someone installs.
-    if "arrow.dll" in extension_names and "parquet.dll" not in extension_names:
+    # Core links no Parquet (RFC 0025 checkpoint 5 moved the frame store to
+    # hgraph-persistence). Staging it here would ship a durable-store
+    # dependency in the core wheel.
+    if "parquet.dll" in extension_names or any(
+        PurePosixPath(name).name.startswith("libparquet") for name in paths
+    ):
         raise AuditError(
-            "wheel stages arrow.dll but not parquet.dll; importing _hgraph "
-            "would fail with a DLL load error"
+            "core wheel stages a Parquet runtime; Parquet is durable-store "
+            "policy owned by hgraph-persistence"
         )
 
     libraries = [

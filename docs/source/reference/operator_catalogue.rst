@@ -5808,7 +5808,6 @@ Python example
 .. code-block:: python
 
    hg.record(price, key="price")
-   hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
 
 Accepted native overloads
 

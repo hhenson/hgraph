@@ -20,8 +20,6 @@ namespace hgraph
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::DispatchCases);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::MapCallConfig);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::TryExceptCallConfig);
-    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordAsOf);
-    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordRemoves);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::ToTableMode);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::ResolvedBindings);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::record_replay_memory_detail::ReplayCursorState);

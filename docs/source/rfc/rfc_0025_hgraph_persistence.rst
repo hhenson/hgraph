@@ -485,6 +485,41 @@ loads; core wiring imports no adaptor modules) — and the ``dataframe``
 extra now installs ``hgraph-persistence`` (workspace-sourced,
 ``uv.lock`` regenerated).
 
+A completeness audit (2026-08-19) found three carve-outs still in core
+and closed them:
+
+* **The recording option vocabularies.**  ``RecordAsOf`` and
+  ``RecordRemoves`` were defined in core and consumed only by the
+  extension.  The C++ enums moved outright to
+  ``hgraph/persistence/recording_options.h`` (pre-1.0, per the
+  compatibility rules above), taking their scalar bindings, Python
+  conversion traits and canonical plan/ops instantiation with them; core
+  shed the two bridge enum slots and their conversion branches.  The
+  Python spellings now live in ``hgraph_persistence`` and are associated
+  with the native scalars through ``register_native_scalar_type`` from
+  inside the keyed installer, so a registry rebuild replays them.
+  ``hgraph.RecordAsOf`` / ``hgraph.RecordRemoves`` remain as **deprecated
+  aliases** that resolve lazily and emit ``DeprecationWarning``; they are
+  removed at checkpoint 8.
+* **The 0.5 override registry.**  ``set_data_frame_record_path``,
+  ``set_data_frame_overrides``, ``get_data_frame_record_overrides`` and
+  the ``:data_frame:`` path/override keys moved to
+  ``hgraph_persistence.compat`` beside the translation that reads them —
+  the back-edge was previously inverted rather than removed, with the
+  extension importing the state back out of core.
+  ``hgraph.adaptors.data_frame`` re-exports them on the same guarded lazy
+  path as the storage classes, so the released import sites are
+  unchanged and a core-only install still imports the module.
+* **Parquet and S3 build policy.**  Core detected Parquet, linked it into
+  its Arrow targets, exported ``HGRAPH_WITH_PARQUET`` / ``HGRAPH_WITH_S3``
+  on its public interface and emitted ``find_dependency(Parquet)`` into
+  the installed package — while no core source used either macro.  Core
+  now links only the Arrow value/compute/acero runtime its ``Frame``
+  value kind needs; the extension detects Parquet and S3 itself (never
+  inheriting a parent build's answers) and defines its own
+  ``HGRAPH_PERSISTENCE_WITH_*`` macros.  The core wheel no longer stages
+  a Parquet runtime, and its distribution audit now REFUSES one.
+
 Appendix: symbol and migration inventory
 ----------------------------------------
 

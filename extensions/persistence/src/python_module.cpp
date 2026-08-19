@@ -286,6 +286,15 @@ NB_MODULE(_hgraph_persistence, module)
         return python_frame_store_active(nb::cast<GlobalState &>(state).view());
     });
 
+    // Associate the package's Python recording-option enums with their
+    // native scalars (RFC 0025 checkpoint 5: the vocabularies moved out of
+    // core). The package calls this once it has defined them.
+    module.def("_register_recording_option_enums",
+               [](nb::object record_as_of, nb::object record_removes) {
+                   persistence::register_recording_option_enums(std::move(record_as_of),
+                                                                std::move(record_removes));
+               });
+
     // The durable backend: registered on import through the keyed installer,
     // so every registry rebuild replays it exactly as core's registration.
     register_frame_backend();

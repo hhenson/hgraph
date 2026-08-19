@@ -13,6 +13,10 @@ which already models them.
 import hgraph as hg
 import pytest
 
+# The durable recording vocabularies are extension-owned (RFC 0025
+# checkpoint 5); hgraph.RecordAsOf/RecordRemoves are deprecated aliases.
+from hgraph_persistence import RecordAsOf, RecordRemoves
+
 
 def _record(ticks, tp, **config):
     @hg.graph
@@ -146,7 +150,7 @@ def test_an_outer_nested_tsd_removal_round_trips_by_its_key_prefix():
     assert _round_trip(
         ticks,
         hg.TSD[str, hg.TSD[str, hg.TS[float]]],
-        removes=hg.RecordRemoves.TRACK,
+        removes=RecordRemoves.TRACK,
     ) == ticks
 
 
@@ -169,7 +173,7 @@ def test_renamed_partition_and_removal_columns_round_trip():
     assert _round_trip(
         ticks,
         hg.TSD[str, hg.TS[float]],
-        removes=hg.RecordRemoves.TRACK,
+        removes=RecordRemoves.TRACK,
         partition_names=("symbol",),
         removed_names=("symbol_gone",),
     ) == ticks
@@ -192,7 +196,7 @@ def test_replay_refuses_to_omit_a_renamed_removal_projection():
             ticks,
             hg.TSD[str, hg.TS[float]],
             replay_config={},
-            removes=hg.RecordRemoves.TRACK,
+            removes=RecordRemoves.TRACK,
             removed_names=("gone",),
         )
 
@@ -209,7 +213,7 @@ def test_removals_are_recorded_when_tracked():
     frame = _record(
         [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}],
         hg.TSD[str, hg.TS[float]],
-        removes=hg.RecordRemoves.TRACK,
+        removes=RecordRemoves.TRACK,
     )
 
     assert "__key_1_removed__" in _columns(frame)
@@ -220,7 +224,7 @@ def test_removals_are_recorded_when_tracked():
 
 
 def test_the_as_of_column_can_be_omitted():
-    frame = _record([1, 2], hg.TS[int], as_of=hg.RecordAsOf.OMIT)
+    frame = _record([1, 2], hg.TS[int], as_of=RecordAsOf.OMIT)
 
     assert _columns(frame) == ["__date_time__", "value"]
     # Dropping a column must not shift the ones after it.
@@ -230,14 +234,14 @@ def test_the_as_of_column_can_be_omitted():
 
 def test_an_omitted_as_of_column_still_round_trips():
     assert _round_trip(
-        [1, 2], hg.TS[int], as_of=hg.RecordAsOf.OMIT
+        [1, 2], hg.TS[int], as_of=RecordAsOf.OMIT
     ) == [1, 2]
 
 
 def test_explicit_track_overrides_a_fixed_graph_default():
     @hg.graph
     def g(ts: hg.TS[int]):
-        hg.record(ts, key="out", recordable_id="native", as_of=hg.RecordAsOf.TRACK)
+        hg.record(ts, key="out", recordable_id="native", as_of=RecordAsOf.TRACK)
 
     with hg.GlobalState():
         hg.set_record_replay_model("DataFrame")
@@ -255,7 +259,7 @@ def test_inherit_records_exactly_as_an_unconfigured_call():
     """The default must stay a no-op, or every existing recording changes."""
     plain = _record([1, 2], hg.TS[int])
     inherited = _record(
-        [1, 2], hg.TS[int], as_of=hg.RecordAsOf.INHERIT, removes=hg.RecordRemoves.INHERIT
+        [1, 2], hg.TS[int], as_of=RecordAsOf.INHERIT, removes=RecordRemoves.INHERIT
     )
 
     assert _columns(plain) == _columns(inherited)
@@ -269,7 +273,7 @@ def test_two_recordings_in_one_graph_differ_by_configuration():
     @hg.graph
     def g(ts: hg.TSD[str, hg.TS[float]]):
         hg.record(ts, key="tracked", recordable_id="native",
-                  removes=hg.RecordRemoves.TRACK)
+                  removes=RecordRemoves.TRACK)
         hg.record(ts, key="plain", recordable_id="native")
 
     with hg.GlobalState():
@@ -298,7 +302,7 @@ def test_removed_columns_can_be_renamed():
     frame = _record(
         [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}],
         hg.TSD[str, hg.TS[float]],
-        removes=hg.RecordRemoves.TRACK,
+        removes=RecordRemoves.TRACK,
         partition_names=("symbol",),
         removed_names=("symbol_gone",),
     )
@@ -448,7 +452,7 @@ def test_a_keyed_frame_removal_round_trips():
     result = _round_trip(
         ticks,
         hg.TSD[str, hg.TS[hg.Frame[PriceRow]]],
-        removes=hg.RecordRemoves.TRACK,
+        removes=RecordRemoves.TRACK,
     )
 
     assert result[0]["one"].equals(frame)

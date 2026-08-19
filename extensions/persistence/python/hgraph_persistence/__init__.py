@@ -29,10 +29,14 @@ if _sys.platform == "win32":
         if _os.path.isdir(_dll_dir):
             _os.add_dll_directory(_dll_dir)
 
+from enum import Enum
+
 from . import _hgraph_persistence
 
 __all__ = (
     "FRAME_BACKEND",
+    "RecordAsOf",
+    "RecordRemoves",
     "frame_store_contains",
     "frame_store_read",
     "python_frame_store_active",
@@ -40,6 +44,45 @@ __all__ = (
 )
 
 FRAME_BACKEND = "hgraph.persistence.frame"
+
+
+class RecordAsOf(Enum):
+    """Whether a durable recording carries an as-of column (RFC 0019).
+
+    ``INHERIT`` defers to the wiring-time table configuration, which is what
+    makes the configuration local WITH a global default rather than a second
+    override registry keyed on name.
+
+    Moved here from ``hgraph`` at RFC 0025 checkpoint 5: core's memory and
+    testing backends have no as-of column, so the vocabulary belongs to the
+    extension that implements it. ``hgraph.RecordAsOf`` remains a deprecated
+    alias for the deprecation window.
+    """
+    # Values match the native persistence::RecordAsOf scale.
+    INHERIT = 0
+    TRACK = 1
+    OMIT = 2
+
+
+class RecordRemoves(Enum):
+    """Whether a durable recording carries a removed flag per TSD level
+    (RFC 0019).
+
+    Omitting them means a removal records NOTHING - the stream simply stops
+    carrying that key, which is how most data streams are consumed.
+
+    Moved here from ``hgraph`` at RFC 0025 checkpoint 5; ``hgraph.RecordRemoves``
+    remains a deprecated alias for the deprecation window.
+    """
+    # Values match the native persistence::RecordRemoves scale.
+    INHERIT = 0
+    OMIT = 1
+    TRACK = 2
+
+
+# Associate the Python spellings with the native scalars through the keyed
+# installer, so a registry reset-and-rebuild replays the association.
+_hgraph_persistence._register_recording_option_enums(RecordAsOf, RecordRemoves)
 
 
 def _state(global_state=None):

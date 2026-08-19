@@ -20,7 +20,7 @@
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
 #include <parquet/file_reader.h>
 #endif
 
@@ -366,7 +366,7 @@ TEST_CASE("frame store: RFC 0001 frame metadata survives persistence")
     }
 }
 
-#if defined(HGRAPH_WITH_PARQUET)
+#if defined(HGRAPH_PERSISTENCE_WITH_PARQUET)
 TEST_CASE("frame store: a per-write compression override wins over the store default")
 {
     TempDir          dir{"compression"};
@@ -433,7 +433,7 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
     no_bucket.location = S3Location{};
     CHECK_THROWS(make_frame_store(no_bucket));
 
-#if defined(HGRAPH_WITH_S3)
+#if defined(HGRAPH_PERSISTENCE_WITH_S3)
     FrameStoreConfig named_profile;
     S3Location      profile_location;
     profile_location.bucket = "unused";

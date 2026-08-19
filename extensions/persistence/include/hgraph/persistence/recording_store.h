@@ -10,6 +10,10 @@
 #include <string>
 #include <string_view>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <nanobind/nanobind.h>
+#endif
+
 /**
  * The durable recording store surface (RFC 0025, checkpoint 4): the
  * GlobalState-scoped frame-store selection, the segmented-recording object
@@ -94,6 +98,16 @@ namespace hgraph::persistence
         Idempotent; called by the native module on import and by C++
         embedders that link the extension directly. */
     HGRAPH_PERSISTENCE_EXPORT void register_frame_backend();
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+    /**
+     * Associate the extension's Python recording-option enums with their
+     * native scalars, from inside the keyed installer so a registry
+     * reset-and-rebuild replays the association (RFC 0003, checkpoint 3).
+     */
+    HGRAPH_PERSISTENCE_EXPORT void register_recording_option_enums(
+        nanobind::object record_as_of, nanobind::object record_removes);
+#endif
 }  // namespace hgraph::persistence
 
 #endif  // HGRAPH_PERSISTENCE_RECORDING_STORE_H
