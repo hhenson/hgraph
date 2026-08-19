@@ -157,8 +157,9 @@ _EXTENSION_OPERATOR_CONTRACTS = frozenset({"replay_const"})
 
 # Durable recording option vocabularies moved to hgraph-persistence at
 # RFC 0025 checkpoint 5. The C++ names moved outright (pre-1.0); these
-# Python spellings remain as deprecated aliases for the deprecation window
-# and are removed at checkpoint 8.
+# Python spellings remain as deprecated aliases for the whole pre-1.0
+# bridge release and are removed at 1.0, with the rest of the compatibility
+# layer (RFC 0025 "Deprecation and removal policy", RFC 0005).
 _MOVED_TO_PERSISTENCE = frozenset({"RecordAsOf", "RecordRemoves"})
 
 
@@ -172,7 +173,7 @@ def __getattr__(name):
 
         warnings.warn(
             f"hgraph.{name} moved to hgraph-persistence in 0.8; import it from "
-            f"'hgraph_persistence' instead. The alias is removed in 0.9.",
+            f"'hgraph_persistence' instead. The alias is removed in 1.0.",
             DeprecationWarning,
             stacklevel=2,
         )

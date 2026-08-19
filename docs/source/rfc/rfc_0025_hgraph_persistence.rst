@@ -332,8 +332,10 @@ Compatibility and migration
 Deprecation and removal policy
 ------------------------------
 
-**Status: proposed.** Checkpoint 8 executes against this section; the tier
-assignment below is the open decision.
+**Status: agreed** (2026-08-19). Checkpoint 8 executes against this section.
+The compatibility layer is retained in full through the pre-1.0 bridge
+release and removed at 1.0, along with the ``hgraph.adaptors`` package
+itself; nothing here is removed before then.
 
 The extraction left a set of compatibility surfaces in core. As of the
 checkpoint-5 audit exactly ONE of them warns — the ``hgraph.RecordAsOf`` /
@@ -360,40 +362,53 @@ and migration inventory`_:
 * **A shim is not the seam.** The extension mechanism itself is permanent
   API and must never warn.
 
-Removal tiers
-~~~~~~~~~~~~~
+One removal release: 1.0
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-A single removal release would be wrong here, because the surfaces differ in
-what they promised.
+There are no tiers. **Every shim below warns from the pre-1.0 bridge release
+and is removed in 1.0**, which is :doc:`rfc_0005_hgraph_1_0_api`'s existing
+rule rather than a new one: renamed surfaces get a warning shim "in a
+designated pre-1.0 bridge release only; 1.0 carries the new names
+exclusively", and the ``hgraph.adaptors`` namespace "exists in that bridge as
+warning shims and does not exist in 1.0".
 
-**Tier 1 — removed in 0.9.** Names that lived in *core's own* namespace and
-described durable behaviour core never implemented: ``hgraph.RecordAsOf``,
-``hgraph.RecordRemoves``, ``hgraph.frame_store_contains``,
-``hgraph.frame_store_read``. These were never part of the 0.5 upstream
-surface being preserved; they are artifacts of the pre-extraction layout,
-and keeping them invites new code to depend on core for durable vocabulary.
+That settles the whole persistence compatibility surface at once, because it
+is entirely contained in the bridge release:
 
-**Tier 2 — warned from 0.9, removed no earlier than 1.0.** The released 0.5
-import paths under ``hgraph.adaptors.data_frame``: ``WriteMode``,
-``DataFrameStorage``, ``BaseDataFrameStorage``, ``FileBasedDataFrameStorage``,
-``MemoryDataFrameStorage``, ``DATA_FRAME_RECORD_REPLAY`` and the two
-override-registry constants, and ``set_data_frame_record_path`` /
-``set_data_frame_overrides`` / ``get_data_frame_record_overrides``.
+* **Core-namespace names** — ``hgraph.RecordAsOf``, ``hgraph.RecordRemoves``,
+  ``hgraph.frame_store_contains``, ``hgraph.frame_store_read``. Replacement:
+  the same names from ``hgraph_persistence``.
+* **The 0.5 adaptor surface** — every export of
+  ``hgraph.adaptors.data_frame._data_frame_record_replay``: ``WriteMode``,
+  ``DataFrameStorage``, ``BaseDataFrameStorage``,
+  ``FileBasedDataFrameStorage``, ``MemoryDataFrameStorage``,
+  ``replay_data_frame``, ``set_data_frame_record_path``,
+  ``set_data_frame_overrides``, ``get_data_frame_record_overrides``, and the
+  ``DATA_FRAME_RECORD_REPLAY_PATH`` / ``DATA_FRAME_RECORD_OVERRIDES``
+  constants. Replacement: the corresponding
+  ``hgraph_persistence.compat`` name. This whole group goes with the
+  ``hgraph.adaptors`` namespace, so its removal is not a persistence
+  decision to take separately.
+* **The backend sentinel** — ``DATA_FRAME_RECORD_REPLAY``. Its replacement is
+  **not** in ``hgraph_persistence.compat``, which does not define it: a user
+  selecting a backend wants ``hgraph_persistence.FRAME_BACKEND`` (the
+  ``"hgraph.persistence.frame"`` id). Naming ``compat`` here would send them
+  to an ``AttributeError``.
+* **Legacy model constants** — ``InMemory``, ``InMemoryDense`` and
+  ``DataFrame`` translating to ``"memory"``, ``"testing"`` and
+  ``"hgraph.persistence.frame"``, and ``set_record_replay_model`` aliasing
+  ``set_record_replay_config``. Replacement: the backend id, or
+  ``FRAME_BACKEND`` for the durable one.
 
-Keeping these working is the compatibility promise that justified the
-guarded lazy re-export design in the first place. Removing them one minor
-after introducing the warning would break exactly the code the design set
-out to protect. They warn so new code is steered to
-``hgraph_persistence.compat``, and survive until the 1.0 API freeze decides
-their fate deliberately (RFC 0005).
+The bridge release is not imminent — basic 0.5 compatibility comes first — so
+the warning window is long by construction. That is the argument for warning
+on everything now rather than staging it: the cost of an early warning is a
+line of output, and the cost of a late one is a user who never saw it.
 
-**Tier 3 — legacy model constants, translated through 1.0.** ``InMemory``,
-``InMemoryDense`` and ``DataFrame`` translate to ``"memory"``, ``"testing"``
-and ``"hgraph.persistence.frame"``, and ``set_record_replay_model`` aliases
-``set_record_replay_config``. The translation is a small map with no
-maintenance cost and appears in nearly every 0.5 record/replay call site. It
-warns from 0.9 and is reconsidered at 1.0 with the rest of the naming
-surface, not before.
+**A correction this obliges.** ``hgraph.RecordAsOf`` /
+``hgraph.RecordRemoves`` currently warn that the alias "is removed in 0.9".
+Under this policy that is wrong, and it is the one shim message a user can
+already be reading. It must say 1.0.
 
 The seam is not a shim
 ~~~~~~~~~~~~~~~~~~~~~~
