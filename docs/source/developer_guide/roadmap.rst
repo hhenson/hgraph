@@ -518,8 +518,10 @@ The following deliberate restrictions replace advanced Python-first code:
   work. Perspective 2.10's legacy manager API is intentionally not restored;
   the optional extra targets the current server/client API.
 - The dataframe record/replay names delegate to the C++ record/replay
-  operators. Arrow memory/file storage remains a client utility; the old
-  Polars-owned pluggable runtime store is not restored.
+  operators. Arrow memory/file storage remains a client utility, now owned by
+  ``hgraph-persistence`` (RFC 0025) and reached through the lazy re-exports
+  that keep the released ``hgraph.adaptors.data_frame`` import paths valid;
+  the old Polars-owned pluggable runtime store is not restored.
 
 This completed slice passed clean macOS arm64/AppleClang 21 and Ubuntu 24.04
 x86_64/GCC 13.3 Release gates with warnings as errors: 1089/1089 native tests
@@ -600,8 +602,8 @@ operational requirements.
 
 **Remaining:**
 
-- durable/pluggable record and replay stores beyond the default in-memory
-  stores and current Arrow frame backend;
+- durable/pluggable record and replay stores beyond core's in-memory reference
+  backends and the Arrow frame backend ``hgraph-persistence`` now ships;
 - integration-specific authentication, deployment, and scheduling policies
   beyond the lifecycle hooks exposed by the current adaptors; and
 - broader JSON/table/Arrow scalar and serialization forms only where a real
@@ -717,8 +719,9 @@ The following are intentional unless separately re-opened:
   that boundary conversion; the conversions themselves are exercised
   unchanged.  The ``convert``-to-frame operator family and the DATA_FRAME
   record/replay model are Arrow-native
-  (``hgraph.adaptors.data_frame._to_frame_converters`` /
-  ``_data_frame_record_replay``).
+  (``hgraph.adaptors.data_frame._to_frame_converters``; the record/replay half
+  is implemented in ``hgraph-persistence`` and reached through the compat
+  re-exports of ``_data_frame_record_replay``).
 - ``datetime.timestamp()`` (the ``timestamp`` attribute operator, issue #82)
   is the **UTC** fractional epoch second count (``TS[float]``, preserving
   microseconds — Python's own return type): hgraph datetimes are UTC by
