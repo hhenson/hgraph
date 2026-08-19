@@ -12,4 +12,13 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/hgraphPersistenceTargets.cmake")
 
+if(@HGRAPH_PERSISTENCE_WITH_S3@)
+    get_target_property(_hgraph_persistence_type hgraph::persistence TYPE)
+    if(_hgraph_persistence_type STREQUAL "STATIC_LIBRARY")
+        find_dependency(CURL 7.75)
+        target_link_libraries(hgraph::persistence INTERFACE CURL::libcurl)
+    endif()
+    unset(_hgraph_persistence_type)
+endif()
+
 check_required_components(hgraph-persistence)

@@ -1,9 +1,14 @@
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/object_store.h>
 #include <hgraph/util/scope.h>
 
+#include "impl/s3_options.h"
+
+#include <arrow/buffer.h>
 #include <arrow/filesystem/filesystem.h>
 #include <arrow/filesystem/localfs.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/status.h>
@@ -46,76 +51,9 @@ namespace hgraph::persistence::store
             return std::move(result).ValueOrDie();
         }
 
-        [[nodiscard]] bool is_control(unsigned char c) noexcept { return c < 0x20 || c == 0x7f; }
-
         [[nodiscard]] const FrameStoreOps &memory_store_ops() noexcept;
         [[nodiscard]] const FrameStoreOps &filesystem_store_ops() noexcept;
     }  // namespace
-
-    std::optional<std::string> validate_key(std::string_view key)
-    {
-        if (key.empty())
-        {
-            return "key must not be empty";
-        }
-        if (key.front() == '/')
-        {
-            return "key must not start with '/'";
-        }
-        if (key.back() == '/')
-        {
-            return "key must not end with '/'";
-        }
-
-        std::size_t start = 0;
-        while (start <= key.size())
-        {
-            const auto             stop = key.find('/', start);
-            const auto             end = stop == std::string_view::npos ? key.size() : stop;
-            const std::string_view seg = key.substr(start, end - start);
-            if (seg.empty())
-            {
-                return "key must not contain an empty path segment";
-            }
-            if (seg == "." || seg == "..")
-            {
-                return "key must not contain a '.' or '..' segment";
-            }
-            for (const char c : seg)
-            {
-                if (is_control(static_cast<unsigned char>(c)))
-                {
-                    return "key must not contain control characters";
-                }
-                if (c == '\\')
-                {
-                    return "key must not contain a backslash";
-                }
-            }
-            if (stop == std::string_view::npos)
-            {
-                break;
-            }
-            start = stop + 1;
-        }
-        return std::nullopt;
-    }
-
-    void require_valid_key(std::string_view key)
-    {
-        if (const auto reason = validate_key(key))
-        {
-            throw std::invalid_argument("invalid frame-store key '" + std::string{key} +
-                                        "': " + *reason);
-        }
-    }
-
-    void finalize_s3() noexcept
-    {
-#if defined(HGRAPH_PERSISTENCE_WITH_S3)
-        (void)arrow::fs::EnsureS3Finalized();
-#endif
-    }
 
     bool parquet_available() noexcept
     {
@@ -216,6 +154,7 @@ namespace hgraph::persistence::store
             void write(std::string_view key, Frame frame, std::optional<Compression>)
             {
                 require_valid_key(key);
+                std::scoped_lock  lock{mutex_};
                 const std::string k{key};
                 if (config_.immutable && frames_.contains(k))
                 {
@@ -227,20 +166,27 @@ namespace hgraph::persistence::store
             [[nodiscard]] Frame read(std::string_view key)
             {
                 require_valid_key(key);
-                const auto it = frames_.find(std::string{key});
+                std::scoped_lock lock{mutex_};
+                const auto       it = frames_.find(std::string{key});
                 return it == frames_.end() ? Frame{} : it->second;
             }
 
             [[nodiscard]] bool contains(std::string_view key)
             {
                 require_valid_key(key);
+                std::scoped_lock lock{mutex_};
                 return frames_.contains(std::string{key});
             }
 
-            void clear() { frames_.clear(); }
+            void clear()
+            {
+                std::scoped_lock lock{mutex_};
+                frames_.clear();
+            }
 
           private:
             FrameStoreConfig                       config_;
+            std::mutex                             mutex_{};
             std::unordered_map<std::string, Frame> frames_{};
         };
 
@@ -267,9 +213,11 @@ namespace hgraph::persistence::store
         class FileSystemStore
         {
           public:
-            FileSystemStore(FrameStoreConfig config, std::shared_ptr<arrow::fs::FileSystem> fs,
-                            std::string root, bool atomic_local_publication = false)
+            FileSystemStore(FrameStoreConfig config, ObjectStore object_store,
+                            std::shared_ptr<arrow::fs::FileSystem> fs, std::string root,
+                            bool atomic_local_publication = false)
                 : config_(std::move(config)), fs_(std::move(fs)), root_(std::move(root)),
+                  object_store_(std::move(object_store)),
                   atomic_local_publication_(atomic_local_publication)
             {
             }
@@ -281,11 +229,24 @@ namespace hgraph::persistence::store
                 {
                     throw std::invalid_argument("cannot write an empty frame");
                 }
-                const auto path = resolve(key);
-                if (config_.immutable && exists(path))
+                if (config_.immutable)
                 {
-                    throw std::runtime_error("frame-store key already exists: " + std::string{key});
+                    auto output =
+                        unwrap(arrow::io::BufferOutputStream::Create(), "create frame buffer");
+                    write_table(*frame.table, output, compression.value_or(config_.compression));
+                    auto       buffer = unwrap(output->Finish(), "finish frame buffer");
+                    const auto bytes =
+                        std::span{reinterpret_cast<const std::byte *>(buffer->data()),
+                                  static_cast<std::size_t>(buffer->size())};
+                    const auto result = object_store_.put_immutable(key, bytes);
+                    if (result.status != ImmutableWriteStatus::Created)
+                    {
+                        throw std::runtime_error("frame-store key already exists: " +
+                                                 std::string{key});
+                    }
+                    return;
                 }
+                const auto path = resolve(key);
                 // The parent directory is implicit on S3 and required locally.
                 const auto slash = path.find_last_of('/');
                 if (slash != std::string::npos)
@@ -293,15 +254,14 @@ namespace hgraph::persistence::store
                     check(fs_->CreateDir(path.substr(0, slash), true), "create directory");
                 }
 
-                const auto output_path =
-                    atomic_local_publication_ ? temporary_sibling(path) : path;
-                auto remove_incomplete = make_scope_exit<true>([&] {
+                const auto output_path = atomic_local_publication_ ? temporary_sibling(path) : path;
+                auto       remove_incomplete = make_scope_exit<true>([&] {
                     if (atomic_local_publication_)
                     {
                         (void)fs_->DeleteFile(output_path);
                     }
                 });
-                auto out = unwrap(fs_->OpenOutputStream(output_path), "open output stream");
+                auto       out = unwrap(fs_->OpenOutputStream(output_path), "open output stream");
                 write_table(*frame.table, out, compression.value_or(config_.compression));
                 check(out->Close(), "close output stream");
 
@@ -311,11 +271,6 @@ namespace hgraph::persistence::store
                     // sibling is on the same filesystem, so LocalFileSystem::Move is
                     // an atomic rename rather than a copy-and-delete publication.
                     std::scoped_lock lock(local_publication_mutex());
-                    if (config_.immutable && exists(path))
-                    {
-                        throw std::runtime_error("frame-store key already exists: " +
-                                                 std::string{key});
-                    }
                     check(fs_->Move(output_path, path), "publish output file");
                 }
                 remove_incomplete.release();
@@ -339,15 +294,7 @@ namespace hgraph::persistence::store
                 return exists(resolve(key));
             }
 
-            void clear()
-            {
-                const auto info = unwrap(fs_->GetFileInfo(root_), "stat root");
-                if (info.type() == arrow::fs::FileType::NotFound)
-                {
-                    return;
-                }
-                check(fs_->DeleteDirContents(root_, /*missing_dir_ok=*/true), "clear store");
-            }
+            void clear() { object_store_.clear(); }
 
           private:
             [[nodiscard]] static std::string temporary_sibling(const std::string &path)
@@ -476,6 +423,7 @@ namespace hgraph::persistence::store
             FrameStoreConfig                       config_;
             std::shared_ptr<arrow::fs::FileSystem> fs_;
             std::string                            root_;
+            ObjectStore                            object_store_{};
             bool                                   atomic_local_publication_{false};
         };
 
@@ -498,30 +446,6 @@ namespace hgraph::persistence::store
             return ops;
         }
 
-#if defined(HGRAPH_PERSISTENCE_WITH_S3)
-        /**
-         * Arrow requires a process-global S3 init before first use and a
-         * matching finalize: "you MUST call FinalizeS3 before the end of the
-         * application in order to avoid a segmentation fault at shutdown".
-         *
-         * The finalize cannot be automated. Both obvious placements fail,
-         * measured against a live endpoint:
-         *
-         *   - std::atexit, and a function-local static destructor, both run
-         *     after Arrow's own statics are gone. FinalizeS3 then throws
-         *     "mutex lock failed: Invalid argument" and terminates the process
-         *     AFTER the tests have passed - a green run with a crashing exit.
-         *   - omitting it entirely leaves Arrow warning "FinalizeS3 was not
-         *     called even though S3 was initialized. This could lead to a
-         *     segmentation fault at exit".
-         *
-         * So shutdown is the application's, which is what Arrow's own
-         * documentation asks for: call finalize_s3() before exit. Init stays
-         * lazy, so a process that never configures S3 never initialises it and
-         * never needs to finalize.
-         */
-        void ensure_s3_initialized() { check(arrow::fs::EnsureS3Initialized(), "initialize S3"); }
-#endif
     }  // namespace
 
     FrameStore make_frame_store(FrameStoreConfig config)
@@ -546,9 +470,11 @@ namespace hgraph::persistence::store
             auto root = local->root;
             auto fs = std::make_shared<arrow::fs::LocalFileSystem>();
             check(fs->CreateDir(root, true), "create store root");
-            return FrameStore{std::make_shared<FileSystemStore>(std::move(config), std::move(fs),
-                                                                std::move(root), true),
-                              filesystem_store_ops()};
+            auto object_store = make_object_store(ObjectStoreConfig{config.location});
+            return FrameStore{
+                std::make_shared<FileSystemStore>(std::move(config), std::move(object_store),
+                                                  std::move(fs), std::move(root), true),
+                filesystem_store_ops()};
         }
 
         const auto &s3 = std::get<S3Location>(config.location);
@@ -557,61 +483,19 @@ namespace hgraph::persistence::store
         {
             throw std::invalid_argument("an S3 frame store requires a bucket");
         }
-        ensure_s3_initialized();
-
-        arrow::fs::S3Options options;
-        std::visit(
-            [&](const auto &source) {
-                using T = std::decay_t<decltype(source)>;
-                if constexpr (std::is_same_v<T, Credentials::Ambient>)
-                {
-                    options = arrow::fs::S3Options::Defaults();
-                }
-                else if constexpr (std::is_same_v<T, Credentials::Explicit>)
-                {
-                    options = arrow::fs::S3Options::FromAccessKey(
-                        source.access_key_id, source.secret_access_key,
-                        source.session_token.value_or(std::string{}));
-                }
-                else if constexpr (std::is_same_v<T, Credentials::Profile>)
-                {
-                    // Arrow's S3Options has no named-profile factory, and
-                    // building one needs
-                    // Aws::Auth::ProfileConfigFileAWSCredentialsProvider from the AWS
-                    // SDK, whose headers Arrow does not re-export. Fail loudly rather
-                    // than silently resolving something else.
-                    throw std::runtime_error(
-                        "named AWS profile '" + source.name +
-                        "' is not supported by the Arrow S3 backend; set AWS_PROFILE in "
-                        "the environment "
-                        "and use Credentials::Ambient, or supply Credentials::Explicit");
-                }
-                else
-                {
-                    options = arrow::fs::S3Options::FromAssumeRole(
-                        source.role_arn, source.session_name.value_or("hgraph"));
-                }
-            },
-            s3.credentials.source);
-
-        if (s3.region)
-        {
-            options.region = *s3.region;
-        }
-        if (s3.endpoint_override)
-        {
-            options.endpoint_override = *s3.endpoint_override;
-            options.scheme = s3.endpoint_override->starts_with("https://") ? "https" : "http";
-        }
-
-        auto fs = unwrap(arrow::fs::S3FileSystem::Make(options), "create S3 filesystem");
-        auto root = s3.prefix.empty() ? s3.bucket : s3.bucket + "/" + s3.prefix;
-        return FrameStore{
-            std::make_shared<FileSystemStore>(std::move(config), std::move(fs), std::move(root)),
-            filesystem_store_ops()};
+        auto       options = impl::make_s3_options(s3);
+        auto       fs = unwrap(arrow::fs::S3FileSystem::Make(options), "create S3 filesystem");
+        const auto prefix = impl::normalize_s3_prefix(s3.prefix);
+        auto       root = prefix.empty() ? s3.bucket : s3.bucket + "/" + prefix;
+        auto       object_store = make_object_store(ObjectStoreConfig{config.location});
+        return FrameStore{std::make_shared<FileSystemStore>(std::move(config),
+                                                            std::move(object_store), std::move(fs),
+                                                            std::move(root)),
+                          filesystem_store_ops()};
 #else
         (void)s3;
-        throw std::runtime_error("this build has no S3 support; configure with HGRAPH_PERSISTENCE_WITH_S3");
+        throw std::runtime_error("this build has no S3 support; configure with "
+                                 "HGRAPH_PERSISTENCE_WITH_S3");
 #endif
     }
 

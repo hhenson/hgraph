@@ -336,6 +336,11 @@ jobs:
           name: analytics-distribution-wheel-ubuntu-latest
           path: analytics-dist/*.whl
           if-no-files-found: error
+      - name: Install persistence wheel TLS dependency
+        # The pinned static curl used for S3 conditional writes links the
+        # container TLS provider; auditwheel vendors its runtime libraries.
+        shell: bash
+        run: dnf install -y openssl-devel
       - name: Build persistence stable ABI wheel
         shell: bash
         run: |

@@ -21,6 +21,7 @@
 #include <catch2/reporters/catch_reporter_registrars.hpp>
 
 #include <hgraph/persistence/recording_store.h>
+#include <hgraph/persistence/store_location.h>
 #include <hgraph/types/registry_reset.h>
 
 namespace
@@ -40,6 +41,14 @@ namespace
         void testCaseStarting(const Catch::TestCaseInfo &) override { hgraph::reset_all_registries(); }
 
         void testCaseEnded(const Catch::TestCaseStats &) override { hgraph::reset_all_registries(); }
+
+        void testRunEnded(const Catch::TestRunStats &) override
+        {
+            // Arrow permits one S3 initialization/finalization cycle per
+            // process. Finalize after every selected S3 case has released its
+            // stores, not at the end of an individual case.
+            hgraph::persistence::store::finalize_s3();
+        }
     };
 }  // namespace
 

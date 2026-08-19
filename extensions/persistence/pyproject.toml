@@ -27,6 +27,7 @@ test = ["pytest>=8"]
 cmake.source-dir = "."
 cmake.args = [
     "-DHGRAPH_PERSISTENCE_BUILD_PYTHON=ON",
+    "-DHGRAPH_PERSISTENCE_FORCE_FETCH_CURL=ON",
     "-DBUILD_TESTING=OFF",
 ]
 install.components = ["Python", "Development"]

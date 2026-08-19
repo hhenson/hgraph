@@ -441,7 +441,6 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
     named_profile.location = std::move(profile_location);
     CHECK_THROWS_WITH(make_frame_store(named_profile),
                       Catch::Matchers::ContainsSubstring("set AWS_PROFILE"));
-    finalize_s3();
 #endif
 }
 
@@ -477,7 +476,7 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
 
     S3Location location;
     location.bucket = bucket_name != nullptr ? bucket_name : "hgraph-test";
-    location.prefix = "frame-store";
+    location.prefix = "/frame-store/";
     location.region = "us-east-1";
     location.endpoint_override = endpoint;
     if (key_id != nullptr && secret != nullptr)
@@ -517,6 +516,4 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
     auto cleanup = make_frame_store(cleanup_config);
     cleanup.clear();
     cleanup.reset();
-    // The application owns S3 shutdown; see finalize_s3's contract.
-    finalize_s3();
 }

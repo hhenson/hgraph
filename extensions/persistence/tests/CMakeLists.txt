@@ -18,6 +18,7 @@ add_executable(hgraph_persistence_tests
     registry_test_listener.cpp
     test_component_frame.cpp
     test_frame_store.cpp
+    test_object_store.cpp
     test_record_replay_frame.cpp
     test_record_replay_partitioned.cpp
     test_replay_const.cpp
