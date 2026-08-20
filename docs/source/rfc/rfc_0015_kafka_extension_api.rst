@@ -58,12 +58,12 @@ the same native extension and preserve the released ``KafkaMessage``, replay,
 ``recovered``, flush, and legacy cross-partition ordering behavior.  New code
 does not depend on magic ``msg``/``recovered`` parameter names.
 
-The first implementation requires one narrow core runtime facility: a root
-push source may be marked as simulation-capable when its producer queues all
-work needed to keep simulation live before the graph evaluation which starts
-that producer completes.  Kafka uses this only for preloaded, bounded
-record-time recovery.  Ordinary asynchronous push sources, unbounded Kafka
-input, and live continuation remain real-time-only.
+Kafka queue ingress uses root push sources and is therefore real-time-only.
+The broker queue wakes the root graph; graph-owned drain nodes then emit Kafka
+records, delivery reports, and events through ordinary graph edges.  Kafka does
+not add a second wake mechanism and no push source is permitted in simulation.
+Deterministic simulation replay is the responsibility of an ordinary scheduled
+source over previously captured durable data, not a broker queue.
 
 Bounded Kafka queues and pause/resume remain in the extension.  A conflating
 root push source wakes a graph-owned drain node, so the core push queue carries
@@ -221,8 +221,7 @@ hg_cpp owns only the already-public facilities the extension consumes:
 
 * native graph and node authoring;
 * subscription, request/reply, reference-service, and transport planning;
-* root push sources, their explicit simulation-capability marker, and
-  graph-thread scheduling;
+* real-time root push sources and graph-thread scheduling;
 * native extension scalar and Python-class registration; and
 * installed-SDK extension boundaries.
 
@@ -731,14 +730,11 @@ New native code should not depend on the compatibility merge as a Kafka
 guarantee.  Equal or skewed timestamps do not create causal order across
 partitions.
 
-In simulation, record-time recovery behaves as a pull-capable source: the
-engine cannot advance past or complete ahead of the next known historical
-record.  The implementation preloads the bounded snapshot during runtime start
-and queues its first wake before that start evaluation completes, satisfying
-the core simulation-capable push-source contract.  It must not turn
-broker-thread timing into simulated graph timing.  Publish, commit,
-``OnGraphDelivery``, unbounded input, and live continuation are rejected in
-simulation.
+Kafka graph services are rejected in simulation because their broker queues
+enter through push sources.  A deterministic replay facility may consume
+captured Kafka records through a separate ordinary scheduled source, but that
+source is not a Kafka service implementation and broker-thread timing never
+participates in simulated graph time.
 
 Recovery hand-off
 -----------------
@@ -1039,9 +1035,8 @@ Public C++ and extension boundary
   duplicate registration at that path is rejected.
 * Its graph-to-Kafka edges are sink nodes over ``impl_input`` and its
   Kafka-to-graph edges are root push sources published with ``impl_output``.
-* Bounded record-time recovery works in simulation through the explicit
-  simulation-capable push-source contract; ordinary asynchronous Kafka work is
-  rejected there.
+* Kafka graph services are rejected in simulation; their only ingress is the
+  real-time root push source woken by the Kafka queue.
 * Structured scalar values use named ``Bundle`` schemas and collections of
   time-series fields use named ``TSB`` schemas in C++ and Python.
 * Two pure-C++ graph engines run concurrently on different threads with

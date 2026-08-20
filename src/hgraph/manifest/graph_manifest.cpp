@@ -54,7 +54,8 @@ namespace hgraph::manifest
             k_behaviour_uses_global_state = 1u << 1,
             k_behaviour_uses_evaluation_clock = 1u << 2,
             k_behaviour_uses_python_values = 1u << 3,
-            k_behaviour_simulation_capable_push = 1u << 4,
+            // Bit 4 was briefly assigned to a simulation push-source
+            // exception. It remains reserved so manifest bits stay stable.
             k_behaviour_requires_phase_runner = 1u << 5,
             k_behaviour_schedule_on_start = 1u << 6,
             k_behaviour_captures_errors = 1u << 7,
@@ -119,10 +120,6 @@ namespace hgraph::manifest
             if (schema->uses_global_state) { behaviour |= k_behaviour_uses_global_state; }
             if (schema->uses_evaluation_clock) { behaviour |= k_behaviour_uses_evaluation_clock; }
             if (schema->uses_python_values) { behaviour |= k_behaviour_uses_python_values; }
-            if (schema->simulation_capable_push_source)
-            {
-                behaviour |= k_behaviour_simulation_capable_push;
-            }
             if (schema->requires_phase_runner) { behaviour |= k_behaviour_requires_phase_runner; }
             if (schema->schedule_on_start) { behaviour |= k_behaviour_schedule_on_start; }
             if (schema->captures_errors) { behaviour |= k_behaviour_captures_errors; }

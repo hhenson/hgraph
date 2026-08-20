@@ -309,20 +309,14 @@ across partitions.  ``PARTITION`` preserves the natural partition delivery;
 ``TIMESTAMP_TOPIC_PARTITION_OFFSET`` is the explicit deterministic merge used
 for record-time recovery.
 
-Simulation and bounded recovery
---------------------------------
+Simulation
+----------
 
-Only finite, record-time recovery is available in hgraph simulation.  It is
-useful for deterministic backtests and must have a bounded stop position.  A
-simulation key normally uses ``INDEPENDENT`` assignment, an explicit start,
-``snapshot()`` (or another finite stop), ``RECORD_TIMESTAMP``, and the
-timestamp/topic/partition/offset merge policy shown above.
-
-Live Kafka input, publishing, explicit commits, and
-``ON_GRAPH_DELIVERY`` commits are rejected in simulation.  That restriction
-is intentional: simulation preloads a finite record-time replay before graph
-evaluation, whereas an asynchronous broker cannot provide deterministic,
-unbounded future input.
+Kafka graph services are real-time-only.  Their bounded queues wake the root
+graph through push-source nodes, and push sources are not valid simulation
+inputs.  Deterministic backtests should first capture the required records and
+replay them through an ordinary scheduled source so graph time is independent
+of broker and worker-thread timing.
 
 Configuration, flow control, and failures
 ------------------------------------------

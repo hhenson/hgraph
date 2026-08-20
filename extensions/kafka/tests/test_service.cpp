@@ -1028,7 +1028,7 @@ void test_public_value_validation_and_producer_configuration() {
       make_service_config({Str{"localhost:9092"}}, Str{"native-test"});
 }
 
-void test_simulation_rejects_publish_and_commit_work() {
+void test_simulation_rejects_kafka_services() {
   production_config =
       make_service_config({Str{"localhost:9092"}}, Str{"simulation-rejection"});
   const DateTime start = wall_now();
@@ -1085,6 +1085,25 @@ void test_simulation_rejects_publish_and_commit_work() {
       },
       "nondeterministically merged Kafka recovery was accepted by a simulation "
       "executor");
+
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .topics({Str{"simulation-contract"}})
+          .group_id(Str{"simulation-contract"})
+          .assignment_mode(KafkaAssignmentMode::Independent)
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"simulation-bounded"})
+          .build();
+  require_failure(
+      [&] {
+        static_cast<void>(run_graph(build_graph<ProductionSubscriptionGraph>(),
+                                    start, start + TimeDelta{1'000'000},
+                                    GraphExecutorMode::Simulation));
+      },
+      "a bounded Kafka queue was accepted as a simulation source");
   initialize_values();
 }
 
@@ -2220,128 +2239,6 @@ void test_record_time_recovery_releases_a_failed_participant() {
           "the failed recovery participant did not release its cohort");
 }
 
-void test_graph_lifetime_stop_is_bounded_in_simulation() {
-  MockCluster cluster;
-  cluster.create_topic(Str{"simulation-record-time"});
-  const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          wall_now().time_since_epoch()))};
-  const DateTime record_time = graph_start + TimeDelta{1'000'000};
-  cluster.seed_record(Str{"simulation-record-time"},
-                      Bytes{"simulation-history"}, std::nullopt, {}, 0,
-                      record_time);
-
-  production_config = hgraph::kafka::service_config()
-                          .bootstrap_servers({cluster.bootstrap_servers()})
-                          .client_id(Str{"simulation-record-time-subscriber"})
-                          .build();
-  subscription_key =
-      hgraph::kafka::subscription_key()
-          .partitions({{Str{"simulation-record-time"}, Int{0}}})
-          .group_id(Str{"simulation-record-time-group"})
-          .start(make_start_position(KafkaStartPositionKind::Earliest))
-          .stop(make_stop_position(KafkaStopPositionKind::GraphLifetime))
-          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
-          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
-          .sharing_identity(Str{"simulation-record-time-subscription"})
-          .build();
-  bounded_offsets.clear();
-  bounded_states.clear();
-  bounded_payloads.clear();
-  bounded_evaluation_times.clear();
-  bounded_event = Value{};
-  bounded_event_count = 0;
-
-  static_cast<void>(run_graph(build_graph<BoundedSubscriptionGraph>(),
-                              graph_start, record_time + TimeDelta{1'000'000},
-                              GraphExecutorMode::Simulation));
-
-  require(
-      bounded_payloads == std::vector<Str>{Str{"simulation-history"}},
-      "graph-lifetime simulation completed before record-time history became available");
-  require(
-      bounded_evaluation_times == std::vector<DateTime>{record_time},
-      "graph-lifetime simulation did not use Kafka record time as the historical graph time");
-}
-
-void test_multiple_simulation_subscriptions_replay_at_record_time() {
-  MockCluster cluster;
-  cluster.create_topic(Str{"simulation-preload-a"});
-  cluster.create_topic(Str{"simulation-preload-b"});
-  const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          wall_now().time_since_epoch()))};
-  const DateTime record_time = graph_start + TimeDelta{1'000'000};
-  std::vector<Str> expected_payloads;
-  for (Int offset = 0; offset < 3; ++offset) {
-    const Str first = Str{"first-"} + std::to_string(offset);
-    const Str second = Str{"second-"} + std::to_string(offset);
-    cluster.seed_record(Str{"simulation-preload-a"}, Bytes{first}, std::nullopt,
-                        {}, 0, record_time + offset * MIN_TD);
-    cluster.seed_record(Str{"simulation-preload-b"}, Bytes{second},
-                        std::nullopt, {}, 0, record_time + offset * MIN_TD);
-    expected_payloads.push_back(first);
-    expected_payloads.push_back(second);
-  }
-
-  production_config = hgraph::kafka::service_config()
-                          .bootstrap_servers({cluster.bootstrap_servers()})
-                          .client_id(Str{"simulation-multi-preload"})
-                          .ingress_limits(Int{3}, Int{4096})
-                          .build();
-  subscription_key =
-      hgraph::kafka::subscription_key()
-          .partitions({{Str{"simulation-preload-a"}, Int{0}}})
-          .group_id(Str{"simulation-preload-a"})
-          .start(make_start_position(KafkaStartPositionKind::Earliest))
-          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
-          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
-          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
-          .sharing_identity(Str{"simulation-preload-a"})
-          .build();
-  secondary_subscription_key =
-      hgraph::kafka::subscription_key()
-          .partitions({{Str{"simulation-preload-b"}, Int{0}}})
-          .group_id(Str{"simulation-preload-b"})
-          .start(make_start_position(KafkaStartPositionKind::Earliest))
-          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
-          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
-          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
-          .sharing_identity(Str{"simulation-preload-b"})
-          .build();
-  bounded_payloads.clear();
-  multi_bounded_records.clear();
-  multi_bounded_complete_count = 0;
-  multi_bounded_failed_count = 0;
-
-  static_cast<void>(run_graph(build_graph<MultiBoundedSubscriptionGraph>(),
-                              graph_start, record_time + TimeDelta{1'000'000},
-                              GraphExecutorMode::Simulation));
-
-  std::ranges::sort(bounded_payloads);
-  std::ranges::sort(expected_payloads);
-  require(bounded_payloads == expected_payloads,
-          "multiple simulation subscriptions did not preload before the "
-          "graph began draining their shared ingress queue");
-  std::ranges::sort(multi_bounded_records, {},
-                    &decltype(multi_bounded_records)::value_type::first);
-  require(multi_bounded_records.size() == 6,
-          "multiple simulation subscriptions did not replay every "
-          "timestamped record");
-  for (const auto &[payload, evaluation_time] : multi_bounded_records) {
-    const auto separator = payload.find('-');
-    require(separator != Str::npos,
-            "timestamp replay test produced an unexpected payload");
-    const auto offset =
-        static_cast<Int>(std::stoll(payload.substr(separator + 1)));
-    require(evaluation_time == record_time + offset * MIN_TD,
-            "multiple simulation subscriptions replayed '" + payload +
-                "' at drain time instead of its Kafka record timestamp");
-  }
-  require(multi_bounded_complete_count == 2,
-          "simulation did not complete both bounded subscriptions");
-}
-
 void test_real_broker_publish_subscribe_and_commit_round_trip() {
   const char *bootstrap_value =
       std::getenv("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
@@ -2451,7 +2348,7 @@ int main() {
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_public_value_validation_and_producer_configuration();
-    test_simulation_rejects_publish_and_commit_work();
+    test_simulation_rejects_kafka_services();
     test_subscription_boundary();
     test_publish_boundary();
     test_multiple_publishers_and_dynamic_topics();
@@ -2478,8 +2375,6 @@ int main() {
     test_record_time_recovery_hands_off_before_live_records();
     test_record_time_recovery_waits_for_independent_subscriptions();
     test_record_time_recovery_releases_a_failed_participant();
-    test_graph_lifetime_stop_is_bounded_in_simulation();
-    test_multiple_simulation_subscriptions_replay_at_record_time();
     test_real_broker_publish_subscribe_and_commit_round_trip();
     std::cout << "hgraph-kafka service tests passed\n";
     return 0;
