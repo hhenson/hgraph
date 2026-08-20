@@ -153,12 +153,37 @@ namespace
         }
     };
 
+    struct ConsumeFrameSink
+    {
+        static void eval(hg::In<"value", hg::TS<hg::Frame>>) {}
+    };
+
+    struct NestedSubscriptionWithSideEffectGraph
+    {
+        static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
+        {
+            auto returned = hgf::subscribe_data(wiring, "nested-returned");
+            auto unrelated = hgf::subscribe_data(wiring, "nested-side-effect");
+            hg::wire<ConsumeFrameSink>(wiring, unrelated);
+            return returned;
+        }
+    };
+
     struct NestedDependencyGraph
     {
         static void compose(hg::Wiring &wiring)
         {
             auto source = hg::nested_<NestedSubscriptionGraph>(wiring);
             hgf::publish_data(wiring, "nested-output", source);
+        }
+    };
+
+    struct NestedSideEffectDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            auto source = hg::nested_<NestedSubscriptionWithSideEffectGraph>(wiring);
+            hgf::publish_data(wiring, "nested-side-effect-output", source);
         }
     };
 
@@ -371,11 +396,18 @@ TEST_CASE("fabric planner discovers direct shared nested conditional and explici
         .publishers = {{"nested-output", {"nested"}}},
         .forests = {{{"nested"}}},
     });
+    CHECK(plan_for<NestedSideEffectDependencyGraph>() ==
+          hgf::DependencyPlanInput{
+              .roots = {"nested-returned"},
+              .publishers = {{"nested-side-effect-output",
+                              {"nested-returned"}}},
+              .forests = {{{"nested-returned"}}},
+          });
     CHECK(plan_for<ConditionalDependencyGraph>() == hgf::DependencyPlanInput{
         .roots = {"conditional-a", "conditional-b"},
         .publishers = {{"conditional-output",
                         {"conditional-a", "conditional-b"}}},
-        .forests = {{{"conditional-a", "conditional-b"}}},
+        .forests = {{{"conditional-a"}}, {{"conditional-b"}}},
     });
     CHECK(plan_for<ExplicitHiddenDependencyGraph>() == hgf::DependencyPlanInput{
         .roots = {"declared-only"},
@@ -393,8 +425,8 @@ TEST_CASE("fabric planner partitions independent consistency forests")
     CHECK(plan.publishers ==
           std::vector<hgf::PlannedPublisherInput>{
               {"ab-output", {"a", "b"}}, {"x-output", {"x"}}});
-    CHECK(plan.forests ==
-          std::vector<hgf::ConsistencyForestInput>{{{"a", "b"}}, {{"x"}}});
+    CHECK(plan.forests == std::vector<hgf::ConsistencyForestInput>{
+                              {{"a"}}, {{"b"}}, {{"x"}}});
 }
 
 TEST_CASE("fabric planner wires one coordinator and hidden lineage cuts")

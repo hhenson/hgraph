@@ -270,7 +270,12 @@ namespace hgraph
                                 ChildGraphVisitor visitor)
         {
             const auto &context = *static_cast<const ReduceNodeContext *>(raw_context);
-            visitor(visitor_context, context.spec.child.graph_builder);
+            visitor(visitor_context, ChildGraphInspectionView{
+                                         .graph = &context.spec.child.graph_builder,
+                                         .output_binding = context.spec.child.output_binding
+                                                               ? &*context.spec.child.output_binding
+                                                               : nullptr,
+                                     });
         }
 
         /** Where an aggregate currently comes from, without materialising it. */

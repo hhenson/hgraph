@@ -103,10 +103,21 @@ void visit_switch_children(const void *raw_context, const NodeBuilder &,
                            void *visitor_context, ChildGraphVisitor visitor) {
   const auto &context = *static_cast<const SwitchNodeContext *>(raw_context);
   for (const SwitchBranch &branch : context.spec.branches) {
-    visitor(visitor_context, branch.spec.graph_builder);
+    visitor(visitor_context, ChildGraphInspectionView{
+                                 .graph = &branch.spec.graph_builder,
+                                 .output_binding = branch.spec.output_binding
+                                                       ? &*branch.spec.output_binding
+                                                       : nullptr,
+                             });
   }
   if (context.spec.default_branch.has_value()) {
-    visitor(visitor_context, context.spec.default_branch->graph_builder);
+    const auto &branch = *context.spec.default_branch;
+    visitor(visitor_context, ChildGraphInspectionView{
+                                 .graph = &branch.graph_builder,
+                                 .output_binding = branch.output_binding
+                                                       ? &*branch.output_binding
+                                                       : nullptr,
+                             });
   }
 }
 
