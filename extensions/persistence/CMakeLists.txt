@@ -223,6 +223,20 @@ if(HGRAPH_PERSISTENCE_BUILD_PYTHON)
         message(FATAL_ERROR
             "HGRAPH_PERSISTENCE_BUILD_PYTHON requires a Python-enabled installed hgraph SDK")
     endif()
+    # The bridge's RUNPATH locates libhgraph_persistence, but ELF RUNPATH is
+    # not inherited when that library resolves its own Arrow/Parquet and core
+    # dependencies.  Give the shared implementation library an explicit
+    # package-relative path as well; otherwise an isolated Linux wheel import
+    # depends on some earlier module having loaded libparquet globally.
+    if(BUILD_SHARED_LIBS)
+        if(APPLE)
+            set_target_properties(hgraph_persistence PROPERTIES
+                INSTALL_RPATH "@loader_path;@loader_path/../pyarrow")
+        elseif(UNIX)
+            set_target_properties(hgraph_persistence PROPERTIES
+                INSTALL_RPATH "$ORIGIN;$ORIGIN/../pyarrow")
+        endif()
+    endif()
     hgraph_add_python_module(_hgraph_persistence STABLE_ABI NOMINSIZE src/python_module.cpp)
     target_link_libraries(_hgraph_persistence PRIVATE hgraph::persistence)
     # One more `../` than hgraph_add_python_module's default: the module

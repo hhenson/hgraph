@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import zipfile
@@ -9,6 +10,20 @@ import pytest
 
 PERSISTENCE_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_SCRIPT = PERSISTENCE_ROOT / "tools/audit_distribution.py"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux wheel RUNPATH regression")
+def test_installed_bridge_imports_in_a_clean_process():
+    environment = os.environ.copy()
+    environment.pop("LD_LIBRARY_PATH", None)
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", "import hgraph_persistence"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("library_directory", ["lib", "lib64"])
