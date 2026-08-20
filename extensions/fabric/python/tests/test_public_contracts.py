@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import sys
 
 import _hgraph
 import pytest
@@ -31,6 +32,10 @@ def _revision() -> hgf.DataRevision:
         self_predecessor=41,
         as_of=datetime(2026, 1, 2, 3, 4, 5, 6007),
     )
+
+
+def test_python_package_loads_its_native_persistence_dependency_first():
+    assert "hgraph_persistence" in sys.modules
 
 
 def test_python_codec_uses_shared_native_golden_fixtures():

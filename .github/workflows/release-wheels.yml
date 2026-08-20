@@ -341,8 +341,8 @@ jobs:
           path: analytics-dist/*.whl
           if-no-files-found: error
       - name: Install persistence wheel TLS dependency
-        # The pinned static curl used for S3 conditional writes links the
-        # container TLS provider; auditwheel vendors its runtime libraries.
+        # The shared persistence SDK carries the pinned curl used for S3
+        # conditional writes; auditwheel vendors its TLS runtime libraries.
         shell: bash
         run: dnf install -y openssl-devel
       - name: Build persistence stable ABI wheel
@@ -425,6 +425,7 @@ jobs:
             --exclude libhgraph_runtime.so \
             --exclude libhgraph_wiring.so \
             --exclude libhgraph_stdlib.so \
+            --exclude libhgraph_persistence.so \
             --exclude libnanobind-abi3.so \
             --wheel-dir fabric-dist \
             fabric-dist-raw/*.whl

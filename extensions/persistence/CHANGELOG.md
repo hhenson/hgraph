@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Persistence wheels now include the pinned static CURL SDK required by their
-  installed C++ package, allowing downstream extension wheels to consume S3
-  persistence without depending on an older system CURL development package.
+- Persistence wheels now publish a shared native SDK carrying the pinned curl
+  implementation. Downstream extension wheels can consume S3 persistence
+  without relinking against an older or ABI-incompatible system CURL/TLS SDK.
 
 - Added the reusable C++ `ObjectStore` contract required by RFC 0023 and RFC
   0026: atomic immutable objects, typed absence and backend failures, ordered

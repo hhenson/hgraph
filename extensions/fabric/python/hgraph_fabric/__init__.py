@@ -15,6 +15,12 @@ from hgraph import (
     operator_function,
 )
 
+# The native Fabric bridge consumes the persistence SDK.  Loading its declared
+# Python dependency first is also required on Windows: the
+# persistence bridge loads Parquet from PyArrow before Fabric's module is
+# resolved, while macOS and Linux can use their relative runtime paths.
+import hgraph_persistence as _hgraph_persistence  # noqa: F401
+
 from . import _hgraph_fabric as _native
 
 

@@ -39,6 +39,7 @@ def runtime_environment(package_prefix: Path) -> dict[str, str]:
     }.get(sys.platform, "LD_LIBRARY_PATH")
     directories = (
         package_prefix,
+        package_prefix / "bin",
         package_prefix / "lib",
         package_prefix / "lib64",
         package_prefix / "pyarrow",
@@ -51,8 +52,35 @@ def runtime_environment(package_prefix: Path) -> dict[str, str]:
     return environment
 
 
+def cmake_package_dir(package_prefix: Path, package: str, config: str) -> Path:
+    """Find one wheel-installed CMake package below lib or lib64."""
+
+    candidates = sorted(
+        path
+        for path in package_prefix.glob(f"lib*/cmake/{package}")
+        if (path / config).is_file()
+    )
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"expected exactly one {package} CMake package below "
+            f"{package_prefix}, found: {candidates}"
+        )
+    return candidates[0]
+
+
 def main() -> int:
     package_prefix = Path(sysconfig.get_path("purelib")).resolve()
+    core_config = cmake_package_dir(
+        package_prefix, "hgraph", "hgraphConfig.cmake"
+    )
+    persistence_config = cmake_package_dir(
+        package_prefix,
+        "hgraph-persistence",
+        "hgraph-persistenceConfig.cmake",
+    )
+    fabric_config = cmake_package_dir(
+        package_prefix, "hgraph-fabric", "hgraph-fabricConfig.cmake"
+    )
     cmake = cmake_tool("cmake")
     ctest = cmake_tool("ctest")
     with tempfile.TemporaryDirectory(
@@ -65,6 +93,9 @@ def main() -> int:
             f"-B{build_dir}",
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DCMAKE_PREFIX_PATH={package_prefix}",
+            f"-Dhgraph_DIR={core_config}",
+            f"-Dhgraph-persistence_DIR={persistence_config}",
+            f"-Dhgraph-fabric_DIR={fabric_config}",
             f"-DPython_EXECUTABLE={sys.executable}",
         ]
         if sys.platform == "win32":

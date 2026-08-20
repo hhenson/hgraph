@@ -17,5 +17,5 @@
   correlated bounded delivery retry, and transport diagnostics.
 - Add local/S3 and Arrow IPC/Parquet behavior coverage, a cross-process
   publication race, resolver/cache and bounded-queue diagnostics, service
-  lifecycle logs, installed wheel SDK consumers, release artifacts, and
-  production operating guidance.
+  lifecycle logs, installed wheel SDK consumers, dependency-first Windows DLL
+  setup, release artifacts, and production operating guidance.

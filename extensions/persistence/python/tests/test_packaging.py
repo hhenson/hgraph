@@ -36,6 +36,9 @@ def test_persistence_is_a_separate_workspace_distribution():
     assert project["tool"]["scikit-build"]["wheel"]["packages"] == [
         "python/hgraph_persistence"
     ]
+    assert "-DBUILD_SHARED_LIBS=ON" in project["tool"]["scikit-build"]["cmake"][
+        "args"
+    ]
     assert not any((EXTENSION_ROOT / "python" / "hgraph").rglob("*.py"))
     # The released import paths ride hgraph.adaptors.data_frame's guarded
     # lazy re-export (RFC 0025), not a dedicated core shim package.
@@ -112,6 +115,7 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
     assert "Build and test installed persistence consumer" in native_workflow
     assert "hgraph-persistence-v_" not in release_workflow
     assert "pattern: persistence-distribution-*" in wheel_workflows
+    assert "--exclude libhgraph_persistence.so" in release_workflow
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
     ) == 6
