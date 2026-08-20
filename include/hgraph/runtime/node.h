@@ -109,6 +109,11 @@ namespace hgraph
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.
         bool     uses_python_values{false};
+        // Reserved ABI byte. Behaviour bit 4 was briefly assigned to a
+        // simulation push-source exception; push sources are now uniformly
+        // real-time-only, but retaining this byte preserves the offsets of
+        // the hot metadata fields which follow it.
+        std::uint8_t reserved_behaviour_bit_4{0};
         // True when this node requires the embedding phase runner during
         // start, evaluation, or stop. Nested-node builders propagate the flag
         // from their child graph plans so a root executor can select its

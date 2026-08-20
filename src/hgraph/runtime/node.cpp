@@ -921,16 +921,20 @@ namespace hgraph
             const bool          scheduled_now = scheduler != nullptr && !scheduler->events.empty() &&
                                        scheduler->events.begin()->first == evaluation_time;
 
-            bool do_eval = callbacks(context).input_validity_in_evaluate
-                               ? true
-                               : ready_to_evaluate(view, evaluation_time);
+            const bool do_eval = callbacks(context).input_validity_in_evaluate ||
+                                 !runtime.layout.has_input() ||
+                                 ready_to_evaluate(view, evaluation_time);
 
             if (do_eval)
             {
                 if (callbacks(context).evaluate)
                 {
-                    const NodeTypeMetaData *schema = view.schema();
-                    const bool capture = schema != nullptr && schema->captures_errors && runtime.layout.has_error_output();
+                    bool capture = false;
+                    if (runtime.layout.has_error_output())
+                    {
+                        const NodeTypeMetaData *schema = view.schema();
+                        capture = schema != nullptr && schema->captures_errors;
+                    }
                     if (capture)
                     {
                         static_cast<void>(fallback_on_exception(false,
@@ -1005,6 +1009,8 @@ namespace hgraph
                    lhs.uses_global_state == rhs.uses_global_state &&
                    lhs.uses_evaluation_clock == rhs.uses_evaluation_clock &&
                    lhs.uses_python_values == rhs.uses_python_values &&
+                   lhs.reserved_behaviour_bit_4 ==
+                       rhs.reserved_behaviour_bit_4 &&
                    lhs.requires_phase_runner == rhs.requires_phase_runner &&
                    lhs.schedule_on_start == rhs.schedule_on_start &&
                    lhs.captures_errors == rhs.captures_errors &&
