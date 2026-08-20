@@ -320,6 +320,8 @@ TEST_CASE("memory notifier fans out and conflates each data id")
     auto notifier = hgf::make_memory_notifier();
     auto first = notifier.subscribe();
     auto second = notifier.subscribe();
+    std::size_t wakes{};
+    first.set_waker([&] { ++wakes; });
 
     CHECK(notifier.publish({"a", notice("a", 1)}).poll().status ==
           hgf::NotificationDeliveryStatus::Delivered);
@@ -327,6 +329,7 @@ TEST_CASE("memory notifier fans out and conflates each data id")
           hgf::NotificationDeliveryStatus::Delivered);
     CHECK(notifier.publish({"a", notice("a", 2)}).poll().status ==
           hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(wakes == 2);
     CHECK_THROWS_AS(notifier.publish({"a", notice("different", 1)}),
                     std::invalid_argument);
 
@@ -440,7 +443,7 @@ TEST_CASE("fabric planner wires one coordinator and hidden lineage cuts")
 
     const auto dependent = hg::build_graph<IndependentForestsGraph>();
     CHECK(count_semantic_node(
-              dependent, "hgraph.fabric.ingress_coordinator.contract") == 1);
+              dependent, "hgraph.fabric.ingress.auto") == 1);
     CHECK(count_semantic_node(
               dependent, "hgraph.fabric.publish_data.with_cut") == 2);
     CHECK(count_semantic_node(

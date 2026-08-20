@@ -152,6 +152,12 @@ public:
   resolve_forest(std::vector<Str> roots,
                  std::span<const ExposedRootVersion> exposed_roots = {});
 
+  /** Resolve only from revisions which were knowable at ``maximum_as_of``.
+      The bound applies recursively to roots and all ordinary ancestry. */
+  [[nodiscard]] ForestResolution resolve_forest_at(
+      std::vector<Str> roots, DateTime maximum_as_of,
+      std::span<const ExposedRootVersion> exposed_roots = {});
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
@@ -189,6 +195,12 @@ public:
   /** Resolve current accepted heads. MIN_DT omits notice latency for startup
       image calls which did not originate from a notice. */
   [[nodiscard]] CoordinationResult resolve(DateTime ready_at = MIN_DT);
+
+  /** Resolve and atomically commit a historical cut using no revision later
+      than ``maximum_as_of``. ``ready_at`` is independently used for latency
+      accounting and may remain MIN_DT for replay and snapshot. */
+  [[nodiscard]] CoordinationResult resolve_at(DateTime maximum_as_of,
+                                               DateTime ready_at = MIN_DT);
 
 private:
   struct Impl;

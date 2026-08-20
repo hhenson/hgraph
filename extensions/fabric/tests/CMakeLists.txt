@@ -16,6 +16,7 @@ add_executable(hgraph_fabric_tests
     test_public_contracts.cpp
     test_publication.cpp
     test_resolution.cpp
+    test_subscription.cpp
 )
 target_link_libraries(hgraph_fabric_tests
     PRIVATE hgraph::fabric Catch2::Catch2WithMain)

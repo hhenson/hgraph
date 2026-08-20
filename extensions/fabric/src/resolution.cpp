@@ -121,6 +121,7 @@ struct ConsistencyResolver::Impl {
   ResolverMetrics metrics{};
   std::map<Str, DataVersion, IdLess> lower_bounds{};
   std::vector<ResolvedCut> maxima{};
+  DateTime maximum_as_of{MAX_DT};
   bool saw_cycle{};
 
   explicit Impl(FabricConfig configured) : config(std::move(configured)) {
@@ -366,7 +367,10 @@ struct ConsistencyResolver::Impl {
       result.reserve(found->second.size());
       for (auto index = found->second.rbegin(); index != found->second.rend();
            ++index) {
-        result.push_back(&data.revisions[*index]);
+        const auto &revision = data.revisions[*index];
+        if (revision.as_of <= maximum_as_of) {
+          result.push_back(&revision);
+        }
       }
       return result;
     }
@@ -375,6 +379,9 @@ struct ConsistencyResolver::Impl {
     const auto lower = lower_bounds.find(data_id);
     for (auto revision = data.revisions.rbegin();
          revision != data.revisions.rend(); ++revision) {
+      if (revision->as_of > maximum_as_of) {
+        continue;
+      }
       if (lower != lower_bounds.end() &&
           revision->output_version < lower->second) {
         continue;
@@ -594,9 +601,15 @@ struct ConsistencyResolver::Impl {
   }
 
   ForestResolution resolve(std::vector<Str> roots,
-                           std::span<const ExposedRootVersion> exposed) {
+                           std::span<const ExposedRootVersion> exposed,
+                           DateTime as_of_limit) {
     canonicalise_ids(roots, "resolver roots");
+    if (as_of_limit <= MIN_DT) {
+      throw std::invalid_argument(
+          "fabric historical resolution requires a real as-of bound");
+    }
     metrics = {};
+    maximum_as_of = as_of_limit;
     lower_bounds.clear();
     refreshed_this_call.clear();
     maxima.clear();
@@ -687,7 +700,13 @@ ConsistencyResolver::operator=(ConsistencyResolver &&) noexcept = default;
 
 ForestResolution ConsistencyResolver::resolve_forest(
     std::vector<Str> roots, std::span<const ExposedRootVersion> exposed_roots) {
-  return impl_->resolve(std::move(roots), exposed_roots);
+  return impl_->resolve(std::move(roots), exposed_roots, MAX_DT);
+}
+
+ForestResolution ConsistencyResolver::resolve_forest_at(
+    std::vector<Str> roots, DateTime maximum_as_of,
+    std::span<const ExposedRootVersion> exposed_roots) {
+  return impl_->resolve(std::move(roots), exposed_roots, maximum_as_of);
 }
 
 struct ConsistencyCoordinator::Impl {
@@ -780,7 +799,8 @@ struct ConsistencyCoordinator::Impl {
     return true;
   }
 
-  [[nodiscard]] CoordinationResult resolve_all(DateTime ready_at) {
+  [[nodiscard]] CoordinationResult resolve_all(DateTime ready_at,
+                                                DateTime maximum_as_of) {
     std::vector<std::vector<Str>> groups;
     groups.reserve(roots.size());
     for (const auto &root : roots) {
@@ -793,7 +813,10 @@ struct ConsistencyCoordinator::Impl {
       results.reserve(groups.size());
       for (const auto &group : groups) {
         const auto exposed_bounds = bounds(group);
-        results.push_back(resolver.resolve_forest(group, exposed_bounds));
+        results.push_back(maximum_as_of == MAX_DT
+                              ? resolver.resolve_forest(group, exposed_bounds)
+                              : resolver.resolve_forest_at(
+                                    group, maximum_as_of, exposed_bounds));
       }
       if (!merge_overlaps(groups, results)) {
         break;
@@ -888,6 +911,11 @@ void ConsistencyCoordinator::observe_notice(Str data_id, DateTime noticed_at) {
 }
 
 CoordinationResult ConsistencyCoordinator::resolve(DateTime ready_at) {
-  return impl_->resolve_all(ready_at);
+  return impl_->resolve_all(ready_at, MAX_DT);
+}
+
+CoordinationResult ConsistencyCoordinator::resolve_at(DateTime maximum_as_of,
+                                                      DateTime ready_at) {
+  return impl_->resolve_all(ready_at, maximum_as_of);
 }
 } // namespace hgraph::fabric

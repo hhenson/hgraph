@@ -3,13 +3,17 @@
 #include <hgraph/fabric/planning.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include "impl/subscription_runtime.h"
+
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
 
 #include <algorithm>
+#include <map>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <tuple>
 #include <typeindex>
@@ -22,47 +26,8 @@ namespace hgraph::fabric
 {
     namespace
     {
-        using IngressSignal =
-            TSB<"hgraph.fabric::IngressSignal", Field<"version", TS<Int>>,
-                Field<"revision", TS<Int>>>;
-        using IngressSignals = TSD<Str, IngressSignal>;
-
-        struct SubscribeDataPlanningSource
-        {
-            static constexpr auto name = "hgraph.fabric.subscribe_data.planned";
-            using signature_args =
-                std::tuple<Scalar<"data_id", Str>,
-                           Scalar<"mode", SubscriptionMode>,
-                           Scalar<"as_of", DateTime>, Out<TS<Frame>>>;
-
-            static void start(Scalar<"data_id", Str>,
-                              Scalar<"mode", SubscriptionMode>,
-                              Scalar<"as_of", DateTime>)
-            {
-                throw std::logic_error(
-                    "hgraph.fabric.subscribe_data runtime is introduced by "
-                    "RFC 0026 subscription checkpoints");
-            }
-
-            static void eval() {}
-        };
-
-        /** One root endpoint for accepted lineage signals. Concrete memory and
-            Kafka ingress strategies replace this contract source in the
-            subscription checkpoints. */
-        struct IngressCoordinatorContractSource
-        {
-            static constexpr auto name = "hgraph.fabric.ingress_coordinator.contract";
-
-            static void start()
-            {
-                throw std::logic_error(
-                    "hgraph.fabric ingress runtime is introduced by RFC 0026 "
-                    "subscription checkpoints");
-            }
-
-            static void eval(Out<IngressSignals>) {}
-        };
+        using detail::IngressSignal;
+        using detail::IngressSignals;
 
         struct PublishDataWithoutCutSink
         {
@@ -108,6 +73,8 @@ namespace hgraph::fabric
             WiringPortRef       value{};
             DependencySelection dependencies{DependencySelection::automatic()};
             std::vector<Str>    resolved_dependencies{};
+            std::map<Str, std::pair<SubscriptionMode, DateTime>>
+                resolved_subscription_policies{};
             bool                wired{false};
         };
 
@@ -122,7 +89,7 @@ namespace hgraph::fabric
         [[nodiscard]] NodeTypeRef subscribe_source_type()
         {
             NodeBuilder builder;
-            builder.implementation<SubscribeDataPlanningSource>();
+            builder.implementation<detail::SubscribeDataRuntimeSource>();
             return builder.type();
         }
 
@@ -137,15 +104,35 @@ namespace hgraph::fabric
             return scalars.view().as_bundle().at("data_id").checked_as<Str>();
         }
 
+        [[nodiscard]] std::pair<SubscriptionMode, DateTime>
+        source_policy(const NodeBuilder &builder)
+        {
+            const auto scalars = builder.scalars().view().as_bundle();
+            return {
+                scalars.at("mode").checked_as<SubscriptionMode>(),
+                scalars.at("as_of").checked_as<DateTime>(),
+            };
+        }
+
         struct SourceCollection
         {
             std::unordered_set<const WiringInstance *> wiring_nodes{};
             std::unordered_map<const GraphBuilder *,
                                std::unordered_set<std::size_t>> compiled_nodes{};
             std::vector<Str>                           data_ids{};
+            std::map<Str, std::pair<SubscriptionMode, DateTime>> policies{};
 
-            void add(Str data_id)
+            void add(const NodeBuilder &builder)
             {
+                Str data_id = source_data_id(builder);
+                const auto policy = source_policy(builder);
+                const auto [found, inserted] = policies.emplace(data_id, policy);
+                if (!inserted && found->second != policy)
+                {
+                    throw std::invalid_argument(
+                        "fabric dependency discovery found one data id with "
+                        "multiple subscription policies");
+                }
                 if (std::ranges::find(data_ids, data_id) == data_ids.end())
                 {
                     data_ids.push_back(std::move(data_id));
@@ -193,7 +180,7 @@ namespace hgraph::fabric
             const NodeBuilder &node = graph.nodes()[node_index];
             if (node.type() == source_type)
             {
-                collection.add(source_data_id(node));
+                collection.add(node);
                 return;
             }
             node.visit_child_graphs(&collection, &collect_compiled_child);
@@ -238,9 +225,9 @@ namespace hgraph::fabric
                     const WiringInstance *node = source.peered_node();
                     if (!collection.wiring_nodes.insert(node).second) { return; }
                     if (node->definition ==
-                        std::type_index(typeid(SubscribeDataPlanningSource)))
+                        std::type_index(typeid(detail::SubscribeDataRuntimeSource)))
                     {
-                        collection.add(source_data_id(node->builder));
+                        collection.add(node->builder);
                         return;
                     }
                     node->builder.visit_child_graphs(&collection,
@@ -322,17 +309,180 @@ namespace hgraph::fabric
                 .output.erased();
         }
 
-        void finalize(DeclarationState &state, Wiring &wiring)
+        struct SubscriptionPolicy
         {
+            SubscriptionMode mode{SubscriptionMode::Auto};
+            DateTime         as_of{MIN_DT};
+
+            friend auto operator<=>(const SubscriptionPolicy &,
+                                    const SubscriptionPolicy &) = default;
+        };
+
+        [[nodiscard]] Port<IngressSignals> combine_signal_ports(
+            Wiring &wiring, const std::map<Str, WiringPortRef> &signals)
+        {
+            if (signals.empty())
+            {
+                throw std::invalid_argument(
+                    "fabric ingress combination requires at least one signal");
+            }
+            std::vector<WiringArg> args;
+            args.reserve(signals.size() + 1);
+            WiringArg keys;
+            keys.kind = WiringArg::Kind::Scalar;
+            std::vector<Str> data_ids;
+            data_ids.reserve(signals.size());
+            for (const auto &[data_id, signal] : signals)
+            {
+                static_cast<void>(signal);
+                data_ids.push_back(data_id);
+            }
+            keys.scalar_value = stdlib::make_list<Str>(data_ids.begin(),
+                                                       data_ids.end());
+            keys.scalar_meta = keys.scalar_value.schema();
+            args.push_back(std::move(keys));
+            for (const auto &[data_id, signal] : signals)
+            {
+                static_cast<void>(data_id);
+                WiringArg value;
+                value.kind = WiringArg::Kind::TimeSeries;
+                value.port = signal;
+                args.push_back(std::move(value));
+            }
+            return Port<IngressSignals>{
+                wiring,
+                wire_operator(wiring, "combine_tsd", args, true)
+                    .output.erased()};
+        }
+
+        [[nodiscard]] Port<IngressSignals> wire_subscription_ingress(
+            DeclarationState &state, Wiring &wiring)
+        {
+            std::map<SubscriptionPolicy, std::vector<std::size_t>> groups;
+            std::map<Str, SubscriptionPolicy> policies_by_data_id;
+            for (std::size_t index = 0; index < state.subscriptions.size();
+                 ++index)
+            {
+                const auto &subscription = state.subscriptions[index];
+                const SubscriptionPolicy policy{subscription.mode,
+                                                subscription.as_of};
+                const auto [found, inserted] = policies_by_data_id.emplace(
+                    subscription.data_id, policy);
+                if (!inserted && found->second != policy)
+                {
+                    throw std::invalid_argument(
+                        "hgraph.fabric.subscribe_data: one data id cannot use "
+                        "multiple subscription policies in the same wiring root");
+                }
+                groups[policy].push_back(index);
+            }
+
+            std::map<SubscriptionPolicy, Port<IngressSignals>> group_outputs;
+            for (const auto &[policy, indexes] : groups)
+            {
+                std::vector<Str> roots;
+                roots.reserve(indexes.size());
+                for (const auto index : indexes)
+                {
+                    roots.push_back(state.subscriptions[index].data_id);
+                }
+                group_outputs.emplace(
+                    policy, detail::wire_ingress_group(
+                                wiring, canonical_ids(std::move(roots)),
+                                policy.mode, policy.as_of));
+            }
+
+            std::map<Str, WiringPortRef> signals;
             for (auto &subscription : state.subscriptions)
             {
+                const SubscriptionPolicy policy{subscription.mode,
+                                                subscription.as_of};
+                const auto group = group_outputs.find(policy);
+                if (group == group_outputs.end())
+                {
+                    throw std::logic_error(
+                        "fabric subscription policy group was not wired");
+                }
+                auto signal = wire<stdlib::getitem_>(
+                                  wiring, group->second, subscription.data_id)
+                                  .as<IngressSignal>();
                 if (!subscription.delayed.bound())
                 {
-                    auto source = wire<SubscribeDataPlanningSource>(
-                        wiring, subscription.data_id, subscription.mode,
-                        subscription.as_of);
+                    auto source = wire<detail::SubscribeDataRuntimeSource>(
+                        wiring, signal, subscription.data_id,
+                        subscription.mode, subscription.as_of);
                     subscription.delayed(source);
                 }
+                signals.try_emplace(subscription.data_id, signal.erased());
+            }
+
+            return combine_signal_ports(wiring, signals);
+        }
+
+        [[nodiscard]] Port<IngressSignals> wire_discovered_ingress(
+            Wiring &wiring,
+            const std::map<Str, std::pair<SubscriptionMode, DateTime>> &policies)
+        {
+            std::map<SubscriptionPolicy, std::vector<Str>> groups;
+            for (const auto &[data_id, policy] : policies)
+            {
+                groups[SubscriptionPolicy{policy.first, policy.second}]
+                    .push_back(data_id);
+            }
+            std::map<Str, WiringPortRef> signals;
+            for (auto &[policy, roots] : groups)
+            {
+                auto output = detail::wire_ingress_group(
+                    wiring, canonical_ids(std::move(roots)), policy.mode,
+                    policy.as_of);
+                for (const auto &[data_id, selected_policy] : policies)
+                {
+                    if (selected_policy !=
+                        std::pair{policy.mode, policy.as_of})
+                    {
+                        continue;
+                    }
+                    signals.emplace(
+                        data_id,
+                        wire<stdlib::getitem_>(wiring, output, data_id)
+                            .as<IngressSignal>()
+                            .erased());
+                }
+            }
+            return combine_signal_ports(wiring, signals);
+        }
+
+        [[nodiscard]] Port<IngressSignals> merge_ingress(
+            Wiring &wiring, Port<IngressSignals> first,
+            std::span<const Str> first_ids, Port<IngressSignals> second,
+            const std::map<Str, std::pair<SubscriptionMode, DateTime>> &second_ids)
+        {
+            std::map<Str, WiringPortRef> signals;
+            for (const auto &data_id : first_ids)
+            {
+                signals.emplace(
+                    data_id,
+                    wire<stdlib::getitem_>(wiring, first, data_id)
+                        .as<IngressSignal>()
+                        .erased());
+            }
+            for (const auto &[data_id, policy] : second_ids)
+            {
+                static_cast<void>(policy);
+                signals.emplace(
+                    data_id,
+                    wire<stdlib::getitem_>(wiring, second, data_id)
+                        .as<IngressSignal>()
+                        .erased());
+            }
+            return combine_signal_ports(wiring, signals);
+        }
+
+        void finalize(DeclarationState &state, Wiring &wiring)
+        {
+            if (!state.subscriptions.empty() && !state.coordinator.has_value())
+            {
+                state.coordinator = wire_subscription_ingress(state, wiring);
             }
 
             for (auto &publisher : state.publishers)
@@ -359,6 +509,8 @@ namespace hgraph::fabric
                 }
                 publisher.resolved_dependencies =
                     canonical_ids(std::move(collection.data_ids));
+                publisher.resolved_subscription_policies =
+                    std::move(collection.policies);
                 if (std::ranges::find(publisher.resolved_dependencies,
                                       publisher.data_id) !=
                     publisher.resolved_dependencies.end())
@@ -369,15 +521,47 @@ namespace hgraph::fabric
                 }
             }
 
+            std::set<Str, decltype(&canonical_data_id_less)> direct_ids{
+                &canonical_data_id_less};
+            for (const auto &subscription : state.subscriptions)
+            {
+                direct_ids.insert(subscription.data_id);
+            }
+            std::map<Str, std::pair<SubscriptionMode, DateTime>> missing;
+            for (const auto &publisher : state.publishers)
+            {
+                for (const auto &[data_id, policy] :
+                     publisher.resolved_subscription_policies)
+                {
+                    if (direct_ids.contains(data_id)) { continue; }
+                    const auto [found, inserted] = missing.emplace(data_id, policy);
+                    if (!inserted && found->second != policy)
+                    {
+                        throw std::invalid_argument(
+                            "fabric dependency discovery found conflicting "
+                            "subscription policies for one data id");
+                    }
+                }
+            }
+            if (!missing.empty())
+            {
+                auto discovered = wire_discovered_ingress(wiring, missing);
+                if (state.coordinator.has_value())
+                {
+                    std::vector<Str> ids{direct_ids.begin(), direct_ids.end()};
+                    state.coordinator = merge_ingress(
+                        wiring, *state.coordinator, ids, discovered, missing);
+                }
+                else
+                {
+                    state.coordinator = discovered;
+                }
+            }
+
             DependencyPlanInput plan = build_plan(state);
             wiring.set_trait(DEPENDENCY_PLAN_TRAIT,
                              make_dependency_plan(plan));
 
-            if (!plan.roots.empty() && !state.coordinator.has_value())
-            {
-                state.coordinator =
-                    wire<IngressCoordinatorContractSource>(wiring);
-            }
             for (auto &publisher : state.publishers)
             {
                 if (publisher.wired) { continue; }

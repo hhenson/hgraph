@@ -23,6 +23,7 @@ RevisionId = int
 SubscriptionMode = _native.SubscriptionMode
 FabricSubscriptionMode = SubscriptionMode
 ResolutionStatus = _native.ResolutionStatus
+_MemoryFabricFixture = _native._MemoryFabricFixture
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,10 @@
+#include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/notifier.h>
+#include <hgraph/fabric/value_builders.h>
 
 #include <algorithm>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -14,10 +17,17 @@ namespace hgraph::fabric
     {
         struct MemorySubscription
         {
+            struct PendingNotice
+            {
+                RevisionId revision{};
+                persistence::store::ObjectBytes payload{};
+            };
+
             mutable std::mutex mutex{};
             bool closed{};
             std::deque<Str> order{};
-            std::unordered_map<Str, persistence::store::ObjectBytes> pending{};
+            std::unordered_map<Str, PendingNotice> pending{};
+            std::function<void()> waker{};
         };
 
         struct MemoryNotifier
@@ -56,7 +66,7 @@ namespace hgraph::fabric
                     auto found = subscription.pending.find(data_id);
                     RevisionNotification result{
                         .data_id = std::move(data_id),
-                        .revision = std::move(found->second),
+                        .revision = std::move(found->second.payload),
                     };
                     subscription.pending.erase(found);
                     return result;
@@ -67,6 +77,21 @@ namespace hgraph::fabric
                     const std::scoped_lock lock{subscription.mutex};
                     return subscription.closed ? 0 : subscription.pending.size();
                 },
+                [](void *context, std::function<void()> waker) {
+                    if (context == nullptr) { return; }
+                    auto &subscription = *static_cast<MemorySubscription *>(context);
+                    std::function<void()> notify;
+                    {
+                        const std::scoped_lock lock{subscription.mutex};
+                        if (subscription.closed) { return; }
+                        subscription.waker = std::move(waker);
+                        if (!subscription.pending.empty())
+                        {
+                            notify = subscription.waker;
+                        }
+                    }
+                    if (notify) { notify(); }
+                },
                 [](void *context) noexcept {
                     if (context == nullptr) { return; }
                     auto &subscription = *static_cast<MemorySubscription *>(context);
@@ -74,6 +99,7 @@ namespace hgraph::fabric
                     subscription.closed = true;
                     subscription.order.clear();
                     subscription.pending.clear();
+                    subscription.waker = {};
                 },
             };
             return ops;
@@ -99,6 +125,10 @@ namespace hgraph::fabric
                 },
                 [](void *context, RevisionNotification notification) {
                     auto &owner = *static_cast<MemoryNotifier *>(context);
+                    const RevisionId proposed_revision =
+                        data_revision_input(
+                            decode_revision(notification.revision).view())
+                            .revision;
                     std::vector<std::shared_ptr<MemorySubscription>> subscribers;
                     {
                         const std::scoped_lock lock{owner.mutex};
@@ -116,15 +146,28 @@ namespace hgraph::fabric
                     }
                     for (const auto &subscription : subscribers)
                     {
-                        const std::scoped_lock lock{subscription->mutex};
-                        if (subscription->closed) { continue; }
-                        auto [entry, inserted] = subscription->pending.try_emplace(
-                            notification.data_id, notification.revision);
-                        if (inserted)
+                        std::function<void()> waker;
                         {
-                            subscription->order.push_back(notification.data_id);
+                            const std::scoped_lock lock{subscription->mutex};
+                            if (subscription->closed) { continue; }
+                            auto [entry, inserted] = subscription->pending.try_emplace(
+                                notification.data_id,
+                                MemorySubscription::PendingNotice{
+                                    proposed_revision,
+                                    notification.revision});
+                            if (inserted)
+                            {
+                                subscription->order.push_back(notification.data_id);
+                                waker = subscription->waker;
+                            }
+                            else if (proposed_revision >= entry->second.revision)
+                            {
+                                entry->second = MemorySubscription::PendingNotice{
+                                    proposed_revision,
+                                    notification.revision};
+                            }
                         }
-                        else { entry->second = notification.revision; }
+                        if (waker) { waker(); }
                     }
                     return NotificationDelivery{
                         std::make_shared<ImmediateDelivery>(), delivery_ops()};

@@ -7,6 +7,7 @@
 #include <hgraph/types/primitive_types.h>
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -73,6 +74,7 @@ namespace hgraph::fabric
     {
         std::optional<RevisionNotification> (*try_pop)(void *context);
         std::size_t (*pending)(void *context) noexcept;
+        void (*set_waker)(void *context, std::function<void()> waker);
         void (*close)(void *context) noexcept;
     };
 
@@ -95,6 +97,10 @@ namespace hgraph::fabric
 
         [[nodiscard]] std::optional<RevisionNotification> try_pop() const;
         [[nodiscard]] std::size_t pending() const noexcept;
+        /** Install or replace the wake callback used when a data id first
+            becomes pending. Passing an empty callback disables wake-ups.
+            Concrete notifiers invoke it without holding their queue lock. */
+        void set_waker(std::function<void()> waker) const;
         void close() noexcept;
         [[nodiscard]] explicit operator bool() const noexcept;
 

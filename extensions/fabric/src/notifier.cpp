@@ -16,6 +16,7 @@ namespace hgraph::fabric
         }
 
         [[nodiscard]] std::size_t empty_pending(void *) noexcept { return 0; }
+        void empty_set_waker(void *, std::function<void()>) {}
         void empty_close(void *) noexcept {}
 
         [[nodiscard]] NotificationSubscription empty_subscribe(void *)
@@ -94,6 +95,7 @@ namespace hgraph::fabric
         static const NotificationSubscriptionOps ops{
             &empty_try_pop,
             &empty_pending,
+            &empty_set_waker,
             &empty_close,
         };
         return ops;
@@ -106,7 +108,7 @@ namespace hgraph::fabric
         : context_(std::move(context)), ops_(ops)
     {
         if (!context_ || ops_.try_pop == nullptr || ops_.pending == nullptr ||
-            ops_.close == nullptr)
+            ops_.set_waker == nullptr || ops_.close == nullptr)
         {
             throw std::invalid_argument(
                 "fabric notification subscription requires complete operations");
@@ -144,6 +146,11 @@ namespace hgraph::fabric
     std::size_t NotificationSubscription::pending() const noexcept
     {
         return ops_.pending(context_.get());
+    }
+
+    void NotificationSubscription::set_waker(std::function<void()> waker) const
+    {
+        ops_.set_waker(context_.get(), std::move(waker));
     }
 
     void NotificationSubscription::close() noexcept

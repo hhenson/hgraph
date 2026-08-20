@@ -35,7 +35,8 @@ void seed(const hgf::FabricConfig &config, std::string data_id,
           hgf::RevisionId revision, hgf::DataVersion output_version,
           std::vector<hgf::DataDependencyInput> dependencies = {},
           std::optional<hgf::DataVersion> self_predecessor = {},
-          std::string field = "value", bool write_frame = true) {
+          std::string field = "value", bool write_frame = true,
+          std::optional<hg::DateTime> as_of = {}) {
   const std::string frame_key =
       hgf::data_version_key(config.prefix, data_id, output_version);
   if (write_frame && !config.frames.contains(frame_key)) {
@@ -47,7 +48,7 @@ void seed(const hgf::FabricConfig &config, std::string data_id,
       .output_version = output_version,
       .dependencies = std::move(dependencies),
       .self_predecessor = self_predecessor,
-      .as_of = BASE_TIME + hg::TimeDelta{revision},
+      .as_of = as_of.value_or(BASE_TIME + hg::TimeDelta{revision}),
   });
   const auto decoded = hgf::data_revision_input(value.view());
   REQUIRE(config.objects
@@ -294,6 +295,29 @@ TEST_CASE("root versions never regress below an exposed cut") {
   REQUIRE(result.status == hgf::ResolutionStatus::Unchanged);
   CHECK(selection(result, "A").output_version == 2);
   CHECK(result.changed_roots.empty());
+}
+
+TEST_CASE("historical resolution applies the as-of bound recursively") {
+  auto config = hgf::make_memory_fabric_config("tests/resolution/as-of");
+  seed(config, "P", 1, 1, {}, {}, "value", true,
+       BASE_TIME + hg::TimeDelta{1});
+  seed(config, "P", 2, 2, {}, {}, "value", true,
+       BASE_TIME + hg::TimeDelta{4});
+  seed(config, "A", 1, 1, {{"P", 1}}, {}, "value", true,
+       BASE_TIME + hg::TimeDelta{2});
+  seed(config, "A", 2, 2, {{"P", 2}}, {}, "value", true,
+       BASE_TIME + hg::TimeDelta{5});
+
+  hgf::ConsistencyResolver resolver{config};
+  const auto historical = resolver.resolve_forest_at(
+      {"A"}, BASE_TIME + hg::TimeDelta{3});
+  REQUIRE(historical.status == hgf::ResolutionStatus::Ready);
+  CHECK(selection(historical, "A").revision == 1);
+  CHECK(selection(historical, "P").revision == 1);
+
+  hgf::ConsistencyResolver pending{config};
+  CHECK(pending.resolve_forest_at({"A"}, BASE_TIME + hg::TimeDelta{1})
+            .status == hgf::ResolutionStatus::Pending);
 }
 
 TEST_CASE("coordinator measures conflated notice to ready latency") {

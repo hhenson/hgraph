@@ -1,9 +1,11 @@
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/keys.h>
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/operators.h>
 #include <hgraph/fabric/resolution.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/types/operator_dispatch.h>
 
@@ -29,6 +31,17 @@ namespace nb = nanobind;
 
 namespace
 {
+    struct MemoryFabricFixture
+    {
+        explicit MemoryFabricFixture(hgraph::Str prefix)
+            : config(hgraph::fabric::make_memory_fabric_config(
+                  std::move(prefix)))
+        {
+        }
+
+        hgraph::fabric::FabricConfig config;
+    };
+
     [[nodiscard]] nb::bytes to_python_bytes(
         const hgraph::persistence::store::ObjectBytes &value)
     {
@@ -82,6 +95,61 @@ NB_MODULE(_hgraph_fabric, module)
             python_bridge::register_native_scalar_type<SubscriptionMode>(mode);
         });
     OperatorRegistry::instance().run_installers();
+
+    nb::class_<MemoryFabricFixture>(module, "_MemoryFabricFixture")
+        .def(nb::init<Str>(), nb::arg("prefix"))
+        .def(
+            "install",
+            [](MemoryFabricFixture &self, nb::handle state) {
+                set_fabric_config(nb::cast<GlobalState &>(state).view(),
+                                  self.config);
+            },
+            nb::arg("global_state"))
+        .def(
+            "seed",
+            [](MemoryFabricFixture &self, const nb::bytes &encoded) {
+                const DataRevisionInput revision = data_revision_input(
+                    decode_revision(bytes_view(encoded)).view());
+                const std::string frame_key = data_version_key(
+                    self.config.prefix, revision.data_id,
+                    revision.output_version);
+                if (!self.config.frames.contains(frame_key))
+                {
+                    self.config.frames.write(
+                        frame_key, fixture_frame(revision.output_version));
+                }
+                const auto stored = self.config.objects.put_immutable(
+                    revision_key(self.config.prefix, revision.data_id,
+                                 revision.revision),
+                    encode_revision(make_data_revision(revision).view()));
+                if (stored.status !=
+                        persistence::store::ImmutableWriteStatus::Created &&
+                    stored.status !=
+                        persistence::store::ImmutableWriteStatus::Unchanged)
+                {
+                    throw std::invalid_argument(
+                        "fabric fixture revision slot conflicts");
+                }
+            },
+            nb::arg("encoded_revision"))
+        .def(
+            "notify",
+            [](MemoryFabricFixture &self, const nb::bytes &encoded) {
+                auto payload = persistence::store::ObjectBytes{
+                    bytes_view(encoded).begin(), bytes_view(encoded).end()};
+                const DataRevisionInput revision = data_revision_input(
+                    decode_revision(payload).view());
+                const auto delivery = self.config.notifications.publish(
+                    {.data_id = revision.data_id,
+                     .revision = std::move(payload)});
+                const auto result = delivery.poll();
+                if (result.status != NotificationDeliveryStatus::Delivered)
+                {
+                    throw std::runtime_error(
+                        "fabric fixture notification was not delivered");
+                }
+            },
+            nb::arg("encoded_revision"));
 
     module.def(
         "_encode_revision",
