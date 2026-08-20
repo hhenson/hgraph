@@ -29,6 +29,7 @@ add_library(hgraph_fabric
     src/metadata_codec.cpp
     src/notifier.cpp
     src/operators.cpp
+    src/planning.cpp
     src/publication.cpp
     src/types.cpp
     src/value_builders.cpp

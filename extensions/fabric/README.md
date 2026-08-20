@@ -11,9 +11,12 @@ configuration, and broker-free memory notification. Its native publication
 state machine writes each Frame, wins the immutable revision slot, repairs the
 derived as-of/latest indexes, and only then advertises the accepted revision.
 Notifier failure leaves the accepted revision pending delivery so retry cannot
-change the durable winner. Later RFC checkpoints connect that machinery to
-wiring-time dependency planning, consistent-cut resolution, subscription modes,
-and Kafka.
+change the durable winner. The wiring-time planner discovers subscriptions
+through direct and nested graph ownership, validates explicit dependency
+handles, partitions
+independent consistency forests, and wires one root coordinator with hidden
+lineage cuts. Later RFC checkpoints connect that plan to consistent-cut
+resolution, subscription modes, and Kafka.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data

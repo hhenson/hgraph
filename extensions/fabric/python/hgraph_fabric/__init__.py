@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Final
 
-from hgraph import CompoundScalar, Frame, MIN_DT, TS, operator_function
+from hgraph import (
+    CompoundScalar,
+    Frame,
+    MIN_DT,
+    TS,
+    WiringPort,
+    operator_function,
+)
 
 from . import _hgraph_fabric as _native
 
@@ -40,9 +47,9 @@ class DataRevision(CompoundScalar, namespace="hgraph.fabric"):
 
 @dataclass(frozen=True)
 class DependencyHandle:
-    """Opaque Python authoring handle completed by dependency planning in checkpoint 3."""
+    """Opaque proof that a dependency came from ``subscribe_data``."""
 
-    _token: object
+    _token: WiringPort
 
 
 @dataclass(frozen=True)
@@ -65,6 +72,10 @@ class DependencySelection:
     ) -> "DependencySelection":
         if not dependencies:
             raise ValueError("explicit fabric dependencies must not be empty")
+        if not all(isinstance(item, DependencyHandle) for item in dependencies):
+            raise TypeError(
+                "explicit fabric dependencies must be DependencyHandle values"
+            )
         return cls(tuple(dependencies))
 
 
@@ -76,6 +87,9 @@ LATEST_MEDIA_TYPE: Final[str] = _native.LATEST_MEDIA_TYPE
 
 _subscribe_data = operator_function("hgraph.fabric.subscribe_data")
 _publish_data = operator_function("hgraph.fabric.publish_data")
+_publish_data_explicit = operator_function(
+    "hgraph.fabric._publish_data_explicit"
+)
 
 
 def subscribe_data(
@@ -89,6 +103,18 @@ def subscribe_data(
     return _subscribe_data(data_id, mode, MIN_DT if as_of is None else as_of)
 
 
+def dependency_handle(subscription: TS[Frame]) -> DependencyHandle:
+    """Create an explicit-lineage handle from a direct subscription result.
+
+    Native planning validates the direct source and wiring-root identity when
+    the handle is consumed by ``publish_data``.
+    """
+
+    if not isinstance(subscription, WiringPort):
+        raise TypeError("fabric dependency handle requires a WiringPort")
+    return DependencyHandle(subscription)
+
+
 def publish_data(
     data_id: str,
     value: TS[Frame],
@@ -97,15 +123,16 @@ def publish_data(
 ) -> None:
     """Wire a complete atomic Frame publisher.
 
-    Explicit Python dependency handles become executable with the shared C++
-    planner in RFC 0026 checkpoint 3. Automatic lineage is fully declared now.
+    Explicit handles and automatic discovery use the same native wiring-time
+    dependency planner.
     """
 
-    if not dependencies.is_automatic:
-        raise NotImplementedError(
-            "explicit Python fabric dependency handles arrive in RFC 0026 checkpoint 3"
-        )
-    _publish_data(data_id, value)
+    if dependencies.is_automatic:
+        _publish_data(data_id, value)
+        return
+    _publish_data_explicit(
+        data_id, value, *(item._token for item in dependencies.dependencies)
+    )
 
 
 def _to_epoch_microseconds(value: datetime) -> int:
@@ -185,6 +212,7 @@ __all__ = [
     "decode_as_of_reference",
     "decode_latest_reference",
     "decode_revision",
+    "dependency_handle",
     "encode_as_of_reference",
     "encode_latest_reference",
     "encode_revision",
