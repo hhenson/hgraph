@@ -212,6 +212,21 @@ void MockCluster::fail_next_fetch(MockConsumeError error, std::size_t count) {
                                           responses.data());
 }
 
+void MockCluster::fail_next_committed_offset_fetch(std::size_t count) {
+  if (count == 0) {
+    return;
+  }
+  if (count > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    throw std::invalid_argument("Kafka mock failure count is out of range");
+  }
+  std::vector<rd_kafka_resp_err_t> responses(
+      count, RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE);
+  // OffsetFetch is Kafka protocol API key 9.  This reproduces the startup
+  // window in which topic traffic is available before the group coordinator.
+  rd_kafka_mock_push_request_errors_array(impl_->cluster, 9, responses.size(),
+                                          responses.data());
+}
+
 void MockCluster::stop_brokers() {
   const auto error = rd_kafka_mock_broker_set_down(impl_->cluster, -1);
   if (error != RD_KAFKA_RESP_ERR_NO_ERROR) {

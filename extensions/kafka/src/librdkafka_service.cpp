@@ -354,7 +354,11 @@ using KafkaConfPtr = std::unique_ptr<rd_kafka_conf_t, KafkaConfDeleter>;
   case RD_KAFKA_RESP_ERR__MSG_TIMED_OUT:
   case RD_KAFKA_RESP_ERR__TRANSPORT:
   case RD_KAFKA_RESP_ERR__ALL_BROKERS_DOWN:
+  case RD_KAFKA_RESP_ERR__WAIT_COORD:
   case RD_KAFKA_RESP_ERR_REQUEST_TIMED_OUT:
+  case RD_KAFKA_RESP_ERR_COORDINATOR_LOAD_IN_PROGRESS:
+  case RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE:
+  case RD_KAFKA_RESP_ERR_NOT_COORDINATOR:
   case RD_KAFKA_RESP_ERR_NOT_ENOUGH_REPLICAS:
   case RD_KAFKA_RESP_ERR_NOT_ENOUGH_REPLICAS_AFTER_APPEND:
   case RD_KAFKA_RESP_ERR_NETWORK_EXCEPTION:
@@ -2015,7 +2019,22 @@ void ConsumerSession::resolve_start_positions(
     }
   }
   if (spec_.start_kind == KafkaStartPositionKind::Committed) {
-    const auto error = rd_kafka_committed(consumer, partitions, 5'000);
+    // A newly started broker may acknowledge topic traffic before its group
+    // coordinator is ready.  Committed-offset discovery is a startup/recovery
+    // operation, so retry coordinator transitions within the existing
+    // five-second resolution budget instead of terminating the subscription.
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds{5'000};
+    rd_kafka_resp_err_t error{};
+    do {
+      error = rd_kafka_committed(consumer, partitions, 500);
+      if (error == RD_KAFKA_RESP_ERR_NO_ERROR || !retriable_error(error) ||
+          stopping_.load(std::memory_order_relaxed) ||
+          std::chrono::steady_clock::now() >= deadline) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    } while (true);
     if (error != RD_KAFKA_RESP_ERR_NO_ERROR) {
       throw std::runtime_error(
           Str{"Unable to resolve committed Kafka offsets: "} +

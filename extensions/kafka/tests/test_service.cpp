@@ -1894,6 +1894,32 @@ void test_independent_assignment_reads_every_partition() {
           "independent assignment did not read every selected topic partition");
 }
 
+void test_committed_start_retries_coordinator_initialization() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-coordinator-startup"});
+  cluster.seed_record(Str{"typed-coordinator-startup"}, Bytes{"available"});
+  cluster.fail_next_committed_offset_fetch(2);
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-coordinator-startup-subscriber"})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .topics({Str{"typed-coordinator-startup"}})
+          .group_id(Str{"typed-coordinator-startup-group"})
+          .assignment_mode(KafkaAssignmentMode::Independent)
+          .start(make_start_position(KafkaStartPositionKind::Committed,
+                                     KafkaOffsetFallback::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .sharing_identity(Str{"typed-coordinator-startup-subscription"})
+          .build();
+  run_bounded_subscription();
+
+  require(bounded_payloads == std::vector<Str>{Str{"available"}},
+          "a transient group-coordinator startup response terminated the "
+          "committed subscription");
+}
+
 void test_commit_modes_and_monotonic_explicit_commits() {
   {
     MockCluster cluster;
@@ -2481,6 +2507,7 @@ int main() {
     test_timestamp_and_graph_start_positions();
     test_pattern_committed_fallback_and_key_filter();
     test_independent_assignment_reads_every_partition();
+    test_committed_start_retries_coordinator_initialization();
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_hands_off_before_live_records();
