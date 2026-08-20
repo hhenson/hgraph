@@ -93,6 +93,16 @@ def test_python_operator_validation_is_wiring_time():
             )
 
 
+def test_python_wiring_rejects_duplicate_publishers():
+    wiring = _hgraph.Wiring()
+    with use_wiring(wiring):
+        first = hgf.subscribe_data("python/input-a")
+        second = hgf.subscribe_data("python/input-b")
+        hgf.publish_data("python/output", first)
+        with pytest.raises(RuntimeError, match="data id already has a publisher"):
+            hgf.publish_data("python/output", second)
+
+
 def test_explicit_dependency_selection_rejects_empty():
     with pytest.raises(ValueError, match="must not be empty"):
         hgf.DependencySelection.explicit()

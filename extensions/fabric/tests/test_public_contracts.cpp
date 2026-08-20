@@ -90,6 +90,36 @@ namespace
                     {std::move(dependency)}));
         }
     };
+
+    struct DuplicatePublisherGraph
+    {
+        static constexpr auto name = "hgraph.fabric.test.duplicate_publishers";
+
+        static void compose(hg::Wiring &wiring)
+        {
+            auto first  = hgf::subscribe_data(wiring, "input-a");
+            auto second = hgf::subscribe_data(wiring, "input-b");
+            hgf::publish_data(wiring, "output", first);
+            hgf::publish_data(wiring, "output", second);
+        }
+    };
+
+    struct DuplicateExplicitDependencyGraph
+    {
+        static constexpr auto name =
+            "hgraph.fabric.test.duplicate_explicit_dependencies";
+
+        static void compose(hg::Wiring &wiring)
+        {
+            auto first  = hgf::subscribe_data(wiring, "input");
+            auto second = hgf::subscribe_data(wiring, "input");
+            hgf::publish_data(
+                wiring, "output", first,
+                hgf::DependencySelection::explicit_dependencies(
+                    {hgf::dependency_handle(wiring, first),
+                     hgf::dependency_handle(wiring, second)}));
+        }
+    };
 }  // namespace
 
 TEST_CASE("fabric public values are canonical and validate identity")
@@ -220,4 +250,15 @@ TEST_CASE("fabric subscription mode validation rejects unknown enum values")
         hgf::subscribe_data(wiring, "input",
                             static_cast<hgf::SubscriptionMode>(99)),
         "hgraph.fabric.subscribe_data: unsupported subscription mode");
+}
+
+TEST_CASE("fabric wiring rejects duplicate publisher and dependency data ids")
+{
+    hgf::register_fabric_operators();
+    CHECK_THROWS_WITH(
+        hg::build_graph<DuplicatePublisherGraph>(),
+        Catch::Matchers::ContainsSubstring("data id already has a publisher"));
+    CHECK_THROWS_WITH(
+        hg::build_graph<DuplicateExplicitDependencyGraph>(),
+        Catch::Matchers::ContainsSubstring("dependency data ids must be unique"));
 }

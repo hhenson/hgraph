@@ -147,7 +147,18 @@ namespace hgraph::fabric
                                 NamedPort<"value", TS<Frame>> value)
             {
                 require_data_id(data_id.value());
-                declarations(wiring)->publishers.push_back(PublisherDeclaration{
+                auto state = declarations(wiring);
+                if (std::ranges::any_of(
+                        state->publishers,
+                        [&](const PublisherDeclaration &publisher) {
+                            return publisher.data_id == data_id.value();
+                        }))
+                {
+                    throw std::invalid_argument(
+                        "hgraph.fabric.publish_data: data id already has a "
+                        "publisher in this wiring root");
+                }
+                state->publishers.push_back(PublisherDeclaration{
                     .data_id = data_id.value(),
                     .dependencies = DependencySelection::automatic(),
                 });
@@ -208,11 +219,11 @@ namespace hgraph::fabric
             }
             for (std::size_t previous = 0; previous < index; ++previous)
             {
-                if (dependencies[index].source().same_source_as(
-                        dependencies[previous].source()))
+                if (dependencies[index].data_id() ==
+                    dependencies[previous].data_id())
                 {
                     throw std::invalid_argument(
-                        "explicit fabric dependencies must be unique");
+                        "explicit fabric dependency data ids must be unique");
                 }
             }
         }
