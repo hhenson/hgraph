@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <typeindex>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -129,7 +130,8 @@ struct FabricProbePlanner {
 
   struct SourceCollection {
     std::unordered_set<const hgraph::WiringInstance *> wiring_nodes;
-    std::unordered_set<const hgraph::GraphBuilder *> compiled_graphs;
+    std::unordered_map<const hgraph::GraphBuilder *,
+                       std::unordered_set<std::size_t>> compiled_nodes;
     std::size_t marked_sources{0};
   };
 
@@ -142,13 +144,23 @@ struct FabricProbePlanner {
     return type;
   }
 
-  static void collect_compiled_graph(const hgraph::GraphBuilder &graph,
-                                     SourceCollection &collection);
+  static void collect_compiled_node(const hgraph::GraphBuilder &graph,
+                                    std::size_t node_index,
+                                    SourceCollection &collection);
 
   static void collect_compiled_child(void *raw_collection,
-                                     const hgraph::GraphBuilder &child) {
-    collect_compiled_graph(
-        child, *static_cast<SourceCollection *>(raw_collection));
+                                     hgraph::ChildGraphInspectionView child) {
+    if (child.graph == nullptr) {
+      throw std::logic_error("fabric probe encountered an invalid child graph");
+    }
+    if (child.output_binding == nullptr ||
+        child.output_binding->kind ==
+            hgraph::NestedGraphOutputBinding::Kind::ParentInput) {
+      return;
+    }
+    collect_compiled_node(
+        *child.graph, child.output_binding->source.node,
+        *static_cast<SourceCollection *>(raw_collection));
   }
 
   static void collect_marked_sources(
@@ -228,16 +240,26 @@ struct FabricProbePlanner {
   }
 };
 
-void FabricProbePlanner::collect_compiled_graph(
-    const hgraph::GraphBuilder &graph, SourceCollection &collection) {
-  if (!collection.compiled_graphs.insert(&graph).second) {
+void FabricProbePlanner::collect_compiled_node(
+    const hgraph::GraphBuilder &graph, std::size_t node_index,
+    SourceCollection &collection) {
+  if (node_index >= graph.node_count()) {
+    throw std::logic_error("fabric probe encountered an invalid child output");
+  }
+  if (!collection.compiled_nodes[&graph].insert(node_index).second) {
     return;
   }
-  for (const hgraph::NodeBuilder &node : graph.nodes()) {
-    if (node.type() == marked_source_type()) {
-      ++collection.marked_sources;
+  const hgraph::NodeBuilder &node = graph.nodes()[node_index];
+  if (node.type() == marked_source_type()) {
+    ++collection.marked_sources;
+    return;
+  }
+  node.visit_child_graphs(&collection, &collect_compiled_child);
+  for (const hgraph::GraphEdge &edge : graph.edges()) {
+    if (edge.target_node == node_index) {
+      collect_compiled_node(
+          graph, hgraph::graph_edge_source_node(edge.source_node), collection);
     }
-    node.visit_child_graphs(&collection, &collect_compiled_child);
   }
 }
 

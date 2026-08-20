@@ -220,8 +220,10 @@ shape as the lower layers:
     ``ChildGraphInspectionOps`` contract, so an extension can recurse through
     nested plans without identifying a concrete map, mesh, reduce, switch or
     single-nested representation.  Ordinary nodes bind the canonical no-op
-    implementation.  The borrowed ``GraphBuilder`` references are valid only
-    during the visitor call, and evaluation never consults this operation.
+    implementation.  Each borrowed ``ChildGraphInspectionView`` contains the
+    child ``GraphBuilder`` and its optional exposed-output binding.  Its
+    pointers are valid only during the visitor call, and evaluation never
+    consults this operation.
 
     Graph runtime types are likewise reused only when the graph label, ordered
     node runtime types, edge paths, and push-source boundary all match. Executor

@@ -322,11 +322,13 @@ subscription modes or consistency policies.
 The public extension seam has been validated from a separately built installed
 SDK consumer.  A fabric-shaped proof can retain one wiring-owned plan, defer
 and bind its source in an idempotent pre-rank finalizer, discover marked sources
-through public upstream edges and through the compiled child plans of nested
-owners, and use a typed same-root subscription handle when the data edge is
-deliberately hidden.  The nested case creates ``subscribe_data`` inside the
-child graph and feeds only the child output to an outer publisher; it therefore
-proves the ownership boundary rather than merely following an outer input.
+through public upstream edges and through the exposed-output ancestry of
+compiled child plans, and use a typed same-root subscription handle when the
+data edge is deliberately hidden.  The nested case creates ``subscribe_data``
+inside the child graph and feeds only the child output to an outer publisher;
+unrelated child side effects are excluded from that output lineage.  It
+therefore proves the ownership boundary rather than merely following an outer
+input.
 The source selects simulation or real-time behavior once in ``start`` from
 ``EngineControlView``; its ``eval`` has no mode branch.
 
@@ -334,9 +336,11 @@ The proof exposed one missing generally reusable core seam.  ``NodeBuilder``
 now visits its immediate compiled child graph templates through a passive,
 type-erased cold-path contract.  ``nested_``, ``map_``, ``mesh_``, associative
 and ordered reduce, ``switch_`` and dynamic-TSL map all install the same
-contract; ordinary nodes use its canonical no-op implementation.  Extensions
-recurse explicitly when they need the complete plan forest.  This adds no
-evaluation-path work and carries no fabric ids, lineage or consistency policy.
+contract; ordinary nodes use its canonical no-op implementation.  Each view
+also exposes the optional child output binding, allowing extensions to recurse
+from the returned endpoint rather than scanning the complete child plan.  This
+adds no evaluation-path work and carries no fabric ids, lineage or consistency
+policy.
 
 hgraph-persistence owns
 ~~~~~~~~~~~~~~~~~~~~~~~

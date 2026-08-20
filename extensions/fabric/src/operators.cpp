@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <numeric>
 #include <stdexcept>
 #include <tuple>
 #include <typeindex>
@@ -141,7 +140,8 @@ namespace hgraph::fabric
         struct SourceCollection
         {
             std::unordered_set<const WiringInstance *> wiring_nodes{};
-            std::unordered_set<const GraphBuilder *>   compiled_graphs{};
+            std::unordered_map<const GraphBuilder *,
+                               std::unordered_set<std::size_t>> compiled_nodes{};
             std::vector<Str>                           data_ids{};
 
             void add(Str data_id)
@@ -153,29 +153,58 @@ namespace hgraph::fabric
             }
         };
 
-        void collect_compiled_graph(const GraphBuilder &graph,
-                                    SourceCollection &collection);
+        void collect_compiled_node(const GraphBuilder &graph,
+                                   std::size_t node_index,
+                                   SourceCollection &collection);
 
         void collect_compiled_child(void *raw_collection,
-                                    const GraphBuilder &child)
+                                    ChildGraphInspectionView child)
         {
-            collect_compiled_graph(
-                child, *static_cast<SourceCollection *>(raw_collection));
+            if (child.graph == nullptr)
+            {
+                throw std::logic_error(
+                    "fabric planner encountered an invalid child graph view");
+            }
+            if (child.output_binding == nullptr ||
+                child.output_binding->kind ==
+                    NestedGraphOutputBinding::Kind::ParentInput)
+            {
+                return;
+            }
+            collect_compiled_node(
+                *child.graph, child.output_binding->source.node,
+                *static_cast<SourceCollection *>(raw_collection));
         }
 
-        void collect_compiled_graph(const GraphBuilder &graph,
-                                    SourceCollection &collection)
+        void collect_compiled_node(const GraphBuilder &graph,
+                                   std::size_t node_index,
+                                   SourceCollection &collection)
         {
-            if (!collection.compiled_graphs.insert(&graph).second) { return; }
-            const NodeTypeRef source_type = subscribe_source_type();
-            for (const NodeBuilder &node : graph.nodes())
+            if (node_index >= graph.node_count())
             {
-                if (node.type() == source_type)
+                throw std::logic_error(
+                    "fabric planner encountered an invalid child output node");
+            }
+            if (!collection.compiled_nodes[&graph].insert(node_index).second)
+            {
+                return;
+            }
+            const NodeTypeRef source_type = subscribe_source_type();
+            const NodeBuilder &node = graph.nodes()[node_index];
+            if (node.type() == source_type)
+            {
+                collection.add(source_data_id(node));
+                return;
+            }
+            node.visit_child_graphs(&collection, &collect_compiled_child);
+            for (const GraphEdge &edge : graph.edges())
+            {
+                if (edge.target_node == node_index)
                 {
-                    collection.add(source_data_id(node));
-                    continue;
+                    collect_compiled_node(
+                        graph, graph_edge_source_node(edge.source_node),
+                        collection);
                 }
-                node.visit_child_graphs(&collection, &collect_compiled_child);
             }
         }
 
@@ -258,47 +287,11 @@ namespace hgraph::fabric
             }
             plan.roots = canonical_ids(std::move(plan.roots));
 
-            std::unordered_map<Str, std::size_t> index;
-            for (std::size_t root = 0; root < plan.roots.size(); ++root)
-            {
-                index.emplace(plan.roots[root], root);
-            }
-            std::vector<std::size_t> parent(plan.roots.size());
-            std::iota(parent.begin(), parent.end(), std::size_t{});
-            const auto find = [&](std::size_t item) -> std::size_t {
-                while (parent[item] != item)
-                {
-                    parent[item] = parent[parent[item]];
-                    item = parent[item];
-                }
-                return item;
-            };
-            const auto unite = [&](std::size_t lhs, std::size_t rhs) {
-                lhs = find(lhs);
-                rhs = find(rhs);
-                if (lhs != rhs) { parent[rhs] = lhs; }
-            };
-            for (const auto &publisher : plan.publishers)
-            {
-                if (publisher.dependencies.empty()) { continue; }
-                const std::size_t first = index.at(publisher.dependencies.front());
-                for (std::size_t dependency = 1;
-                     dependency < publisher.dependencies.size(); ++dependency)
-                {
-                    unite(first, index.at(publisher.dependencies[dependency]));
-                }
-            }
-
-            std::unordered_map<std::size_t, std::vector<Str>> forests;
-            for (std::size_t root = 0; root < plan.roots.size(); ++root)
-            {
-                forests[find(root)].push_back(plan.roots[root]);
-            }
-            plan.forests.reserve(forests.size());
-            for (auto &[_, roots] : forests)
+            plan.forests.reserve(plan.roots.size());
+            for (const auto &root : plan.roots)
             {
                 plan.forests.push_back(
-                    ConsistencyForestInput{.roots = std::move(roots)});
+                    ConsistencyForestInput{.roots = {root}});
             }
             return dependency_plan_input(make_dependency_plan(std::move(plan)).view());
         }

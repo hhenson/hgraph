@@ -70,7 +70,12 @@ namespace hgraph
                                        ChildGraphVisitor visitor)
         {
             const auto &context = *static_cast<const SingleNestedGraphNodeContext *>(raw_context);
-            visitor(visitor_context, context.spec.graph_builder);
+            visitor(visitor_context, ChildGraphInspectionView{
+                                         .graph = &context.spec.graph_builder,
+                                         .output_binding = context.spec.output_binding
+                                                               ? &*context.spec.output_binding
+                                                               : nullptr,
+                                     });
         }
 
         [[nodiscard]] SingleNestedGraphNodeView checked_nested_view(const NodeView &view)
