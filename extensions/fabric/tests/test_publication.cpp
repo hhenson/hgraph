@@ -193,7 +193,7 @@ TEST_CASE("fabric durable keys are canonical reversible and numerically ordered"
         "fabric durable key exceeds the portable 1024-byte limit");
 }
 
-TEST_CASE("publication crosses Frame notification slot as-of and latest in order")
+TEST_CASE("publication makes the accepted revision durable before advertising it")
 {
     auto config = hgf::make_memory_fabric_config("tests/fabric");
     auto notices = config.notifications.subscribe();
@@ -210,16 +210,10 @@ TEST_CASE("publication crosses Frame notification slot as-of and latest in order
     CHECK_FALSE(config.objects.get(
         hgf::revision_key(config.prefix, "result", 1)));
 
-    CHECK(machine.advance() == hgf::PublicationState::NotificationPending);
-    CHECK(notices.pending() == 1);
-    CHECK_FALSE(config.objects.get(
-        hgf::revision_key(config.prefix, "result", 1)));
-    CHECK(machine.advance() ==
-          hgf::PublicationState::NotificationAcknowledged);
-    CHECK_FALSE(config.objects.get(
-        hgf::revision_key(config.prefix, "result", 1)));
     CHECK(machine.advance() == hgf::PublicationState::RevisionDurable);
     CHECK(config.objects.get(hgf::revision_key(config.prefix, "result", 1)));
+    CHECK(machine.accepted_revision() == candidate);
+    CHECK(notices.pending() == 0);
     CHECK_FALSE(config.objects.get(
         hgf::as_of_key(config.prefix, "result", candidate->as_of)));
     CHECK_FALSE(config.objects.get(hgf::latest_key(config.prefix, "result")));
@@ -230,43 +224,68 @@ TEST_CASE("publication crosses Frame notification slot as-of and latest in order
     CHECK_FALSE(config.objects.get(hgf::latest_key(config.prefix, "result")));
     CHECK(machine.advance() == hgf::PublicationState::LatestDurable);
     CHECK(stored_latest(config, "result") == 1);
+    CHECK(notices.pending() == 0);
+    CHECK(machine.advance() == hgf::PublicationState::NotificationPending);
+    CHECK(notices.pending() == 1);
+    const auto notice = notices.try_pop();
+    REQUIRE(notice.has_value());
+    CHECK(notice->data_id == "result");
+    CHECK(hgf::data_revision_input(hgf::decode_revision(notice->revision).view()) ==
+          *candidate);
+    CHECK(machine.advance() ==
+          hgf::PublicationState::NotificationAcknowledged);
     CHECK(machine.advance() == hgf::PublicationState::Published);
     CHECK(machine.accepted_revision() == candidate);
 }
 
-TEST_CASE("publication acknowledgement is genuinely asynchronous and gates the slot")
+TEST_CASE("publication acknowledgement is asynchronous and retries the accepted revision")
 {
     auto notifier = std::make_shared<ControlledNotifier>();
     auto config = controlled_config(notifier);
     hgf::PublisherStateMachine machine{config, "result"};
     machine.begin(output(7));
     CHECK(machine.advance() == hgf::PublicationState::FrameDurable);
+    CHECK(machine.advance() == hgf::PublicationState::RevisionDurable);
+    CHECK(machine.advance() == hgf::PublicationState::AsOfDurable);
+    CHECK(machine.advance() == hgf::PublicationState::LatestDurable);
     CHECK(machine.advance() == hgf::PublicationState::NotificationPending);
     REQUIRE(notifier->notifications.size() == 1);
     REQUIRE(notifier->current);
 
     CHECK(machine.advance() == hgf::PublicationState::NotificationPending);
-    CHECK_FALSE(config.objects.get(
-        hgf::revision_key(config.prefix, "result", 1)));
+    CHECK(config.objects.get(hgf::revision_key(config.prefix, "result", 1)));
+    CHECK(stored_latest(config, "result") == 1);
     notifier->current->result.status = hgf::NotificationDeliveryStatus::Delivered;
     CHECK(machine.advance() ==
           hgf::PublicationState::NotificationAcknowledged);
-    CHECK_FALSE(config.objects.get(
-        hgf::revision_key(config.prefix, "result", 1)));
-    CHECK(machine.advance() == hgf::PublicationState::RevisionDurable);
+    CHECK(machine.advance() == hgf::PublicationState::Published);
 
     auto failed_notifier = std::make_shared<ControlledNotifier>();
     auto failed_config = controlled_config(failed_notifier);
     hgf::PublisherStateMachine failed{failed_config, "failed"};
     failed.begin(output(9));
     CHECK(failed.advance() == hgf::PublicationState::FrameDurable);
+    CHECK(failed.advance() == hgf::PublicationState::RevisionDurable);
+    CHECK(failed.advance() == hgf::PublicationState::AsOfDurable);
+    CHECK(failed.advance() == hgf::PublicationState::LatestDurable);
     CHECK(failed.advance() == hgf::PublicationState::NotificationPending);
     failed_notifier->current->result = {
-        hgf::NotificationDeliveryStatus::Failed, "broker rejected proposal"};
+        hgf::NotificationDeliveryStatus::Failed, "broker rejected revision"};
     CHECK_THROWS_WITH(failed.advance(),
-                      "fabric revision notification delivery failed: broker rejected proposal");
-    CHECK_FALSE(failed_config.objects.get(
+                      "fabric revision notification delivery failed: broker rejected revision");
+    CHECK(failed.state() == hgf::PublicationState::LatestDurable);
+    CHECK(failed_config.objects.get(
         hgf::revision_key(failed_config.prefix, "failed", 1)));
+    CHECK(stored_latest(failed_config, "failed") == 1);
+    REQUIRE(failed.accepted_revision());
+
+    CHECK(failed.advance() == hgf::PublicationState::NotificationPending);
+    REQUIRE(failed_notifier->notifications.size() == 2);
+    REQUIRE(failed_notifier->current);
+    failed_notifier->current->result.status =
+        hgf::NotificationDeliveryStatus::Delivered;
+    CHECK(failed.advance() == hgf::PublicationState::NotificationAcknowledged);
+    CHECK(failed.advance() == hgf::PublicationState::Published);
 }
 
 TEST_CASE("input-only revisions retain output and identical tuples are suppressed")
@@ -320,18 +339,13 @@ TEST_CASE("publication races are first-writer-wins and losers never become the n
     SECTION("different candidate versions leave one accepted winner")
     {
         auto config = hgf::make_memory_fabric_config("tests/fabric");
+        auto notices = config.notifications.subscribe();
         hgf::PublisherStateMachine first{config, "result"};
         hgf::PublisherStateMachine second{config, "result"};
         first.begin(output(1, TIME_1));
         second.begin(output(2, TIME_1 + hg::TimeDelta{1'000}));
         REQUIRE(first.advance() == hgf::PublicationState::FrameDurable);
         REQUIRE(second.advance() == hgf::PublicationState::FrameDurable);
-        REQUIRE(first.advance() == hgf::PublicationState::NotificationPending);
-        REQUIRE(first.advance() ==
-                hgf::PublicationState::NotificationAcknowledged);
-        REQUIRE(second.advance() == hgf::PublicationState::NotificationPending);
-        REQUIRE(second.advance() ==
-                hgf::PublicationState::NotificationAcknowledged);
         REQUIRE(first.advance() == hgf::PublicationState::RevisionDurable);
         CHECK(second.advance() == hgf::PublicationState::LostRace);
         REQUIRE(second.accepted_revision());
@@ -339,6 +353,13 @@ TEST_CASE("publication races are first-writer-wins and losers never become the n
               first.candidate_revision()->output_version);
         CHECK_FALSE(config.objects.get(
             hgf::revision_key(config.prefix, "result", 2)));
+        CHECK(drive(first) == hgf::PublicationState::Published);
+        CHECK(notices.pending() == 1);
+        const auto notice = notices.try_pop();
+        REQUIRE(notice);
+        CHECK(hgf::data_revision_input(
+                  hgf::decode_revision(notice->revision).view()) ==
+              *first.candidate_revision());
     }
 
     SECTION("conflicting Frames at one millisecond lose before notification")
@@ -425,10 +446,10 @@ TEST_CASE("each publication crash boundary has the RFC recovery outcome")
 {
     const std::vector<hgf::PublicationState> boundaries{
         hgf::PublicationState::FrameDurable,
-        hgf::PublicationState::NotificationAcknowledged,
         hgf::PublicationState::RevisionDurable,
         hgf::PublicationState::AsOfDurable,
         hgf::PublicationState::LatestDurable,
+        hgf::PublicationState::NotificationAcknowledged,
     };
     for (const auto boundary : boundaries)
     {
@@ -444,7 +465,8 @@ TEST_CASE("each publication crash boundary has the RFC recovery outcome")
             const bool committed =
                 boundary == hgf::PublicationState::RevisionDurable ||
                 boundary == hgf::PublicationState::AsOfDurable ||
-                boundary == hgf::PublicationState::LatestDurable;
+                boundary == hgf::PublicationState::LatestDurable ||
+                boundary == hgf::PublicationState::NotificationAcknowledged;
             hgf::PublisherStateMachine recovered{config, "result"};
             recovered.begin(committed ? inputs_only({}) : output(7));
             REQUIRE(drive(recovered) ==

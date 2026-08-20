@@ -404,6 +404,8 @@ namespace hgraph::fabric
             if (result.status == NotificationDeliveryStatus::Pending) { return; }
             if (result.status == NotificationDeliveryStatus::Failed)
             {
+                delivery.reset();
+                state = PublicationState::LatestDurable;
                 throw std::runtime_error(
                     result.message.empty()
                         ? "fabric revision notification delivery failed"
@@ -425,6 +427,7 @@ namespace hgraph::fabric
                 state = PublicationState::LostRace;
                 return;
             }
+            validate_and_accept(*candidate);
             state = PublicationState::RevisionDurable;
         }
 
@@ -439,12 +442,6 @@ namespace hgraph::fabric
                     prepare();
                     break;
                 case PublicationState::FrameDurable:
-                    publish_notification();
-                    break;
-                case PublicationState::NotificationPending:
-                    poll_notification();
-                    break;
-                case PublicationState::NotificationAcknowledged:
                     commit_revision();
                     break;
                 case PublicationState::RevisionDurable:
@@ -456,7 +453,12 @@ namespace hgraph::fabric
                     state = PublicationState::LatestDurable;
                     break;
                 case PublicationState::LatestDurable:
-                    validate_and_accept(*candidate);
+                    publish_notification();
+                    break;
+                case PublicationState::NotificationPending:
+                    poll_notification();
+                    break;
+                case PublicationState::NotificationAcknowledged:
                     state = PublicationState::Published;
                     break;
                 case PublicationState::Published:

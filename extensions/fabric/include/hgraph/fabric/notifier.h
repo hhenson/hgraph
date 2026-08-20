@@ -42,9 +42,9 @@ namespace hgraph::fabric
         NotificationDeliveryResult (*poll)(void *context);
     };
 
-    /** Correlated asynchronous acknowledgement for one proposed revision.
+    /** Correlated asynchronous acknowledgement for one accepted revision.
         The concrete notifier owns delivery correlation; publication polls this
-        passive handle and cannot create a revision slot before Delivered. */
+        passive handle after the immutable revision and its indexes are durable. */
     class HGRAPH_FABRIC_EXPORT NotificationDelivery final
     {
       public:
@@ -113,8 +113,8 @@ namespace hgraph::fabric
     };
 
     /** Owning type-erased fabric notification contract. The contract validates
-        complete encoded revision notices and matching data ids before dispatch;
-        persistence remains authoritative. */
+        complete encoded accepted-revision notices and matching data ids before
+        dispatch; persistence remains authoritative. */
     class HGRAPH_FABRIC_EXPORT Notifier final
     {
       public:

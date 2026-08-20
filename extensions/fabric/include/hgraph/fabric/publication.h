@@ -22,11 +22,11 @@ namespace hgraph::fabric
         Idle,
         Preparing,
         FrameDurable,
-        NotificationPending,
-        NotificationAcknowledged,
         RevisionDurable,
         AsOfDurable,
         LatestDurable,
+        NotificationPending,
+        NotificationAcknowledged,
         Published,
         Unchanged,
         AwaitingFirstOutput,
@@ -77,7 +77,8 @@ namespace hgraph::fabric
         void begin(PublicationInput input);
 
         /** Advance by one external boundary. Pending acknowledgement leaves the
-            state unchanged; failed acknowledgement throws and no slot is written. */
+            state unchanged. Failed acknowledgement throws after restoring the
+            LatestDurable state so the accepted notification can be retried. */
         PublicationState advance();
 
         [[nodiscard]] PublicationState state() const noexcept;
