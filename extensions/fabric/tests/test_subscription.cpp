@@ -497,7 +497,8 @@ struct CaptureDiagnostics
 
     static void eval(hg::In<"values", hgf::FabricDiagnostics> values)
     {
-        for (const auto &[path, event] : values.template field<"events">().modified_items())
+        const auto events = values.template field<"events">();
+        for (const auto &[path, event] : events.modified_items())
         {
             if (!event.valid())
             {
