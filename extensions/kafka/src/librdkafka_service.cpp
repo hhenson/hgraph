@@ -672,6 +672,8 @@ private:
                              void *opaque) noexcept;
 
   void run() noexcept;
+  [[nodiscard]] bool uses_manual_assignment() const noexcept;
+  void poll_manual_reconnect(rd_kafka_t *consumer);
   void configure_assignment(rd_kafka_t *consumer, rd_kafka_resp_err_t error,
                             rd_kafka_topic_partition_list_t *partitions);
   void handle_poll_error(rd_kafka_resp_err_t error, const char *message);
@@ -705,12 +707,15 @@ private:
   Value key_{};
   SubscriptionSpec spec_{};
   std::atomic<bool> stopping_{};
+  std::atomic<bool> reconnect_requested_{};
   std::thread thread_{};
   std::mutex commands_mutex_{};
   std::deque<Value> commits_{};
   Int assignment_generation_{};
   bool recovering_{};
   bool live_{};
+  bool reconnecting_{};
+  std::chrono::steady_clock::time_point reconnect_probe_after_{};
   std::vector<PositionBoundary> recovery_ends_{};
   std::vector<PositionBoundary> stop_ends_{};
   std::vector<PositionBoundary> assignment_starts_{};
@@ -1591,17 +1596,20 @@ void ConsumerSession::error_callback(rd_kafka_t *, int error, const char *,
   if (!session) {
     return;
   }
+  const auto kafka_error = static_cast<rd_kafka_resp_err_t>(error);
+  const bool retriable = retriable_error(kafka_error);
   session->owner_.emit_event(
       error == RD_KAFKA_RESP_ERR__FATAL ? KafkaSeverity::Fatal
                                         : KafkaSeverity::Error,
-      Str{"consumer"}, Str{"client_error"}, error,
-      retriable_error(static_cast<rd_kafka_resp_err_t>(error)),
-      error == RD_KAFKA_RESP_ERR__FATAL,
-      Str{rd_kafka_err2str(static_cast<rd_kafka_resp_err_t>(error))},
+      Str{"consumer"}, Str{"client_error"}, error, retriable,
+      error == RD_KAFKA_RESP_ERR__FATAL, Str{rd_kafka_err2str(kafka_error)},
       session->spec_.identity, {},
       error == RD_KAFKA_RESP_ERR__FATAL &&
           session->owner_.config().consumer_failure_policy ==
               KafkaFailurePolicy::StopGraph);
+  if (retriable && session->uses_manual_assignment()) {
+    session->reconnect_requested_.store(true, std::memory_order_release);
+  }
   if (error == RD_KAFKA_RESP_ERR__FATAL) {
     session->failed_ = true;
     session->stopping_ = true;
@@ -1729,6 +1737,7 @@ void ConsumerSession::run() noexcept {
     }
 
     while (!stopping_) {
+      poll_manual_reconnect(consumer);
       process_commits(consumer);
       update_flow_control(consumer);
       check_positions(consumer);
@@ -1803,7 +1812,66 @@ void ConsumerSession::handle_poll_error(rd_kafka_resp_err_t error,
     failed_ = true;
     stopping_ = true;
     complete_preload(message);
+  } else if (uses_manual_assignment()) {
+    reconnect_requested_.store(true, std::memory_order_release);
   }
+}
+
+bool ConsumerSession::uses_manual_assignment() const noexcept {
+  return spec_.selector == KafkaSelectorKind::Partitions ||
+         spec_.assignment_mode == KafkaAssignmentMode::Independent;
+}
+
+void ConsumerSession::poll_manual_reconnect(rd_kafka_t *consumer) {
+  // Normal polling pays one atomic load. Metadata probing and assignment
+  // reconstruction occur only after a manual assignment loses connectivity.
+  if (!reconnecting_ && !reconnect_requested_.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (reconnect_requested_.exchange(false, std::memory_order_acq_rel) &&
+      !reconnecting_) {
+    reconnecting_ = true;
+    recovering_ = false;
+    live_ = false;
+    emit_state(KafkaSubscriptionState::Retrying);
+    reconnect_probe_after_ = std::chrono::steady_clock::time_point{};
+  }
+  if (!reconnecting_ ||
+      std::chrono::steady_clock::now() < reconnect_probe_after_) {
+    return;
+  }
+  reconnect_probe_after_ =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds{250};
+
+  const rd_kafka_metadata_t *metadata{};
+  const auto metadata_error =
+      rd_kafka_metadata(consumer, 0, nullptr, &metadata, 100);
+  if (metadata_error != RD_KAFKA_RESP_ERR_NO_ERROR || metadata == nullptr) {
+    if (metadata) {
+      rd_kafka_metadata_destroy(metadata);
+    }
+    return;
+  }
+  rd_kafka_metadata_destroy(metadata);
+
+  rd_kafka_topic_partition_list_t *partitions{};
+  if (rd_kafka_assignment(consumer, &partitions) !=
+          RD_KAFKA_RESP_ERR_NO_ERROR ||
+      partitions == nullptr || partitions->cnt == 0) {
+    if (partitions) {
+      rd_kafka_topic_partition_list_destroy(partitions);
+    }
+    return;
+  }
+  try {
+    configure_assignment(consumer, RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS,
+                         partitions);
+    reconnecting_ = false;
+  } catch (const std::exception &exception) {
+    owner_.emit_event(KafkaSeverity::Error, Str{"consumer"}, Str{"reconnect"},
+                      0, true, false, exception.what(), spec_.identity);
+  }
+  rd_kafka_topic_partition_list_destroy(partitions);
 }
 
 void ConsumerSession::configure_assignment(

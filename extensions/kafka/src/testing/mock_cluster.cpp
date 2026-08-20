@@ -211,4 +211,20 @@ void MockCluster::fail_next_fetch(MockConsumeError error, std::size_t count) {
   rd_kafka_mock_push_request_errors_array(impl_->cluster, 1, responses.size(),
                                           responses.data());
 }
+
+void MockCluster::stop_brokers() {
+  const auto error = rd_kafka_mock_broker_set_down(impl_->cluster, -1);
+  if (error != RD_KAFKA_RESP_ERR_NO_ERROR) {
+    throw std::runtime_error(Str{"Unable to stop mock Kafka brokers: "} +
+                             rd_kafka_err2str(error));
+  }
+}
+
+void MockCluster::start_brokers() {
+  const auto error = rd_kafka_mock_broker_set_up(impl_->cluster, -1);
+  if (error != RD_KAFKA_RESP_ERR_NO_ERROR) {
+    throw std::runtime_error(Str{"Unable to start mock Kafka brokers: "} +
+                             rd_kafka_err2str(error));
+  }
+}
 } // namespace hgraph::kafka::testing

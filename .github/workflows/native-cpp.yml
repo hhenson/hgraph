@@ -80,6 +80,12 @@ jobs:
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
         run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
+      - name: Run restartable Kafka broker conformance
+        if: runner.os == 'Linux'
+        run: >-
+          python3 extensions/fabric/tools/run_kafka_broker_conformance.py
+          --test-executable
+          build-native/extensions/fabric/tests/hgraph_fabric_kafka_tests
       - name: HTTP/2 conformance (h2spec)
         if: runner.os == 'Linux'
         shell: bash

@@ -19,3 +19,6 @@
   publication race, resolver/cache and bounded-queue diagnostics, service
   lifecycle logs, installed wheel SDK consumers, dependency-first Windows DLL
   setup, release artifacts, and production operating guidance.
+- Add restartable real-broker conformance for startup handoff, retriable
+  delivery failure, reconnect recovery, bounded queue profiles, and keyed
+  partition ordering.

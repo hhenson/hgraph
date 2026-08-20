@@ -151,3 +151,21 @@ uses a new data id (for example `prices/v2`), runs old and new producers during
 the consumer migration, then retires the old id only under an explicit
 retention plan. Fabric does not reinterpret or transparently migrate stored
 Frames.
+
+## Broker conformance
+
+The deterministic suite uses librdkafka's mock cluster and the graph-native
+fake service for exact failure injection. Linux CI additionally runs a pinned
+single-node Redpanda broker, stops it while a live graph is running, accepts a
+new durable revision during the outage, observes a retriable delivery failure,
+then restarts the same broker. The test verifies startup image/notice
+de-duplication, reconnect reconciliation, explicit retry, same-key partition
+ordering, and operation with deliberately small non-dropping ingress/outbound
+queues.
+
+Run the same scenario locally against Docker with:
+
+```sh
+python3 extensions/fabric/tools/run_kafka_broker_conformance.py \
+  --test-executable build/extensions/fabric/tests/hgraph_fabric_kafka_tests
+```
