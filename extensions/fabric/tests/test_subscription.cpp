@@ -1,5 +1,7 @@
 #include <hgraph/fabric/fabric.h>
 
+#include "../src/impl/service_runtime.h"
+
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/testing/runtime_support.h>
@@ -435,6 +437,7 @@ struct PublicationGraph
     }
 };
 
+
 struct CaptureLoad
 {
     static constexpr auto name = "hgraph.fabric.test.capture_load";
@@ -763,4 +766,39 @@ TEST_CASE("request_load uses the service-owned persistence resource")
 
     REQUIRE(observed_frames.size() == 1);
     CHECK(observed_frames.front().second == 2);
+}
+
+TEST_CASE("graph notification bridge retries with stable revision correlation")
+{
+    hgf::detail::GraphNotificationBridge bridge;
+    auto notifier = bridge.notifier();
+    hg::Value value = hgf::make_data_revision(hgf::DataRevisionInput{
+        .data_id = "prices",
+        .revision = 7,
+        .output_version = 3,
+        .as_of = BASE_TIME,
+    });
+    auto delivery = notifier.publish(hgf::RevisionNotification{"prices", hgf::encode_revision(value.view())});
+
+    auto first = bridge.take_request();
+    REQUIRE(first.has_value());
+    CHECK(first->revision == 7);
+    bridge.complete(hgf::detail::NotificationDeliveryInput{
+        .data_id = "prices",
+        .revision = 7,
+        .retriable = true,
+        .message = "retry",
+    });
+    CHECK(delivery.poll().status == hgf::NotificationDeliveryStatus::Pending);
+
+    auto retry = bridge.take_request();
+    REQUIRE(retry.has_value());
+    CHECK(*retry == *first);
+    bridge.complete(hgf::detail::NotificationDeliveryInput{
+        .data_id = "prices",
+        .revision = 7,
+        .delivered = true,
+    });
+    CHECK(delivery.poll().status == hgf::NotificationDeliveryStatus::Delivered);
+    CHECK_FALSE(bridge.request_pending());
 }

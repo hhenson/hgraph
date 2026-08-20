@@ -29,6 +29,17 @@ if(COMMAND hgraph_configure_test_runtime_paths)
     hgraph_configure_test_runtime_paths(hgraph_fabric_tests)
 endif()
 
+if(TARGET hgraph::fabric_kafka)
+    add_executable(hgraph_fabric_kafka_tests test_kafka.cpp)
+    target_link_libraries(hgraph_fabric_kafka_tests
+        PRIVATE hgraph::fabric_kafka Catch2::Catch2WithMain)
+    target_compile_features(hgraph_fabric_kafka_tests PRIVATE cxx_std_23)
+    add_test(NAME hgraph_fabric.kafka_tests COMMAND hgraph_fabric_kafka_tests)
+    if(COMMAND hgraph_configure_test_runtime_paths)
+        hgraph_configure_test_runtime_paths(hgraph_fabric_kafka_tests)
+    endif()
+endif()
+
 add_executable(hgraph_fabric_resolution_perf resolution_perf.cpp)
 target_link_libraries(hgraph_fabric_resolution_perf PRIVATE hgraph::fabric)
 target_compile_features(hgraph_fabric_resolution_perf PRIVATE cxx_std_23)

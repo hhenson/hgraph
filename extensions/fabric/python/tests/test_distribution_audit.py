@@ -23,6 +23,8 @@ def test_wheel_audit_accepts_platform_library_directories(
         "include/hgraph/fabric/config.h": "",
         "include/hgraph/fabric/export.h": "",
         "include/hgraph/fabric/fabric.h": "",
+        "include/hgraph/fabric/kafka.h": "",
+        "include/hgraph/fabric/kafka_export.h": "",
         "include/hgraph/fabric/keys.h": "",
         "include/hgraph/fabric/metadata_codec.h": "",
         "include/hgraph/fabric/notifier.h": "",

@@ -393,7 +393,8 @@ struct LiveSession
         startup = true;
     }
 
-    [[nodiscard]] std::optional<DeliveryBatch> evaluate(std::vector<DataRevisionInput> revisions, DateTime now)
+    [[nodiscard]] std::optional<DeliveryBatch> evaluate(std::vector<DataRevisionInput> revisions, DateTime now,
+                                                        bool reconcile)
     {
         DeliveryBatch combined;
         for (auto &revision : revisions)
@@ -422,7 +423,7 @@ struct LiveSession
         {
             return std::nullopt;
         }
-        if (startup)
+        if (startup || reconcile)
         {
             auto initial = core->batch(core->coordinator.resolve(now));
             if (initial.has_value())
@@ -503,6 +504,9 @@ struct FabricServiceRuntime::Impl
     std::map<Str, std::unique_ptr<PublisherStateMachine>, IdLess> publishers{};
     std::map<Str, std::deque<PublicationRequestInput>, IdLess> publication_queues{};
     std::map<Str, RevisionId, IdLess> advertised{};
+    std::optional<Notifier> notification_override{};
+    std::map<Str, Str, IdLess> transport_diagnostics{};
+    bool graph_notifications{};
     bool running{};
 
     [[nodiscard]] FabricConfig &configured()
@@ -544,13 +548,16 @@ struct FabricServiceRuntime::Impl
     }
 };
 
-FabricServiceRuntime::FabricServiceRuntime(FabricServicePlanHandle plan) : impl_(std::make_unique<Impl>())
+FabricServiceRuntime::FabricServiceRuntime(FabricServicePlanHandle plan, std::optional<Notifier> notification_override)
+    : impl_(std::make_unique<Impl>())
 {
     if (!plan.value)
     {
         throw std::invalid_argument("fabric service runtime requires a wiring plan");
     }
     impl_->plan = std::move(plan);
+    impl_->graph_notifications = notification_override.has_value();
+    impl_->notification_override = std::move(notification_override);
 }
 
 FabricServiceRuntime::~FabricServiceRuntime()
@@ -570,6 +577,10 @@ void FabricServiceRuntime::start(GlobalStateView global_state)
         throw std::logic_error("hgraph.fabric service requires FabricConfig in GlobalState");
     }
     require_valid_config(*impl_->config);
+    if (impl_->notification_override.has_value())
+    {
+        impl_->config->notifications = *impl_->notification_override;
+    }
     impl_->running = true;
 }
 
@@ -589,6 +600,7 @@ void FabricServiceRuntime::stop() noexcept
     impl_->planned_replay = {};
     impl_->live = {};
     impl_->planned_live = {};
+    impl_->transport_diagnostics.clear();
     impl_->config.reset();
 }
 
@@ -626,16 +638,18 @@ std::optional<DeliveryBatch> FabricServiceRuntime::planned_replay(DateTime now, 
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::live(std::vector<SubscriptionSpec> subscriptions,
-                                                        std::vector<DataRevisionInput> revisions, DateTime now)
+                                                        std::vector<DataRevisionInput> revisions, DateTime now,
+                                                        bool reconcile)
 {
     impl_->live.configure(impl_->configured(), std::move(subscriptions));
-    return impl_->live.evaluate(std::move(revisions), now);
+    return impl_->live.evaluate(std::move(revisions), now, reconcile);
 }
 
-std::optional<DeliveryBatch> FabricServiceRuntime::planned_live(std::vector<DataRevisionInput> revisions, DateTime now)
+std::optional<DeliveryBatch> FabricServiceRuntime::planned_live(std::vector<DataRevisionInput> revisions, DateTime now,
+                                                                bool reconcile)
 {
     impl_->planned_live.configure(impl_->configured(), impl_->plan.value->live);
-    return impl_->planned_live.evaluate(std::move(revisions), now);
+    return impl_->planned_live.evaluate(std::move(revisions), now, reconcile);
 }
 
 void FabricServiceRuntime::publish(PublicationRequestInput request)
@@ -693,8 +707,11 @@ bool FabricServiceRuntime::publication_work_pending() const noexcept
     {
         return true;
     }
-    return std::ranges::any_of(impl_->publishers,
-                               [](const auto &item) { return !publication_terminal(item.second->state()); });
+    return std::ranges::any_of(impl_->publishers, [this](const auto &item) {
+        const auto state = item.second->state();
+        return !publication_terminal(state) &&
+               (!impl_->graph_notifications || state != PublicationState::NotificationPending);
+    });
 }
 
 std::optional<std::tuple<Str, DataVersion, Frame>> FabricServiceRuntime::load(std::string_view requested_data_id,
@@ -720,10 +737,20 @@ std::optional<std::tuple<Str, DataVersion, Frame>> FabricServiceRuntime::load(st
 
 std::vector<std::pair<Str, Str>> FabricServiceRuntime::diagnostics() const
 {
-    return {
+    std::vector<std::pair<Str, Str>> result{
         {"lifecycle", impl_->running ? "running" : "stopped"},
         {"publishers", std::to_string(impl_->publishers.size())},
     };
+    result.insert(result.end(), impl_->transport_diagnostics.begin(), impl_->transport_diagnostics.end());
+    return result;
+}
+
+void FabricServiceRuntime::observe_transport_event(TransportEventInput event)
+{
+    const Str key = "transport." + event.component + "." + event.category;
+    Str value = event.fatal ? "fatal: " : (event.retriable ? "retriable: " : "info: ");
+    value += event.message;
+    impl_->transport_diagnostics.insert_or_assign(key, std::move(value));
 }
 
 Str subscription_key(Str data_id, SubscriptionMode mode, DateTime as_of)

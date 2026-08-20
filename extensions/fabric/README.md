@@ -30,11 +30,27 @@ The shared ingress coordinator supports all three wiring-time modes:
   revision arrives on the ordinary notice edge.
 
 Complete live revision messages populate dependency indexes directly. Durable
-metadata is read for startup and explicit revision gaps; only a selected
-changed root causes its Frame to load. The live cache conflates by data id and
-is bounded. The Kafka adapter which supplies the production real-time
-push-source notice edge and reconnect reconciliation is the next RFC
-checkpoint; replay and snapshot never create a push source.
+metadata is read for startup, reconnect reconciliation and explicit revision
+gaps; only a selected changed root causes its Frame to load. The live cache
+conflates by data id and is bounded.
+
+The optional `hgraph::fabric_kafka` target supplies the production transport.
+It validates idempotent `acks=all` publication and non-dropping queue policies,
+subscribes independently to the complete configured topic, and carries the
+full accepted `DataRevision` keyed by canonical data id. The Kafka service owns
+the worker queue and root push sources. Its drain node emits ordinary graph
+edges into Fabric; broker callbacks never access the graph or a Fabric output.
+`Recovering` and `Live` lifecycle edges gate the initial durable image and
+trigger durable-head reconciliation for each new live generation. Replay and
+Snapshot do not compose the adapter and never create a push source.
+
+Publication crosses a graph-native request edge only after its Frame, immutable
+revision and derived indexes are durable. Correlated Kafka delivery reports
+return on a separate graph edge. Retriable failures requeue the same accepted
+revision through a bounded bridge; acknowledgement never selects or creates a
+revision. Valid decoded subscription cursors are explicitly committed, but
+offsets remain non-authoritative because durable history repairs duplicates or
+missed notifications.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data
@@ -43,6 +59,9 @@ id must leave room for the key category and fixed-width ordinal.
 Native hosts install `FabricConfig` in `GlobalState`, call
 `hgraph::fabric::register_service()`, call
 `hgraph::fabric::register_fabric_operators()`, and link `hgraph::fabric`.
+Production Kafka hosts instead link `hgraph::fabric_kafka` and call
+`hgraph::fabric::register_kafka_transport()` with the topic, stable identity
+and `KafkaServiceConfig`; that call registers both lazy service singletons.
 Python consumers import `hgraph_fabric` and call
 `register_memory_fabric_service()` for the deterministic local host; importing
 the package registers the same native operators and scalar enum.

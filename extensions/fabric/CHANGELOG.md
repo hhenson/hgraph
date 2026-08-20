@@ -11,3 +11,7 @@
 - Add the shared root Fabric service, Snapshot/Replay/Live subscription
   sessions, service-owned publication and load paths, complete-revision live
   cache ingestion, and the local Python memory-service host.
+- Add the optional graph-native Kafka transport: strict Fabric producer/queue
+  profiles, full accepted-revision payloads, root push-source ingress through
+  the Kafka service, lifecycle-gated durable handoff, explicit cursor commits,
+  correlated bounded delivery retry, and transport diagnostics.
