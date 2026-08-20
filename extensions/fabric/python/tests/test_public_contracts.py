@@ -126,19 +126,29 @@ def _finish_contract_wiring(wiring: _hgraph.Wiring) -> None:
 def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
     @graph
     def nested_subscription() -> TS[Frame]:
-        return hgf.subscribe_data("python/nested")
+        return hgf.subscribe_data(
+            "python/nested", mode=hgf.SubscriptionMode.LIVE
+        )
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        direct = hgf.subscribe_data("python/direct")
+        direct = hgf.subscribe_data(
+            "python/direct", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data("python/direct-output", direct)
 
-        shared = hgf.subscribe_data("python/shared")
+        shared = hgf.subscribe_data(
+            "python/shared", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data("python/shared-left", shared)
         hgf.publish_data("python/shared-right", shared)
 
-        left = hgf.subscribe_data("python/conditional-a")
-        right = hgf.subscribe_data("python/conditional-b")
+        left = hgf.subscribe_data(
+            "python/conditional-a", mode=hgf.SubscriptionMode.LIVE
+        )
+        right = hgf.subscribe_data(
+            "python/conditional-b", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data(
             "python/conditional-output", if_then_else(True, left, right)
         )
@@ -150,7 +160,9 @@ def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
 def test_python_explicit_dependencies_use_the_native_planner():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        source = hgf.subscribe_data("python/explicit-input")
+        source = hgf.subscribe_data(
+            "python/explicit-input", mode=hgf.SubscriptionMode.LIVE
+        )
         handle = hgf.dependency_handle(source)
         hgf.publish_data(
             "python/explicit-output",
@@ -166,7 +178,9 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        value = hgf.subscribe_data("python/value")
+        value = hgf.subscribe_data(
+            "python/value", mode=hgf.SubscriptionMode.LIVE
+        )
         arbitrary = hgf.DependencySelection.explicit(
             hgf.DependencyHandle("arbitrary")
         )
@@ -179,8 +193,12 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        first = hgf.subscribe_data("python/duplicate")
-        second = hgf.subscribe_data("python/duplicate")
+        first = hgf.subscribe_data(
+            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
+        )
+        second = hgf.subscribe_data(
+            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
+        )
         duplicate = hgf.DependencySelection.explicit(
             hgf.dependency_handle(first),
             hgf.dependency_handle(second),

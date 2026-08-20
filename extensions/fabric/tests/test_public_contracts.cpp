@@ -139,7 +139,8 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
-            auto source = hgf::subscribe_data(wiring, "shared");
+            auto source = hgf::subscribe_data(
+                wiring, "shared", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "left", source);
             hgf::publish_data(wiring, "right", source);
         }
@@ -149,7 +150,8 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            return hgf::subscribe_data(wiring, "nested");
+            return hgf::subscribe_data(
+                wiring, "nested", hgf::SubscriptionMode::Live);
         }
     };
 
@@ -162,8 +164,10 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            auto returned = hgf::subscribe_data(wiring, "nested-returned");
-            auto unrelated = hgf::subscribe_data(wiring, "nested-side-effect");
+            auto returned = hgf::subscribe_data(
+                wiring, "nested-returned", hgf::SubscriptionMode::Live);
+            auto unrelated = hgf::subscribe_data(
+                wiring, "nested-side-effect", hgf::SubscriptionMode::Live);
             hg::wire<ConsumeFrameSink>(wiring, unrelated);
             return returned;
         }
@@ -191,8 +195,10 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
-            auto left = hgf::subscribe_data(wiring, "conditional-a");
-            auto right = hgf::subscribe_data(wiring, "conditional-b");
+            auto left = hgf::subscribe_data(
+                wiring, "conditional-a", hgf::SubscriptionMode::Live);
+            auto right = hgf::subscribe_data(
+                wiring, "conditional-b", hgf::SubscriptionMode::Live);
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto selected = hg::wire<hg::stdlib::if_then_else>(
@@ -206,7 +212,8 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
-            auto dependency = hgf::subscribe_data(wiring, "declared-only");
+            auto dependency = hgf::subscribe_data(
+                wiring, "declared-only", hgf::SubscriptionMode::Live);
             auto value = hg::wire<NeverFrameSource>(wiring);
             hgf::publish_data(
                 wiring, "explicit-output", value,
@@ -219,9 +226,12 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
-            auto a = hgf::subscribe_data(wiring, "a");
-            auto b = hgf::subscribe_data(wiring, "b");
-            auto x = hgf::subscribe_data(wiring, "x");
+            auto a = hgf::subscribe_data(
+                wiring, "a", hgf::SubscriptionMode::Live);
+            auto b = hgf::subscribe_data(
+                wiring, "b", hgf::SubscriptionMode::Live);
+            auto x = hgf::subscribe_data(
+                wiring, "x", hgf::SubscriptionMode::Live);
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto joined = hg::wire<hg::stdlib::if_then_else>(
@@ -456,7 +466,8 @@ TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
     hg::Wiring wiring;
-    auto source = hgf::subscribe_data(wiring, "direct");
+    auto source = hgf::subscribe_data(
+        wiring, "direct", hgf::SubscriptionMode::Live);
     auto forwarded = hg::wire<hg::stdlib::pass_through_node>(wiring, source)
                          .as<hg::TS<hg::Frame>>();
     CHECK_THROWS_WITH(
