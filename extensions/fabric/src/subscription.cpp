@@ -633,6 +633,7 @@ struct FabricServiceRuntime::Impl
     std::map<Str, RevisionId, IdLess> advertised{};
     std::optional<Notifier> notification_override{};
     std::map<Str, FabricDiagnosticEventInput, IdLess> events{};
+    Int diagnostic_revision{};
     bool graph_notifications{};
     bool running{};
 
@@ -671,6 +672,10 @@ struct FabricServiceRuntime::Impl
         if (found->second.occurrences < std::numeric_limits<Int>::max())
         {
             ++found->second.occurrences;
+        }
+        if (diagnostic_revision < std::numeric_limits<Int>::max())
+        {
+            ++diagnostic_revision;
         }
     }
 
@@ -948,6 +953,11 @@ std::optional<std::tuple<Str, DataVersion, Frame>> FabricServiceRuntime::load(st
         return std::nullopt;
     }
     return std::tuple<Str, DataVersion, Frame>{std::move(data_id), version, std::move(frame)};
+}
+
+Int FabricServiceRuntime::diagnostic_revision() const noexcept
+{
+    return impl_->diagnostic_revision;
 }
 
 std::vector<std::pair<Str, Str>> FabricServiceRuntime::diagnostics() const

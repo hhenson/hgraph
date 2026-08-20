@@ -157,6 +157,11 @@ class FabricServiceRuntime final
 
     [[nodiscard]] std::optional<std::tuple<Str, DataVersion, Frame>> load(std::string_view data_id,
                                                                           DataVersion version) const;
+    /** Monotonic graph-thread sequence advanced whenever an internal
+        diagnostic event is recorded. Service nodes project changes onto an
+        ordinary time-series edge so diagnostics consumers are scheduled
+        without allowing the runtime to address the graph directly. */
+    [[nodiscard]] Int diagnostic_revision() const noexcept;
     [[nodiscard]] std::vector<std::pair<Str, Str>> diagnostics() const;
     [[nodiscard]] std::vector<std::pair<Str, FabricDiagnosticEventInput>> events() const;
     void observe_transport_event(TransportEventInput event);

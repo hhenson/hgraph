@@ -38,6 +38,7 @@ constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
 
 std::vector<std::pair<hg::DateTime, std::int64_t>> observed_frames{};
 std::vector<std::tuple<hg::DateTime, hg::Str, std::int64_t>> observed_tagged_frames{};
+std::map<hg::Str, hgf::FabricDiagnosticEventInput> observed_diagnostic_events{};
 
 struct CapturedLog
 {
@@ -490,6 +491,45 @@ struct LoadGraph
     }
 };
 
+struct CaptureDiagnostics
+{
+    static constexpr auto name = "hgraph.fabric.test.capture_diagnostics";
+
+    static void eval(hg::In<"values", hgf::FabricDiagnostics> values)
+    {
+        for (const auto &[path, event] : values.template field<"events">().modified_items())
+        {
+            if (!event.valid())
+            {
+                continue;
+            }
+            const auto fields = event.base().value().as_bundle();
+            observed_diagnostic_events.insert_or_assign(
+                path.checked_as<hg::Str>(),
+                hgf::FabricDiagnosticEventInput{
+                    .component = fields.at("component").checked_as<hg::Str>(),
+                    .category = fields.at("category").checked_as<hg::Str>(),
+                    .message = fields.at("message").checked_as<hg::Str>(),
+                    .retriable = fields.at("retriable").checked_as<hg::Bool>(),
+                    .fatal = fields.at("fatal").checked_as<hg::Bool>(),
+                    .occurrences = fields.at("occurrences").checked_as<hg::Int>(),
+                });
+        }
+    }
+};
+
+struct MissingLoadDiagnosticsGraph
+{
+    static constexpr auto name = "hgraph.fabric.test.missing_load_diagnostics";
+
+    static void compose(hg::Wiring &wiring)
+    {
+        hgf::register_service(wiring);
+        static_cast<void>(hgf::request_load(wiring, "missing", 1));
+        static_cast<void>(hg::wire<CaptureDiagnostics>(wiring, hgf::diagnostics(wiring)));
+    }
+};
+
 [[nodiscard]] hg::GraphExecutorValue run(hg::GraphBuilder graph, const hgf::FabricConfig &config, hg::DateTime start,
                                          hg::DateTime end)
 {
@@ -814,6 +854,25 @@ TEST_CASE("request_load uses the service-owned persistence resource")
 
     REQUIRE(observed_frames.size() == 1);
     CHECK(observed_frames.front().second == 2);
+}
+
+TEST_CASE("service diagnostics tick when an internal load records an event")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config = hgf::make_memory_fabric_config("tests/subscription/load-diagnostics");
+    observed_diagnostic_events.clear();
+
+    static_cast<void>(
+        run(hg::build_graph<MissingLoadDiagnosticsGraph>(), config, BASE_TIME, BASE_TIME + hg::TimeDelta{5}));
+
+    REQUIRE(observed_diagnostic_events.contains("store.frame.missing"));
+    const auto &event = observed_diagnostic_events.at("store.frame.missing");
+    CHECK(event.component == "store");
+    CHECK(event.category == "frame.missing");
+    CHECK_FALSE(event.retriable);
+    CHECK_FALSE(event.fatal);
+    CHECK(event.occurrences == 1);
 }
 
 TEST_CASE("service diagnostics expose resolver work and bounded queue usage")
