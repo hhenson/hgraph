@@ -66,8 +66,20 @@ if(HGRAPH_PERSISTENCE_WITH_S3)
 
         set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
         set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
-        set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+        # A static installed hgraph-persistence target still needs libcurl at
+        # the final consumer link.  Install the pinned curl SDK beside it so a
+        # wheel or ordinary SDK install is transitively complete; shared
+        # persistence builds carry curl themselves and do not need the SDK.
+        if(NOT _hgraph_persistence_saved_build_shared_libs)
+            set(_hgraph_persistence_saved_install_component
+                "${CMAKE_INSTALL_DEFAULT_COMPONENT_NAME}")
+            set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME Development)
+            set(CURL_ENABLE_EXPORT_TARGET ON CACHE BOOL "" FORCE)
+            set(CURL_DISABLE_INSTALL OFF CACHE BOOL "" FORCE)
+        else()
+            set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
+            set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+        endif()
         set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
         set(BUILD_MISC_DOCS OFF CACHE BOOL "" FORCE)
         set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
@@ -112,6 +124,11 @@ if(HGRAPH_PERSISTENCE_WITH_S3)
         set(BUILD_STATIC_LIBS ${_hgraph_persistence_saved_build_static_libs})
         set(BUILD_TESTING ${_hgraph_persistence_saved_build_testing})
         set(CMAKE_POSITION_INDEPENDENT_CODE ${_hgraph_persistence_saved_pic})
+        if(DEFINED _hgraph_persistence_saved_install_component)
+            set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME
+                "${_hgraph_persistence_saved_install_component}")
+            unset(_hgraph_persistence_saved_install_component)
+        endif()
         set(BUILD_TESTING ${_hgraph_persistence_saved_build_testing}
             CACHE BOOL "Build the testing tree." FORCE)
         unset(_hgraph_persistence_saved_build_shared_libs)

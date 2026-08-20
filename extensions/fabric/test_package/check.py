@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 import subprocess
@@ -14,15 +15,40 @@ SOURCE_DIR = Path(__file__).resolve().parent
 
 
 def cmake_tool(name: str) -> str:
+    """Locate a native CMake executable without a Python console wrapper."""
+
     executable = f"{name}.exe" if sys.platform == "win32" else name
     try:
-        from cmake import CMAKE_BIN_DIR
+        cmake_package = importlib.import_module("cmake")
     except ImportError:
         return executable
-    candidate = Path(CMAKE_BIN_DIR) / executable
+    candidate = Path(cmake_package.CMAKE_BIN_DIR, executable)
     if not candidate.is_file():
         raise RuntimeError(f"CMake package does not contain {candidate}")
     return str(candidate)
+
+
+def run(command: list[str], *, environment: dict[str, str] | None = None) -> None:
+    subprocess.run(command, check=True, env=environment)
+
+
+def runtime_environment(package_prefix: Path) -> dict[str, str]:
+    variable = {
+        "win32": "PATH",
+        "darwin": "DYLD_LIBRARY_PATH",
+    }.get(sys.platform, "LD_LIBRARY_PATH")
+    directories = (
+        package_prefix,
+        package_prefix / "lib",
+        package_prefix / "lib64",
+        package_prefix / "pyarrow",
+    )
+    additions = os.pathsep.join(map(str, filter(Path.is_dir, directories)))
+    environment = os.environ.copy()
+    if current := environment.get(variable):
+        additions = os.pathsep.join((additions, current))
+    environment[variable] = additions
+    return environment
 
 
 def main() -> int:
@@ -35,10 +61,8 @@ def main() -> int:
         build_dir = Path(directory)
         configure = [
             cmake,
-            "-S",
-            str(SOURCE_DIR),
-            "-B",
-            str(build_dir),
+            f"-S{SOURCE_DIR}",
+            f"-B{build_dir}",
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DCMAKE_PREFIX_PATH={package_prefix}",
             f"-DPython_EXECUTABLE={sys.executable}",
@@ -47,41 +71,17 @@ def main() -> int:
             configure.extend(["-G", "Visual Studio 18 2026", "-A", "x64"])
         else:
             configure.extend(["-G", "Ninja"])
-        subprocess.run(configure, check=True)
+        run(configure)
 
-        build = [cmake, "--build", str(build_dir), "--parallel", "2"]
+        build = [cmake, "--build", str(build_dir), "-j", "2"]
         if sys.platform == "win32":
             build.extend(["--config", "Release"])
-        subprocess.run(build, check=True)
-
-        runtime_dirs = [
-            package_prefix,
-            package_prefix / "lib",
-            package_prefix / "lib64",
-            package_prefix / "pyarrow",
-        ]
-        runtime_variable = (
-            "PATH"
-            if sys.platform == "win32"
-            else "DYLD_LIBRARY_PATH"
-            if sys.platform == "darwin"
-            else "LD_LIBRARY_PATH"
-        )
-        environment = os.environ.copy()
-        existing = environment.get(runtime_variable)
-        runtime_path = os.pathsep.join(
-            str(path) for path in runtime_dirs if path.is_dir()
-        )
-        environment[runtime_variable] = (
-            runtime_path
-            if not existing
-            else os.pathsep.join((runtime_path, existing))
-        )
+        run(build)
 
         test = [ctest, "--test-dir", str(build_dir), "--output-on-failure"]
         if sys.platform == "win32":
             test.extend(["--build-config", "Release"])
-        subprocess.run(test, check=True, env=environment)
+        run(test, environment=runtime_environment(package_prefix))
     return 0
 
 

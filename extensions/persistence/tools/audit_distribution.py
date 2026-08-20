@@ -17,11 +17,13 @@ WHEEL_REQUIRED = (
     "include/hgraph/persistence/object_store.h",
     "include/hgraph/persistence/recording_store.h",
     "include/hgraph/persistence/store_location.h",
+    "include/curl/curl.h",
     # GNUInstallDirs selects lib64 on manylinux, while macOS and Windows wheels
     # use lib. Match the package-relative suffix so both layouts are audited.
     "cmake/hgraph-persistence/hgraph-persistenceConfig.cmake",
     "cmake/hgraph-persistence/hgraphPersistenceTargets.cmake",
     "cmake/hgraph-persistence/hgraph_persistence_arrow.cmake",
+    "cmake/CURL/CURLConfig.cmake",
 )
 SDIST_REQUIRED = (
     "CMakeLists.txt",
@@ -92,6 +94,16 @@ def _audit_wheel(path: Path) -> None:
     if len(persistence_libraries) != 1:
         raise AssertionError(
             f"{path}: expected one native persistence library, got {persistence_libraries}"
+        )
+    curl_libraries = [
+        name
+        for name in names
+        if Path(name).name.startswith("libcurl")
+        and Path(name).suffix in {".a", ".lib"}
+    ]
+    if len(curl_libraries) != 1:
+        raise AssertionError(
+            f"{path}: expected one bundled curl SDK library, got {curl_libraries}"
         )
     forbidden = [
         name

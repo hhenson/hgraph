@@ -114,7 +114,7 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
     assert "pattern: persistence-distribution-*" in wheel_workflows
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
-    ) == 5
+    ) == 6
     for dependency in (
         '"scikit-build-core==1.0.3"',
         '"nanobind==2.13.0"',
