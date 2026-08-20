@@ -11,8 +11,11 @@ configuration, and broker-free memory notification. Its native publication
 state machine writes each Frame before proposing a revision, waits for an
 asynchronous notifier acknowledgement before racing the immutable revision
 slot, and repairs the derived as-of/latest indexes from contiguous accepted
-history. Later RFC checkpoints connect that machinery to wiring-time
-dependency planning, consistent-cut resolution, subscription modes, and Kafka.
+history. The wiring-time planner discovers subscriptions through direct and
+nested graph ownership, validates explicit dependency handles, partitions
+independent consistency forests, and wires one root coordinator with hidden
+lineage cuts. Later RFC checkpoints connect that plan to consistent-cut
+resolution, subscription modes, and Kafka.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data

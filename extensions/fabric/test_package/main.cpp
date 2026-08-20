@@ -72,5 +72,13 @@ int main()
     }
 
     auto graph = hg::build_graph<InstalledFabricGraph>();
-    return graph.node_count() == 2 ? 0 : 5;
+    const auto plan = hgf::dependency_plan_input(
+        graph.traits().get(hgf::DEPENDENCY_PLAN_TRAIT));
+    return plan == hgf::DependencyPlanInput{
+                       .roots = {"installed/input"},
+                       .publishers = {{"installed/output", {"installed/input"}}},
+                       .forests = {{{"installed/input"}}},
+                   }
+               ? 0
+               : 5;
 }
