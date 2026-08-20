@@ -1,7 +1,7 @@
 RFC 0026: Versioned Dataflow Fabric
 ===================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-18
 :Target: A new C++-first ``hgraph-fabric`` extension for durable,
@@ -38,10 +38,10 @@ revision history at its original publication times.  A snapshot subscriber
 loads one consistent view as of a requested time and ticks it once at graph
 start.
 
-This RFC fixes the semantic model and the public C++/Python shape.  It does not
-implement the extension.  In particular it does not add orchestration, data
-catalogue, schema-evolution, deletion, delta distribution or event-accurate
-streaming facilities.
+This RFC fixes the semantic model and the public C++/Python shape implemented
+by the first version of ``hgraph-fabric``.  The accepted implementation does
+not add orchestration, a data catalogue, schema evolution, deletion, delta
+distribution or event-accurate streaming facilities.
 
 Motivation
 ----------
@@ -288,8 +288,9 @@ An application graph remains ordinary hgraph composition:
 
    @graph
    def normalised_prices() -> None:
-       prices = subscribe_data("raw-prices")
-       instruments = subscribe_data("instrument-reference")
+       prices = subscribe_data("raw-prices", mode=SubscriptionMode.LIVE)
+       instruments = subscribe_data(
+           "instrument-reference", mode=SubscriptionMode.LIVE)
        result = normalise(prices, instruments)
        publish_data("normalised-prices", result)
 
@@ -396,13 +397,15 @@ The new extension owns:
 Packaging and activation
 ------------------------
 
-The implementation will follow the existing first-party extension layout:
+The implementation follows the existing first-party extension layout:
 
 * repository directory ``extensions/fabric``;
 * CMake package and distribution ``hgraph-fabric``;
 * exported target ``hgraph::fabric``;
 * root build option ``HGRAPH_BUILD_FABRIC_EXTENSION``;
-* Python package ``hgraph_fabric`` with an abi3 native module; and
+* Python package ``hgraph_fabric`` with an abi3 native module;
+* optional installed target ``hgraph::fabric_kafka`` for the production
+  transport adapter; and
 * C++ namespace ``hgraph::fabric``.
 
 The extension depends on compatible versions of hgraph core and
@@ -445,8 +448,8 @@ metadata, conditionally advance a head, round-trip a Frame, and send and
 receive a keyed Kafka notification after observing its correlated broker
 delivery report.
 
-The probe also fixes the future fabric-owned Kafka profile without changing
-the general Kafka extension's valid policies.  Fabric requires idempotent
+The probe also fixed the fabric-owned Kafka profile without changing the
+general Kafka extension's valid policies.  Fabric requires idempotent
 production with ``acks=all`` (or ``-1``), ``Fail`` rather than ``Drop`` at
 consumer and final producer queue boundaries, and an unfiltered independent
 subscription to every partition of its configured topic.  Startup uses
@@ -462,40 +465,34 @@ assigned running subscriber unaware of the new partition until it restarts.
 An installation which needs a different partition count creates a new fabric
 topic/namespace and migrates deliberately.
 
-The installed probe uses librdkafka's in-process protocol cluster.  External
-broker restart, rebalance and retention tests remain part of the checkpoint-6
-actual-broker gate; checkpoint 0 does not claim those production tests.
+The installed probe uses librdkafka's in-process protocol cluster.  Checkpoint
+6 subsequently added the actual-broker restart, rebalance, delivery-failure,
+partition-ordering and bounded-backpressure gate.
 
 Public value contract
 ---------------------
 
-The following shapes are normative semantically.  Exact C++ member spelling
-may be adjusted while this RFC remains Proposed, but C++ and Python represent
-the same registered scalar types rather than independent structures.
+The following registered shapes are normative.  C++ and Python represent the
+same scalar schemas; the ``Input`` structures are C++ convenience values used
+to build and decode those schemas, not a second contract.
 
 .. code-block:: cpp
 
    namespace hgraph::fabric
    {
-       using DataVersion = std::int64_t;
-       using RevisionId  = std::int64_t;
+       using DataVersion = Int;
+       using RevisionId  = Int;
 
-       struct DataDependency
-       {
-           Str         data_id;
-           DataVersion version;
-       };
+       using DataDependency =
+           Bundle<"hgraph.fabric::DataDependency",
+                  Field<"data_id", Str>, Field<"version", Int>>;
 
-       struct DataRevision
-       {
-           Int                               format_version;
-           Str                               data_id;
-           RevisionId                        revision;
-           DataVersion                       output_version;
-           HomogeneousTuple<DataDependency>  dependencies;
-           std::optional<DataVersion>         self_predecessor;
-           DateTime                          as_of;
-       };
+       using DataRevision =
+           Bundle<"hgraph.fabric::DataRevision",
+                  Field<"format_version", Int>, Field<"data_id", Str>,
+                  Field<"revision", Int>, Field<"output_version", Int>,
+                  Field<"dependencies", HomogeneousTuple<DataDependency>>,
+                  Field<"self_predecessor", Int>, Field<"as_of", DateTime>>;
 
        enum class SubscriptionMode
        {
@@ -598,9 +595,10 @@ of execution with the normal graph state.  The semantic configuration includes:
 
    struct FabricConfig
    {
-       Str                    prefix;
-       persistence::Store     store;
-       NotificationConfig     notifications;
+       Str                              prefix;
+       persistence::store::ObjectStore objects;
+       persistence::store::FrameStore  frames;
+       Notifier                         notifications;
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
@@ -1507,6 +1505,75 @@ Frame per output tick plus one small revision/as-of entry per accepted input or
 output tuple.  The RFC trades storage for exact replay and operational
 simplicity.  This cost must be explicit in deployment documentation.
 
+Accepted performance evidence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The accepted measurements used a GCC 14.2 Release build in the x86_64 Ubuntu
+VM, pinned to one CPU.  Resolver figures are medians of nine warm cached
+resolutions.  Work counters are from the selected median-equivalent scenario;
+the cache-miss assertion was zero for every warm sample.
+
+.. list-table:: Resolver measurements
+   :header-rows: 1
+   :widths: 31 10 14 15 15 15
+
+   * - Scenario
+     - Scale
+     - Median
+     - Revisions
+     - Edges
+     - Max depth
+   * - unchanged-output rolling ancestry
+     - 2,048 revisions
+     - 4.081 ms
+     - 2,050
+     - 2,049
+     - 3
+   * - broad ancestry
+     - 128 leaves
+     - 6.467 ms
+     - 129
+     - 128
+     - 129
+   * - deep ancestry
+     - 256 levels
+     - 27.336 ms
+     - 256
+     - 255
+     - 256
+   * - conflict-heavy ambiguous ancestry
+     - 24 revisions
+     - 0.185 ms
+     - 624
+     - 600
+     - 3
+
+The 1,049,194-byte, 65,536-row/two-column Frame benchmark measured 17,213
+MiB/s for Arrow IPC serialisation.  Combined immutable put plus get against the
+memory object-store strategy measured 520 MiB/s.  Both are nine-sample medians
+over twenty operations per sample and report a checked payload-size checksum.
+
+Non-Fabric impact was measured separately with the 53-case type-erasure
+campaign against a fresh ``main`` build, using the same compiler, source/build
+paths and CPU pinning.  Benchmark inventory, iterations, allocation counts,
+allocated bytes and checksums matched exactly.  The ordinary graph paths met
+the five-percent gate: erased native-node evaluation was 1.38 percent faster,
+disabled/enabled profiler cycles were 5.90/1.87 percent faster, small-graph
+construction was 2.38 percent faster, nested scheduled scan was 2.58 percent
+slower, and dynamic TSL map/map-reduce cycles were 1.74/0.83 percent slower.
+Sparse TSD map, reduce and combined cycles improved by 17.55--19.80 percent.
+
+The raw whole-inventory timing comparator also reported repeatable outliers in
+two isolated value-dispatch microbenchmarks: external polymorphic-union
+copy/hash (11.90 percent) and bundle visitor dispatch (17.77 percent).  Their
+implementation sources and generated helper bodies were unchanged; only
+indirect-call target placement differed after relinking the much larger stack.
+They are recorded as linker-layout-sensitive results rather than evidence for
+an ordinary graph evaluation regression.  The accepted performance claim is
+therefore deliberately limited to the graph evaluation paths above, not a
+claim that every sub-35-nanosecond microbenchmark passes a raw binary-to-binary
+five-percent timing threshold.
+
 Compatibility and migration
 ---------------------------
 
@@ -1621,33 +1688,55 @@ write behavior and strong whole-object visibility:
 * `S3 PutObject
   <https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html>`_.
 
-Implementation plan
--------------------
+Implementation outcome
+----------------------
 
-This RFC is the proposal and contains no implementation.  After acceptance,
-implementation should proceed as separately reviewable checkpoints:
+The implementation landed through the separately reviewed checkpoints tracked
+by issue 512.  It supplied the reusable persistence object-store contract,
+installed-SDK extension seam, Fabric public types and operators, durable
+publication state machine, wiring planner, resolver/coordinator, all three
+subscription modes, production Kafka adapter, backend/package matrix,
+diagnostics and performance evidence.
 
-1. expose the reusable immutable-object, ordered-list and conditional-reference
-   store contract from ``hgraph-persistence``, with memory/local/S3 parity;
-2. scaffold ``hgraph-fabric`` and register value schemas, configuration and
-   operator markers from an installed SDK;
-3. implement durable keys, revision codecs and publication against memory
-   storage and a memory notifier;
-4. implement wiring-time dependency discovery and the root forest coordinator;
-5. implement and performance-test the resolver and live conflation;
-6. implement simulation replay and snapshot modes from as-of indexes;
-7. integrate the Kafka notifier and validate the startup handoff and race/crash
-   protocol;
-8. add local/S3 integration coverage, packaging, documentation and operational
-   metrics; and
-9. update this RFC to ``Accepted`` with any reviewed implementation differences.
+The accepted implementation resolves the proposal's remaining ownership and
+lifecycle choices as follows:
 
-The checkpoint-0 proof found and supplied the generally reusable compiled-child
+* One lazy root ``FabricServiceImpl`` singleton owns Fabric persistence,
+  publication state, revision and Frame caches, consistency sessions,
+  synchronous load request/reply, diagnostics and lifecycle.  Nested and root
+  clients use purpose-specific service interfaces to that same instance.
+* The optional Kafka adapter is a separate service singleton.  It owns broker
+  workers, bounded transport queues and the root real-time push source.  Its
+  drain node emits ordinary graph edges into Fabric; neither a broker callback
+  nor Fabric runtime object addresses the graph directly.
+* V1 Frame loading is synchronous through the service-owned request/reply
+  contract.  It therefore has no Fabric worker/completion queue or in-flight
+  load de-duplication.  A future asynchronous strategy must return completions
+  through one service-owned root push-source edge; that strategy is not part of
+  V1.
+* Kafka carries the complete accepted ``DataRevision`` keyed by data id.  A
+  valid notice directly populates revision, output-version and dependency
+  indexes.  Persistence metadata is read for startup, reconnect, detected gaps
+  and uncached selected Frames rather than once per notice.
+* ``Live``, ``Replay`` and ``Snapshot`` are required wiring-time choices.
+  Replay and Snapshot are ordinary deterministic scheduled sources; every push
+  source remains real-time-only.
+* Metadata uses the canonical version-1 ``HGFM`` binary envelope and the media
+  types declared in ``metadata_codec.h``.  Public contracts are split across
+  ``types.h``, ``config.h``, ``operators.h``, ``service.h`` and the persistence
+  and Kafka adapter headers.
+* Diagnostics are a bundle of stable string metrics and typed, path-addressed
+  events.  Publication, live notices, notification requests, retries and
+  diagnostic paths have the public hard bounds documented by the extension.
+* The standalone Fabric package and wheel depend on core and Persistence but
+  remain Kafka-free.  ``hgraph::fabric_kafka`` is an optional native target so
+  the production transport does not leak into the base dependency boundary.
+
+The checkpoint-0 proof supplied the generally reusable compiled-child
 inspection hook described above.  It lives under the shared C++ wiring path, so
 Python-authored graphs which lower through that path receive the same behavior
-without a second Python runtime implementation.  Any further core hook requires
-its own focused commit and C++/Python behavioral parity.  Fabric-specific policy
-stays in the extension.
+without a second Python runtime implementation.  Fabric-specific policy stays
+in the extension.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -1733,17 +1822,24 @@ Performance gates
 * Frame serialisation and object-store throughput reported separately from
   graph evaluation cost.
 
-Unresolved implementation details
----------------------------------
+Resolved implementation details
+-------------------------------
 
-The proposal deliberately leaves only representation details which do not
-change the semantics above reviewable during implementation:
+The representation choices left open by the proposal are fixed by the public
+installed headers and canonical codec:
 
-* the final C++ header split and exact registered Bundle names;
-* the canonical revision/latest byte encoding and media type;
-* the concrete name of the persistence-owned generic object-store handle;
-* the exact standard error/status value used for diagnostics; and
-* configuration field spelling for Kafka topic and persistence bindings.
+* registered Bundles use the ``hgraph.fabric::`` names shown above and live in
+  the focused public header split recorded under *Implementation outcome*;
+* revision, latest and as-of values use the big-endian ``HGFM`` version-1
+  envelope and the ``application/vnd.hgraph.fabric.*.v1+binary`` media types;
+* Persistence owns the type-erased ``persistence::store::ObjectStore`` and
+  ``FrameStore`` handles consumed by ``FabricConfig``;
+* resolver outcomes use the typed ``ResolutionStatus`` values, while the
+  service exposes stable metrics plus typed ``FabricDiagnosticEvent`` values;
+  and
+* Fabric configuration owns ``prefix``, ``objects``, ``frames`` and the base
+  ``notifications`` handle; Kafka topic and client configuration belong to the
+  optional adapter registration.
 
 Changing version/revision meaning, forest independence, rolling ancestry,
 live conflation, replay timing, permanent history, publication ordering or
