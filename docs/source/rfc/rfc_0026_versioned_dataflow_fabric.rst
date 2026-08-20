@@ -674,8 +674,12 @@ The Frame is written to:
 
 The encoding is canonical, reversible and accepted by the persistence key
 validator.  Numeric path segments are fixed-width unsigned decimal so lexical
-ordering agrees with numeric ordering.  The physical Frame format is selected
-by ``hgraph-persistence`` configuration.
+ordering agrees with numeric ordering.  A complete encoded object key is
+limited to 1,024 bytes across every backend, matching S3's portable key limit;
+the configured prefix and encoded data id must leave room for the category and
+fixed-width ordinal.  The logical 4,096-byte metadata limit therefore does not
+promise that every data id fits every durable namespace.  The physical Frame
+format is selected by ``hgraph-persistence`` configuration.
 
 Revisions
 ~~~~~~~~~

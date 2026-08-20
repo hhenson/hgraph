@@ -14,6 +14,16 @@ namespace hgraph::fabric
         inline constexpr char BASE64_URL[]{
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"};
 
+        void require_valid_fabric_key(std::string_view key)
+        {
+            persistence::store::require_valid_key(key);
+            if (key.size() > MAX_FABRIC_KEY_BYTES)
+            {
+                throw std::invalid_argument(
+                    "fabric durable key exceeds the portable 1024-byte limit");
+            }
+        }
+
         [[nodiscard]] unsigned char decode_base64(char value)
         {
             if (value >= 'A' && value <= 'Z')
@@ -37,7 +47,10 @@ namespace hgraph::fabric
                                                std::string_view data_id)
         {
             persistence::store::require_valid_key(fabric_prefix);
-            return std::string{fabric_prefix} + "/" + encode_data_id_segment(data_id);
+            std::string key =
+                std::string{fabric_prefix} + "/" + encode_data_id_segment(data_id);
+            require_valid_fabric_key(key);
+            return key;
         }
 
         [[nodiscard]] std::string ordinal_key(std::string_view fabric_prefix,
@@ -49,7 +62,18 @@ namespace hgraph::fabric
             key += category;
             key += '/';
             key += encode_fabric_ordinal(ordinal);
-            persistence::store::require_valid_key(key);
+            require_valid_fabric_key(key);
+            return key;
+        }
+
+        [[nodiscard]] std::string category_prefix(
+            std::string_view fabric_prefix, std::string_view data_id,
+            std::string_view category)
+        {
+            std::string key = checked_root(fabric_prefix, data_id);
+            key += '/';
+            key += category;
+            require_valid_fabric_key(key);
             return key;
         }
     }  // namespace
@@ -183,7 +207,7 @@ namespace hgraph::fabric
     std::string revision_key_prefix(std::string_view fabric_prefix,
                                     std::string_view data_id)
     {
-        return checked_root(fabric_prefix, data_id) + "/revision";
+        return category_prefix(fabric_prefix, data_id, "revision");
     }
 
     std::string revision_key(std::string_view fabric_prefix,
@@ -195,7 +219,7 @@ namespace hgraph::fabric
     std::string as_of_key_prefix(std::string_view fabric_prefix,
                                  std::string_view data_id)
     {
-        return checked_root(fabric_prefix, data_id) + "/as_of";
+        return category_prefix(fabric_prefix, data_id, "as_of");
     }
 
     std::string as_of_key(std::string_view fabric_prefix, std::string_view data_id,
@@ -208,6 +232,6 @@ namespace hgraph::fabric
     std::string latest_key(std::string_view fabric_prefix,
                            std::string_view data_id)
     {
-        return checked_root(fabric_prefix, data_id) + "/latest";
+        return category_prefix(fabric_prefix, data_id, "latest");
     }
 }  // namespace hgraph::fabric
