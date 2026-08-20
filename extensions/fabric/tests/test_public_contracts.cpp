@@ -84,6 +84,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto source = hgf::subscribe_data(
                 wiring, "input", hgf::SubscriptionMode::Live);
             auto dependency = hgf::dependency_handle(wiring, source);
@@ -101,6 +102,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto first = hgf::subscribe_data(
                 wiring, "input-a", hgf::SubscriptionMode::Live);
             auto second = hgf::subscribe_data(
@@ -117,6 +119,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto first = hgf::subscribe_data(
                 wiring, "input", hgf::SubscriptionMode::Live);
             auto second = hgf::subscribe_data(
@@ -139,6 +142,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto source = hgf::subscribe_data(
                 wiring, "shared", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "left", source);
@@ -177,6 +181,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto source = hg::nested_<NestedSubscriptionGraph>(wiring);
             hgf::publish_data(wiring, "nested-output", source);
         }
@@ -186,6 +191,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto source = hg::nested_<NestedSubscriptionWithSideEffectGraph>(wiring);
             hgf::publish_data(wiring, "nested-side-effect-output", source);
         }
@@ -195,6 +201,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto left = hgf::subscribe_data(
                 wiring, "conditional-a", hgf::SubscriptionMode::Live);
             auto right = hgf::subscribe_data(
@@ -212,6 +219,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto dependency = hgf::subscribe_data(
                 wiring, "declared-only", hgf::SubscriptionMode::Live);
             auto value = hg::wire<NeverFrameSource>(wiring);
@@ -226,6 +234,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto a = hgf::subscribe_data(
                 wiring, "a", hgf::SubscriptionMode::Live);
             auto b = hgf::subscribe_data(
@@ -246,6 +255,7 @@ namespace
     {
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             hgf::publish_data(wiring, "independent-output",
                               hg::wire<NeverFrameSource>(wiring));
         }
@@ -439,14 +449,16 @@ TEST_CASE("fabric planner partitions independent consistency forests")
                               {{"a"}}, {{"b"}}, {{"x"}}});
 }
 
-TEST_CASE("fabric planner wires one coordinator and hidden lineage cuts")
+TEST_CASE("fabric planner wires shared service clients and hidden lineage cuts")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
 
     const auto dependent = hg::build_graph<IndependentForestsGraph>();
     CHECK(count_semantic_node(
-              dependent, "hgraph.fabric.ingress_coordinator.contract") == 1);
+              dependent, "hgraph.fabric.service.lifecycle") == 1);
+    CHECK(count_semantic_node(
+              dependent, "hgraph.fabric.ingress_coordinator.contract") == 0);
     CHECK(count_semantic_node(
               dependent, "hgraph.fabric.publish_data.with_cut") == 2);
     CHECK(count_semantic_node(

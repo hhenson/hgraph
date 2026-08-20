@@ -152,6 +152,23 @@ public:
   resolve_forest(std::vector<Str> roots,
                  std::span<const ExposedRootVersion> exposed_roots = {});
 
+  /** Seed the immutable revision/output-version/dependency indexes from one
+      complete accepted notice. Missing earlier slots are loaded directly by
+      revision id; no latest/as-of discovery read is performed. */
+  void observe_accepted_revision(DataRevisionInput revision);
+
+  /** Resolve from the already observed cache. A previously unseen ancestry
+      id is recovered durably once, but cached heads are not polled again. */
+  [[nodiscard]] ForestResolution
+  resolve_forest_cached(std::vector<Str> roots,
+                        std::span<const ExposedRootVersion> exposed_roots = {});
+
+  /** Resolve only from revisions knowable at ``maximum_as_of``. The bound
+      applies recursively to roots and ordinary ancestry. */
+  [[nodiscard]] ForestResolution
+  resolve_forest_at(std::vector<Str> roots, DateTime maximum_as_of,
+                    std::span<const ExposedRootVersion> exposed_roots = {});
+
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
@@ -186,9 +203,22 @@ public:
    */
   void observe_notice(Str data_id, DateTime noticed_at);
 
+  /** Populate the live resolver indexes from a complete accepted revision
+      carried on the graph notification edge. */
+  void observe_accepted_revision(DataRevisionInput revision);
+
   /** Resolve current accepted heads. MIN_DT omits notice latency for startup
       image calls which did not originate from a notice. */
   [[nodiscard]] CoordinationResult resolve(DateTime ready_at = MIN_DT);
+
+  /** Resolve a notice-driven update without polling durable heads already in
+      the cache. New ancestry and explicit revision gaps are still recovered. */
+  [[nodiscard]] CoordinationResult resolve_cached(DateTime ready_at = MIN_DT);
+
+  /** Resolve and atomically commit a historical cut using no revision later
+      than ``maximum_as_of``. */
+  [[nodiscard]] CoordinationResult resolve_at(DateTime maximum_as_of,
+                                              DateTime ready_at = MIN_DT);
 
 private:
   struct Impl;

@@ -8,3 +8,6 @@
   publication state machine with schema locking and crash/index repair.
 - Add the native wiring-time dependency planner, explicit subscription handles,
   independent consistency forests, and hidden publisher lineage cuts.
+- Add the shared root Fabric service, Snapshot/Replay/Live subscription
+  sessions, service-owned publication and load paths, complete-revision live
+  cache ingestion, and the local Python memory-service host.

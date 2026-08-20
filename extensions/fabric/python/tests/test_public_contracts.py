@@ -74,11 +74,12 @@ def test_python_codec_does_not_replace_an_unsupported_format_version():
 def test_python_public_operators_wire_through_native_registry():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         value = hgf.subscribe_data(
             "python/input", mode=hgf.SubscriptionMode.LIVE
         )
         hgf.publish_data("python/output", value)
-    wiring.build_services()
+    wiring.run()
 
 
 def test_python_operator_validation_is_wiring_time():
@@ -119,8 +120,7 @@ def test_explicit_dependency_selection_rejects_empty():
 
 
 def _finish_contract_wiring(wiring: _hgraph.Wiring) -> None:
-    with pytest.raises(RuntimeError, match="subscription checkpoints"):
-        wiring.run()
+    wiring.run()
 
 
 def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
@@ -132,6 +132,7 @@ def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         direct = hgf.subscribe_data(
             "python/direct", mode=hgf.SubscriptionMode.LIVE
         )
@@ -160,6 +161,7 @@ def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
 def test_python_explicit_dependencies_use_the_native_planner():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         source = hgf.subscribe_data(
             "python/explicit-input", mode=hgf.SubscriptionMode.LIVE
         )
@@ -215,8 +217,9 @@ def test_python_operator_registration_survives_registry_reset():
     _hgraph.reset_registries()
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         value = hgf.subscribe_data(
             "python/reset-input", mode=hgf.SubscriptionMode.LIVE
         )
         hgf.publish_data("python/reset-output", value)
-    wiring.build_services()
+    wiring.run()

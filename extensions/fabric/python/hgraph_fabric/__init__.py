@@ -91,6 +91,20 @@ _publish_data = operator_function("hgraph.fabric.publish_data")
 _publish_data_explicit = operator_function(
     "hgraph.fabric._publish_data_explicit"
 )
+_register_memory_service = operator_function(
+    "hgraph.fabric.register_memory_service"
+)
+
+
+def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
+    """Register one native Fabric service backed by process-local stores.
+
+    This is the deterministic local/test host. Production hosts install their
+    persistence and notification resources in ``GlobalState`` and register the
+    same native service contract from C++.
+    """
+
+    _register_memory_service(prefix)
 
 
 def subscribe_data(
@@ -235,5 +249,6 @@ __all__ = [
     "encode_latest_reference",
     "encode_revision",
     "publish_data",
+    "register_memory_fabric_service",
     "subscribe_data",
 ]

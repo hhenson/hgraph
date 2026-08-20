@@ -30,6 +30,7 @@ def test_wheel_audit_accepts_platform_library_directories(
         "include/hgraph/fabric/planning.h": "",
         "include/hgraph/fabric/publication.h": "",
         "include/hgraph/fabric/resolution.h": "",
+        "include/hgraph/fabric/service.h": "",
         "include/hgraph/fabric/types.h": "",
         "include/hgraph/fabric/value_builders.h": "",
         f"{library_directory}/libhgraph_fabric.a": "",

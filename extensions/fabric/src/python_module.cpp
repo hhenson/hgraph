@@ -1,7 +1,9 @@
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/keys.h>
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/operators.h>
 #include <hgraph/fabric/resolution.h>
+#include <hgraph/fabric/service.h>
 #include <hgraph/fabric/value_builders.h>
 
 #include <hgraph/python/native_scalar_registration.h>
@@ -58,6 +60,39 @@ namespace
     }
 }  // namespace
 
+namespace hgraph::fabric
+{
+    namespace
+    {
+        struct RegisterMemoryFabricServiceOperator
+            : Operator<"hgraph.fabric.register_memory_service",
+                       Scalar<"prefix", Str>>
+        {
+        };
+
+        struct RegisterMemoryFabricServiceGraph
+        {
+            static constexpr auto name =
+                "hgraph.fabric.register_memory_service_impl";
+
+            static void compose(Wiring &wiring,
+                                Scalar<"prefix", Str> prefix)
+            {
+                if (fabric_config(wiring.global_state()).has_value())
+                {
+                    throw std::invalid_argument(
+                        "register_memory_fabric_service found an existing "
+                        "FabricConfig");
+                }
+                set_fabric_config(
+                    wiring.global_state(),
+                    make_memory_fabric_config(prefix.value()));
+                register_service(wiring);
+            }
+        };
+    }  // namespace
+}  // namespace hgraph::fabric
+
 NB_MODULE(_hgraph_fabric, module)
 {
     using namespace hgraph;
@@ -78,6 +113,8 @@ NB_MODULE(_hgraph_fabric, module)
     register_fabric_operators();
     OperatorRegistry::instance().register_installer(
         "hgraph.fabric.python_scalars", [mode] {
+            register_graph_overload<RegisterMemoryFabricServiceOperator,
+                                    RegisterMemoryFabricServiceGraph>();
             python_bridge::register_native_scalar_type<SubscriptionMode>(mode);
         });
     OperatorRegistry::instance().run_installers();

@@ -121,6 +121,8 @@ struct ConsistencyResolver::Impl {
   ResolverMetrics metrics{};
   std::map<Str, DataVersion, IdLess> lower_bounds{};
   std::vector<ResolvedCut> maxima{};
+  DateTime maximum_as_of{MAX_DT};
+  bool cache_only{};
   bool saw_cycle{};
 
   explicit Impl(FabricConfig configured) : config(std::move(configured)) {
@@ -240,7 +242,8 @@ struct ConsistencyResolver::Impl {
     data.frames.emplace(revision.output_version, std::move(frame));
   }
 
-  void append(CachedData &data, DataRevisionInput revision) {
+  void append(CachedData &data, DataRevisionInput revision,
+              bool validate_durable_payload = true) {
     if (data.revisions.empty()) {
       if (revision.revision != 1) {
         throw CorruptHistory("fabric revision history does not start at one");
@@ -263,8 +266,10 @@ struct ConsistencyResolver::Impl {
       }
     }
 
-    validate_frame(data, revision);
-    repair_as_of(revision);
+    if (validate_durable_payload) {
+      validate_frame(data, revision);
+      repair_as_of(revision);
+    }
     data.output_index[revision.output_version].push_back(data.revisions.size());
     data.revisions.push_back(std::move(revision));
     ++metrics.revision_cache_misses;
@@ -298,6 +303,13 @@ struct ConsistencyResolver::Impl {
     if (!refreshed_this_call.emplace(data_id).second) {
       ++metrics.revision_cache_hits;
       return cache.find(data_id)->second;
+    }
+    if (cache_only) {
+      const auto cached = cache.find(data_id);
+      if (cached != cache.end() && !cached->second.revisions.empty()) {
+        ++metrics.revision_cache_hits;
+        return cached->second;
+      }
     }
     auto [entry, inserted] = cache.try_emplace(Str{data_id});
     auto &data = entry->second;
@@ -366,7 +378,10 @@ struct ConsistencyResolver::Impl {
       result.reserve(found->second.size());
       for (auto index = found->second.rbegin(); index != found->second.rend();
            ++index) {
-        result.push_back(&data.revisions[*index]);
+        const auto &revision = data.revisions[*index];
+        if (revision.as_of <= maximum_as_of) {
+          result.push_back(&revision);
+        }
       }
       return result;
     }
@@ -375,6 +390,9 @@ struct ConsistencyResolver::Impl {
     const auto lower = lower_bounds.find(data_id);
     for (auto revision = data.revisions.rbegin();
          revision != data.revisions.rend(); ++revision) {
+      if (revision->as_of > maximum_as_of) {
+        continue;
+      }
       if (lower != lower_bounds.end() &&
           revision->output_version < lower->second) {
         continue;
@@ -585,6 +603,7 @@ struct ConsistencyResolver::Impl {
     if (data == cache.end()) {
       throw std::logic_error("resolved root has no cached data");
     }
+    validate_frame(data->second, revision);
     const auto frame = data->second.frames.find(revision.output_version);
     if (frame == data->second.frames.end()) {
       throw std::logic_error("resolved root has no cached Frame");
@@ -593,10 +612,48 @@ struct ConsistencyResolver::Impl {
     return frame->second;
   }
 
+  void observe_revision(DataRevisionInput revision) {
+    Value canonical = make_data_revision(std::move(revision));
+    revision = data_revision_input(canonical.view());
+    auto [entry, inserted] = cache.try_emplace(revision.data_id);
+    static_cast<void>(inserted);
+    auto &data = entry->second;
+    if (revision.revision <= static_cast<RevisionId>(data.revisions.size())) {
+      const auto &cached =
+          data.revisions[static_cast<std::size_t>(revision.revision - 1)];
+      if (cached != revision) {
+        throw CorruptHistory(
+            "fabric accepted notice conflicts with its cached revision");
+      }
+      return;
+    }
+
+    RevisionId next = static_cast<RevisionId>(data.revisions.size() + 1);
+    while (next < revision.revision) {
+      const auto object = config.objects.get(
+          revision_key(config.prefix, revision.data_id, next));
+      if (!object.has_value()) {
+        throw CorruptHistory(
+            "fabric accepted notice has a missing revision gap: " +
+            revision.data_id + ":" + std::to_string(next));
+      }
+      append(data, decode_slot(revision.data_id, next, *object), false);
+      next = checked_increment(next, "revision id");
+    }
+    append(data, std::move(revision), false);
+  }
+
   ForestResolution resolve(std::vector<Str> roots,
-                           std::span<const ExposedRootVersion> exposed) {
+                           std::span<const ExposedRootVersion> exposed,
+                           DateTime as_of_limit, bool use_cached_heads) {
     canonicalise_ids(roots, "resolver roots");
+    if (as_of_limit != MAX_DT && as_of_limit <= MIN_DT) {
+      throw std::invalid_argument(
+          "fabric historical resolution requires a real as-of bound");
+    }
     metrics = {};
+    maximum_as_of = as_of_limit;
+    cache_only = use_cached_heads;
     lower_bounds.clear();
     refreshed_this_call.clear();
     maxima.clear();
@@ -687,7 +744,23 @@ ConsistencyResolver::operator=(ConsistencyResolver &&) noexcept = default;
 
 ForestResolution ConsistencyResolver::resolve_forest(
     std::vector<Str> roots, std::span<const ExposedRootVersion> exposed_roots) {
-  return impl_->resolve(std::move(roots), exposed_roots);
+  return impl_->resolve(std::move(roots), exposed_roots, MAX_DT, false);
+}
+
+void ConsistencyResolver::observe_accepted_revision(
+    DataRevisionInput revision) {
+  impl_->observe_revision(std::move(revision));
+}
+
+ForestResolution ConsistencyResolver::resolve_forest_cached(
+    std::vector<Str> roots, std::span<const ExposedRootVersion> exposed_roots) {
+  return impl_->resolve(std::move(roots), exposed_roots, MAX_DT, true);
+}
+
+ForestResolution ConsistencyResolver::resolve_forest_at(
+    std::vector<Str> roots, DateTime maximum_as_of,
+    std::span<const ExposedRootVersion> exposed_roots) {
+  return impl_->resolve(std::move(roots), exposed_roots, maximum_as_of, false);
 }
 
 struct ConsistencyCoordinator::Impl {
@@ -780,7 +853,8 @@ struct ConsistencyCoordinator::Impl {
     return true;
   }
 
-  [[nodiscard]] CoordinationResult resolve_all(DateTime ready_at) {
+  [[nodiscard]] CoordinationResult
+  resolve_all(DateTime ready_at, DateTime maximum_as_of, bool cached_only) {
     std::vector<std::vector<Str>> groups;
     groups.reserve(roots.size());
     for (const auto &root : roots) {
@@ -793,7 +867,15 @@ struct ConsistencyCoordinator::Impl {
       results.reserve(groups.size());
       for (const auto &group : groups) {
         const auto exposed_bounds = bounds(group);
-        results.push_back(resolver.resolve_forest(group, exposed_bounds));
+        if (maximum_as_of != MAX_DT) {
+          results.push_back(
+              resolver.resolve_forest_at(group, maximum_as_of, exposed_bounds));
+        } else if (cached_only) {
+          results.push_back(
+              resolver.resolve_forest_cached(group, exposed_bounds));
+        } else {
+          results.push_back(resolver.resolve_forest(group, exposed_bounds));
+        }
       }
       if (!merge_overlaps(groups, results)) {
         break;
@@ -887,7 +969,21 @@ void ConsistencyCoordinator::observe_notice(Str data_id, DateTime noticed_at) {
   impl_->observe(std::move(data_id), noticed_at);
 }
 
+void ConsistencyCoordinator::observe_accepted_revision(
+    DataRevisionInput revision) {
+  impl_->resolver.observe_accepted_revision(std::move(revision));
+}
+
 CoordinationResult ConsistencyCoordinator::resolve(DateTime ready_at) {
-  return impl_->resolve_all(ready_at);
+  return impl_->resolve_all(ready_at, MAX_DT, false);
+}
+
+CoordinationResult ConsistencyCoordinator::resolve_cached(DateTime ready_at) {
+  return impl_->resolve_all(ready_at, MAX_DT, true);
+}
+
+CoordinationResult ConsistencyCoordinator::resolve_at(DateTime maximum_as_of,
+                                                      DateTime ready_at) {
+  return impl_->resolve_all(ready_at, maximum_as_of, false);
 }
 } // namespace hgraph::fabric
