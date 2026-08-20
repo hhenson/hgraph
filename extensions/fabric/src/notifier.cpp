@@ -16,6 +16,16 @@ namespace hgraph::fabric
         }
 
         [[nodiscard]] std::size_t empty_pending(void *) noexcept { return 0; }
+        [[nodiscard]] NotificationSubscriptionStatus
+        empty_status(void *)
+        {
+            return {NotificationSubscriptionState::Stopped, 0,
+                    "fabric notification subscription is not configured"};
+        }
+        void empty_acknowledge(void *,
+                               const RevisionNotification &)
+        {
+        }
         void empty_set_waker(void *, std::function<void()>) {}
         void empty_close(void *) noexcept {}
 
@@ -95,6 +105,8 @@ namespace hgraph::fabric
         static const NotificationSubscriptionOps ops{
             &empty_try_pop,
             &empty_pending,
+            &empty_status,
+            &empty_acknowledge,
             &empty_set_waker,
             &empty_close,
         };
@@ -108,6 +120,7 @@ namespace hgraph::fabric
         : context_(std::move(context)), ops_(ops)
     {
         if (!context_ || ops_.try_pop == nullptr || ops_.pending == nullptr ||
+            ops_.status == nullptr || ops_.acknowledge == nullptr ||
             ops_.set_waker == nullptr || ops_.close == nullptr)
         {
             throw std::invalid_argument(
@@ -146,6 +159,18 @@ namespace hgraph::fabric
     std::size_t NotificationSubscription::pending() const noexcept
     {
         return ops_.pending(context_.get());
+    }
+
+    NotificationSubscriptionStatus
+    NotificationSubscription::status() const
+    {
+        return ops_.status(context_.get());
+    }
+
+    void NotificationSubscription::acknowledge(
+        const RevisionNotification &notification) const
+    {
+        ops_.acknowledge(context_.get(), notification);
     }
 
     void NotificationSubscription::set_waker(std::function<void()> waker) const

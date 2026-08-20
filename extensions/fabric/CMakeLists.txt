@@ -10,6 +10,9 @@ option(HGRAPH_FABRIC_BUILD_PYTHON "Build the optional Python authoring bridge" O
 option(HGRAPH_FABRIC_WARNINGS_AS_ERRORS
     "Treat hgraph-fabric compiler warnings as errors"
     ${HGRAPH_WARNINGS_AS_ERRORS})
+option(HGRAPH_FABRIC_BUILD_KAFKA_NOTIFIER
+    "Build the optional production hgraph-kafka notifier adapter"
+    ${HGRAPH_BUILD_KAFKA_EXTENSION})
 
 if(HGRAPH_FABRIC_BUILD_PYTHON)
     find_package(Python 3.12 COMPONENTS
@@ -68,6 +71,42 @@ else()
     endif()
 endif()
 
+if(HGRAPH_FABRIC_BUILD_KAFKA_NOTIFIER)
+    if(NOT TARGET hgraph::kafka)
+        find_package(hgraph-kafka CONFIG REQUIRED)
+    endif()
+    add_library(hgraph_fabric_kafka src/kafka_notifier.cpp)
+    add_library(hgraph::fabric_kafka ALIAS hgraph_fabric_kafka)
+    get_target_property(HGRAPH_FABRIC_KAFKA_LIBRARY_TYPE hgraph_fabric_kafka TYPE)
+    if(HGRAPH_FABRIC_KAFKA_LIBRARY_TYPE STREQUAL "STATIC_LIBRARY")
+        target_compile_definitions(hgraph_fabric_kafka
+            PUBLIC HGRAPH_FABRIC_KAFKA_STATIC_DEFINE)
+    endif()
+    target_compile_features(hgraph_fabric_kafka PUBLIC cxx_std_23)
+    target_link_libraries(hgraph_fabric_kafka
+        PUBLIC hgraph::fabric hgraph::kafka)
+    target_include_directories(hgraph_fabric_kafka
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    )
+    set_target_properties(hgraph_fabric_kafka PROPERTIES
+        EXPORT_NAME fabric_kafka
+        POSITION_INDEPENDENT_CODE ON
+    )
+    if(MSVC)
+        target_compile_options(hgraph_fabric_kafka PRIVATE /W4 /permissive-)
+        if(HGRAPH_FABRIC_WARNINGS_AS_ERRORS)
+            target_compile_options(hgraph_fabric_kafka PRIVATE /WX)
+        endif()
+    else()
+        target_compile_options(hgraph_fabric_kafka PRIVATE -Wall -Wextra -Wpedantic)
+        if(HGRAPH_FABRIC_WARNINGS_AS_ERRORS)
+            target_compile_options(hgraph_fabric_kafka PRIVATE -Werror)
+        endif()
+    endif()
+endif()
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
@@ -100,6 +139,15 @@ install(TARGETS hgraph_fabric
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+if(TARGET hgraph_fabric_kafka)
+    install(TARGETS hgraph_fabric_kafka
+        EXPORT hgraphFabricTargets
+        COMPONENT Development
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     COMPONENT Development FILES_MATCHING PATTERN "*.h")
 

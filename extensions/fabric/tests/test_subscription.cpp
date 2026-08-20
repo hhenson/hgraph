@@ -182,6 +182,87 @@ namespace hgraph::fabric::test_detail
         };
         return Notifier{gate, ops};
     }
+
+    struct ControlledSubscription
+    {
+        void transition(NotificationSubscriptionState state)
+        {
+            std::function<void()> notify;
+            {
+                const std::scoped_lock lock{mutex};
+                status = {state, status.generation + 1, {}};
+                notify = waker;
+            }
+            if (notify) { notify(); }
+        }
+
+        mutable std::mutex mutex{};
+        NotificationSubscriptionStatus status{};
+        std::function<void()> waker{};
+        bool closed{};
+    };
+
+    struct ControlledNotifier
+    {
+        std::shared_ptr<ControlledSubscription> subscription{};
+        Notifier memory{make_memory_notifier()};
+    };
+
+    [[nodiscard]] const NotificationSubscriptionOps &
+    controlled_subscription_ops()
+    {
+        static const NotificationSubscriptionOps ops{
+            [](void *) -> std::optional<RevisionNotification> {
+                return std::nullopt;
+            },
+            [](void *) noexcept -> std::size_t { return 0; },
+            [](void *context) {
+                auto &subscription =
+                    *static_cast<ControlledSubscription *>(context);
+                const std::scoped_lock lock{subscription.mutex};
+                return subscription.status;
+            },
+            [](void *, const RevisionNotification &) {},
+            [](void *context, std::function<void()> waker) {
+                auto &subscription =
+                    *static_cast<ControlledSubscription *>(context);
+                const std::scoped_lock lock{subscription.mutex};
+                subscription.waker = std::move(waker);
+            },
+            [](void *context) noexcept {
+                auto &subscription =
+                    *static_cast<ControlledSubscription *>(context);
+                const std::scoped_lock lock{subscription.mutex};
+                subscription.closed = true;
+                subscription.waker = {};
+                subscription.status.state =
+                    NotificationSubscriptionState::Stopped;
+                ++subscription.status.generation;
+                subscription.status.message.clear();
+            },
+        };
+        return ops;
+    }
+
+    [[nodiscard]] Notifier controlled_notifier(
+        const std::shared_ptr<ControlledSubscription> &subscription)
+    {
+        static const NotifierOps ops{
+            [](void *context) {
+                auto &owner = *static_cast<ControlledNotifier *>(context);
+                return NotificationSubscription{owner.subscription,
+                                                controlled_subscription_ops()};
+            },
+            [](void *context, RevisionNotification notification) {
+                return static_cast<ControlledNotifier *>(context)
+                    ->memory.publish(std::move(notification));
+            },
+        };
+        return Notifier{
+            std::make_shared<ControlledNotifier>(
+                ControlledNotifier{subscription, make_memory_notifier()}),
+            ops};
+    }
 }  // namespace hgraph::fabric::test_detail
 
 namespace std
@@ -567,6 +648,75 @@ TEST_CASE("slow live clients conflate and skip stale out-of-order notices")
     view.request_stop();
     run.join();
     CHECK(values(capture) == std::vector<std::int64_t>{1, 2, 4});
+}
+
+TEST_CASE("live notifications select the immutable winner over a losing payload")
+{
+    const auto now = std::chrono::time_point_cast<std::chrono::microseconds>(
+        hg::engine_clock::now());
+    auto config = hgf::make_memory_fabric_config(
+        "tests/subscription/durable-winner");
+    seed(config, "data", 1, 1, now - std::chrono::seconds{2});
+
+    detail::CaptureHandle capture{std::make_shared<detail::CaptureState>()};
+    auto executor = make_executor(
+        config, hgf::SubscriptionMode::Live,
+        hg::GraphExecutorMode::RealTime, now - std::chrono::milliseconds{1},
+        now + std::chrono::seconds{5}, capture);
+    auto view = executor.view();
+    hg::testing::AsyncGraphExecutorRun run{view};
+    REQUIRE(capture.value->wait_for(1, std::chrono::seconds{2}));
+
+    static_cast<void>(seed(config, "data", 2, 2,
+                           now - std::chrono::seconds{1}));
+    const auto losing_value = hgf::make_data_revision(
+        hgf::DataRevisionInput{
+            .data_id = "data",
+            .revision = 2,
+            .output_version = 99,
+            .as_of = now - std::chrono::seconds{1},
+        });
+    const auto losing_payload = hgf::encode_revision(losing_value.view());
+    REQUIRE(config.notifications.publish({"data", losing_payload})
+                .poll()
+                .status == hgf::NotificationDeliveryStatus::Delivered);
+
+    REQUIRE(capture.value->wait_for(2, std::chrono::seconds{2}));
+    view.request_stop();
+    run.join();
+    CHECK(values(capture) == std::vector<std::int64_t>{1, 2});
+}
+
+TEST_CASE("live reconciles durable heads after each recovered transport generation")
+{
+    const auto now = std::chrono::time_point_cast<std::chrono::microseconds>(
+        hg::engine_clock::now());
+    auto config = hgf::make_memory_fabric_config(
+        "tests/subscription/reconnect-reconcile");
+    auto transport =
+        std::make_shared<detail::ControlledSubscription>();
+    config.notifications = detail::controlled_notifier(transport);
+    seed(config, "data", 1, 1, now - std::chrono::seconds{2});
+
+    detail::CaptureHandle capture{std::make_shared<detail::CaptureState>()};
+    auto executor = make_executor(
+        config, hgf::SubscriptionMode::Live,
+        hg::GraphExecutorMode::RealTime, now - std::chrono::milliseconds{1},
+        now + std::chrono::seconds{5}, capture);
+    auto view = executor.view();
+    hg::testing::AsyncGraphExecutorRun run{view};
+    REQUIRE(capture.value->wait_for(1, std::chrono::seconds{2}));
+
+    static_cast<void>(seed(config, "data", 2, 2,
+                           now - std::chrono::seconds{1}));
+    transport->transition(hgf::NotificationSubscriptionState::Recovering);
+    CHECK_FALSE(capture.value->wait_for(2, std::chrono::milliseconds{20}));
+    transport->transition(hgf::NotificationSubscriptionState::Live);
+
+    REQUIRE(capture.value->wait_for(2, std::chrono::seconds{2}));
+    view.request_stop();
+    run.join();
+    CHECK(values(capture) == std::vector<std::int64_t>{1, 2});
 }
 
 TEST_CASE("live retains an ahead proposal when a stale notice follows")

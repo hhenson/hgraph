@@ -18,8 +18,14 @@ add_executable(hgraph_fabric_tests
     test_resolution.cpp
     test_subscription.cpp
 )
-target_link_libraries(hgraph_fabric_tests
-    PRIVATE hgraph::fabric Catch2::Catch2WithMain)
+if(TARGET hgraph::fabric_kafka)
+    target_sources(hgraph_fabric_tests PRIVATE test_kafka_notifier.cpp)
+    target_link_libraries(hgraph_fabric_tests
+        PRIVATE hgraph::fabric_kafka Catch2::Catch2WithMain)
+else()
+    target_link_libraries(hgraph_fabric_tests
+        PRIVATE hgraph::fabric Catch2::Catch2WithMain)
+endif()
 target_compile_features(hgraph_fabric_tests PRIVATE cxx_std_23)
 target_compile_definitions(hgraph_fabric_tests PRIVATE
     HGRAPH_FABRIC_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")

@@ -337,6 +337,7 @@ namespace hgraph::fabric::detail
             struct PendingProposal
             {
                 RevisionId                           revision{};
+                RevisionNotification                 notification{};
                 DateTime                             noticed_at{MIN_DT};
                 DateTime                             next_attempt{MIN_DT};
                 TimeDelta                            backoff{std::chrono::milliseconds{1}};
@@ -352,6 +353,7 @@ namespace hgraph::fabric::detail
             std::map<Str, PendingProposal, IdLess>   pending{};
             bool                                     startup{true};
             bool                                     wall_clock{};
+            std::optional<std::uint64_t>              reconciled_live_generation{};
 
             LiveStrategy(FabricConfig config, std::vector<Str> roots,
                          bool use_wall_clock)
@@ -374,19 +376,27 @@ namespace hgraph::fabric::detail
                 {
                     if (!core.observed.contains(notification->data_id))
                     {
+                        subscription.acknowledge(*notification);
                         continue;
                     }
                     const Value decoded = decode_revision(notification->revision);
                     const DataRevisionInput revision =
                         data_revision_input(decoded.view());
-                    auto found = pending.find(notification->data_id);
+                    const Str data_id = notification->data_id;
+                    auto found = pending.find(data_id);
                     if (found != pending.end() &&
                         found->second.revision > revision.revision)
                     {
+                        subscription.acknowledge(*notification);
                         continue;
                     }
-                    pending[notification->data_id] = PendingProposal{
+                    if (found != pending.end())
+                    {
+                        subscription.acknowledge(found->second.notification);
+                    }
+                    pending[data_id] = PendingProposal{
                         .revision = revision.revision,
+                        .notification = std::move(*notification),
                         .noticed_at = now,
                         .next_attempt = now,
                     };
@@ -428,6 +438,7 @@ namespace hgraph::fabric::detail
                     }
                     core.coordinator.observe_notice(item->first,
                                                     item->second.noticed_at);
+                    subscription.acknowledge(item->second.notification);
                     item = pending.erase(item);
                     admitted = true;
                 }
@@ -471,6 +482,16 @@ namespace hgraph::fabric::detail
             [[nodiscard]] std::optional<IngressBatch>
             evaluate(DateTime now, NodeScheduler scheduler)
             {
+                const NotificationSubscriptionStatus transport =
+                    subscription.status();
+                if (transport.state == NotificationSubscriptionState::Failed)
+                {
+                    throw std::runtime_error(
+                        transport.message.empty()
+                            ? "fabric notification subscription failed"
+                            : "fabric notification subscription failed: " +
+                                  transport.message);
+                }
                 std::optional<IngressBatch> batch;
                 if (startup)
                 {
@@ -482,8 +503,12 @@ namespace hgraph::fabric::detail
                 }
                 drain(now);
                 const bool admitted = admit(now);
+                const bool reconcile =
+                    transport.state == NotificationSubscriptionState::Live &&
+                    (!reconciled_live_generation.has_value() ||
+                     *reconciled_live_generation != transport.generation);
 
-                if (admitted)
+                if (admitted || reconcile)
                 {
                     if (auto update = core.batch(core.coordinator.resolve(now));
                         update.has_value())
@@ -494,6 +519,10 @@ namespace hgraph::fabric::detail
                             std::make_move_iterator(update->roots.begin()),
                             std::make_move_iterator(update->roots.end()));
                     }
+                }
+                if (reconcile)
+                {
+                    reconciled_live_generation = transport.generation;
                 }
                 startup = false;
                 schedule_retry(now, scheduler);

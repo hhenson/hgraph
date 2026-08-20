@@ -8,7 +8,13 @@ find_package(hgraph-fabric CONFIG REQUIRED)
 
 add_executable(hgraph_fabric_consumer main.cpp)
 target_compile_features(hgraph_fabric_consumer PRIVATE cxx_std_23)
-target_link_libraries(hgraph_fabric_consumer PRIVATE hgraph::fabric)
+if(TARGET hgraph::fabric_kafka)
+    target_link_libraries(hgraph_fabric_consumer PRIVATE hgraph::fabric_kafka)
+    target_compile_definitions(hgraph_fabric_consumer PRIVATE
+        HGRAPH_FABRIC_CONSUMER_HAS_KAFKA=1)
+else()
+    target_link_libraries(hgraph_fabric_consumer PRIVATE hgraph::fabric)
+endif()
 
 if(TARGET hgraph::nanobind AND NOT TARGET Python::Python)
     find_package(Python 3.12 COMPONENTS Interpreter Development.Embed REQUIRED)

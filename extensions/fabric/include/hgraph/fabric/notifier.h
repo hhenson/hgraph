@@ -7,6 +7,7 @@
 #include <hgraph/types/primitive_types.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -17,6 +18,9 @@ namespace hgraph::fabric
     {
         Str                                     data_id{};
         persistence::store::ObjectBytes         revision{};
+        /** Transport-private receipt used to acknowledge one conflated wake-up.
+            Zero denotes an in-process/no-ack notification. */
+        std::uint64_t                           receipt{};
 
         friend bool operator==(const RevisionNotification &,
                                const RevisionNotification &) = default;
@@ -27,6 +31,29 @@ namespace hgraph::fabric
         Pending,
         Delivered,
         Failed,
+    };
+
+    enum class NotificationSubscriptionState
+    {
+        Starting,
+        Recovering,
+        Live,
+        Retrying,
+        Stopped,
+        Failed,
+    };
+
+    struct NotificationSubscriptionStatus
+    {
+        NotificationSubscriptionState state{
+            NotificationSubscriptionState::Starting};
+        /** Monotonic transition generation. A new Live generation requires a
+            durable-head reconciliation before normal wake processing resumes. */
+        std::uint64_t generation{};
+        Str           message{};
+
+        friend bool operator==(const NotificationSubscriptionStatus &,
+                               const NotificationSubscriptionStatus &) = default;
     };
 
     struct NotificationDeliveryResult
@@ -74,6 +101,9 @@ namespace hgraph::fabric
     {
         std::optional<RevisionNotification> (*try_pop)(void *context);
         std::size_t (*pending)(void *context) noexcept;
+        NotificationSubscriptionStatus (*status)(void *context);
+        void (*acknowledge)(void *context,
+                            const RevisionNotification &notification);
         void (*set_waker)(void *context, std::function<void()> waker);
         void (*close)(void *context) noexcept;
     };
@@ -97,6 +127,10 @@ namespace hgraph::fabric
 
         [[nodiscard]] std::optional<RevisionNotification> try_pop() const;
         [[nodiscard]] std::size_t pending() const noexcept;
+        [[nodiscard]] NotificationSubscriptionStatus status() const;
+        /** Acknowledge durable validation (or deliberate dynamic filtering) of
+            a delivered wake-up. Memory notifications make this a no-op. */
+        void acknowledge(const RevisionNotification &notification) const;
         /** Install or replace the wake callback used when a data id first
             becomes pending. Passing an empty callback disables wake-ups.
             Concrete notifiers invoke it without holding their queue lock. */

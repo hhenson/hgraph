@@ -77,6 +77,22 @@ namespace hgraph::fabric
                     const std::scoped_lock lock{subscription.mutex};
                     return subscription.closed ? 0 : subscription.pending.size();
                 },
+                [](void *context) {
+                    if (context == nullptr)
+                    {
+                        return NotificationSubscriptionStatus{
+                            NotificationSubscriptionState::Stopped, 0, {}};
+                    }
+                    auto &subscription =
+                        *static_cast<MemorySubscription *>(context);
+                    const std::scoped_lock lock{subscription.mutex};
+                    return NotificationSubscriptionStatus{
+                        subscription.closed
+                            ? NotificationSubscriptionState::Stopped
+                            : NotificationSubscriptionState::Live,
+                        1, {}};
+                },
+                [](void *, const RevisionNotification &) {},
                 [](void *context, std::function<void()> waker) {
                     if (context == nullptr) { return; }
                     auto &subscription = *static_cast<MemorySubscription *>(context);
