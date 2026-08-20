@@ -5,10 +5,21 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/static_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <atomic>
+#include <chrono>
+#include <compare>
+#include <condition_variable>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <thread>
 
 namespace
 {
@@ -39,7 +50,114 @@ namespace
             return signal;
         }
     };
+
+    struct AsyncWakeState
+    {
+        void install(AsyncNodeWakeSender value)
+        {
+            const std::lock_guard lock{mutex};
+            sender = value;
+        }
+
+        void evaluated()
+        {
+            {
+                const std::lock_guard lock{mutex};
+                ++evaluations;
+            }
+            changed.notify_all();
+        }
+
+        [[nodiscard]] bool wait_for(std::size_t count,
+                                    std::chrono::milliseconds timeout)
+        {
+            std::unique_lock lock{mutex};
+            return changed.wait_for(lock, timeout,
+                                    [&] { return evaluations >= count; });
+        }
+
+        void wake(std::size_t count)
+        {
+            AsyncNodeWakeSender value;
+            {
+                const std::lock_guard lock{mutex};
+                value = sender;
+            }
+            for (std::size_t index = 0; index < count; ++index) { value.wake(); }
+        }
+
+        [[nodiscard]] std::size_t count() const
+        {
+            const std::lock_guard lock{mutex};
+            return evaluations;
+        }
+
+        mutable std::mutex       mutex{};
+        std::condition_variable  changed{};
+        AsyncNodeWakeSender      sender{};
+        std::size_t              evaluations{};
+    };
+
+    struct AsyncWakeHandle
+    {
+        std::shared_ptr<AsyncWakeState> value{};
+
+        friend bool operator==(const AsyncWakeHandle &,
+                               const AsyncWakeHandle &) noexcept = default;
+        friend std::strong_ordering
+        operator<=>(const AsyncWakeHandle &lhs,
+                    const AsyncWakeHandle &rhs) noexcept
+        {
+            return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
+                   reinterpret_cast<std::uintptr_t>(rhs.value.get());
+        }
+    };
+
+    std::ostream &operator<<(std::ostream &stream,
+                             const AsyncWakeHandle &value)
+    {
+        return stream << "AsyncWakeHandle(" << value.value.get() << ')';
+    }
+
+    struct AsyncWakeProbe
+    {
+        static constexpr auto name = "async_node_wake_probe";
+
+        static void start(Scalar<"state", AsyncWakeHandle> state,
+                          AsyncNodeWakeSender sender,
+                          SingleShotScheduler scheduler)
+        {
+            state.value().value->install(sender);
+            scheduler.schedule_now();
+        }
+
+        static void eval(Scalar<"state", AsyncWakeHandle> state)
+        {
+            state.value().value->evaluated();
+        }
+    };
 }  // namespace
+
+namespace std
+{
+    template <>
+    struct hash<AsyncWakeHandle>
+    {
+        size_t operator()(const AsyncWakeHandle &value) const noexcept
+        {
+            return hash<const void *>{}(value.value.get());
+        }
+    };
+}  // namespace std
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<AsyncWakeHandle>
+    {
+        static constexpr std::string_view value{"tests::AsyncWakeHandle"};
+    };
+}  // namespace hgraph::static_schema_detail
 
 TEST_CASE("engine control: static nodes receive the native executor projection")
 {
@@ -56,6 +174,72 @@ TEST_CASE("stop_engine: the current cycle completes and later cycles do not run"
 
     CHECK_OUTPUT(eval_node<StopAfterFirstGraph>(values<bool>(true, true, true)),
                  {true, none, none});
+}
+
+TEST_CASE("engine control: async wakes schedule an ordinary node once at a root boundary")
+{
+    AsyncWakeHandle state{std::make_shared<AsyncWakeState>()};
+    Wiring wiring;
+    wire<AsyncWakeProbe>(wiring, state);
+
+    GraphExecutorBuilder builder;
+    const DateTime now = std::chrono::time_point_cast<std::chrono::microseconds>(
+        engine_clock::now());
+    builder.graph_builder(std::move(wiring).finish())
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(now - std::chrono::milliseconds{1})
+        .end_time(now + std::chrono::seconds{5});
+    auto executor = builder.make_executor();
+    CHECK(executor.view().graph().schema()->push_source_nodes_end == 0);
+    CHECK(executor.view().graph().schema()->waits_for_async_node_wakes);
+
+    auto view = executor.view();
+    AsyncGraphExecutorRun run{view};
+    REQUIRE(state.value->wait_for(1, std::chrono::seconds{2}));
+    state.value->wake(8);
+    REQUIRE(state.value->wait_for(2, std::chrono::seconds{2}));
+    CHECK(state.value->count() == 2);
+    view.request_stop();
+    run.join();
+    state.value->wake(1);
+    CHECK(state.value->count() == 2);
+}
+
+TEST_CASE("engine control: async wake teardown synchronizes with callback threads")
+{
+    AsyncWakeHandle state{std::make_shared<AsyncWakeState>()};
+    Wiring wiring;
+    wire<AsyncWakeProbe>(wiring, state);
+
+    GraphExecutorBuilder builder;
+    const DateTime now = std::chrono::time_point_cast<std::chrono::microseconds>(
+        engine_clock::now());
+    builder.graph_builder(std::move(wiring).finish())
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(now - std::chrono::milliseconds{1})
+        .end_time(now + std::chrono::seconds{5});
+    auto executor = builder.make_executor();
+    auto view     = executor.view();
+    AsyncGraphExecutorRun run{view};
+    REQUIRE(state.value->wait_for(1, std::chrono::seconds{2}));
+
+    std::atomic running{true};
+    std::thread callback([&] {
+        while (running.load(std::memory_order_relaxed))
+        {
+            state.value->wake(1);
+            std::this_thread::yield();
+        }
+    });
+    REQUIRE(state.value->wait_for(2, std::chrono::seconds{2}));
+    view.request_stop();
+    run.join();
+    running.store(false, std::memory_order_relaxed);
+    callback.join();
+
+    const auto evaluations = state.value->count();
+    state.value->wake(1);
+    CHECK(state.value->count() == evaluations);
 }
 
 namespace

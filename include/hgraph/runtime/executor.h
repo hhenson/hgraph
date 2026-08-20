@@ -25,6 +25,7 @@ namespace hgraph
 {
     namespace detail
     {
+        struct AsyncNodeWakeAccess;
         struct GraphExecutorPhaseActionAccess;
     }
 
@@ -32,6 +33,7 @@ namespace hgraph
     class GraphExecutorValue;
     class GraphExecutorView;
     class EngineControlView;
+    class AsyncNodeWakeSender;
     struct LifecycleObserver;
     class LifecycleObserverList;
     struct LoggerOps;
@@ -122,6 +124,11 @@ namespace hgraph
             Eval-thread only. */
         void (*add_evaluation_notification_impl)(const void *context, void *memory,
                                                  std::function<void()> fn, bool before) = nullptr;
+        /** Thread-safe ingress wake. The executor admits the node schedule at
+            the next root-cycle boundary, so nested graph scheduling remains
+            on the evaluation thread. */
+        void (*wake_node_impl)(const void *context, void *memory,
+                               AsyncNodeWakeSender sender) = nullptr;
         bool (*stop_requested_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*start_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*end_time_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -130,6 +137,8 @@ namespace hgraph
         void (*mark_push_update_pending_impl)(const void *context, void *memory) = nullptr;
         bool (*is_push_update_pending_impl)(const void *context, void *memory) noexcept = nullptr;
         bool (*reset_push_update_pending_impl)(const void *context, void *memory) noexcept = nullptr;
+        bool (*begin_push_cycle_impl)(const void *context, void *memory,
+                                      DateTime evaluation_time) = nullptr;
         /** The executor-owned lifecycle observer list; never null once constructed. */
         LifecycleObserverList *(*lifecycle_observers_impl)(const void *context, void *memory) noexcept = nullptr;
         /** Borrowed run logger; owned by the executor storage. */
@@ -158,6 +167,9 @@ namespace hgraph
 
         void mark_push_update_pending() const;
         [[nodiscard]] bool reset_push_update_pending() const noexcept;
+        /** Atomically claim the pending push flag and queued async node wakes,
+            then admit those node schedules on the evaluation thread. */
+        [[nodiscard]] bool begin_push_cycle(DateTime evaluation_time) const;
 
       private:
         [[nodiscard]] const GraphExecutorOps &ops() const;
@@ -197,11 +209,44 @@ namespace hgraph
         void add_after_evaluation_notification(std::function<void()> fn) const;
 
       private:
+        friend class AsyncNodeWakeSender;
+
+        void wake_node(AsyncNodeWakeSender sender) const;
+
         ExecutorPtr pointer_{};
     };
 
     static_assert(sizeof(EngineControlView) == sizeof(ExecutorPtr));
     static_assert(std::is_trivially_copyable_v<EngineControlView>);
+
+    /** Copyable thread-safe wake handle for an authored node.
+
+        ``wake`` never evaluates or mutates the graph on the caller's thread.
+        It queues one deduplicated schedule with the root executor, wakes an
+        idle real-time run, and admits the schedule on the next evaluation
+        boundary. This is the callback-side companion to ``NodeScheduler`` for
+        notifier-driven sources, including sources owned by nested graphs. */
+    class HGRAPH_EXPORT AsyncNodeWakeSender
+    {
+      public:
+        AsyncNodeWakeSender() noexcept = default;
+        AsyncNodeWakeSender(EngineControlView engine, GraphPtr graph,
+                            std::size_t node_index);
+
+        [[nodiscard]] bool valid() const noexcept;
+        void wake() const;
+        /** Invalidate every copy and make a racing callback wake a no-op. */
+        void close() noexcept;
+
+        friend bool operator==(const AsyncNodeWakeSender &,
+                               const AsyncNodeWakeSender &) noexcept = default;
+
+      private:
+        friend struct detail::AsyncNodeWakeAccess;
+
+        struct State;
+        std::shared_ptr<State> state_{};
+    };
 
     /** Borrowed type-erased executor view. */
     class HGRAPH_EXPORT GraphExecutorView

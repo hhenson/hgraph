@@ -1683,13 +1683,46 @@ namespace hgraph
         static constexpr auto field_name = Name;
 
         /** Supplied directly (graph ``compose`` parameter / wiring-time value). */
-        explicit Scalar(TValue value) : owned_(std::move(value)) {}
+        explicit Scalar(TValue value)
+            : owned_(std::make_unique<TValue>(std::move(value))), borrowed_(nullptr)
+        {
+        }
 
         /** Borrow from the immutable node scalar storage (node hook path). */
         explicit Scalar(const ValueView &view)
-            : borrowed_(std::addressof(view.template checked_as<TValue>()))
+            : owned_(nullptr), borrowed_(std::addressof(view.template checked_as<TValue>()))
         {
         }
+
+        Scalar(const Scalar &other)
+            requires std::is_copy_constructible_v<TValue>
+            : owned_(other.owned_ != nullptr
+                         ? std::make_unique<TValue>(*other.owned_)
+                         : nullptr),
+              borrowed_(other.borrowed_)
+        {
+        }
+        Scalar(const Scalar &)
+            requires(!std::is_copy_constructible_v<TValue>) = delete;
+
+        Scalar &operator=(const Scalar &other)
+            requires std::is_copy_constructible_v<TValue>
+        {
+            if (this != std::addressof(other))
+            {
+                auto owned = other.owned_ != nullptr
+                                 ? std::make_unique<TValue>(*other.owned_)
+                                 : nullptr;
+                owned_    = std::move(owned);
+                borrowed_ = other.borrowed_;
+            }
+            return *this;
+        }
+        Scalar &operator=(const Scalar &)
+            requires(!std::is_copy_constructible_v<TValue>) = delete;
+
+        Scalar(Scalar &&) noexcept            = default;
+        Scalar &operator=(Scalar &&) noexcept = default;
 
         /** The configured value of this scalar input. */
         [[nodiscard]] const value_type &value() const noexcept
@@ -1698,8 +1731,8 @@ namespace hgraph
         }
 
       private:
-        std::optional<TValue> owned_{};
-        const TValue        *borrowed_{nullptr};
+        std::unique_ptr<TValue> owned_{};
+        const TValue           *borrowed_{nullptr};
     };
 
     /**
@@ -1811,6 +1844,8 @@ namespace hgraph
 
         template <typename T> struct is_evaluation_clock_selector : std::false_type {};
         template <> struct is_evaluation_clock_selector<EvaluationClockView> : std::true_type {};
+        template <typename T> struct is_async_node_wake_selector : std::false_type {};
+        template <> struct is_async_node_wake_selector<AsyncNodeWakeSender> : std::true_type {};
 
         // ---- per-selector runtime metadata ----
         // ``schema`` / ``value_schema`` expose the selector's compile-time schema type
@@ -2131,6 +2166,24 @@ namespace hgraph
             static SingleShotScheduler get(const NodeView &view, DateTime evaluation_time)
             {
                 return SingleShotScheduler{view.graph_value(), view.node_index(), evaluation_time};
+            }
+        };
+
+        // Thread-safe callback-side wake handle. Like SingleShotScheduler it
+        // is transparent to the static signature and allocates no node state.
+        template <>
+        struct arg_provider<AsyncNodeWakeSender>
+        {
+            static AsyncNodeWakeSender get(const NodeView &view, DateTime)
+            {
+                auto &sender = view.async_node_wake_sender();
+                if (!sender.valid())
+                {
+                    sender = AsyncNodeWakeSender{
+                        view.graph().executor().engine_control(),
+                        view.graph().pointer(), view.node_index()};
+                }
+                return sender;
             }
         };
 
@@ -2808,6 +2861,12 @@ namespace hgraph
             return any_hook_uses_selector<static_node_detail::is_evaluation_clock_selector>();
         }
 
+        [[nodiscard]] static constexpr bool uses_async_node_wake()
+        {
+            return any_hook_uses_selector<
+                static_node_detail::is_async_node_wake_selector>();
+        }
+
         [[nodiscard]] static std::optional<std::vector<std::size_t>> active_inputs()
         {
             if constexpr (has_explicit_activity_policy(indices{}))
@@ -3116,6 +3175,7 @@ namespace hgraph
             schema.uses_scheduler        = signature::uses_scheduler();
             schema.uses_global_state     = signature::uses_global_state();
             schema.uses_evaluation_clock = signature::uses_evaluation_clock();
+            schema.uses_async_node_wake   = signature::uses_async_node_wake();
             if constexpr (has_uses_python_values<TImplementation>)
             {
                 schema.uses_python_values = TImplementation::uses_python_values;

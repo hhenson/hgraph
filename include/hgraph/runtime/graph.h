@@ -121,6 +121,7 @@ struct HGRAPH_EXPORT GraphEdge
         std::vector<GraphNodeEntry> nodes{};
         std::vector<GraphEdge> edges{};
         std::size_t push_source_nodes_end{0};
+        bool waits_for_async_node_wakes{false};
 
         [[nodiscard]] std::string_view name() const noexcept;
     };

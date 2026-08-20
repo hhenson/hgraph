@@ -29,8 +29,32 @@
 
 namespace hgraph
 {
+    struct AsyncNodeWakeSender::State
+    {
+        EngineControlView engine{};
+        GraphPtr          graph{};
+        std::size_t       node_index{};
+        std::mutex        lifecycle_mutex{};
+        std::atomic_bool  active{true};
+    };
+
     namespace detail
     {
+        struct AsyncNodeWakeAccess
+        {
+            static void admit(const AsyncNodeWakeSender &sender,
+                              DateTime evaluation_time)
+            {
+                const auto &state = sender.state_;
+                if (state != nullptr &&
+                    state->active.load(std::memory_order_acquire))
+                {
+                    GraphView{state->graph}.schedule_node(state->node_index,
+                                                         evaluation_time);
+                }
+            }
+        };
+
         struct GraphExecutorPhaseActionAccess
         {
             static GraphExecutorPhaseAction make(void *context,
@@ -45,6 +69,14 @@ namespace hgraph
     {
         struct SimulationExecutorStorage;
         struct RealTimeExecutorStorage;
+
+        struct PendingNodeWake
+        {
+            AsyncNodeWakeSender sender{};
+
+            friend bool operator==(const PendingNodeWake &,
+                                   const PendingNodeWake &) = default;
+        };
 
         template <typename Storage>
         void stop_storage(Storage &state);
@@ -99,6 +131,8 @@ namespace hgraph
             // the run loop at the root cycle boundaries; eval-thread only.
             std::vector<std::function<void()>> before_evaluation_notifications{};
             std::vector<std::function<void()>> after_evaluation_notifications{};
+            std::mutex              node_wake_mutex{};
+            std::vector<PendingNodeWake> pending_node_wakes{};
             std::atomic_bool stop_requested{false};
             std::atomic_bool push_update_pending{false};
             bool                     cleanup_on_error{true};
@@ -150,6 +184,7 @@ namespace hgraph
             // the run loop at the root cycle boundaries; eval-thread only.
             std::vector<std::function<void()>> before_evaluation_notifications{};
             std::vector<std::function<void()>> after_evaluation_notifications{};
+            std::vector<PendingNodeWake>      pending_node_wakes{};
 
             mutable std::mutex           mutex{};
             std::condition_variable      condition{};
@@ -318,6 +353,24 @@ namespace hgraph
             }
         }
 
+        void simulation_wake_node_impl(const void *, void *memory,
+                                       AsyncNodeWakeSender sender)
+        {
+            auto &state = simulation_storage(memory);
+            if (state.stop_requested.load(std::memory_order_acquire)) { return; }
+            {
+                const std::lock_guard lock{state.node_wake_mutex};
+                const PendingNodeWake wake{std::move(sender)};
+                if (std::ranges::find(state.pending_node_wakes, wake) ==
+                    state.pending_node_wakes.end())
+                {
+                    state.pending_node_wakes.push_back(wake);
+                }
+                state.push_update_pending.store(true,
+                                                std::memory_order_release);
+            }
+        }
+
         bool simulation_is_push_update_pending_impl(const void *, void *memory) noexcept
         {
             return simulation_storage(memory).push_update_pending.load(
@@ -330,12 +383,50 @@ namespace hgraph
                 false, std::memory_order_acq_rel);
         }
 
+        bool simulation_begin_push_cycle_impl(const void *, void *memory,
+                                              DateTime evaluation_time)
+        {
+            auto &state = simulation_storage(memory);
+            std::vector<PendingNodeWake> wakes;
+            bool pending{};
+            {
+                const std::lock_guard lock{state.node_wake_mutex};
+                pending = state.push_update_pending.exchange(
+                    false, std::memory_order_acq_rel);
+                wakes.swap(state.pending_node_wakes);
+            }
+            for (const auto &wake : wakes)
+            {
+                detail::AsyncNodeWakeAccess::admit(wake.sender,
+                                                   evaluation_time);
+            }
+            return pending || !wakes.empty();
+        }
+
         void realtime_mark_push_update_pending_impl(const void *, void *memory)
         {
             auto &state = realtime_storage(memory);
             {
                 std::lock_guard lock{state.mutex};
                 if (state.stop_requested.load(std::memory_order_acquire)) { return; }
+                state.push_update_pending = true;
+            }
+            state.condition.notify_all();
+        }
+
+        void realtime_wake_node_impl(const void *, void *memory,
+                                     AsyncNodeWakeSender sender)
+        {
+            auto &state = realtime_storage(memory);
+            {
+                const std::lock_guard lock{state.mutex};
+                if (state.stop_requested.load(std::memory_order_acquire)) { return; }
+                const PendingNodeWake wake{std::move(sender)};
+                if (std::ranges::find(state.pending_node_wakes, wake) ==
+                    state.pending_node_wakes.end())
+                {
+                    state.pending_node_wakes.push_back(wake);
+                }
                 state.push_update_pending = true;
             }
             state.condition.notify_all();
@@ -355,6 +446,26 @@ namespace hgraph
             const bool pending = state.push_update_pending;
             state.push_update_pending = false;
             return pending;
+        }
+
+        bool realtime_begin_push_cycle_impl(const void *, void *memory,
+                                            DateTime evaluation_time)
+        {
+            auto &state = realtime_storage(memory);
+            std::vector<PendingNodeWake> wakes;
+            bool pending{};
+            {
+                const std::lock_guard lock{state.mutex};
+                pending = state.push_update_pending;
+                state.push_update_pending = false;
+                wakes.swap(state.pending_node_wakes);
+            }
+            for (const auto &wake : wakes)
+            {
+                detail::AsyncNodeWakeAccess::admit(wake.sender,
+                                                   evaluation_time);
+            }
+            return pending || !wakes.empty();
         }
 
         [[nodiscard]] DateTime advance_simulation(SimulationExecutorStorage &state, DateTime next_scheduled_time)
@@ -437,7 +548,8 @@ namespace hgraph
 
         [[nodiscard]] bool waits_for_push_sources(const RealTimeExecutorStorage &, const GraphView &graph) noexcept
         {
-            return graph.schema()->push_source_nodes_end > 0;
+            return graph.schema()->push_source_nodes_end > 0 ||
+                   graph.schema()->waits_for_async_node_wakes;
         }
 
         /**
@@ -794,6 +906,7 @@ namespace hgraph
                 .run_impl = &simulation_run_impl,
                 .request_stop_impl = &simulation_request_stop_impl,
                 .add_evaluation_notification_impl = &simulation_add_evaluation_notification_impl,
+                .wake_node_impl = &simulation_wake_node_impl,
                 .stop_requested_impl = &simulation_stop_requested_impl,
                 .start_time_impl = &simulation_start_time_impl,
                 .end_time_impl = &simulation_end_time_impl,
@@ -802,6 +915,7 @@ namespace hgraph
                 .mark_push_update_pending_impl = &simulation_mark_push_update_pending_impl,
                 .is_push_update_pending_impl = &simulation_is_push_update_pending_impl,
                 .reset_push_update_pending_impl = &simulation_reset_push_update_pending_impl,
+                .begin_push_cycle_impl = &simulation_begin_push_cycle_impl,
                 .lifecycle_observers_impl = &simulation_lifecycle_observers_impl,
                 .logger_impl = &simulation_logger_impl,
                 .logger_ops_impl = &simulation_logger_ops_impl,
@@ -818,6 +932,7 @@ namespace hgraph
                 .run_impl = &realtime_run_impl,
                 .request_stop_impl = &realtime_request_stop_impl,
                 .add_evaluation_notification_impl = &realtime_add_evaluation_notification_impl,
+                .wake_node_impl = &realtime_wake_node_impl,
                 .stop_requested_impl = &realtime_stop_requested_impl,
                 .start_time_impl = &realtime_start_time_impl,
                 .end_time_impl = &realtime_end_time_impl,
@@ -826,6 +941,7 @@ namespace hgraph
                 .mark_push_update_pending_impl = &realtime_mark_push_update_pending_impl,
                 .is_push_update_pending_impl = &realtime_is_push_update_pending_impl,
                 .reset_push_update_pending_impl = &realtime_reset_push_update_pending_impl,
+                .begin_push_cycle_impl = &realtime_begin_push_cycle_impl,
                 .lifecycle_observers_impl = &realtime_lifecycle_observers_impl,
                 .logger_impl = &realtime_logger_impl,
                 .logger_ops_impl = &realtime_logger_ops_impl,
@@ -1093,6 +1209,13 @@ namespace hgraph
         return ops().reset_push_update_pending_impl(ops().context, const_cast<void *>(pointer_.data()));
     }
 
+    bool PushQueueEngineView::begin_push_cycle(DateTime evaluation_time) const
+    {
+        if (!valid() || !pointer_.writable_access()) { return false; }
+        return ops().begin_push_cycle_impl(
+            ops().context, const_cast<void *>(pointer_.data()), evaluation_time);
+    }
+
     const GraphExecutorOps &PushQueueEngineView::ops() const
     {
         return ExecutorTypeRef{pointer_.record()}.ops_ref();
@@ -1135,6 +1258,25 @@ namespace hgraph
         GraphExecutorView{pointer_}.request_stop();
     }
 
+    void EngineControlView::wake_node(AsyncNodeWakeSender sender) const
+    {
+        if (!valid())
+        {
+            throw std::logic_error(
+                "AsyncNodeWakeSender requires a live executor");
+        }
+        if (!pointer_.writable_access())
+        {
+            throw std::logic_error(
+                "AsyncNodeWakeSender requires writable executor access");
+        }
+        const ExecutorTypeRef executor_type = GraphExecutorView{pointer_}.type();
+        const auto &table = executor_type.ops_ref();
+        table.wake_node_impl(table.context,
+                             const_cast<void *>(pointer_.data()),
+                             std::move(sender));
+    }
+
     void EngineControlView::add_before_evaluation_notification(std::function<void()> fn) const
     {
         GraphExecutorView view{pointer_};
@@ -1159,6 +1301,43 @@ namespace hgraph
             throw std::logic_error("executor does not support evaluation notifications");
         }
         table.add_evaluation_notification_impl(table.context, view.data(), std::move(fn), false);
+    }
+
+    AsyncNodeWakeSender::AsyncNodeWakeSender(
+        EngineControlView engine, GraphPtr graph, std::size_t node_index)
+        : state_(std::make_shared<State>())
+    {
+        state_->engine = engine;
+        state_->graph = graph;
+        state_->node_index = node_index;
+    }
+
+    bool AsyncNodeWakeSender::valid() const noexcept
+    {
+        return state_ != nullptr &&
+               state_->active.load(std::memory_order_acquire) &&
+               state_->engine.valid() && state_->graph.valid();
+    }
+
+    void AsyncNodeWakeSender::wake() const
+    {
+        if (state_ == nullptr)
+        {
+            throw std::logic_error(
+                "AsyncNodeWakeSender requires a live node");
+        }
+        const std::lock_guard lock{state_->lifecycle_mutex};
+        if (!state_->active.load(std::memory_order_acquire)) { return; }
+        state_->engine.wake_node(*this);
+    }
+
+    void AsyncNodeWakeSender::close() noexcept
+    {
+        if (state_ != nullptr)
+        {
+            const std::lock_guard lock{state_->lifecycle_mutex};
+            state_->active.store(false, std::memory_order_release);
+        }
     }
 
     GraphExecutorView::GraphExecutorView() noexcept = default;

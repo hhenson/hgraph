@@ -38,6 +38,7 @@ namespace hgraph
     class GraphValue;
     class GraphView;
     class GraphBuilder;
+    class AsyncNodeWakeSender;
     class NodeBuilder;
     class NodeValue;
     struct NodeSchedulerState;
@@ -105,6 +106,8 @@ namespace hgraph
         bool     uses_scheduler{false};
         bool     uses_global_state{false};
         bool     uses_evaluation_clock{false};
+        /** A lifecycle hook requests a callback-side thread-safe wake handle. */
+        bool     uses_async_node_wake{false};
         // True when this node consumes and/or produces time-series values
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.
@@ -328,6 +331,8 @@ namespace hgraph
         [[nodiscard]] GlobalStateView global_state() const;
         [[nodiscard]] ClockPtr evaluation_clock_ptr() const;
         [[nodiscard]] EvaluationClockView evaluation_clock() const;
+        /** Borrow this node's lifecycle-owned callback-side wake token. */
+        [[nodiscard]] AsyncNodeWakeSender &async_node_wake_sender() const;
         [[nodiscard]] TSOutputView error_output(DateTime evaluation_time) const;
         [[nodiscard]] TSOutputView recordable_state(DateTime evaluation_time) const;
         /** Owned storage counters; the normal execution path never calls this. */

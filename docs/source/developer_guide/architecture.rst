@@ -246,13 +246,14 @@ The normal cycle shape is:
 
 1. run one-shot before-evaluation callbacks,
 2. notify lifecycle observers before graph evaluation,
-3. scan flattened nodes in rank order,
-4. evaluate nodes whose graph schedule equals ``evaluation_time``, notifying
+3. admit any deduplicated asynchronous node wakes on the evaluation thread,
+4. scan flattened nodes in rank order,
+5. evaluate nodes whose graph schedule equals ``evaluation_time``, notifying
    lifecycle observers immediately before and after each node's evaluation,
-5. fold future node schedules into the clock's next scheduled evaluation time,
-6. notify lifecycle observers after graph evaluation,
-7. run one-shot after-evaluation callbacks,
-8. advance the engine clock.
+6. fold future node schedules into the clock's next scheduled evaluation time,
+7. notify lifecycle observers after graph evaluation,
+8. run one-shot after-evaluation callbacks,
+9. advance the engine clock.
 
 This shape is uniform for root and nested graphs alike: a nested graph's own
 ``evaluate`` call brackets its scheduled nodes with the same before/after
@@ -267,6 +268,14 @@ from its ``eval`` implementation. In real-time mode, the evaluation clock owns
 the condition-variable wake-up state used to notice queued push messages; in
 simulation mode, push-source nodes are not supported. The graph/evaluator must
 not call a generic ``apply_message`` node operation directly.
+
+An ordinary node may instead request ``AsyncNodeWakeSender`` when an external
+notification contains no time-series value and only needs to schedule graph-
+thread reconciliation. The executor queue owns a cancellable token rather
+than a bare nested-graph pointer. Node teardown invalidates the token before
+dynamic child storage is erased; the next root boundary ignores an inactive
+queued wake. Root plans which contain no asynchronous-wake node skip this
+queue entirely on the evaluation hot path.
 
 Node Evaluation
 ~~~~~~~~~~~~~~~

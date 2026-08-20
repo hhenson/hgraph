@@ -636,6 +636,33 @@ compute_push_source_nodes_end(const GraphBuilder &builder) {
   return prefix;
 }
 
+[[nodiscard]] bool graph_waits_for_async_node_wakes(
+    const GraphBuilder &builder);
+
+void inspect_async_wake_child(void *raw_result,
+                              ChildGraphInspectionView child) {
+  auto &result = *static_cast<bool *>(raw_result);
+  if (!result && child.graph != nullptr) {
+    result = graph_waits_for_async_node_wakes(*child.graph);
+  }
+}
+
+[[nodiscard]] bool graph_waits_for_async_node_wakes(
+    const GraphBuilder &builder) {
+  for (const NodeBuilder &node : builder.nodes()) {
+    const auto *schema = node.type().schema();
+    if (schema != nullptr && schema->uses_async_node_wake) {
+      return true;
+    }
+    bool child_waits{};
+    node.visit_child_graphs(&child_waits, &inspect_async_wake_child);
+    if (child_waits) {
+      return true;
+    }
+  }
+  return false;
+}
+
 template <typename Storage>
 void attach_nodes_impl(const void *context, void *memory, GraphValue *graph) {
   static_cast<void>(sizeof(Storage));
@@ -1109,10 +1136,15 @@ bool evaluate_impl(const void *context, const GraphView &graph,
     state.next_scheduled_time = MAX_DT;
 
     if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>) {
-      if (first_normal_node > 0) {
+      bool push_update_pending = false;
+      if (first_normal_node > 0 ||
+          graph.schema()->waits_for_async_node_wakes) {
         PushQueueEngineView push_queue =
             graph.root().executor().push_queue_engine();
-        const bool push_update_pending = push_queue.reset_push_update_pending();
+        push_update_pending =
+            push_queue.begin_push_cycle(evaluation_time);
+      }
+      if (first_normal_node > 0) {
         bool push_phase_evaluated = push_update_pending;
         for (std::size_t index = 0; index < first_normal_node; ++index) {
           auto &scheduled = graph_schedule(runtime, graph.data(), index);
@@ -1283,6 +1315,8 @@ struct GraphRuntimeRegistry {
         entry.schema.edges.size() != builder.edges().size() ||
         entry.schema.push_source_nodes_end !=
             compute_push_source_nodes_end(builder) ||
+        entry.schema.waits_for_async_node_wakes !=
+            graph_waits_for_async_node_wakes(builder) ||
         graph_has_compound_scalar_storage(entry.root_context) !=
             pooled_storage) {
       return false;
@@ -1322,6 +1356,8 @@ struct GraphRuntimeRegistry {
     }
     meta.edges = builder.edges();
     meta.push_source_nodes_end = compute_push_source_nodes_end(builder);
+    meta.waits_for_async_node_wakes =
+        graph_waits_for_async_node_wakes(builder);
 
     return meta;
   }

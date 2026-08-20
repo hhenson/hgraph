@@ -84,6 +84,7 @@ namespace hgraph
             std::size_t scheduler_offset{npos};
             std::size_t global_state_offset{npos};
             std::size_t evaluation_clock_offset{npos};
+            std::size_t async_node_wake_offset{npos};
             std::size_t error_output_offset{npos};
             std::size_t recordable_state_offset{npos};
             std::size_t prepared_inputs_offset{npos};
@@ -95,6 +96,7 @@ namespace hgraph
             [[nodiscard]] bool has_scheduler() const noexcept { return scheduler_offset != npos; }
             [[nodiscard]] bool has_global_state() const noexcept { return global_state_offset != npos; }
             [[nodiscard]] bool has_evaluation_clock() const noexcept { return evaluation_clock_offset != npos; }
+            [[nodiscard]] bool has_async_node_wake() const noexcept { return async_node_wake_offset != npos; }
             [[nodiscard]] bool has_error_output() const noexcept { return error_output_offset != npos; }
             [[nodiscard]] bool has_recordable_state() const noexcept { return recordable_state_offset != npos; }
         };
@@ -174,6 +176,13 @@ namespace hgraph
         {
             return *MemoryUtils::cast<ClockPtr>(
                 node_component(memory, context.layout.evaluation_clock_offset));
+        }
+
+        [[nodiscard]] AsyncNodeWakeSender &node_async_wake_sender(
+            const NodeRuntimeContext &context, void *memory)
+        {
+            return *MemoryUtils::cast<AsyncNodeWakeSender>(
+                node_component(memory, context.layout.async_node_wake_offset));
         }
 
         [[nodiscard]] TSOutput &node_error_output(const NodeRuntimeContext &context, void *memory)
@@ -518,6 +527,7 @@ namespace hgraph
                 {"scheduler", &NodeRuntimeLayout::scheduler_offset},
                 {"global_state", &NodeRuntimeLayout::global_state_offset},
                 {"evaluation_clock", &NodeRuntimeLayout::evaluation_clock_offset},
+                {"async_node_wake", &NodeRuntimeLayout::async_node_wake_offset},
                 {"error_output", &NodeRuntimeLayout::error_output_offset},
                 {"recordable_state", &NodeRuntimeLayout::recordable_state_offset},
                 {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset},
@@ -871,6 +881,10 @@ namespace hgraph
             auto rollback = UnwindCleanupGuard([&] {
                 static_cast<void>(activated);
                 deactivate_input_slots(view, evaluation_time);
+                if (runtime.layout.has_async_node_wake())
+                {
+                    node_async_wake_sender(runtime, view.data()).close();
+                }
             });
 
             state.starting = true;
@@ -901,6 +915,12 @@ namespace hgraph
             auto mark_stopped = make_scope_exit([&] noexcept { state.started = false; });
             state.stopping = true;
             auto clear_stopping = make_scope_exit([&] noexcept { state.stopping = false; });
+            auto close_async_wake = make_scope_exit([&] noexcept {
+                if (runtime.layout.has_async_node_wake())
+                {
+                    node_async_wake_sender(runtime, view.data()).close();
+                }
+            });
             auto deactivate = UnwindCleanupGuard([&] { deactivate_input_slots(view, evaluation_time); });
             if (callbacks(context).stop) { callbacks(context).stop(view, evaluation_time); }
             deactivate.complete();
@@ -1004,6 +1024,7 @@ namespace hgraph
                    lhs.uses_scheduler == rhs.uses_scheduler &&
                    lhs.uses_global_state == rhs.uses_global_state &&
                    lhs.uses_evaluation_clock == rhs.uses_evaluation_clock &&
+                   lhs.uses_async_node_wake == rhs.uses_async_node_wake &&
                    lhs.uses_python_values == rhs.uses_python_values &&
                    lhs.simulation_capable_push_source ==
                        rhs.simulation_capable_push_source &&
@@ -1377,6 +1398,11 @@ namespace hgraph
         {
             builder.add_field("evaluation_clock", MemoryUtils::plan_for<ClockPtr>());
         }
+        if (schema.uses_async_node_wake)
+        {
+            builder.add_field("async_node_wake",
+                              MemoryUtils::plan_for<AsyncNodeWakeSender>());
+        }
         if (schema.error_output_schema != nullptr)
         {
             builder.add_field("error_output", MemoryUtils::plan_for<TSOutput>());
@@ -1547,6 +1573,22 @@ namespace hgraph
     EvaluationClockView NodeView::evaluation_clock() const
     {
         return EvaluationClockView{evaluation_clock_ptr()};
+    }
+
+    AsyncNodeWakeSender &NodeView::async_node_wake_sender() const
+    {
+        if (!valid() || schema() == nullptr || !schema()->uses_async_node_wake)
+        {
+            throw std::logic_error(
+                "Node has no asynchronous wake sender");
+        }
+        const auto &runtime = runtime_context(ops().context);
+        if (!runtime.layout.has_async_node_wake())
+        {
+            throw std::logic_error(
+                "Node storage plan is missing its asynchronous wake sender");
+        }
+        return node_async_wake_sender(runtime, data());
     }
 
     TSOutputView NodeView::error_output(DateTime evaluation_time) const

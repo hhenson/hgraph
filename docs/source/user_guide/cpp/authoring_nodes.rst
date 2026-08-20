@@ -781,6 +781,9 @@ affect node-kind inference; the node simply receives them at evaluation.
    * - one-shot scheduler
      - ``SingleShotScheduler`` *(available, C++ only)*
      - —
+   * - asynchronous node wake
+     - ``AsyncNodeWakeSender`` *(available, C++ only)*
+     - —
    * - current time
      - ``DateTime`` *(available)*
      - ``_clock.evaluation_time``
@@ -803,6 +806,21 @@ injectable for ``clock.evaluation_time()``.
 exposes the evaluation mode, start/end bounds, evaluation clock, stop state,
 and ``request_stop()``. The registered C++ ``stop_engine`` sink uses this view;
 a request completes the current evaluation cycle before ending the run.
+
+``AsyncNodeWakeSender`` is the callback-side companion to ``NodeScheduler``.
+A node captures it during ``start`` and gives only copies to an external
+notifier callback. ``wake()`` is thread-safe: it does not evaluate or mutate
+the graph on the callback thread, and repeated wakes before the next root
+cycle are conflated into one node schedule. The runtime owns the token in the
+node's planned storage and invalidates every copy during ``stop`` before a
+nested graph slot can be erased. A callback racing with teardown therefore
+becomes a no-op. This is appropriate for an ordinary notifier-driven source
+which must also work inside ``nested_``, ``map_`` or ``mesh_``; a root-only
+stream of actual values should normally use a push-source policy instead.
+
+The handle adds one shared token only to nodes which request it. Ordinary
+nodes and root graphs which contain no such node take neither the token
+storage nor the queue-drain path.
 
 ``LoggerView`` borrows the executor-owned spdlog logger. Configure it with
 ``GraphExecutorBuilder::logger``; the executor retains shared ownership while
