@@ -14,8 +14,9 @@
 namespace hgraph::fabric
 {
     /** Externally visible progress through one RFC 0026 publication attempt.
-        Each call to advance performs at most one durable or notification
-        boundary, making process-loss recovery deterministic and testable. */
+        Each steady-state call to advance performs at most one durable or
+        notification boundary. Initial recovery may scan and repair a
+        contiguous accepted history before starting a new publication. */
     enum class PublicationState
     {
         Idle,

@@ -187,6 +187,10 @@ TEST_CASE("fabric durable keys are canonical reversible and numerically ordered"
           "fabric/root/bcHJpY2VzL86x/latest");
     CHECK_THROWS_AS(hgf::data_version_key("bad/", "x", 1),
                     std::invalid_argument);
+    CHECK_THROWS_WITH(
+        hgf::data_version_key("fabric/root",
+                              std::string(hgf::MAX_DATA_ID_BYTES, 'x'), 1),
+        "fabric durable key exceeds the portable 1024-byte limit");
 }
 
 TEST_CASE("publication crosses Frame notification slot as-of and latest in order")

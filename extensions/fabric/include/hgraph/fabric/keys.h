@@ -11,6 +11,8 @@
 namespace hgraph::fabric
 {
     inline constexpr std::size_t FABRIC_ORDINAL_WIDTH{19U};
+    /** Portable upper bound shared by memory, local and S3 object keys. */
+    inline constexpr std::size_t MAX_FABRIC_KEY_BYTES{1024U};
 
     /** Canonical, reversible store-key segment for one validated UTF-8 data id. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT std::string
