@@ -398,14 +398,14 @@ struct ConsistencyResolver::Impl {
       return;
     }
 
-    if (root) {
-      // Forest membership follows the newest accepted acknowledgement, not
-      // every historical acknowledgement which reused its output version.
-      // Older same-output ancestry remains available to compatible-cut search,
-      // but must not keep roots coupled after their latest lineages split.
-      values.resize(1);
-    }
-    for (const auto *candidate : values) {
+    // Forest membership follows only the newest accepted acknowledgement for
+    // a root, not every historical acknowledgement which reused its output
+    // version. Older same-output ancestry remains available to compatible-cut
+    // search, but must not keep roots coupled after their latest lineages
+    // split.
+    const auto candidate_count = root ? std::size_t{1} : values.size();
+    for (std::size_t index = 0; index < candidate_count; ++index) {
+      const auto *candidate = values[index];
       for (const auto &dependency : candidate->dependencies) {
         discover_requirement(dependency.data_id, dependency.version, false,
                              visited, observed);
