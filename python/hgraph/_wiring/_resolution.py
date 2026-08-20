@@ -11,7 +11,8 @@ from collections.abc import Mapping
 import _hgraph
 
 from .._types import (_TsExpr, _TypeVarSentinel, _pattern_of,
-                      _scalar_pattern, _type_var_name, _value_type)
+                      _resolution_value_type, _scalar_pattern,
+                      _type_var_name, _value_type)
 
 
 class _BindingsMap(Mapping):
@@ -80,7 +81,7 @@ def _python_value_for_binding(variable, binding):
     kind, value = binding
     name = _type_var_name(variable)
     if kind == "scalar":
-        return _hgraph.python_type_for_value(value)
+        return _resolution_value_type(value)
     if kind == "ts":
         return _TsExpr(value, f"resolved[{name}]")
     if kind == "size":

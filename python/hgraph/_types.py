@@ -2058,7 +2058,9 @@ class _TSMeta(type):
         if scalar in (typing.Callable, _abc.Callable) or origin is _abc.Callable:
             return _TsExpr(_hgraph.ts(_hgraph.value_type("callable")), "TS[Callable]")
         try:
-            expr = _TsExpr(_hgraph.ts(_value_type(scalar)), f"TS[{getattr(scalar, '__name__', scalar)}]")
+            value_type = _value_type(scalar)
+            _VALUE_SCALAR_TYPES[value_type] = scalar
+            expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
             return _GenericTsExpr(f"TS[{scalar!r}]", pattern=_hgraph.type_pattern_ts(e.pattern))
         _TS_SCALAR_TYPES[expr.handle] = scalar
@@ -2432,13 +2434,18 @@ class TimeSeriesSchema:
 
 
 def _value_type_python_type(value_type):
-    python_type = _VALUE_SCALAR_TYPES.get(value_type)
-    if python_type is None:
-        python_type = _hgraph.python_type_for_value(value_type)
+    python_type = _resolution_value_type(value_type)
     if isinstance(python_type, _hgraph.ValueType):
         raise TypeError(
             f"native scalar schema {value_type!r} has no Python type binding")
     return python_type
+
+
+def _resolution_value_type(value_type):
+    """Prefer a declared Python scalar, preserving native-only schemas."""
+    python_type = _VALUE_SCALAR_TYPES.get(value_type)
+    return (python_type if python_type is not None
+            else _hgraph.python_type_for_value(value_type))
 
 
 def _time_series_full_value_type(ts_type):

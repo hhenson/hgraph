@@ -82,6 +82,39 @@ def test_graph_requires_receives_type_resolved_from_type_argument():
     assert observed == [(str, "value")]
 
 
+@pytest.mark.parametrize(
+    "expected_key_type",
+    [
+        tuple[str, int],
+        tuple[str, ...],
+        frozenset[str],
+        dict[str, int],
+    ],
+)
+def test_graph_materializes_collection_type_resolved_from_type_argument(
+    expected_key_type,
+):
+    observed = []
+
+    def requires(mapping, key_type):
+        observed.append(key_type)
+        return key_type == expected_key_type
+
+    @graph(requires=requires)
+    def key_type_matches(
+        tsd_type: type[TSD[K, TS[int]]],
+        key_type: type[K] = AUTO_RESOLVE,
+    ) -> TS[bool]:
+        return const(key_type == expected_key_type)
+
+    @graph
+    def app() -> TS[bool]:
+        return key_type_matches(TSD[expected_key_type, TS[int]])
+
+    assert eval_node(app) == [True]
+    assert observed == [expected_key_type]
+
+
 def test_node_auto_resolve_uses_explicit_output_specialization():
     observed = []
 
@@ -97,6 +130,24 @@ def test_node_auto_resolve_uses_explicit_output_specialization():
 
     assert eval_node(keyed[TSD[str, TS[int]]], [3]) == [{"key": 3}]
     assert observed == [(str, TS[int])]
+
+
+def test_node_materializes_fixed_tuple_from_output_specialization():
+    observed = []
+
+    @compute_node
+    def keyed(
+        value: TS[int],
+        key_type: type[K] = AUTO_RESOLVE,
+        value_type: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        _output_type: type[TSD[K, TIME_SERIES_TYPE]] = DEFAULT[OUT],
+    ) -> TSD[K, TIME_SERIES_TYPE]:
+        observed.append(key_type)
+        return {("key", value.value): value.value}
+
+    output_type = TSD[tuple[str, int], TS[int]]
+    assert eval_node(keyed[output_type], [3]) == [{("key", 3): 3}]
+    assert observed == [tuple[str, int]]
 
 
 def test_node_materializes_default_scalar_type_argument():
@@ -148,3 +199,23 @@ def test_output_type_carrier_binds_nested_scalar_and_rejects_wrong_ts_kind():
 
     with pytest.raises(WiringError):
         eval_node(typed[TS[Row]], [7], to=TSD[str, TS[int]])
+
+
+def test_output_type_carrier_materializes_fixed_tuple_scalar():
+    observed = []
+
+    @operator
+    def typed(value: TS[int], to: type[OUT] = DEFAULT[OUT]) -> OUT: ...
+
+    @compute_node(overloads=typed)
+    def typed_tuple(
+        value: TS[int],
+        to: type[TS[SCALAR]] = OUT,
+        scalar_type: type[SCALAR] = AUTO_RESOLVE,
+    ) -> OUT:
+        observed.append((to, scalar_type))
+        return "value", value.value
+
+    output_type = TS[tuple[str, int]]
+    assert eval_node(typed[output_type], [7]) == [("value", 7)]
+    assert observed == [(output_type, tuple[str, int])]

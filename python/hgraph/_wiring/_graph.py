@@ -15,7 +15,8 @@ from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
 from ._node import (_PyNode, _is_time_series_annotation,
                     _lift_time_series_argument, _warn_deprecated)
 from ._operator import _register_overload, _run_requires
-from ._resolution import _apply_resolvers
+from ._resolution import (_apply_resolvers, _python_value_for_binding,
+                          _resolution_binding)
 from ._state import GlobalState, _GRAPH_LOGGER_KEY
 
 
@@ -313,17 +314,9 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         if not isinstance(sentinel, _TypeVarSentinel):
             raise WiringError(
                 f"AUTO_RESOLVE parameter '{name}' needs a type[TYPEVAR] annotation")
-        size = scope.find_size(_type_var_name(sentinel))
-        if size is not None:
-            resolved[name] = _ResolvedSize(size)
-            continue
-        ts = scope.find_ts(_type_var_name(sentinel))
-        if ts is not None:
-            resolved[name] = _TsExpr(ts, f"resolved[{sentinel!r}]")
-            continue
-        scalar = scope.find_scalar(_type_var_name(sentinel))
-        if scalar is not None:
-            resolved[name] = _hgraph.python_type_for_value(scalar)
+        binding = _resolution_binding(scope, sentinel)
+        if binding is not None:
+            resolved[name] = _python_value_for_binding(sentinel, binding)
             continue
         raise WiringError(
             f"AUTO_RESOLVE could not resolve '{name}' ({sentinel!r}) from the wired arguments")
