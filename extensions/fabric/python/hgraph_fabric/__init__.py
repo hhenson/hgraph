@@ -22,6 +22,7 @@ DataVersion = int
 RevisionId = int
 SubscriptionMode = _native.SubscriptionMode
 FabricSubscriptionMode = SubscriptionMode
+ResolutionStatus = _native.ResolutionStatus
 
 
 @dataclass(frozen=True)
@@ -196,6 +197,22 @@ def decode_latest_reference(encoded: bytes) -> RevisionId:
     return _native._decode_revision_reference(3, encoded)
 
 
+def _resolve_fixture(
+    revisions: tuple[DataRevision, ...],
+    roots: tuple[str, ...],
+    exposed: tuple[tuple[str, DataVersion], ...] = (),
+):
+    """Exercise the native resolver over an isolated in-memory history.
+
+    This private compatibility-test seam keeps Python examples on the same
+    C++ resolver and persistence contracts as production ingress.
+    """
+
+    return _native._resolve_fixture(
+        [encode_revision(revision) for revision in revisions], roots, exposed
+    )
+
+
 __all__ = [
     "AS_OF_MEDIA_TYPE",
     "AUTO",
@@ -208,6 +225,7 @@ __all__ = [
     "LATEST_MEDIA_TYPE",
     "REVISION_MEDIA_TYPE",
     "RevisionId",
+    "ResolutionStatus",
     "SubscriptionMode",
     "decode_as_of_reference",
     "decode_latest_reference",
