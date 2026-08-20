@@ -455,10 +455,13 @@ struct FabricDiagnosticsNode
 {
     static constexpr auto name = "hgraph.fabric.service.diagnostics";
 
+    /** Runs only when service lifecycle or transport-event inputs tick. Work is
+        O(stable metric count + retained distinct event paths), with event paths
+        bounded by ``FABRIC_DIAGNOSTIC_EVENT_LIMIT``. */
     static void eval(In<"events", TSD<Int, FabricTransportEvent>, InputValidity::Unchecked> events,
                      In<"ready", TS<Bool>>, Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
                      Scalar<"bridge", GraphNotificationBridgeHandle> bridge,
-                     Out<TSD<Str, TS<Str>>> diagnostics)
+                     Out<FabricDiagnostics> diagnostics)
     {
         if (events.modified())
         {
@@ -487,7 +490,8 @@ struct FabricDiagnosticsNode
                 });
             }
         }
-        auto mutation = diagnostics.begin_mutation(diagnostics.evaluation_time());
+        auto metrics = diagnostics.template field<"metrics">();
+        auto mutation = metrics.begin_mutation(metrics.evaluation_time());
         for (auto &[name, value] : runtime.value().value->diagnostics())
         {
             Value key{std::move(name)};
@@ -502,6 +506,23 @@ struct FabricDiagnosticsNode
                 Value item{std::move(value)};
                 mutation.set(key.view(), item.view());
             }
+        }
+
+        auto diagnostic_events = diagnostics.template field<"events">();
+        auto event_mutation = diagnostic_events.begin_mutation(diagnostic_events.evaluation_time());
+        for (auto &[path, event] : runtime.value().value->events())
+        {
+            BundleBuilder builder{ValuePlanFactory::instance().type_for(
+                scalar_descriptor<FabricDiagnosticEvent>::value_meta())};
+            builder.set("component", Value{std::move(event.component)});
+            builder.set("category", Value{std::move(event.category)});
+            builder.set("message", Value{std::move(event.message)});
+            builder.set("retriable", Value{event.retriable});
+            builder.set("fatal", Value{event.fatal});
+            builder.set("occurrences", Value{event.occurrences});
+            Value key{std::move(path)};
+            Value item = builder.build();
+            event_mutation.set(key.view(), item.view());
         }
     }
 };
@@ -559,7 +580,7 @@ struct FabricServiceImpl
             wiring, binding, planned_snapshot.template as<TSD<Str, FabricIngressSignal>>());
         service::impl_output<FabricLoadService>(wiring, binding, loaded.template as<TSD<Int, FabricLoadResponse>>());
         service::impl_output<FabricDiagnosticsService>(wiring, binding,
-                                                       diagnostic_values.template as<TSD<Str, TS<Str>>>());
+                                                       diagnostic_values.template as<FabricDiagnostics>());
         service::impl_output<FabricNotificationRequestService>(wiring, binding,
                                                                notification_requests.template as<TS<DataRevision>>());
     }
@@ -641,12 +662,12 @@ Port<FabricLoadResponse> request_load(Wiring &wiring, Str data_id, DataVersion v
     return request_load(wiring, std::move(data_id), version, service::path(DEFAULT_SERVICE_PATH));
 }
 
-Port<TSD<Str, TS<Str>>> diagnostics(Wiring &wiring, service::ServicePath path)
+Port<FabricDiagnostics> diagnostics(Wiring &wiring, service::ServicePath path)
 {
     return wire<FabricDiagnosticsService>(wiring, std::move(path));
 }
 
-Port<TSD<Str, TS<Str>>> diagnostics(Wiring &wiring)
+Port<FabricDiagnostics> diagnostics(Wiring &wiring)
 {
     return diagnostics(wiring, service::path(DEFAULT_SERVICE_PATH));
 }

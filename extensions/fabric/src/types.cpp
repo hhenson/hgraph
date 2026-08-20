@@ -114,6 +114,7 @@ namespace hgraph::fabric
         static_cast<void>(scalar_descriptor<SubscriptionMode>::value_meta());
         static_cast<void>(scalar_descriptor<DataDependency>::value_meta());
         static_cast<void>(scalar_descriptor<DataRevision>::value_meta());
+        static_cast<void>(scalar_descriptor<FabricDiagnosticEvent>::value_meta());
         static_cast<void>(scalar_descriptor<PlannedPublisher>::value_meta());
         static_cast<void>(scalar_descriptor<ConsistencyForest>::value_meta());
         static_cast<void>(scalar_descriptor<DependencyPlan>::value_meta());

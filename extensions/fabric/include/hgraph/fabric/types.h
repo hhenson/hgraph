@@ -61,6 +61,15 @@ namespace hgraph::fabric
                Field<"dependencies", HomogeneousTuple<DataDependency>>,
                Field<"self_predecessor", Int>, Field<"as_of", DateTime>>;
 
+    /** One path-addressed operational event retained by the root Fabric
+        service. Boolean severity fields remain machine-readable across
+        transport implementations; ``occurrences`` counts conflated repeats. */
+    using FabricDiagnosticEvent =
+        Bundle<"hgraph.fabric::DiagnosticEvent", Field<"component", Str>,
+               Field<"category", Str>, Field<"message", Str>,
+               Field<"retriable", Bool>, Field<"fatal", Bool>,
+               Field<"occurrences", Int>>;
+
     struct DataDependencyInput
     {
         Str         data_id{};
@@ -82,6 +91,19 @@ namespace hgraph::fabric
 
         friend bool operator==(const DataRevisionInput &,
                                const DataRevisionInput &) = default;
+    };
+
+    struct FabricDiagnosticEventInput
+    {
+        Str  component{};
+        Str  category{};
+        Str  message{};
+        Bool retriable{};
+        Bool fatal{};
+        Int  occurrences{};
+
+        friend bool operator==(const FabricDiagnosticEventInput &,
+                               const FabricDiagnosticEventInput &) = default;
     };
 
     /** Validate one logical data id. Data ids are non-empty UTF-8 strings,

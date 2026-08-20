@@ -8,11 +8,17 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/service_wiring.h>
 
+#include <cstddef>
 #include <string_view>
 
 namespace hgraph::fabric
 {
 inline constexpr std::string_view DEFAULT_SERVICE_PATH{"fabric"};
+inline constexpr std::size_t FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID{1024U};
+inline constexpr std::size_t FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION{4096U};
+inline constexpr std::size_t FABRIC_NOTIFICATION_REQUEST_LIMIT{1024U};
+inline constexpr std::size_t FABRIC_NOTIFICATION_RETRY_LIMIT{8U};
+inline constexpr std::size_t FABRIC_DIAGNOSTIC_EVENT_LIMIT{256U};
 
 /** Select where accepted revision notifications are delivered. Configured
     uses the Notifier stored in FabricConfig. GraphTransport exposes requests
@@ -53,6 +59,13 @@ using FabricTransportControl =
 using FabricTransportEvent =
     TSB<"hgraph.fabric::TransportEvent", Field<"component", TS<Str>>, Field<"category", TS<Str>>,
         Field<"message", TS<Str>>, Field<"retriable", TS<Bool>>, Field<"fatal", TS<Bool>>>;
+
+/** Stable metrics plus typed, path-addressed events. Metrics remain strings
+    so counters and lifecycle values can share one map; events preserve
+    component, category, severity and repeat count as native scalar fields. */
+using FabricDiagnostics =
+    TSB<"hgraph.fabric::Diagnostics", Field<"metrics", TSD<Str, TS<Str>>>,
+        Field<"events", TSD<Str, TS<FabricDiagnosticEvent>>>>;
 
 struct FabricLiveSubscriptionService
 {
@@ -129,7 +142,7 @@ struct FabricLoadService
 struct FabricDiagnosticsService
 {
     static constexpr std::string_view name{"fabric_diagnostics"};
-    using output_schema = TSD<Str, TS<Str>>;
+    using output_schema = FabricDiagnostics;
 };
 
 /** Register one lazy root-graph FabricServiceImpl singleton. Configuration
@@ -161,8 +174,9 @@ HGRAPH_FABRIC_EXPORT void submit_transport_event(Wiring &wiring, Port<FabricTran
 [[nodiscard]] HGRAPH_FABRIC_EXPORT Port<FabricLoadResponse> request_load(Wiring &wiring, Str data_id,
                                                                          DataVersion version);
 
-[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TSD<Str, TS<Str>>> diagnostics(Wiring &wiring, service::ServicePath path);
-[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TSD<Str, TS<Str>>> diagnostics(Wiring &wiring);
+[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<FabricDiagnostics> diagnostics(Wiring &wiring,
+                                                                        service::ServicePath path);
+[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<FabricDiagnostics> diagnostics(Wiring &wiring);
 } // namespace hgraph::fabric
 
 namespace hgraph::static_schema_detail

@@ -20,9 +20,11 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto input = hgf::subscribe_data(
                 wiring, "installed/input", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "installed/output", input);
+            static_cast<void>(hgf::diagnostics(wiring));
         }
     };
 }  // namespace

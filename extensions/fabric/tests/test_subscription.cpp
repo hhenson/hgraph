@@ -848,6 +848,124 @@ TEST_CASE("service diagnostics expose resolver work and bounded queue usage")
     CHECK(std::stoull(diagnostics.at("resolution.frame_cache.misses")) >= 1);
 }
 
+TEST_CASE("service diagnostics retain typed transport and store events")
+{
+    auto config = hgf::make_memory_fabric_config("tests/subscription/typed-failures");
+    hgf::detail::FabricServicePlanHandle plan{
+        std::make_shared<hgf::detail::FabricServicePlan>()};
+    hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+    hg::GlobalContext context;
+    hgf::set_fabric_config(context.state().view(), config);
+    runtime.start(context.state().view());
+
+    CHECK_FALSE(runtime.load("missing", 1).has_value());
+    runtime.observe_transport_event(hgf::detail::TransportEventInput{
+        .component = "kafka",
+        .category = "disconnect",
+        .message = "broker unavailable",
+        .retriable = true,
+    });
+
+    const auto values = runtime.events();
+    const std::map<hg::Str, hgf::FabricDiagnosticEventInput> events{values.begin(), values.end()};
+    REQUIRE(events.contains("store.frame.missing"));
+    CHECK(events.at("store.frame.missing").component == "store");
+    CHECK_FALSE(events.at("store.frame.missing").retriable);
+    CHECK_FALSE(events.at("store.frame.missing").fatal);
+    REQUIRE(events.contains("kafka.disconnect"));
+    CHECK(events.at("kafka.disconnect").message == "broker unavailable");
+    CHECK(events.at("kafka.disconnect").retriable);
+    CHECK_FALSE(events.at("kafka.disconnect").fatal);
+    CHECK(events.at("kafka.disconnect").occurrences == 1);
+}
+
+TEST_CASE("stalled service queues and diagnostic paths enforce hard bounds")
+{
+    SECTION("publication requests")
+    {
+        auto config = hgf::make_memory_fabric_config("tests/subscription/publication-bound");
+        hgf::detail::FabricServicePlanHandle plan{
+            std::make_shared<hgf::detail::FabricServicePlan>()};
+        hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+        hg::GlobalContext context;
+        hgf::set_fabric_config(context.state().view(), config);
+        runtime.start(context.state().view());
+
+        runtime.publish(hgf::detail::PublicationRequestInput{.data_id = "stalled"});
+        for (std::size_t index = 0; index < hgf::FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID; ++index)
+        {
+            runtime.publish(hgf::detail::PublicationRequestInput{.data_id = "stalled"});
+        }
+        CHECK_THROWS_AS(runtime.publish(hgf::detail::PublicationRequestInput{.data_id = "stalled"}),
+                        std::overflow_error);
+        const auto values = runtime.diagnostics();
+        const std::map<hg::Str, hg::Str> metrics{values.begin(), values.end()};
+        CHECK(std::stoull(metrics.at("publication.queued")) ==
+              hgf::FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID);
+    }
+
+    SECTION("live notices")
+    {
+        auto config = hgf::make_memory_fabric_config("tests/subscription/live-bound");
+        hgf::detail::FabricServicePlanHandle plan{
+            std::make_shared<hgf::detail::FabricServicePlan>()};
+        hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+        hg::GlobalContext context;
+        hgf::set_fabric_config(context.state().view(), config);
+        runtime.start(context.state().view());
+
+        std::vector<hgf::DataRevisionInput> revisions;
+        revisions.reserve(hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION);
+        for (std::size_t index = 0; index < hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION; ++index)
+        {
+            revisions.push_back(hgf::DataRevisionInput{
+                .data_id = "notice-" + std::to_string(index),
+                .revision = 1,
+                .output_version = 1,
+                .as_of = BASE_TIME,
+            });
+        }
+        CHECK_FALSE(runtime.live({}, std::move(revisions), BASE_TIME).has_value());
+        CHECK_THROWS_AS(runtime.live({}, {hgf::DataRevisionInput{
+                                              .data_id = "notice-overflow",
+                                              .revision = 1,
+                                              .output_version = 1,
+                                              .as_of = BASE_TIME,
+                                          }},
+                                     BASE_TIME),
+                        std::overflow_error);
+        const auto values = runtime.diagnostics();
+        const std::map<hg::Str, hg::Str> metrics{values.begin(), values.end()};
+        CHECK(std::stoull(metrics.at("live.notices")) == hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION);
+    }
+
+    SECTION("diagnostic paths")
+    {
+        auto config = hgf::make_memory_fabric_config("tests/subscription/diagnostic-bound");
+        hgf::detail::FabricServicePlanHandle plan{
+            std::make_shared<hgf::detail::FabricServicePlan>()};
+        hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+        hg::GlobalContext context;
+        hgf::set_fabric_config(context.state().view(), config);
+        runtime.start(context.state().view());
+
+        for (std::size_t index = 0; index < hgf::FABRIC_DIAGNOSTIC_EVENT_LIMIT + 20U; ++index)
+        {
+            runtime.observe_transport_event(hgf::detail::TransportEventInput{
+                .component = "kafka",
+                .category = "category-" + std::to_string(index),
+                .message = "failure",
+                .retriable = true,
+            });
+        }
+        const auto values = runtime.events();
+        const std::map<hg::Str, hgf::FabricDiagnosticEventInput> events{values.begin(), values.end()};
+        CHECK(events.size() == hgf::FABRIC_DIAGNOSTIC_EVENT_LIMIT);
+        REQUIRE(events.contains("diagnostics.capacity"));
+        CHECK(events.at("diagnostics.capacity").occurrences == 21);
+    }
+}
+
 TEST_CASE("graph notification bridge retries with stable revision correlation")
 {
     hgf::detail::GraphNotificationBridge bridge;
@@ -886,4 +1004,35 @@ TEST_CASE("graph notification bridge retries with stable revision correlation")
     CHECK(diagnostics.at("transport.notification.pending") == "0");
     CHECK(diagnostics.at("transport.notification.retried") == "1");
     CHECK(diagnostics.at("transport.notification.delivered") == "1");
+}
+
+TEST_CASE("stalled graph notification delivery queue enforces its hard bound")
+{
+    hgf::detail::GraphNotificationBridge bridge;
+    auto notifier = bridge.notifier();
+    for (std::size_t index = 0; index < hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT; ++index)
+    {
+        const auto revision = hgf::make_data_revision(hgf::DataRevisionInput{
+            .data_id = "stalled",
+            .revision = static_cast<hgf::RevisionId>(index + 1U),
+            .output_version = 1,
+            .as_of = BASE_TIME + hg::TimeDelta{static_cast<hg::TimeDelta::rep>(index + 1U)},
+        });
+        static_cast<void>(notifier.publish(
+            hgf::RevisionNotification{"stalled", hgf::encode_revision(revision.view())}));
+    }
+    const auto overflow = hgf::make_data_revision(hgf::DataRevisionInput{
+        .data_id = "stalled",
+        .revision = static_cast<hgf::RevisionId>(hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT + 1U),
+        .output_version = 1,
+        .as_of = BASE_TIME + hg::TimeDelta{
+                               static_cast<hg::TimeDelta::rep>(hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT + 1U)},
+    });
+    CHECK_THROWS_AS(notifier.publish(
+                        hgf::RevisionNotification{"stalled", hgf::encode_revision(overflow.view())}),
+                    std::overflow_error);
+    const auto values = bridge.diagnostics();
+    const std::map<hg::Str, hg::Str> diagnostics{values.begin(), values.end()};
+    CHECK(std::stoull(diagnostics.at("transport.notification.pending")) ==
+          hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT);
 }

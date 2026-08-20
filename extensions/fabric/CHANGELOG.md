@@ -22,3 +22,6 @@
 - Add restartable real-broker conformance for startup handoff, retriable
   delivery failure, reconnect recovery, bounded queue profiles, and keyed
   partition ordering.
+- Add typed, path-addressed transport/store event diagnostics and executable
+  hard-bound coverage for stalled publication, live-notice, delivery, and
+  diagnostic queues.

@@ -33,9 +33,6 @@ struct GraphNotificationBridge::Impl
     Key key{};
   };
 
-  static constexpr std::size_t REQUEST_LIMIT{1024};
-  static constexpr std::size_t RETRY_LIMIT{8};
-
   mutable std::mutex mutex{};
   std::map<Key, RequestState> requests{};
   std::deque<Key> outgoing{};
@@ -65,7 +62,7 @@ struct GraphNotificationBridge::Impl
               "fabric graph notification conflicts with an in-flight request");
         }
       } else {
-        if (self.requests.size() >= REQUEST_LIMIT) {
+        if (self.requests.size() >= FABRIC_NOTIFICATION_REQUEST_LIMIT) {
           throw std::overflow_error("fabric graph notification queue is full");
         }
         self.requests.emplace(
@@ -139,7 +136,8 @@ struct GraphNotificationBridge::Impl
       ++delivered;
       return;
     }
-    if (delivery.retriable && state.retries < RETRY_LIMIT) {
+    if (delivery.retriable &&
+        state.retries < FABRIC_NOTIFICATION_RETRY_LIMIT) {
       ++state.retries;
       ++retried;
       state.message = std::move(delivery.message);

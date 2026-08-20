@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -53,6 +54,7 @@ hg::Str actual_topic{};
 std::filesystem::path actual_control_dir{};
 std::vector<std::int64_t> actual_live_values{};
 std::map<hg::Str, hg::Str> actual_diagnostics{};
+std::map<hg::Str, hgf::FabricDiagnosticEventInput> actual_events{};
 
 struct ActualBrokerRecord {
   hg::Int partition{};
@@ -270,10 +272,25 @@ struct CaptureActualDiagnostics {
   static constexpr auto name =
       "hgraph.fabric.kafka.test.actual_diagnostics_capture";
 
-  static void eval(hg::In<"values", hg::TSD<hg::Str, hg::TS<hg::Str>>> values) {
-    for (const auto &[key, value] : values.valid_items()) {
+  static void eval(hg::In<"values", hgf::FabricDiagnostics> values) {
+    const auto metrics = values.template field<"metrics">();
+    for (const auto &[key, value] : metrics.valid_items()) {
       actual_diagnostics.insert_or_assign(key.checked_as<hg::Str>(),
                                           value.value());
+    }
+    const auto events = values.template field<"events">();
+    for (const auto &[key, value] : events.valid_items()) {
+      const auto fields = value.base().value().as_bundle();
+      actual_events.insert_or_assign(
+          key.checked_as<hg::Str>(),
+          hgf::FabricDiagnosticEventInput{
+              .component = fields.at("component").checked_as<hg::Str>(),
+              .category = fields.at("category").checked_as<hg::Str>(),
+              .message = fields.at("message").checked_as<hg::Str>(),
+              .retriable = fields.at("retriable").checked_as<hg::Bool>(),
+              .fatal = fields.at("fatal").checked_as<hg::Bool>(),
+              .occurrences = fields.at("occurrences").checked_as<hg::Int>(),
+          });
     }
   }
 };
@@ -547,6 +564,7 @@ TEST_CASE("manual Kafka assignment recovers after every broker disconnects") {
                             .build();
   actual_live_values.clear();
   actual_diagnostics.clear();
+  actual_events.clear();
 
   auto graph = hg::build_graph<ActualBrokerGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
@@ -659,6 +677,7 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
 
   actual_live_values.clear();
   actual_diagnostics.clear();
+  actual_events.clear();
   auto graph = hg::build_graph<ActualBrokerGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
   const hg::DateTime start = hg::testing::wall_now();
@@ -723,6 +742,10 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
   CHECK(actual_diagnostics.at("publication.queue_limit_per_data_id") == "1024");
   CHECK(actual_diagnostics.at("live.notice_limit_per_session") == "4096");
   CHECK(actual_diagnostics.at("transport.notification.retried") != "0");
+  const auto retriable = std::ranges::find_if(
+      actual_events, [](const auto &entry) { return entry.second.retriable; });
+  REQUIRE(retriable != actual_events.end());
+  CHECK_FALSE(retriable->second.fatal);
 
   actual_audit_key =
       hgk::subscription_key()

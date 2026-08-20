@@ -11,6 +11,7 @@
 #include <charconv>
 #include <deque>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -520,7 +521,7 @@ struct LiveSession
             auto found = notice_cache.find(revision.data_id);
             if (found == notice_cache.end())
             {
-                if (notice_cache.size() >= 4096)
+                if (notice_cache.size() >= FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION)
                 {
                     throw std::overflow_error("fabric live notice cache is full");
                 }
@@ -631,9 +632,61 @@ struct FabricServiceRuntime::Impl
     std::map<Str, std::deque<PublicationRequestInput>, IdLess> publication_queues{};
     std::map<Str, RevisionId, IdLess> advertised{};
     std::optional<Notifier> notification_override{};
-    std::map<Str, Str, IdLess> transport_diagnostics{};
+    std::map<Str, FabricDiagnosticEventInput, IdLess> events{};
     bool graph_notifications{};
     bool running{};
+
+    void record_event(Str component, Str category, Str message, Bool retriable, Bool fatal)
+    {
+        Str path = component + "." + category;
+        auto found = events.find(path);
+        if (found == events.end() && events.size() >= FABRIC_DIAGNOSTIC_EVENT_LIMIT - 1U)
+        {
+            path = "diagnostics.capacity";
+            component = "diagnostics";
+            category = "capacity";
+            message = "additional Fabric diagnostic paths were conflated at the configured limit";
+            retriable = false;
+            fatal = false;
+            found = events.find(path);
+        }
+        if (found == events.end())
+        {
+            found = events
+                        .emplace(path, FabricDiagnosticEventInput{
+                                           .component = std::move(component),
+                                           .category = std::move(category),
+                                           .message = std::move(message),
+                                           .retriable = retriable,
+                                           .fatal = fatal,
+                                       })
+                        .first;
+        }
+        else
+        {
+            found->second.message = std::move(message);
+            found->second.retriable = retriable;
+            found->second.fatal = fatal;
+        }
+        if (found->second.occurrences < std::numeric_limits<Int>::max())
+        {
+            ++found->second.occurrences;
+        }
+    }
+
+    template <typename Operation>
+    decltype(auto) with_failure_diagnostic(Str component, Str category, Operation &&operation)
+    {
+        try
+        {
+            return std::forward<Operation>(operation)();
+        }
+        catch (const std::exception &error)
+        {
+            record_event(std::move(component), std::move(category), error.what(), false, true);
+            throw;
+        }
+    }
 
     [[nodiscard]] FabricConfig &configured()
     {
@@ -726,7 +779,7 @@ void FabricServiceRuntime::stop() noexcept
     impl_->planned_replay = {};
     impl_->live = {};
     impl_->planned_live = {};
-    impl_->transport_diagnostics.clear();
+    impl_->events.clear();
     impl_->config.reset();
 }
 
@@ -740,49 +793,61 @@ void FabricServiceRuntime::configure_replay_window(DateTime start_time, DateTime
 
 std::optional<DeliveryBatch> FabricServiceRuntime::snapshot(std::vector<SubscriptionSpec> subscriptions)
 {
-    impl_->snapshot.configure(impl_->configured(), std::move(subscriptions));
-    return impl_->snapshot.evaluate();
+    return impl_->with_failure_diagnostic("store", "snapshot", [&] {
+        impl_->snapshot.configure(impl_->configured(), std::move(subscriptions));
+        return impl_->snapshot.evaluate();
+    });
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::planned_snapshot()
 {
-    impl_->planned_snapshot.configure(impl_->configured(), impl_->plan.value->snapshot);
-    return impl_->planned_snapshot.evaluate();
+    return impl_->with_failure_diagnostic("store", "snapshot", [&] {
+        impl_->planned_snapshot.configure(impl_->configured(), impl_->plan.value->snapshot);
+        return impl_->planned_snapshot.evaluate();
+    });
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::replay(std::vector<SubscriptionSpec> subscriptions, DateTime now,
                                                           NodeScheduler scheduler)
 {
-    impl_->replay.configure(impl_->configured(), std::move(subscriptions));
-    return impl_->replay.evaluate(now, scheduler);
+    return impl_->with_failure_diagnostic("store", "replay", [&] {
+        impl_->replay.configure(impl_->configured(), std::move(subscriptions));
+        return impl_->replay.evaluate(now, scheduler);
+    });
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::planned_replay(DateTime now, NodeScheduler scheduler)
 {
-    impl_->planned_replay.configure(impl_->configured(), impl_->plan.value->replay);
-    return impl_->planned_replay.evaluate(now, scheduler);
+    return impl_->with_failure_diagnostic("store", "replay", [&] {
+        impl_->planned_replay.configure(impl_->configured(), impl_->plan.value->replay);
+        return impl_->planned_replay.evaluate(now, scheduler);
+    });
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::live(std::vector<SubscriptionSpec> subscriptions,
                                                         std::vector<DataRevisionInput> revisions, DateTime now,
                                                         bool reconcile)
 {
-    impl_->live.configure(impl_->configured(), std::move(subscriptions));
-    return impl_->live.evaluate(std::move(revisions), now, reconcile);
+    return impl_->with_failure_diagnostic("fabric", "live", [&] {
+        impl_->live.configure(impl_->configured(), std::move(subscriptions));
+        return impl_->live.evaluate(std::move(revisions), now, reconcile);
+    });
 }
 
 std::optional<DeliveryBatch> FabricServiceRuntime::planned_live(std::vector<DataRevisionInput> revisions, DateTime now,
                                                                 bool reconcile)
 {
-    impl_->planned_live.configure(impl_->configured(), impl_->plan.value->live);
-    return impl_->planned_live.evaluate(std::move(revisions), now, reconcile);
+    return impl_->with_failure_diagnostic("fabric", "live", [&] {
+        impl_->planned_live.configure(impl_->configured(), impl_->plan.value->live);
+        return impl_->planned_live.evaluate(std::move(revisions), now, reconcile);
+    });
 }
 
 void FabricServiceRuntime::publish(PublicationRequestInput request)
 {
     require_data_id(request.data_id);
     auto &queue = impl_->publication_queues[request.data_id];
-    if (queue.size() >= 1024)
+    if (queue.size() >= FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID)
     {
         throw std::overflow_error("fabric publication queue is full");
     }
@@ -799,7 +864,19 @@ std::vector<DataRevisionInput> FabricServiceRuntime::advance_publications()
         for (std::size_t step = 0; step < 16; ++step)
         {
             const PublicationState before = machine->state();
-            const PublicationState after = machine->advance();
+            PublicationState after{};
+            try
+            {
+                after = machine->advance();
+            }
+            catch (const std::exception &error)
+            {
+                const bool transport = before == PublicationState::LatestDurable ||
+                                       before == PublicationState::NotificationPending;
+                impl_->record_event(transport ? "transport" : "store",
+                                    transport ? "notification" : "publication", error.what(), false, true);
+                throw;
+            }
             if (publication_terminal(after))
             {
                 break;
@@ -853,9 +930,21 @@ std::optional<std::tuple<Str, DataVersion, Frame>> FabricServiceRuntime::load(st
     {
         throw std::invalid_argument("fabric load version must be positive");
     }
-    Frame frame = impl_->config->frames.read(data_version_key(impl_->config->prefix, data_id, version));
+    Frame frame;
+    try
+    {
+        frame = impl_->config->frames.read(data_version_key(impl_->config->prefix, data_id, version));
+    }
+    catch (const std::exception &error)
+    {
+        impl_->record_event("store", "frame.read", error.what(), false, true);
+        throw;
+    }
     if (!frame.has_value())
     {
+        impl_->record_event("store", "frame.missing",
+                            "requested Fabric Frame is not present: " + data_id + ":" + std::to_string(version),
+                            false, false);
         return std::nullopt;
     }
     return std::tuple<Str, DataVersion, Frame>{std::move(data_id), version, std::move(frame)};
@@ -884,9 +973,9 @@ std::vector<std::pair<Str, Str>> FabricServiceRuntime::diagnostics() const
         {"lifecycle", impl_->running ? "running" : "stopped"},
         {"publishers", std::to_string(impl_->publishers.size())},
         {"publication.queued", std::to_string(publication_queued)},
-        {"publication.queue_limit_per_data_id", "1024"},
+        {"publication.queue_limit_per_data_id", std::to_string(FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID)},
         {"live.notices", std::to_string(live_notices)},
-        {"live.notice_limit_per_session", "4096"},
+        {"live.notice_limit_per_session", std::to_string(FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION)},
         {"resolution.calls", std::to_string(metrics.calls)},
         {"resolution.forests.ready", std::to_string(metrics.forests_ready)},
         {"resolution.forests.unchanged",
@@ -927,16 +1016,18 @@ std::vector<std::pair<Str, Str>> FabricServiceRuntime::diagnostics() const
         {"resolution.notice_to_ready.microseconds_total",
          std::to_string(metrics.notice_to_ready_total)},
     };
-    result.insert(result.end(), impl_->transport_diagnostics.begin(), impl_->transport_diagnostics.end());
     return result;
+}
+
+std::vector<std::pair<Str, FabricDiagnosticEventInput>> FabricServiceRuntime::events() const
+{
+    return {impl_->events.begin(), impl_->events.end()};
 }
 
 void FabricServiceRuntime::observe_transport_event(TransportEventInput event)
 {
-    const Str key = "transport." + event.component + "." + event.category;
-    Str value = event.fatal ? "fatal: " : (event.retriable ? "retriable: " : "info: ");
-    value += event.message;
-    impl_->transport_diagnostics.insert_or_assign(key, std::move(value));
+    impl_->record_event(std::move(event.component), std::move(event.category), std::move(event.message),
+                        event.retriable, event.fatal);
 }
 
 Str subscription_key(Str data_id, SubscriptionMode mode, DateTime as_of)

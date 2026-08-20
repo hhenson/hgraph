@@ -112,8 +112,9 @@ profiles, and conflicting service registration never fall back to memory.
 
 ## Operations
 
-The `diagnostics()` service publishes string values under stable metric names.
-Important groups are:
+The `diagnostics()` service publishes a bundle with `metrics` and `events`.
+Metrics remain string values under stable names so lifecycle values and
+counters share one map. Important groups are:
 
 * `resolution.*`: calls, forest outcomes, cache hits/misses, examined revisions
   and edges, candidate selections, backtracking depth, and notice-to-ready
@@ -121,9 +122,14 @@ Important groups are:
 * `publication.*`: current queue occupancy and its per-data-id bound;
 * `live.*`: conflated notice occupancy and its per-session bound;
 * `transport.notification.*`: pending, delivered, retried, failed, and stale
-  correlated delivery reports; and
-* `transport.<component>.<category>`: the latest typed Kafka lifecycle or
-  delivery event, including whether it is retriable or fatal.
+  correlated delivery reports.
+
+Events are keyed by `<component>.<category>` and retain typed `component`,
+`category`, `message`, `retriable`, `fatal`, and `occurrences` fields. Repeated
+events conflate at that path without losing their count. Kafka lifecycle and
+delivery events use their native component/category and severity; synchronous
+store reads and publication boundaries report `store.*` failures before the
+original graph error is rethrown.
 
 The root service logs one `info` record at successful start and one at stop,
 including the canonical service path so multiple Fabric services can be
@@ -138,7 +144,9 @@ durable-head reconciliation.
 All queues are bounded. Publication accepts at most 1,024 waiting requests per
 data id, each live session retains at most 4,096 conflated data ids, and the
 graph transport retains at most 1,024 correlated deliveries with at most eight
-retries. Hitting a bound is an explicit failure, never silent data loss.
+retries. Diagnostic events retain at most 256 distinct paths; additional
+paths conflate into `diagnostics.capacity` with an occurrence count. Hitting a
+work queue bound is an explicit failure, never silent data loss.
 
 V1 retention is intentionally unbounded: one complete Frame per output tick,
 plus one small revision and as-of entry for each accepted input/output tuple.
