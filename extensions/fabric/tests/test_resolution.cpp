@@ -262,6 +262,26 @@ TEST_CASE(
     CHECK(forest(split, "A").status == hgf::ResolutionStatus::Ready);
     CHECK(forest(split, "B").status == hgf::ResolutionStatus::Ready);
   }
+
+  SECTION("same-output acknowledgements replace superseded ancestry") {
+    auto config = hgf::make_memory_fabric_config(
+        "tests/resolution/same-output-repartition");
+    seed(config, "X", 1, 1);
+    seed(config, "A", 1, 1, {{"X", 1}});
+    seed(config, "B", 1, 1, {{"X", 1}});
+    hgf::ConsistencyCoordinator coordinator{config, {"A", "B"}};
+    REQUIRE(coordinator.resolve().forests.size() == 1);
+
+    seed(config, "Y", 1, 1);
+    seed(config, "Z", 1, 1);
+    seed(config, "A", 2, 1, {{"Y", 1}});
+    seed(config, "B", 2, 1, {{"Z", 1}});
+    const auto split = coordinator.resolve();
+    REQUIRE(split.forests.size() == 2);
+    CHECK(split.changed_roots.empty());
+    CHECK(forest(split, "A").status == hgf::ResolutionStatus::Unchanged);
+    CHECK(forest(split, "B").status == hgf::ResolutionStatus::Unchanged);
+  }
 }
 
 TEST_CASE("root versions never regress below an exposed cut") {
