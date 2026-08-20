@@ -312,11 +312,22 @@ for record-time recovery.
 Simulation
 ----------
 
-Kafka graph services are real-time-only.  Their bounded queues wake the root
-graph through push-source nodes, and push sources are not valid simulation
-inputs.  Deterministic backtests should first capture the required records and
-replay them through an ordinary scheduled source so graph time is independent
-of broker and worker-thread timing.
+Kafka selects a separate service graph for simulation.  It contains no push
+source: the service first preloads a finite recovery window, then ordinary
+drain nodes schedule records by their Kafka timestamps.  This path requires a
+bounded stop position, ``RECORD_TIMESTAMP`` recovery, and
+``TIMESTAMP_TOPIC_PARTITION_OFFSET`` merge ordering.  ``GRAPH_LIFETIME`` is
+treated as a snapshot boundary in simulation.  Publishing, committing,
+unbounded subscriptions, and arrival-clock recovery are rejected.
+
+Python ``run_graph`` selects the service graph from its wiring-time evaluation
+mode.  C++ authors select it explicitly when registering the service::
+
+   kafka::register_service(wiring, path, config,
+                           kafka::KafkaServiceMode::Simulation);
+
+The preload barrier keeps broker-thread timing out of simulated graph time;
+only the retained record timestamps drive later evaluations.
 
 Configuration, flow control, and failures
 ------------------------------------------

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve bounded deterministic Kafka recovery in simulation through an
+  ordinary scheduled service graph, while keeping live queue ingress on
+  real-time-only root push sources.
 - Replay recovered records at their Kafka timestamps across all subscriptions
   instead of serializing them in shared-drain arrival order.
 - Keep real-time live records behind their subscription's queued timestamped

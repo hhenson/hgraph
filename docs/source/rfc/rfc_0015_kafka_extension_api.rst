@@ -45,9 +45,10 @@ Kafka-specific runtime to the core:
 
 The ``service_impl`` obtains subscription keys, publish requests, and commit
 requests through ``service::impl_input`` and feeds them to graph sink nodes.
-Its consumer and producer threads return subscription values, delivery
-reports, and events only through root push-source nodes bound with
-``service::impl_output``.  These are decoupled external sinks and sources, so
+For real-time service graphs, its consumer and producer threads return
+subscription values, delivery reports, and events only through root
+push-source nodes bound with ``service::impl_output``.  These are decoupled
+external sinks and sources, so
 RFC 0014's automatic transport planner gives them direct request and response
 paths.  No feedback delay, adaptor-specific cycle, or user transport flag is
 required.
@@ -58,12 +59,13 @@ the same native extension and preserve the released ``KafkaMessage``, replay,
 ``recovered``, flush, and legacy cross-partition ordering behavior.  New code
 does not depend on magic ``msg``/``recovered`` parameter names.
 
-Kafka queue ingress uses root push sources and is therefore real-time-only.
-The broker queue wakes the root graph; graph-owned drain nodes then emit Kafka
-records, delivery reports, and events through ordinary graph edges.  Kafka does
-not add a second wake mechanism and no push source is permitted in simulation.
-Deterministic simulation replay is the responsibility of an ordinary scheduled
-source over previously captured durable data, not a broker queue.
+Live Kafka queue ingress is real-time-only.  The broker queue wakes the root
+graph; graph-owned drain nodes then emit Kafka records, delivery reports, and
+events through ordinary graph edges.  Kafka does not add a second wake
+mechanism and no push source is permitted in simulation.  The simulation
+service specialization instead accepts only bounded record-time recovery,
+preloads that finite history before graph evaluation proceeds, and drains it
+through ordinary nodes scheduled at the retained record timestamps.
 
 Bounded Kafka queues and pause/resume remain in the extension.  A conflating
 root push source wakes a graph-owned drain node, so the core push queue carries
@@ -604,14 +606,17 @@ and not one opaque node which bypasses graph inputs.  It wires:
 * a publish-command sink consuming
   ``TSD<Int, KafkaPublishRequest>``;
 * a commit-command sink consuming ``TSD<Int, TS<KafkaCursor>>``;
-* root push-source/drain nodes producing
+* real-time root push-source/drain nodes, or deterministic simulation
+  scheduled drains, producing
   ``TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>``,
   ``TSD<Int, TS<KafkaDeliveryReport>>``, and ``TS<KafkaEvent>``; and
 * one graph-local lifecycle/resource state shared only by those nodes.
 
-The sinks are the only graph-to-Kafka route and the push sources are the only
-Kafka-to-graph route.  The implementation is inlined into the root graph, as
-all native service implementations are, so its push sources are legal and the
+The sinks are the only graph-to-Kafka route.  In real time, push sources are
+the only Kafka-to-graph wake route.  In simulation, the bounded preload
+completes before one ordinary graph edge releases scheduled drains; no push
+source is wired.  The implementation is inlined into the root graph, as all
+native service implementations are, so the selected nodes are legal and the
 keyed transport planner can inspect the real decoupled dependency graph.
 
 ``kafka::register_service`` expands to one
@@ -636,8 +641,8 @@ The graph-local runtime resource owns:
 * one consumer owner thread per consumer session;
 * a session registry keyed by the complete semantic subscription identity;
 * bounded inbound record/event queues and bounded outbound staging queues;
-* the senders published by the implementation's graph-side push/drain nodes;
-  and
+* in real time, the senders published by the implementation's graph-side
+  push/drain nodes; and
 * explicit start, accepting, stopping, and stopped states.
 
 One thread owns all subscribe, assign, seek, poll, pause/resume, commit, and
@@ -730,11 +735,14 @@ New native code should not depend on the compatibility merge as a Kafka
 guarantee.  Equal or skewed timestamps do not create causal order across
 partitions.
 
-Kafka graph services are rejected in simulation because their broker queues
-enter through push sources.  A deterministic replay facility may consume
-captured Kafka records through a separate ordinary scheduled source, but that
-source is not a Kafka service implementation and broker-thread timing never
-participates in simulated graph time.
+Simulation selects a separate service graph at wiring time.  It rejects
+publishing, commits, unbounded subscriptions, arrival-clock recovery, and
+non-deterministic partition merging.  A valid subscription is finite, uses
+record timestamps with the deterministic
+``(timestamp, topic, partition, offset)`` merge, and is fully preloaded before
+the graph receives a release tick.  Ordinary drain nodes then schedule each
+retained value in simulated graph time; broker-thread timing never determines
+an evaluation timestamp.
 
 Recovery hand-off
 -----------------
@@ -802,10 +810,10 @@ Lifecycle and teardown
 
 Start order is:
 
-1. start the service implementation's planned sink, push-source, queue, and
-   lifecycle-node storage;
-2. publish the push sources' wake-up senders to the graph-local runtime
-   resource with a synchronization edge;
+1. start the service implementation's planned sink, queue, and lifecycle-node
+   storage, plus real-time push sources when that specialization was selected;
+2. in real time, publish the push sources' wake-up senders to the graph-local
+   runtime resource with a synchronization edge;
 3. initialize that resource from the registered ``KafkaServiceConfig`` and
    construct/configure librdkafka handles;
 4. start non-daemon owner threads; and
@@ -821,7 +829,7 @@ Stop order is:
 4. join every extension-owned thread;
 5. close consumer and producer handles in their required order;
 6. clear queued values and release callbacks; and only then
-7. allow push-source and graph storage to be erased.
+7. allow any push-source and graph storage to be erased.
 
 The last ordering is load-bearing: ``PushSourceSender`` is a lightweight view
 onto graph-owned policy storage.  No sender may outlive the joined thread which
@@ -1033,10 +1041,12 @@ Public C++ and extension boundary
   service interfaces.
 * One ``KafkaServiceImpl`` materializes for one demanded path and configuration;
   duplicate registration at that path is rejected.
-* Its graph-to-Kafka edges are sink nodes over ``impl_input`` and its
-  Kafka-to-graph edges are root push sources published with ``impl_output``.
-* Kafka graph services are rejected in simulation; their only ingress is the
-  real-time root push source woken by the Kafka queue.
+* Its graph-to-Kafka edges are sink nodes over ``impl_input``.  Real-time
+  Kafka-to-graph edges use root push sources; bounded simulation recovery uses
+  ordinary scheduled drains.  Both are published through ``impl_output``.
+* The real-time/simulation implementation is selected at wiring time.  A
+  simulation graph contains no push source and accepts only deterministic,
+  bounded record-time subscriptions.
 * Structured scalar values use named ``Bundle`` schemas and collections of
   time-series fields use named ``TSB`` schemas in C++ and Python.
 * Two pure-C++ graph engines run concurrently on different threads with

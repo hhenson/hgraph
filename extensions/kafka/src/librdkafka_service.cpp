@@ -636,6 +636,7 @@ public:
   ConsumerSession &operator=(const ConsumerSession &) = delete;
 
   void start();
+  void wait_until_preloaded();
   void stop() noexcept;
   void commit(Value cursor);
   void coordinate_record_time_recovery() noexcept {
@@ -697,6 +698,7 @@ private:
   void complete_bounded();
   void emit_state(KafkaSubscriptionState state,
                   std::optional<DateTime> evaluation_time = std::nullopt);
+  void complete_preload(Str error = {});
   void abandon_record_time_recovery() noexcept;
 
   KafkaRuntime &owner_;
@@ -726,17 +728,22 @@ private:
   bool record_time_recovery_participant_{};
   bool record_time_recovery_arrived_{};
   bool record_time_recovery_finished_{};
+  std::mutex preload_mutex_{};
+  std::condition_variable preload_changed_{};
+  bool preload_complete_{};
+  Str preload_error_{};
 };
 
 class KafkaRuntime : public std::enable_shared_from_this<KafkaRuntime> {
 public:
   KafkaRuntime(RuntimeConfig config, Str path, ServiceBridgeHandle bridge,
-               DateTime graph_start_time)
+               DateTime graph_start_time, bool simulation)
       : config_{std::move(config)}, path_{std::move(path)},
         bridge_{std::move(bridge)},
         graph_start_ms_{std::chrono::duration_cast<std::chrono::milliseconds>(
                             graph_start_time.time_since_epoch())
-                            .count()} {
+                            .count()},
+        simulation_{simulation} {
     if (!bridge_.value) {
       throw std::invalid_argument("Kafka runtime requires an output bridge");
     }
@@ -745,7 +752,7 @@ public:
   ~KafkaRuntime() { stop(); }
 
   void start() {
-    bridge_.value->start();
+    bridge_.value->start(!simulation_);
     try {
       accepting_ = true;
       std::weak_ptr<KafkaRuntime> weak = shared_from_this();
@@ -790,7 +797,8 @@ public:
     for (auto &key : keys) {
       SubscriptionSpec spec = parse_subscription(key.view());
       if (spec.stop_kind == KafkaStopPositionKind::GraphLifetime) {
-        spec.stop_kind = KafkaStopPositionKind::Unbounded;
+        spec.stop_kind = simulation_ ? KafkaStopPositionKind::Snapshot
+                                     : KafkaStopPositionKind::Unbounded;
       }
       const auto identity_is_live = [&](const auto &session) {
         return session->identity() == spec.identity;
@@ -800,6 +808,25 @@ public:
         throw std::invalid_argument("Kafka subscription identity '" +
                                     spec.identity +
                                     "' is already live with a different key");
+      }
+      if (simulation_ &&
+          spec.recovery_clock != KafkaRecoveryClock::RecordTimestamp) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions require RecordTimestamp recovery");
+      }
+      if (simulation_ && spec.stop_kind == KafkaStopPositionKind::Unbounded) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions must have a bounded stop position");
+      }
+      if (simulation_ && spec.merge_policy !=
+                             KafkaMergePolicy::TimestampTopicPartitionOffset) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions require "
+            "TimestampTopicPartitionOffset recovery ordering");
+      }
+      if (simulation_ && spec.commit_mode == KafkaCommitMode::OnGraphDelivery) {
+        throw std::invalid_argument(
+            "Kafka simulation subscriptions cannot commit on graph delivery");
       }
       additions.push_back(std::make_unique<ConsumerSession>(
           *this, std::move(key), std::move(spec)));
@@ -827,6 +854,11 @@ public:
     for (auto &session : additions) {
       session->start();
     }
+    if (simulation_) {
+      for (auto &session : additions) {
+        session->wait_until_preloaded();
+      }
+    }
     for (auto &session : additions) {
       sessions_.push_back(std::move(session));
     }
@@ -848,6 +880,10 @@ public:
   }
 
   void publish(Int request_id, Str topic, Value record) {
+    if (simulation_) {
+      throw std::invalid_argument(
+          "Kafka publishing is not supported by a simulation executor");
+    }
     ensure_producer_started();
     const Int sequence = ++sequence_;
     ProduceRecord parsed =
@@ -925,6 +961,10 @@ public:
   }
 
   void explicit_commit(Value cursor) {
+    if (simulation_) {
+      throw std::invalid_argument(
+          "Kafka commits are not supported by a simulation executor");
+    }
     route_commit(std::move(cursor), true);
   }
   void graph_delivered(Value cursor) { route_commit(std::move(cursor), false); }
@@ -940,6 +980,9 @@ public:
   }
 
   [[nodiscard]] bool ingress_at_high_watermark() const {
+    if (simulation_) {
+      return false;
+    }
     const auto pending =
         bridge_.value->payload_pending(OutputChannel::Subscription);
     const auto bytes =
@@ -952,6 +995,9 @@ public:
   }
 
   [[nodiscard]] bool ingress_below_low_watermark() const {
+    if (simulation_) {
+      return true;
+    }
     return bridge_.value->payload_pending(OutputChannel::Subscription) <=
                config_.ingress.records / 2 &&
            bridge_.value->payload_retained_bytes(OutputChannel::Subscription) <=
@@ -1440,6 +1486,7 @@ private:
   Str path_{};
   ServiceBridgeHandle bridge_{};
   std::int64_t graph_start_ms_{};
+  bool simulation_{};
   std::atomic<bool> accepting_{};
   std::vector<std::unique_ptr<ConsumerSession>> sessions_{};
   mutable std::mutex recovery_mutex_{};
@@ -1465,6 +1512,33 @@ ConsumerSession::~ConsumerSession() { stop(); }
 void ConsumerSession::start() {
   emit_state(KafkaSubscriptionState::Starting);
   thread_ = std::thread{[this] { run(); }};
+}
+
+void ConsumerSession::wait_until_preloaded() {
+  std::unique_lock lock{preload_mutex_};
+  if (!preload_changed_.wait_for(lock, std::chrono::seconds{30},
+                                 [&] { return preload_complete_; })) {
+    lock.unlock();
+    stop();
+    throw std::runtime_error("Kafka simulation subscription '" +
+                             spec_.identity +
+                             "' did not preload within 30 seconds");
+  }
+  if (!preload_error_.empty()) {
+    throw std::runtime_error(preload_error_);
+  }
+}
+
+void ConsumerSession::complete_preload(Str error) {
+  {
+    std::lock_guard lock{preload_mutex_};
+    if (preload_complete_) {
+      return;
+    }
+    preload_error_ = std::move(error);
+    preload_complete_ = true;
+  }
+  preload_changed_.notify_all();
 }
 
 void ConsumerSession::stop() noexcept {
@@ -1502,6 +1576,7 @@ void ConsumerSession::rebalance_callback(
   } catch (const std::exception &exception) {
     session->failed_ = true;
     session->stopping_ = true;
+    session->complete_preload(exception.what());
     session->owner_.emit_event(
         KafkaSeverity::Error, Str{"consumer"}, Str{"rebalance"}, error, true,
         false, exception.what(), session->spec_.identity, {},
@@ -1530,6 +1605,8 @@ void ConsumerSession::error_callback(rd_kafka_t *, int error, const char *,
   if (error == RD_KAFKA_RESP_ERR__FATAL) {
     session->failed_ = true;
     session->stopping_ = true;
+    session->complete_preload(
+        rd_kafka_err2str(static_cast<rd_kafka_resp_err_t>(error)));
   }
 }
 
@@ -1694,6 +1771,9 @@ void ConsumerSession::run() noexcept {
     static_cast<void>(rd_kafka_consumer_close(consumer));
     rd_kafka_destroy(consumer);
     consumer = nullptr;
+    if (failed_) {
+      complete_preload("Kafka consumer failed during preload");
+    }
     emit_state(failed_ ? KafkaSubscriptionState::Failed
                        : KafkaSubscriptionState::Stopped);
   } catch (const std::exception &exception) {
@@ -1705,6 +1785,7 @@ void ConsumerSession::run() noexcept {
                       0, false, false, exception.what(), spec_.identity, {},
                       owner_.config().consumer_failure_policy ==
                           KafkaFailurePolicy::StopGraph);
+    complete_preload(exception.what());
     emit_state(KafkaSubscriptionState::Failed);
   }
 }
@@ -1721,6 +1802,7 @@ void ConsumerSession::handle_poll_error(rd_kafka_resp_err_t error,
   if (fatal) {
     failed_ = true;
     stopping_ = true;
+    complete_preload(message);
   }
 }
 
@@ -1797,6 +1879,7 @@ void ConsumerSession::configure_assignment(
         recovering_ = false;
         live_ = true;
         emit_state(KafkaSubscriptionState::Live);
+        complete_preload();
       }
     }
     if (paused_) {
@@ -2074,6 +2157,7 @@ void ConsumerSession::complete_bounded() {
       last_recovery_evaluation_time_.has_value()
           ? std::optional<DateTime>{*last_recovery_evaluation_time_ + MIN_TD}
           : std::nullopt);
+  complete_preload();
   // BoundedComplete is queued behind any final record/cursor. Keep the
   // consumer owner alive until ordinary subscription or graph teardown
   // so OnGraphDelivery and same-graph explicit commits produced while
@@ -2358,6 +2442,7 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
     record_time_recovery_finished_ = true;
     record_time_recovery_participant_ = false;
   }
+  complete_preload();
 }
 
 void ConsumerSession::process_commits(rd_kafka_t *consumer) {
@@ -2608,23 +2693,21 @@ template <> struct scalar_name<kafka::detail::RuntimeConfigHandle> {
 
 namespace hgraph::kafka {
 namespace {
-struct KafkaRuntimeNode {
-  static constexpr auto name = "kafka_runtime";
-  using signature_args = std::tuple<
-      In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>,
-      In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>,
-      In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>,
-      Scalar<"config", detail::RuntimeConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", detail::ServiceBridgeHandle>,
-      State<detail::KafkaRuntimeHandle>>;
+using KafkaSubscriptionsInput =
+    In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>;
+using KafkaPublishInput =
+    In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>;
+using KafkaCommitInput =
+    In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>;
 
-  static void start(Scalar<"config", detail::RuntimeConfigHandle> config,
-                    Scalar<"path", Str> path,
-                    Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
-                    State<detail::KafkaRuntimeHandle> state,
-                    SingleShotScheduler scheduler) {
+void start_runtime(Scalar<"config", detail::RuntimeConfigHandle> config,
+                   Scalar<"path", Str> path,
+                   Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
+                   State<detail::KafkaRuntimeHandle> &state,
+                   SingleShotScheduler scheduler, bool simulation) {
     auto runtime = std::make_shared<detail::KafkaRuntime>(
-        *config.value().value, path.value(), bridge.value(), scheduler.now());
+        *config.value().value, path.value(), bridge.value(), scheduler.now(),
+        simulation);
     runtime->start();
     try {
       state.set(detail::KafkaRuntimeHandle{runtime});
@@ -2632,16 +2715,12 @@ struct KafkaRuntimeNode {
       runtime->stop();
       throw;
     }
-  }
+}
 
-  static void
-  eval(In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>
-           subscriptions,
-       In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>
-           publish_requests,
-       In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>
-           commits,
-       State<detail::KafkaRuntimeHandle> state) {
+void process_inputs(KafkaSubscriptionsInput &subscriptions,
+                    KafkaPublishInput &publish_requests,
+                    KafkaCommitInput &commits,
+                    State<detail::KafkaRuntimeHandle> &state) {
     auto runtime = state.get().value;
     if (!runtime) {
       throw std::logic_error("Kafka runtime evaluated before start");
@@ -2686,20 +2765,95 @@ struct KafkaRuntimeNode {
         }
       }
     }
-  }
+}
 
-  static void stop(State<detail::KafkaRuntimeHandle> state) {
+void stop_runtime(State<detail::KafkaRuntimeHandle> &state) {
     if (auto runtime = state.get().value) {
       runtime->stop();
     }
     state.set(detail::KafkaRuntimeHandle{});
+}
+
+struct KafkaRealtimeRuntimeNode {
+  static constexpr auto name = "kafka_runtime.realtime";
+  using signature_args = std::tuple<
+      KafkaSubscriptionsInput, KafkaPublishInput, KafkaCommitInput,
+      Scalar<"config", detail::RuntimeConfigHandle>, Scalar<"path", Str>,
+      Scalar<"bridge", detail::ServiceBridgeHandle>,
+      State<detail::KafkaRuntimeHandle>>;
+
+  static void start(Scalar<"config", detail::RuntimeConfigHandle> config,
+                    Scalar<"path", Str> path,
+                    Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
+                    State<detail::KafkaRuntimeHandle> state,
+                    SingleShotScheduler scheduler) {
+    start_runtime(config, path, bridge, state, scheduler, false);
+  }
+
+  static void eval(KafkaSubscriptionsInput subscriptions,
+                   KafkaPublishInput publish_requests,
+                   KafkaCommitInput commits,
+                   State<detail::KafkaRuntimeHandle> state) {
+    process_inputs(subscriptions, publish_requests, commits, state);
+  }
+
+  static void stop(State<detail::KafkaRuntimeHandle> state) {
+    stop_runtime(state);
   }
 };
+
+struct KafkaSimulationRuntimeNode {
+  static constexpr auto name = "kafka_runtime.simulation";
+  using signature_args = std::tuple<
+      KafkaSubscriptionsInput, KafkaPublishInput, KafkaCommitInput,
+      Scalar<"config", detail::RuntimeConfigHandle>, Scalar<"path", Str>,
+      Scalar<"bridge", detail::ServiceBridgeHandle>,
+      State<detail::KafkaRuntimeHandle>, Out<TS<Int>>>;
+
+  static void start(Scalar<"config", detail::RuntimeConfigHandle> config,
+                    Scalar<"path", Str> path,
+                    Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
+                    State<detail::KafkaRuntimeHandle> state,
+                    SingleShotScheduler scheduler) {
+    start_runtime(config, path, bridge, state, scheduler, true);
+  }
+
+  /** Simulation waits for the bounded record-time preload in process_inputs,
+   * then emits one ordinary edge tick. The downstream drains schedule the
+   * retained records at their deterministic Kafka timestamps.
+   *
+   * Per evaluation: O(subscription changes + publication/commit requests).
+   * Retained history is bounded by the configured ingress limits. */
+  static void eval(KafkaSubscriptionsInput subscriptions,
+                   KafkaPublishInput publish_requests,
+                   KafkaCommitInput commits,
+                   State<detail::KafkaRuntimeHandle> state, Out<TS<Int>> ready) {
+    process_inputs(subscriptions, publish_requests, commits, state);
+    ready.set(Int{1});
+  }
+
+  static void stop(State<detail::KafkaRuntimeHandle> state) {
+    stop_runtime(state);
+  }
+};
+
+[[nodiscard]] detail::ServiceOutputs wire_simulation_outputs(
+    Wiring &w, detail::ServiceBridgeHandle bridge, Port<TS<Int>> ready) {
+  return detail::ServiceOutputs{
+      wire<detail::SubscriptionDrainNode>(w, ready, bridge)
+          .template as<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>>(),
+      wire<detail::DeliveryDrainNode>(w, ready, bridge)
+          .template as<TSD<Int, TS<KafkaDeliveryReport>>>(),
+      wire<detail::EventDrainNode>(w, ready, bridge)
+          .template as<TS<KafkaEvent>>(),
+  };
+}
 
 struct KafkaServiceImpl {
   static constexpr auto name = "kafka_service_impl";
 
   static void compose(Wiring &w, Scalar<"config", Value> config,
+                      Scalar<"simulation", Bool> simulation,
                       Scalar<"path", Str> path) {
     register_kafka_types();
     const auto parsed = detail::parse_config(config.value());
@@ -2717,11 +2871,19 @@ struct KafkaServiceImpl {
         detail::OutputLimits{1024, 1024 * 1024},
         detail::subscription_control_limits(parsed.ingress), parsed.outbound,
         detail::OutputLimits{1, 64 * 1024})};
-    auto outputs = detail::wire_service_outputs(w, bridge);
-
-    static_cast<void>(wire<KafkaRuntimeNode>(
-        w, subscription_keys, publish_requests, commit_requests, runtime_config,
-        path.value(), bridge));
+    detail::ServiceOutputs outputs = [&] {
+      if (simulation.value()) {
+        auto ready = wire<KafkaSimulationRuntimeNode>(
+            w, subscription_keys, publish_requests, commit_requests,
+            runtime_config, path.value(), bridge);
+        return wire_simulation_outputs(w, bridge, ready);
+      }
+      auto realtime_outputs = detail::wire_service_outputs(w, bridge);
+      static_cast<void>(wire<KafkaRealtimeRuntimeNode>(
+          w, subscription_keys, publish_requests, commit_requests,
+          runtime_config, path.value(), bridge));
+      return realtime_outputs;
+    }();
 
     service::impl_output<KafkaSubscriptionService>(w, binding,
                                                    outputs.subscriptions);
@@ -2733,9 +2895,16 @@ struct KafkaServiceImpl {
 
 void register_service(Wiring &w, service::ServicePath path,
                       Value service_config) {
+  register_service(w, std::move(path), std::move(service_config),
+                   KafkaServiceMode::RealTime);
+}
+
+void register_service(Wiring &w, service::ServicePath path,
+                      Value service_config, KafkaServiceMode mode) {
   service::register_services<KafkaServiceImpl, KafkaSubscriptionService,
                              KafkaPublishService, KafkaCommitService,
                              KafkaEventService>(w, std::move(path),
-                                                std::move(service_config));
+                                                std::move(service_config),
+                                                Bool{mode == KafkaServiceMode::Simulation});
 }
 } // namespace hgraph::kafka
