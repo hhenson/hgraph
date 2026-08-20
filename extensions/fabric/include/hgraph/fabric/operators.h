@@ -84,8 +84,7 @@ namespace hgraph::fabric
     dependency_handle(Wiring &wiring, Port<TS<Frame>> subscription);
 
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Frame>>
-    subscribe_data(Wiring &wiring, Str data_id,
-                   SubscriptionMode mode = SubscriptionMode::Auto,
+    subscribe_data(Wiring &wiring, Str data_id, SubscriptionMode mode,
                    std::optional<DateTime> as_of = {});
 
     HGRAPH_FABRIC_EXPORT void publish_data(

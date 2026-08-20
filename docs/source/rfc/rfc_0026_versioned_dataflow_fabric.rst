@@ -327,8 +327,9 @@ owners, and use a typed same-root subscription handle when the data edge is
 deliberately hidden.  The nested case creates ``subscribe_data`` inside the
 child graph and feeds only the child output to an outer publisher; it therefore
 proves the ownership boundary rather than merely following an outer input.
-The source selects simulation or real-time behavior once in ``start`` from
-``EngineControlView``; its ``eval`` has no mode branch.
+Fabric does not use the proof source to select runtime behavior.  Its public
+operator requires an explicit subscription mode, and wiring selects the
+concrete source implementation before execution.
 
 The proof exposed one missing generally reusable core seam.  ``NodeBuilder``
 now visits its immediate compiled child graph templates through a passive,
@@ -494,7 +495,6 @@ the same registered scalar types rather than independent structures.
 
        enum class SubscriptionMode
        {
-           Auto,
            Live,
            Replay,
            Snapshot,
@@ -537,7 +537,7 @@ intended shape is:
        Port<TS<Frame>> subscribe_data(
            Wiring &w,
            Str data_id,
-           SubscriptionMode mode = SubscriptionMode::Auto,
+           SubscriptionMode mode,
            std::optional<DateTime> as_of = {});
 
        void publish_data(
@@ -548,14 +548,11 @@ intended shape is:
    }
 
 ``data_id``, ``mode``, ``as_of`` and an explicit dependency selection are
-wiring-time scalars.  An explicit ``Live``, ``Replay`` or ``Snapshot`` mode
-selects its concrete source overload during wiring.  ``Auto`` selects a
-dedicated auto source whose ``start`` lifecycle resolves the final
-``EngineControlView::mode()`` through ``FabricConfig`` and binds the chosen
-ingress strategy once for that run.  This is the native propagation contract:
-``GraphExecutorBuilder::mode()`` remains authoritative even though it is set
-after the ``GraphBuilder`` has been wired.  Neither the auto source nor the
-selected source branches on executor mode in ``eval``.
+wiring-time scalars.  The required ``Live``, ``Replay`` or ``Snapshot`` mode
+selects its concrete source overload during wiring.  ``Live`` uses the
+real-time Kafka service push-source edge.  ``Replay`` and ``Snapshot`` use
+ordinary deterministic scheduled sources and never construct a push source.
+No source inspects executor mode or branches on subscription mode in ``eval``.
 
 A time-varying data id would change the durable identity and is therefore not
 accepted by this operator.  Applications requiring a dynamic family wire keyed
@@ -572,7 +569,7 @@ Python adapts the same operators:
    def subscribe_data(
        data_id: str,
        *,
-       mode: FabricSubscriptionMode = FabricSubscriptionMode.AUTO,
+       mode: FabricSubscriptionMode,
        as_of: datetime | None = None,
    ) -> TS[Frame]: ...
 
@@ -583,9 +580,9 @@ Python adapts the same operators:
        dependencies: DependencySelection = AUTO,
    ) -> None: ...
 
-``as_of`` is required in ``SNAPSHOT`` mode and rejected in ``LIVE`` mode.  In
-``AUTO`` it does not silently change the engine-dependent choice; callers use
-``SNAPSHOT`` for a one-shot value or ``REPLAY`` for an explicit replay window.
+``as_of`` is required in ``SNAPSHOT`` mode and rejected in ``LIVE`` and
+``REPLAY`` modes.  Callers must choose ``SNAPSHOT`` for a one-shot value,
+``REPLAY`` for deterministic history, or ``LIVE`` for Kafka-driven updates.
 
 Configuration
 ~~~~~~~~~~~~~
@@ -600,17 +597,12 @@ of execution with the normal graph state.  The semantic configuration includes:
        Str                    prefix;
        persistence::Store     store;
        NotificationConfig     notifications;
-       SubscriptionMode       default_real_time{SubscriptionMode::Live};
-       SubscriptionMode       default_simulation{SubscriptionMode::Replay};
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
 contract described above.  ``prefix`` and every data id use the common
 persistence key validation rules.  A configuration error fails at wiring or
 start; it never falls back from S3/Kafka to process memory.
-The two ``Auto`` defaults may select only ``Live`` or ``Replay``.  They cannot
-select ``Auto`` recursively or ``Snapshot``, because a snapshot requires the
-explicit ``as_of`` carried by its operator call.
 
 Dependency discovery
 --------------------
@@ -1207,24 +1199,15 @@ There is no need to duplicate or exclusively claim the subscription.
 Subscription modes
 ------------------
 
-Automatic selection
-~~~~~~~~~~~~~~~~~~~
+Explicit selection
+~~~~~~~~~~~~~~~~~~
 
-``SubscriptionMode::Auto`` resolves from the executor mode:
-
-* a real-time executor selects ``Live``; and
-* a simulation executor selects ``Replay``.
-
-This keeps ordinary production and test/backtest authoring concise while
-allowing an explicit mode when the caller wants different behaviour.  Explicit
-modes select concrete overload/composition behavior at wiring time.  Because
-the native executor is constructed after graph wiring,
-``SubscriptionMode::Auto`` remains a distinct source specialization until its
-``start`` lifecycle.  At that point it reads the immutable executor mode from
-``EngineControlView``, maps it through ``FabricConfig::default_real_time`` or
-``default_simulation``, and binds the concrete ingress strategy once.  The
-mapping is validated before the initial image is loaded and there is no
-per-tick mode branch or duplicate executor-mode setting in ``GlobalState``.
+Every subscription declares ``Live``, ``Replay`` or ``Snapshot`` explicitly.
+The operator dispatch mechanism selects the concrete graph/source overload at
+wiring time, when the mode scalar is known.  There is no automatic executor
+mode mapping and no generic source which changes ingress strategy at start.
+This keeps the real-time wake path structurally separate from deterministic
+scheduled replay and snapshot sources.
 
 Live mode
 ~~~~~~~~~
@@ -1707,8 +1690,8 @@ Modes and lifecycle
 ~~~~~~~~~~~~~~~~~~~
 
 * live initial image and notification handoff with updates at every race point;
-* native ``Auto`` selection from real-time and simulation executor modes after
-  graph wiring and before source startup completes;
+* explicit wiring-time selection of ``Live``, ``Replay`` and ``Snapshot``;
+* no push source in deterministic replay or snapshot graphs;
 * duplicate, stale, invalid, out-of-order and conflated Kafka messages;
 * slow clients skipping intermediate versions;
 * reconnect reconciliation;

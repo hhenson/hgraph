@@ -26,7 +26,6 @@ namespace hgraph::fabric
 
     enum class SubscriptionMode : std::int64_t
     {
-        Auto,
         Live,
         Replay,
         Snapshot,
@@ -36,8 +35,6 @@ namespace hgraph::fabric
     {
         switch (value)
         {
-            case SubscriptionMode::Auto:
-                return "Auto";
             case SubscriptionMode::Live:
                 return "Live";
             case SubscriptionMode::Replay:

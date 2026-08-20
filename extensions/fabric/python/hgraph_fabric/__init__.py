@@ -81,7 +81,7 @@ _publish_data = operator_function("hgraph.fabric.publish_data")
 def subscribe_data(
     data_id: str,
     *,
-    mode: SubscriptionMode = SubscriptionMode.AUTO,
+    mode: SubscriptionMode,
     as_of: datetime | None = None,
 ) -> TS[Frame]:
     """Wire a complete atomic Frame subscription under one stable data id."""

@@ -39,7 +39,6 @@ NB_MODULE(_hgraph_fabric, module)
     using namespace hgraph::fabric;
 
     auto mode = nb::enum_<SubscriptionMode>(module, "SubscriptionMode")
-                    .value("AUTO", SubscriptionMode::Auto)
                     .value("LIVE", SubscriptionMode::Live)
                     .value("REPLAY", SubscriptionMode::Replay)
                     .value("SNAPSHOT", SubscriptionMode::Snapshot);

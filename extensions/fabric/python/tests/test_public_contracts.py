@@ -73,12 +73,17 @@ def test_python_codec_does_not_replace_an_unsupported_format_version():
 def test_python_public_operators_wire_through_native_registry():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        value = hgf.subscribe_data("python/input")
+        value = hgf.subscribe_data(
+            "python/input", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data("python/output", value)
     wiring.build_services()
 
 
 def test_python_operator_validation_is_wiring_time():
+    with pytest.raises(TypeError, match="mode"):
+        hgf.subscribe_data("python/input")
+
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         with pytest.raises(RuntimeError, match="Snapshot requires as_of"):
@@ -96,8 +101,12 @@ def test_python_operator_validation_is_wiring_time():
 def test_python_wiring_rejects_duplicate_publishers():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        first = hgf.subscribe_data("python/input-a")
-        second = hgf.subscribe_data("python/input-b")
+        first = hgf.subscribe_data(
+            "python/input-a", mode=hgf.SubscriptionMode.LIVE
+        )
+        second = hgf.subscribe_data(
+            "python/input-b", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data("python/output", first)
         with pytest.raises(RuntimeError, match="data id already has a publisher"):
             hgf.publish_data("python/output", second)
@@ -112,6 +121,8 @@ def test_python_operator_registration_survives_registry_reset():
     _hgraph.reset_registries()
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        value = hgf.subscribe_data("python/reset-input")
+        value = hgf.subscribe_data(
+            "python/reset-input", mode=hgf.SubscriptionMode.LIVE
+        )
         hgf.publish_data("python/reset-output", value)
     wiring.build_services()

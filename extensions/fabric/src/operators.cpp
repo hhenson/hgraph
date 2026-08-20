@@ -56,7 +56,6 @@ namespace hgraph::fabric
                             "hgraph.fabric.subscribe_data: Snapshot requires as_of");
                     }
                     return;
-                case SubscriptionMode::Auto:
                 case SubscriptionMode::Live:
                 case SubscriptionMode::Replay:
                     if (supplied_as_of)
@@ -117,7 +116,6 @@ namespace hgraph::fabric
             static auto defaults()
             {
                 return std::tuple{
-                    arg<"mode">(SubscriptionMode::Auto),
                     arg<"as_of">(MIN_DT),
                 };
             }

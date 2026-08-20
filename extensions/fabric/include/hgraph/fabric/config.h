@@ -21,16 +21,11 @@ namespace hgraph::fabric
         persistence::store::ObjectStore objects{};
         persistence::store::FrameStore  frames{};
         Notifier                         notifications{};
-        SubscriptionMode default_real_time{SubscriptionMode::Live};
-        SubscriptionMode default_simulation{SubscriptionMode::Replay};
     };
 
     /** Construct an isolated in-process fabric for tests and local execution. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT FabricConfig
-    make_memory_fabric_config(
-        Str prefix,
-        SubscriptionMode default_real_time = SubscriptionMode::Live,
-        SubscriptionMode default_simulation = SubscriptionMode::Replay);
+    make_memory_fabric_config(Str prefix);
 
     HGRAPH_FABRIC_EXPORT void require_valid_config(const FabricConfig &config);
     HGRAPH_FABRIC_EXPORT void set_fabric_config(GlobalStateView state,

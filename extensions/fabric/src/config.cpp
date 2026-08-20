@@ -24,9 +24,7 @@ namespace hgraph::fabric
         }
     }  // namespace
 
-    FabricConfig make_memory_fabric_config(
-        Str prefix, SubscriptionMode default_real_time,
-        SubscriptionMode default_simulation)
+    FabricConfig make_memory_fabric_config(Str prefix)
     {
         FabricConfig config{
             .prefix = std::move(prefix),
@@ -35,8 +33,6 @@ namespace hgraph::fabric
             .frames = persistence::store::make_frame_store(
                 persistence::store::FrameStoreConfig{}),
             .notifications = make_memory_notifier(),
-            .default_real_time = default_real_time,
-            .default_simulation = default_simulation,
         };
         require_valid_config(config);
         return config;
@@ -56,18 +52,6 @@ namespace hgraph::fabric
         if (!config.notifications)
         {
             throw std::invalid_argument("fabric configuration requires a notifier");
-        }
-        if (config.default_real_time != SubscriptionMode::Live &&
-            config.default_real_time != SubscriptionMode::Replay)
-        {
-            throw std::invalid_argument(
-                "fabric real-time default must be Live or Replay");
-        }
-        if (config.default_simulation != SubscriptionMode::Live &&
-            config.default_simulation != SubscriptionMode::Replay)
-        {
-            throw std::invalid_argument(
-                "fabric simulation default must be Live or Replay");
         }
     }
 

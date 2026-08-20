@@ -16,7 +16,8 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
-            auto input = hgf::subscribe_data(wiring, "installed/input");
+            auto input = hgf::subscribe_data(
+                wiring, "installed/input", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "installed/output", input);
         }
     };

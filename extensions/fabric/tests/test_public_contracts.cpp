@@ -81,7 +81,8 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
-            auto source = hgf::subscribe_data(wiring, "input");
+            auto source = hgf::subscribe_data(
+                wiring, "input", hgf::SubscriptionMode::Live);
             auto dependency = hgf::dependency_handle(wiring, source);
             hgf::publish_data(wiring, "automatic", source);
             hgf::publish_data(
@@ -97,8 +98,10 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
-            auto first  = hgf::subscribe_data(wiring, "input-a");
-            auto second = hgf::subscribe_data(wiring, "input-b");
+            auto first = hgf::subscribe_data(
+                wiring, "input-a", hgf::SubscriptionMode::Live);
+            auto second = hgf::subscribe_data(
+                wiring, "input-b", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "output", first);
             hgf::publish_data(wiring, "output", second);
         }
@@ -111,8 +114,10 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
-            auto first  = hgf::subscribe_data(wiring, "input");
-            auto second = hgf::subscribe_data(wiring, "input");
+            auto first = hgf::subscribe_data(
+                wiring, "input", hgf::SubscriptionMode::Live);
+            auto second = hgf::subscribe_data(
+                wiring, "input", hgf::SubscriptionMode::Live);
             hgf::publish_data(
                 wiring, "output", first,
                 hgf::DependencySelection::explicit_dependencies(
@@ -221,15 +226,6 @@ TEST_CASE("fabric configuration is run scoped and validates resources")
     CHECK(configured->notifications);
     hgf::clear_fabric_config(state);
     CHECK_FALSE(hgf::fabric_config(state).has_value());
-
-    auto invalid = hgf::make_memory_fabric_config("test/fabric");
-    invalid.default_real_time = hgf::SubscriptionMode::Snapshot;
-    CHECK_THROWS_WITH(hgf::require_valid_config(invalid),
-                      "fabric real-time default must be Live or Replay");
-    invalid.default_real_time = hgf::SubscriptionMode::Live;
-    invalid.default_simulation = hgf::SubscriptionMode::Auto;
-    CHECK_THROWS_WITH(hgf::require_valid_config(invalid),
-                      "fabric simulation default must be Live or Replay");
 }
 
 TEST_CASE("fabric operator installer survives a registry rebuild")
