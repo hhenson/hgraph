@@ -71,6 +71,13 @@ int main()
         return 4;
     }
 
+    hgf::ConsistencyResolver resolver{*config};
+    if (resolver.resolve_forest({"installed/input"}).status !=
+        hgf::ResolutionStatus::Pending)
+    {
+        return 5;
+    }
+
     auto graph = hg::build_graph<InstalledFabricGraph>();
     const auto plan = hgf::dependency_plan_input(
         graph.traits().get(hgf::DEPENDENCY_PLAN_TRAIT));
@@ -80,5 +87,5 @@ int main()
                        .forests = {{{"installed/input"}}},
                    }
                ? 0
-               : 5;
+               : 6;
 }

@@ -15,6 +15,7 @@ add_executable(hgraph_fabric_tests
     registry_test_listener.cpp
     test_public_contracts.cpp
     test_publication.cpp
+    test_resolution.cpp
 )
 target_link_libraries(hgraph_fabric_tests
     PRIVATE hgraph::fabric Catch2::Catch2WithMain)
@@ -26,3 +27,7 @@ add_test(NAME hgraph_fabric.tests COMMAND hgraph_fabric_tests)
 if(COMMAND hgraph_configure_test_runtime_paths)
     hgraph_configure_test_runtime_paths(hgraph_fabric_tests)
 endif()
+
+add_executable(hgraph_fabric_resolution_perf resolution_perf.cpp)
+target_link_libraries(hgraph_fabric_resolution_perf PRIVATE hgraph::fabric)
+target_compile_features(hgraph_fabric_resolution_perf PRIVATE cxx_std_23)

@@ -14,8 +14,14 @@ slot, and repairs the derived as-of/latest indexes from contiguous accepted
 history. The wiring-time planner discovers subscriptions through direct and
 nested graph ownership, validates explicit dependency handles, partitions
 independent consistency forests, and wires one root coordinator with hidden
-lineage cuts. Later RFC checkpoints connect that plan to consistent-cut
-resolution, subscription modes, and Kafka.
+lineage cuts. The ingress consistency resolver observes and repairs accepted
+heads, caches immutable revisions and Frames,
+indexes revision runs by output version, and selects the unique greatest
+newest-compatible cut. Its coordinator dynamically merges and splits
+consistency forests, isolates failed forests, prevents exposed root regression,
+and returns changed roots as one atomic graph-delivery batch together with the
+updated hidden lineage. Later RFC checkpoints connect that coordinator to
+subscription modes and Kafka.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data

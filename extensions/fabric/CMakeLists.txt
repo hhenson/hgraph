@@ -31,6 +31,7 @@ add_library(hgraph_fabric
     src/operators.cpp
     src/planning.cpp
     src/publication.cpp
+    src/resolution.cpp
     src/types.cpp
     src/value_builders.cpp
     src/impl/memory_notifier.cpp

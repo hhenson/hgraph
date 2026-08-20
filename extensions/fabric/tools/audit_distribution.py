@@ -22,6 +22,7 @@ WHEEL_REQUIRED = (
     "include/hgraph/fabric/operators.h",
     "include/hgraph/fabric/planning.h",
     "include/hgraph/fabric/publication.h",
+    "include/hgraph/fabric/resolution.h",
     "include/hgraph/fabric/types.h",
     "include/hgraph/fabric/value_builders.h",
     # GNUInstallDirs selects lib64 on manylinux, while macOS and Windows wheels
@@ -41,6 +42,7 @@ SDIST_REQUIRED = (
     "include/hgraph/fabric/operators.h",
     "include/hgraph/fabric/planning.h",
     "include/hgraph/fabric/publication.h",
+    "include/hgraph/fabric/resolution.h",
     "include/hgraph/fabric/types.h",
     "include/hgraph/fabric/value_builders.h",
     "python/hgraph_fabric/__init__.py",
@@ -53,6 +55,7 @@ SDIST_REQUIRED = (
     "src/operators.cpp",
     "src/planning.cpp",
     "src/publication.cpp",
+    "src/resolution.cpp",
     "src/python_module.cpp",
     "src/types.cpp",
     "src/value_builders.cpp",
@@ -63,6 +66,8 @@ SDIST_REQUIRED = (
     "tests/fixtures/revision_v1.hex",
     "tests/test_public_contracts.cpp",
     "tests/test_publication.cpp",
+    "tests/test_resolution.cpp",
+    "tests/resolution_perf.cpp",
     "tools/audit_distribution.py",
 )
 
