@@ -11,6 +11,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/table_codec.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <chrono>
@@ -487,6 +488,10 @@ int main() {
   try {
     hg::stdlib::register_standard_operators();
     hgk::register_kafka_types();
+    [[maybe_unused]] auto clear_probe_values = hg::make_scope_exit([] noexcept {
+      service_config_value = {};
+      subscription_key_value = {};
+    });
 
     check_persistence_contract();
 
