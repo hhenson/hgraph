@@ -158,27 +158,29 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         value = hgf.subscribe_data("python/value")
+        arbitrary = hgf.DependencySelection.explicit(
+            hgf.DependencyHandle("arbitrary")
+        )
         with pytest.raises(Exception, match="no matching overload"):
             hgf.publish_data(
                 "python/arbitrary-output",
                 value,
-                dependencies=hgf.DependencySelection.explicit(
-                    hgf.DependencyHandle("arbitrary")
-                ),
+                dependencies=arbitrary,
             )
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         first = hgf.subscribe_data("python/duplicate")
         second = hgf.subscribe_data("python/duplicate")
+        duplicate = hgf.DependencySelection.explicit(
+            hgf.dependency_handle(first),
+            hgf.dependency_handle(second),
+        )
         with pytest.raises(Exception, match="dependency data ids must be unique"):
             hgf.publish_data(
                 "python/duplicate-output",
                 first,
-                dependencies=hgf.DependencySelection.explicit(
-                    hgf.dependency_handle(first),
-                    hgf.dependency_handle(second),
-                ),
+                dependencies=duplicate,
             )
 
 
