@@ -399,10 +399,11 @@ struct ConsistencyResolver::Impl {
     }
 
     if (root) {
-      const DataVersion newest = values.front()->output_version;
-      std::erase_if(values, [newest](const DataRevisionInput *item) {
-        return item->output_version != newest;
-      });
+      // Forest membership follows the newest accepted acknowledgement, not
+      // every historical acknowledgement which reused its output version.
+      // Older same-output ancestry remains available to compatible-cut search,
+      // but must not keep roots coupled after their latest lineages split.
+      values.resize(1);
     }
     for (const auto *candidate : values) {
       for (const auto &dependency : candidate->dependencies) {
