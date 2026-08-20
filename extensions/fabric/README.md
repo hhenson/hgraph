@@ -65,3 +65,89 @@ and `KafkaServiceConfig`; that call registers both lazy service singletons.
 Python consumers import `hgraph_fabric` and call
 `register_memory_fabric_service()` for the deterministic local host; importing
 the package registers the same native operators and scalar enum.
+
+## Production configuration
+
+`FabricConfig` is run-scoped state. A host constructs the persistence handles
+once, installs the config in the graph's `GlobalState`, and registers the
+service at wiring time. This local-filesystem host is a useful production-like
+deployment and exercises the same protocol as S3:
+
+```cpp
+namespace hgf = hgraph::fabric;
+namespace hgps = hgraph::persistence::store;
+
+auto config = hgf::make_memory_fabric_config("production/blue");
+config.objects = hgps::make_object_store(
+    hgps::ObjectStoreConfig{hgps::LocalLocation{"/srv/fabric/metadata"}});
+config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
+    .location = hgps::LocalLocation{"/srv/fabric/frames"},
+    .format = hgps::Format::Parquet,
+    .compression = hgps::Compression::Zstd,
+});
+hgf::set_fabric_config(wiring.global_state(), std::move(config));
+hgf::register_service(wiring);
+```
+
+For S3, replace both `LocalLocation` values with independently prefixed
+`S3Location` values. Credentials use the persistence extension's ambient,
+explicit or assume-role policy. Prefer ambient workload credentials; never put
+credentials into a data id, Frame metadata, revision, Kafka message, or log.
+The fabric prefix must be a valid relative persistence key and should identify
+one environment. Object-store and topic permissions should be scoped to that
+prefix, with encryption enabled in transit and at rest.
+
+A distributed host registers the optional Kafka transport instead of the
+configured in-process notifier. The registration validates idempotent
+production, `acks=all`, and non-dropping queue policies. The repository CMake
+build exports `hgraph::fabric_kafka` when both optional extensions are enabled.
+The standalone `hgraph-fabric` wheel deliberately exports only
+`hgraph::fabric`; it therefore remains installable without Kafka. A native
+distribution that wants the adapter builds with
+`HGRAPH_FABRIC_BUILD_KAFKA=ON` and supplies the installed `hgraph-kafka` SDK.
+
+Configuration errors fail at graph startup. Missing stores or notifier,
+invalid prefixes, unavailable Parquet support, unreachable S3, unsafe Kafka
+profiles, and conflicting service registration never fall back to memory.
+
+## Operations
+
+The `diagnostics()` service publishes string values under stable metric names.
+Important groups are:
+
+* `resolution.*`: calls, forest outcomes, cache hits/misses, examined revisions
+  and edges, candidate selections, backtracking depth, and notice-to-ready
+  samples/microseconds;
+* `publication.*`: current queue occupancy and its per-data-id bound;
+* `live.*`: conflated notice occupancy and its per-session bound;
+* `transport.notification.*`: pending, delivered, retried, failed, and stale
+  correlated delivery reports; and
+* `transport.<component>.<category>`: the latest typed Kafka lifecycle or
+  delivery event, including whether it is retriable or fatal.
+
+The root service logs one `info` record at successful start and one at stop,
+including the canonical service path so multiple Fabric services can be
+distinguished without enabling per-tick logging.
+
+Alert on corrupt/ambiguous/cyclic forest counts, a sustained non-zero pending
+forest or publication queue, notice-to-ready latency, notification retries or
+failures, and Kafka reconnect/rebalance events. Broker notices are hints:
+durable revision history remains authoritative and reconnect performs a
+durable-head reconciliation.
+
+All queues are bounded. Publication accepts at most 1,024 waiting requests per
+data id, each live session retains at most 4,096 conflated data ids, and the
+graph transport retains at most 1,024 correlated deliveries with at most eight
+retries. Hitting a bound is an explicit failure, never silent data loss.
+
+V1 retention is intentionally unbounded: one complete Frame per output tick,
+plus one small revision and as-of entry for each accepted input/output tuple.
+A losing concurrent writer may leave an unreferenced candidate Frame. Do not
+apply object-store lifecycle deletion to a live Fabric prefix; retention or
+garbage collection needs a later protocol with ancestry-aware compaction.
+
+The first accepted Frame fixes the Arrow schema for a data id. A schema change
+uses a new data id (for example `prices/v2`), runs old and new producers during
+the consumer migration, then retires the old id only under an explicit
+retention plan. Fabric does not reinterpret or transparently migrate stored
+Frames.

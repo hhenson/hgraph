@@ -7,6 +7,7 @@
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/runtime/executor.h>
+#include <hgraph/runtime/logger.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -150,11 +151,14 @@ struct FabricLifecycleNode
 {
     static constexpr auto name = "hgraph.fabric.service.lifecycle";
     static constexpr bool schedule_on_start = true;
-    using signature_args = std::tuple<Scalar<"runtime", FabricServiceRuntimeHandle>, GlobalStateView, Out<TS<Bool>>>;
+    using signature_args =
+        std::tuple<Scalar<"runtime", FabricServiceRuntimeHandle>, Scalar<"path", Str>, GlobalStateView, Out<TS<Bool>>>;
 
-    static void start(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, GlobalStateView global_state)
+    static void start(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, Scalar<"path", Str> path,
+                      GlobalStateView global_state, LoggerView log)
     {
         runtime.value().value->start(global_state);
+        log.info("hgraph.fabric service started path={}", path.value());
     }
 
     static void eval(Out<TS<Bool>> ready)
@@ -162,9 +166,10 @@ struct FabricLifecycleNode
         ready.set(true);
     }
 
-    static void stop(Scalar<"runtime", FabricServiceRuntimeHandle> runtime)
+    static void stop(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, Scalar<"path", Str> path, LoggerView log)
     {
         runtime.value().value->stop();
+        log.info("hgraph.fabric service stopped path={}", path.value());
     }
 };
 
@@ -529,7 +534,7 @@ struct FabricServiceImpl
         }
         FabricServiceRuntimeHandle runtime{
             std::make_shared<detail::FabricServiceRuntime>(plan.value(), std::move(notification_override))};
-        auto ready = wire<FabricLifecycleNode>(wiring, runtime);
+        auto ready = wire<FabricLifecycleNode>(wiring, runtime, path.value());
         auto notification_requests = wire<FabricPublicationNode>(wiring, publications, deliveries, ready, runtime, bridge);
         auto snapshot = wire<FabricSnapshotNode>(wiring, snapshot_keys, ready, runtime);
         auto replay = wire<FabricReplayNode>(wiring, replay_keys, ready, runtime);

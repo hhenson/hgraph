@@ -28,6 +28,7 @@ test = ["pytest>=8"]
 cmake.source-dir = "."
 cmake.args = [
     "-DHGRAPH_FABRIC_BUILD_PYTHON=ON",
+    "-DHGRAPH_FABRIC_BUILD_KAFKA=OFF",
     "-DBUILD_TESTING=OFF",
 ]
 install.components = ["Python", "Development"]

@@ -222,6 +222,55 @@ jobs:
           name: persistence-distribution-wheel-${{ inputs.os }}
           path: persistence-dist/*.whl
           if-no-files-found: error
+      - name: Install the matching persistence SDK
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("persistence-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install", "--no-deps",
+              str(wheels[0]),
+          ])
+      - name: Build Fabric stable ABI wheel
+        env:
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_EXTENSION_SDK_PREFIX }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          "-Cbuild-dir=.ci-build/fabric/{wheel_tag}"
+          --outdir fabric-dist extensions/fabric
+      - name: Verify Fabric wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("fabric-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_fabric-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - name: Audit Fabric wheel contents
+        run: >-
+          python extensions/fabric/tools/audit_distribution.py
+          "fabric-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fabric-distribution-wheel-${{ inputs.os }}
+          path: fabric-dist/*.whl
+          if-no-files-found: error
       - name: Build web stable ABI wheel
         env:
           CMAKE_GENERATOR: Ninja

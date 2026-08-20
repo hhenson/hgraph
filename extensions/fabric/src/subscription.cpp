@@ -88,6 +88,102 @@ struct RootBatch
     std::vector<ResolvedRevision> selected{};
 };
 
+struct RuntimeMetrics
+{
+    ResolverMetrics resolver{};
+    std::uint64_t calls{};
+    std::uint64_t forests_ready{};
+    std::uint64_t forests_unchanged{};
+    std::uint64_t forests_pending{};
+    std::uint64_t forests_ambiguous{};
+    std::uint64_t forests_cyclic{};
+    std::uint64_t forests_corrupt{};
+    std::uint64_t notice_to_ready_samples{};
+    TimeDelta::rep notice_to_ready_total{};
+
+    void observe(const CoordinationResult &result)
+    {
+        ++calls;
+        for (const auto &forest : result.forests)
+        {
+            switch (forest.status)
+            {
+            case ResolutionStatus::Ready:
+                ++forests_ready;
+                break;
+            case ResolutionStatus::Unchanged:
+                ++forests_unchanged;
+                break;
+            case ResolutionStatus::Pending:
+                ++forests_pending;
+                break;
+            case ResolutionStatus::Ambiguous:
+                ++forests_ambiguous;
+                break;
+            case ResolutionStatus::Cyclic:
+                ++forests_cyclic;
+                break;
+            case ResolutionStatus::Corrupt:
+                ++forests_corrupt;
+                break;
+            }
+            resolver.accepted_heads_observed +=
+                forest.metrics.accepted_heads_observed;
+            resolver.revision_cache_hits += forest.metrics.revision_cache_hits;
+            resolver.revision_cache_misses +=
+                forest.metrics.revision_cache_misses;
+            resolver.frame_cache_hits += forest.metrics.frame_cache_hits;
+            resolver.frame_cache_misses += forest.metrics.frame_cache_misses;
+            resolver.output_index_hits += forest.metrics.output_index_hits;
+            resolver.output_index_misses += forest.metrics.output_index_misses;
+            resolver.revisions_examined += forest.metrics.revisions_examined;
+            resolver.edges_examined += forest.metrics.edges_examined;
+            resolver.candidate_selections +=
+                forest.metrics.candidate_selections;
+            resolver.backtracking_depth_sum +=
+                forest.metrics.backtracking_depth_sum;
+            resolver.maximum_backtracking_depth =
+                std::max(resolver.maximum_backtracking_depth,
+                         forest.metrics.maximum_backtracking_depth);
+            if (forest.metrics.notice_to_ready.has_value())
+            {
+                ++notice_to_ready_samples;
+                notice_to_ready_total +=
+                    forest.metrics.notice_to_ready->count();
+            }
+        }
+    }
+
+    void add(const RuntimeMetrics &other)
+    {
+        calls += other.calls;
+        forests_ready += other.forests_ready;
+        forests_unchanged += other.forests_unchanged;
+        forests_pending += other.forests_pending;
+        forests_ambiguous += other.forests_ambiguous;
+        forests_cyclic += other.forests_cyclic;
+        forests_corrupt += other.forests_corrupt;
+        notice_to_ready_samples += other.notice_to_ready_samples;
+        notice_to_ready_total += other.notice_to_ready_total;
+        resolver.accepted_heads_observed +=
+            other.resolver.accepted_heads_observed;
+        resolver.revision_cache_hits += other.resolver.revision_cache_hits;
+        resolver.revision_cache_misses += other.resolver.revision_cache_misses;
+        resolver.frame_cache_hits += other.resolver.frame_cache_hits;
+        resolver.frame_cache_misses += other.resolver.frame_cache_misses;
+        resolver.output_index_hits += other.resolver.output_index_hits;
+        resolver.output_index_misses += other.resolver.output_index_misses;
+        resolver.revisions_examined += other.resolver.revisions_examined;
+        resolver.edges_examined += other.resolver.edges_examined;
+        resolver.candidate_selections += other.resolver.candidate_selections;
+        resolver.backtracking_depth_sum +=
+            other.resolver.backtracking_depth_sum;
+        resolver.maximum_backtracking_depth =
+            std::max(resolver.maximum_backtracking_depth,
+                     other.resolver.maximum_backtracking_depth);
+    }
+};
+
 struct RuntimeCore
 {
     FabricConfig config;
@@ -95,6 +191,7 @@ struct RuntimeCore
     ConsistencyCoordinator coordinator;
     std::map<Str, RevisionId, IdLess> emitted_revisions{};
     std::set<Str, IdLess> observed{};
+    RuntimeMetrics metrics{};
 
     RuntimeCore(FabricConfig configured, std::vector<Str> configured_roots)
         : config(std::move(configured)), roots(std::move(configured_roots)), coordinator(config, roots),
@@ -119,6 +216,7 @@ struct RuntimeCore
 
     [[nodiscard]] std::optional<RootBatch> batch(CoordinationResult result)
     {
+        metrics.observe(result);
         for (const auto &forest : result.forests)
         {
             if (forest.status == ResolutionStatus::Corrupt || forest.status == ResolutionStatus::Ambiguous ||
@@ -256,6 +354,18 @@ struct SnapshotSession
         }
         return combined;
     }
+
+    void collect_metrics(RuntimeMetrics &metrics) const
+    {
+        for (const auto &[as_of, group] : groups)
+        {
+            static_cast<void>(as_of);
+            if (group.core)
+            {
+                metrics.add(group.core->metrics);
+            }
+        }
+    }
 };
 
 struct ReplaySession
@@ -361,6 +471,14 @@ struct ReplaySession
         }
         auto batch = core->batch(std::move(result));
         return batch.has_value() ? deliver(std::move(*batch), subscriptions) : std::nullopt;
+    }
+
+    void collect_metrics(RuntimeMetrics &metrics) const
+    {
+        if (core)
+        {
+            metrics.add(core->metrics);
+        }
     }
 };
 
@@ -487,6 +605,14 @@ struct LiveSession
             return std::nullopt;
         }
         return combined;
+    }
+
+    void collect_metrics(RuntimeMetrics &metrics) const
+    {
+        if (core)
+        {
+            metrics.add(core->metrics);
+        }
     }
 };
 } // namespace
@@ -737,9 +863,69 @@ std::optional<std::tuple<Str, DataVersion, Frame>> FabricServiceRuntime::load(st
 
 std::vector<std::pair<Str, Str>> FabricServiceRuntime::diagnostics() const
 {
+    RuntimeMetrics metrics;
+    impl_->snapshot.collect_metrics(metrics);
+    impl_->planned_snapshot.collect_metrics(metrics);
+    impl_->replay.collect_metrics(metrics);
+    impl_->planned_replay.collect_metrics(metrics);
+    impl_->live.collect_metrics(metrics);
+    impl_->planned_live.collect_metrics(metrics);
+
+    std::size_t publication_queued{};
+    for (const auto &[data_id, queue] : impl_->publication_queues)
+    {
+        static_cast<void>(data_id);
+        publication_queued += queue.size();
+    }
+    const auto live_notices =
+        impl_->live.notice_cache.size() + impl_->planned_live.notice_cache.size();
+
     std::vector<std::pair<Str, Str>> result{
         {"lifecycle", impl_->running ? "running" : "stopped"},
         {"publishers", std::to_string(impl_->publishers.size())},
+        {"publication.queued", std::to_string(publication_queued)},
+        {"publication.queue_limit_per_data_id", "1024"},
+        {"live.notices", std::to_string(live_notices)},
+        {"live.notice_limit_per_session", "4096"},
+        {"resolution.calls", std::to_string(metrics.calls)},
+        {"resolution.forests.ready", std::to_string(metrics.forests_ready)},
+        {"resolution.forests.unchanged",
+         std::to_string(metrics.forests_unchanged)},
+        {"resolution.forests.pending",
+         std::to_string(metrics.forests_pending)},
+        {"resolution.forests.ambiguous",
+         std::to_string(metrics.forests_ambiguous)},
+        {"resolution.forests.cyclic", std::to_string(metrics.forests_cyclic)},
+        {"resolution.forests.corrupt",
+         std::to_string(metrics.forests_corrupt)},
+        {"resolution.accepted_heads_observed",
+         std::to_string(metrics.resolver.accepted_heads_observed)},
+        {"resolution.revision_cache.hits",
+         std::to_string(metrics.resolver.revision_cache_hits)},
+        {"resolution.revision_cache.misses",
+         std::to_string(metrics.resolver.revision_cache_misses)},
+        {"resolution.frame_cache.hits",
+         std::to_string(metrics.resolver.frame_cache_hits)},
+        {"resolution.frame_cache.misses",
+         std::to_string(metrics.resolver.frame_cache_misses)},
+        {"resolution.output_index.hits",
+         std::to_string(metrics.resolver.output_index_hits)},
+        {"resolution.output_index.misses",
+         std::to_string(metrics.resolver.output_index_misses)},
+        {"resolution.revisions_examined",
+         std::to_string(metrics.resolver.revisions_examined)},
+        {"resolution.edges_examined",
+         std::to_string(metrics.resolver.edges_examined)},
+        {"resolution.candidate_selections",
+         std::to_string(metrics.resolver.candidate_selections)},
+        {"resolution.backtracking_depth.average",
+         std::to_string(metrics.resolver.average_backtracking_depth())},
+        {"resolution.backtracking_depth.maximum",
+         std::to_string(metrics.resolver.maximum_backtracking_depth)},
+        {"resolution.notice_to_ready.samples",
+         std::to_string(metrics.notice_to_ready_samples)},
+        {"resolution.notice_to_ready.microseconds_total",
+         std::to_string(metrics.notice_to_ready_total)},
     };
     result.insert(result.end(), impl_->transport_diagnostics.begin(), impl_->transport_diagnostics.end());
     return result;

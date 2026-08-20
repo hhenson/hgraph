@@ -5,6 +5,7 @@
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/logger.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/static_node.h>
 
@@ -13,6 +14,7 @@
 #include <arrow/table.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <cstdint>
 #include <map>
@@ -20,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -35,6 +38,30 @@ constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
 
 std::vector<std::pair<hg::DateTime, std::int64_t>> observed_frames{};
 std::vector<std::tuple<hg::DateTime, hg::Str, std::int64_t>> observed_tagged_frames{};
+
+struct CapturedLog
+{
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> sink{
+        std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(16)};
+
+    CapturedLog()
+    {
+        hg::log::set_logger(
+            std::make_shared<spdlog::logger>("hgraph-fabric-test", sink));
+    }
+
+    ~CapturedLog() { hg::log::set_logger(nullptr); }
+
+    [[nodiscard]] std::string joined() const
+    {
+        std::string result;
+        for (const auto &line : sink->last_formatted())
+        {
+            result += line;
+        }
+        return result;
+    }
+};
 
 struct IoCounters
 {
@@ -488,6 +515,27 @@ TEST_CASE("snapshot loads one consistent image at the requested as-of")
     CHECK(observed_frames.front().second == 2);
 }
 
+TEST_CASE("service lifecycle logs its path once at start and stop")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config = hgf::make_memory_fabric_config(
+        "tests/subscription/lifecycle-log");
+    static_cast<void>(
+        seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
+    observed_frames.clear();
+    CapturedLog captured;
+
+    static_cast<void>(run(hg::build_graph<SnapshotGraph>(), config, BASE_TIME,
+                          BASE_TIME + hg::TimeDelta{2}));
+
+    const auto output = captured.joined();
+    CHECK(output.find("hgraph.fabric service started path=fabric") !=
+          std::string::npos);
+    CHECK(output.find("hgraph.fabric service stopped path=fabric") !=
+          std::string::npos);
+}
+
 TEST_CASE("snapshot applies its as-of bound through transitive ancestry")
 {
     hg::stdlib::register_standard_operators();
@@ -768,6 +816,38 @@ TEST_CASE("request_load uses the service-owned persistence resource")
     CHECK(observed_frames.front().second == 2);
 }
 
+TEST_CASE("service diagnostics expose resolver work and bounded queue usage")
+{
+    auto config = hgf::make_memory_fabric_config(
+        "tests/subscription/runtime-diagnostics");
+    static_cast<void>(
+        seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
+
+    hgf::detail::FabricServicePlanHandle plan{
+        std::make_shared<hgf::detail::FabricServicePlan>()};
+    hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+    hg::GlobalContext context;
+    hgf::set_fabric_config(context.state().view(), config);
+    runtime.start(context.state().view());
+    const auto delivery = runtime.snapshot({hgf::detail::SubscriptionSpec{
+        .key = "prices",
+        .data_id = "prices",
+        .as_of = BASE_TIME + hg::TimeDelta{2},
+    }});
+    REQUIRE(delivery.has_value());
+
+    const auto values = runtime.diagnostics();
+    const std::map<hg::Str, hg::Str> diagnostics{values.begin(), values.end()};
+    CHECK(diagnostics.at("lifecycle") == "running");
+    CHECK(diagnostics.at("publication.queued") == "0");
+    CHECK(diagnostics.at("publication.queue_limit_per_data_id") == "1024");
+    CHECK(diagnostics.at("live.notice_limit_per_session") == "4096");
+    CHECK(diagnostics.at("resolution.calls") == "1");
+    CHECK(diagnostics.at("resolution.forests.ready") == "1");
+    CHECK(std::stoull(diagnostics.at("resolution.revision_cache.misses")) >= 1);
+    CHECK(std::stoull(diagnostics.at("resolution.frame_cache.misses")) >= 1);
+}
+
 TEST_CASE("graph notification bridge retries with stable revision correlation")
 {
     hgf::detail::GraphNotificationBridge bridge;
@@ -801,4 +881,9 @@ TEST_CASE("graph notification bridge retries with stable revision correlation")
     });
     CHECK(delivery.poll().status == hgf::NotificationDeliveryStatus::Delivered);
     CHECK_FALSE(bridge.request_pending());
+    const auto values = bridge.diagnostics();
+    const std::map<hg::Str, hg::Str> diagnostics{values.begin(), values.end()};
+    CHECK(diagnostics.at("transport.notification.pending") == "0");
+    CHECK(diagnostics.at("transport.notification.retried") == "1");
+    CHECK(diagnostics.at("transport.notification.delivered") == "1");
 }

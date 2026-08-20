@@ -15,3 +15,7 @@
   profiles, full accepted-revision payloads, root push-source ingress through
   the Kafka service, lifecycle-gated durable handoff, explicit cursor commits,
   correlated bounded delivery retry, and transport diagnostics.
+- Add local/S3 and Arrow IPC/Parquet behavior coverage, a cross-process
+  publication race, resolver/cache and bounded-queue diagnostics, service
+  lifecycle logs, installed wheel SDK consumers, release artifacts, and
+  production operating guidance.

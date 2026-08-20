@@ -108,14 +108,16 @@ jobs:
           docker run --rm --network container:hgraph-minio --entrypoint /bin/sh \
             quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 \
             -c '/usr/bin/mc alias set local http://127.0.0.1:9000 hgraphtest hgraphtest123 && /usr/bin/mc mb --ignore-existing local/hgraph-test'
-      - name: Run S3 frame-store conformance
+      - name: Run S3 persistence and Fabric conformance
         if: runner.os == 'Linux'
         env:
           HGRAPH_S3_TEST_ENDPOINT: http://127.0.0.1:9010
           HGRAPH_S3_TEST_BUCKET: hgraph-test
           AWS_ACCESS_KEY_ID: hgraphtest
           AWS_SECRET_ACCESS_KEY: hgraphtest123
-        run: ./build-native/extensions/persistence/tests/hgraph_persistence_tests "[s3]"
+        run: |
+          ./build-native/extensions/persistence/tests/hgraph_persistence_tests "[s3]"
+          ./build-native/extensions/fabric/tests/hgraph_fabric_tests "[s3]"
       - name: Stop the S3 conformance endpoint
         if: runner.os == 'Linux' && always()
         run: docker rm --force hgraph-minio || true
