@@ -6,7 +6,10 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/notifier.h>
 #include <hgraph/fabric/operators.h>
+#include <hgraph/fabric/planning.h>
 #include <hgraph/fabric/publication.h>
+#include <hgraph/fabric/resolution.h>
+#include <hgraph/fabric/service.h>
 #include <hgraph/fabric/types.h>
 #include <hgraph/fabric/value_builders.h>
 

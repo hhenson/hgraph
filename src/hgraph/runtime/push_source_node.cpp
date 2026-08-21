@@ -660,12 +660,11 @@ namespace hgraph
 
     namespace
     {
-        NodeBuilder make_push_source_node_with_capability(
+        NodeBuilder make_push_source_node_impl(
             const TSValueTypeMetaData &output_schema,
             PushSourcePolicy policy,
             PushSourceNodeExtension extension,
-            bool requires_phase_runner,
-            bool simulation_capable)
+            bool requires_phase_runner)
         {
             if (!policy.output_compatible(output_schema))
             {
@@ -676,7 +675,6 @@ namespace hgraph
             schema.display_name = "push_source";
             schema.output_schema = &output_schema;
             schema.node_kind = NodeKind::PushSource;
-            schema.simulation_capable_push_source = simulation_capable;
             schema.requires_phase_runner = requires_phase_runner;
             schema.state_schema = extension.state_schema;
             schema.scalar_schema = extension.scalar_schema;
@@ -725,7 +723,7 @@ namespace hgraph
                                       PushSourceStartCallback on_start,
                                       bool requires_phase_runner)
     {
-        return make_push_source_node_with_capability(
+        return make_push_source_node_impl(
             output_schema, std::move(policy),
             PushSourceNodeExtension{
                 .on_start = [on_start = std::move(on_start)](
@@ -733,7 +731,7 @@ namespace hgraph
                     if (on_start) { on_start(std::move(sender)); }
                 },
             },
-            requires_phase_runner, false);
+            requires_phase_runner);
     }
 
     NodeBuilder make_push_source_node_with_view(
@@ -742,9 +740,9 @@ namespace hgraph
         PushSourceNodeExtension extension,
         bool requires_phase_runner)
     {
-        return make_push_source_node_with_capability(
+        return make_push_source_node_impl(
             output_schema, std::move(policy), std::move(extension),
-            requires_phase_runner, false);
+            requires_phase_runner);
     }
 
     NodeBuilder make_push_source_node(const TSValueTypeMetaData &output_schema,
@@ -757,31 +755,4 @@ namespace hgraph
             false);
     }
 
-    NodeBuilder make_simulation_capable_push_source_node(
-        const TSValueTypeMetaData &output_schema,
-        PushSourcePolicy policy,
-        PushSourceStartCallback on_start,
-        bool requires_phase_runner)
-    {
-        return make_push_source_node_with_capability(
-            output_schema, std::move(policy),
-            PushSourceNodeExtension{
-                .on_start = [on_start = std::move(on_start)](
-                    PushSourceSender sender, const NodeView &, DateTime) {
-                    if (on_start) { on_start(std::move(sender)); }
-                },
-            },
-            requires_phase_runner, true);
-    }
-
-    NodeBuilder make_simulation_capable_push_source_node(
-        const TSValueTypeMetaData &output_schema,
-        PushSourceStartCallback on_start)
-    {
-        return make_simulation_capable_push_source_node(
-            output_schema,
-            make_push_source_queue_policy(output_schema),
-            std::move(on_start),
-            false);
-    }
 }  // namespace hgraph

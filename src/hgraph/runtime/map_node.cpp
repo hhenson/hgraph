@@ -330,7 +330,12 @@ namespace hgraph
             {
                 throw std::logic_error("map node builder has no compiled child context");
             }
-            visitor(visitor_context, context->spec.child.graph_builder);
+            visitor(visitor_context, ChildGraphInspectionView{
+                                         .graph = &context->spec.child.graph_builder,
+                                         .output_binding = context->spec.child.output_binding
+                                                               ? &*context->spec.child.output_binding
+                                                               : nullptr,
+                                     });
         }
 
         [[nodiscard]] NodeStorageMetrics map_storage_metrics(

@@ -178,24 +178,6 @@ namespace hgraph
         PushSourceNodeExtension extension,
         bool requires_phase_runner = false);
 
-    /**
-     * Build a root push source which may also run under a simulation executor.
-     *
-     * The producer must make its initial simulation work deterministic: it
-     * must enqueue all values needed to keep the simulation live before the
-     * graph evaluation which starts that producer completes. This is intended
-     * for pull-capable external replay sources. Ordinary asynchronous sources
-     * remain real-time-only.
-     */
-    [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_simulation_capable_push_source_node(
-        const TSValueTypeMetaData &output_schema,
-        PushSourcePolicy policy,
-        PushSourceStartCallback on_start = {},
-        bool requires_phase_runner = false);
-
-    [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_simulation_capable_push_source_node(
-        const TSValueTypeMetaData &output_schema,
-        PushSourceStartCallback on_start = {});
 }
 
 #endif  // HGRAPH_RUNTIME_PUSH_SOURCE_NODE_H

@@ -41,6 +41,12 @@ public:
                    std::optional<DateTime> timestamp = std::nullopt);
   void fail_next_produce(MockProduceError error, std::size_t count = 1);
   void fail_next_fetch(MockConsumeError error, std::size_t count = 1);
+  /** Make committed-offset discovery observe a transient coordinator outage. */
+  void fail_next_committed_offset_fetch(std::size_t count = 1);
+  /** Disconnect every broker without discarding broker state. */
+  void stop_brokers();
+  /** Accept connections again after stop_brokers(). */
+  void start_brokers();
 
 private:
   struct Impl;

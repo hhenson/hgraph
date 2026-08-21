@@ -671,10 +671,12 @@ TEST_CASE("nested wiring: node builders expose every immediate compiled child th
         bool all_children_non_empty{true};
     } inspection;
 
-    const auto visitor = [](void *raw, const GraphBuilder &child) {
+    const auto visitor = [](void *raw, ChildGraphInspectionView child) {
         auto &state = *static_cast<Inspection *>(raw);
         ++state.children;
-        state.all_children_non_empty = state.all_children_non_empty && child.node_count() > 0;
+        state.all_children_non_empty =
+            state.all_children_non_empty && child.graph != nullptr &&
+            child.graph->node_count() > 0;
     };
 
     for (const NodeBuilder &node : graph.nodes())

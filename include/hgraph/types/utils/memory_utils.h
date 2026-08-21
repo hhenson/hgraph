@@ -1445,8 +1445,12 @@ namespace hgraph
         };
 
         [[nodiscard]] static CompositeRegistry &composite_registry() {
-            static CompositeRegistry registry;
-            return registry;
+            // StoragePlan pointers are retained by Values and TypeRecords that
+            // may be destroyed during static teardown. Keep the registry
+            // object alive for the process lifetime so those destructors never
+            // dispatch through a plan whose backing Entry has been destroyed.
+            static auto *registry = new CompositeRegistry();
+            return *registry;
         }
 
         struct ArrayRegistry
@@ -1533,8 +1537,11 @@ namespace hgraph
         };
 
         [[nodiscard]] static ArrayRegistry &array_registry() {
-            static ArrayRegistry registry;
-            return registry;
+            // Array plans have the same address-published lifetime contract as
+            // composite plans; clear_synthesised_plans() still explicitly
+            // releases their entries during a test-only registry reset.
+            static auto *registry = new ArrayRegistry();
+            return *registry;
         }
 
         struct RawPlanRegistry
@@ -1579,8 +1586,10 @@ namespace hgraph
         };
 
         [[nodiscard]] static RawPlanRegistry &raw_plan_registry() {
-            static RawPlanRegistry registry;
-            return registry;
+            // Raw plans are also retained through erased runtime type records.
+            // The registry object must therefore outlive static borrowers.
+            static auto *registry = new RawPlanRegistry();
+            return *registry;
         }
 
         static void raw_default_construct(void *, const void *) noexcept {}

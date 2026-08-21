@@ -309,20 +309,25 @@ across partitions.  ``PARTITION`` preserves the natural partition delivery;
 ``TIMESTAMP_TOPIC_PARTITION_OFFSET`` is the explicit deterministic merge used
 for record-time recovery.
 
-Simulation and bounded recovery
---------------------------------
+Simulation
+----------
 
-Only finite, record-time recovery is available in hgraph simulation.  It is
-useful for deterministic backtests and must have a bounded stop position.  A
-simulation key normally uses ``INDEPENDENT`` assignment, an explicit start,
-``snapshot()`` (or another finite stop), ``RECORD_TIMESTAMP``, and the
-timestamp/topic/partition/offset merge policy shown above.
+Kafka selects a separate service graph for simulation.  It contains no push
+source: the service first preloads a finite recovery window, then ordinary
+drain nodes schedule records by their Kafka timestamps.  This path requires a
+bounded stop position, ``RECORD_TIMESTAMP`` recovery, and
+``TIMESTAMP_TOPIC_PARTITION_OFFSET`` merge ordering.  ``GRAPH_LIFETIME`` is
+treated as a snapshot boundary in simulation.  Publishing, committing,
+unbounded subscriptions, and arrival-clock recovery are rejected.
 
-Live Kafka input, publishing, explicit commits, and
-``ON_GRAPH_DELIVERY`` commits are rejected in simulation.  That restriction
-is intentional: simulation preloads a finite record-time replay before graph
-evaluation, whereas an asynchronous broker cannot provide deterministic,
-unbounded future input.
+Python ``run_graph`` selects the service graph from its wiring-time evaluation
+mode.  C++ authors select it explicitly when registering the service::
+
+   kafka::register_service(wiring, path, config,
+                           kafka::KafkaServiceMode::Simulation);
+
+The preload barrier keeps broker-thread timing out of simulated graph time;
+only the retained record timestamps drive later evaluations.
 
 Configuration, flow control, and failures
 ------------------------------------------
