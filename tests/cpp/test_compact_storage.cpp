@@ -118,6 +118,26 @@ TEST_CASE("ListBuilder: works with non-trivial element types (std::string)")
     REQUIRE(as_const<std::string>(storage.element_at(2)) == "gamma");
 }
 
+TEST_CASE("ListBuilder: transfers owning non-trivial values into ListStorage")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<std::string>("string");
+    const auto binding = registry.scalar_type<std::string>();
+    REQUIRE(binding != nullptr);
+
+    Value first{std::string{"alpha"}};
+    Value second{std::string{"beta"}};
+    ListBuilder builder{binding};
+    builder.push_back(std::move(first));
+    builder.push_back(std::move(second));
+    auto storage = builder.build_storage();
+
+    REQUIRE(storage.size() == 2);
+    CHECK(as_const<std::string>(storage.element_at(0)) == "alpha");
+    CHECK(as_const<std::string>(storage.element_at(1)) == "beta");
+}
+
 TEST_CASE("compact containers expose raw, index, and recursive payload metrics", "[memory]")
 {
     using namespace hgraph;

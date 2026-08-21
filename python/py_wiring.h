@@ -420,17 +420,37 @@ namespace hgraph::python_bridge
             return run;
         }
 
-        [[nodiscard]] nb::tuple push_source(PyTsType ts_type, bool conflate,
+        [[nodiscard]] nb::tuple push_source(PyTsType ts_type, bool conflate, bool burst,
+                                            std::optional<std::size_t> max_pending,
                                             PyNodeHandle fn,
                                             std::string config,
                                             PyScalarValue scalars,
                                             std::optional<std::string> node_label)
         {
             ensure_open();
-            auto slot     = std::make_shared<PySenderSlot>();
-            slot->schema  = ts_type.meta;
-            auto policy   = conflate ? make_push_source_conflating_policy(*ts_type.meta)
-                                     : make_push_source_queue_policy(*ts_type.meta);
+            if (conflate && burst)
+            {
+                throw std::invalid_argument("push_queue conflate and burst are mutually exclusive");
+            }
+            if (conflate && max_pending.has_value())
+            {
+                throw std::invalid_argument("push_queue max_pending is not supported with conflate");
+            }
+            if (max_pending.has_value() && *max_pending == 0)
+            {
+                throw std::invalid_argument("push_queue max_pending must be greater than zero");
+            }
+
+            auto policy = burst
+                              ? make_push_source_burst_policy(
+                                    *ts_type.meta, max_pending.value_or(0))
+                              : conflate
+                                    ? make_push_source_conflating_policy(*ts_type.meta)
+                                    : make_push_source_queue_policy(
+                                          *ts_type.meta, max_pending.value_or(0));
+            auto slot = std::make_shared<PySenderSlot>();
+            slot->schema = ts_type.meta;
+            slot->sender_value_schema = burst ? &policy.sender_schema() : nullptr;
             const bool uses_scheduler = config.find('d') != std::string::npos;
             const bool uses_global_state = config.find('g') != std::string::npos;
             const bool uses_evaluation_clock =
@@ -443,6 +463,7 @@ namespace hgraph::python_bridge
                         DateTime evaluation_time) {
                         slot->sender = std::move(sender);
                         slot->type_realization = slot->sender.type_realization();
+                        slot->started_once.store(true, std::memory_order_release);
                         py_call_push_queue_start(
                             fn.record->fn, config, view.scalars(),
                             PySender{slot}, view, evaluation_time);

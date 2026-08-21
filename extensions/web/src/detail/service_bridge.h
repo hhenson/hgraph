@@ -104,7 +104,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
   }
 
@@ -197,7 +197,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
   }
 
@@ -345,7 +345,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
     if (notify) {
       deliver_watermark(channel);
@@ -494,7 +494,7 @@ private:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
     if (notify) {
       deliver_watermark(channel);

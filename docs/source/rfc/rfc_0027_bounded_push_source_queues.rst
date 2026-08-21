@@ -378,9 +378,11 @@ Threading:
 * several producer threads may share one sender.  Both entry points are
   safe under the queue mutex.
 
-``send_blocking`` must never be called from the graph evaluation thread.  A
-debug assertion compares against the executor's evaluation thread id; release
-builds do not pay for the check.
+``send_blocking`` must never wait on the graph evaluation thread.  The queue
+captures its consumer thread at start and rejects a full-queue call from that
+thread before entering the condition-variable wait.  An immediately
+admissible call remains legal during a start callback, preserving existing
+unbounded start-hook behaviour.
 
 The sender remains a non-templated, type-erased facade.  The selected policy
 validates each admitted ``Value`` against its sender schema.  Queue and
@@ -594,22 +596,15 @@ Passing a tuple to the sender
    scalar per call so the graph's evaluation cadence defines the opportunistic
    batch boundary.
 
-Unresolved questions
---------------------
+Deferred questions
+------------------
 
-1. **``send_blocking`` on stop.**  This RFC proposes throwing
-   ``PushSourceStopped`` both when called on a stopped node and when stop
-   arrives during the wait.  The alternative is to return silently, matching
-   today's discard.  Throwing is chosen because a discarded message is a
-   silent failure.  The cost is that a clean shutdown racing an in-flight send
-   produces an exception on a normal path.  Resolve before implementation.
-
-2. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
+1. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
    record cannot be starved by a full payload queue.  With one queue this is
    reserved headroom rather than a second lane.  It remains downstream until
    the migrations establish a shared domain-independent requirement.
 
-3. **Two-phase reserve.**  Some producers reserve capacity before performing
+2. **Two-phase reserve.**  Some producers reserve capacity before performing
    work so its resulting control record always has somewhere to land.  This is
    deferred until multiple migrations establish a shared contract.
 
@@ -694,7 +689,27 @@ Compatibility
 Implementation status
 ---------------------
 
-Not started.  This RFC is ``Proposed`` and contains no implementation.
+Stages 1 and 2 are implemented on the RFC implementation branch.  The native
+sender exposes ``try_send`` and ``send_blocking`` through a shared lifecycle
+control, bounded FIFO admission releases capacity at dequeue, stop wakes and
+quiesces blocked producers, and burst reuses that admission queue while
+materialising all detached values into a homogeneous tuple.  Burst
+materialisation moves owning values into an adopted list buffer and uses its
+preselected binding; it performs no per-tick schema lookup or avoidable second
+payload copy.
+
+Python ``push_queue`` exposes ``burst`` and ``max_pending`` and maps its sender
+to native blocking admission with the GIL released.  Native and Python tests
+cover capacity refusal/release, stop and retained-sender safety, concurrent
+producers, burst FIFO/batch boundaries, invalid schemas and option validation,
+and Python blocking behaviour.  The installed-SDK fixture exercises bounded
+queue and burst factories through public headers.
+
+Stage 3 remains the pair of separate downstream migration pull requests.  The
+downstream before/after latency and allocation measurements required for
+``Accepted`` status will be recorded when those duplicate queues are removed.
+Until the implementation and conformance tests merge, this RFC remains
+``Proposed`` as required by RFC 0000.
 
 References
 ----------

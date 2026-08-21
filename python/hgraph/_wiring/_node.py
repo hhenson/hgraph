@@ -1303,11 +1303,13 @@ class _PushQueue:
     (plus any wiring-time scalars as kwargs) once the real-time graph is
     running. sender(value) is thread-safe from any Python thread."""
 
-    def __init__(self, fn, tp, conflate, *, resolvers=None, requires=None,
+    def __init__(self, fn, tp, conflate, burst, max_pending, *, resolvers=None, requires=None,
                  label=None, deprecated=False):
         self.fn = fn
         self.tp = tp
         self.conflate = conflate
+        self.burst = burst
+        self.max_pending = max_pending
         self.__name__ = fn.__name__
         signature, self._default_type_var = _default_type_var_of(
             inspect.signature(fn, eval_str=True))
@@ -1385,14 +1387,16 @@ class _PushQueue:
         ]
 
         port, _sender = w.push_source(
-            _unwrap(out_tp), self.conflate, _hgraph.node_ref(self.fn),
+            _unwrap(out_tp), self.conflate, self.burst, self.max_pending,
+            _hgraph.node_ref(self.fn),
             self._config, _hgraph.any_list(scalars),
             self._label or self.__name__)
         return WiringPort(port)
 
 
 def push_queue(tp, overloads=None, resolvers=None, requires=None, label=None,
-               deprecated=False, *, conflate=False):
+               deprecated=False, *, conflate=False, burst=False,
+               max_pending=None):
     """Decorate an external callback source for real-time graph execution.
 
     The decorated start hook receives a thread-safe ``sender(value)`` callable
@@ -1409,13 +1413,29 @@ def push_queue(tp, overloads=None, resolvers=None, requires=None, label=None,
     :param label: Diagnostic label used in the wired graph.
     :param deprecated: ``True`` or a message string to emit a deprecation
         warning when the source is wired.
-    :param conflate: Retain only the latest pending value when producers run
-        ahead of graph evaluation.
+    :param conflate: Merge pending deltas into one current-state update when
+        producers run ahead of graph evaluation.
+    :param burst: Deliver all scalar values pending at evaluation as one
+        homogeneous tuple. The output must be ``TS[tuple[SCALAR, ...]]``;
+        sender calls accept one ``SCALAR`` at a time.
+    :param max_pending: Optional positive queue capacity. At capacity the
+        Python sender waits without holding the GIL until graph evaluation
+        dequeues work. Not supported with ``conflate=True``.
     :return: A push-queue decorator.
     """
     def decorator(fn):
+        if conflate and burst:
+            raise TypeError("push_queue conflate and burst are mutually exclusive")
+        if conflate and max_pending is not None:
+            raise TypeError("push_queue max_pending is not supported with conflate")
+        if max_pending is not None:
+            if isinstance(max_pending, bool) or not isinstance(max_pending, int):
+                raise TypeError("push_queue max_pending must be a positive integer or None")
+            if max_pending <= 0:
+                raise ValueError("push_queue max_pending must be greater than zero")
         wrapped = _PushQueue(
-            fn, tp, conflate, resolvers=resolvers, requires=requires,
+            fn, tp, conflate, burst, max_pending,
+            resolvers=resolvers, requires=requires,
             label=label, deprecated=deprecated)
         if overloads is not None:
             _register_overload(overloads, wrapped, requires)

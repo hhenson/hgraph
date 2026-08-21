@@ -1803,16 +1803,16 @@ void test_subscription_removal_and_readd_uses_a_fresh_assignment_generation() {
   require(commit_sender.has_value(),
           "dynamic Kafka commit push source did not start");
 
-  sender->send(first.clone());
+  sender->send_blocking(first.clone());
   require(subscription_generations.await(1),
           "first subscription assignment did not produce a cursor");
-  sender->send(second.clone());
+  sender->send_blocking(second.clone());
   require(subscription_generations.await(2),
           "replacement subscription assignment did not produce a cursor");
-  sender->send(first.clone());
+  sender->send_blocking(first.clone());
   require(subscription_generations.await(3),
           "re-added subscription assignment did not produce a cursor");
-  commit_sender->send(first_readded_cursor.clone());
+  commit_sender->send_blocking(first_readded_cursor.clone());
   require(stale_commit_events.await(1), "a cursor from the removed assignment "
                                         "was not rejected with a typed event");
 

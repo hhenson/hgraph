@@ -114,7 +114,7 @@ Authoring decorators
    :return: A generator decorator or the decorated source.
 
 
-.. py:function:: hgraph.push_queue(tp, overloads=None, resolvers=None, requires=None, label=None, deprecated=False, *, conflate=False)
+.. py:function:: hgraph.push_queue(tp, overloads=None, resolvers=None, requires=None, label=None, deprecated=False, *, conflate=False, burst=False, max_pending=None)
 
    Decorate an external callback source for real-time graph execution.
 
@@ -132,8 +132,14 @@ Authoring decorators
    :param label: Diagnostic label used in the wired graph.
    :param deprecated: ``True`` or a message string to emit a deprecation
        warning when the source is wired.
-   :param conflate: Retain only the latest pending value when producers run
-       ahead of graph evaluation.
+   :param conflate: Merge pending deltas into one current-state update when
+       producers run ahead of graph evaluation.
+   :param burst: Deliver all scalar values pending at evaluation as one
+       homogeneous tuple. The output must be ``TS[tuple[SCALAR, ...]]``;
+       sender calls accept one ``SCALAR`` at a time.
+   :param max_pending: Optional positive queue capacity. At capacity the
+       Python sender waits without holding the GIL until graph evaluation
+       dequeues work. Not supported with ``conflate=True``.
    :return: A push-queue decorator.
 
 

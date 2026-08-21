@@ -280,20 +280,52 @@ specialized node/builder rather than the ordinary static-node
 (``runtime/push_source_node.h``) owns the message storage, hands a thread-safe
 ``PushSourceSender`` to user code during ``start``, and delivers values through
 the normal node evaluation path when the real-time engine is woken by queued
-messages. Two delivery policies exist — **Queue** (FIFO; drains one value per
-engine cycle) and **Conflating** (a delta-merging accumulator; delivers the
-merged state). Ordinary asynchronous push sources require a **real-time root
-graph** (they are rejected in simulation mode and inside nested graphs):
+messages. Three wiring-time delivery policies exist:
+
+* **Queue** is FIFO and drains one value per engine cycle. It is unbounded by
+  default, or bounded by a non-zero ``max_pending`` element count.
+* **Burst** uses the same FIFO admission queue but drains every value pending
+  at evaluation into one ``TS<HomogeneousTuple<T>>`` tick. Its sender accepts
+  one ``T`` at a time; it introduces neither a timer nor a target batch size.
+* **Conflating** merges pending deltas into current state and delivers the
+  merged result.
+
+Ordinary asynchronous push sources require a **real-time root graph** (they
+are rejected in simulation mode and inside nested graphs):
 
 .. code-block:: cpp
 
    // Runtime builder — see tests/cpp/test_realtime_execution.cpp
    graph_builder.add_node(make_push_source_node(
        *ts_int,                                            // output schema: TS<Int>
-       make_push_source_queue_policy(*ts_int->value_schema),
+       make_push_source_queue_policy(*ts_int, 256),          // bounded FIFO
        [](PushSourceSender sender) {
            // runs at start; hand `sender` to a producer thread.
-           // sender.send(Int{42}) enqueues a value and wakes the executor.
+           // Refuse without waiting when full:
+           if (!sender.try_send(Int{42})) { /* producer flow control */ }
+           // Or wait for graph dequeue to release capacity:
+           sender.send_blocking(Int{43});
+       }));
+
+``try_send`` returns ``false`` at capacity or after stop. ``send_blocking``
+waits on bounded capacity and throws ``PushSourceStopped`` if the graph stops;
+it must not wait on the graph evaluation thread. Dequeueing releases capacity
+immediately — protocol acknowledgement, when required, is an explicit sink
+node rather than part of sender admission.
+
+Burst selects only delivery; admission remains the same bounded or unbounded
+FIFO queue:
+
+.. code-block:: cpp
+
+   const auto *ts_batch = ts_type<TS<HomogeneousTuple<Int>>>();
+   graph_builder.add_node(make_push_source_node(
+       *ts_batch,
+       make_push_source_burst_policy(*ts_batch, 256),
+       [](PushSourceSender sender) {
+           // Each call admits one Int. Evaluation emits tuple<Int, ...>.
+           static_cast<void>(sender.try_send(Int{1}));
+           static_cast<void>(sender.try_send(Int{2}));
        }));
 
 Push sources are always real-time-only. Deterministic replay and simulation
@@ -305,6 +337,10 @@ derived solely from graph time, never producer-thread timing.
    @push_queue(TS[int])
    def from_queue(sender: Callable[[int], None]):
        ...  # register `sender`; call sender(value) from another thread to inject ticks
+
+   @push_queue(TS[tuple[int, ...]], burst=True, max_pending=256)
+   def from_burst(sender: Callable[[int], None]):
+       ...  # sender(value) blocks without holding the GIL when at capacity
 
 A static-node authoring shape (a sender parameter on ``start`` plus a
 message-application hook) is still **planned**. The important runtime

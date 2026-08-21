@@ -102,7 +102,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
   }
 
@@ -202,7 +202,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
   }
 
@@ -481,7 +481,7 @@ public:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
     return true;
   }
@@ -555,7 +555,7 @@ private:
       }
     }
     if (wake.valid()) {
-      wake.send(generation);
+      wake.send_blocking(generation);
     }
     return true;
   }
