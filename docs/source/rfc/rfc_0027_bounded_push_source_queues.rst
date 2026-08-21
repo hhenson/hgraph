@@ -9,14 +9,14 @@ RFC 0027: Push-Source Queue Models and the Sender Contract
 Summary
 -------
 
-Make the push source a policy-selected cross-thread delivery boundary.  Four
-models are supported:
+Make the push source a policy-selected cross-thread delivery boundary.  It
+supports:
 
-* an unbounded FIFO queue;
-* a bounded FIFO queue;
-* a conflating current-state accumulator; and
-* a burst queue that accepts individual scalar values and emits the values
-  currently pending as one homogeneous tuple.
+* a FIFO queue with optional capacity and event-by-event delivery;
+* the same FIFO queue with optional capacity and burst delivery, accepting
+  individual scalar values and emitting the values currently pending as one
+  homogeneous tuple; and
+* a conflating current-state accumulator.
 
 Replace the sender's ``void send(Value)`` with an explicit pair:
 
@@ -37,10 +37,13 @@ Downstream transport extensions migrate from their private queue ownership to
 this shared core contract.
 
 The ``Conflating`` policy remains the public
-``@push_queue(..., conflate=True)`` behaviour.  The new ``Burst`` policy is
-deliberately narrow: its output must be ``TS[tuple[SCALAR, ...]]``, while its
-sender accepts one ``SCALAR`` per call.  It batches only values already pending
-when the graph evaluates; it does not introduce a timer or target batch size.
+``@push_queue(..., conflate=True)`` behaviour.  The new ``Burst`` selection is
+a delivery mode over the FIFO queue, not a different enqueue model.  Its
+output must be ``TS[tuple[SCALAR, ...]]``, while its sender accepts one
+``SCALAR`` per call.  It has the same bounded or unbounded admission behaviour
+as the ordinary queue and only changes how values already pending are
+delivered when the graph evaluates.  It does not introduce a timer or target
+batch size.
 
 Motivation
 ----------
@@ -55,8 +58,8 @@ The existing FIFO policy also imposes one graph evaluation per admitted value.
 That is correct for event-by-event delivery, but inefficient for consumers that
 can naturally process a homogeneous collection.  Such producers currently
 need another queue and drain node merely to turn several scalar arrivals into
-one ``TS[tuple[SCALAR, ...]]`` tick.  A burst policy uses the same push-source
-boundary and makes that batching choice at wiring time.
+one ``TS[tuple[SCALAR, ...]]`` tick.  Burst delivery uses the same push-source
+FIFO queue and makes only the delivery choice at wiring time.
 
 Two independently built downstream transport extensions encountered the same
 requirement: bounded record admission, non-blocking refusal for producers with
@@ -94,7 +97,7 @@ Ownership boundary
 The core owns:
 
 * the ``Queue`` policy's capacity, admission decision, and blocking wait;
-* the ``Burst`` policy's scalar-to-tuple batching boundary;
+* the queue's event or burst delivery boundary;
 * the sender contract (``try_send`` / ``send_blocking``) and its stop
   semantics;
 * releasing bounded capacity when the graph dequeues work; and
@@ -172,8 +175,10 @@ existing type-erased ``PushSourcePolicy`` operations:
 
 ``Queue`` with ``max_pending == 0`` is unbounded.  ``Queue`` with a non-zero
 ``max_pending`` is bounded.  ``Conflating`` retains one accumulated current
-state.  ``Burst`` uses FIFO admission but emits a tuple containing a snapshot
-of all elements pending at the start of its evaluation.
+state.  ``Burst`` selects the queue's alternative delivery operation: enqueue,
+capacity checks, refusal, blocking, and producer wake-up remain those of
+``Queue``, while evaluation emits a tuple containing a snapshot of all
+elements pending at its start.
 
 The public sender type does not change with the model.  Its ``sender_schema()``
 describes the value accepted by each call: the output delta schema for
@@ -197,7 +202,8 @@ Existing callers keep today's behaviour without change; bounding is opt-in.
 ``max_pending`` counts elements admitted and still queued.  Dequeuing an
 element for graph processing releases its capacity immediately.
 
-The burst policy accepts the same capacity setting:
+Because burst uses the FIFO queue, its factory exposes the same capacity
+setting:
 
 .. code-block:: cpp
 
@@ -229,12 +235,15 @@ list representation: it has one element schema and the ``VariadicTuple`` flag.
 Fixed heterogeneous tuples, mutable lists, ``TSL``, ``TSS``, ``TSD``, ``TSW``
 and nested time-series elements are rejected by the burst-policy factory.
 
-Each sender call admits one scalar ``Value``.  When the push source evaluates,
-it takes one lock and detaches every scalar currently queued.  It then releases
-the lock, constructs one tuple in FIFO order, and applies that tuple as the
-``TS`` output delta.  Values admitted after the detach form the next burst and
-re-arm the executor.  An empty tuple is never emitted; a burst containing one
-scalar emits a one-element tuple.
+Each sender call enqueues one scalar ``Value`` through the ordinary FIFO queue
+admission path.  ``try_send`` and ``send_blocking`` therefore respond to
+``max_pending`` exactly as they do for event-by-event delivery.  The difference
+begins only when the push source evaluates: event delivery dequeues one value,
+whereas burst delivery takes one lock and detaches every scalar currently
+queued.  It then releases the lock, constructs one tuple in FIFO order, and
+applies that tuple as the ``TS`` output delta.  Values admitted after the
+detach form the next burst and re-arm the executor.  An empty tuple is never
+emitted; a burst containing one scalar emits a one-element tuple.
 
 This defines a deterministic boundary for a concurrent producer without
 claiming a total order across producer threads: values appear in the order in
@@ -379,11 +388,12 @@ conflating policies therefore continue to accept the output delta schema;
 burst accepts the element schema derived from its output tuple.  There is no
 per-send or per-evaluation registry lookup.
 
-``BurstPolicyStorage`` reuses the queue admission and condition-variable
-machinery.  Its ``emit_next`` detaches the pending deque under the policy
-mutex, releases capacity for the detached elements, and constructs the
-variadic tuple using the output schema's preselected ``ValueOps`` strategy.
-Building and applying the tuple occur after releasing the policy mutex.
+The ``Burst`` selection uses the queue storage, admission operations, and
+condition-variable machinery unchanged.  Only its ``emit_next`` operation is
+different: it detaches the pending deque under the policy mutex, releases
+capacity for the detached elements, and constructs the variadic tuple using
+the output schema's preselected ``ValueOps`` strategy.  Building and applying
+the tuple occur after releasing the policy mutex.
 
 Sender lifetime and stop
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -427,9 +437,10 @@ Bounded admission is one comparison against ``max_pending`` inside the lock the
 policy already takes.  ``max_pending == 0`` short-circuits it, so existing
 unbounded users are unaffected.
 
-For a burst containing *n* elements, enqueue is O(1) per element, detaching the
-pending deque is O(1), and tuple construction/application is O(n) for that
-graph tick.  Retained memory is O(n), bounded by ``max_pending`` when non-zero.
+For a burst containing *n* elements, enqueue is the same O(1) operation as the
+ordinary FIFO queue, detaching the pending deque is O(1), and tuple
+construction/application is O(n) for that graph tick.  Retained memory is
+O(n), bounded by ``max_pending`` when non-zero.
 The evaluation thread holds the policy mutex only for the detach and capacity
 update, not for the O(n) tuple construction.  The implementation must move or
 transfer admitted values into the tuple representation without an avoidable
@@ -611,11 +622,11 @@ Stage 1 — sender and capacity
    ``@push_queue``; safe sender-control lifetime and stop quiescence.  No
    extension changes beyond the mechanical call-site move.
 
-Stage 2 — burst policy
+Stage 2 — burst delivery
    ``PushSourcePolicyKind::Burst`` and
-   ``make_push_source_burst_policy``; scalar admission and atomic detach into
-   ``TS<HomogeneousTuple<T>>``; Python ``burst=True``; unbounded and bounded
-   dequeue behaviour.
+   ``make_push_source_burst_policy``; reuse of queue storage and admission;
+   atomic detach into ``TS<HomogeneousTuple<T>>``; Python ``burst=True``; and
+   unbounded and bounded queue behaviour with burst delivery.
 
 Stage 3 — extension migration
    Kafka and web each move to one push source, remove their duplicate queues,
@@ -652,6 +663,8 @@ Behaviour
    * A stopped node's Python ``sender(value)`` raises rather than discarding.
    * Burst rejects every output except ``TS[tuple[SCALAR, ...]]`` and rejects a
      sender value whose schema is not ``SCALAR``.
+   * Burst uses the same bounded and unbounded enqueue path as ordinary queue
+     delivery: at capacity ``try_send`` refuses and ``send_blocking`` waits.
    * Burst preserves FIFO admission order, emits every scalar pending at detach
      as one tuple, never emits an empty tuple, and assigns concurrent arrivals
      after detach to a later tick without loss or duplication.
