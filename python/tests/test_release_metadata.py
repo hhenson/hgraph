@@ -87,6 +87,7 @@ def test_shared_prerelease_uses_numeric_release_core():
         "hgraph-analytics",
         "hgraph-web",
         "hgraph-persistence",
+        "hgraph-fabric",
     )
     assert release.version == "0.8.0rc1"
     assert release.core == (0, 8, 0)
@@ -107,6 +108,7 @@ def test_shared_release_checks_all_pypi_packages():
         ("hgraph-analytics", "0.8.0"),
         ("hgraph-web", "0.8.0"),
         ("hgraph-persistence", "0.8.0"),
+        ("hgraph-fabric", "0.8.0"),
     ]
 
 

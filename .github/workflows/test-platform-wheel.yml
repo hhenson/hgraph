@@ -64,6 +64,10 @@ jobs:
           path: persistence-dist
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
+          name: fabric-distribution-wheel-${{ inputs.os }}
+          path: fabric-dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
           name: web-distribution-wheel-${{ inputs.os }}
           path: web-dist
       - name: Sync test dependencies
@@ -101,6 +105,12 @@ jobs:
               "uv", "pip", "install", "--python", str(venv_python),
               "--no-deps", str(persistence_wheels[0]),
           ])
+          fabric_wheels = list(Path("fabric-dist").glob("*.whl"))
+          assert len(fabric_wheels) == 1, fabric_wheels
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python),
+              "--no-deps", str(fabric_wheels[0]),
+          ])
           web_wheels = list(Path("web-dist").glob("*.whl"))
           assert len(web_wheels) == 1, web_wheels
           subprocess.check_call([
@@ -117,6 +127,8 @@ jobs:
         run: uv run --no-sync --no-build python -m pytest extensions/analytics/python/tests -q
       - name: Run persistence extension suite
         run: uv run --no-sync --no-build python -m pytest extensions/persistence/python/tests -q
+      - name: Run Fabric extension suite
+        run: uv run --no-sync --no-build python -m pytest extensions/fabric/python/tests -q
       - name: Run web extension suite
         run: uv run --no-sync --no-build python -m pytest extensions/web/python/tests -q
       - name: Build installed Python extension consumer
@@ -125,3 +137,6 @@ jobs:
       - name: Build and run installed native executable consumer
         if: matrix.python-version == '3.12'
         run: uv run --no-sync --no-build python tests/install_consumer/check.py
+      - name: Build and run installed Fabric SDK consumer
+        if: matrix.python-version == '3.12'
+        run: uv run --no-sync --no-build python extensions/fabric/test_package/check.py

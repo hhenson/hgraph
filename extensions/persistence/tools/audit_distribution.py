@@ -87,7 +87,7 @@ def _audit_wheel(path: Path) -> None:
         name
         for name in names
         if Path(name).name.startswith(("libhgraph_persistence", "hgraph_persistence"))
-        and Path(name).suffix in {".a", ".lib"}
+        and Path(name).suffix in {".so", ".dylib", ".dll"}
     ]
     if len(persistence_libraries) != 1:
         raise AssertionError(

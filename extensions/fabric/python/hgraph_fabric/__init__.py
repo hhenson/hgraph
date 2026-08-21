@@ -15,6 +15,12 @@ from hgraph import (
     operator_function,
 )
 
+# The native Fabric bridge consumes the persistence SDK.  Loading its declared
+# Python dependency first is also required on Windows: the
+# persistence bridge loads Parquet from PyArrow before Fabric's module is
+# resolved, while macOS and Linux can use their relative runtime paths.
+import hgraph_persistence as _hgraph_persistence  # noqa: F401
+
 from . import _hgraph_fabric as _native
 
 
@@ -22,6 +28,7 @@ DataVersion = int
 RevisionId = int
 SubscriptionMode = _native.SubscriptionMode
 FabricSubscriptionMode = SubscriptionMode
+ResolutionStatus = _native.ResolutionStatus
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,20 @@ _publish_data = operator_function("hgraph.fabric.publish_data")
 _publish_data_explicit = operator_function(
     "hgraph.fabric._publish_data_explicit"
 )
+_register_memory_service = operator_function(
+    "hgraph.fabric.register_memory_service"
+)
+
+
+def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
+    """Register one native Fabric service backed by process-local stores.
+
+    This is the deterministic local/test host. Production hosts install their
+    persistence and notification resources in ``GlobalState`` and register the
+    same native service contract from C++.
+    """
+
+    _register_memory_service(prefix)
 
 
 def subscribe_data(
@@ -196,6 +217,22 @@ def decode_latest_reference(encoded: bytes) -> RevisionId:
     return _native._decode_revision_reference(3, encoded)
 
 
+def _resolve_fixture(
+    revisions: tuple[DataRevision, ...],
+    roots: tuple[str, ...],
+    exposed: tuple[tuple[str, DataVersion], ...] = (),
+):
+    """Exercise the native resolver over an isolated in-memory history.
+
+    This private compatibility-test seam keeps Python examples on the same
+    C++ resolver and persistence contracts as production ingress.
+    """
+
+    return _native._resolve_fixture(
+        [encode_revision(revision) for revision in revisions], roots, exposed
+    )
+
+
 __all__ = [
     "AS_OF_MEDIA_TYPE",
     "AUTO",
@@ -208,6 +245,7 @@ __all__ = [
     "LATEST_MEDIA_TYPE",
     "REVISION_MEDIA_TYPE",
     "RevisionId",
+    "ResolutionStatus",
     "SubscriptionMode",
     "decode_as_of_reference",
     "decode_latest_reference",
@@ -217,5 +255,6 @@ __all__ = [
     "encode_latest_reference",
     "encode_revision",
     "publish_data",
+    "register_memory_fabric_service",
     "subscribe_data",
 ]

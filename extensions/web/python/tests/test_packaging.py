@@ -167,7 +167,7 @@ def test_ci_builds_and_tests_separate_web_artifacts():
     assert "pattern: web-distribution-*" in wheel_workflows
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
-    ) == 5
+    ) == 6
     assert "--wheel --no-isolation" in wheel_workflows
     assert "--sdist --no-isolation" in wheel_workflows
     assert "--skip-dependency-check" in wheel_workflows

@@ -193,6 +193,7 @@ inline Value cursor{};
 inline Value produced_record{};
 inline Value event_value{};
 inline Value production_config{};
+inline KafkaServiceMode production_service_mode{KafkaServiceMode::RealTime};
 inline Value independent_subscription_key{};
 inline Value secondary_subscription_key{};
 inline Str production_topic{"native-out"};
@@ -370,7 +371,7 @@ struct ProductionPublishGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-publish");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto record = wire<stdlib::const_, TS<KafkaProduceRecord>>(
         w, produced_record.clone());
     auto report =
@@ -385,7 +386,7 @@ struct ProductionCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-commit");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto commit_cursor =
         wire<stdlib::const_, TS<KafkaCursor>>(w, cursor.clone());
     commit(w, path, commit_cursor);
@@ -439,7 +440,7 @@ struct ProductionSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -473,7 +474,7 @@ struct GraphLifetimeSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("graph-lifetime-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(wire<GraphLifetimeSubscriptionCapture>(
@@ -512,7 +513,7 @@ struct RecordTimeRecoveryLiveGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("record-time-recovery-live");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -552,7 +553,7 @@ struct BoundedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-bounded-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -601,7 +602,7 @@ struct MultiBoundedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-multi-bounded-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto first_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto second_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
@@ -657,7 +658,7 @@ struct FlowControlledSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-flow-control");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -670,7 +671,7 @@ struct BoundedSubscriptionCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-bounded-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto subscription = subscribe(w, path, key);
@@ -718,7 +719,7 @@ struct MonotonicCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-monotonic-commit");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto subscription = subscribe(w, path, key);
@@ -774,7 +775,7 @@ struct ReaddedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-readded-subscription");
-    register_service(w, path, production_config.clone());
+    register_service(w, path, production_config.clone(), production_service_mode);
     const auto *schema = ts_type<TS<KafkaSubscriptionKey>>();
     Port<TS<KafkaSubscriptionKey>> key{
         w, w.add_unique_node(
@@ -855,6 +856,7 @@ struct EventBacklogGraph {
 
 void initialize_values() {
   register_kafka_types();
+  production_service_mode = KafkaServiceMode::RealTime;
   service_config =
       make_service_config({Str{"localhost:9092"}}, Str{"native-test"});
   subscription_key = make_subscription_key(
@@ -1029,6 +1031,7 @@ void test_public_value_validation_and_producer_configuration() {
 }
 
 void test_simulation_rejects_publish_and_commit_work() {
+  production_service_mode = KafkaServiceMode::Simulation;
   production_config =
       make_service_config({Str{"localhost:9092"}}, Str{"simulation-rejection"});
   const DateTime start = wall_now();
@@ -1085,6 +1088,7 @@ void test_simulation_rejects_publish_and_commit_work() {
       },
       "nondeterministically merged Kafka recovery was accepted by a simulation "
       "executor");
+
   initialize_values();
 }
 
@@ -1890,6 +1894,32 @@ void test_independent_assignment_reads_every_partition() {
           "independent assignment did not read every selected topic partition");
 }
 
+void test_committed_start_retries_coordinator_initialization() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-coordinator-startup"});
+  cluster.seed_record(Str{"typed-coordinator-startup"}, Bytes{"available"});
+  cluster.fail_next_committed_offset_fetch(2);
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-coordinator-startup-subscriber"})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .topics({Str{"typed-coordinator-startup"}})
+          .group_id(Str{"typed-coordinator-startup-group"})
+          .assignment_mode(KafkaAssignmentMode::Independent)
+          .start(make_start_position(KafkaStartPositionKind::Committed,
+                                     KafkaOffsetFallback::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .sharing_identity(Str{"typed-coordinator-startup-subscription"})
+          .build();
+  run_bounded_subscription();
+
+  require(bounded_payloads == std::vector<Str>{Str{"available"}},
+          "a transient group-coordinator startup response terminated the "
+          "committed subscription");
+}
+
 void test_commit_modes_and_monotonic_explicit_commits() {
   {
     MockCluster cluster;
@@ -2221,6 +2251,7 @@ void test_record_time_recovery_releases_a_failed_participant() {
 }
 
 void test_graph_lifetime_stop_is_bounded_in_simulation() {
+  production_service_mode = KafkaServiceMode::Simulation;
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-record-time"});
   const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
@@ -2265,6 +2296,7 @@ void test_graph_lifetime_stop_is_bounded_in_simulation() {
 }
 
 void test_multiple_simulation_subscriptions_replay_at_record_time() {
+  production_service_mode = KafkaServiceMode::Simulation;
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-preload-a"});
   cluster.create_topic(Str{"simulation-preload-b"});
@@ -2340,9 +2372,11 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
   }
   require(multi_bounded_complete_count == 2,
           "simulation did not complete both bounded subscriptions");
+  production_service_mode = KafkaServiceMode::RealTime;
 }
 
 void test_real_broker_publish_subscribe_and_commit_round_trip() {
+  production_service_mode = KafkaServiceMode::RealTime;
   const char *bootstrap_value =
       std::getenv("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
   const char *topic_value = std::getenv("HGRAPH_KAFKA_INTEGRATION_TOPIC");
@@ -2473,6 +2507,7 @@ int main() {
     test_timestamp_and_graph_start_positions();
     test_pattern_committed_fallback_and_key_filter();
     test_independent_assignment_reads_every_partition();
+    test_committed_start_retries_coordinator_initialization();
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_hands_off_before_live_records();

@@ -296,12 +296,9 @@ graph** (they are rejected in simulation mode and inside nested graphs):
            // sender.send(Int{42}) enqueues a value and wakes the executor.
        }));
 
-A pull-capable external replay source may instead use
-``make_simulation_capable_push_source_node``. It must enqueue all work needed
-to keep the simulation live before the root graph has finished starting;
-worker timing must never determine simulated graph timing. The explicit
-builder keeps this stronger contract separate from ordinary asynchronous push
-sources.
+Push sources are always real-time-only. Deterministic replay and simulation
+inputs use ordinary scheduled source nodes so simulated graph timing is
+derived solely from graph time, never producer-thread timing.
 
 .. code-block:: python
 

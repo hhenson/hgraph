@@ -106,15 +106,20 @@ public:
     }
   }
 
-  void start() {
+  /** Start queue admission. Real-time services require all queue-owned push
+   *  sources to be attached; deterministic simulation drains the same bounded
+   *  queues through ordinary scheduled nodes and therefore has no sender. */
+  void start(bool require_push_senders = true) {
     std::lock_guard lock{mutex_};
     if (accepting_) {
       throw std::logic_error("Kafka service bridge started twice");
     }
-    for (const auto &channel : channels_) {
-      if (!channel.sender.valid()) {
-        throw std::logic_error(
-            "Kafka service bridge started before its push sources");
+    if (require_push_senders) {
+      for (const auto &channel : channels_) {
+        if (!channel.sender.valid()) {
+          throw std::logic_error(
+              "Kafka service bridge started before its push sources");
+        }
       }
     }
     accepting_ = true;
@@ -687,7 +692,7 @@ template <typename Tag>
       w,
       w.add_unique_node(
           std::type_index(typeid(Tag)),
-          make_simulation_capable_push_source_node(
+          make_push_source_node(
               *schema,
               make_push_source_conflating_policy(*schema->delta_value_schema),
               [bridge = std::move(bridge), channel](PushSourceSender sender) {

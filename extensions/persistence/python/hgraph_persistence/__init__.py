@@ -22,12 +22,18 @@ if _sys.platform == "win32":
     import pyarrow as _pyarrow
 
     _pyarrow_dir = _os.path.dirname(_pyarrow.__file__)
+    _package_prefix = _os.path.dirname(_pyarrow_dir)
+    _dll_directory_handles = []
     for _dll_dir in (
+        _os.path.join(_package_prefix, "bin"),
+        _os.path.join(_package_prefix, "lib"),
         _pyarrow_dir,
-        _os.path.join(_os.path.dirname(_pyarrow_dir), "pyarrow.libs"),
+        _os.path.join(_package_prefix, "pyarrow.libs"),
     ):
         if _os.path.isdir(_dll_dir):
-            _os.add_dll_directory(_dll_dir)
+            # Keep the handle alive for as long as the extension is loaded;
+            # discarding it immediately removes the directory again.
+            _dll_directory_handles.append(_os.add_dll_directory(_dll_dir))
 
 from enum import Enum
 
