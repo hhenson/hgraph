@@ -1492,9 +1492,25 @@ def _value_type(scalar):
             _value_type(constraint)
             for constraint in getattr(scalar, "__constraints__", ())
         ]
+        bound = getattr(scalar, "__bound__", None)
+        if isinstance(bound, _typing.ForwardRef):
+            bound = None
+        elif bound is not None:
+            try:
+                bound = _value_type(bound)
+            except _GenericType:
+                # Category bounds such as CompoundScalar are already encoded by
+                # their surrounding type expression. Concrete nominal bounds are
+                # carried into the native matcher here.
+                bound = None
         raise _GenericType(
-            pattern=_hgraph.scalar_pattern_var(_type_var_name(scalar), constraints)
-            if constraints else _hgraph.scalar_pattern_var(_type_var_name(scalar)))
+            pattern=(
+                _hgraph.scalar_pattern_var(_type_var_name(scalar), constraints)
+                if constraints else
+                _hgraph.scalar_pattern_var_bound(_type_var_name(scalar), bound)
+                if bound is not None else
+                _hgraph.scalar_pattern_var(_type_var_name(scalar))
+            ))
     # typing generics: tuple[X, ...] / tuple[A, B] / frozenset[X] / dict[K, V]
     import collections.abc as _abc
     import enum as _enum

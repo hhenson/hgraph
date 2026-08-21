@@ -70,18 +70,21 @@ namespace hgraph
         std::string              name{};            ///< ``Var``: the variable name.
         const ValueTypeMetaData *meta{nullptr};     ///< ``Concrete``: the interned scalar.
         std::vector<const ValueTypeMetaData *> constraints{};  ///< ``Var``: accepted concrete scalar schemas.
+        const ValueTypeMetaData *bound{nullptr};    ///< ``Var``: accepted scalar base schema (inclusive).
         std::vector<ScalarPattern> children{};      ///< recursive scalar payloads.
         std::vector<DimensionPattern> dimensions{}; ///< ``Array`` dimensions, outermost first.
         bool                       schema_var{false}; ///< ``Bundle``: true when ``name`` is a schema variable.
         std::string                bundle_origin{}; ///< ``Bundle``: qualified generic origin, when constrained.
 
         [[nodiscard]] static ScalarPattern var(std::string name,
-                                               std::vector<const ValueTypeMetaData *> constraints = {})
+                                               std::vector<const ValueTypeMetaData *> constraints = {},
+                                               const ValueTypeMetaData *bound = nullptr)
         {
             ScalarPattern p;
             p.kind        = Kind::Var;
             p.name        = std::move(name);
             p.constraints = std::move(constraints);
+            p.bound       = bound;
             return p;
         }
         [[nodiscard]] static ScalarPattern concrete(const ValueTypeMetaData *meta)

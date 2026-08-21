@@ -268,3 +268,44 @@ def test_generic_frame_overload_is_distinct_from_generic_scalar_overload():
 
     assert eval_node(scalar_app, [1]) == ["scalar"]
     assert eval_node(frame_app, [pa.table({"value": [1]})]) == ["frame"]
+
+
+def test_scalar_typevar_bound_filters_overloads_and_preserves_concrete_subtype():
+    @dataclass(frozen=True)
+    class BaseValue:
+        value: int
+
+    @dataclass(frozen=True)
+    class DerivedValue(BaseValue):
+        label: str
+
+    @dataclass(frozen=True)
+    class UnrelatedValue:
+        value: int
+
+    BOUNDED = TypeVar("BOUNDED", bound=BaseValue)
+
+    @operator
+    def classify_bound(ts: TS[SCALAR]) -> TS[str]: ...
+
+    @compute_node(overloads=classify_bound)
+    def classify_any(ts: TS[SCALAR]) -> TS[str]:
+        return "any"
+
+    @compute_node(overloads=classify_bound)
+    def classify_base(ts: TS[BOUNDED]) -> TS[str]:
+        return "bounded"
+
+    @compute_node
+    def bounded_identity(ts: TS[BOUNDED]) -> TS[BOUNDED]:
+        return ts.value
+
+    @graph
+    def derived_identity(ts: TS[DerivedValue]) -> TS[DerivedValue]:
+        return bounded_identity(ts)
+
+    assert eval_node(classify_bound, [BaseValue(1)]) == ["bounded"]
+    assert eval_node(classify_bound, [DerivedValue(2, "derived")]) == ["bounded"]
+    assert eval_node(classify_bound, [UnrelatedValue(3)]) == ["any"]
+    derived = DerivedValue(4, "identity")
+    assert eval_node(derived_identity, [derived]) == [derived]

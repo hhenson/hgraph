@@ -1123,7 +1123,9 @@ namespace hgraph
             {
                 case ScalarPattern::Kind::Var:
                     acc.add_var("scalar:" + pattern.name,
-                                pattern.constraints.empty() ? var_rank : std::max(1, var_rank / 2));
+                                pattern.constraints.empty() && pattern.bound == nullptr
+                                    ? var_rank
+                                    : std::max(1, var_rank / 2));
                     break;
                 case ScalarPattern::Kind::Concrete:
                     break;

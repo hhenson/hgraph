@@ -1047,6 +1047,9 @@ namespace hgraph::python_bridge
         }
         return PyScalarPattern{ScalarPattern::var(name, std::move(metas))};
     });
+    m.def("scalar_pattern_var_bound", [](const std::string &name, PyValueType bound) {
+        return PyScalarPattern{ScalarPattern::var(name, {}, bound.meta)};
+    });
     m.def("scalar_pattern_value", [](PyValueType value) {
         return PyScalarPattern{ScalarPattern::concrete(value.meta)};
     });
