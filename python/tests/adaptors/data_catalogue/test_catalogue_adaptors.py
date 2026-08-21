@@ -18,6 +18,7 @@ from hgraph.adaptors.data_catalogue import (
     subscribe,
     subscribe_adaptor_impl,
 )
+from hgraph.adaptors.data_catalogue.data_scopes import StringScope
 from hgraph.stream import StreamStatus
 
 
@@ -147,7 +148,13 @@ def test_catalogue_publish_routes_all_matching_sinks():
     def app():
         hg.register_adaptor("data-catalogue-publish", publish_adaptor_impl)
         data = hg.const(frame, tp=hg.TS[hg.Frame[_Row]])
-        hg.null_sink(publish[_Row]("rows", data))
+        hg.null_sink(publish("rows", data, partition="frame"))
+        hg.null_sink(publish(
+            "rows", data,
+            hg.const({"partition": "dict"}, tp=hg.TS[dict[str, object]]),
+        ))
+        hg.null_sink(publish(
+            "rows", hg.const(_Row("b", 2), tp=hg.TS[_Row]), partition="row"))
 
     catalogue = DataCatalogue()
     with hg.GlobalContext(hg.GlobalState()):
@@ -155,7 +162,7 @@ def test_catalogue_publish_routes_all_matching_sinks():
             DataCatalogueEntry[_Sink](
                 _Row,
                 "rows",
-                frozendict(),
+                frozendict(partition=StringScope()),
                 _Sink(
                     sink_path="memory",
                     table="rows",
@@ -163,7 +170,11 @@ def test_catalogue_publish_routes_all_matching_sinks():
             )
             hg.run_graph(app)
 
-    assert writes[0][0].equals(frame)
+    assert sorted(
+        (write[0].column("name")[0].as_py(),
+         write[0].column("value")[0].as_py(), write[1]["partition"])
+        for write in writes
+    ) == [("a", 1, "dict"), ("a", 1, "frame"), ("b", 2, "row")]
 
 
 def test_catalogue_publish_without_matching_sink_completes_as_noop():
