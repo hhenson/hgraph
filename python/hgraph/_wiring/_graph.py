@@ -460,7 +460,9 @@ class _GraphFn:
             if isinstance(value, slice) and isinstance(value.start, _TypeVarSentinel)
         }
         scalar_items = [value for value in items if not isinstance(value, slice)]
-        pinned, index = {}, 0
+        pinned = {}
+        default_parameters = []
+        auto_parameters = []
         for name, param in self._signature.parameters.items():
             is_type_default = (
                 param.default is AUTO_RESOLVE and
@@ -472,10 +474,20 @@ class _GraphFn:
                 if sentinel in resolved_types:
                     pinned[name] = resolved_types[sentinel]
                     continue
-            if (isinstance(param.default, _TypeVarSentinel) or is_type_default) \
-                    and index < len(scalar_items):
+                auto_parameters.append((name, param))
+            elif isinstance(param.default, _TypeVarSentinel):
+                if param.default in resolved_types:
+                    pinned[name] = resolved_types[param.default]
+                    continue
+                default_parameters.append((name, param))
+
+        # Positional specializations name declared DEFAULT carriers first.
+        # AUTO_RESOLVE carriers are inference helpers and consume only any
+        # remaining items; slice syntax can always target either explicitly.
+        for index, (name, param) in enumerate(
+                default_parameters + auto_parameters):
+            if index < len(scalar_items):
                 pinned[name] = scalar_items[index]
-                index += 1
         import functools
 
         wrapper = functools.partial(self, **pinned)

@@ -82,6 +82,21 @@ def test_graph_requires_receives_type_resolved_from_type_argument():
     assert observed == [(str, "value")]
 
 
+def test_graph_subscript_prioritizes_default_type_carrier():
+    @graph
+    def type_name(
+        inferred: type[SCALAR_1] = AUTO_RESOLVE,
+        schema: type[SCALAR] = DEFAULT[SCALAR],
+    ) -> TS[str]:
+        return const(schema.__name__)
+
+    @graph
+    def app() -> TS[str]:
+        return type_name[int](inferred=str)
+
+    assert eval_node(app) == ["int"]
+
+
 @pytest.mark.parametrize(
     "expected_key_type",
     [
