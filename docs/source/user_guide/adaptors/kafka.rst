@@ -321,10 +321,12 @@ treated as a snapshot boundary in simulation.  Publishing, committing,
 unbounded subscriptions, and arrival-clock recovery are rejected.
 
 Python ``run_graph`` selects the service graph from its wiring-time evaluation
-mode.  C++ authors select it explicitly when registering the service::
+mode.  C++ authors supply the same mode when building the graph; service
+registration reads it from the wiring context::
 
-   kafka::register_service(wiring, path, config,
-                           kafka::KafkaServiceMode::Simulation);
+   auto simulation = build_graph<KafkaGraph>();
+   auto realtime = build_graph<KafkaGraph>(
+       WiringOptions{.is_realtime = true});
 
 The preload barrier keeps broker-thread timing out of simulated graph time;
 only the retained record timestamps drive later evaluations.

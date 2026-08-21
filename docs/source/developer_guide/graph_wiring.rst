@@ -309,7 +309,9 @@ The typed C++ facade
   parameter selector list), ``output_type``, and ``param_count`` / ``input_count``
   / ``scalar_count``. This is the graph-level mirror of ``StaticNodeSignature``.
 - ``build_graph<G>(values...)`` — **implemented for a top-level graph.** Constructs
-  a ``Wiring``, wraps each supplied plain value into the corresponding
+  a simulation ``Wiring`` by default; an initial
+  ``WiringOptions{.is_realtime = true}`` selects real-time composition.  It
+  wraps each supplied plain value into the corresponding
   ``Scalar<>`` ``compose`` parameter (checked against ``StaticGraphSignature<G>``:
   ``input_count() == 0`` — a top-level graph has **no** time-series inputs or
   outputs — and the argument count matches ``scalar_count()``), calls
@@ -416,11 +418,15 @@ to inspect after the temporary ``Wiring`` and completed graph build are gone; no
 ``WiringInstance`` or runtime graph pointer crosses this API.
 
 Child-graph compilation calls ``Wiring::child_wiring()``. This explicitly shares
-the observer registry and copies the current path into the child, covering
+the observer registry and copies the current path and immutable
+``is_realtime`` flag into the child, covering
 ``switch_``, ``map_``, ``mesh_``, ``reduce``, and other compiled callables
 without a process global or thread-local observer stack. Callbacks are
-synchronous and observer exceptions abort wiring. ``WiringTracer`` is the
-built-in native formatter and accepts path, graph-event, and node-event filters.
+synchronous and observer exceptions abort wiring. Speculative child compilation
+used only to infer an erased output schema copies ``is_realtime`` into an
+observer-free probe context; observers therefore describe only the selected
+composition, not resolver probes. ``WiringTracer`` is the built-in native
+formatter and accepts path, graph-event, and node-event filters.
 The observer and event interfaces are C++ APIs. Python may configure the bound
 native ``WiringTracer``, but cannot implement an observer or receive the event
 records through Python callbacks.

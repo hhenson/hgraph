@@ -43,6 +43,22 @@ Runtime injectables such as ``STATE``, ``SCHEDULER``, ``CLOCK``,
 ``EvaluationEngineApi``, ``Traits`` and ``NODE`` are node-only. Put behavior
 that needs those services in a node and compose that node from the graph.
 
+When execution mode changes which adaptor or topology is valid, use the
+wiring-time :func:`hgraph.is_realtime` flag::
+
+    from hgraph import graph, is_realtime
+
+    @graph
+    def input_graph():
+        if is_realtime():
+            return real_time_input_adaptor()
+        return simulation_input_adaptor()
+
+``GraphConfiguration.run_mode`` sets the flag before the graph function is
+called.  The choice is fixed after wiring, and non-flattened child graphs such
+as map, mesh, reduce and dispatch branches inherit it.  Rebuild the graph to
+change modes; do not branch on execution mode during node evaluation.
+
 Composition
 -----------
 

@@ -73,23 +73,3 @@ def test_nested_evaluate_graph_restores_the_enclosing_start_mirror():
 
         hg.evaluate_graph(g, hg.GraphConfiguration(start_time=MIN_ST + 2 * MIN_TD))
         assert state["__start_time__"] == outer
-
-
-def test_evaluate_graph_exposes_and_restores_the_wiring_evaluation_mode():
-    with hg.GlobalState():
-        state = hg.GlobalState.instance()
-        state["__evaluation_mode__"] = "outer"
-        observed = []
-
-        @hg.graph
-        def g() -> TS[int]:
-            observed.append(state["__evaluation_mode__"])
-            return hg.const(1)
-
-        hg.evaluate_graph(
-            g,
-            hg.GraphConfiguration(run_mode=hg.EvaluationMode.REAL_TIME),
-        )
-
-        assert observed == [hg.EvaluationMode.REAL_TIME]
-        assert state["__evaluation_mode__"] == "outer"

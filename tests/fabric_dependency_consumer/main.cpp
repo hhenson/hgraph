@@ -458,7 +458,9 @@ void check_kafka_contract(hgk::testing::MockCluster &cluster) {
 
   const hg::DateTime start = hg::testing::wall_now();
   hg::GraphExecutorBuilder builder;
-  builder.graph_builder(hg::build_graph<FabricKafkaDependencyGraph>())
+  builder
+      .graph_builder(hg::build_graph<FabricKafkaDependencyGraph>(
+          hg::WiringOptions{.is_realtime = true}))
       .mode(hg::GraphExecutorMode::RealTime)
       .start_time(start)
       .end_time(start + hg::TimeDelta{15'000'000});

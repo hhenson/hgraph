@@ -224,6 +224,8 @@ namespace hgraph
         std::span<const std::pair<std::string, WiringArg>> kwargs{};
         /** The top-level wiring state used for state-dependent resolution. */
         GlobalStateView global_state{};
+        /** Active wiring, when resolution is part of graph composition. */
+        Wiring *wiring{nullptr};
 
         [[nodiscard]] const WiringArg *scalar(std::string_view name) const noexcept
         {

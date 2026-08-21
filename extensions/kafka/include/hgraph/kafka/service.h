@@ -9,16 +9,6 @@
 
 namespace hgraph::kafka
 {
-    /** Wiring-time selection of the concrete Kafka service graph.
-     * RealTime uses queue-owned root push sources. Simulation preloads a
-     * bounded record-time history and emits it through ordinary scheduled
-     * nodes; it never places a push source in the graph. */
-    enum class KafkaServiceMode
-    {
-        RealTime,
-        Simulation,
-    };
-
     struct KafkaSubscriptionService
     {
         static constexpr std::string_view name{"kafka_subscription"};
@@ -46,14 +36,11 @@ namespace hgraph::kafka
     };
 
     /** Register one lazy, path-bound production Kafka service implementation.
-     * No Kafka client or worker thread is created until the graph is started. */
+     * The wiring context selects the concrete execution-compatible graph:
+     * real-time uses queue-owned root push sources; simulation preloads bounded
+     * record-time history and emits it through ordinary scheduled nodes. No
+     * Kafka client or worker thread is created until the graph is started. */
     HGRAPH_KAFKA_EXPORT void register_service(Wiring &w, service::ServicePath path, Value service_config);
-
-    /** Explicitly select the execution-compatible service graph at wiring
-     * time. C++ simulation graphs must use Simulation; the Python runner maps
-     * its run configuration to this overload. */
-    HGRAPH_KAFKA_EXPORT void register_service(Wiring &w, service::ServicePath path,
-                                              Value service_config, KafkaServiceMode mode);
 
     [[nodiscard]] HGRAPH_KAFKA_EXPORT Port<KafkaSubscriptionOutput> subscribe(Wiring &w, service::ServicePath path,
                                                                               Port<TS<KafkaSubscriptionKey>> key);

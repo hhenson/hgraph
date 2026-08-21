@@ -62,6 +62,33 @@ scalar vocabulary. For shorter wiring call sites, opt into
 
    GraphBuilder g = build_graph<PriceGraph>();   // runs compose() once, at wiring time
 
+Execution-mode wiring
+---------------------
+
+When simulation and real-time execution require different graph topology,
+select that topology in ``compose`` using ``Wiring::is_realtime()``.  Supply
+the mode before composition with ``WiringOptions``::
+
+   struct InputAdaptorGraph
+   {
+       static void compose(Wiring &w)
+       {
+           if (w.is_realtime())
+               wire<RealTimeInputAdaptor>(w);
+           else
+               wire<SimulationInputAdaptor>(w);
+       }
+   };
+
+   auto simulation = build_graph<InputAdaptorGraph>();
+   auto realtime = build_graph<InputAdaptorGraph>(
+       WiringOptions{.is_realtime = true});
+
+The selection is fixed when composition ends.  Child wiring created for
+non-flattened graphs, including ``map_``, ``mesh_``, ``reduce`` and dispatch
+branches, inherits the enclosing mode.  Run the resulting graph with the same
+executor mode; changing execution mode requires rebuilding the graph.
+
 A graph that takes a scalar parameter is built by supplying the value:
 
 .. code-block:: cpp
@@ -1287,6 +1314,8 @@ wakes and stops a sleeping executor:
 
 .. code-block:: cpp
 
+   auto gb = build_graph<PriceGraph>(
+       WiringOptions{.is_realtime = true});
    GraphExecutorBuilder ex;
    ex.graph_builder(std::move(gb))
        .mode(GraphExecutorMode::RealTime)

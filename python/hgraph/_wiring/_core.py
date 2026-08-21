@@ -24,6 +24,11 @@ def _current_wiring():
     return _wiring_stack[-1]
 
 
+def is_realtime():
+    """Whether the active graph is being wired for real-time execution."""
+    return _current_wiring().is_realtime
+
+
 # Operators whose durable overloads register from hgraph-persistence
 # (RFC 0025). replay_const has no in-memory implementation at all.
 _DURABLE_OPERATORS = frozenset({"record", "replay", "compare", "replay_const"})
