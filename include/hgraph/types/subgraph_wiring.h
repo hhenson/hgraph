@@ -192,13 +192,15 @@ namespace hgraph
          * boundary-sourced edges into binding specs via ``finish_subgraph``.
          */
         template <typename G, typename ScalarTuple>
-        [[nodiscard]] CompiledSubGraph compile_subgraph_impl(std::span<const WiringPortRef> boundary_shapes,
+        [[nodiscard]] CompiledSubGraph compile_subgraph_impl(Wiring *parent,
+                                                             std::span<const WiringPortRef> boundary_shapes,
                                                              ScalarTuple &&scalar_tuple)
         {
             using sig    = StaticGraphSignature<G>;
             using params = typename sig::param_types;
 
-            Wiring w{WiringKind::SubGraph};
+            Wiring w = parent != nullptr ? parent->child_wiring()
+                                         : Wiring{WiringKind::SubGraph};
 
             // Boundary arg schemas, in Port-parameter order.
             std::vector<const TSValueTypeMetaData *> input_schemas;
@@ -270,7 +272,7 @@ namespace hgraph
                       "compile_subgraph<G>: argument count must match the sub-graph's Scalar parameters "
                       "(in compose order)");
         return subgraph_wiring_detail::compile_subgraph_impl<G>(
-            {}, std::forward_as_tuple(std::forward<ScalarArgs>(scalar_args)...));
+            nullptr, {}, std::forward_as_tuple(std::forward<ScalarArgs>(scalar_args)...));
     }
 
     /**
@@ -370,6 +372,7 @@ namespace hgraph
                 subgraph_wiring_detail::scalar_positions_of<params, sig::scalar_count()>();
             CompiledSubGraph compiled = [&]<std::size_t... S>(std::index_sequence<S...>) {
                 return subgraph_wiring_detail::compile_subgraph_impl<G>(
+                    &w,
                     std::span<const WiringPortRef>{shapes.data(), shapes.size()},
                     std::forward_as_tuple(std::get<scalar_positions[S]>(arg_tuple)...));
             }(std::make_index_sequence<sig::scalar_count()>{});

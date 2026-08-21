@@ -145,6 +145,47 @@ namespace
         }
     };
 
+    using ObserverDispatchBase =
+        Bundle<"tests.wiring_observer::DispatchBase", Field<"value", Int>>;
+
+    [[nodiscard]] const ValueTypeMetaData *observer_dispatch_leaf()
+    {
+        return TypeRegistry::instance().bundle(
+            "tests.wiring_observer", "DispatchLeaf",
+            {{"value", scalar_descriptor<Int>::value_meta()}},
+            {scalar_descriptor<ObserverDispatchBase>::value_meta()});
+    }
+
+    struct ObserverDispatchSource
+    {
+        static constexpr auto name = "observer_dispatch_source";
+        static void eval(Out<TS<ObserverDispatchBase>>) {}
+    };
+
+    struct ObserverDispatchBranch
+    {
+        static constexpr auto name = "observer_dispatch_branch";
+        static Port<TS<Int>> compose(Wiring &wiring, Port<void> input)
+        {
+            static_cast<void>(input);
+            return wire<observed_, TS<Int>>(wiring, wire<ObserverSource>(wiring));
+        }
+    };
+
+    struct ObserverDispatchGraph
+    {
+        static constexpr auto name = "observer_dispatch_graph";
+        static void compose(Wiring &wiring)
+        {
+            auto source = wire<ObserverDispatchSource>(wiring);
+            wire<stdlib::dispatch_>(
+                wiring,
+                stdlib::dispatch_cases({stdlib::dispatch_case(
+                    observer_dispatch_leaf(), fn<ObserverDispatchBranch>())}),
+                source);
+        }
+    };
+
     const WiringScopeEvent &node_event(const RecordingWiringObserver &observer,
                                        std::string_view label)
     {
@@ -274,6 +315,28 @@ TEST_CASE("higher-order child compilation inherits wiring observers and paths")
                    event.path == std::vector<std::string>{
                                      "observer_map_graph", "map_tsd", "observer_nested"};
         }));
+}
+
+TEST_CASE("higher-order output probes do not emit speculative observer events")
+{
+    stdlib::register_standard_operators();
+    register_overload<observed_, ObservedString>();
+    register_overload<observed_, ObservedInt>();
+
+    RecordingWiringObserver observer;
+    std::array<WiringObserver *, 1> observers{&observer};
+    static_cast<void>(build_graph_with_observers<ObserverDispatchGraph>(observers));
+
+    CHECK(std::ranges::count(
+              observer.nested_entries, "observer_dispatch_branch",
+              &WiringScopeEvent::label) == 1);
+    CHECK(std::ranges::count(
+              observer.node_entries, "observed_int",
+              &WiringScopeEvent::label) == 1);
+    CHECK(std::ranges::count_if(
+              observer.resolutions, [](const WiringResolutionEvent &event) {
+                  return event.operator_name == "observed";
+              }) == 1);
 }
 
 TEST_CASE("wiring observers retain every ambiguous candidate")

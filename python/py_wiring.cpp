@@ -1246,11 +1246,15 @@ namespace hgraph::python_bridge
     m.def("_roundtrip_value", [](nb::handle object) { return value_to_py(py_to_value(object).view()); });
 
     nb::class_<PyWiring>(m, "Wiring", nb::is_weak_referenceable())
-        .def(nb::init<>())
-        .def(nb::init<GlobalState &>(), nb::arg("state"))
+        .def(nb::init<bool>(), nb::arg("is_realtime") = false)
+        .def(nb::init<GlobalState &, bool>(), nb::arg("state"),
+             nb::arg("is_realtime") = false)
         .def("identity", [](const PyWiring &wiring) {
             return wiring.raw->identity();
         }, "Return the stable identity of the underlying C++ Wiring.")
+        .def_prop_ro("is_realtime", [](const PyWiring &wiring) {
+            return wiring.raw->is_realtime();
+        }, "Whether this context is wiring a real-time graph.")
         .def("_acquire_extension_state", [](PyWiring &wiring, const std::string &key,
                                              const nb::object &factory) {
             auto state = std::static_pointer_cast<PyWiringExtensionState>(

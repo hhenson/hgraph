@@ -25,7 +25,7 @@ from ._markers import (
 )
 from ._core import (
     IncorrectTypeBinding, ParseError, RequirementsNotMetWiringError, WiringError, WiringPort,
-    _DUNDERS, _OperatorFunction, _context_name_of, _current_wiring, _port_enter, _port_exit,
+    _DUNDERS, _OperatorFunction, _context_name_of, _current_wiring, is_realtime, _port_enter, _port_exit,
     _port_getattr, _port_getitem, _port_iter, _port_keys, _port_len, _port_reduce,
     _published_contexts, _resolve_context, _unwrap, _wiring_stack, operator_function, wire
 )
@@ -94,7 +94,7 @@ __all__ = [
     "adaptor_impl", "cast_", "collect", "combine", "comparison_summary", "component",
     "compute_node", "compute_set_delta", "context", "convert", "dispatch", "dispatch_",
     "delayed_binding", "downcast_", "downcast_ref", "emit", "eval_node", "evaluate_const", "evaluate_graph", "feedback",
-    "filter_by", "from_graph", "generator", "get_service_inputs", "graph", "impl_input",
+    "filter_by", "from_graph", "generator", "get_service_inputs", "graph", "impl_input", "is_realtime",
     "impl_output", "lift", "lower", "map_", "mesh_", "MeshWiringPort", "get_mesh", "no_key", "operator",
     "operator_function", "pass_through", "passive", "push_queue", "record_replay_scope",
     "reduce", "reference_service", "register_adaptor", "register_service",

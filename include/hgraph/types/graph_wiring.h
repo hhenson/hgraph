@@ -818,6 +818,12 @@ namespace hgraph
         SubGraph,
     };
 
+    /** Immutable configuration supplied before graph composition begins. */
+    struct WiringOptions
+    {
+        bool is_realtime{false};
+    };
+
     struct WiringObserverRegistry;
 
     class HGRAPH_EXPORT WiringObservationScope
@@ -850,7 +856,8 @@ namespace hgraph
     class HGRAPH_EXPORT Wiring
     {
       public:
-        explicit Wiring(WiringKind kind = WiringKind::TopLevel);
+        explicit Wiring(WiringKind kind = WiringKind::TopLevel,
+                        WiringOptions options = {});
         ~Wiring();
         Wiring(const Wiring &)            = delete;
         Wiring &operator=(const Wiring &) = delete;
@@ -886,6 +893,8 @@ namespace hgraph
 
         /** Whether this wiring is a root graph or an isolated child graph. */
         [[nodiscard]] WiringKind kind() const noexcept;
+        /** Whether this graph is being composed for a real-time executor. */
+        [[nodiscard]] bool is_realtime() const noexcept;
 
         /** User-facing label copied to the produced graph. */
         Wiring &label(std::string label);
@@ -1213,6 +1222,7 @@ namespace hgraph
         friend class WiringObservationScope;
 
         Wiring(WiringKind kind,
+               WiringOptions options,
                std::shared_ptr<WiringObserverRegistry> observers,
                std::vector<std::string> path);
         [[nodiscard]] WiringScopeEvent begin_observation(WiringScopeEvent event);
@@ -3456,7 +3466,9 @@ namespace hgraph
      */
     template <typename G, typename... Args>
     [[nodiscard]] GraphBuilder build_graph_with_observers(
-        std::span<WiringObserver *const> observers, Args &&...args)
+        std::span<WiringObserver *const> observers,
+        WiringOptions options,
+        Args &&...args)
     {
         using sig    = StaticGraphSignature<G>;
         using params = typename sig::param_types;
@@ -3469,7 +3481,7 @@ namespace hgraph
         static_assert(graph_wiring_detail::all_scalar_params<params>(std::make_index_sequence<sig::param_count()>{}),
                       "build_graph<G>: every compose parameter after Wiring& must be Scalar<>");
 
-        Wiring w;
+        Wiring w{WiringKind::TopLevel, options};
         for (WiringObserver *observer : observers) { w.add_wiring_observer(observer); }
         auto   arg_tuple    = std::forward_as_tuple(std::forward<Args>(args)...);
         auto   default_args = call_args_detail::default_args_for<G>();
@@ -3498,6 +3510,23 @@ namespace hgraph
             graph_builder.label(std::string{static_node_detail::name_view<G>()});
         }
         return graph_builder;
+    }
+
+    template <typename G, typename... Args>
+    [[nodiscard]] GraphBuilder build_graph_with_observers(
+        std::span<WiringObserver *const> observers, Args &&...args)
+    {
+        return build_graph_with_observers<G>(
+            observers, WiringOptions{}, std::forward<Args>(args)...);
+    }
+
+    template <typename G, typename... Args>
+    [[nodiscard]] GraphBuilder build_graph(WiringOptions options,
+                                           Args &&...args)
+    {
+        return build_graph_with_observers<G>(
+            std::span<WiringObserver *const>{}, options,
+            std::forward<Args>(args)...);
     }
 
     template <typename G, typename... Args>

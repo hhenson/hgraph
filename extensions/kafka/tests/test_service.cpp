@@ -72,6 +72,11 @@ void capture_value(Wiring &w, Port<Schema> port, Value &observed,
       std::span<const WiringPortRef>{inputs}, Value{});
 }
 
+template <typename G>
+[[nodiscard]] GraphBuilder build_realtime_graph() {
+  return build_graph<G>(WiringOptions{.is_realtime = true});
+}
+
 [[nodiscard]] GraphExecutorValue start_realtime(GraphBuilder builder,
                                                 TimeDelta duration = TimeDelta{
                                                     5'000'000}) {
@@ -193,7 +198,6 @@ inline Value cursor{};
 inline Value produced_record{};
 inline Value event_value{};
 inline Value production_config{};
-inline KafkaServiceMode production_service_mode{KafkaServiceMode::RealTime};
 inline Value independent_subscription_key{};
 inline Value secondary_subscription_key{};
 inline Str production_topic{"native-out"};
@@ -371,7 +375,7 @@ struct ProductionPublishGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-publish");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto record = wire<stdlib::const_, TS<KafkaProduceRecord>>(
         w, produced_record.clone());
     auto report =
@@ -386,7 +390,7 @@ struct ProductionCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-commit");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto commit_cursor =
         wire<stdlib::const_, TS<KafkaCursor>>(w, cursor.clone());
     commit(w, path, commit_cursor);
@@ -440,7 +444,7 @@ struct ProductionSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -474,7 +478,7 @@ struct GraphLifetimeSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("graph-lifetime-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(wire<GraphLifetimeSubscriptionCapture>(
@@ -513,7 +517,7 @@ struct RecordTimeRecoveryLiveGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("record-time-recovery-live");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -553,7 +557,7 @@ struct BoundedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-bounded-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -602,7 +606,7 @@ struct MultiBoundedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-multi-bounded-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto first_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto second_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
@@ -658,7 +662,7 @@ struct FlowControlledSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-flow-control");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
@@ -671,7 +675,7 @@ struct BoundedSubscriptionCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-bounded-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto subscription = subscribe(w, path, key);
@@ -719,7 +723,7 @@ struct MonotonicCommitGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-monotonic-commit");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     auto subscription = subscribe(w, path, key);
@@ -775,7 +779,7 @@ struct ReaddedSubscriptionGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("production-readded-subscription");
-    register_service(w, path, production_config.clone(), production_service_mode);
+    register_service(w, path, production_config.clone());
     const auto *schema = ts_type<TS<KafkaSubscriptionKey>>();
     Port<TS<KafkaSubscriptionKey>> key{
         w, w.add_unique_node(
@@ -856,7 +860,6 @@ struct EventBacklogGraph {
 
 void initialize_values() {
   register_kafka_types();
-  production_service_mode = KafkaServiceMode::RealTime;
   service_config =
       make_service_config({Str{"localhost:9092"}}, Str{"native-test"});
   subscription_key = make_subscription_key(
@@ -1031,7 +1034,6 @@ void test_public_value_validation_and_producer_configuration() {
 }
 
 void test_simulation_rejects_publish_and_commit_work() {
-  production_service_mode = KafkaServiceMode::Simulation;
   production_config =
       make_service_config({Str{"localhost:9092"}}, Str{"simulation-rejection"});
   const DateTime start = wall_now();
@@ -1097,7 +1099,7 @@ void test_subscription_boundary() {
   subscription_observed = Value{};
   subscription_count = 0;
 
-  auto executor = start_realtime(build_graph<SubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<SubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1132,7 +1134,7 @@ void test_publish_boundary() {
   delivery_observed = Value{};
   delivery_count = 0;
 
-  auto executor = start_realtime(build_graph<PublishGraph>());
+  auto executor = start_realtime(build_realtime_graph<PublishGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1167,7 +1169,7 @@ void test_multiple_publishers_and_dynamic_topics() {
   multi_delivery_a_count = 0;
   multi_delivery_b_count = 0;
 
-  auto executor = start_realtime(build_graph<MultiPublisherGraph>());
+  auto executor = start_realtime(build_realtime_graph<MultiPublisherGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1195,7 +1197,7 @@ void test_multiple_publishers_and_dynamic_topics() {
 
 void test_subscription_sharing_is_explicit_and_duplicate_registration_fails() {
   sharing_broker = std::make_shared<FakeBroker>();
-  auto executor = start_realtime(build_graph<SubscriptionSharingGraph>());
+  auto executor = start_realtime(build_realtime_graph<SubscriptionSharingGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1229,7 +1231,7 @@ void test_push_backlogs_drain_one_value_per_graph_cycle() {
   backlog_broker = std::make_shared<FakeBroker>();
   backlog_offsets.clear();
   auto subscription_executor =
-      start_realtime(build_graph<SubscriptionBacklogGraph>());
+      start_realtime(build_realtime_graph<SubscriptionBacklogGraph>());
   auto subscription_view = subscription_executor.view();
   AsyncGraphExecutorRun subscription_runner{subscription_view};
   require(backlog_broker->wait_for_subscription_updates(1, 2s),
@@ -1247,7 +1249,7 @@ void test_push_backlogs_drain_one_value_per_graph_cycle() {
 
   backlog_broker = std::make_shared<FakeBroker>();
   backlog_events.clear();
-  auto event_executor = start_realtime(build_graph<EventBacklogGraph>());
+  auto event_executor = start_realtime(build_realtime_graph<EventBacklogGraph>());
   auto event_view = event_executor.view();
   AsyncGraphExecutorRun event_runner{event_view};
   require(backlog_broker->wait_until_attached(2s),
@@ -1266,7 +1268,7 @@ void test_push_backlogs_drain_one_value_per_graph_cycle() {
 void test_service_can_start_and_stop_repeatedly() {
   event_broker = std::make_shared<FakeBroker>();
   for (int run = 0; run < 2; ++run) {
-    auto executor = start_realtime(build_graph<CommitAndEventGraph>());
+    auto executor = start_realtime(build_realtime_graph<CommitAndEventGraph>());
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
     require(event_broker->wait_until_attached(2s),
@@ -1289,7 +1291,7 @@ void test_ingress_is_bounded_before_the_graph_drains() {
   subscription_count = 0;
 
   const DateTime start = wall_now();
-  auto executor = start_realtime(build_graph<SubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<SubscriptionGraph>());
   auto graph = executor.view().graph();
   graph.start(start);
   require(subscription_broker->wait_until_attached(2s),
@@ -1335,7 +1337,7 @@ void test_librdkafka_ingress_pauses_and_resumes_at_watermarks() {
   flow_control_events.clear();
   flow_control_complete = false;
 
-  auto executor = start_realtime(build_graph<FlowControlledSubscriptionGraph>(),
+  auto executor = start_realtime(build_realtime_graph<FlowControlledSubscriptionGraph>(),
                                  TimeDelta{20'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
@@ -1360,7 +1362,7 @@ void test_commit_and_event_boundaries() {
   event_observed = Value{};
   event_count = 0;
 
-  auto executor = start_realtime(build_graph<CommitAndEventGraph>());
+  auto executor = start_realtime(build_realtime_graph<CommitAndEventGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1392,8 +1394,8 @@ void test_concurrent_engines_are_independent() {
   engine_a_count = 0;
   engine_b_count = 0;
 
-  auto executor_a = start_realtime(build_graph<EngineAGraph>());
-  auto executor_b = start_realtime(build_graph<EngineBGraph>());
+  auto executor_a = start_realtime(build_realtime_graph<EngineAGraph>());
+  auto executor_b = start_realtime(build_realtime_graph<EngineBGraph>());
   auto view_a = executor_a.view();
   auto view_b = executor_b.view();
   AsyncGraphExecutorRun runner_a{view_a};
@@ -1433,7 +1435,7 @@ void test_librdkafka_publish_path() {
   production_delivery = Value{};
   production_delivery_count = 0;
 
-  auto executor = start_realtime(build_graph<ProductionPublishGraph>());
+  auto executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1477,7 +1479,7 @@ void test_librdkafka_delivery_failures_are_typed() {
     production_delivery = Value{};
     production_delivery_count = 0;
 
-    auto executor = start_realtime(build_graph<ProductionPublishGraph>());
+    auto executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
     runner.join();
@@ -1517,7 +1519,7 @@ void test_librdkafka_subscription_path() {
   production_record = Value{};
   production_cursor = Value{};
 
-  auto executor = start_realtime(build_graph<ProductionSubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<ProductionSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1569,7 +1571,7 @@ void test_graph_lifetime_stop_remains_live_in_real_time() {
   graph_lifetime_live.reset();
 
   auto executor =
-      start_realtime(build_graph<GraphLifetimeSubscriptionGraph>());
+      start_realtime(build_realtime_graph<GraphLifetimeSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   require(graph_lifetime_live.await(1),
@@ -1605,7 +1607,7 @@ void test_permanent_consumer_failure_stops_the_graph() {
   bounded_event_count = 0;
 
   const auto started = std::chrono::steady_clock::now();
-  auto executor = start_realtime(build_graph<BoundedSubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1647,7 +1649,7 @@ void test_typed_explicit_partition_boundaries() {
   bounded_event = Value{};
   bounded_event_count = 0;
 
-  auto executor = start_realtime(build_graph<BoundedSubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1676,7 +1678,7 @@ void test_latest_snapshot_is_empty() {
   bounded_offsets.clear();
   bounded_states.clear();
 
-  auto executor = start_realtime(build_graph<BoundedSubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1698,7 +1700,7 @@ void run_bounded_subscription(std::string_view context = {}) {
   bounded_evaluation_times.clear();
   bounded_event = Value{};
   bounded_event_count = 0;
-  auto executor = start_realtime(build_graph<BoundedSubscriptionGraph>());
+  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1790,7 +1792,7 @@ void test_subscription_removal_and_readd_uses_a_fresh_assignment_generation() {
   subscription_generations.reset();
   stale_commit_events.reset();
   first_readded_cursor = Value{};
-  auto executor = start_realtime(build_graph<ReaddedSubscriptionGraph>(),
+  auto executor = start_realtime(build_realtime_graph<ReaddedSubscriptionGraph>(),
                                  TimeDelta{20'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
@@ -1997,7 +1999,7 @@ void test_commit_modes_and_monotonic_explicit_commits() {
         KafkaCommitMode::Explicit, Str{"typed-monotonic-subscription"});
     first_commit_cursor = Value{};
 
-    auto executor = start_realtime(build_graph<MonotonicCommitGraph>(),
+    auto executor = start_realtime(build_realtime_graph<MonotonicCommitGraph>(),
                                    TimeDelta{20'000'000});
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
@@ -2089,7 +2091,7 @@ void test_record_time_recovery_hands_off_before_live_records() {
   record_time_recovery_started.reset();
   recovery_live_records.clear();
 
-  auto executor = start_realtime(build_graph<RecordTimeRecoveryLiveGraph>(),
+  auto executor = start_realtime(build_realtime_graph<RecordTimeRecoveryLiveGraph>(),
                                  TimeDelta{8'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
@@ -2163,7 +2165,7 @@ void test_record_time_recovery_waits_for_independent_subscriptions() {
   multi_bounded_complete_count = 0;
   multi_bounded_failed_count = 0;
 
-  auto executor = start_realtime(build_graph<MultiBoundedSubscriptionGraph>(),
+  auto executor = start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
                                  TimeDelta{5'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
@@ -2234,7 +2236,7 @@ void test_record_time_recovery_releases_a_failed_participant() {
   multi_bounded_complete_count = 0;
   multi_bounded_failed_count = 0;
 
-  auto executor = start_realtime(build_graph<MultiBoundedSubscriptionGraph>(),
+  auto executor = start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
                                  TimeDelta{5'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
@@ -2251,7 +2253,6 @@ void test_record_time_recovery_releases_a_failed_participant() {
 }
 
 void test_graph_lifetime_stop_is_bounded_in_simulation() {
-  production_service_mode = KafkaServiceMode::Simulation;
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-record-time"});
   const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
@@ -2296,7 +2297,6 @@ void test_graph_lifetime_stop_is_bounded_in_simulation() {
 }
 
 void test_multiple_simulation_subscriptions_replay_at_record_time() {
-  production_service_mode = KafkaServiceMode::Simulation;
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-preload-a"});
   cluster.create_topic(Str{"simulation-preload-b"});
@@ -2372,11 +2372,9 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
   }
   require(multi_bounded_complete_count == 2,
           "simulation did not complete both bounded subscriptions");
-  production_service_mode = KafkaServiceMode::RealTime;
 }
 
 void test_real_broker_publish_subscribe_and_commit_round_trip() {
-  production_service_mode = KafkaServiceMode::RealTime;
   const char *bootstrap_value =
       std::getenv("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
   const char *topic_value = std::getenv("HGRAPH_KAFKA_INTEGRATION_TOPIC");
@@ -2403,7 +2401,7 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   production_delivery = Value{};
   production_delivery_count = 0;
 
-  auto publish_executor = start_realtime(build_graph<ProductionPublishGraph>());
+  auto publish_executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
   auto publish_view = publish_executor.view();
   AsyncGraphExecutorRun publish_runner{publish_view};
   publish_runner.join();
@@ -2432,7 +2430,8 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   bounded_event = Value{};
   bounded_event_count = 0;
   auto commit_executor = start_realtime(
-      build_graph<BoundedSubscriptionCommitGraph>(), TimeDelta{20'000'000});
+      build_realtime_graph<BoundedSubscriptionCommitGraph>(),
+      TimeDelta{20'000'000});
   auto commit_view = commit_executor.view();
   AsyncGraphExecutorRun commit_runner{commit_view};
   commit_runner.join();
@@ -2461,7 +2460,7 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   bounded_evaluation_times.clear();
   bounded_event = Value{};
   bounded_event_count = 0;
-  auto verify_executor = start_realtime(build_graph<BoundedSubscriptionGraph>(),
+  auto verify_executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>(),
                                         TimeDelta{20'000'000});
   auto verify_view = verify_executor.view();
   AsyncGraphExecutorRun verify_runner{verify_view};

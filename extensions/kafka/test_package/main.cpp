@@ -39,6 +39,7 @@ int main()
 {
     stdlib::register_standard_operators();
     register_kafka_types();
-    auto graph = build_graph<InstalledConsumerGraph>();
+    auto graph = build_graph<InstalledConsumerGraph>(
+        WiringOptions{.is_realtime = true});
     return graph.node_count() == 0 ? 1 : 0;
 }

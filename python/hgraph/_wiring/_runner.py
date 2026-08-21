@@ -280,7 +280,6 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
     previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
     previous_start_time = state.get("__start_time__", missing)
-    previous_evaluation_mode = state.get("__evaluation_mode__", missing)
     state[_GRAPH_LOGGER_KEY] = config.graph_logger
     if config.logger_formatter is None:
         state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
@@ -304,7 +303,8 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     try:
         _wiring_lock.acquire()
         wiring_lock_held = True
-        w = _hgraph.Wiring(state._impl)
+        realtime = config.run_mode == EvaluationMode.REAL_TIME
+        w = _hgraph.Wiring(state._impl, realtime)
         w.configure_wiring_observers(
             config.trace_wiring, config.wiring_observers)
         _wiring_stack.append(w)
@@ -318,11 +318,6 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         # generator and the stream aborts empty.
         state["__start_time__"] = (
             config.start_time if config.start_time is not None else _hgraph.MIN_ST)
-        # Wiring-time adapters occasionally need to select a concrete native
-        # contract based on whether the graph will run in simulation or real
-        # time. Keep that run-scoped configuration in GlobalState alongside
-        # the existing start-time mirror rather than in a process global.
-        state["__evaluation_mode__"] = config.run_mode
         config.graph_logger.debug("Wiring graph: %s", getattr(graph_fn, "__name__", graph_fn))
         out = graph_fn(*args, **kwargs)
         # Wiring may materialize a base schema before a downstream extension
@@ -340,7 +335,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             time.perf_counter() - wiring_started,
         )
         run = w.run(start_time=config.start_time, end_time=config.end_time,
-                    realtime=config.run_mode == EvaluationMode.REAL_TIME,
+                    realtime=realtime,
                     trace=trace, profiler=profiler,
                     logger=config.graph_logger,
                     logger_level=config.default_log_level,
@@ -374,10 +369,6 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             state.pop("__start_time__", None)
         else:
             state["__start_time__"] = previous_start_time
-        if previous_evaluation_mode is missing:
-            state.pop("__evaluation_mode__", None)
-        else:
-            state["__evaluation_mode__"] = previous_evaluation_mode
     if profiler is not None:
         _log_evaluation_profile(config.graph_logger, profiler.snapshot())
     if out is None:
@@ -673,7 +664,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     trace = _make_evaluation_trace(__trace__)
     from .._types import _finalize_compound_scalar_types
     _finalize_compound_scalar_types()
-    w = _hgraph.Wiring(GlobalState.instance()._impl)
+    w = _hgraph.Wiring(GlobalState.instance()._impl, realtime)
     _wiring_stack.append(w)
     try:
         w.configure_wiring_observers(__trace_wiring__, ())
@@ -792,7 +783,6 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         # replay overloads' upstream `_api.start_time` filter — reads this.
         GlobalState.instance()["__start_time__"] = (
             __start_time__ if __start_time__ is not None else _hgraph.MIN_ST)
-        GlobalState.instance()["__evaluation_mode__"] = __run_mode__
         out = fn(*ports, **scalars)
         # Replay values convert AFTER wiring: hgraph surfaces wiring errors
         # before data-conversion errors, and tests pin that order.

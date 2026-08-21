@@ -2982,16 +2982,10 @@ struct KafkaServiceImpl {
 
 void register_service(Wiring &w, service::ServicePath path,
                       Value service_config) {
-  register_service(w, std::move(path), std::move(service_config),
-                   KafkaServiceMode::RealTime);
-}
-
-void register_service(Wiring &w, service::ServicePath path,
-                      Value service_config, KafkaServiceMode mode) {
   service::register_services<KafkaServiceImpl, KafkaSubscriptionService,
                              KafkaPublishService, KafkaCommitService,
                              KafkaEventService>(w, std::move(path),
                                                 std::move(service_config),
-                                                Bool{mode == KafkaServiceMode::Simulation});
+                                                Bool{!w.is_realtime()});
 }
 } // namespace hgraph::kafka
