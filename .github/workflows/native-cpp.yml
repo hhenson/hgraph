@@ -75,6 +75,7 @@ jobs:
       - name: Configure native C++ tests
         run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON -DHGRAPH_BUILD_WEB_EXTENSION=ON
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
+          -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Build native C++ tests
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
@@ -174,6 +175,7 @@ jobs:
           -DHGRAPH_BUILD_ANALYTICS_EXTENSION=OFF
           -DHGRAPH_BUILD_WEB_EXTENSION=OFF
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=OFF
+          -DHGRAPH_BUILD_FABRIC_EXTENSION=OFF
       - name: Verify core resolves no durable-store dependency
         shell: bash
         run: |
@@ -242,6 +244,7 @@ jobs:
           -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
           -DHGRAPH_BUILD_WEB_EXTENSION=ON
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
+          -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Verify IPO is enabled
         shell: micromamba-shell {0}
         run: >-
@@ -317,6 +320,18 @@ jobs:
           cmake --build build-persistence-consumer --parallel 2
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-persistence-consumer --output-on-failure
+      - name: Configure installed fabric consumer
+        shell: micromamba-shell {0}
+        run: >-
+          cmake -S extensions/fabric/test_package -B build-fabric-consumer -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
+      - name: Build and test installed fabric consumer
+        shell: micromamba-shell {0}
+        run: |
+          cmake --build build-fabric-consumer --parallel 2
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            ctest --test-dir build-fabric-consumer --output-on-failure
       - name: Configure installed fabric dependency consumer
         shell: micromamba-shell {0}
         run: >-
