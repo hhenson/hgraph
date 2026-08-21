@@ -1851,12 +1851,13 @@ class _TsExpr:
                 # combine[TSD](keys_ts, values_ts): the TS[tuple] zip kernel.
                 return wire("convert", *ports, output_type=self)
             if self.handle.is_ts_sequence:
-                # combine[TS[Tuple...]](a, b, ...): pack a structural TSB;
-                # the erased tuple-combine kernel fills the row.
-                fields = [(f"_{i}", _unwrap(p).ts_type) for i, p in enumerate(ports)]
-                tsb_type = _m.un_named_tsb_type(fields)
+                # combine[TS[Tuple...]](a, b, ...): pack a non-reference
+                # structural TSB. Each original child edge is retained, while
+                # its declared field shape is the value observed through any
+                # REF, matching legacy TSB.from_ts vararg packing.
+                raw_ports = [_unwrap(p) for p in ports]
                 structural = WiringPort(
-                    _m.tsb_port(tsb_type, {f"_{i}": _unwrap(p) for i, p in enumerate(ports)}))
+                    _m.bundle_port(raw_ports, [False] * len(raw_ports)))
                 if strict_cs is False:
                     return wire("combine", structural, __strict__=False, output_type=self)
                 return wire("combine", structural, output_type=self)
