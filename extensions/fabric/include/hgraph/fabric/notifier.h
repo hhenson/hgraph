@@ -21,6 +21,54 @@ namespace hgraph::fabric
                                const RevisionNotification &) = default;
     };
 
+    enum class NotificationDeliveryStatus
+    {
+        Pending,
+        Delivered,
+        Failed,
+    };
+
+    struct NotificationDeliveryResult
+    {
+        NotificationDeliveryStatus status{NotificationDeliveryStatus::Pending};
+        Str                        message{};
+
+        friend bool operator==(const NotificationDeliveryResult &,
+                               const NotificationDeliveryResult &) = default;
+    };
+
+    struct NotificationDeliveryOps
+    {
+        NotificationDeliveryResult (*poll)(void *context);
+    };
+
+    /** Correlated asynchronous acknowledgement for one accepted revision.
+        The concrete notifier owns delivery correlation; publication polls this
+        passive handle after the immutable revision and its indexes are durable. */
+    class HGRAPH_FABRIC_EXPORT NotificationDelivery final
+    {
+      public:
+        NotificationDelivery() noexcept;
+        NotificationDelivery(std::shared_ptr<void> context,
+                             const NotificationDeliveryOps &ops);
+
+        NotificationDelivery(const NotificationDelivery &) = default;
+        NotificationDelivery &operator=(const NotificationDelivery &) = default;
+        NotificationDelivery(NotificationDelivery &&other) noexcept;
+        NotificationDelivery &operator=(NotificationDelivery &&other) noexcept;
+        ~NotificationDelivery() = default;
+
+        [[nodiscard]] NotificationDeliveryResult poll() const;
+        [[nodiscard]] explicit operator bool() const noexcept;
+        void reset() noexcept;
+
+      private:
+        [[nodiscard]] static const NotificationDeliveryOps &empty_ops() noexcept;
+
+        std::shared_ptr<void>   context_{};
+        NotificationDeliveryOps ops_{empty_ops()};
+    };
+
     struct NotificationSubscriptionOps
     {
         std::optional<RevisionNotification> (*try_pop)(void *context);
@@ -60,12 +108,13 @@ namespace hgraph::fabric
     struct NotifierOps
     {
         NotificationSubscription (*subscribe)(void *context);
-        void (*publish)(void *context, RevisionNotification notification);
+        NotificationDelivery (*publish)(void *context,
+                                        RevisionNotification notification);
     };
 
     /** Owning type-erased fabric notification contract. The contract validates
-        complete encoded revision notices and matching data ids before dispatch;
-        persistence remains authoritative. */
+        complete encoded accepted-revision notices and matching data ids before
+        dispatch; persistence remains authoritative. */
     class HGRAPH_FABRIC_EXPORT Notifier final
     {
       public:
@@ -79,7 +128,8 @@ namespace hgraph::fabric
         ~Notifier() = default;
 
         [[nodiscard]] NotificationSubscription subscribe() const;
-        void publish(RevisionNotification notification) const;
+        [[nodiscard]] NotificationDelivery
+        publish(RevisionNotification notification) const;
         [[nodiscard]] explicit operator bool() const noexcept;
         void reset() noexcept;
 

@@ -418,7 +418,12 @@ register_mesh_node_context(MeshNodeSpec spec,
 void visit_mesh_child(const void *raw_context, const NodeBuilder &,
                       void *visitor_context, ChildGraphVisitor visitor) {
   const auto &context = *static_cast<const MeshNodeContext *>(raw_context);
-  visitor(visitor_context, context.spec.child.graph_builder);
+  visitor(visitor_context, ChildGraphInspectionView{
+                               .graph = &context.spec.child.graph_builder,
+                               .output_binding = context.spec.child.output_binding
+                                                     ? &*context.spec.child.output_binding
+                                                     : nullptr,
+                           });
 }
 
 [[nodiscard]] std::vector<std::unique_ptr<MeshSubscribeContext>> &

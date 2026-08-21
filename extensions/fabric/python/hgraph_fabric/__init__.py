@@ -6,7 +6,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Final
 
-from hgraph import CompoundScalar, Frame, MIN_DT, TS, operator_function
+from hgraph import (
+    CompoundScalar,
+    Frame,
+    MIN_DT,
+    TS,
+    WiringPort,
+    operator_function,
+)
+
+# The native Fabric bridge consumes the persistence SDK.  Loading its declared
+# Python dependency first is also required on Windows: the
+# persistence bridge loads Parquet from PyArrow before Fabric's module is
+# resolved, while macOS and Linux can use their relative runtime paths.
+import hgraph_persistence as _hgraph_persistence  # noqa: F401
 
 from . import _hgraph_fabric as _native
 
@@ -15,6 +28,7 @@ DataVersion = int
 RevisionId = int
 SubscriptionMode = _native.SubscriptionMode
 FabricSubscriptionMode = SubscriptionMode
+ResolutionStatus = _native.ResolutionStatus
 
 
 @dataclass(frozen=True)
@@ -40,9 +54,9 @@ class DataRevision(CompoundScalar, namespace="hgraph.fabric"):
 
 @dataclass(frozen=True)
 class DependencyHandle:
-    """Opaque Python authoring handle completed by dependency planning in checkpoint 3."""
+    """Opaque proof that a dependency came from ``subscribe_data``."""
 
-    _token: object
+    _token: WiringPort
 
 
 @dataclass(frozen=True)
@@ -65,6 +79,10 @@ class DependencySelection:
     ) -> "DependencySelection":
         if not dependencies:
             raise ValueError("explicit fabric dependencies must not be empty")
+        if not all(isinstance(item, DependencyHandle) for item in dependencies):
+            raise TypeError(
+                "explicit fabric dependencies must be DependencyHandle values"
+            )
         return cls(tuple(dependencies))
 
 
@@ -76,6 +94,23 @@ LATEST_MEDIA_TYPE: Final[str] = _native.LATEST_MEDIA_TYPE
 
 _subscribe_data = operator_function("hgraph.fabric.subscribe_data")
 _publish_data = operator_function("hgraph.fabric.publish_data")
+_publish_data_explicit = operator_function(
+    "hgraph.fabric._publish_data_explicit"
+)
+_register_memory_service = operator_function(
+    "hgraph.fabric.register_memory_service"
+)
+
+
+def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
+    """Register one native Fabric service backed by process-local stores.
+
+    This is the deterministic local/test host. Production hosts install their
+    persistence and notification resources in ``GlobalState`` and register the
+    same native service contract from C++.
+    """
+
+    _register_memory_service(prefix)
 
 
 def subscribe_data(
@@ -89,6 +124,18 @@ def subscribe_data(
     return _subscribe_data(data_id, mode, MIN_DT if as_of is None else as_of)
 
 
+def dependency_handle(subscription: TS[Frame]) -> DependencyHandle:
+    """Create an explicit-lineage handle from a direct subscription result.
+
+    Native planning validates the direct source and wiring-root identity when
+    the handle is consumed by ``publish_data``.
+    """
+
+    if not isinstance(subscription, WiringPort):
+        raise TypeError("fabric dependency handle requires a WiringPort")
+    return DependencyHandle(subscription)
+
+
 def publish_data(
     data_id: str,
     value: TS[Frame],
@@ -97,15 +144,16 @@ def publish_data(
 ) -> None:
     """Wire a complete atomic Frame publisher.
 
-    Explicit Python dependency handles become executable with the shared C++
-    planner in RFC 0026 checkpoint 3. Automatic lineage is fully declared now.
+    Explicit handles and automatic discovery use the same native wiring-time
+    dependency planner.
     """
 
-    if not dependencies.is_automatic:
-        raise NotImplementedError(
-            "explicit Python fabric dependency handles arrive in RFC 0026 checkpoint 3"
-        )
-    _publish_data(data_id, value)
+    if dependencies.is_automatic:
+        _publish_data(data_id, value)
+        return
+    _publish_data_explicit(
+        data_id, value, *(item._token for item in dependencies.dependencies)
+    )
 
 
 def _to_epoch_microseconds(value: datetime) -> int:
@@ -169,6 +217,22 @@ def decode_latest_reference(encoded: bytes) -> RevisionId:
     return _native._decode_revision_reference(3, encoded)
 
 
+def _resolve_fixture(
+    revisions: tuple[DataRevision, ...],
+    roots: tuple[str, ...],
+    exposed: tuple[tuple[str, DataVersion], ...] = (),
+):
+    """Exercise the native resolver over an isolated in-memory history.
+
+    This private compatibility-test seam keeps Python examples on the same
+    C++ resolver and persistence contracts as production ingress.
+    """
+
+    return _native._resolve_fixture(
+        [encode_revision(revision) for revision in revisions], roots, exposed
+    )
+
+
 __all__ = [
     "AS_OF_MEDIA_TYPE",
     "AUTO",
@@ -181,13 +245,16 @@ __all__ = [
     "LATEST_MEDIA_TYPE",
     "REVISION_MEDIA_TYPE",
     "RevisionId",
+    "ResolutionStatus",
     "SubscriptionMode",
     "decode_as_of_reference",
     "decode_latest_reference",
     "decode_revision",
+    "dependency_handle",
     "encode_as_of_reference",
     "encode_latest_reference",
     "encode_revision",
     "publish_data",
+    "register_memory_fabric_service",
     "subscribe_data",
 ]

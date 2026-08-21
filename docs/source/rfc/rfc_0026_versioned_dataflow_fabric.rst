@@ -1,7 +1,7 @@
 RFC 0026: Versioned Dataflow Fabric
 ===================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-18
 :Target: A new C++-first ``hgraph-fabric`` extension for durable,
@@ -38,10 +38,10 @@ revision history at its original publication times.  A snapshot subscriber
 loads one consistent view as of a requested time and ticks it once at graph
 start.
 
-This RFC fixes the semantic model and the public C++/Python shape.  It does not
-implement the extension.  In particular it does not add orchestration, data
-catalogue, schema-evolution, deletion, delta distribution or event-accurate
-streaming facilities.
+This RFC fixes the semantic model and the public C++/Python shape implemented
+by the first version of ``hgraph-fabric``.  The accepted implementation does
+not add orchestration, a data catalogue, schema evolution, deletion, delta
+distribution or event-accurate streaming facilities.
 
 Motivation
 ----------
@@ -274,10 +274,11 @@ The production data path is:
 The two paths have different jobs:
 
 * object storage owns values, history and the accepted revision sequence;
-* Kafka wakes a live subscriber and carries enough revision metadata to avoid
-  an unnecessary manifest read in the common case;
-* every Kafka revision is nevertheless checked against the immutable durable
-  revision slot before it is accepted; and
+* Kafka wakes a live subscriber and carries the complete accepted revision,
+  populating its revision and dependency indexes without a manifest read in
+  the common case;
+* persistence remains authoritative for startup, reconnect reconciliation and
+  targeted gap recovery; and
 * startup and simulation are possible from persistence without a live
   producer.
 
@@ -287,8 +288,9 @@ An application graph remains ordinary hgraph composition:
 
    @graph
    def normalised_prices() -> None:
-       prices = subscribe_data("raw-prices")
-       instruments = subscribe_data("instrument-reference")
+       prices = subscribe_data("raw-prices", mode=SubscriptionMode.LIVE)
+       instruments = subscribe_data(
+           "instrument-reference", mode=SubscriptionMode.LIVE)
        result = normalise(prices, instruments)
        publish_data("normalised-prices", result)
 
@@ -322,11 +324,13 @@ subscription modes or consistency policies.
 The public extension seam has been validated from a separately built installed
 SDK consumer.  A fabric-shaped proof can retain one wiring-owned plan, defer
 and bind its source in an idempotent pre-rank finalizer, discover marked sources
-through public upstream edges and through the compiled child plans of nested
-owners, and use a typed same-root subscription handle when the data edge is
-deliberately hidden.  The nested case creates ``subscribe_data`` inside the
-child graph and feeds only the child output to an outer publisher; it therefore
-proves the ownership boundary rather than merely following an outer input.
+through public upstream edges and through the exposed-output ancestry of
+compiled child plans, and use a typed same-root subscription handle when the
+data edge is deliberately hidden.  The nested case creates ``subscribe_data``
+inside the child graph and feeds only the child output to an outer publisher;
+unrelated child side effects are excluded from that output lineage.  It
+therefore proves the ownership boundary rather than merely following an outer
+input.
 Fabric does not use the proof source to select runtime behavior.  Its public
 operator requires an explicit subscription mode, and wiring selects the
 concrete source implementation before execution.
@@ -335,9 +339,11 @@ The proof exposed one missing generally reusable core seam.  ``NodeBuilder``
 now visits its immediate compiled child graph templates through a passive,
 type-erased cold-path contract.  ``nested_``, ``map_``, ``mesh_``, associative
 and ordered reduce, ``switch_`` and dynamic-TSL map all install the same
-contract; ordinary nodes use its canonical no-op implementation.  Extensions
-recurse explicitly when they need the complete plan forest.  This adds no
-evaluation-path work and carries no fabric ids, lineage or consistency policy.
+contract; ordinary nodes use its canonical no-op implementation.  Each view
+also exposes the optional child output binding, allowing extensions to recurse
+from the returned endpoint rather than scanning the complete child plan.  This
+adds no evaluation-path work and carries no fabric ids, lineage or consistency
+policy.
 
 hgraph-persistence owns
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -391,13 +397,15 @@ The new extension owns:
 Packaging and activation
 ------------------------
 
-The implementation will follow the existing first-party extension layout:
+The implementation follows the existing first-party extension layout:
 
 * repository directory ``extensions/fabric``;
 * CMake package and distribution ``hgraph-fabric``;
 * exported target ``hgraph::fabric``;
 * root build option ``HGRAPH_BUILD_FABRIC_EXTENSION``;
-* Python package ``hgraph_fabric`` with an abi3 native module; and
+* Python package ``hgraph_fabric`` with an abi3 native module;
+* optional installed target ``hgraph::fabric_kafka`` for the production
+  transport adapter; and
 * C++ namespace ``hgraph::fabric``.
 
 The extension depends on compatible versions of hgraph core and
@@ -440,17 +448,16 @@ metadata, conditionally advance a head, round-trip a Frame, and send and
 receive a keyed Kafka notification after observing its correlated broker
 delivery report.
 
-The probe also fixes the future fabric-owned Kafka profile without changing
-the general Kafka extension's valid policies.  Fabric requires idempotent
+The probe also fixed the fabric-owned Kafka profile without changing the
+general Kafka extension's valid policies.  Fabric requires idempotent
 production with ``acks=all`` (or ``-1``), ``Fail`` rather than ``Drop`` at
 consumer and final producer queue boundaries, and an unfiltered independent
 subscription to every partition of its configured topic.  Startup uses
 ``Committed`` with ``Earliest`` fallback and explicit commits after durable
-validation.  This retains proposals which race ahead of their immutable slot,
-while keeping the durable head authoritative.  ``Recovering`` and ``Live``
-provide the public lifecycle boundary needed to load and reconcile the durable
-image; records received before that handoff completes are retained and
-conflated by fabric in checkpoint 6.
+validation.  ``Recovering`` and ``Live`` provide the public lifecycle boundary
+needed to load and reconcile the durable image; accepted records received
+before that handoff completes are retained and conflated by fabric in
+checkpoint 6.
 
 The partition count of a fabric topic is a deployment invariant.  Expanding
 an existing topic would both remap keyed data ids and leave an independently
@@ -458,40 +465,34 @@ assigned running subscriber unaware of the new partition until it restarts.
 An installation which needs a different partition count creates a new fabric
 topic/namespace and migrates deliberately.
 
-The installed probe uses librdkafka's in-process protocol cluster.  External
-broker restart, rebalance and retention tests remain part of the checkpoint-6
-actual-broker gate; checkpoint 0 does not claim those production tests.
+The installed probe uses librdkafka's in-process protocol cluster.  Checkpoint
+6 subsequently added the actual-broker restart, rebalance, delivery-failure,
+partition-ordering and bounded-backpressure gate.
 
 Public value contract
 ---------------------
 
-The following shapes are normative semantically.  Exact C++ member spelling
-may be adjusted while this RFC remains Proposed, but C++ and Python represent
-the same registered scalar types rather than independent structures.
+The following registered shapes are normative.  C++ and Python represent the
+same scalar schemas; the ``Input`` structures are C++ convenience values used
+to build and decode those schemas, not a second contract.
 
 .. code-block:: cpp
 
    namespace hgraph::fabric
    {
-       using DataVersion = std::int64_t;
-       using RevisionId  = std::int64_t;
+       using DataVersion = Int;
+       using RevisionId  = Int;
 
-       struct DataDependency
-       {
-           Str         data_id;
-           DataVersion version;
-       };
+       using DataDependency =
+           Bundle<"hgraph.fabric::DataDependency",
+                  Field<"data_id", Str>, Field<"version", Int>>;
 
-       struct DataRevision
-       {
-           Int                               format_version;
-           Str                               data_id;
-           RevisionId                        revision;
-           DataVersion                       output_version;
-           HomogeneousTuple<DataDependency>  dependencies;
-           std::optional<DataVersion>         self_predecessor;
-           DateTime                          as_of;
-       };
+       using DataRevision =
+           Bundle<"hgraph.fabric::DataRevision",
+                  Field<"format_version", Int>, Field<"data_id", Str>,
+                  Field<"revision", Int>, Field<"output_version", Int>,
+                  Field<"dependencies", HomogeneousTuple<DataDependency>>,
+                  Field<"self_predecessor", Int>, Field<"as_of", DateTime>>;
 
        enum class SubscriptionMode
        {
@@ -594,9 +595,10 @@ of execution with the normal graph state.  The semantic configuration includes:
 
    struct FabricConfig
    {
-       Str                    prefix;
-       persistence::Store     store;
-       NotificationConfig     notifications;
+       Str                              prefix;
+       persistence::store::ObjectStore objects;
+       persistence::store::FrameStore  frames;
+       Notifier                         notifications;
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
@@ -674,8 +676,12 @@ The Frame is written to:
 
 The encoding is canonical, reversible and accepted by the persistence key
 validator.  Numeric path segments are fixed-width unsigned decimal so lexical
-ordering agrees with numeric ordering.  The physical Frame format is selected
-by ``hgraph-persistence`` configuration.
+ordering agrees with numeric ordering.  A complete encoded object key is
+limited to 1,024 bytes across every backend, matching S3's portable key limit;
+the configured prefix and encoded data id must leave room for the category and
+fixed-width ordinal.  The logical 4,096-byte metadata limit therefore does not
+promise that every data id fits every durable namespace.  The physical Frame
+format is selected by ``hgraph-persistence`` configuration.
 
 Revisions
 ~~~~~~~~~
@@ -848,31 +854,31 @@ The publication sequence for a candidate revision ``R`` is:
    stop; there is no new revision.
 5. Allocate revision ``R = latest.revision + 1`` and a monotonic as-of, and
    construct the complete revision record.
-6. Publish that full record to the fabric Kafka topic and wait for broker
-   acknowledgement.
-7. Conditionally create the immutable ``revision/R`` object.  The first write
+6. Conditionally create the immutable ``revision/R`` object.  The first write
    to succeed is the winner.
+7. The loser discards this publication attempt, reloads the accepted winner and
+   does not advertise its losing candidate or turn it into revision ``R+1``.
 8. The winner writes the immutable as-of index entry and conditionally advances
    ``latest``.
-9. The loser discards this publication attempt, reloads the accepted winner and
-   does not turn its losing candidate into revision ``R+1``.
+9. Publish the complete accepted revision to the fabric Kafka topic and observe
+   broker acknowledgement.  A failed delivery is retried without changing the
+   already accepted revision.
 
-Kafka acknowledgement precedes the revision-slot race so an accepted revision
-never lacks a previously acknowledged notification.  It does mean Kafka can
-contain proposals which did not win.  A subscriber treats every message as a
-wake-up and reads or validates the corresponding durable revision slot.  If
-the slot exists, the accepted slot is processed even when its payload differs
-from the notice.  If the slot does not yet exist and the accepted head is still
-below ``R``, the subscriber retains one ahead-of-storage proposal for that data
-id and retries durable validation with bounded backoff.  It discards the
-proposal only when the slot proves a different winner or accepted history has
-advanced past it.  This closes the race in which Kafka delivery precedes the
-revision commit without requiring periodic polling of every ``latest`` key.
+The revision-slot race precedes Kafka delivery, so Kafka contains accepted
+revisions rather than losing candidates.  A subscriber can validate and index
+the complete message in memory without reading its immutable slot on every
+tick.  A non-contiguous message reveals a gap and triggers targeted durable
+recovery for the missing history.  Startup and reconnect likewise reconcile
+the durable accepted head before entering the live state.
 
 The immutable revision slot is the publication commit point.  ``latest`` and
 the as-of index make discovery efficient but can be repaired from a completed
 slot after a crash.  All objects referenced by a revision are durable before
-that slot is created.
+that slot is created.  Kafka acknowledgement is not part of acceptance and a
+delivery failure cannot roll back the durable winner.  A publisher service
+which restarts or reconnects reconciles and re-advertises an accepted head
+whose delivery may have been interrupted; duplicate accepted notices are
+harmless.
 
 First publication and unchanged outputs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -928,41 +934,42 @@ Crash boundaries
    * - Before Frame write completes
      - No visible publication
      - Retry on a later publisher evaluation.
-   * - After Frame write, before Kafka acknowledgement
+   * - After Frame write, before revision creation
      - An unreferenced candidate Frame may remain
      - It is ignored because no revision names it.
-   * - After Kafka acknowledgement, before revision creation
-     - A harmless proposal exists on Kafka
-     - Subscribers retain and retry an ahead-of-storage proposal while the
-       accepted head remains below it.  A later slot is processed; a different
-       winner or later accepted head causes the proposal to be discarded.
    * - After revision creation, before as-of/latest
      - The accepted immutable revision is ahead of its indexes
-     - The live notice can be consumed; publisher or subscriber startup repairs
-       the contiguous indexes.
+     - Publisher or subscriber startup repairs the contiguous indexes before
+       advertising or consuming the recovered head.
    * - After as-of, before latest
      - Historical lookup sees the revision while latest lags
      - Startup repair advances latest conditionally.
-   * - After latest, before local completion
-     - Publication is complete
-     - Retrying observes the identical accepted tuple and performs no write.
+   * - After latest, before Kafka acknowledgement
+     - The publication is accepted but its live notice may be absent
+     - Delivery retries advertise the same accepted revision; startup and
+       reconnect reconciliation can re-advertise the durable head.
+   * - After Kafka acknowledgement, before local completion
+     - Publication and notification are complete
+     - Retrying observes the identical accepted tuple and performs no write;
+       duplicate accepted notices are harmless.
 
 There is no claim of one transaction spanning Kafka and S3.  The ordering
-above makes every intermediate state distinguishable and repairable, and
-never advances ``latest`` ahead of an acknowledged live notification.
+above makes every intermediate state distinguishable and repairable.  Durable
+acceptance intentionally precedes the best-effort live wake-up.
 
 Notification contract
 ---------------------
 
 Each fabric namespace uses one configured Kafka topic.  The record key is the
-canonical data id and the value is the complete candidate ``DataRevision``.
+canonical data id and the value is the complete accepted ``DataRevision``.
 Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
 The topic and the in-process handoff are suitable for compaction/conflation:
 
 * a subscriber needs the newest accepted revision, not every notice;
-* a notice always causes validation of durable state;
+* a notice carries a complete accepted revision and populates the in-memory
+  revision, output-version and dependency indexes;
 * skipping an intermediate revision cannot make the latest Frame
   unreconstructable; and
 * complete historical replay comes from the as-of index.
@@ -977,12 +984,12 @@ the fabric binding.  The coordinator discards unrelated ids after key parsing
 and retains notices for root ids and the dynamically discovered transitive
 closure of their forests.
 
-An acknowledged proposal whose revision slot is not yet visible is retained
-separately from the accepted head and retried with bounded backoff.  This is a
-targeted continuation of a Kafka wake-up, not a store-wide polling loop.  The
-queue remains conflated and bounded to one newest proposal per data id.  A
-proposal does not participate in cut resolution until its immutable slot has
-been created and validated.
+A valid message whose revision is not contiguous with the cached head is held
+while the missing range is recovered from immutable storage with bounded
+backoff.  This is a targeted continuation of a Kafka wake-up, not a store-wide
+polling loop.  The queue remains conflated and bounded to one newest accepted
+revision per data id.  Only contiguous accepted history participates in cut
+resolution.
 
 Subscription and consistency
 ----------------------------
@@ -1088,10 +1095,9 @@ One forest resolver returns:
 
 ``Pending``
    Accepted state is valid, but a compatible acknowledgement has not arrived,
-   or an ahead-of-storage proposal has not committed yet.  The previous
-   exposed cut remains active.  An accepted revision never becomes
-   ``Pending`` merely because an immutable object which it references is
-   absent.
+   or a detected revision gap is still being recovered.  The previous exposed
+   cut remains active.  An accepted revision never becomes ``Pending`` merely
+   because an immutable object which it references is absent.
 
 ``Ambiguous``
    Consistent closures exist but none is a unique greatest closure under the
@@ -1430,13 +1436,13 @@ distinguish:
 * Kafka subscription/rebalance/disconnect state; and
 * startup handoff failure.
 
-An uncommitted proposal or a valid cut waiting for a compatible acknowledgement
-produces ``Pending`` and may resolve when publication completes.  Once an
-accepted revision exists, a missing Frame or immutable ancestry record which it
-references produces ``Corrupt``; it is not held indefinitely and is not
-bypassed by falling back silently to an older latest value.  Missing or stale
-derived indexes are repaired when contiguous accepted revision slots prove the
-correct value.  Independent forests continue in all cases.
+A detected revision gap or a valid cut waiting for a compatible acknowledgement
+produces ``Pending`` and may resolve when the missing accepted history arrives.
+Once an accepted revision exists, a missing Frame or immutable ancestry record
+which it references produces ``Corrupt``; it is not held indefinitely and is
+not bypassed by falling back silently to an older latest value.  Missing or
+stale derived indexes are repaired when contiguous accepted revision slots
+prove the correct value.  Independent forests continue in all cases.
 
 The extension must expose enough metrics to observe notification lag, durable
 read latency, pending-forest age, resolver backtracking, conflated notices,
@@ -1476,7 +1482,8 @@ Fabric costs occur at explicit boundaries:
 * revision records are cached because they are immutable;
 * an output Frame is serialised only when it ticks;
 * an unchanged-output acknowledgement writes metadata only;
-* Kafka callbacks conflate by data id before graph scheduling; and
+* the root Kafka service queue conflates by data id before its push-source edge
+  schedules graph work; and
 * unchanged direct Frames are not read or ticked again.
 
 Resolver worst-case work is exponential in the number of conflicting candidate
@@ -1497,6 +1504,75 @@ The retained durable footprint is intentionally unbounded in v1: one complete
 Frame per output tick plus one small revision/as-of entry per accepted input or
 output tuple.  The RFC trades storage for exact replay and operational
 simplicity.  This cost must be explicit in deployment documentation.
+
+Accepted performance evidence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The accepted measurements used a GCC 14.2 Release build in the x86_64 Ubuntu
+VM, pinned to one CPU.  Resolver figures are medians of nine warm cached
+resolutions.  Work counters are from the selected median-equivalent scenario;
+the cache-miss assertion was zero for every warm sample.
+
+.. list-table:: Resolver measurements
+   :header-rows: 1
+   :widths: 31 10 14 15 15 15
+
+   * - Scenario
+     - Scale
+     - Median
+     - Revisions
+     - Edges
+     - Max depth
+   * - unchanged-output rolling ancestry
+     - 2,048 revisions
+     - 4.081 ms
+     - 2,050
+     - 2,049
+     - 3
+   * - broad ancestry
+     - 128 leaves
+     - 6.467 ms
+     - 129
+     - 128
+     - 129
+   * - deep ancestry
+     - 256 levels
+     - 27.336 ms
+     - 256
+     - 255
+     - 256
+   * - conflict-heavy ambiguous ancestry
+     - 24 revisions
+     - 0.185 ms
+     - 624
+     - 600
+     - 3
+
+The 1,049,194-byte, 65,536-row/two-column Frame benchmark measured 17,213
+MiB/s for Arrow IPC serialisation.  Combined immutable put plus get against the
+memory object-store strategy measured 520 MiB/s.  Both are nine-sample medians
+over twenty operations per sample and report a checked payload-size checksum.
+
+Non-Fabric impact was measured separately with the 53-case type-erasure
+campaign against a fresh ``main`` build, using the same compiler, source/build
+paths and CPU pinning.  Benchmark inventory, iterations, allocation counts,
+allocated bytes and checksums matched exactly.  The ordinary graph paths met
+the five-percent gate: erased native-node evaluation was 1.38 percent faster,
+disabled/enabled profiler cycles were 5.90/1.87 percent faster, small-graph
+construction was 2.38 percent faster, nested scheduled scan was 2.58 percent
+slower, and dynamic TSL map/map-reduce cycles were 1.74/0.83 percent slower.
+Sparse TSD map, reduce and combined cycles improved by 17.55--19.80 percent.
+
+The raw whole-inventory timing comparator also reported repeatable outliers in
+two isolated value-dispatch microbenchmarks: external polymorphic-union
+copy/hash (11.90 percent) and bundle visitor dispatch (17.77 percent).  Their
+implementation sources and generated helper bodies were unchanged; only
+indirect-call target placement differed after relinking the much larger stack.
+They are recorded as linker-layout-sensitive results rather than evidence for
+an ordinary graph evaluation regression.  The accepted performance claim is
+therefore deliberately limited to the graph evaluation paths above, not a
+claim that every sub-35-nanosecond microbenchmark passes a raw binary-to-binary
+five-percent timing threshold.
 
 Compatibility and migration
 ---------------------------
@@ -1612,33 +1688,55 @@ write behavior and strong whole-object visibility:
 * `S3 PutObject
   <https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html>`_.
 
-Implementation plan
--------------------
+Implementation outcome
+----------------------
 
-This RFC is the proposal and contains no implementation.  After acceptance,
-implementation should proceed as separately reviewable checkpoints:
+The implementation landed through the separately reviewed checkpoints tracked
+by issue 512.  It supplied the reusable persistence object-store contract,
+installed-SDK extension seam, Fabric public types and operators, durable
+publication state machine, wiring planner, resolver/coordinator, all three
+subscription modes, production Kafka adapter, backend/package matrix,
+diagnostics and performance evidence.
 
-1. expose the reusable immutable-object, ordered-list and conditional-reference
-   store contract from ``hgraph-persistence``, with memory/local/S3 parity;
-2. scaffold ``hgraph-fabric`` and register value schemas, configuration and
-   operator markers from an installed SDK;
-3. implement durable keys, revision codecs and publication against memory
-   storage and a memory notifier;
-4. implement wiring-time dependency discovery and the root forest coordinator;
-5. implement and performance-test the resolver and live conflation;
-6. implement simulation replay and snapshot modes from as-of indexes;
-7. integrate the Kafka notifier and validate the startup handoff and race/crash
-   protocol;
-8. add local/S3 integration coverage, packaging, documentation and operational
-   metrics; and
-9. update this RFC to ``Accepted`` with any reviewed implementation differences.
+The accepted implementation resolves the proposal's remaining ownership and
+lifecycle choices as follows:
 
-The checkpoint-0 proof found and supplied the generally reusable compiled-child
+* One lazy root ``FabricServiceImpl`` singleton owns Fabric persistence,
+  publication state, revision and Frame caches, consistency sessions,
+  synchronous load request/reply, diagnostics and lifecycle.  Nested and root
+  clients use purpose-specific service interfaces to that same instance.
+* The optional Kafka adapter is a separate service singleton.  It owns broker
+  workers, bounded transport queues and the root real-time push source.  Its
+  drain node emits ordinary graph edges into Fabric; neither a broker callback
+  nor Fabric runtime object addresses the graph directly.
+* V1 Frame loading is synchronous through the service-owned request/reply
+  contract.  It therefore has no Fabric worker/completion queue or in-flight
+  load de-duplication.  A future asynchronous strategy must return completions
+  through one service-owned root push-source edge; that strategy is not part of
+  V1.
+* Kafka carries the complete accepted ``DataRevision`` keyed by data id.  A
+  valid notice directly populates revision, output-version and dependency
+  indexes.  Persistence metadata is read for startup, reconnect, detected gaps
+  and uncached selected Frames rather than once per notice.
+* ``Live``, ``Replay`` and ``Snapshot`` are required wiring-time choices.
+  Replay and Snapshot are ordinary deterministic scheduled sources; every push
+  source remains real-time-only.
+* Metadata uses the canonical version-1 ``HGFM`` binary envelope and the media
+  types declared in ``metadata_codec.h``.  Public contracts are split across
+  ``types.h``, ``config.h``, ``operators.h``, ``service.h`` and the persistence
+  and Kafka adapter headers.
+* Diagnostics are a bundle of stable string metrics and typed, path-addressed
+  events.  Publication, live notices, notification requests, retries and
+  diagnostic paths have the public hard bounds documented by the extension.
+* The standalone Fabric package and wheel depend on core and Persistence but
+  remain Kafka-free.  ``hgraph::fabric_kafka`` is an optional native target so
+  the production transport does not leak into the base dependency boundary.
+
+The checkpoint-0 proof supplied the generally reusable compiled-child
 inspection hook described above.  It lives under the shared C++ wiring path, so
 Python-authored graphs which lower through that path receive the same behavior
-without a second Python runtime implementation.  Any further core hook requires
-its own focused commit and C++/Python behavioral parity.  Fabric-specific policy
-stays in the extension.
+without a second Python runtime implementation.  Fabric-specific policy stays
+in the extension.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -1668,9 +1766,9 @@ Publication
 * idempotent same-object retry and conflicting same-millisecond version writes;
 * every crash boundary in the publication table;
 * stale latest/as-of repair;
-* Kafka proposal validation against the winning revision slot; and
-* ahead-of-storage proposal retention and retry when delivery wins the race
-  with revision-slot creation.
+* Kafka messages carrying only the accepted durable winner;
+* delivery retry without changing or rolling back that winner; and
+* targeted durable gap recovery without a slot read for every valid message.
 
 Resolution
 ~~~~~~~~~~
@@ -1724,17 +1822,24 @@ Performance gates
 * Frame serialisation and object-store throughput reported separately from
   graph evaluation cost.
 
-Unresolved implementation details
----------------------------------
+Resolved implementation details
+-------------------------------
 
-The proposal deliberately leaves only representation details which do not
-change the semantics above reviewable during implementation:
+The representation choices left open by the proposal are fixed by the public
+installed headers and canonical codec:
 
-* the final C++ header split and exact registered Bundle names;
-* the canonical revision/latest byte encoding and media type;
-* the concrete name of the persistence-owned generic object-store handle;
-* the exact standard error/status value used for diagnostics; and
-* configuration field spelling for Kafka topic and persistence bindings.
+* registered Bundles use the ``hgraph.fabric::`` names shown above and live in
+  the focused public header split recorded under *Implementation outcome*;
+* revision, latest and as-of values use the big-endian ``HGFM`` version-1
+  envelope and the ``application/vnd.hgraph.fabric.*.v1+binary`` media types;
+* Persistence owns the type-erased ``persistence::store::ObjectStore`` and
+  ``FrameStore`` handles consumed by ``FabricConfig``;
+* resolver outcomes use the typed ``ResolutionStatus`` values, while the
+  service exposes stable metrics plus typed ``FabricDiagnosticEvent`` values;
+  and
+* Fabric configuration owns ``prefix``, ``objects``, ``frames`` and the base
+  ``notifications`` handle; Kafka topic and client configuration belong to the
+  optional adapter registration.
 
 Changing version/revision meaning, forest independence, rolling ancestry,
 live conflation, replay timing, permanent history, publication ordering or

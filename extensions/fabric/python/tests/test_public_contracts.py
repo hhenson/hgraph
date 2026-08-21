@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import sys
 
 import _hgraph
 import pytest
 
 import hgraph_fabric as hgf
+from hgraph import TS, Frame, graph, if_then_else
 from hgraph.test import use_wiring
 
 
@@ -30,6 +32,10 @@ def _revision() -> hgf.DataRevision:
         self_predecessor=41,
         as_of=datetime(2026, 1, 2, 3, 4, 5, 6007),
     )
+
+
+def test_python_package_loads_its_native_persistence_dependency_first():
+    assert "hgraph_persistence" in sys.modules
 
 
 def test_python_codec_uses_shared_native_golden_fixtures():
@@ -73,11 +79,12 @@ def test_python_codec_does_not_replace_an_unsupported_format_version():
 def test_python_public_operators_wire_through_native_registry():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         value = hgf.subscribe_data(
             "python/input", mode=hgf.SubscriptionMode.LIVE
         )
         hgf.publish_data("python/output", value)
-    wiring.build_services()
+    wiring.run()
 
 
 def test_python_operator_validation_is_wiring_time():
@@ -117,12 +124,107 @@ def test_explicit_dependency_selection_rejects_empty():
         hgf.DependencySelection.explicit()
 
 
+def _finish_contract_wiring(wiring: _hgraph.Wiring) -> None:
+    wiring.run()
+
+
+def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
+    @graph
+    def nested_subscription() -> TS[Frame]:
+        return hgf.subscribe_data(
+            "python/nested", mode=hgf.SubscriptionMode.LIVE
+        )
+
+    wiring = _hgraph.Wiring()
+    with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
+        direct = hgf.subscribe_data(
+            "python/direct", mode=hgf.SubscriptionMode.LIVE
+        )
+        hgf.publish_data("python/direct-output", direct)
+
+        shared = hgf.subscribe_data(
+            "python/shared", mode=hgf.SubscriptionMode.LIVE
+        )
+        hgf.publish_data("python/shared-left", shared)
+        hgf.publish_data("python/shared-right", shared)
+
+        left = hgf.subscribe_data(
+            "python/conditional-a", mode=hgf.SubscriptionMode.LIVE
+        )
+        right = hgf.subscribe_data(
+            "python/conditional-b", mode=hgf.SubscriptionMode.LIVE
+        )
+        hgf.publish_data(
+            "python/conditional-output", if_then_else(True, left, right)
+        )
+
+        hgf.publish_data("python/nested-output", nested_subscription())
+    _finish_contract_wiring(wiring)
+
+
+def test_python_explicit_dependencies_use_the_native_planner():
+    wiring = _hgraph.Wiring()
+    with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
+        source = hgf.subscribe_data(
+            "python/explicit-input", mode=hgf.SubscriptionMode.LIVE
+        )
+        handle = hgf.dependency_handle(source)
+        hgf.publish_data(
+            "python/explicit-output",
+            source,
+            dependencies=hgf.DependencySelection.explicit(handle),
+        )
+    _finish_contract_wiring(wiring)
+
+
+def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
+    with pytest.raises(TypeError, match="requires a WiringPort"):
+        hgf.dependency_handle("arbitrary")
+
+    wiring = _hgraph.Wiring()
+    with use_wiring(wiring):
+        value = hgf.subscribe_data(
+            "python/value", mode=hgf.SubscriptionMode.LIVE
+        )
+        arbitrary = hgf.DependencySelection.explicit(
+            hgf.DependencyHandle("arbitrary")
+        )
+        with pytest.raises(Exception, match="no matching overload"):
+            hgf.publish_data(
+                "python/arbitrary-output",
+                value,
+                dependencies=arbitrary,
+            )
+
+    wiring = _hgraph.Wiring()
+    with use_wiring(wiring):
+        first = hgf.subscribe_data(
+            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
+        )
+        second = hgf.subscribe_data(
+            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
+        )
+        duplicate = hgf.DependencySelection.explicit(
+            hgf.dependency_handle(first),
+            hgf.dependency_handle(second),
+        )
+        with pytest.raises(Exception, match="dependency data ids must be unique"):
+            hgf.publish_data(
+                "python/duplicate-output",
+                first,
+                dependencies=duplicate,
+            )
+
+
 def test_python_operator_registration_survives_registry_reset():
     _hgraph.reset_registries()
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
+        hgf.register_memory_fabric_service()
         value = hgf.subscribe_data(
             "python/reset-input", mode=hgf.SubscriptionMode.LIVE
         )
         hgf.publish_data("python/reset-output", value)
-    wiring.build_services()
+    wiring.run()

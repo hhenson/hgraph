@@ -122,7 +122,11 @@ An extension-owned wiring planner may need to inspect declared dependencies
 inside a non-flattening nested owner.  Following only the owner's outer input
 edges is insufficient when the child graph creates its own source.  The public
 ``NodeBuilder::visit_child_graphs`` contract visits the node's immediate
-compiled child graph templates as borrowed ``GraphBuilder`` references.
+compiled child graph templates as borrowed ``ChildGraphInspectionView``
+values.  Each view identifies the ``GraphBuilder`` and the optional output
+binding exposed through the owning node, so an ancestry walker can begin at
+the returned terminal rather than treating unrelated child side effects as
+dependencies.
 
 The contract is deliberately cold-path and representation-erased:
 
@@ -130,13 +134,14 @@ The contract is deliberately cold-path and representation-erased:
 - ``nested_``, ``map_``, ``mesh_``, associative and ordered reduce,
   ``switch_`` and dynamic-TSL map expose their children through the same call;
 - a switch visits each declared branch and its optional default;
-- callers recurse explicitly through each child's ``nodes()`` when they need
-  the complete plan forest; and
-- borrowed child references are valid only during the callback.
+- callers recurse explicitly from the output binding through the child's
+  ``edges()`` when they need exposed output ancestry; and
+- borrowed graph and binding pointers are valid only during the callback.
 
 No runtime graph is constructed and no evaluation operation consults this
 contract.  The child owner remains responsible for its concrete spec and
-storage representation; extension planners see only ``GraphBuilder``.
+storage representation; extension planners see only the data-only inspection
+view.
 
 
 The shared core

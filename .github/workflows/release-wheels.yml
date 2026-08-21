@@ -73,6 +73,10 @@ jobs:
               "persistence-distribution-wheel-macos-26",
               "persistence-distribution-wheel-ubuntu-latest",
               "persistence-distribution-wheel-windows-latest",
+              "fabric-distribution-sdist",
+              "fabric-distribution-wheel-macos-26",
+              "fabric-distribution-wheel-ubuntu-latest",
+              "fabric-distribution-wheel-windows-latest",
               "web-distribution-sdist",
               "web-distribution-wheel-macos-26",
               "web-distribution-wheel-ubuntu-latest",
@@ -337,8 +341,8 @@ jobs:
           path: analytics-dist/*.whl
           if-no-files-found: error
       - name: Install persistence wheel TLS dependency
-        # The pinned static curl used for S3 conditional writes links the
-        # container TLS provider; auditwheel vendors its runtime libraries.
+        # The shared persistence SDK carries the pinned curl used for S3
+        # conditional writes; auditwheel vendors its TLS runtime libraries.
         shell: bash
         run: dnf install -y openssl-devel
       - name: Build persistence stable ABI wheel
@@ -393,6 +397,64 @@ jobs:
         with:
           name: persistence-distribution-wheel-ubuntu-latest
           path: persistence-dist/*.whl
+          if-no-files-found: error
+      - name: Install the matching persistence SDK
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install
+          --no-deps persistence-dist/*.whl
+      - name: Build Fabric stable ABI wheel
+        shell: bash
+        run: |
+          hgraph_sdk="$(/opt/python/cp312-cp312/bin/python -c 'import site; print(site.getsitepackages()[0])')"
+          CMAKE_GENERATOR=Ninja \
+          CMAKE_ARGS=-DHGRAPH_WARNINGS_AS_ERRORS=ON \
+          CMAKE_BUILD_PARALLEL_LEVEL=2 \
+          CMAKE_PREFIX_PATH="$hgraph_sdk" \
+            /opt/python/cp312-cp312/bin/python -m build \
+              --wheel --no-isolation --skip-dependency-check \
+              --outdir fabric-dist-raw extensions/fabric
+      - name: Repair Fabric wheel for the glibc 2.28 floor
+        run: |
+          mkdir fabric-dist
+          auditwheel repair \
+            --plat manylinux_2_28_x86_64 \
+            --exclude libarrow.so.2500 \
+            --exclude libarrow_compute.so.2500 \
+            --exclude libarrow_acero.so.2500 \
+            --exclude libparquet.so.2500 \
+            --exclude libhgraph_runtime.so \
+            --exclude libhgraph_wiring.so \
+            --exclude libhgraph_stdlib.so \
+            --exclude libhgraph_persistence.so \
+            --exclude libnanobind-abi3.so \
+            --wheel-dir fabric-dist \
+            fabric-dist-raw/*.whl
+      - name: Verify Fabric wheel ABI and platform tag
+        run: |
+          /opt/python/cp312-cp312/bin/python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          from packaging.tags import Tag
+          from packaging.utils import parse_wheel_filename
+
+          wheels = list(Path("fabric-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_fabric-"), wheel.name
+          tags = parse_wheel_filename(wheel.name)[3]
+          expected = Tag("cp312", "abi3", "manylinux_2_28_x86_64")
+          assert expected in tags, (wheel.name, tags)
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+          PY
+      - name: Audit Fabric wheel contents
+        run: >-
+          /opt/python/cp312-cp312/bin/python
+          extensions/fabric/tools/audit_distribution.py
+          "fabric-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fabric-distribution-wheel-ubuntu-latest
+          path: fabric-dist/*.whl
           if-no-files-found: error
       - name: Install web wheel system dependencies
         # The web extension's TLS stack builds against the container's
@@ -595,6 +657,42 @@ jobs:
         with:
           name: persistence-distribution-sdist
           path: persistence-dist/*.tar.gz
+          if-no-files-found: error
+      - name: Build Fabric source distribution
+        run: >-
+          python -m build --sdist --no-isolation --skip-dependency-check
+          --outdir fabric-dist extensions/fabric
+      - name: Verify Fabric source distribution
+        shell: python
+        run: |
+          from pathlib import Path
+          import tarfile
+          import tomllib
+
+          version = tomllib.loads(
+              Path("extensions/fabric/pyproject.toml").read_text()
+          )["project"]["version"]
+          archives = list(Path("fabric-dist").glob("*.tar.gz"))
+          assert len(archives) == 1, archives
+          archive = archives[0]
+          assert archive.name == f"hgraph_fabric-{version}.tar.gz", archive.name
+          with tarfile.open(archive) as package:
+              names = set(package.getnames())
+          root = f"hgraph_fabric-{version}"
+          for required in (
+              "CMakeLists.txt",
+              "include/hgraph/fabric/service.h",
+              "python/hgraph_fabric/__init__.py",
+          ):
+              assert f"{root}/{required}" in names, required
+      - name: Audit Fabric source distribution contents
+        run: >-
+          python extensions/fabric/tools/audit_distribution.py
+          "fabric-dist/*.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fabric-distribution-sdist
+          path: fabric-dist/*.tar.gz
           if-no-files-found: error
       - name: Build web source distribution
         run: >-
@@ -968,6 +1066,57 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish persistence package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist
+
+  publish-fabric:
+    name: Publish hgraph-fabric to PyPI
+    if: >-
+      always() &&
+      github.ref_type == 'tag' &&
+      needs.validate-release.result == 'success' &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        (
+          needs.build-sdist.result == 'success' &&
+          needs.test-windows-wheel.result == 'success' &&
+          needs.test-macos-wheel.result == 'success' &&
+          needs.test-linux-wheel.result == 'success'
+        )
+      )
+    needs:
+      - validate-release
+      - reuse-build
+      - build-sdist
+      - test-windows-wheel
+      - test-macos-wheel
+      - test-linux-wheel
+      - build-linux-wheel
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/p/hgraph-fabric
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: fabric-distribution-*
+          path: dist
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
+      - name: Restamp Fabric distributions to the tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
+      - name: Publish Fabric package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist

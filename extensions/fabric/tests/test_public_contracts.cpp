@@ -1,10 +1,13 @@
 #include <hgraph/fabric/fabric.h>
 
 #include <hgraph/lib/std/operators/registration.h>
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/subgraph_wiring.h>
 
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -81,6 +84,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto source = hgf::subscribe_data(
                 wiring, "input", hgf::SubscriptionMode::Live);
             auto dependency = hgf::dependency_handle(wiring, source);
@@ -98,6 +102,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto first = hgf::subscribe_data(
                 wiring, "input-a", hgf::SubscriptionMode::Live);
             auto second = hgf::subscribe_data(
@@ -114,6 +119,7 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto first = hgf::subscribe_data(
                 wiring, "input", hgf::SubscriptionMode::Live);
             auto second = hgf::subscribe_data(
@@ -125,6 +131,152 @@ namespace
                      hgf::dependency_handle(wiring, second)}));
         }
     };
+
+    struct NeverFrameSource
+    {
+        static constexpr auto name = "hgraph.fabric.test.never_frame";
+        static void eval(hg::Out<hg::TS<hg::Frame>>) {}
+    };
+
+    struct SharedDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto source = hgf::subscribe_data(
+                wiring, "shared", hgf::SubscriptionMode::Live);
+            hgf::publish_data(wiring, "left", source);
+            hgf::publish_data(wiring, "right", source);
+        }
+    };
+
+    struct NestedSubscriptionGraph
+    {
+        static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
+        {
+            return hgf::subscribe_data(
+                wiring, "nested", hgf::SubscriptionMode::Live);
+        }
+    };
+
+    struct ConsumeFrameSink
+    {
+        static void eval(hg::In<"value", hg::TS<hg::Frame>>) {}
+    };
+
+    struct NestedSubscriptionWithSideEffectGraph
+    {
+        static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
+        {
+            auto returned = hgf::subscribe_data(
+                wiring, "nested-returned", hgf::SubscriptionMode::Live);
+            auto unrelated = hgf::subscribe_data(
+                wiring, "nested-side-effect", hgf::SubscriptionMode::Live);
+            hg::wire<ConsumeFrameSink>(wiring, unrelated);
+            return returned;
+        }
+    };
+
+    struct NestedDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto source = hg::nested_<NestedSubscriptionGraph>(wiring);
+            hgf::publish_data(wiring, "nested-output", source);
+        }
+    };
+
+    struct NestedSideEffectDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto source = hg::nested_<NestedSubscriptionWithSideEffectGraph>(wiring);
+            hgf::publish_data(wiring, "nested-side-effect-output", source);
+        }
+    };
+
+    struct ConditionalDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto left = hgf::subscribe_data(
+                wiring, "conditional-a", hgf::SubscriptionMode::Live);
+            auto right = hgf::subscribe_data(
+                wiring, "conditional-b", hgf::SubscriptionMode::Live);
+            auto condition =
+                hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
+            auto selected = hg::wire<hg::stdlib::if_then_else>(
+                                wiring, condition, left, right)
+                                .as<hg::TS<hg::Frame>>();
+            hgf::publish_data(wiring, "conditional-output", selected);
+        }
+    };
+
+    struct ExplicitHiddenDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto dependency = hgf::subscribe_data(
+                wiring, "declared-only", hgf::SubscriptionMode::Live);
+            auto value = hg::wire<NeverFrameSource>(wiring);
+            hgf::publish_data(
+                wiring, "explicit-output", value,
+                hgf::DependencySelection::explicit_dependencies(
+                    {hgf::dependency_handle(wiring, dependency)}));
+        }
+    };
+
+    struct IndependentForestsGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            auto a = hgf::subscribe_data(
+                wiring, "a", hgf::SubscriptionMode::Live);
+            auto b = hgf::subscribe_data(
+                wiring, "b", hgf::SubscriptionMode::Live);
+            auto x = hgf::subscribe_data(
+                wiring, "x", hgf::SubscriptionMode::Live);
+            auto condition =
+                hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
+            auto joined = hg::wire<hg::stdlib::if_then_else>(
+                              wiring, condition, a, b)
+                              .as<hg::TS<hg::Frame>>();
+            hgf::publish_data(wiring, "ab-output", joined);
+            hgf::publish_data(wiring, "x-output", x);
+        }
+    };
+
+    struct NoDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            hgf::register_service(wiring);
+            hgf::publish_data(wiring, "independent-output",
+                              hg::wire<NeverFrameSource>(wiring));
+        }
+    };
+
+    template <typename Graph>
+    [[nodiscard]] hgf::DependencyPlanInput plan_for()
+    {
+        hg::GraphBuilder graph = hg::build_graph<Graph>();
+        return hgf::dependency_plan_input(
+            graph.traits().get(hgf::DEPENDENCY_PLAN_TRAIT));
+    }
+
+    [[nodiscard]] std::size_t count_semantic_node(
+        const hg::GraphBuilder &graph, std::string_view semantic_name)
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(
+            graph.nodes(), [&](const hg::NodeBuilder &node) {
+                return node.type().record()->semantic_name() == semantic_name;
+            }));
+    }
 }  // namespace
 
 TEST_CASE("fabric public values are canonical and validate identity")
@@ -194,9 +346,12 @@ TEST_CASE("memory notifier fans out and conflates each data id")
     auto first = notifier.subscribe();
     auto second = notifier.subscribe();
 
-    notifier.publish({"a", notice("a", 1)});
-    notifier.publish({"b", notice("b", 1)});
-    notifier.publish({"a", notice("a", 2)});
+    CHECK(notifier.publish({"a", notice("a", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(notifier.publish({"b", notice("b", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(notifier.publish({"a", notice("a", 2)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
     CHECK_THROWS_AS(notifier.publish({"a", notice("different", 1)}),
                     std::invalid_argument);
 
@@ -207,7 +362,8 @@ TEST_CASE("memory notifier fans out and conflates each data id")
     CHECK(second.try_pop() == hgf::RevisionNotification{"a", notice("a", 2)});
 
     second.close();
-    notifier.publish({"c", notice("c", 1)});
+    CHECK(notifier.publish({"c", notice("c", 1)}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
     CHECK(second.pending() == 0);
     CHECK(first.try_pop() == hgf::RevisionNotification{"c", notice("c", 1)});
 }
@@ -232,11 +388,106 @@ TEST_CASE("fabric operator installer survives a registry rebuild")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
-    CHECK(hg::build_graph<InstalledContractGraph>().node_count() == 3);
+    CHECK(hg::build_graph<InstalledContractGraph>().node_count() > 3);
 
     hg::reset_all_registries();
     hg::stdlib::register_standard_operators();
-    CHECK(hg::build_graph<InstalledContractGraph>().node_count() == 3);
+    CHECK(hg::build_graph<InstalledContractGraph>().node_count() > 3);
+}
+
+TEST_CASE("fabric planner discovers direct shared nested conditional and explicit dependencies")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    CHECK(plan_for<InstalledContractGraph>() == hgf::DependencyPlanInput{
+        .roots = {"input"},
+        .publishers = {{"automatic", {"input"}},
+                       {"explicit", {"input"}}},
+        .forests = {{{"input"}}},
+    });
+    CHECK(plan_for<SharedDependencyGraph>() == hgf::DependencyPlanInput{
+        .roots = {"shared"},
+        .publishers = {{"left", {"shared"}}, {"right", {"shared"}}},
+        .forests = {{{"shared"}}},
+    });
+    CHECK(plan_for<NestedDependencyGraph>() == hgf::DependencyPlanInput{
+        .roots = {"nested"},
+        .publishers = {{"nested-output", {"nested"}}},
+        .forests = {{{"nested"}}},
+    });
+    CHECK(plan_for<NestedSideEffectDependencyGraph>() ==
+          hgf::DependencyPlanInput{
+              .roots = {"nested-returned"},
+              .publishers = {{"nested-side-effect-output",
+                              {"nested-returned"}}},
+              .forests = {{{"nested-returned"}}},
+          });
+    CHECK(plan_for<ConditionalDependencyGraph>() == hgf::DependencyPlanInput{
+        .roots = {"conditional-a", "conditional-b"},
+        .publishers = {{"conditional-output",
+                        {"conditional-a", "conditional-b"}}},
+        .forests = {{{"conditional-a"}}, {{"conditional-b"}}},
+    });
+    CHECK(plan_for<ExplicitHiddenDependencyGraph>() == hgf::DependencyPlanInput{
+        .roots = {"declared-only"},
+        .publishers = {{"explicit-output", {"declared-only"}}},
+        .forests = {{{"declared-only"}}},
+    });
+}
+
+TEST_CASE("fabric planner partitions independent consistency forests")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    const auto plan = plan_for<IndependentForestsGraph>();
+    CHECK(plan.roots == std::vector<hg::Str>{"a", "b", "x"});
+    CHECK(plan.publishers ==
+          std::vector<hgf::PlannedPublisherInput>{
+              {"ab-output", {"a", "b"}}, {"x-output", {"x"}}});
+    CHECK(plan.forests == std::vector<hgf::ConsistencyForestInput>{
+                              {{"a"}}, {{"b"}}, {{"x"}}});
+}
+
+TEST_CASE("fabric planner wires shared service clients and hidden lineage cuts")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    const auto dependent = hg::build_graph<IndependentForestsGraph>();
+    CHECK(count_semantic_node(
+              dependent, "hgraph.fabric.service.lifecycle") == 1);
+    CHECK(count_semantic_node(
+              dependent, "hgraph.fabric.ingress_coordinator.contract") == 0);
+    CHECK(count_semantic_node(
+              dependent, "hgraph.fabric.publish_data.with_cut") == 2);
+    CHECK(count_semantic_node(
+              dependent, "hgraph.fabric.publish_data.no_dependencies") == 0);
+
+    const auto independent = hg::build_graph<NoDependencyGraph>();
+    CHECK(count_semantic_node(
+              independent, "hgraph.fabric.ingress_coordinator.contract") == 0);
+    CHECK(count_semantic_node(
+              independent, "hgraph.fabric.publish_data.with_cut") == 0);
+    CHECK(count_semantic_node(
+              independent, "hgraph.fabric.publish_data.no_dependencies") == 1);
+}
+
+TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    hg::Wiring wiring;
+    auto source = hgf::subscribe_data(
+        wiring, "direct", hgf::SubscriptionMode::Live);
+    auto forwarded = hg::wire<hg::stdlib::pass_through_node>(wiring, source)
+                         .as<hg::TS<hg::Frame>>();
+    CHECK_THROWS_WITH(
+        hgf::dependency_handle(wiring, forwarded),
+        "fabric dependency handle requires a direct subscribe_data result");
+    CHECK_THROWS_WITH(
+        hgf::dependency_handle(wiring, hg::wire<NeverFrameSource>(wiring)),
+        "fabric dependency handle requires a direct subscribe_data result");
 }
 
 TEST_CASE("fabric subscription mode validation rejects unknown enum values")

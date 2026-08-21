@@ -3,6 +3,9 @@
 include(CMakeFindDependencyMacro)
 find_dependency(hgraph CONFIG)
 find_dependency(hgraph-persistence CONFIG)
+if(@HGRAPH_FABRIC_BUILD_KAFKA@)
+    find_dependency(hgraph-kafka CONFIG)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/hgraphFabricTargets.cmake")
 

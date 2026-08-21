@@ -1,4 +1,8 @@
 #include <hgraph/fabric/fabric.h>
+#if defined(HGRAPH_FABRIC_CONSUMER_HAS_KAFKA)
+#include <hgraph/fabric/kafka.h>
+#include <hgraph/kafka/value_builders.h>
+#endif
 
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/types/graph_wiring.h>
@@ -16,9 +20,11 @@ namespace
 
         static void compose(hg::Wiring &wiring)
         {
+            hgf::register_service(wiring);
             auto input = hgf::subscribe_data(
                 wiring, "installed/input", hgf::SubscriptionMode::Live);
             hgf::publish_data(wiring, "installed/output", input);
+            static_cast<void>(hgf::diagnostics(wiring));
         }
     };
 }  // namespace
@@ -53,6 +59,53 @@ int main()
         return 2;
     }
 
+    if (hgf::decode_data_id_segment(
+            hgf::encode_data_id_segment("installed/output")) !=
+            "installed/output" ||
+        hgf::revision_key(config->prefix, "installed/output", 1) !=
+            "installed/fabric/baW5zdGFsbGVkL291dHB1dA/revision/"
+            "0000000000000000001")
+    {
+        return 3;
+    }
+
+    hgf::PublisherStateMachine publisher{*config, "installed/output"};
+    publisher.begin(hgf::PublicationInput{
+        .system_time = hg::DateTime{hg::TimeDelta{1'767'323'045'006'007}},
+    });
+    if (publisher.advance() != hgf::PublicationState::AwaitingFirstOutput)
+    {
+        return 4;
+    }
+
+    hgf::ConsistencyResolver resolver{*config};
+    if (resolver.resolve_forest({"installed/input"}).status !=
+        hgf::ResolutionStatus::Pending)
+    {
+        return 5;
+    }
+
+#if defined(HGRAPH_FABRIC_CONSUMER_HAS_KAFKA)
+    const auto kafka_config = hgraph::kafka::service_config()
+                                  .bootstrap_servers({"broker:9092"})
+                                  .build();
+    hgf::require_fabric_kafka_profile(kafka_config);
+    const auto subscription =
+        hgf::fabric_kafka_subscription_key("installed-fabric", "installed-consumer");
+    if (subscription.view().as_bundle().at("key_filter").data() != nullptr)
+    {
+        return 6;
+    }
+#endif
+
     auto graph = hg::build_graph<InstalledFabricGraph>();
-    return graph.node_count() == 2 ? 0 : 3;
+    const auto plan = hgf::dependency_plan_input(
+        graph.traits().get(hgf::DEPENDENCY_PLAN_TRAIT));
+    return plan == hgf::DependencyPlanInput{
+                       .roots = {"installed/input"},
+                       .publishers = {{"installed/output", {"installed/input"}}},
+                       .forests = {{{"installed/input"}}},
+                   }
+               ? 0
+               : 7;
 }

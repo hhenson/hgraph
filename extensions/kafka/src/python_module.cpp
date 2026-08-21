@@ -32,7 +32,19 @@ struct RegisterKafkaServiceGraph {
                           ? value.schema()->name()
                           : std::string_view{"<unbound>"}});
     }
-    register_service(w, service::path(path.value()), std::move(value));
+    KafkaServiceMode mode = KafkaServiceMode::RealTime;
+    const ValueView configured_mode =
+        w.global_state().get("__evaluation_mode__");
+    if (configured_mode.valid()) {
+      const Str selected = configured_mode.checked_as<Str>();
+      if (selected == "simulation") {
+        mode = KafkaServiceMode::Simulation;
+      } else if (selected != "real_time") {
+        throw std::invalid_argument(
+            "Kafka service received an unsupported graph evaluation mode");
+      }
+    }
+    register_service(w, service::path(path.value()), std::move(value), mode);
   }
 };
 } // namespace
