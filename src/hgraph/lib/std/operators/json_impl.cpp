@@ -239,6 +239,42 @@ namespace hgraph::stdlib::json_tree
         return any.has_value() ? any.get() : ValueView{};
     }
 
+    Value concatenate_arrays(const ValueView &lhs, const ValueView &rhs)
+    {
+        Value lhs_materialized;
+        Value rhs_materialized;
+        const auto array_value = [](const ValueView &node, Value &materialized,
+                                    std::string_view side) -> ValueView {
+            ValueView inner = unbox(node);
+            if (const auto *lazy = try_lazy(inner))
+            {
+                materialized = lazy->materialize();
+                inner = unbox(materialized.view());
+            }
+            if (!inner.valid() || inner.schema()->value_kind() != ValueTypeKind::List)
+            {
+                const std::string_view actual = inner.valid() ? inner.schema()->name() : "null";
+                throw std::invalid_argument(fmt::format(
+                    "JSON array concatenation requires array operands; {} operand is {}",
+                    side, actual));
+            }
+            return inner;
+        };
+
+        const ValueView lhs_array = array_value(lhs, lhs_materialized, "left");
+        const ValueView rhs_array = array_value(rhs, rhs_materialized, "right");
+        ListBuilder result{json_value_binding()};
+        for (const ValueView item : lhs_array.as_list())
+        {
+            result.push_back_copy(item.data());
+        }
+        for (const ValueView item : rhs_array.as_list())
+        {
+            result.push_back_copy(item.data());
+        }
+        return box(result.build());
+    }
+
     bool equals(const ValueView &lhs, const ValueView &rhs)
     {
         auto lhs_inner = unbox(lhs);
@@ -948,7 +984,10 @@ namespace hgraph::stdlib
     void register_json_operators()
     {
         register_overload<json_object_, json_object_impl>();
+        register_overload<json_array_, json_array_impl>();
         register_graph_overload<combine_json, combine_json_impl>();
+        register_graph_overload<combine_json, combine_json_array_impl>();
+        register_overload<add_, add_json_arrays_impl>();
         register_overload<json_encode, json_encode_impl>();
         register_overload<json_encode, json_encode_bytes_impl>();
         register_overload<json_decode, json_decode_impl>();

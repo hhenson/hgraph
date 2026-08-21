@@ -6,6 +6,7 @@
 
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/io.h>
+#include <hgraph/lib/std/operators/impl/json_impl.h>
 #include <hgraph/lib/std/operators/table.h>
 
 #include <arrow/array.h>
@@ -119,6 +120,119 @@ namespace hgraph::python_bridge
 
     namespace
     {
+        struct PyJsonValue
+        {
+            Value value;
+        };
+
+        [[nodiscard]] Value python_to_json(nb::handle source)
+        {
+            using namespace stdlib::json_tree;
+
+            if (nb::isinstance<PyJsonValue>(source))
+            {
+                return Value{nb::cast<const PyJsonValue &>(source).value.view()};
+            }
+            if (source.is_none()) { return box(Value{}); }
+            if (nb::isinstance<nb::bool_>(source))
+            {
+                return box(Value{Bool{nb::cast<bool>(source)}});
+            }
+            if (nb::isinstance<nb::int_>(source))
+            {
+                return box(Value{Int{nb::cast<Int>(source)}});
+            }
+            if (nb::isinstance<nb::float_>(source))
+            {
+                return box(Value{Float{nb::cast<Float>(source)}});
+            }
+            if (nb::isinstance<nb::str>(source))
+            {
+                return box(Value{Str{nb::cast<std::string>(source)}});
+            }
+            if (nb::isinstance<nb::list>(source) || nb::isinstance<nb::tuple>(source))
+            {
+                ListBuilder items{json_value_binding()};
+                for (nb::handle item : source)
+                {
+                    Value node = python_to_json(item);
+                    items.push_back_copy(node.view().data());
+                }
+                return box(items.build());
+            }
+            if (nb::isinstance<nb::dict>(source))
+            {
+                const auto str_binding = ValuePlanFactory::instance().type_for(
+                    scalar_descriptor<Str>::value_meta());
+                MapBuilder entries{str_binding, json_value_binding()};
+                for (auto [key, item] : nb::cast<nb::dict>(source))
+                {
+                    if (!nb::isinstance<nb::str>(key))
+                    {
+                        throw nb::type_error("JSON object keys must be strings");
+                    }
+                    Value native_key{Str{nb::cast<std::string>(key)}};
+                    Value node = python_to_json(item);
+                    entries.set_item_copy(native_key.view().data(), node.view().data());
+                }
+                return box(entries.build());
+            }
+            throw nb::type_error(
+                "JSON values must be None, bool, int, float, str, list, tuple, or dict");
+        }
+
+        [[nodiscard]] nb::object json_to_python_value(const ValueView &source)
+        {
+            using namespace stdlib::json_tree;
+
+            if (!source.valid()) { return nb::none(); }
+            if (source.schema() == json_meta())
+            {
+                const ValueView inner = unbox(source);
+                return inner.valid() ? json_to_python_value(inner) : nb::none();
+            }
+            if (const auto *lazy = try_lazy(source))
+            {
+                Value materialized = lazy->materialize();
+                return json_to_python_value(materialized.view());
+            }
+            if (source.is_any())
+            {
+                const ValueView inner = source.as_any().get();
+                return inner.valid() ? json_to_python_value(inner) : nb::none();
+            }
+            switch (source.schema()->value_kind())
+            {
+                case ValueTypeKind::Atomic:
+                    return source.binding().ops_ref().to_python(source.data());
+                case ValueTypeKind::List: {
+                    nb::list result;
+                    for (const ValueView item : source.as_list())
+                    {
+                        result.append(json_to_python_value(item));
+                    }
+                    return result;
+                }
+                case ValueTypeKind::Map: {
+                    nb::dict result;
+                    for (const auto [key, item] : source.as_map())
+                    {
+                        result[value_to_py(key)] = json_to_python_value(item);
+                    }
+                    return result;
+                }
+                default:
+                    throw nb::type_error("native JSON contains an unsupported value kind");
+            }
+        }
+
+        [[nodiscard]] std::string json_encode_value(const PyJsonValue &value)
+        {
+            std::string result;
+            stdlib::json_tree::encode(value.value.view(), result);
+            return result;
+        }
+
         [[nodiscard]] const ValueCallableOps &python_value_callable_ops()
         {
             static const ValueCallableOps ops{
@@ -447,6 +561,10 @@ namespace hgraph::python_bridge
         {
             return py_to_value_as(object, enumeration->second);
         }
+        if (nb::isinstance<PyJsonValue>(object))
+        {
+            return Value{nb::cast<const PyJsonValue &>(object).value.view()};
+        }
         if (nb::isinstance<nb::bool_>(object)) { return Value{Bool{nb::cast<bool>(object)}}; }
         if (nb::isinstance<nb::int_>(object)) { return Value{Int{nb::cast<Int>(object)}}; }
         if (nb::isinstance<nb::float_>(object)) { return Value{Float{nb::cast<Float>(object)}}; }
@@ -658,6 +776,10 @@ namespace hgraph::python_bridge
     nb::object value_to_py(const ValueView &view)
     {
         if (!view.valid()) { return nb::none(); }
+        if (view.schema() == stdlib::json_tree::json_meta())
+        {
+            return nb::cast(PyJsonValue{Value{view}});
+        }
         // Python conversion dispatches through the type-erased ops. Types
         // requiring module-owned wrappers install python_conversion_traits
         // hooks during module initialization.
@@ -713,6 +835,7 @@ namespace hgraph::python_bridge
 
     Value py_to_value_as(nb::handle object, const ValueTypeMetaData *meta)
     {
+        if (meta == stdlib::json_tree::json_meta()) { return python_to_json(object); }
         if (meta != nullptr && meta->value_kind() == ValueTypeKind::Any)
         {
             Value boxed{ValuePlanFactory::instance().type_for(meta)};
@@ -782,9 +905,38 @@ namespace hgraph::python_bridge
         return result;
     }
 
-    void install_value_conversion_hooks()
+    void install_value_conversion_hooks(nb::module_ &module)
     {
+        nb::class_<PyJsonValue>(
+            module, "JSON",
+            "A native dynamic JSON value. Graph access uses the JSON operators; "
+            "to_python() explicitly materializes a Python value.")
+            .def("__init__", [](nb::pointer_and_handle<PyJsonValue> self, nb::handle source) {
+                new (self.p) PyJsonValue{python_to_json(source)};
+            }, nb::arg("value"))
+            .def("to_python", [](const PyJsonValue &self) {
+                return json_to_python_value(self.value.view());
+            })
+            .def("__str__", &json_encode_value)
+            .def("__repr__", [](const PyJsonValue &self) {
+                return "JSON(" + nb::cast<std::string>(
+                    nb::repr(json_to_python_value(self.value.view()))) + ")";
+            })
+            .def("__eq__", [](const PyJsonValue &self, nb::handle other) {
+                return nb::isinstance<PyJsonValue>(other) &&
+                       self.value.equals(nb::cast<const PyJsonValue &>(other).value);
+            })
+            .def("__hash__", [](const PyJsonValue &self) {
+                return self.value.hash();
+            });
+
         py_value_from_schema_slot() = &py_to_value_as;
+        py_json_from_python_slot() = &python_to_json;
+        py_json_to_python_slot() = [](const Value &inner) -> nb::object {
+            Value outer = stdlib::json_tree::box(
+                inner.has_value() ? Value{inner.view()} : Value{});
+            return nb::cast(PyJsonValue{std::move(outer)});
+        };
         python_conversion_traits<ValueCallable>::to_python_hook() = [](const ValueCallable &value) {
             if (value.ops != &python_value_callable_ops() || value.context == nullptr)
             {

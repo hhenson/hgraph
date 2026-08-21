@@ -16,6 +16,7 @@ namespace hgraph {
 struct ValueTypeMetaData;
 struct TSValueTypeMetaData;
 class Value;
+class ValueView;
 class ValueTypeRef;
 } // namespace hgraph
 
@@ -91,6 +92,14 @@ using PyInferValueFn = void *; // set as Value (*)(nb::handle) by the module
 using PyValueFromSchemaFn = Value (*)(nb::handle, const ValueTypeMetaData *);
 
 [[nodiscard]] HGRAPH_EXPORT PyValueFromSchemaFn &py_value_from_schema_slot();
+
+/** Native JSON's Python boundary. JSON retains Any storage, but unlike a
+    general Any its public value must preserve the nominal JSON identity. */
+using PyJsonToPythonFn = nb::object (*)(const Value &inner);
+using PyJsonFromPythonFn = Value (*)(nb::handle source);
+
+[[nodiscard]] HGRAPH_EXPORT PyJsonToPythonFn &py_json_to_python_slot();
+[[nodiscard]] HGRAPH_EXPORT PyJsonFromPythonFn &py_json_from_python_slot();
 
 /**
  * CompoundScalar schema address -> python class (read-back

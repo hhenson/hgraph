@@ -53,14 +53,20 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value
-        ports. The JSON tree remains a C++ value; Python is authoring sugar. */
+    /** Build a dynamic JSON object from named ports or a JSON array from
+        positional ports. The JSON tree remains a C++ value; Python is
+        authoring sugar. */
     struct combine_json : Operator<"combine_json", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
     };
 
     /** Runtime node behind ``combine_json`` (internal). */
     struct json_object_ : Operator<"__json_object", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
+    {
+    };
+
+    /** Runtime node behind positional ``combine[TS[JSON]]`` (internal). */
+    struct json_array_ : Operator<"__json_array", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
     };
 

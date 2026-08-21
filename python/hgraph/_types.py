@@ -1763,10 +1763,12 @@ class _TsExpr:
             return wire("combine_cs", structural, output_type=self)
 
         if getattr(self, "_json", False):
-            # combine[TS[JSON]](**kwargs): the erased combine_json operator
-            # (scalar kwargs const-lift at their inferred types).
-            lifted = {}
-            for name, value in kwargs.items():
+            # Named values build a JSON object; positional values build a
+            # JSON array. Both forms const-lift before native composition.
+            if ports and kwargs:
+                raise TypeError("combine[TS[JSON]] cannot mix positional and named values")
+
+            def lift_json_value(value, label):
                 unwrapped = _unwrap(value)
                 if not isinstance(unwrapped, _m.Port):
                     from ._wiring import _infer_ts_type
@@ -1776,10 +1778,19 @@ class _TsExpr:
                         tp = _infer_ts_type([tuple(value)])
                         value = tuple(value)
                     if tp is None:
-                        raise TypeError(f"combine_json: cannot infer a type for '{name}'")
+                        raise TypeError(f"combine_json: cannot infer a type for '{label}'")
                     value = wire("const", value, output_type=tp)
-                lifted[name] = value
-            return wire("combine_json", **lifted)
+                return value
+
+            if ports:
+                return wire(
+                    "combine_json",
+                    *(lift_json_value(value, index) for index, value in enumerate(ports)),
+                )
+            return wire(
+                "combine_json",
+                **{name: lift_json_value(value, name) for name, value in kwargs.items()},
+            )
         if kwargs and not ports and getattr(self.handle, "is_ts", False):
             # The GENERIC kwargs form for any remaining TS-valued target
             # (e.g. combine[TS[Frame[X]]](a=..., b=...)): pack a structural

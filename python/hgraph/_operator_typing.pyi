@@ -73,7 +73,7 @@ class _abs__Operator(_Protocol):
 abs_: _abs__Operator
 
 class _add__Operator(_Protocol):
-    """Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs`` syntax wires this operator.
+    """Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, keyed-set insertion, and runtime-checked concatenation of dynamic JSON arrays. Python's ``lhs + rhs`` syntax wires this operator.
 
     Parameters
     ~~~~~~~~~~
@@ -96,7 +96,7 @@ class _add__Operator(_Protocol):
     Returns
     ~~~~~~~
 
-    The sum, with its schema selected from both operand schemas.
+    The sum, with its schema selected from both operand schemas. For ``TS[JSON]`` operands both values must be arrays at runtime.
 
     Python example
     ~~~~~~~~~~~~~~

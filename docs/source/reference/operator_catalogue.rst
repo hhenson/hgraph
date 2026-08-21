@@ -69,7 +69,7 @@ Accepted native overloads
 ``add_``
 --------
 
-Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs`` syntax wires this operator.
+Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, keyed-set insertion, and runtime-checked concatenation of dynamic JSON arrays. Python's ``lhs + rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
 
@@ -94,7 +94,7 @@ are fixed when the graph is built.
 Returns
 ~~~~~~~
 
-The sum, with its schema selected from both operand schemas.
+The sum, with its schema selected from both operand schemas. For ``TS[JSON]`` operands both values must be arrays at runtime.
 
 Python example
 ~~~~~~~~~~~~~~
@@ -876,13 +876,14 @@ Native grouping contracts:
 
 **Dynamic JSON values**
 
-Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value ports. The JSON tree remains a C++ value; Python is authoring sugar.
+Build a dynamic JSON object from named ports or a JSON array from positional ports. The JSON tree remains a C++ value; Python is authoring sugar.
 
 Native grouping contracts:
 
 .. code-block:: text
 
    (**kwargs: time-series) -> OUT
+   (*args: V) -> OUT
 
 **Mapping values**
 

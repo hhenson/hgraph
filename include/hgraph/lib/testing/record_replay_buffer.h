@@ -92,7 +92,10 @@ namespace hgraph::testing
     {
         const auto element = list.at(index);
         if (!element.has_value()) { return std::nullopt; }   // typed hole
-        if (element.schema()->value_kind() == ValueTypeKind::Any)
+        // Only the schema-free seeded layout uses List<Any> as an envelope.
+        // A typed recording may itself have an Any-kind delta schema (JSON is
+        // the important nominal example); unboxing that would erase its type.
+        if (list.element_schema() == TypeRegistry::instance().any())
         {
             const auto boxed = element.as_any();
             if (!boxed.has_value()) { return std::nullopt; }   // legacy empty box
