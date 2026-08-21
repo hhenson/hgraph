@@ -202,14 +202,13 @@ namespace hgraph
             return *MemoryUtils::cast<RealTimeExecutorStorage>(memory);
         }
 
-        [[nodiscard]] bool graph_has_realtime_only_push_sources(
+        [[nodiscard]] bool graph_has_push_sources(
             const GraphBuilder &builder) noexcept
         {
             for (const NodeBuilder &node : builder.nodes())
             {
                 const auto *schema = node.type().schema();
-                if (schema->node_kind == NodeKind::PushSource &&
-                    !schema->simulation_capable_push_source)
+                if (schema->node_kind == NodeKind::PushSource)
                 {
                     return true;
                 }
@@ -1292,7 +1291,7 @@ namespace hgraph
     GraphExecutorValue::GraphExecutorValue(const GraphExecutorBuilder &builder)
     {
         if (builder.mode() != GraphExecutorMode::RealTime &&
-            graph_has_realtime_only_push_sources(builder.graph_builder()))
+            graph_has_push_sources(builder.graph_builder()))
         {
             throw std::invalid_argument("Push source nodes require a real-time graph executor");
         }

@@ -42,6 +42,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace hgraph
@@ -1683,23 +1684,26 @@ namespace hgraph
         static constexpr auto field_name = Name;
 
         /** Supplied directly (graph ``compose`` parameter / wiring-time value). */
-        explicit Scalar(TValue value) : owned_(std::move(value)) {}
+        explicit Scalar(TValue value)
+            : storage_(std::in_place_index<0>, std::move(value))
+        {
+        }
 
         /** Borrow from the immutable node scalar storage (node hook path). */
         explicit Scalar(const ValueView &view)
-            : borrowed_(std::addressof(view.template checked_as<TValue>()))
+            : storage_(std::in_place_index<1>,
+                       std::addressof(view.template checked_as<TValue>()))
         {
         }
 
         /** The configured value of this scalar input. */
         [[nodiscard]] const value_type &value() const noexcept
         {
-            return borrowed_ != nullptr ? *borrowed_ : *owned_;
+            return storage_.index() == 0 ? std::get<0>(storage_) : *std::get<1>(storage_);
         }
 
       private:
-        std::optional<TValue> owned_{};
-        const TValue        *borrowed_{nullptr};
+        std::variant<TValue, const TValue *> storage_;
     };
 
     /**

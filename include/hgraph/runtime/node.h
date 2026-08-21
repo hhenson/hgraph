@@ -109,10 +109,6 @@ namespace hgraph
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.
         bool     uses_python_values{false};
-        // Push sources are real-time-only by default. A source which can
-        // deterministically preload its pending values before simulation is
-        // allowed to opt in explicitly.
-        bool     simulation_capable_push_source{false};
         // True when this node requires the embedding phase runner during
         // start, evaluation, or stop. Nested-node builders propagate the flag
         // from their child graph plans so a root executor can select its

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Rebuild manual/independent assignments as a new recovery generation after a
+  broker disconnect, allowing live consumers to resume from committed offsets
+  and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.
+- Preserve bounded deterministic Kafka recovery in simulation through an
+  ordinary scheduled service graph, while keeping live queue ingress on
+  real-time-only root push sources.
 - Replay recovered records at their Kafka timestamps across all subscriptions
   instead of serializing them in shared-drain arrival order.
 - Keep real-time live records behind their subscription's queued timestamped

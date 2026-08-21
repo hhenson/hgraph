@@ -626,7 +626,7 @@ template <typename Tag, typename Handle>
       w,
       w.add_unique_node(
           std::type_index(typeid(Tag)),
-          make_simulation_capable_push_source_node(
+          make_push_source_node(
               *schema,
               make_push_source_conflating_policy(*schema->delta_value_schema),
               [bridge = std::move(bridge), channel](PushSourceSender sender) {

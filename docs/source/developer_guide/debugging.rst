@@ -225,7 +225,11 @@ path at the same location in the guest:
 
    orb -m ubuntu bash
    sudo apt update
-   sudo apt install -y build-essential git python3-dev python3-venv
+   sudo apt install -y build-essential gcc-14 g++-14 git python3-dev python3-venv
+   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140
+   sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140
+   sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 140
+   sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140
    export REPO=/Users/<mac-user>/src/hgraph
 
 Inside the selected Linux shell, create a disposable Python environment
@@ -246,12 +250,12 @@ The ``rtcompat`` extra matters on virtualized x86_64 hosts that do not expose
 AVX/AVX2. The default Polars runtime warns and may crash on those guests before
 the hgraph extension is called.
 
-Confirm the compiler before configuring. The investigation that established
-this workflow used GCC 13.3:
+Confirm the compiler before configuring. hgraph's supported Linux toolchain is
+GCC 14 or newer; GCC 13 is not a supported validation compiler:
 
 .. code-block:: bash
 
-   c++ --version
+   g++-14 --version
    python --version
 
 Configure and build the Python extension
@@ -265,7 +269,8 @@ identified real emitted-code problems in the past.
 
    cmake -S "$REPO" -B "$BUILD" -GNinja \
        -DCMAKE_BUILD_TYPE=Debug \
-       -DCMAKE_CXX_COMPILER=/usr/bin/c++ \
+       -DCMAKE_C_COMPILER=/usr/bin/gcc-14 \
+       -DCMAKE_CXX_COMPILER=/usr/bin/g++-14 \
        -DPython_EXECUTABLE="$VENV/bin/python" \
        -DHGRAPH_BUILD_PYTHON_BINDINGS=ON \
        -DHGRAPH_ENABLE_PYTHON_USER_NODES=ON \

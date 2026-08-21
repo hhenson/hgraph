@@ -21,6 +21,7 @@ RELEASE_PACKAGES = (
     "hgraph-analytics",
     "hgraph-web",
     "hgraph-persistence",
+    "hgraph-fabric",
 )
 _TAG_PATTERN = re.compile(r"(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)")
 _VERSION_CORE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
@@ -83,6 +84,7 @@ def validate_release(
     analytics_cmake_path: Path = Path("extensions/analytics/CMakeLists.txt"),
     web_cmake_path: Path = Path("extensions/web/CMakeLists.txt"),
     persistence_cmake_path: Path = Path("extensions/persistence/CMakeLists.txt"),
+    fabric_cmake_path: Path = Path("extensions/fabric/CMakeLists.txt"),
     release_exists: Callable[[str, str], bool] = pypi_release_exists,
 ) -> Release:
     release = parse_release_tag(tag)
@@ -97,6 +99,7 @@ def validate_release(
         ("hgraph-analytics", analytics_cmake_path),
         ("hgraph-web", web_cmake_path),
         ("hgraph-persistence", persistence_cmake_path),
+        ("hgraph-fabric", fabric_cmake_path),
     ):
         native_version = native_project_version(path)
         if release.core < native_version:

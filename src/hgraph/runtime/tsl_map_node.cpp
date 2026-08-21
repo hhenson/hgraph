@@ -130,7 +130,12 @@ namespace hgraph
                                  ChildGraphVisitor visitor)
         {
             const auto &context = *static_cast<const TslMapNodeContext *>(raw_context);
-            visitor(visitor_context, context.spec.child.graph_builder);
+            visitor(visitor_context, ChildGraphInspectionView{
+                                         .graph = &context.spec.child.graph_builder,
+                                         .output_binding = context.spec.child.output_binding
+                                                               ? &*context.spec.child.output_binding
+                                                               : nullptr,
+                                     });
         }
 
         [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source) {

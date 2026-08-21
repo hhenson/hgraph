@@ -174,7 +174,7 @@ def test_release_metadata_uses_untagged_sentinel():
     assert "v_*.*.*" not in workflow
     assert workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
-    ) == 5
+    ) == 6
     assert 'python tools/validate_release.py "$RELEASE_TAG"' in workflow
 
 
@@ -312,7 +312,7 @@ def test_release_workflow_targets_supported_platforms():
     assert '- "3.12"' in test_workflow
     assert '- "3.13"' in test_workflow
     assert '- "3.14"' in test_workflow
-    assert test_workflow.count("uv run --no-sync --no-build") == 8
+    assert test_workflow.count("uv run --no-sync --no-build") == 10
 
 
 def test_platform_wheel_builds_use_stable_cacheable_paths():
@@ -323,6 +323,7 @@ def test_platform_wheel_builds_use_stable_cacheable_paths():
     assert "--wheel --no-isolation --skip-dependency-check" in platform_workflow
     assert '"-Cbuild-dir=.ci-build/core/{wheel_tag}"' in platform_workflow
     assert '"-Cbuild-dir=.ci-build/kafka/{wheel_tag}"' in platform_workflow
+    assert '"-Cbuild-dir=.ci-build/fabric/{wheel_tag}"' in platform_workflow
     assert "Install Kafka wheel build tools" not in platform_workflow
     for dependency in (
         '"scikit-build-core==1.0.3"',
@@ -354,7 +355,13 @@ def test_platform_wheel_tests_start_after_only_their_matching_build():
         build_job = workflow_job(workflow, build_name)
         assert "uses: ./.github/workflows/release-platform-wheel.yml" in build_job
 
-    for publish_name in ("publish", "publish-kafka", "publish-web", "publish-persistence"):
+    for publish_name in (
+        "publish",
+        "publish-kafka",
+        "publish-web",
+        "publish-persistence",
+        "publish-fabric",
+    ):
         publish_job = workflow_job(workflow, publish_name)
         for test_name in dependencies:
             assert f"needs.{test_name}.result == 'success'" in publish_job
@@ -382,8 +389,16 @@ def test_native_cpp_validation_is_independent_of_wheel_publication():
     assert "Build and test installed analytics consumer" in shared_job
     assert "Build and test installed web consumer" in shared_job
     assert "Build and test installed persistence consumer" in shared_job
+    assert "Build and test installed fabric consumer" in shared_job
 
-    for publish_name in ("publish", "publish-kafka", "publish-analytics", "publish-web", "publish-persistence"):
+    for publish_name in (
+        "publish",
+        "publish-kafka",
+        "publish-analytics",
+        "publish-web",
+        "publish-persistence",
+        "publish-fabric",
+    ):
         publish_job = workflow_job(release_workflow, publish_name)
         assert "native-cpp" not in publish_job
         assert "native-install" not in publish_job
@@ -419,6 +434,7 @@ def test_release_workflow_audits_distribution_contents():
 
     assert workflow.count(" tools/audit_distribution.py") == 3
     assert workflow.count("extensions/kafka/tools/audit_distribution.py") == 3
+    assert workflow.count("extensions/fabric/tools/audit_distribution.py") == 3
     assert '"dist/*.whl"' in workflow
     assert '"dist/*.tar.gz"' in workflow
     assert '"kafka-dist/*.whl"' in workflow
