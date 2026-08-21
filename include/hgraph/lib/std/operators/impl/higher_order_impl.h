@@ -44,6 +44,21 @@ namespace hgraph::stdlib
 
     namespace higher_order_impl_detail
     {
+        /**
+         * Output resolvers may compile a child graph speculatively to discover
+         * its concrete schema. The probe must see immutable wiring choices such
+         * as the execution mode, but it is not part of the composed topology and
+         * therefore must not inherit observers or their graph path.
+         */
+        [[nodiscard]] inline Wiring output_probe_parent(const Wiring *parent)
+        {
+            return Wiring{
+                WiringKind::SubGraph,
+                WiringOptions{
+                    .is_realtime = parent != nullptr && parent->is_realtime(),
+                }};
+        }
+
         inline void append_external_service_inputs(
             Wiring &w,
             std::vector<NestedServiceInput> external_inputs,
@@ -1578,10 +1593,11 @@ namespace hgraph::stdlib
 
             std::optional<bool> branches_have_output;
             std::vector<ExternalServiceSlot> external_services;
+            Wiring probe = output_probe_parent(context.wiring);
             (void)compile_switch_branch(*branch, key_source,
                                         slot_sources, positional_count,
                                         {named_slots.data(), named_slots.size()}, output_schema,
-                                        branches_have_output, external_services);
+                                        branches_have_output, external_services, &probe);
             return branches_have_output;
         }
 
@@ -1794,8 +1810,9 @@ namespace hgraph::stdlib
             auto bound = bind_wired_fn_args<const TSValueTypeMetaData *>(
                 "try_except", *func, {positional.data(), positional.size()},
                 {named.data(), named.size()}, {});
+            Wiring probe = output_probe_parent(context.wiring);
             CompiledSubGraph compiled = compile_try_except_child(
-                *func, {bound.ordered.data(), bound.ordered.size()});
+                *func, {bound.ordered.data(), bound.ordered.size()}, &probe);
             return try_except_output_schema(compiled.output_schema);
         }
 
@@ -2442,8 +2459,9 @@ namespace hgraph::stdlib
                                        ? std::span<const ValueTypeMetaData *const>{
                                              entry->types.data(), entry->types.size()}
                                        : std::span<const ValueTypeMetaData *const>{};
+                Wiring probe = output_probe_parent(context.wiring);
                 (void)compile_dispatch_branch(
-                    context.wiring,
+                    &probe,
                     *branch, types,
                     {cases->dispatch_args.data(), cases->dispatch_args.size()},
                     slot_sources, positional_count,
@@ -2996,7 +3014,8 @@ namespace hgraph::stdlib
             std::span<const TSValueTypeMetaData *const> ts_schemas,
             std::span<const std::uint8_t> arg_tags,
             const ValueTypeMetaData *fallback_key_meta = nullptr,
-            std::string_view operation_name = "map_")
+            std::string_view operation_name = "map_",
+            Wiring *parent = nullptr)
         {
             // OperatorRegistry already probes each overload behind an exception
             // boundary and records what() as that candidate's rejection reason.
@@ -3005,8 +3024,9 @@ namespace hgraph::stdlib
             const TSValueTypeMetaData *output_schema = nullptr;
             std::vector<WiringPortRef> captured;
             std::vector<NestedServiceInput> external_services;
+            Wiring probe = output_probe_parent(parent);
             (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
-                                    fallback_key_meta, &external_services, nullptr,
+                                    fallback_key_meta, &external_services, &probe,
                                     operation_name);
             if (output_schema == nullptr) { return std::optional<const TSValueTypeMetaData *>{}; }
             return std::optional<const TSValueTypeMetaData *>{output_schema};
@@ -3016,13 +3036,15 @@ namespace hgraph::stdlib
             const WiredFn &func,
             std::span<const TSValueTypeMetaData *const> ts_schemas,
             std::span<const std::uint8_t> arg_tags,
-            const ValueTypeMetaData *fallback_key_meta = nullptr)
+            const ValueTypeMetaData *fallback_key_meta = nullptr,
+            Wiring *parent = nullptr)
         {
             const TSValueTypeMetaData *output_schema = nullptr;
             std::vector<WiringPortRef> captured;
             std::vector<NestedServiceInput> external_services;
+            Wiring probe = output_probe_parent(parent);
             (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
-                                    fallback_key_meta, &external_services);
+                                    fallback_key_meta, &external_services, &probe);
             return std::optional<bool>{output_schema != nullptr};
         }
 
@@ -3500,7 +3522,8 @@ namespace hgraph::stdlib
             // allocating owned TSB storage.
             auto output_schema = try_resolve_map_output_schema(
                 *func, {ordered->schemas.data(), ordered->schemas.size()},
-                {ordered->arg_tags.data(), ordered->arg_tags.size()}, keys_kwarg_element(context));
+                {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                keys_kwarg_element(context), "map_", context.wiring);
             if (!output_schema.has_value()) { return; }
             bind_graph_output(resolution, *output_schema, "O");
         }
@@ -3626,7 +3649,8 @@ namespace hgraph::stdlib
                 if (!ordered.has_value()) { return false; }
                 const auto mode = try_resolve_map_output_mode(
                     *func, {ordered->schemas.data(), ordered->schemas.size()},
-                    {ordered->arg_tags.data(), ordered->arg_tags.size()}, keys_kwarg_element(context));
+                    {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                    keys_kwarg_element(context), context.wiring);
                 return mode.has_value() && !*mode;
             }
 
@@ -3674,7 +3698,7 @@ namespace hgraph::stdlib
                 const auto inferred = try_resolve_map_output_schema(
                     *func, {ordered->schemas.data(), ordered->schemas.size()},
                     {ordered->arg_tags.data(), ordered->arg_tags.size()},
-                    keys_kwarg_element(context), "mesh_");
+                    keys_kwarg_element(context), "mesh_", context.wiring);
                 if (inferred.has_value()) { bind_graph_output(resolution, *inferred, "O"); }
                 return;
             }
@@ -4263,10 +4287,8 @@ namespace hgraph::stdlib
                 const auto child_schemas =
                     std::span<const TSValueTypeMetaData *const>{schemas.data(),
                                                                schemas.size()};
-                CompiledSubGraph compiled = context.wiring != nullptr
-                                                ? func->compile(*context.wiring,
-                                                                child_schemas)
-                                                : func->compile(child_schemas);
+                Wiring probe = output_probe_parent(context.wiring);
+                CompiledSubGraph compiled = func->compile(probe, child_schemas);
                 if (compiled.output_schema != nullptr) {
                     bind_graph_output(resolution, registry.tsl(compiled.output_schema, size), "O");
                 }

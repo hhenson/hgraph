@@ -18,7 +18,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <tuple>
 #include <utility>
@@ -144,6 +146,75 @@ namespace
         {
             observed_wiring_modes.push_back(w.is_realtime());
             static_cast<void>(nested_<WiringModeChildGraph>(w, wire<ConstantSource>(w)));
+        }
+    };
+
+    struct WiringModeCollectionSource
+    {
+        static constexpr auto name = "wiring_mode_collection_source";
+        static void eval(Out<TSD<Int, TS<Int>>>) {}
+    };
+
+    struct WiringModeErasedOutputGraph
+    {
+        static constexpr auto name = "wiring_mode_erased_output";
+
+        static Port<void> compose(Wiring &w, Port<void> input)
+        {
+            static_cast<void>(input);
+            return Port<void>{
+                w,
+                w.is_realtime()
+                    ? wire<stdlib::const_, TS<Str>>(w, Str{"realtime"}).erased()
+                    : wire<stdlib::const_, TS<Int>>(w, Int{0}).erased()};
+        }
+    };
+
+    struct WiringModeHigherOrderGraph
+    {
+        static void compose(Wiring &w)
+        {
+            auto &registry = TypeRegistry::instance();
+            const auto *element = w.is_realtime()
+                                      ? ts_type<TS<Str>>()
+                                      : ts_type<TS<Int>>();
+            const auto require_schema = [](std::string_view operation,
+                                           const TSValueTypeMetaData *actual,
+                                           const TSValueTypeMetaData *expected) {
+                if (!time_series_schema_equivalent(actual, expected))
+                {
+                    throw std::logic_error(std::string{operation} +
+                                           " output probe used the wrong wiring mode");
+                }
+            };
+
+            auto collection = wire<WiringModeCollectionSource>(w);
+            require_schema(
+                "map_",
+                wire<stdlib::map_>(w, fn<WiringModeErasedOutputGraph>(), collection)
+                    .erased().schema,
+                registry.tsd(scalar_descriptor<Int>::value_meta(), element));
+            require_schema(
+                "mesh_",
+                wire<stdlib::mesh_>(w, fn<WiringModeErasedOutputGraph>(), collection)
+                    .erased().schema,
+                registry.tsd(scalar_descriptor<Int>::value_meta(), element));
+
+            auto input = wire<ConstantSource>(w);
+            require_schema(
+                "switch_",
+                wire<stdlib::switch_>(
+                    w, input,
+                    stdlib::switch_cases({
+                        {Value{Int{41}}, fn<WiringModeErasedOutputGraph>()}}),
+                    input).erased().schema,
+                element);
+            require_schema(
+                "try_except",
+                wire<stdlib::try_except>(
+                    w, fn<WiringModeErasedOutputGraph>(), input).erased().schema,
+                registry.un_named_tsb(
+                    {{"exception", node_error_ts_meta()}, {"out", element}}));
         }
     };
 
@@ -1054,6 +1125,16 @@ TEST_CASE("graph wiring: execution mode is visible to root and child composition
 
     CHECK(observed_wiring_modes ==
           std::vector<bool>{false, false, true, true});
+}
+
+TEST_CASE("graph wiring: higher-order output probes inherit execution mode")
+{
+    using namespace hgraph;
+
+    stdlib::register_standard_operators();
+    CHECK_NOTHROW(static_cast<void>(build_graph<WiringModeHigherOrderGraph>()));
+    CHECK_NOTHROW(static_cast<void>(build_graph<WiringModeHigherOrderGraph>(
+        WiringOptions{.is_realtime = true})));
 }
 
 TEST_CASE("graph wiring: Python output storage is selected from complete readership")

@@ -422,8 +422,11 @@ the observer registry and copies the current path and immutable
 ``is_realtime`` flag into the child, covering
 ``switch_``, ``map_``, ``mesh_``, ``reduce``, and other compiled callables
 without a process global or thread-local observer stack. Callbacks are
-synchronous and observer exceptions abort wiring. ``WiringTracer`` is the
-built-in native formatter and accepts path, graph-event, and node-event filters.
+synchronous and observer exceptions abort wiring. Speculative child compilation
+used only to infer an erased output schema copies ``is_realtime`` into an
+observer-free probe context; observers therefore describe only the selected
+composition, not resolver probes. ``WiringTracer`` is the built-in native
+formatter and accepts path, graph-event, and node-event filters.
 The observer and event interfaces are C++ APIs. Python may configure the bound
 native ``WiringTracer``, but cannot implement an observer or receive the event
 records through Python callbacks.
