@@ -1,0 +1,752 @@
+RFC 0027: Push-Source Queue Models and the Sender Contract
+===========================================================
+
+:Status: Proposed
+:Author: Howard Henson
+:Created: 2026-08-21
+:Target: Core runtime push-source policies, extension SDK, Python ``push_queue``
+
+Summary
+-------
+
+Make the push source a policy-selected cross-thread delivery boundary.  Four
+models are supported:
+
+* an unbounded FIFO queue;
+* a bounded FIFO queue;
+* a conflating current-state accumulator; and
+* a burst queue that accepts individual scalar values and emits the values
+  currently pending as one homogeneous tuple.
+
+Replace the sender's ``void send(Value)`` with an explicit pair:
+
+.. code-block:: cpp
+
+   [[nodiscard]] bool try_send(Value value) const;
+   void               send_blocking(Value value) const;
+
+``try_send`` returns ``false`` when the selected policy cannot accept the
+value.  ``send_blocking`` waits until it can, or until the node stops.  Capacity
+is a count of admitted elements; there is no byte accounting in the core
+contract.
+
+The push-source node then *is* the queue.  A service implementation uses one
+push source to carry every value its adaptor returns to the graph, in one
+order, and demultiplexes into separate outputs with ordinary graph nodes.
+Downstream transport extensions migrate from their private queue ownership to
+this shared core contract.
+
+The ``Conflating`` policy remains the public
+``@push_queue(..., conflate=True)`` behaviour.  The new ``Burst`` policy is
+deliberately narrow: its output must be ``TS[tuple[SCALAR, ...]]``, while its
+sender accepts one ``SCALAR`` per call.  It batches only values already pending
+when the graph evaluates; it does not introduce a timer or target batch size.
+
+Motivation
+----------
+
+The existing ``Queue`` policy is an unbounded ``std::deque<Value>``
+(``src/hgraph/runtime/push_source_node.cpp``) and ``PushSourceSender::send``
+returns ``void``, discarding the ``bool`` the policy already produces.  A
+producer therefore has no way to learn that the graph is behind, and no way to
+bound the memory its arrival rate consumes.
+
+The existing FIFO policy also imposes one graph evaluation per admitted value.
+That is correct for event-by-event delivery, but inefficient for consumers that
+can naturally process a homogeneous collection.  Such producers currently
+need another queue and drain node merely to turn several scalar arrivals into
+one ``TS[tuple[SCALAR, ...]]`` tick.  A burst policy uses the same push-source
+boundary and makes that batching choice at wiring time.
+
+Two independently built downstream transport extensions encountered the same
+requirement: bounded record admission, non-blocking refusal for producers with
+a liveness obligation, blocking admission for simple producers, and safe
+shutdown of cross-thread waiters.  Both had to own queueing outside the push
+source because core did not provide that contract.  Their independent
+production use supplies the promotion evidence; their private representations
+are not part of this RFC.
+
+Duplicating this boundary also weakens ordering: related values placed in
+independent queues have no defined order across those queues.  A single push
+source queue gives that ordering by construction.
+
+RFC 0015 anticipated this and deferred it explicitly:
+
+   A generic bounded cross-thread channel may be proposed for core only after
+   a second downstream integration demonstrates the same contract and supplies
+   promotion evidence.
+
+``hgraph-web`` is that second integration.  The gate in RFC 0000 is met.
+
+RFC 0015 also recorded the reason payloads did not go through the push source:
+
+   The existing queue push-source policy is intentionally unbounded.  Passing
+   every Kafka payload directly to it would allow broker rate to determine
+   graph memory use.
+
+That is an argument against the *current unbounded* ``Queue``, not against a
+push source owning payload.  Once the queue has a capacity the argument no
+longer holds, and the second queue has no reason to exist.
+
+Ownership boundary
+------------------
+
+The core owns:
+
+* the ``Queue`` policy's capacity, admission decision, and blocking wait;
+* the ``Burst`` policy's scalar-to-tuple batching boundary;
+* the sender contract (``try_send`` / ``send_blocking``) and its stop
+  semantics;
+* the confirmation contract that releases capacity; and
+* the Python ``push_queue`` exposure of blocking admission and policy
+  configuration.
+
+The core does **not** own:
+
+* byte accounting or payload sizing — a domain that needs to bound bytes
+  bounds them in its own producer before calling ``try_send``;
+* watermark fractions, pause/resume, and what a producer does when refused;
+* any notion of message identity, offsets, or acknowledgement tokens; and
+* the envelope schema an adaptor multiplexes onto one push source.
+
+This keeps the core contract domain-independent as RFC 0000's promotion gate
+requires.  Transport-specific identity, validation, and flow-control decisions
+remain downstream; queue storage and admission move to core.
+
+Public C++ contract
+-------------------
+
+Sender
+~~~~~~
+
+.. code-block:: cpp
+
+   class HGRAPH_EXPORT PushSourceSender
+   {
+     public:
+       PushSourceSender() noexcept = default;
+
+       [[nodiscard]] bool valid() const noexcept;
+       [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
+
+       /** Enqueue if the policy can accept the value now.
+        *
+        * Returns false when the queue is at capacity or the node is not
+        * accepting (before start, after stop). Never blocks. The value is
+        * destroyed when the call returns false; a producer that needs to
+        * retry retains its own copy. */
+       [[nodiscard]] bool try_send(Value value) const;
+
+       /** Enqueue, waiting for capacity if necessary.
+        *
+        * Must not be called from the graph evaluation thread. Throws
+        * ``PushSourceStopped`` if the node is not accepting when called, or
+        * becomes non-accepting while waiting. */
+       void send_blocking(Value value) const;
+
+       template <typename T> [[nodiscard]] bool try_send(T &&value) const;
+       template <typename T> void send_blocking(T &&value) const;
+   };
+
+``void send(Value)`` is removed rather than deprecated.  It has few call sites
+(``python/py_carriers.h``, both extension bridges, three test files), the
+bridges are being retired by this RFC, and leaving a silent-discard overload
+beside an explicit pair would reintroduce the ambiguity the change exists to
+remove.
+
+Policy selection
+~~~~~~~~~~~~~~~~
+
+The policy is selected once from wiring-time metadata and remains behind the
+existing type-erased ``PushSourcePolicy`` operations:
+
+.. code-block:: cpp
+
+   enum class PushSourcePolicyKind : std::uint8_t
+   {
+       Queue,
+       Conflating,
+       Burst,
+   };
+
+``Queue`` with ``max_pending == 0`` is unbounded.  ``Queue`` with a non-zero
+``max_pending`` is bounded.  ``Conflating`` retains one accumulated current
+state.  ``Burst`` uses FIFO admission but emits a tuple containing a snapshot
+of all elements pending at the start of its evaluation.
+
+The public sender type does not change with the model.  Its ``sender_schema()``
+describes the value accepted by each call: the output delta schema for
+``Queue`` and ``Conflating``, and the tuple element schema for ``Burst``.
+
+Capacity
+~~~~~~~~
+
+.. code-block:: cpp
+
+   [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_queue_policy(
+       const ValueTypeMetaData &sender_schema, std::size_t max_pending = 0);
+
+   [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_queue_policy(
+       const TSValueTypeMetaData &output_schema, std::size_t max_pending = 0);
+
+``max_pending == 0`` means unbounded, matching the convention
+``QueueView::has_max_capacity()`` already uses for the ``Queue`` value type.
+Existing callers keep today's behaviour without change; bounding is opt-in.
+
+``max_pending`` counts elements admitted and not yet released — queued plus,
+under ``Confirmed`` mode, emitted-but-unconfirmed.
+
+The burst policy accepts the same capacity setting:
+
+.. code-block:: cpp
+
+   [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_burst_policy(
+       const TSValueTypeMetaData &output_schema, std::size_t max_pending = 0);
+
+There is intentionally no overload taking only a sender schema.  The factory
+needs the complete output schema both to validate the tuple result and to
+derive its scalar element schema.  A non-zero ``max_pending`` limits pending
+scalar elements, not the number of tuple ticks.  The existing generic
+``make_push_source_policy(kind, sender_schema)`` overload rejects ``Burst`` and
+directs callers to this factory because a sender schema alone cannot establish
+the output tuple contract.
+
+Burst contract
+~~~~~~~~~~~~~~
+
+For this RFC, ``Burst`` supports only an atomic time-series output whose scalar
+value is a homogeneous variadic tuple:
+
+.. code-block:: text
+
+   output: TS[tuple[SCALAR, ...]]
+   sender: SCALAR
+
+The equivalent native schema is ``TS<HomogeneousTuple<T>>``.  In runtime
+metadata, Python ``tuple[T, ...]`` is the immutable variadic-tuple form of the
+list representation: it has one element schema and the ``VariadicTuple`` flag.
+Fixed heterogeneous tuples, mutable lists, ``TSL``, ``TSS``, ``TSD``, ``TSW``
+and nested time-series elements are rejected by the burst-policy factory.
+
+Each sender call admits one scalar ``Value``.  When the push source evaluates,
+it takes one lock and detaches every scalar currently queued.  It then releases
+the lock, constructs one tuple in FIFO order, and applies that tuple as the
+``TS`` output delta.  Values admitted after the detach form the next burst and
+re-arm the executor.  An empty tuple is never emitted; a burst containing one
+scalar emits a one-element tuple.
+
+This defines a deterministic boundary for a concurrent producer without
+claiming a total order across producer threads: values appear in the order in
+which their admissions acquire the policy mutex.  It also keeps tuple
+construction and output mutation off producer threads and outside the queue
+lock.
+
+Under ``OnEmit``, detaching a burst releases capacity for every element in that
+burst and wakes blocked producers.  If ``Confirmed`` is later enabled for
+burst, those elements remain outstanding and the downstream confirmation count
+for a tuple must equal the number of admitted scalar elements being released.
+
+.. code-block:: cpp
+
+   auto policy = make_push_source_burst_policy(
+       *ts_type<TS<HomogeneousTuple<Int>>>(), 256);
+
+   // Both calls contribute scalar elements to a later tuple-valued tick.
+   static_cast<void>(sender.try_send(Int{1}));
+   sender.send_blocking(Int{2});
+
+Confirmation
+~~~~~~~~~~~~
+
+The message model is *process, then confirm*.  A queue that releases capacity
+when a value is emitted measures how fast the graph can tick, not how fast it
+can process, so its depth carries no useful backpressure signal.  Under
+``Confirmed`` mode a value occupies capacity until the graph says it is done
+with it.
+
+.. code-block:: cpp
+
+   enum class PushSourceReleaseMode : std::uint8_t
+   {
+       /** Capacity is released when the value is emitted. Default; this is
+        *  today's behaviour. */
+       OnEmit,
+       /** Capacity is released when the graph confirms. */
+       Confirmed,
+   };
+
+Confirmation is by count, not by token.  The queue is FIFO and emission is in
+order, so releasing the oldest *n* unconfirmed entries is sufficient for
+capacity accounting, and the core never needs to understand message identity.
+A domain that needs identity carries its own token inside the payload.
+
+``NodeKind::PushSource`` has an output and no inputs, so confirmation cannot be
+an input on the push-source node.  It is a companion sink node that receives a
+``PushSourceConfirm`` handle onto the same policy storage during its start, in
+the same way the source's producer receives a ``PushSourceSender``:
+
+.. code-block:: cpp
+
+   class HGRAPH_EXPORT PushSourceConfirm
+   {
+     public:
+       [[nodiscard]] bool valid() const noexcept;
+       /** Release the oldest ``count`` emitted-but-unconfirmed entries.
+        *  Throws if ``count`` exceeds the number outstanding. */
+       void confirm(std::size_t count = 1) const;
+   };
+
+A service implementation wires the source and the confirm sink together.  The
+transport retains its domain acknowledgement token while core accounts only
+for the number of outstanding FIFO entries.  No transport-specific identity
+enters the push-source contract.
+
+Usage model
+~~~~~~~~~~~
+
+A service implementation uses **one** push source for everything its adaptor
+returns to the graph.  The sender schema is a discriminated envelope; the
+implementation demultiplexes it into its several service outputs with ordinary
+graph nodes.
+
+This is the point of the design rather than an incidental economy.  One queue
+is one order, so values that are related — a record and the state change that
+explains it, a delivery failure and its event — arrive in the order the adaptor
+produced them.  Several push sources cannot promise that at any price.
+
+The core does not enforce one push source per implementation; it is the
+documented pattern, and the extension migrations below follow it.
+
+Python contract
+---------------
+
+``PySender`` gains no boolean.  Python has no established way to express a
+refused send in the ``push_queue`` protocol today, so its bound ``send`` method
+continues to be passed to the start callback as ``sender(value)`` and maps to
+native ``send_blocking``:
+
+.. code-block:: python
+
+   @push_queue(TS[int])
+   def my_source(sender: Callable[[int], None]):
+       sender(1)          # blocks if the queue is full
+
+``PySender::send`` already releases the GIL around the native call
+(``python/py_carriers.h``), so blocking there does not stall the interpreter.
+A stopped node raises ``RuntimeError`` from the same call, replacing the
+current silent discard.
+
+``@push_queue`` gains optional ``max_pending`` and ``burst`` keyword arguments:
+
+.. code-block:: python
+
+   @push_queue(TS[int])
+   def unbounded(sender): ...
+
+   @push_queue(TS[int], max_pending=256)
+   def bounded(sender): ...
+
+   @push_queue(TS[int], conflate=True)
+   def latest(sender): ...
+
+   @push_queue(TS[tuple[int, ...]], burst=True, max_pending=256)
+   def batches(sender):
+       sender(1)  # sends int; graph receives tuple[int, ...]
+
+``max_pending`` defaults to ``None`` (unbounded).  ``conflate=True`` rejects
+``max_pending``, since a conflating policy retains exactly one accumulated
+value.  ``conflate`` and ``burst`` are mutually exclusive.  ``burst=True``
+requires a ``TS[tuple[SCALAR, ...]]`` output and permits ``max_pending`` because
+its queue holds the individual scalar elements.
+
+A non-blocking Python surface (``try_send`` returning ``bool``) is deliberately
+left for a later RFC once there is a Python producer that needs it.
+
+Runtime representation
+----------------------
+
+``PushSourcePolicyOps`` replaces ``send_impl`` with two admission operations.
+The erased result separates successful admission from the need to wake the
+executor; these are distinct for a conflating delta that is accepted but makes
+no effective change:
+
+.. code-block:: cpp
+
+   struct PushSourceSendResult
+   {
+       bool accepted;
+       bool wake_required;
+   };
+
+   PushSourceSendResult (*try_send_impl)(
+       const void *context, void *storage, Value value);
+   PushSourceSendResult (*send_blocking_impl)(
+       const void *context, void *storage, Value value);
+
+and ``QueuePolicyStorage`` gains ``max_pending``, an ``outstanding_`` count for
+``Confirmed`` mode, and a ``std::condition_variable`` for the blocking wait.
+No new mechanism is introduced: the policy is already a struct of function
+pointers plus a context, following the repository's passive ops-table and
+explicit erased-ownership pattern.
+
+Threading:
+
+* the queue mutex is a producer/consumer boundary that already exists — this
+  RFC does not add a per-tick lock;
+* the condition variable is notified by ``emit_next`` (capacity freed under
+  ``OnEmit``), by ``confirm`` (under ``Confirmed``), and by ``stop``;
+* ``stop()`` sets ``accepting = false`` and notifies all waiters *before*
+  the node's producer threads are joined, so a blocked ``send_blocking``
+  cannot deadlock teardown; and
+* several producer threads may share one sender.  Both entry points are
+  safe under the queue mutex.
+
+``send_blocking`` must never be called from the graph evaluation thread.  A
+debug assertion compares against the executor's evaluation thread id; release
+builds do not pay for the check.
+
+The sender remains a non-templated, type-erased facade.  The selected policy
+validates each admitted ``Value`` against its sender schema.  Queue and
+conflating policies therefore continue to accept the output delta schema;
+burst accepts the element schema derived from its output tuple.  There is no
+per-send or per-evaluation registry lookup.
+
+``BurstPolicyStorage`` reuses the queue admission and condition-variable
+machinery.  Its ``emit_next`` detaches the pending deque under the policy
+mutex, releases capacity according to the release mode, and constructs the
+variadic tuple using the output schema's preselected ``ValueOps`` strategy.
+Building and applying the tuple occur after releasing the policy mutex.
+
+Sender lifetime and stop
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The current sender borrows raw node and executor storage, and ``valid()`` only
+reports that those pointers were originally bound.  A blocking operation makes
+that insufficient: graph teardown must not destroy a condition variable while
+a sender is waiting on it, and a retained sender must not dereference graph
+storage after executor destruction.
+
+The implementation therefore adds a small shared sender-control object.  It
+outlives node storage, rejects new operations once closing begins, and counts
+operations that have entered policy storage.  Stop proceeds in this order:
+
+1. mark the sender control as closing, preventing new policy calls;
+2. mark the policy non-accepting and notify its capacity waiters;
+3. wait for entered sender operations to leave policy storage;
+4. run the node's stop callback; and
+5. detach the control from node and executor storage before either is
+   destroyed.
+
+After step 1, ``try_send`` returns ``false`` and ``send_blocking`` throws
+``PushSourceStopped`` without accessing node storage.  ``valid()`` means the
+control is attached to a running, accepting policy, rather than merely holding
+a non-null historical pointer.  This is one small, explicit erased-ownership
+boundary per push source; payload and queue storage remain owned by the node's
+planned storage.
+
+Performance and memory
+----------------------
+
+The change removes work from the per-tick path rather than adding it.  Current
+downstream compositions pass a record through a private queue, a conflated
+wake-up, the push source, and a drain node.  Moving admission into the push
+source removes the duplicate queue, repeated evaluation-thread locking, and
+per-record type reconstruction.  The linked downstream migration PRs provide
+the before/after measurements without making their private implementation part
+of this public contract.
+
+Bounded admission is one comparison against ``max_pending`` inside the lock the
+policy already takes.  ``max_pending == 0`` short-circuits it, so existing
+unbounded users are unaffected.
+
+For a burst containing *n* elements, enqueue is O(1) per element, detaching the
+pending deque is O(1), and tuple construction/application is O(n) for that
+graph tick.  Retained memory is O(n), bounded by ``max_pending`` when non-zero.
+The evaluation thread holds the policy mutex only for the detach and capacity
+update, not for the O(n) tuple construction.  The implementation must move or
+transfer admitted values into the tuple representation without an avoidable
+second payload copy.
+
+``Confirmed`` mode retains emitted values until confirmation, which is a
+deliberate memory cost bounded by ``max_pending``.  ``OnEmit`` remains the
+default so nothing pays for it implicitly.
+
+Evidence to be supplied with the implementation:
+
+* allocation and latency comparison for a downstream subscription path before
+  and after its duplicate queue and drain are removed;
+* no per-record type-registry acquisition in the migrated evaluation path; and
+* throughput of a saturated bounded queue against today's unbounded one; and
+* burst throughput and allocation count across representative burst sizes,
+  including comparison with an external queue plus drain node.
+
+Compatibility and migration
+---------------------------
+
+Source compatibility
+   ``PushSourceSender::send`` is removed.  Every call site is in this
+   repository.  The Python carrier moves to ``send_blocking``; downstream
+   extensions remove or delegate their private queues; native tests move to
+   ``try_send`` with an assertion or to ``send_blocking``.
+
+Behavioural compatibility
+   Default ``max_pending == 0`` and default ``OnEmit`` preserve today's
+   semantics exactly.  The one visible change for existing users is that a
+   Python ``sender(value)`` after stop now raises instead of silently
+   discarding.
+   ``burst=False`` is the default, so existing Python output schemas and sender
+   payload types are unchanged.
+
+ABI
+   ``PushSourcePolicyOps`` is a private detail structure but it is reachable
+   through the installed SDK's headers, so this is a rebuild-required change
+   for downstream native extensions.  It is grouped with the RFC 0026 node
+   metadata layout change in the same release rather than adding a second
+   rebuild point.
+
+Serialization
+   None.  Policies are wiring-time construction, not manifest content;
+   ``max_pending`` and ``burst`` are builder arguments and do not alter node
+   schema identity.  A graph manifest records the selected concrete policy in
+   its node construction metadata when push-source policy serialization is
+   introduced; this RFC does not introduce manifest support.
+
+Downstream incubation evidence and removal plan
+-----------------------------------------------
+
+The bounded sender contract has two independent downstream implementations to
+draw from.  Both demonstrate bounded record admission, producer-visible
+refusal, blocking producer support, and lifecycle wake-up.  Domain-specific
+byte accounting, watermark policy, message identity, and producer flow control
+remain downstream.  The common queue ownership and sender semantics promote to
+core.
+
+The bounded sender contract is promoted from those two downstream
+implementations.  ``Burst`` is a new composition over the existing homogeneous
+tuple representation rather than a promoted downstream algorithm.  Before
+this RFC can become ``Accepted``, the implementation must supply the native and
+Python behavioural coverage, installed-SDK use, and allocation/latency evidence
+listed below.  If implementation experience shows that tuple materialisation
+cannot meet the stated cost, burst is removed from this RFC rather than
+introducing a second scalar collection representation.
+
+Removal plan, as separate linked pull requests after the core change lands:
+
+1. ``hgraph-kafka`` delegates record admission and storage to one core push
+   source, removes its duplicate queue, and uses a pull source for deterministic
+   replay.
+2. ``hgraph-web`` delegates record admission and storage to the same core
+   contract and removes its duplicate queue.
+
+Each downstream PR documents compatibility, dependency, and release ordering,
+and links back to the core implementation PR.
+
+Out of scope
+------------
+
+Recorded so they are not re-proposed against this RFC.
+
+Time
+   Push sources carry no time.  Scheduling a value for a future evaluation is
+   ``NodeKind::PullSource``.  Timestamp-ordered replay belongs in a pull source
+   rather than being generalised into this real-time admission contract.
+
+Other batching shapes
+   Burst intentionally models a batch as the scalar value of
+   ``TS[tuple[SCALAR, ...]]``.  It does not change the delta contract of
+   ``TS<T>``, batch ``TSW`` elements, manufacture multi-element ``TSS``/``TSD``
+   deltas, accept heterogeneous fixed tuples, or recursively batch structural
+   time-series values.  Those shapes require separate evidence and contracts.
+
+Batch size and time
+   Burst has no target size, maximum emission size independent of queue
+   capacity, linger duration, or timer.  The first admitted value wakes the
+   graph; evaluation takes whatever has accumulated by that point.  A producer
+   needing a minimum-size or time-windowed batch owns that policy outside the
+   push source until there is implementation evidence for a general contract.
+
+Byte bounds
+   Excluded from the core contract by decision.  A producer that must bound
+   bytes tracks them itself and stops calling ``try_send``.
+
+Alternatives considered
+-----------------------
+
+Capacity from a ``Queue<T>`` value schema
+   ``ValueTypeKind::Queue`` already exists, carries ``max_capacity`` in its
+   metadata via ``TypeRegistry::queue(element_type, max_capacity)``, and
+   ``QueueView`` exposes ``full()`` and ``max_capacity()``.  Holding the
+   pending values in such a value would put capacity in the type system, where
+   it would appear in manifests and node inspection.
+
+   Deferred.  ``static_schema.h`` has no ``Queue<T>`` authoring alias — the
+   type has exactly one caller in the tree, in the Python container conversion
+   path — so this RFC would have to introduce native authoring for a value kind
+   as a side effect.  The policy's elements are also *delta* values of the
+   output schema rather than instances of one declared element type, which is
+   not the shape ``Queue<T>`` describes.  A builder parameter is the smaller
+   change; the value-typed queue remains available later.
+
+Keeping ``send`` and adding a bool overload
+   Rejected.  An overload set where one member silently discards a failure and
+   another reports it is the ambiguity this RFC removes.
+
+A separate bounded-channel type in core, outside the push source
+   Rejected.  It would be a third structure between the producer and the node,
+   which is what both bridges built and what this RFC retires.  The push
+   source node is the queue.
+
+Blocking as the only mode
+   Rejected.  A producer with a liveness obligation on its own thread cannot
+   block; a broker client, for example, may need to keep polling to serve
+   heartbeats and lifecycle callbacks.  ``try_send`` plus producer-side flow
+   control is the correct mode for such a producer.
+
+Non-blocking as the only mode
+   Rejected.  A producer with no such obligation — a file reader, a replay
+   feed — should be able to simply wait, and forcing it to spin or build its
+   own condition variable recreates the problem.
+
+Changing ``TS<T>`` to carry several deltas per tick
+   Rejected.  ``TS<T>`` has one scalar delta ``T``.  Burst preserves that
+   contract by selecting ``T == tuple[SCALAR, ...]`` at wiring time.  Changing
+   the time-series substrate would affect every node and operator for a result
+   already expressible with the existing homogeneous tuple scalar.
+
+Passing a tuple to the sender
+   Rejected for burst.  It would make the producer choose batch boundaries and
+   leave the push source as an ordinary queue of tuple values.  That remains
+   possible with the normal queue policy.  Burst specifically accepts one
+   scalar per call so the graph's evaluation cadence defines the opportunistic
+   batch boundary.
+
+Unresolved questions
+--------------------
+
+1. **``send_blocking`` on stop.**  This RFC proposes throwing
+   ``PushSourceStopped`` both when called on a stopped node and when stop
+   arrives during the wait.  The alternative is to return silently, matching
+   today's discard.  Throwing is chosen because a discarded message is a
+   silent failure.  The cost is that a clean shutdown racing an in-flight send
+   produces an exception on a normal path.  Confirm before implementation.
+
+2. **Confirm handle acquisition and start ordering.**  The confirm sink needs
+   a handle onto the source's policy storage, which lives at
+   ``policy_storage_offset`` inside the source node's memory.  Node start
+   order within a graph must therefore guarantee the source starts before the
+   sink, or the handle must be resolvable at wiring time rather than at start.
+   The guarantee needs establishing before ``Confirmed`` mode is implemented;
+   it does not block stage 1.
+
+3. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
+   record cannot be starved by a full payload queue.  With one queue this is
+   reserved headroom rather than a second lane.  It remains downstream until
+   the migrations establish a shared domain-independent requirement.
+
+4. **Two-phase reserve.**  Some producers reserve capacity before performing
+   work so its resulting control record always has somewhere to land.  This is
+   deferred until multiple migrations establish a shared contract.
+
+5. **Burst confirmation ergonomics.**  Capacity and confirmation count scalar
+   elements, so confirming a burst of length *n* requires ``confirm(n)``.  This
+   is internally consistent but less convenient than confirming one emitted
+   tuple.  Stage 2 implements ``Burst`` with ``OnEmit`` first; ``Confirmed``
+   burst admission remains disabled until the confirmation API is exercised by
+   a downstream consumer and this choice is resolved.
+
+Implementation plan
+-------------------
+
+Stage 1 — sender and capacity
+   ``try_send`` / ``send_blocking``; ``max_pending`` on the queue policy;
+   Python ``send`` mapped to ``send_blocking`` and ``max_pending`` on
+   ``@push_queue``; safe sender-control lifetime and stop quiescence.  No
+   extension changes beyond the mechanical call-site move.
+
+Stage 2 — burst policy
+   ``PushSourcePolicyKind::Burst`` and
+   ``make_push_source_burst_policy``; scalar admission and atomic detach into
+   ``TS<HomogeneousTuple<T>>``; Python ``burst=True``; unbounded and bounded
+   ``OnEmit`` behaviour.  ``Confirmed`` is rejected for burst in this stage.
+
+Stage 3 — confirmation
+   ``PushSourceReleaseMode``, ``PushSourceConfirm``, and the start-ordering
+   guarantee from open question 2.
+
+Stage 4 — extension migration
+   Kafka and web each move to one push source, remove their duplicate queues,
+   and Kafka moves replay to a pull source.  Separate linked pull requests per
+   RFC 0000.
+
+Acceptance criteria
+-------------------
+
+Public C++ and extension boundary
+   * ``PushSourceSender`` exposes ``try_send`` (``[[nodiscard]]``) and
+     ``send_blocking``; ``send`` no longer exists.
+   * ``make_push_source_queue_policy`` accepts ``max_pending`` defaulting to
+     ``0``.
+   * ``PushSourcePolicyKind::Burst`` and
+     ``make_push_source_burst_policy`` are available to an installed native
+     extension, and the sender schema is the output tuple's scalar element.
+   * An installed-SDK fixture builds a separately compiled extension that
+     bounds queue and burst push sources and observes a refused ``try_send``.
+
+Behaviour
+   * A bounded queue refuses admission at capacity and admits again after a
+     value is emitted (``OnEmit``) or confirmed (``Confirmed``).
+   * ``send_blocking`` returns once capacity is available and does not busy-wait.
+   * ``send_blocking`` unblocks on stop and does not deadlock graph teardown,
+     under TSAN.
+   * Several producer threads sharing one sender neither lose nor duplicate
+     values, under TSAN.
+   * A sender blocked on capacity is released by stop before policy storage is
+     destroyed; a retained sender is safely invalid after executor destruction,
+     under TSAN and ASan.
+   * ``max_pending == 0`` reproduces today's unbounded behaviour, including the
+     existing real-time execution tests unchanged.
+   * A stopped node's Python ``sender(value)`` raises rather than discarding.
+   * Burst rejects every output except ``TS[tuple[SCALAR, ...]]`` and rejects a
+     sender value whose schema is not ``SCALAR``.
+   * Burst preserves FIFO admission order, emits every scalar pending at detach
+     as one tuple, never emits an empty tuple, and assigns concurrent arrivals
+     after detach to a later tick without loss or duplication.
+   * Bounded burst capacity counts scalar elements and is released for the
+     whole detached batch under ``OnEmit``.
+   * Python burst senders accept scalar values, emit Python tuples, and a
+     bounded ``sender(value)`` does not hold the GIL while waiting.
+
+Performance
+   * A migrated downstream subscription path shows no per-record type-registry
+     acquisition.
+   * Allocation and latency evidence for the collapsed path is recorded in
+     this RFC before it is Accepted.
+   * Burst enqueue remains O(1); a burst of *n* scalars has O(n) per-tick work
+     and O(n) retained memory, with benchmarked tuple construction and no
+     per-tick schema-registry lookup.
+
+Compatibility
+   * ``@push_queue(..., conflate=True)`` behaviour is unchanged and covered by
+     its existing tests.
+   * ``@push_queue(..., burst=True)`` is additive and mutually exclusive with
+     ``conflate=True``; existing decorators retain queue semantics.
+   * ``docs/source/user_guide/cpp/authoring_nodes.rst`` and the ``push_queue``
+     docstring describe all policy models, both sender entry points, the burst
+     scalar/tuple distinction, and the blocking rule.
+
+Implementation status
+---------------------
+
+Not started.  This RFC is ``Proposed`` and contains no implementation.
+
+References
+----------
+
+* :doc:`rfc_0000` — RFC process and promotion gate.
+* :doc:`rfc_0015_kafka_extension_api` — the deferral this RFC discharges, and
+  the bounded-queue requirement it states.
+* :doc:`rfc_0024_web_extension_api` — the second independent implementation.
+* ``docs/source/developer_guide/data_structures/overview/execution_layer.rst``
+  — push sources and the real-time executor boundary.
+* ``docs/source/user_guide/cpp/authoring_nodes.rst`` — push-source authoring
+  and the real-time-only rule.

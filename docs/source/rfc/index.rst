@@ -54,3 +54,4 @@ RFC catalogue
    rfc_0024_web_extension_api
    rfc_0025_hgraph_persistence
    rfc_0026_versioned_dataflow_fabric
+   rfc_0027_bounded_push_source_queues
