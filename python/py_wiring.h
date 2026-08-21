@@ -97,8 +97,11 @@ namespace hgraph::python_bridge
         GlobalState                   *python_state{nullptr};
         bool                           finished{false};
 
-        PyWiring()
-            : owned(std::make_unique<Wiring>()), raw(owned.get())
+        explicit PyWiring(bool is_realtime = false)
+            : owned(std::make_unique<Wiring>(
+                  WiringKind::TopLevel,
+                  WiringOptions{.is_realtime = is_realtime})),
+              raw(owned.get())
         {
             // The raw stateless wiring bridge IS the dense recording harness
             // (``Run.recorded`` reads cycle-aligned buffers): record/replay
@@ -116,9 +119,11 @@ namespace hgraph::python_bridge
             }
         }
 
-        explicit PyWiring(GlobalState &state)
+        explicit PyWiring(GlobalState &state, bool is_realtime = false)
             : seed_context(std::make_unique<GlobalContext>(state)),
-              owned(std::make_unique<Wiring>()),
+              owned(std::make_unique<Wiring>(
+                  WiringKind::TopLevel,
+                  WiringOptions{.is_realtime = is_realtime})),
               raw(owned.get()),
               python_state(&state)
         {
@@ -317,6 +322,11 @@ namespace hgraph::python_bridge
         {
             ensure_open();
             if (owned == nullptr) { throw std::logic_error("a borrowed Wiring cannot be run"); }
+            if (realtime != wiring_ref().is_realtime())
+            {
+                throw std::invalid_argument(
+                    "Wiring.run mode must match the mode selected when the wiring was created");
+            }
             if (trace_back_depth < 0)
             {
                 throw std::invalid_argument(

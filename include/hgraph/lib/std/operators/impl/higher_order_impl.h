@@ -2161,6 +2161,7 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline SingleNestedGraphNodeSpec compile_dispatch_branch(
+            Wiring *parent,
             const WiredFn &branch,
             std::span<const ValueTypeMetaData *const> case_types,
             std::span<const std::size_t> dispatch_slots,
@@ -2187,7 +2188,8 @@ namespace hgraph::stdlib
                 "dispatch_", branch,
                 {positional_slots.data(), positional_slots.size()}, named_slots, "");
 
-            Wiring child{WiringKind::SubGraph};
+            Wiring child = parent != nullptr ? parent->child_wiring()
+                                             : Wiring{WiringKind::SubGraph};
             std::vector<const TSValueTypeMetaData *> boundary_schemas;
             std::vector<WiringPortRef> branch_ports;
             boundary_schemas.reserve(bound_slots.ordered.size());
@@ -2351,6 +2353,7 @@ namespace hgraph::stdlib
                 spec.branches.push_back(SwitchBranch{
                     .key = Value{static_cast<Int>(i)},
                     .spec = compile_dispatch_branch(
+                        &w,
                         entry.branch, {entry.types.data(), entry.types.size()},
                         {cases.dispatch_args.data(), cases.dispatch_args.size()},
                         ts, positional_count,
@@ -2361,6 +2364,7 @@ namespace hgraph::stdlib
             if (cases.default_branch.has_value())
             {
                 spec.default_branch = compile_dispatch_branch(
+                    &w,
                     *cases.default_branch, {},
                     {cases.dispatch_args.data(), cases.dispatch_args.size()},
                     ts, positional_count,
@@ -2439,6 +2443,7 @@ namespace hgraph::stdlib
                                              entry->types.data(), entry->types.size()}
                                        : std::span<const ValueTypeMetaData *const>{};
                 (void)compile_dispatch_branch(
+                    context.wiring,
                     *branch, types,
                     {cases->dispatch_args.data(), cases->dispatch_args.size()},
                     slot_sources, positional_count,
@@ -4255,7 +4260,13 @@ namespace hgraph::stdlib
                     }
                 }
 
-                CompiledSubGraph compiled = func->compile({schemas.data(), schemas.size()});
+                const auto child_schemas =
+                    std::span<const TSValueTypeMetaData *const>{schemas.data(),
+                                                               schemas.size()};
+                CompiledSubGraph compiled = context.wiring != nullptr
+                                                ? func->compile(*context.wiring,
+                                                                child_schemas)
+                                                : func->compile(child_schemas);
                 if (compiled.output_schema != nullptr) {
                     bind_graph_output(resolution, registry.tsl(compiled.output_schema, size), "O");
                 }

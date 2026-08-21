@@ -327,6 +327,7 @@ namespace hgraph
                        int &rank_adjustment,
                        std::string &why,
                        GlobalStateView global_state,
+                       Wiring *wiring,
                        bool &requires_rejected)
         {
             if (output_required.has_value() && impl.has_output != *output_required)
@@ -550,7 +551,8 @@ namespace hgraph
                 }
             }
 
-            OperatorCallContext context{args, impl.params, kwargs, global_state};
+            OperatorCallContext context{args, impl.params, kwargs, global_state,
+                                        wiring};
             if (impl.default_resolver)
             {
                 const bool resolved = fallback_on_exception(
@@ -678,7 +680,8 @@ namespace hgraph
         return resolved.impl->const_kernel(
             resolved_output,
             OperatorCallContext{resolved.args, resolved.impl->params,
-                                std::span<const std::pair<std::string, WiringArg>>{kwargs}, global_state});
+                                std::span<const std::pair<std::string, WiringArg>>{kwargs},
+                                global_state, nullptr});
     }
 
     namespace
@@ -1070,7 +1073,7 @@ namespace hgraph
             // specific than one whose parameters were all supplied.
             int rank_adjustment = call.defaults_used;
             if (try_match(impl, call.args, call.kwargs, output_required, expected_output, map, rank_adjustment, why,
-                          global_state, any_requires_rejected))
+                          global_state, wiring, any_requires_rejected))
             {
                 survivors.push_back({&impl, std::move(map), std::move(call), impl.rank + rank_adjustment});
             }

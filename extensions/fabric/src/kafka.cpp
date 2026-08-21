@@ -265,9 +265,12 @@ void wire_kafka_transport(Wiring &wiring, service::ServicePath fabric_path,
 void register_kafka_transport(Wiring &wiring, service::ServicePath fabric_path,
                               service::ServicePath kafka_path, Str topic,
                               Str identity, Value kafka_service_config) {
+  if (!wiring.is_realtime()) {
+    throw std::invalid_argument(
+        "Fabric Kafka transport requires real-time graph wiring");
+  }
   require_fabric_kafka_profile(kafka_service_config);
-  kafka::register_service(wiring, kafka_path, std::move(kafka_service_config),
-                          kafka::KafkaServiceMode::RealTime);
+  kafka::register_service(wiring, kafka_path, std::move(kafka_service_config));
   wire_kafka_transport(wiring, std::move(fabric_path), std::move(kafka_path),
                        std::move(topic), std::move(identity));
 }

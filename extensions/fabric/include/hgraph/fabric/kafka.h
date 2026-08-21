@@ -29,7 +29,8 @@ wire_kafka_transport(Wiring &wiring, service::ServicePath fabric_path,
                      service::ServicePath kafka_path, Str topic, Str identity);
 
 /** Register the production Kafka service and compose the Fabric transport on
-    top of it. Both implementations remain lazy graph singletons. */
+    top of it. Both implementations remain lazy graph singletons. This live
+    transport requires a real-time wiring context. */
 HGRAPH_FABRIC_KAFKA_EXPORT void
 register_kafka_transport(Wiring &wiring, service::ServicePath fabric_path,
                          service::ServicePath kafka_path, Str topic,

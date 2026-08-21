@@ -65,6 +65,11 @@ struct ActualBrokerRecord {
 
 std::vector<ActualBrokerRecord> actual_broker_records{};
 
+template <typename G>
+[[nodiscard]] hg::GraphBuilder build_realtime_graph() {
+  return hg::build_graph<G>(hg::WiringOptions{.is_realtime = true});
+}
+
 [[nodiscard]] std::filesystem::path marker(std::string_view name) {
   return actual_control_dir / name;
 }
@@ -212,8 +217,7 @@ struct ActualNoticeGraph {
 
   static void compose(hg::Wiring &wiring) {
     const auto path = hg::service::path("fabric-broker-seed-kafka");
-    hgk::register_service(wiring, path, actual_kafka_config.clone(),
-                          hgk::KafkaServiceMode::RealTime);
+    hgk::register_service(wiring, path, actual_kafka_config.clone());
     auto request = hgk::publish_request(wiring, actual_topic,
                                         hg::wire<ActualNoticeSource>(wiring));
     static_cast<void>(hg::wire<CaptureActualDelivery>(
@@ -350,8 +354,7 @@ struct ActualBrokerAuditGraph {
 
   static void compose(hg::Wiring &wiring) {
     const auto path = hg::service::path("fabric-broker-audit-kafka");
-    hgk::register_service(wiring, path, actual_kafka_config.clone(),
-                          hgk::KafkaServiceMode::RealTime);
+    hgk::register_service(wiring, path, actual_kafka_config.clone());
     auto key = hg::wire<hg::stdlib::const_, hg::TS<hgk::KafkaSubscriptionKey>>(
         wiring, actual_audit_key.clone());
     static_cast<void>(hg::wire<CaptureActualBrokerRecords>(
@@ -455,7 +458,7 @@ TEST_CASE("Kafka queue wakes live Fabric through the Kafka root push source") {
   observed_value = 0;
   observed_count = 0;
 
-  auto graph = hg::build_graph<KafkaFabricGraph>();
+  auto graph = build_realtime_graph<KafkaFabricGraph>();
   CHECK(graph.root_type().schema()->push_source_nodes_end > 0);
   auto config = hgf::make_memory_fabric_config("tests/kafka-transport");
   hgf::set_fabric_config(graph.global_state(), config);
@@ -494,7 +497,7 @@ TEST_CASE("Kafka lifecycle establishes the durable image before "
   const auto first = seed(config, 1, 1);
   observed_sequence.clear();
 
-  auto graph = hg::build_graph<KafkaFabricFakeGraph>();
+  auto graph = build_realtime_graph<KafkaFabricFakeGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
   const hg::DateTime start = hg::testing::wall_now();
   hg::GraphExecutorBuilder builder;
@@ -566,7 +569,7 @@ TEST_CASE("manual Kafka assignment recovers after every broker disconnects") {
   actual_diagnostics.clear();
   actual_events.clear();
 
-  auto graph = hg::build_graph<ActualBrokerGraph>();
+  auto graph = build_realtime_graph<ActualBrokerGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
   const hg::DateTime start = hg::testing::wall_now();
   hg::GraphExecutorBuilder builder;
@@ -662,7 +665,7 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
   {
     const hg::DateTime start = hg::testing::wall_now();
     hg::GraphExecutorBuilder builder;
-    builder.graph_builder(hg::build_graph<ActualNoticeGraph>())
+    builder.graph_builder(build_realtime_graph<ActualNoticeGraph>())
         .mode(hg::GraphExecutorMode::RealTime)
         .start_time(start)
         .end_time(start + hg::TimeDelta{15'000'000});
@@ -678,7 +681,7 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
   actual_live_values.clear();
   actual_diagnostics.clear();
   actual_events.clear();
-  auto graph = hg::build_graph<ActualBrokerGraph>();
+  auto graph = build_realtime_graph<ActualBrokerGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
   const hg::DateTime start = hg::testing::wall_now();
   hg::GraphExecutorBuilder builder;
@@ -761,7 +764,7 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
   {
     const hg::DateTime audit_start = hg::testing::wall_now();
     hg::GraphExecutorBuilder audit_builder;
-    audit_builder.graph_builder(hg::build_graph<ActualBrokerAuditGraph>())
+    audit_builder.graph_builder(build_realtime_graph<ActualBrokerAuditGraph>())
         .mode(hg::GraphExecutorMode::RealTime)
         .start_time(audit_start)
         .end_time(audit_start + hg::TimeDelta{20'000'000});

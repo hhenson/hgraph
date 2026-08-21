@@ -127,6 +127,26 @@ namespace
         }
     };
 
+    std::vector<bool> observed_wiring_modes;
+
+    struct WiringModeChildGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            observed_wiring_modes.push_back(w.is_realtime());
+            return input;
+        }
+    };
+
+    struct WiringModeRootGraph
+    {
+        static void compose(Wiring &w)
+        {
+            observed_wiring_modes.push_back(w.is_realtime());
+            static_cast<void>(nested_<WiringModeChildGraph>(w, wire<ConstantSource>(w)));
+        }
+    };
+
     // A sub-graph: TS<Int> -> TS<Int>, adding two via two add_one nodes.
     struct PlusTwo
     {
@@ -1021,6 +1041,19 @@ TEST_CASE("graph wiring: build_graph wires source -> add_one and runs in simulat
     REQUIRE(graph.node_count() == 2);
     // The rank pass orders source (no inputs) before add_one, so node 1 is add_one.
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{42});
+}
+
+TEST_CASE("graph wiring: execution mode is visible to root and child composition")
+{
+    using namespace hgraph;
+
+    observed_wiring_modes.clear();
+    static_cast<void>(build_graph<WiringModeRootGraph>());
+    static_cast<void>(build_graph<WiringModeRootGraph>(
+        WiringOptions{.is_realtime = true}));
+
+    CHECK(observed_wiring_modes ==
+          std::vector<bool>{false, false, true, true});
 }
 
 TEST_CASE("graph wiring: Python output storage is selected from complete readership")

@@ -1091,10 +1091,12 @@ struct Wiring::Impl {
   std::unordered_set<std::string> component_ids; // claimed recordable ids
 
   explicit Impl(WiringKind wiring_kind,
+                WiringOptions options,
                 std::shared_ptr<WiringObserverRegistry> observer_registry = {},
                 std::vector<std::string> observer_path = {})
       : observers(std::move(observer_registry)),
-        wiring_path(std::move(observer_path)), kind(wiring_kind) {
+        wiring_path(std::move(observer_path)), kind(wiring_kind),
+        is_realtime(options.is_realtime) {
     if (kind == WiringKind::TopLevel) {
       // The LIVE selected state, not a copy (ruling 2026-07-27): setters
       // invoked during wiring (set_record_replay_model, set_as_of, ...)
@@ -1180,13 +1182,16 @@ struct Wiring::Impl {
   std::vector<std::string> wiring_path{};
   std::string graph_label{};
   WiringKind kind{WiringKind::TopLevel};
+  const bool is_realtime{false};
 };
 
-Wiring::Wiring(WiringKind kind) : impl_(std::make_unique<Impl>(kind)) {}
+Wiring::Wiring(WiringKind kind, WiringOptions options)
+    : impl_(std::make_unique<Impl>(kind, options)) {}
 Wiring::Wiring(WiringKind kind,
+               WiringOptions options,
                std::shared_ptr<WiringObserverRegistry> observers,
                std::vector<std::string> path)
-    : impl_(std::make_unique<Impl>(kind, std::move(observers),
+    : impl_(std::make_unique<Impl>(kind, options, std::move(observers),
                                   std::move(path))) {}
 
 WiringObservationScope::WiringObservationScope(Wiring &wiring,
@@ -1261,7 +1266,9 @@ bool Wiring::has_wiring_observers() const noexcept {
 }
 
 Wiring Wiring::child_wiring() const {
-  return Wiring{WiringKind::SubGraph, impl_->observers, impl_->wiring_path};
+  return Wiring{WiringKind::SubGraph,
+                WiringOptions{.is_realtime = impl_->is_realtime},
+                impl_->observers, impl_->wiring_path};
 }
 
 std::vector<std::string> Wiring::current_wiring_path() const {
@@ -1380,6 +1387,8 @@ void Wiring::register_pre_rank_finalizer(
 }
 
 WiringKind Wiring::kind() const noexcept { return impl_->kind; }
+
+bool Wiring::is_realtime() const noexcept { return impl_->is_realtime; }
 
 Wiring &Wiring::label(std::string label) {
   impl_->graph_label = std::move(label);

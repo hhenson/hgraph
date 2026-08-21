@@ -968,6 +968,29 @@ def test_realtime_push_source_and_python_sink():
     check(seen == [2, 3, 4], f"push source: {seen}")
 
 
+def test_graph_wiring_sees_the_selected_run_mode():
+    observed = []
+
+    @graph
+    def app() -> TS[int]:
+        observed.append(hg.is_realtime())
+        return hg.const(1)
+
+    check(eval_node(app) == [1], "simulation wiring mode")
+    start = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    check(
+        eval_node(
+            app,
+            __run_mode__=hg.EvaluationMode.REAL_TIME,
+            __start_time__=start,
+            __end_time__=start + datetime.timedelta(milliseconds=100),
+            __elide__=True,
+        ) == [1],
+        "real-time wiring mode",
+    )
+    check(observed == [False, True], f"wiring modes: {observed}")
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
