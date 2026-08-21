@@ -164,3 +164,32 @@ def test_catalogue_publish_routes_all_matching_sinks():
             hg.run_graph(app)
 
     assert writes[0][0].equals(frame)
+
+
+def test_catalogue_publish_without_matching_sink_completes_as_noop():
+    responses = []
+    response_type = hg.TSB[hg.stream.Stream[hg.stream.Data[datetime]]]
+
+    @hg.sink_node
+    def capture(response: response_type):
+        if response.status.value is StreamStatus.OK and response["values"].valid:
+            responses.append((response.status.value, response.status_msg.value,
+                              response["values"].value))
+
+    @hg.graph
+    def app():
+        hg.register_adaptor("data-catalogue-publish", publish_adaptor_impl)
+        data = hg.const(_ROUTED_FRAME, tp=hg.TS[hg.Frame[_Row]])
+        capture(publish[_Row]("rows", data))
+
+    with hg.GlobalContext(hg.GlobalState()):
+        with DataCatalogue():
+            DataCatalogueEntry[_Source](
+                _Row,
+                "rows",
+                frozendict(),
+                _Source(source_path="memory", table="rows"),
+            )
+            hg.run_graph(app)
+
+    assert responses == [(StreamStatus.OK, "", hg.MIN_DT)]
