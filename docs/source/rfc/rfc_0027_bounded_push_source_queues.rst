@@ -97,7 +97,7 @@ The core owns:
 * the ``Burst`` policy's scalar-to-tuple batching boundary;
 * the sender contract (``try_send`` / ``send_blocking``) and its stop
   semantics;
-* the confirmation contract that releases capacity; and
+* releasing bounded capacity when the graph dequeues work; and
 * the Python ``push_queue`` exposure of blocking admission and policy
   configuration.
 
@@ -106,7 +106,8 @@ The core does **not** own:
 * byte accounting or payload sizing — a domain that needs to bound bytes
   bounds them in its own producer before calling ``try_send``;
 * watermark fractions, pause/resume, and what a producer does when refused;
-* any notion of message identity, offsets, or acknowledgement tokens; and
+* protocol-level completion, acknowledgement, message identity, or offsets;
+  a protocol that needs these wires an explicit sink node downstream;
 * the envelope schema an adaptor multiplexes onto one push source.
 
 This keeps the core contract domain-independent as RFC 0000's promotion gate
@@ -193,8 +194,8 @@ Capacity
 ``QueueView::has_max_capacity()`` already uses for the ``Queue`` value type.
 Existing callers keep today's behaviour without change; bounding is opt-in.
 
-``max_pending`` counts elements admitted and not yet released — queued plus,
-under ``Confirmed`` mode, emitted-but-unconfirmed.
+``max_pending`` counts elements admitted and still queued.  Dequeuing an
+element for graph processing releases its capacity immediately.
 
 The burst policy accepts the same capacity setting:
 
@@ -241,10 +242,9 @@ which their admissions acquire the policy mutex.  It also keeps tuple
 construction and output mutation off producer threads and outside the queue
 lock.
 
-Under ``OnEmit``, detaching a burst releases capacity for every element in that
-burst and wakes blocked producers.  If ``Confirmed`` is later enabled for
-burst, those elements remain outstanding and the downstream confirmation count
-for a tuple must equal the number of admitted scalar elements being released.
+Detaching a burst releases capacity for every element in that burst and wakes
+blocked producers.  The detached values have entered graph processing and no
+longer belong to the sender queue.
 
 .. code-block:: cpp
 
@@ -255,51 +255,19 @@ for a tuple must equal the number of admitted scalar elements being released.
    static_cast<void>(sender.try_send(Int{1}));
    sender.send_blocking(Int{2});
 
-Confirmation
-~~~~~~~~~~~~
+Protocol acknowledgements
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The message model is *process, then confirm*.  A queue that releases capacity
-when a value is emitted measures how fast the graph can tick, not how fast it
-can process, so its depth carries no useful backpressure signal.  Under
-``Confirmed`` mode a value occupies capacity until the graph says it is done
-with it.
+Dequeuing a value means the graph has started processing it, so queue capacity
+is released at that point.  The sender has no completion handle, release mode,
+or outstanding-work count.
 
-.. code-block:: cpp
-
-   enum class PushSourceReleaseMode : std::uint8_t
-   {
-       /** Capacity is released when the value is emitted. Default; this is
-        *  today's behaviour. */
-       OnEmit,
-       /** Capacity is released when the graph confirms. */
-       Confirmed,
-   };
-
-Confirmation is by count, not by token.  The queue is FIFO and emission is in
-order, so releasing the oldest *n* unconfirmed entries is sufficient for
-capacity accounting, and the core never needs to understand message identity.
-A domain that needs identity carries its own token inside the payload.
-
-``NodeKind::PushSource`` has an output and no inputs, so confirmation cannot be
-an input on the push-source node.  It is a companion sink node that receives a
-``PushSourceConfirm`` handle onto the same policy storage during its start, in
-the same way the source's producer receives a ``PushSourceSender``:
-
-.. code-block:: cpp
-
-   class HGRAPH_EXPORT PushSourceConfirm
-   {
-     public:
-       [[nodiscard]] bool valid() const noexcept;
-       /** Release the oldest ``count`` emitted-but-unconfirmed entries.
-        *  Throws if ``count`` exceeds the number outstanding. */
-       void confirm(std::size_t count = 1) const;
-   };
-
-A service implementation wires the source and the confirm sink together.  The
-transport retains its domain acknowledgement token while core accounts only
-for the number of outstanding FIFO entries.  No transport-specific identity
-enters the push-source contract.
+Some protocols need an explicit acknowledgement after downstream processing
+has completed.  That is protocol implementation, not sender admission.  Such
+an implementation carries any required identity in its data and wires a sink
+node at the appropriate point in the graph to perform the acknowledgement.
+The sink's lifecycle and failure semantics are defined by that protocol and do
+not change capacity in the push-source queue.
 
 Usage model
 ~~~~~~~~~~~
@@ -383,8 +351,8 @@ no effective change:
    PushSourceSendResult (*send_blocking_impl)(
        const void *context, void *storage, Value value);
 
-and ``QueuePolicyStorage`` gains ``max_pending``, an ``outstanding_`` count for
-``Confirmed`` mode, and a ``std::condition_variable`` for the blocking wait.
+and ``QueuePolicyStorage`` gains ``max_pending`` and a
+``std::condition_variable`` for the blocking wait.
 No new mechanism is introduced: the policy is already a struct of function
 pointers plus a context, following the repository's passive ops-table and
 explicit erased-ownership pattern.
@@ -393,8 +361,8 @@ Threading:
 
 * the queue mutex is a producer/consumer boundary that already exists — this
   RFC does not add a per-tick lock;
-* the condition variable is notified by ``emit_next`` (capacity freed under
-  ``OnEmit``), by ``confirm`` (under ``Confirmed``), and by ``stop``;
+* the condition variable is notified when ``emit_next`` dequeues a value and
+  by ``stop``;
 * ``stop()`` sets ``accepting = false`` and notifies all waiters *before*
   the node's producer threads are joined, so a blocked ``send_blocking``
   cannot deadlock teardown; and
@@ -413,7 +381,7 @@ per-send or per-evaluation registry lookup.
 
 ``BurstPolicyStorage`` reuses the queue admission and condition-variable
 machinery.  Its ``emit_next`` detaches the pending deque under the policy
-mutex, releases capacity according to the release mode, and constructs the
+mutex, releases capacity for the detached elements, and constructs the
 variadic tuple using the output schema's preselected ``ValueOps`` strategy.
 Building and applying the tuple occur after releasing the policy mutex.
 
@@ -467,10 +435,6 @@ update, not for the O(n) tuple construction.  The implementation must move or
 transfer admitted values into the tuple representation without an avoidable
 second payload copy.
 
-``Confirmed`` mode retains emitted values until confirmation, which is a
-deliberate memory cost bounded by ``max_pending``.  ``OnEmit`` remains the
-default so nothing pays for it implicitly.
-
 Evidence to be supplied with the implementation:
 
 * allocation and latency comparison for a downstream subscription path before
@@ -490,10 +454,9 @@ Source compatibility
    ``try_send`` with an assertion or to ``send_blocking``.
 
 Behavioural compatibility
-   Default ``max_pending == 0`` and default ``OnEmit`` preserve today's
-   semantics exactly.  The one visible change for existing users is that a
-   Python ``sender(value)`` after stop now raises instead of silently
-   discarding.
+   Default ``max_pending == 0`` preserves today's queue semantics.  The one
+   visible change for existing users is that a Python ``sender(value)`` after
+   stop now raises instead of silently discarding.
    ``burst=False`` is the default, so existing Python output schemas and sender
    payload types are unchanged.
 
@@ -628,31 +591,16 @@ Unresolved questions
    arrives during the wait.  The alternative is to return silently, matching
    today's discard.  Throwing is chosen because a discarded message is a
    silent failure.  The cost is that a clean shutdown racing an in-flight send
-   produces an exception on a normal path.  Confirm before implementation.
+   produces an exception on a normal path.  Resolve before implementation.
 
-2. **Confirm handle acquisition and start ordering.**  The confirm sink needs
-   a handle onto the source's policy storage, which lives at
-   ``policy_storage_offset`` inside the source node's memory.  Node start
-   order within a graph must therefore guarantee the source starts before the
-   sink, or the handle must be resolvable at wiring time rather than at start.
-   The guarantee needs establishing before ``Confirmed`` mode is implemented;
-   it does not block stage 1.
-
-3. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
+2. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
    record cannot be starved by a full payload queue.  With one queue this is
    reserved headroom rather than a second lane.  It remains downstream until
    the migrations establish a shared domain-independent requirement.
 
-4. **Two-phase reserve.**  Some producers reserve capacity before performing
+3. **Two-phase reserve.**  Some producers reserve capacity before performing
    work so its resulting control record always has somewhere to land.  This is
    deferred until multiple migrations establish a shared contract.
-
-5. **Burst confirmation ergonomics.**  Capacity and confirmation count scalar
-   elements, so confirming a burst of length *n* requires ``confirm(n)``.  This
-   is internally consistent but less convenient than confirming one emitted
-   tuple.  Stage 2 implements ``Burst`` with ``OnEmit`` first; ``Confirmed``
-   burst admission remains disabled until the confirmation API is exercised by
-   a downstream consumer and this choice is resolved.
 
 Implementation plan
 -------------------
@@ -667,13 +615,9 @@ Stage 2 — burst policy
    ``PushSourcePolicyKind::Burst`` and
    ``make_push_source_burst_policy``; scalar admission and atomic detach into
    ``TS<HomogeneousTuple<T>>``; Python ``burst=True``; unbounded and bounded
-   ``OnEmit`` behaviour.  ``Confirmed`` is rejected for burst in this stage.
+   dequeue behaviour.
 
-Stage 3 — confirmation
-   ``PushSourceReleaseMode``, ``PushSourceConfirm``, and the start-ordering
-   guarantee from open question 2.
-
-Stage 4 — extension migration
+Stage 3 — extension migration
    Kafka and web each move to one push source, remove their duplicate queues,
    and Kafka moves replay to a pull source.  Separate linked pull requests per
    RFC 0000.
@@ -693,8 +637,8 @@ Public C++ and extension boundary
      bounds queue and burst push sources and observes a refused ``try_send``.
 
 Behaviour
-   * A bounded queue refuses admission at capacity and admits again after a
-     value is emitted (``OnEmit``) or confirmed (``Confirmed``).
+   * A bounded queue refuses admission at capacity and admits again after the
+     graph dequeues a value for processing.
    * ``send_blocking`` returns once capacity is available and does not busy-wait.
    * ``send_blocking`` unblocks on stop and does not deadlock graph teardown,
      under TSAN.
@@ -712,7 +656,7 @@ Behaviour
      as one tuple, never emits an empty tuple, and assigns concurrent arrivals
      after detach to a later tick without loss or duplication.
    * Bounded burst capacity counts scalar elements and is released for the
-     whole detached batch under ``OnEmit``.
+     whole detached batch when it is dequeued.
    * Python burst senders accept scalar values, emit Python tuples, and a
      bounded ``sender(value)`` does not hold the GIL while waiting.
 
