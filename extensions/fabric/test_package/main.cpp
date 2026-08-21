@@ -53,6 +53,25 @@ int main()
         return 2;
     }
 
+    if (hgf::decode_data_id_segment(
+            hgf::encode_data_id_segment("installed/output")) !=
+            "installed/output" ||
+        hgf::revision_key(config->prefix, "installed/output", 1) !=
+            "installed/fabric/baW5zdGFsbGVkL291dHB1dA/revision/"
+            "0000000000000000001")
+    {
+        return 3;
+    }
+
+    hgf::PublisherStateMachine publisher{*config, "installed/output"};
+    publisher.begin(hgf::PublicationInput{
+        .system_time = hg::DateTime{hg::TimeDelta{1'767'323'045'006'007}},
+    });
+    if (publisher.advance() != hgf::PublicationState::AwaitingFirstOutput)
+    {
+        return 4;
+    }
+
     auto graph = hg::build_graph<InstalledFabricGraph>();
-    return graph.node_count() == 2 ? 0 : 3;
+    return graph.node_count() == 2 ? 0 : 5;
 }

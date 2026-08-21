@@ -23,11 +23,70 @@ namespace hgraph::fabric
             return {};
         }
 
-        void empty_publish(void *, RevisionNotification)
+        [[nodiscard]] NotificationDeliveryResult empty_delivery_poll(void *)
+        {
+            return {NotificationDeliveryStatus::Failed,
+                    "fabric notification delivery is not configured"};
+        }
+
+        NotificationDelivery empty_publish(void *, RevisionNotification)
         {
             throw std::logic_error("fabric notifier is not configured");
         }
     }  // namespace
+
+    const NotificationDeliveryOps &NotificationDelivery::empty_ops() noexcept
+    {
+        static const NotificationDeliveryOps ops{&empty_delivery_poll};
+        return ops;
+    }
+
+    NotificationDelivery::NotificationDelivery() noexcept = default;
+
+    NotificationDelivery::NotificationDelivery(
+        std::shared_ptr<void> context, const NotificationDeliveryOps &ops)
+        : context_(std::move(context)), ops_(ops)
+    {
+        if (!context_ || ops_.poll == nullptr)
+        {
+            throw std::invalid_argument(
+                "fabric notification delivery requires complete operations");
+        }
+    }
+
+    NotificationDelivery::NotificationDelivery(NotificationDelivery &&other) noexcept
+        : context_(std::move(other.context_)), ops_(other.ops_)
+    {
+        other.ops_ = empty_ops();
+    }
+
+    NotificationDelivery &NotificationDelivery::operator=(
+        NotificationDelivery &&other) noexcept
+    {
+        if (this != &other)
+        {
+            context_ = std::move(other.context_);
+            ops_     = other.ops_;
+            other.ops_ = empty_ops();
+        }
+        return *this;
+    }
+
+    NotificationDeliveryResult NotificationDelivery::poll() const
+    {
+        return ops_.poll(context_.get());
+    }
+
+    NotificationDelivery::operator bool() const noexcept
+    {
+        return context_ != nullptr;
+    }
+
+    void NotificationDelivery::reset() noexcept
+    {
+        context_.reset();
+        ops_ = empty_ops();
+    }
 
     const NotificationSubscriptionOps &
     NotificationSubscription::empty_ops() noexcept
@@ -138,7 +197,8 @@ namespace hgraph::fabric
         return ops_.subscribe(context_.get());
     }
 
-    void Notifier::publish(RevisionNotification notification) const
+    NotificationDelivery Notifier::publish(
+        RevisionNotification notification) const
     {
         require_data_id(notification.data_id);
         if (notification.revision.empty())
@@ -153,7 +213,14 @@ namespace hgraph::fabric
             throw std::invalid_argument(
                 "fabric revision notification data id does not match its payload");
         }
-        ops_.publish(context_.get(), std::move(notification));
+        NotificationDelivery delivery =
+            ops_.publish(context_.get(), std::move(notification));
+        if (!delivery)
+        {
+            throw std::logic_error(
+                "fabric notifier returned an empty delivery acknowledgement");
+        }
+        return delivery;
     }
 
     Notifier::operator bool() const noexcept { return context_ != nullptr; }

@@ -274,10 +274,11 @@ The production data path is:
 The two paths have different jobs:
 
 * object storage owns values, history and the accepted revision sequence;
-* Kafka wakes a live subscriber and carries enough revision metadata to avoid
-  an unnecessary manifest read in the common case;
-* every Kafka revision is nevertheless checked against the immutable durable
-  revision slot before it is accepted; and
+* Kafka wakes a live subscriber and carries the complete accepted revision,
+  populating its revision and dependency indexes without a manifest read in
+  the common case;
+* persistence remains authoritative for startup, reconnect reconciliation and
+  targeted gap recovery; and
 * startup and simulation are possible from persistence without a live
   producer.
 
@@ -446,11 +447,10 @@ production with ``acks=all`` (or ``-1``), ``Fail`` rather than ``Drop`` at
 consumer and final producer queue boundaries, and an unfiltered independent
 subscription to every partition of its configured topic.  Startup uses
 ``Committed`` with ``Earliest`` fallback and explicit commits after durable
-validation.  This retains proposals which race ahead of their immutable slot,
-while keeping the durable head authoritative.  ``Recovering`` and ``Live``
-provide the public lifecycle boundary needed to load and reconcile the durable
-image; records received before that handoff completes are retained and
-conflated by fabric in checkpoint 6.
+validation.  ``Recovering`` and ``Live`` provide the public lifecycle boundary
+needed to load and reconcile the durable image; accepted records received
+before that handoff completes are retained and conflated by fabric in
+checkpoint 6.
 
 The partition count of a fabric topic is a deployment invariant.  Expanding
 an existing topic would both remap keyed data ids and leave an independently
@@ -674,8 +674,12 @@ The Frame is written to:
 
 The encoding is canonical, reversible and accepted by the persistence key
 validator.  Numeric path segments are fixed-width unsigned decimal so lexical
-ordering agrees with numeric ordering.  The physical Frame format is selected
-by ``hgraph-persistence`` configuration.
+ordering agrees with numeric ordering.  A complete encoded object key is
+limited to 1,024 bytes across every backend, matching S3's portable key limit;
+the configured prefix and encoded data id must leave room for the category and
+fixed-width ordinal.  The logical 4,096-byte metadata limit therefore does not
+promise that every data id fits every durable namespace.  The physical Frame
+format is selected by ``hgraph-persistence`` configuration.
 
 Revisions
 ~~~~~~~~~
@@ -848,31 +852,31 @@ The publication sequence for a candidate revision ``R`` is:
    stop; there is no new revision.
 5. Allocate revision ``R = latest.revision + 1`` and a monotonic as-of, and
    construct the complete revision record.
-6. Publish that full record to the fabric Kafka topic and wait for broker
-   acknowledgement.
-7. Conditionally create the immutable ``revision/R`` object.  The first write
+6. Conditionally create the immutable ``revision/R`` object.  The first write
    to succeed is the winner.
+7. The loser discards this publication attempt, reloads the accepted winner and
+   does not advertise its losing candidate or turn it into revision ``R+1``.
 8. The winner writes the immutable as-of index entry and conditionally advances
    ``latest``.
-9. The loser discards this publication attempt, reloads the accepted winner and
-   does not turn its losing candidate into revision ``R+1``.
+9. Publish the complete accepted revision to the fabric Kafka topic and observe
+   broker acknowledgement.  A failed delivery is retried without changing the
+   already accepted revision.
 
-Kafka acknowledgement precedes the revision-slot race so an accepted revision
-never lacks a previously acknowledged notification.  It does mean Kafka can
-contain proposals which did not win.  A subscriber treats every message as a
-wake-up and reads or validates the corresponding durable revision slot.  If
-the slot exists, the accepted slot is processed even when its payload differs
-from the notice.  If the slot does not yet exist and the accepted head is still
-below ``R``, the subscriber retains one ahead-of-storage proposal for that data
-id and retries durable validation with bounded backoff.  It discards the
-proposal only when the slot proves a different winner or accepted history has
-advanced past it.  This closes the race in which Kafka delivery precedes the
-revision commit without requiring periodic polling of every ``latest`` key.
+The revision-slot race precedes Kafka delivery, so Kafka contains accepted
+revisions rather than losing candidates.  A subscriber can validate and index
+the complete message in memory without reading its immutable slot on every
+tick.  A non-contiguous message reveals a gap and triggers targeted durable
+recovery for the missing history.  Startup and reconnect likewise reconcile
+the durable accepted head before entering the live state.
 
 The immutable revision slot is the publication commit point.  ``latest`` and
 the as-of index make discovery efficient but can be repaired from a completed
 slot after a crash.  All objects referenced by a revision are durable before
-that slot is created.
+that slot is created.  Kafka acknowledgement is not part of acceptance and a
+delivery failure cannot roll back the durable winner.  A publisher service
+which restarts or reconnects reconciles and re-advertises an accepted head
+whose delivery may have been interrupted; duplicate accepted notices are
+harmless.
 
 First publication and unchanged outputs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -928,41 +932,42 @@ Crash boundaries
    * - Before Frame write completes
      - No visible publication
      - Retry on a later publisher evaluation.
-   * - After Frame write, before Kafka acknowledgement
+   * - After Frame write, before revision creation
      - An unreferenced candidate Frame may remain
      - It is ignored because no revision names it.
-   * - After Kafka acknowledgement, before revision creation
-     - A harmless proposal exists on Kafka
-     - Subscribers retain and retry an ahead-of-storage proposal while the
-       accepted head remains below it.  A later slot is processed; a different
-       winner or later accepted head causes the proposal to be discarded.
    * - After revision creation, before as-of/latest
      - The accepted immutable revision is ahead of its indexes
-     - The live notice can be consumed; publisher or subscriber startup repairs
-       the contiguous indexes.
+     - Publisher or subscriber startup repairs the contiguous indexes before
+       advertising or consuming the recovered head.
    * - After as-of, before latest
      - Historical lookup sees the revision while latest lags
      - Startup repair advances latest conditionally.
-   * - After latest, before local completion
-     - Publication is complete
-     - Retrying observes the identical accepted tuple and performs no write.
+   * - After latest, before Kafka acknowledgement
+     - The publication is accepted but its live notice may be absent
+     - Delivery retries advertise the same accepted revision; startup and
+       reconnect reconciliation can re-advertise the durable head.
+   * - After Kafka acknowledgement, before local completion
+     - Publication and notification are complete
+     - Retrying observes the identical accepted tuple and performs no write;
+       duplicate accepted notices are harmless.
 
 There is no claim of one transaction spanning Kafka and S3.  The ordering
-above makes every intermediate state distinguishable and repairable, and
-never advances ``latest`` ahead of an acknowledged live notification.
+above makes every intermediate state distinguishable and repairable.  Durable
+acceptance intentionally precedes the best-effort live wake-up.
 
 Notification contract
 ---------------------
 
 Each fabric namespace uses one configured Kafka topic.  The record key is the
-canonical data id and the value is the complete candidate ``DataRevision``.
+canonical data id and the value is the complete accepted ``DataRevision``.
 Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
 The topic and the in-process handoff are suitable for compaction/conflation:
 
 * a subscriber needs the newest accepted revision, not every notice;
-* a notice always causes validation of durable state;
+* a notice carries a complete accepted revision and populates the in-memory
+  revision, output-version and dependency indexes;
 * skipping an intermediate revision cannot make the latest Frame
   unreconstructable; and
 * complete historical replay comes from the as-of index.
@@ -977,12 +982,12 @@ the fabric binding.  The coordinator discards unrelated ids after key parsing
 and retains notices for root ids and the dynamically discovered transitive
 closure of their forests.
 
-An acknowledged proposal whose revision slot is not yet visible is retained
-separately from the accepted head and retried with bounded backoff.  This is a
-targeted continuation of a Kafka wake-up, not a store-wide polling loop.  The
-queue remains conflated and bounded to one newest proposal per data id.  A
-proposal does not participate in cut resolution until its immutable slot has
-been created and validated.
+A valid message whose revision is not contiguous with the cached head is held
+while the missing range is recovered from immutable storage with bounded
+backoff.  This is a targeted continuation of a Kafka wake-up, not a store-wide
+polling loop.  The queue remains conflated and bounded to one newest accepted
+revision per data id.  Only contiguous accepted history participates in cut
+resolution.
 
 Subscription and consistency
 ----------------------------
@@ -1088,10 +1093,9 @@ One forest resolver returns:
 
 ``Pending``
    Accepted state is valid, but a compatible acknowledgement has not arrived,
-   or an ahead-of-storage proposal has not committed yet.  The previous
-   exposed cut remains active.  An accepted revision never becomes
-   ``Pending`` merely because an immutable object which it references is
-   absent.
+   or a detected revision gap is still being recovered.  The previous exposed
+   cut remains active.  An accepted revision never becomes ``Pending`` merely
+   because an immutable object which it references is absent.
 
 ``Ambiguous``
    Consistent closures exist but none is a unique greatest closure under the
@@ -1430,13 +1434,13 @@ distinguish:
 * Kafka subscription/rebalance/disconnect state; and
 * startup handoff failure.
 
-An uncommitted proposal or a valid cut waiting for a compatible acknowledgement
-produces ``Pending`` and may resolve when publication completes.  Once an
-accepted revision exists, a missing Frame or immutable ancestry record which it
-references produces ``Corrupt``; it is not held indefinitely and is not
-bypassed by falling back silently to an older latest value.  Missing or stale
-derived indexes are repaired when contiguous accepted revision slots prove the
-correct value.  Independent forests continue in all cases.
+A detected revision gap or a valid cut waiting for a compatible acknowledgement
+produces ``Pending`` and may resolve when the missing accepted history arrives.
+Once an accepted revision exists, a missing Frame or immutable ancestry record
+which it references produces ``Corrupt``; it is not held indefinitely and is
+not bypassed by falling back silently to an older latest value.  Missing or
+stale derived indexes are repaired when contiguous accepted revision slots
+prove the correct value.  Independent forests continue in all cases.
 
 The extension must expose enough metrics to observe notification lag, durable
 read latency, pending-forest age, resolver backtracking, conflated notices,
@@ -1476,7 +1480,8 @@ Fabric costs occur at explicit boundaries:
 * revision records are cached because they are immutable;
 * an output Frame is serialised only when it ticks;
 * an unchanged-output acknowledgement writes metadata only;
-* Kafka callbacks conflate by data id before graph scheduling; and
+* the root Kafka service queue conflates by data id before its push-source edge
+  schedules graph work; and
 * unchanged direct Frames are not read or ticked again.
 
 Resolver worst-case work is exponential in the number of conflicting candidate
@@ -1668,9 +1673,9 @@ Publication
 * idempotent same-object retry and conflicting same-millisecond version writes;
 * every crash boundary in the publication table;
 * stale latest/as-of repair;
-* Kafka proposal validation against the winning revision slot; and
-* ahead-of-storage proposal retention and retry when delivery wins the race
-  with revision-slot creation.
+* Kafka messages carrying only the accepted durable winner;
+* delivery retry without changing or rolling back that winner; and
+* targeted durable gap recovery without a slot read for every valid message.
 
 Resolution
 ~~~~~~~~~~

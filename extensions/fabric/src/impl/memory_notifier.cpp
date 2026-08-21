@@ -26,6 +26,21 @@ namespace hgraph::fabric
             std::vector<std::weak_ptr<MemorySubscription>> subscriptions{};
         };
 
+        struct ImmediateDelivery
+        {
+        };
+
+        [[nodiscard]] const NotificationDeliveryOps &delivery_ops() noexcept
+        {
+            static const NotificationDeliveryOps ops{
+                [](void *) {
+                    return NotificationDeliveryResult{
+                        NotificationDeliveryStatus::Delivered, {}};
+                },
+            };
+            return ops;
+        }
+
         [[nodiscard]] const NotificationSubscriptionOps &subscription_ops() noexcept
         {
             static const NotificationSubscriptionOps ops{
@@ -111,6 +126,8 @@ namespace hgraph::fabric
                         }
                         else { entry->second = notification.revision; }
                     }
+                    return NotificationDelivery{
+                        std::make_shared<ImmediateDelivery>(), delivery_ops()};
                 },
             };
             return ops;
