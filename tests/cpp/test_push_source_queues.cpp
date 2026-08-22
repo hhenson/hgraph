@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <exception>
 #include <future>
 #include <thread>
 #include <vector>
@@ -160,6 +161,57 @@ TEST_CASE("blocking push-source sender wakes with PushSourceStopped on stop")
     CHECK_FALSE(sender.valid());
     CHECK_FALSE(sender.try_send(Int{3}));
     CHECK_THROWS_AS(sender.send_blocking(Int{4}), PushSourceStopped);
+}
+
+TEST_CASE("non-blocking push-source wake tolerates concurrent graph stop")
+{
+    using namespace hgraph;
+
+    const auto *ts_int = ts_type<TS<Int>>();
+    PushSourceSender sender;
+    GraphBuilder builder;
+    builder.add_node(make_push_source_node(
+        *ts_int, make_push_source_conflating_policy(*ts_int),
+        [&sender](PushSourceSender started) { sender = std::move(started); }));
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + TimeDelta{1'000'000});
+    auto executor = executor_builder.make_executor();
+    auto graph = executor.view().graph();
+    graph.start(start_time);
+
+    std::promise<void> entered;
+    auto entered_future = entered.get_future();
+    bool stopped_without_throwing{false};
+    std::exception_ptr failure;
+    std::thread producer(
+        [&]
+        {
+            entered.set_value();
+            try
+            {
+                while (sender.try_send(Int{1}))
+                {
+                    std::this_thread::yield();
+                }
+                stopped_without_throwing = true;
+            }
+            catch (...)
+            {
+                failure = std::current_exception();
+            }
+        });
+
+    entered_future.wait();
+    graph.stop(start_time);
+    producer.join();
+
+    CHECK(failure == nullptr);
+    CHECK(stopped_without_throwing);
 }
 
 TEST_CASE("blocking push-source sender refuses to wait on the evaluation thread")

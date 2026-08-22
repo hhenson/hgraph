@@ -103,9 +103,7 @@ public:
         wake = state.sender;
       }
     }
-    if (wake.valid()) {
-      wake.send_blocking(generation);
-    }
+    static_cast<void>(wake.try_send(generation));
   }
 
   void start() {
@@ -196,9 +194,7 @@ public:
         wake = state.sender;
       }
     }
-    if (wake.valid()) {
-      wake.send_blocking(generation);
-    }
+    static_cast<void>(wake.try_send(generation));
   }
 
   [[nodiscard]] std::optional<Value> pop(std::size_t channel) {
@@ -344,9 +340,7 @@ public:
         notify = true;
       }
     }
-    if (wake.valid()) {
-      wake.send_blocking(generation);
-    }
+    static_cast<void>(wake.try_send(generation));
     if (notify) {
       deliver_watermark(channel);
     }
@@ -493,9 +487,7 @@ private:
         notify = true;
       }
     }
-    if (wake.valid()) {
-      wake.send_blocking(generation);
-    }
+    static_cast<void>(wake.try_send(generation));
     if (notify) {
       deliver_watermark(channel);
     }
