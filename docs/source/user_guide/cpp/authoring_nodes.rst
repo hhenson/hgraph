@@ -308,10 +308,13 @@ are rejected in simulation mode and inside nested graphs):
        }));
 
 ``try_send`` returns ``false`` at capacity or after stop. ``send_blocking``
-waits on bounded capacity and throws ``PushSourceStopped`` if the graph stops;
-it must not wait on the graph evaluation thread. Dequeueing releases capacity
-immediately — protocol acknowledgement, when required, is an explicit sink
-node rather than part of sender admission.
+waits on bounded capacity and returns ``false`` if the graph stops before
+admission; its result may be discarded when the producer has no special stop
+action. It must not wait on the graph evaluation thread. The sender owns the
+queue synchronization and notifies the real-time executor only after a value
+has been queued. Dequeueing releases capacity immediately — protocol
+acknowledgement, when required, is an explicit sink node downstream rather
+than part of sender admission.
 
 Burst selects only delivery; admission remains the same bounded or unbounded
 FIFO queue:
@@ -324,8 +327,8 @@ FIFO queue:
        make_push_source_burst_policy(*ts_batch, 256),
        [](PushSourceSender sender) {
            // Each call admits one Int. Evaluation emits tuple<Int, ...>.
-           static_cast<void>(sender.try_send(Int{1}));
-           static_cast<void>(sender.try_send(Int{2}));
+           sender.send_blocking(Int{1});
+           sender.send_blocking(Int{2});
        }));
 
 Push sources are always real-time-only. Deterministic replay and simulation
@@ -335,12 +338,22 @@ derived solely from graph time, never producer-thread timing.
 .. code-block:: python
 
    @push_queue(TS[int])
-   def from_queue(sender: Callable[[int], None]):
-       ...  # register `sender`; call sender(value) from another thread to inject ticks
+   def from_queue(sender: Callable[[int], bool], state: STATE = None):
+       state.task = start_external_task(sender)
+
+   @from_queue.stop
+   def stop_from_queue(state: STATE = None):
+       state.task.request_stop()
+       state.task.join()
 
    @push_queue(TS[tuple[int, ...]], burst=True, max_pending=256)
-   def from_burst(sender: Callable[[int], None]):
-       ...  # sender(value) blocks without holding the GIL when at capacity
+   def from_burst(sender: Callable[[int], bool]):
+       ...  # register `sender`; call sender(value) from another thread to inject ticks
+
+Python ``sender(value)`` blocks without holding the GIL when at capacity and
+returns ``False`` after the receiver has stopped. Start owns construction of
+the producer task; the stop hook requests shutdown and joins every thread it
+started.
 
 A static-node authoring shape (a sender parameter on ``start`` plus a
 message-application hook) is still **planned**. The important runtime

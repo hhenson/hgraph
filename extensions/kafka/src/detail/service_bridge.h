@@ -101,7 +101,7 @@ public:
         wake = state.sender;
       }
     }
-    static_cast<void>(wake.try_send(generation));
+    wake.send_blocking(generation);
   }
 
   /** Start queue admission. Real-time services require all queue-owned push
@@ -199,7 +199,7 @@ public:
         wake = state.sender;
       }
     }
-    static_cast<void>(wake.try_send(generation));
+    wake.send_blocking(generation);
   }
 
   void finish_record_time_recovery() {
@@ -476,7 +476,7 @@ public:
         wake = state.sender;
       }
     }
-    static_cast<void>(wake.try_send(generation));
+    wake.send_blocking(generation);
     return true;
   }
 
@@ -548,7 +548,7 @@ private:
         wake = state.sender;
       }
     }
-    static_cast<void>(wake.try_send(generation));
+    wake.send_blocking(generation);
     return true;
   }
   struct QueuedValue {

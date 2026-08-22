@@ -120,7 +120,10 @@ Authoring decorators
 
    The decorated start hook receives a thread-safe ``sender(value)`` callable
    as its first argument. It may retain that sender and invoke it from any
-   Python thread while the graph is running.
+   Python thread while the graph is running. The sender returns ``True`` when
+   the value was accepted and ``False`` when the receiver has stopped. A stop
+   hook registered with ``@source.stop`` should request producer shutdown and
+   join its threads.
 
    :param tp: Output time-series type, such as ``TS[int]``.
    :param overloads: Operator contract whose overload set should include this

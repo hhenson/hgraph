@@ -1139,7 +1139,7 @@ TEST_CASE("push source sender reports values refused during and after graph shut
     const auto check_policy = [&](PushSourcePolicy policy) {
         PushSourceSender sender;
         bool stop_try_accepted{true};
-        bool stop_blocking_threw{false};
+        bool stop_blocking_accepted{true};
         GraphBuilder graph_builder;
         graph_builder.add_node(make_push_source_node(
             *ts_int,
@@ -1150,14 +1150,7 @@ TEST_CASE("push source sender reports values refused during and after graph shut
         NodeCallbacks stop_sender_callbacks;
         stop_sender_callbacks.stop = [&](const NodeView &, DateTime) {
             stop_try_accepted = sender.try_send(Int{41});
-            try
-            {
-                sender.send_blocking(Int{41});
-            }
-            catch (const PushSourceStopped &)
-            {
-                stop_blocking_threw = true;
-            }
+            stop_blocking_accepted = sender.send_blocking(Int{41});
         };
         graph_builder.add_node(NodeBuilder::native(
             std::move(stop_sender_schema), std::move(stop_sender_callbacks)));
@@ -1179,9 +1172,9 @@ TEST_CASE("push source sender reports values refused during and after graph shut
         runner.join();
 
         CHECK_FALSE(stop_try_accepted);
-        CHECK(stop_blocking_threw);
+        CHECK_FALSE(stop_blocking_accepted);
         CHECK_FALSE(sender.try_send(Int{42}));
-        CHECK_THROWS_AS(sender.send_blocking(Int{42}), PushSourceStopped);
+        CHECK_FALSE(sender.send_blocking(Int{42}));
     };
 
     SECTION("queue policy") { check_policy(make_push_source_queue_policy(*int_meta)); }

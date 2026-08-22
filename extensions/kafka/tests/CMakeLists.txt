@@ -4,6 +4,8 @@ add_executable(hgraph_kafka_tests
 
 target_compile_features(hgraph_kafka_tests PRIVATE cxx_std_23)
 target_link_libraries(hgraph_kafka_tests PRIVATE hgraph::kafka)
+target_include_directories(hgraph_kafka_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 if(MSVC)
     target_compile_options(hgraph_kafka_tests PRIVATE /W4 /permissive-)

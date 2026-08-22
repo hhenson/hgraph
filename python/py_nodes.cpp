@@ -578,8 +578,9 @@ void py_assemble_lifecycle_args(std::string_view layout,
                                 EngineControlView engine,
                                 const PyTsLease &lease, const NodeView &node,
                                 nb::list &call_args,
-                                const TSInputView *inputs = nullptr) {
-  std::size_t scalar_index = 0;
+                                const TSInputView *inputs = nullptr,
+                                std::size_t scalar_offset = 0) {
+  std::size_t scalar_index = scalar_offset;
   auto scalar_list =
       scalars.valid() ? std::optional{scalars.as_list()} : std::nullopt;
   for (const char kind : layout) {
@@ -1605,8 +1606,46 @@ void py_call_push_queue_start(nb::handle fn, std::string_view config,
   });
 }
 
-void py_release_push_queue_state(const NodeView &node) {
+void py_call_push_queue_stop(nb::handle fn, bool enabled,
+                             std::string_view config,
+                             std::size_t scalar_offset,
+                             const ValueView &scalars,
+                             const NodeView &node) {
   State<PyStateRef> state{node.state()};
+  auto release = UnwindCleanupGuard([&] { py_release_state(state); });
+  if (enabled) {
+    NodeScheduler scheduler;
+    if (node.has_scheduler()) {
+      auto executor = node.graph().executor();
+      const bool supports_wall_clock =
+          executor.valid() &&
+          executor.schema()->mode == GraphExecutorMode::RealTime;
+      scheduler = NodeScheduler{
+          node.scheduler_state(), node.graph_value(), node.node_index(),
+          executor.evaluation_clock().evaluation_time(), node.started(),
+          node.evaluation_clock(), supports_wall_clock};
+    }
+    const auto engine = node.graph().executor().engine_control();
+    translate_python_error([&] {
+      const auto shape = parse_py_call_shape(config);
+      nb::list call_args;
+      auto lease = py_ts_lease_for_node(state);
+      auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
+      nb::object runtime_state = py_runtime_global_state_for_call(
+          shape.layout, node.global_state(), lease, state.get().call_lease);
+      py_assemble_lifecycle_args(
+          shape.layout, scalars, &state, nullptr,
+          engine.evaluation_clock().evaluation_time(), scheduler,
+          runtime_state, engine, lease, node, call_args, nullptr,
+          scalar_offset);
+      auto call_kwargs = py_peel_kwargs(call_args, shape.kw_names);
+      (void)py_call_with_contexts(nb::borrow(fn), call_args, std::nullopt,
+                                  std::move(call_kwargs));
+      invalid.release();
+      lease.invalidate();
+    });
+  }
+  release.release();
   py_release_state(state);
 }
 } // namespace hgraph::python_bridge

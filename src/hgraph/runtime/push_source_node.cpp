@@ -50,6 +50,17 @@ namespace hgraph
                                               const void *storage) noexcept = nullptr;
         };
 
+        /** Private sender facade dispatch. The public handle retains erased
+         * ownership separately and always binds a non-null table. */
+        struct PushSourceSenderOps
+        {
+            bool (*valid_impl)(const void *control) noexcept = nullptr;
+            const TypeRealizationSnapshot *(*type_realization_impl)(
+                const void *control) noexcept = nullptr;
+            bool (*try_send_impl)(void *control, Value value) = nullptr;
+            bool (*send_blocking_impl)(void *control, Value value) = nullptr;
+        };
+
         struct PushSourceQueuePop
         {
             Value value{};
@@ -392,28 +403,29 @@ namespace hgraph
                 return result.accepted;
             }
 
-            void send_blocking(Value value)
+            [[nodiscard]] bool send_blocking(Value value)
             {
                 if (!enter())
                 {
-                    throw PushSourceStopped{};
+                    return false;
                 }
                 auto leave_call = make_scope_exit([this] { leave(); });
                 if (push_engine_.stop_requested())
                 {
-                    throw PushSourceStopped{};
+                    return false;
                 }
 
                 const PushSourceSendResult result =
                     policy_.ops_->send_blocking_impl(policy_.context_, storage_, std::move(value));
                 if (!result.accepted)
                 {
-                    throw PushSourceStopped{};
+                    return false;
                 }
                 if (result.wake_required)
                 {
                     push_engine_.mark_push_update_pending();
                 }
+                return true;
             }
 
             void begin_close() noexcept
@@ -533,6 +545,68 @@ namespace hgraph
                 .send_blocking_impl = &default_policy_send_blocking,
                 .emit_next_impl = &default_policy_emit_next,
                 .pending_items_impl = &default_policy_pending_items,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] bool stopped_sender_valid(const void *) noexcept
+        {
+            return false;
+        }
+
+        [[nodiscard]] const TypeRealizationSnapshot *stopped_sender_type_realization(
+            const void *) noexcept
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] bool stopped_sender_send(void *, Value)
+        {
+            return false;
+        }
+
+        [[nodiscard]] const detail::PushSourceSenderOps &stopped_sender_ops() noexcept
+        {
+            static constexpr detail::PushSourceSenderOps ops{
+                .valid_impl = &stopped_sender_valid,
+                .type_realization_impl = &stopped_sender_type_realization,
+                .try_send_impl = &stopped_sender_send,
+                .send_blocking_impl = &stopped_sender_send,
+            };
+            return ops;
+        }
+
+        [[nodiscard]] bool active_sender_valid(const void *control) noexcept
+        {
+            return static_cast<const detail::PushSourceSenderControl *>(control)->valid();
+        }
+
+        [[nodiscard]] const TypeRealizationSnapshot *active_sender_type_realization(
+            const void *control) noexcept
+        {
+            return static_cast<const detail::PushSourceSenderControl *>(control)
+                ->type_realization();
+        }
+
+        [[nodiscard]] bool active_sender_try_send(void *control, Value value)
+        {
+            return static_cast<detail::PushSourceSenderControl *>(control)
+                ->try_send(std::move(value));
+        }
+
+        [[nodiscard]] bool active_sender_send_blocking(void *control, Value value)
+        {
+            return static_cast<detail::PushSourceSenderControl *>(control)
+                ->send_blocking(std::move(value));
+        }
+
+        [[nodiscard]] const detail::PushSourceSenderOps &active_sender_ops() noexcept
+        {
+            static constexpr detail::PushSourceSenderOps ops{
+                .valid_impl = &active_sender_valid,
+                .type_realization_impl = &active_sender_type_realization,
+                .try_send_impl = &active_sender_try_send,
+                .send_blocking_impl = &active_sender_send_blocking,
             };
             return ops;
         }
@@ -948,38 +1022,50 @@ namespace hgraph
         return policy.ops_->pending_items_impl(policy.context_, storage);
     }
 
-    PushSourceStopped::PushSourceStopped()
-        : std::runtime_error{"Push source is not accepting values"}
+    PushSourceSender::PushSourceSender() noexcept
+        : ops_(&stopped_sender_ops())
     {
     }
 
     PushSourceSender::PushSourceSender(std::shared_ptr<detail::PushSourceSenderControl> control) noexcept
-        : control_(std::move(control))
+        : ops_(&active_sender_ops()), control_(std::move(control))
     {
+    }
+
+    PushSourceSender::PushSourceSender(PushSourceSender &&other) noexcept
+        : ops_(std::exchange(other.ops_, &stopped_sender_ops())),
+          control_(std::move(other.control_))
+    {
+    }
+
+    PushSourceSender &PushSourceSender::operator=(PushSourceSender &&other) noexcept
+    {
+        if (this != &other)
+        {
+            control_ = std::move(other.control_);
+            ops_ = std::exchange(other.ops_, &stopped_sender_ops());
+        }
+        return *this;
     }
 
     bool PushSourceSender::valid() const noexcept
     {
-        return control_ != nullptr && control_->valid();
+        return ops_->valid_impl(control_.get());
     }
 
     const TypeRealizationSnapshot *PushSourceSender::type_realization() const noexcept
     {
-        return control_ != nullptr ? control_->type_realization() : nullptr;
+        return ops_->type_realization_impl(control_.get());
     }
 
     bool PushSourceSender::try_send(Value value) const
     {
-        return control_ != nullptr && control_->try_send(std::move(value));
+        return ops_->try_send_impl(control_.get(), std::move(value));
     }
 
-    void PushSourceSender::send_blocking(Value value) const
+    bool PushSourceSender::send_blocking(Value value) const
     {
-        if (control_ == nullptr)
-        {
-            throw PushSourceStopped{};
-        }
-        control_->send_blocking(std::move(value));
+        return ops_->send_blocking_impl(control_.get(), std::move(value));
     }
 
     PushSourcePolicy make_push_source_policy(PushSourcePolicyKind kind,

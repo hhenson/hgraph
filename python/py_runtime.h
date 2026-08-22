@@ -33,7 +33,11 @@ namespace hgraph::python_bridge
                                   const NodeView &node,
                                   DateTime evaluation_time);
 
-    void py_release_push_queue_state(const NodeView &node);
+    void py_call_push_queue_stop(nb::handle fn, bool enabled,
+                                 std::string_view config,
+                                 std::size_t scalar_offset,
+                                 const ValueView &scalars,
+                                 const NodeView &node);
 
     /** Copy a window's evaluation timestamps into the value layer's standard
         NumPy-compatible one-dimensional buffer.  The scalar binding owns the

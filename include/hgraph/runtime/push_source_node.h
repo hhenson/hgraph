@@ -20,6 +20,7 @@ namespace hgraph
     {
         struct PushSourcePolicyOps;
         struct PushSourcePolicyAccess;
+        struct PushSourceSenderOps;
         class PushSourceSenderControl;
     }
 
@@ -72,25 +73,23 @@ namespace hgraph
         };
     }
 
-    /** Raised when blocking admission cannot complete because the source is
-     * not running or its graph is stopping. */
-    class HGRAPH_EXPORT PushSourceStopped : public std::runtime_error
-    {
-      public:
-        PushSourceStopped();
-    };
-
     /**
      * Sender handed to push-source user code during node start.
      *
      * The sender is a copyable handle onto a lifetime-safe control block for
      * the owning node's policy storage. Admission marks the root real-time
-     * executor only when the policy accepts a ready update.
+     * executor only after the policy accepts a ready update. Its policy and
+     * synchronization remain internal; default and moved-from handles bind a
+     * canonical stopped sentinel.
      */
     class HGRAPH_EXPORT PushSourceSender
     {
       public:
-        PushSourceSender() noexcept = default;
+        PushSourceSender() noexcept;
+        PushSourceSender(const PushSourceSender &) noexcept = default;
+        PushSourceSender &operator=(const PushSourceSender &) noexcept = default;
+        PushSourceSender(PushSourceSender &&other) noexcept;
+        PushSourceSender &operator=(PushSourceSender &&other) noexcept;
 
         [[nodiscard]] bool valid() const noexcept;
         [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
@@ -99,10 +98,11 @@ namespace hgraph
          * when the source is not accepting values. */
         [[nodiscard]] bool try_send(Value value) const;
 
-        /** Wait for admission when a bounded queue is full. This must not
-         * wait on the graph evaluation thread. Throws ``PushSourceStopped``
-         * when the source stops before admission. */
-        void send_blocking(Value value) const;
+        /** Wait for admission when a bounded queue is full. Returns false
+         * only when the source stops before admission. The result may be
+         * discarded when the producer has no stop-specific action. This must
+         * not wait on the graph evaluation thread. */
+        bool send_blocking(Value value) const;
 
         template <typename T>
         [[nodiscard]] bool try_send(T &&value) const
@@ -111,9 +111,9 @@ namespace hgraph
         }
 
         template <typename T>
-        void send_blocking(T &&value) const
+        bool send_blocking(T &&value) const
         {
-            send_blocking(Value{std::forward<T>(value)});
+            return send_blocking(Value{std::forward<T>(value)});
         }
 
       private:
@@ -122,6 +122,7 @@ namespace hgraph
         explicit PushSourceSender(
             std::shared_ptr<detail::PushSourceSenderControl> control) noexcept;
 
+        const detail::PushSourceSenderOps                  *ops_;
         std::shared_ptr<detail::PushSourceSenderControl> control_{};
     };
 

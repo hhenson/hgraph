@@ -18,9 +18,9 @@ def test_burst_push_queue_delivers_pending_scalars_as_one_tuple():
 
     @hg.push_queue(TS[tuple[int, ...]], burst=True, max_pending=3)
     def source(sender):
-        sender(1)
-        sender(2)
-        sender(3)
+        assert sender(1) is True
+        assert sender(2) is True
+        assert sender(3) is True
 
     @hg.sink_node
     def collect(value: TS[tuple[int, ...]]) -> None:
@@ -67,7 +67,7 @@ def test_bounded_burst_python_sender_releases_gil_while_waiting_for_dequeue():
     assert observed == [(1,), (2,)]
 
 
-def test_python_sender_raises_after_graph_stop():
+def test_python_sender_returns_false_after_graph_stop():
     retained = []
 
     @hg.push_queue(TS[int])
@@ -80,8 +80,43 @@ def test_python_sender_raises_after_graph_stop():
 
     _run(app, seconds=0.1)
     assert len(retained) == 1
-    with pytest.raises(RuntimeError, match="not accepting"):
-        retained[0](1)
+    assert retained[0](1) is False
+
+
+def test_push_queue_stop_hook_shares_state_and_joins_worker():
+    started = threading.Event()
+    finished = threading.Event()
+    lifecycle = []
+
+    @hg.push_queue(TS[int])
+    def source(sender, label: str, state: hg.STATE = None):
+        stop_requested = threading.Event()
+        state.stop_requested = stop_requested
+
+        def run():
+            started.set()
+            stop_requested.wait()
+            finished.set()
+
+        state.worker = threading.Thread(target=run)
+        state.worker.start()
+        lifecycle.append(("start", label))
+
+    @source.stop
+    def stop_source(label: str, state: hg.STATE = None):
+        state.stop_requested.set()
+        state.worker.join(timeout=1.0)
+        lifecycle.append(("stop", label))
+
+    @graph
+    def app() -> None:
+        source("worker")
+
+    _run(app, seconds=0.1)
+
+    assert started.is_set()
+    assert finished.is_set()
+    assert lifecycle == [("start", "worker"), ("stop", "worker")]
 
 
 def test_push_queue_rejects_incompatible_policy_options():

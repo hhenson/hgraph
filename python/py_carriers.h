@@ -138,13 +138,13 @@ namespace hgraph::python_bridge
     {
         std::shared_ptr<PySenderSlot> slot;
 
-        void send(nb::handle object) const
+        [[nodiscard]] bool send(nb::handle object) const
         {
             if (slot == nullptr || !slot->sender.valid())
             {
                 if (slot != nullptr && slot->started_once.load(std::memory_order_acquire))
                 {
-                    throw PushSourceStopped{};
+                    return false;
                 }
                 throw std::logic_error("push sender is not started yet (the graph must be running)");
             }
@@ -153,7 +153,7 @@ namespace hgraph::python_bridge
                               ? py_to_value_as(object, slot->sender_value_schema)
                               : py_to_delta(object, slot->schema);
             nb::gil_scoped_release release;
-            slot->sender.send_blocking(std::move(value));
+            return slot->sender.send_blocking(std::move(value));
         }
     };
 

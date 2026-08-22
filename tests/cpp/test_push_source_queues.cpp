@@ -11,7 +11,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <exception>
 #include <future>
 #include <thread>
 #include <vector>
@@ -114,7 +113,7 @@ TEST_CASE("bounded push-source queue refuses at capacity and releases on dequeue
     CHECK(observed == expected);
 }
 
-TEST_CASE("blocking push-source sender wakes with PushSourceStopped on stop")
+TEST_CASE("blocking push-source sender returns false when stopped")
 {
     using namespace hgraph;
 
@@ -137,19 +136,12 @@ TEST_CASE("blocking push-source sender wakes with PushSourceStopped on stop")
     REQUIRE(sender.try_send(Int{1}));
     std::promise<void> attempted;
     auto attempted_future = attempted.get_future();
-    std::atomic_bool stopped{false};
+    std::atomic_bool accepted{true};
     std::thread blocked(
         [&]
         {
             attempted.set_value();
-            try
-            {
-                sender.send_blocking(Int{2});
-            }
-            catch (const PushSourceStopped &)
-            {
-                stopped = true;
-            }
+            accepted = sender.send_blocking(Int{2});
         });
     attempted_future.wait();
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -157,15 +149,21 @@ TEST_CASE("blocking push-source sender wakes with PushSourceStopped on stop")
     graph.stop(start_time);
     blocked.join();
 
-    CHECK(stopped);
+    CHECK_FALSE(accepted);
     CHECK_FALSE(sender.valid());
     CHECK_FALSE(sender.try_send(Int{3}));
-    CHECK_THROWS_AS(sender.send_blocking(Int{4}), PushSourceStopped);
+    CHECK_FALSE(sender.send_blocking(Int{4}));
 }
 
-TEST_CASE("non-blocking push-source wake tolerates concurrent graph stop")
+TEST_CASE("default and moved-from push-source senders use the stopped sentinel")
 {
     using namespace hgraph;
+
+    PushSourceSender stopped;
+    CHECK_FALSE(stopped.valid());
+    CHECK(stopped.type_realization() == nullptr);
+    CHECK_FALSE(stopped.try_send(Int{1}));
+    CHECK_FALSE(stopped.send_blocking(Int{2}));
 
     const auto *ts_int = ts_type<TS<Int>>();
     PushSourceSender sender;
@@ -184,34 +182,17 @@ TEST_CASE("non-blocking push-source wake tolerates concurrent graph stop")
     auto graph = executor.view().graph();
     graph.start(start_time);
 
-    std::promise<void> entered;
-    auto entered_future = entered.get_future();
-    bool stopped_without_throwing{false};
-    std::exception_ptr failure;
-    std::thread producer(
-        [&]
-        {
-            entered.set_value();
-            try
-            {
-                while (sender.try_send(Int{1}))
-                {
-                    std::this_thread::yield();
-                }
-                stopped_without_throwing = true;
-            }
-            catch (...)
-            {
-                failure = std::current_exception();
-            }
-        });
+    REQUIRE(sender.valid());
+    PushSourceSender live{std::move(sender)};
+    CHECK_FALSE(sender.valid());
+    CHECK_FALSE(sender.try_send(Int{3}));
+    CHECK_FALSE(sender.send_blocking(Int{4}));
+    CHECK(live.try_send(Int{5}));
 
-    entered_future.wait();
     graph.stop(start_time);
-    producer.join();
-
-    CHECK(failure == nullptr);
-    CHECK(stopped_without_throwing);
+    CHECK_FALSE(live.valid());
+    CHECK_FALSE(live.try_send(Int{6}));
+    CHECK_FALSE(live.send_blocking(Int{7}));
 }
 
 TEST_CASE("blocking push-source sender refuses to wait on the evaluation thread")

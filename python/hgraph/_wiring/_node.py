@@ -1301,7 +1301,8 @@ class _PushQueue:
     """hgraph's @push_queue: the wrapped function is the node's START
     lifecycle hook - called with the sender callable as its first argument
     (plus any wiring-time scalars as kwargs) once the real-time graph is
-    running. sender(value) is thread-safe from any Python thread."""
+    running. sender(value) is thread-safe from any Python thread. A stop hook
+    may be registered with ``@source.stop`` to stop and join producer tasks."""
 
     def __init__(self, fn, tp, conflate, burst, max_pending, *, resolvers=None, requires=None,
                  label=None, deprecated=False):
@@ -1352,6 +1353,34 @@ class _PushQueue:
         self._requires = requires
         self._label = label
         self._deprecated = deprecated
+        self._stop_fn = None
+
+    def _stop_annotation(self, parameter):
+        for fn_parameter in list(
+                inspect.signature(self.fn, eval_str=True).parameters.values())[1:]:
+            if fn_parameter.name == parameter.name:
+                return fn_parameter.annotation
+        return parameter.annotation
+
+    def stop(self, fn):
+        for parameter in inspect.signature(fn, eval_str=True).parameters.values():
+            annotation = self._stop_annotation(parameter)
+            injectable = (
+                annotation in _INJECTABLE_MARKERS
+                or isinstance(annotation, _StateExpr)
+            )
+            if injectable:
+                if parameter.default is not None:
+                    raise TypeError(
+                        f"injectable parameter '{parameter.name}' of "
+                        f"'{self.__name__}.stop' must default to None")
+                continue
+            if _is_time_series_annotation(annotation):
+                raise TypeError(
+                    f"@{self.__name__}.stop supports wiring-time scalars "
+                    "and injectables only")
+        self._stop_fn = fn
+        return fn
 
     @property
     def signature(self):
@@ -1385,11 +1414,42 @@ class _PushQueue:
             factory if name is None else bound_call.arguments[name]
             for name, factory in self._scalar_specs
         ]
+        stop_layout = []
+        stop_scalars = []
+        stop_keyword_names = []
+        if self._stop_fn is not None:
+            for parameter in inspect.signature(
+                    self._stop_fn, eval_str=True).parameters.values():
+                annotation = self._stop_annotation(parameter)
+                if isinstance(annotation, _StateExpr):
+                    stop_layout.append("Q")
+                    stop_scalars.append(annotation.factory)
+                elif (marker := _INJECTABLE_MARKERS.get(annotation)) is not None:
+                    stop_layout.append(marker)
+                else:
+                    if parameter.name in bound_call.arguments:
+                        value = bound_call.arguments[parameter.name]
+                    elif parameter.default is not inspect.Parameter.empty:
+                        value = parameter.default
+                    else:
+                        raise TypeError(
+                            f"{self.__name__}.stop: scalar '{parameter.name}' "
+                            "is not supplied by the push_queue call")
+                    stop_layout.append("s")
+                    stop_scalars.append(value)
+                if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+                    stop_keyword_names.append(parameter.name)
+        stop_config = "".join(stop_layout)
+        if stop_keyword_names:
+            stop_config += "|" + ",".join(stop_keyword_names)
 
         port, _sender = w.push_source(
             _unwrap(out_tp), self.conflate, self.burst, self.max_pending,
             _hgraph.node_ref(self.fn),
-            self._config, _hgraph.any_list(scalars),
+            self._config,
+            _hgraph.node_ref(self._stop_fn or self.fn),
+            self._stop_fn is not None, stop_config, len(scalars),
+            _hgraph.any_list(scalars + stop_scalars),
             self._label or self.__name__)
         return WiringPort(port)
 
@@ -1401,7 +1461,10 @@ def push_queue(tp, overloads=None, resolvers=None, requires=None, label=None,
 
     The decorated start hook receives a thread-safe ``sender(value)`` callable
     as its first argument. It may retain that sender and invoke it from any
-    Python thread while the graph is running.
+    Python thread while the graph is running. The sender returns ``True`` when
+    the value was accepted and ``False`` when the receiver has stopped. A stop
+    hook registered with ``@source.stop`` should request producer shutdown and
+    join its threads.
 
     :param tp: Output time-series type, such as ``TS[int]``.
     :param overloads: Operator contract whose overload set should include this

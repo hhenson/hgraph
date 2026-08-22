@@ -25,6 +25,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    error_handling
    mesh
    services
+   real_time_adaptors
    operators
    writing_nodes
    parity_matrix

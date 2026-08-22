@@ -1,0 +1,4 @@
+interface:
+  display_name: "HGraph Real-Time Adaptors"
+  short_description: "Build lifecycle-safe asynchronous HGraph adaptors"
+  default_prompt: "Use $hgraph-realtime-adaptors to implement or review this HGraph real-time adaptor."

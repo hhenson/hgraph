@@ -424,6 +424,10 @@ namespace hgraph::python_bridge
                                             std::optional<std::size_t> max_pending,
                                             PyNodeHandle fn,
                                             std::string config,
+                                            PyNodeHandle stop_fn,
+                                            bool stop_enabled,
+                                            std::string stop_config,
+                                            std::size_t stop_scalar_offset,
                                             PyScalarValue scalars,
                                             std::optional<std::string> node_label)
         {
@@ -452,9 +456,12 @@ namespace hgraph::python_bridge
             slot->schema = ts_type.meta;
             slot->sender_value_schema = burst ? &policy.sender_schema() : nullptr;
             const bool uses_scheduler = config.find('d') != std::string::npos;
-            const bool uses_global_state = config.find('g') != std::string::npos;
+            const bool stop_uses_scheduler = stop_config.find('d') != std::string::npos;
+            const bool uses_global_state = config.find('g') != std::string::npos ||
+                                           stop_config.find('g') != std::string::npos;
             const bool uses_evaluation_clock =
-                config.find_first_of("cde") != std::string::npos;
+                config.find_first_of("cde") != std::string::npos ||
+                stop_config.find_first_of("cde") != std::string::npos;
             NodeBuilder builder = make_push_source_node_with_view(
                 *ts_type.meta, std::move(policy),
                 PushSourceNodeExtension{
@@ -468,12 +475,15 @@ namespace hgraph::python_bridge
                             fn.record->fn, config, view.scalars(),
                             PySender{slot}, view, evaluation_time);
                     },
-                    .on_stop = [](const NodeView &view) {
-                        py_release_push_queue_state(view);
+                    .on_stop = [stop_fn, stop_enabled, stop_config,
+                                stop_scalar_offset](const NodeView &view) {
+                        py_call_push_queue_stop(
+                            stop_fn.record->fn, stop_enabled, stop_config,
+                            stop_scalar_offset, view.scalars(), view);
                     },
                     .state_schema = scalar_descriptor<PyStateRef>::value_meta(),
                     .scalar_schema = scalars.value.schema(),
-                    .uses_scheduler = uses_scheduler,
+                    .uses_scheduler = uses_scheduler || stop_uses_scheduler,
                     .uses_global_state = uses_global_state,
                     .uses_evaluation_clock = uses_evaluation_clock,
                     .uses_python_values = true,

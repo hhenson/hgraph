@@ -1,3 +1,5 @@
+#include "detail/service_bridge.h"
+
 #include <hgraph/kafka/service.h>
 #include <hgraph/kafka/testing/fake_broker.h>
 #include <hgraph/kafka/testing/mock_cluster.h>
@@ -38,6 +40,45 @@ void require(bool condition, std::string message) {
   if (!condition) {
     throw std::runtime_error(std::move(message));
   }
+}
+
+void test_bridge_wake_handles_graph_teardown() {
+  const auto *ts_int = ts_type<TS<Int>>();
+  PushSourceSender sender;
+  GraphBuilder builder;
+  builder.add_node(make_push_source_node(
+      *ts_int, make_push_source_conflating_policy(*ts_int),
+      [&sender](PushSourceSender started) { sender = std::move(started); }));
+
+  const DateTime start = wall_now();
+  GraphExecutorBuilder executor_builder;
+  executor_builder.graph_builder(std::move(builder))
+      .mode(GraphExecutorMode::RealTime)
+      .start_time(start)
+      .end_time(start + TimeDelta{1'000'000});
+  auto executor = executor_builder.make_executor();
+  auto graph = executor.view().graph();
+  graph.start(start);
+
+  hgraph::kafka::detail::ServiceBridge bridge{{4, 4096}, {4, 4096},
+                                               {4, 4096}};
+  bridge.attach(hgraph::kafka::detail::OutputChannel::Subscription, sender);
+  bridge.attach(hgraph::kafka::detail::OutputChannel::Delivery, sender);
+  bridge.attach(hgraph::kafka::detail::OutputChannel::Event, sender);
+  bridge.start();
+  graph.stop(start);
+
+  // Broker callbacks can enqueue after graph teardown has closed the retained
+  // sender but before service teardown disables bridge admission. Exercise
+  // both the retained stopped sender and the outstanding-notification path.
+  using hgraph::kafka::detail::OutputChannel;
+  require(bridge.push(OutputChannel::Event, Value{Int{1}}, sizeof(Int)),
+          "a Kafka bridge push racing graph teardown was rejected");
+  require(bridge.push(OutputChannel::Event, Value{Int{2}}, sizeof(Int)),
+          "a Kafka bridge push with an outstanding wake was rejected");
+  require(bridge.pending(OutputChannel::Event) == 2,
+          "teardown-racing Kafka values were not retained");
+  bridge.stop();
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -2481,6 +2522,7 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
 int main() {
   try {
     hgraph::stdlib::register_standard_operators();
+    test_bridge_wake_handles_graph_teardown();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_public_value_validation_and_producer_configuration();
