@@ -28,6 +28,33 @@ Current implementation
     receive ``evaluation_time`` explicitly, and "next scheduled time" is the
     minimum over the graph's per-node schedule entries.
 
+    **The real-time cycle.** Each iteration takes the minimum of
+    ``next_scheduled_time`` and ``end_time`` as its target. If the wall clock
+    has not reached that target the loop waits on the executor's condition
+    variable — the same one push-source producers notify through
+    ``mark_push_update_pending``, and that ``request_stop`` notifies. It
+    leaves the wait for one of three reasons: the target arrived, so the
+    cycle evaluates at the target (its *logical* time, which is what delivers
+    a late alarm rather than dropping it); a producer notified, so the cycle
+    evaluates at ``now()``, which the wait condition holds at or before the
+    target; or a stop was requested, and the run ends. A lagging graph whose
+    wall clock is already past the target does not wait at all.
+
+    Waits are issued in slices of at most
+    ``GraphExecutorBuilder::max_wait_slice`` (default 100ms). Both the push
+    and stop notifications are made under the loop's own mutex and the flags
+    are re-read under it, so the slice is not a poll interval — it bounds the
+    worst case should a notification ever be lost, and keeps the duration
+    handed to ``wait_for`` finite when an idle graph is waiting on a
+    ``MAX_ET`` target.
+
+    **Nothing scheduled.** In *simulation* an empty schedule ends the run:
+    simulated time is driven entirely by the schedule, so nothing can become
+    due. In *real time* it does not — the wall clock still runs, and the loop
+    waits for ``end_time``, a producer, or ``request_stop``. This holds
+    whether or not the graph contains a push source; a real-time run occupies
+    its wall-clock window regardless of what the graph contains.
+
     **End-of-run enforcement.** ``end_time`` bounds the run in *evaluation*
     time — the loop exits once the next evaluation time reaches it. A
     real-time graph may lag the wall clock (cycles cost more wall time than

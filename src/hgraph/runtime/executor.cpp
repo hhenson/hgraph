@@ -124,6 +124,7 @@ namespace hgraph
                   run_logging_enabled(builder.logger() != nullptr)
             {
                 immediate_cycle_limit = builder.max_consecutive_immediate_cycles();
+                max_wait_slice        = builder.max_wait_slice();
                 for (LifecycleObserver *observer : builder.lifecycle_observers()) { lifecycle_observers.add(observer); }
             }
 
@@ -141,7 +142,7 @@ namespace hgraph
             DateTime                     start_time{MIN_ST};
             DateTime                     end_time{MAX_ET};
             DateTime                     evaluation_time{MIN_ST};
-            DateTime                     last_time_allowed_push{MIN_DT};
+            TimeDelta                    max_wait_slice{100'000};
             std::uint32_t                immediate_cycle_limit{0};
             std::uint32_t                consecutive_immediate_cycles{0};
             ErrorCaptureOptions          error_capture_options{};
@@ -155,7 +156,6 @@ namespace hgraph
             std::condition_variable      condition{};
             std::atomic_bool             stop_requested{false};
             bool                         push_update_pending{false};
-            bool                         ready_to_push{false};
             GraphExecutorPhaseRunner     phase_runner{};
             bool                         run_logging_enabled{false};
         };
@@ -375,33 +375,51 @@ namespace hgraph
 
         [[nodiscard]] DateTime advance_realtime(RealTimeExecutorStorage &state, DateTime next_scheduled_time)
         {
-            const DateTime target = std::min(next_scheduled_time, state.end_time);
-            DateTime       wall_now = current_wall_time();
-
-            {
-                std::lock_guard lock{state.mutex};
-                state.ready_to_push = false;
-            }
-
+            // Whichever comes first bounds this cycle: the next scheduled work
+            // or the run's end. An idle graph therefore waits for end_time
+            // rather than ending the run — in real time the wall clock, not
+            // the schedule, decides when the run is over
+            // (execution_layer.rst, end-of-run enforcement).
+            const DateTime target     = std::min(next_scheduled_time, state.end_time);
             const DateTime next_cycle = state.evaluation_time + MIN_TD;
-            if (target > next_cycle || wall_now > state.last_time_allowed_push + TimeDelta{15'000'000})
+
+            DateTime wall_now = current_wall_time();
             {
                 std::unique_lock lock{state.mutex};
-                state.ready_to_push = true;
-                state.last_time_allowed_push = wall_now;
-
-                while (!state.stop_requested.load(std::memory_order_acquire) &&
-                       wall_now < target &&
-                       !state.push_update_pending)
+                // A push delivered while the previous cycle was evaluating is
+                // already pending, so this does not wait at all.
+                while (!state.push_update_pending && wall_now < target &&
+                       !state.stop_requested.load(std::memory_order_acquire))
                 {
-                    const TimeDelta sleep_time = std::min(target - wall_now, TimeDelta{10'000'000});
-                    state.condition.wait_for(lock, sleep_time);
+                    // `mark_push_update_pending` and `request_stop` both
+                    // notify under this mutex, so the slice is a bound on a
+                    // lost wake-up rather than a poll interval. It also keeps
+                    // the duration handed to `wait_for` finite when the graph
+                    // is idle and `target` is MAX_ET.
+                    state.condition.wait_for(lock, std::min(target - wall_now, state.max_wait_slice));
                     wall_now = current_wall_time();
                 }
             }
 
-            wall_now = current_wall_time();
-            const DateTime next = std::min(target, std::max(next_cycle, wall_now));
+            // This cycle's evaluation time, from two rules in strict
+            // precedence order.
+            //
+            // 1. Evaluation time advances. A producer wake is timed by the
+            //    wall clock, and two wakes can land in the same microsecond,
+            //    so floor the wall clock at `next_cycle`.
+            DateTime next = std::max(wall_now, next_cycle);
+            // 2. Evaluation time never passes `target`. It is the earliest
+            //    pending scheduled time, so running ahead of it would skip
+            //    that cycle: if the wall clock has already slipped past it —
+            //    the wait elapsed, or a lagging graph never waited — the
+            //    scheduled cycle is still processed, at its own logical time.
+            //    That is also what delivers a late alarm rather than dropping
+            //    it.
+            //
+            // The ceiling outranks the floor, and must: on the first cycle
+            // `target` is `start_time`, which is already the evaluation time,
+            // and that cycle still has to run.
+            if (next > target) { next = target; }
             if (wall_now >= state.end_time && next <= next_cycle &&
                 state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
             {
@@ -427,16 +445,33 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] bool waits_for_push_sources(
+        /**
+         * Does the run continue when the graph has nothing scheduled before
+         * ``end_time``?
+         *
+         * Simulated time is driven entirely by the schedule: with nothing
+         * scheduled nothing can ever become due, so the run is over.
+         */
+        [[nodiscard]] bool idle_run_continues(
             const SimulationExecutorStorage &state,
             const GraphView &) noexcept
         {
             return state.push_update_pending.load(std::memory_order_acquire);
         }
 
-        [[nodiscard]] bool waits_for_push_sources(const RealTimeExecutorStorage &, const GraphView &graph) noexcept
+        /**
+         * Real time is driven by the wall clock, not by the schedule, so an
+         * idle graph waits for ``end_time`` — or for a producer, or for
+         * ``request_stop`` — rather than ending the run early.
+         *
+         * Push sources are deliberately not a precondition. Gating on them
+         * made a real-time run without one terminate the moment its schedule
+         * emptied, which contradicts the documented contract that
+         * ``end_time`` bounds the run.
+         */
+        [[nodiscard]] bool idle_run_continues(const RealTimeExecutorStorage &, const GraphView &) noexcept
         {
-            return graph.schema()->push_source_nodes_end > 0;
+            return true;
         }
 
         /**
@@ -571,7 +606,7 @@ namespace hgraph
                 DateTime next = graph.next_scheduled_time();
                 if (next == MAX_DT || next >= state.end_time)
                 {
-                    if (!waits_for_push_sources(state, graph)) { break; }
+                    if (!idle_run_continues(state, graph)) { break; }
                     next = state.end_time;
                 }
 
@@ -1386,6 +1421,12 @@ namespace hgraph
         return *this;
     }
 
+    GraphExecutorBuilder &GraphExecutorBuilder::max_wait_slice(TimeDelta slice) noexcept
+    {
+        max_wait_slice_ = slice > TimeDelta::zero() ? slice : TimeDelta{100'000};
+        return *this;
+    }
+
     GraphExecutorBuilder &GraphExecutorBuilder::phase_runner(GraphExecutorPhaseRunner runner)
     {
         phase_runner_ = std::move(runner);
@@ -1458,6 +1499,11 @@ namespace hgraph
     std::uint32_t GraphExecutorBuilder::max_consecutive_immediate_cycles() const noexcept
     {
         return max_consecutive_immediate_cycles_;
+    }
+
+    TimeDelta GraphExecutorBuilder::max_wait_slice() const noexcept
+    {
+        return max_wait_slice_;
     }
 
     const std::vector<LifecycleObserver *> &GraphExecutorBuilder::lifecycle_observers() const noexcept

@@ -331,6 +331,21 @@ namespace hgraph
          * guard. Applies to both run modes.
          */
         GraphExecutorBuilder &max_consecutive_immediate_cycles(std::uint32_t limit) noexcept;
+        /**
+         * Longest single wait the real-time run loop performs before it
+         * re-reads the wall clock and the pending-push flag.
+         *
+         * A producer's ``mark_push_update_pending`` sets that flag and
+         * notifies under the run loop's own mutex, so the wake is not
+         * expected to be lost and this slice is not a poll interval. It
+         * bounds two things: the worst case if a notification ever were
+         * lost, and the duration handed to ``wait_for`` when the graph is
+         * idle and the target is ``MAX_ET`` (which would otherwise overflow
+         * the conversion to the condition variable's clock).
+         *
+         * The default is 100ms. Ignored in simulation mode.
+         */
+        GraphExecutorBuilder &max_wait_slice(TimeDelta slice) noexcept;
         /** Register a lifecycle observer for this executor's run (see ``LifecycleObserver``). */
         GraphExecutorBuilder &add_lifecycle_observer(LifecycleObserver *observer);
 
@@ -345,6 +360,7 @@ namespace hgraph
         [[nodiscard]] bool cleanup_on_error() const noexcept;
         [[nodiscard]] const GraphExecutorPhaseRunner &phase_runner() const noexcept;
         [[nodiscard]] std::uint32_t max_consecutive_immediate_cycles() const noexcept;
+        [[nodiscard]] TimeDelta max_wait_slice() const noexcept;
         [[nodiscard]] const std::vector<LifecycleObserver *> &lifecycle_observers() const noexcept;
         [[nodiscard]] GraphTypeRef graph_type() const;
         [[nodiscard]] ExecutorTypeRef type() const;
@@ -365,6 +381,7 @@ namespace hgraph
         bool                            cleanup_on_error_{true};
         GraphExecutorPhaseRunner        phase_runner_{};
         std::uint32_t                   max_consecutive_immediate_cycles_{0};
+        TimeDelta                       max_wait_slice_{100'000};
         std::vector<LifecycleObserver *> lifecycle_observers_{};
         mutable ExecutorTypeRef          type_{};
     };

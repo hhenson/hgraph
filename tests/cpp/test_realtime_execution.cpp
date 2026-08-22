@@ -398,6 +398,8 @@ TEST_CASE("real-time NodeScheduler delivers a wall-clock alarm that became due w
     constexpr int target_evaluations = 3;
 
     std::atomic_int eval_count{0};
+    // Written on the evaluation thread, read after run() returns.
+    DateTime chain_completed_at{};
 
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = registry.register_scalar<Int>("int");
@@ -411,10 +413,14 @@ TEST_CASE("real-time NodeScheduler delivers a wall-clock alarm that became due w
     schema.uses_scheduler    = true;
 
     NodeCallbacks callbacks;
-    callbacks.evaluate = [&eval_count](const NodeView &view, DateTime evaluation_time) {
+    callbacks.evaluate = [&eval_count, &chain_completed_at](const NodeView &view, DateTime evaluation_time) {
         ++eval_count;
         testing::set_output_value(view, evaluation_time, Int{eval_count.load()});
-        if (eval_count.load() >= target_evaluations) { return; }
+        if (eval_count.load() >= target_evaluations)
+        {
+            chain_completed_at = hgraph::testing::wall_now();
+            return;
+        }
         const NodeScheduler scheduler{view.scheduler_state(), view.graph_value(),
                                       view.node_index(), evaluation_time,
                                       view.started(), view.evaluation_clock(),
@@ -435,14 +441,115 @@ TEST_CASE("real-time NodeScheduler delivers a wall-clock alarm that became due w
     executor_builder.graph_builder(std::move(graph_builder))
         .mode(GraphExecutorMode::RealTime)
         .start_time(start_time)
-        .end_time(start_time + TimeDelta{5'000'000});
+        .end_time(start_time + TimeDelta{1'000'000});
 
     GraphExecutorValue executor = executor_builder.make_executor();
     executor.view().run();
 
     CHECK(eval_count.load() == target_evaluations);
-    // The chain never waits for end_time: each due alarm fires next cycle.
-    CHECK(hgraph::testing::wall_now() - start_time < TimeDelta{4'000'000});
+    // Each due alarm fires on the next cycle, so the chain completes almost
+    // immediately. The assertion is on when the chain finished, not on when
+    // run() returned: an idle real-time graph correctly waits out end_time.
+    CHECK(chain_completed_at - start_time < TimeDelta{500'000});
+}
+
+TEST_CASE("real-time executor runs to end_time when nothing is scheduled")
+{
+    using namespace hgraph;
+
+    // A real-time run is bounded by the wall clock, not by the schedule
+    // (execution_layer.rst, end-of-run enforcement). A graph that goes idle
+    // must keep the run alive until end_time; it previously exited the run
+    // loop the moment its schedule emptied, so a real-time run with no push
+    // source returned almost immediately whatever end_time was asked for.
+    std::atomic_int eval_count{0};
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "idle_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [&eval_count](const NodeView &view, DateTime evaluation_time) {
+        ++eval_count;
+        testing::set_output_value(view, evaluation_time, Int{eval_count.load()});
+        // Deliberately schedules nothing further.
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    constexpr TimeDelta run_window{200'000};  // 200ms
+    const DateTime      start_time = hgraph::testing::wall_now();
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + run_window);
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    CHECK(eval_count.load() == 1);
+    CHECK(hgraph::testing::wall_now() - start_time >= run_window * 3 / 4);
+}
+
+TEST_CASE("real-time executor runs to end_time after its schedule empties")
+{
+    using namespace hgraph;
+
+    // The damaging shape of the same defect: the graph does real work part
+    // way through the window and then goes quiet. The run must continue to
+    // end_time rather than ending at the last scheduled cycle.
+    std::atomic_int eval_count{0};
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "one_shot_alarm_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+    schema.uses_scheduler    = true;
+
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [&eval_count](const NodeView &view, DateTime evaluation_time) {
+        const int count = ++eval_count;
+        testing::set_output_value(view, evaluation_time, Int{count});
+        if (count > 1) { return; }  // one alarm only, then idle
+        const NodeScheduler scheduler{view.scheduler_state(), view.graph_value(),
+                                      view.node_index(), evaluation_time,
+                                      view.started(), view.evaluation_clock(),
+                                      /*supports_wall_clock=*/true};
+        scheduler.schedule(hgraph::testing::wall_now() + TimeDelta{50'000}, "alarm",
+                           /*on_wall_clock=*/true);
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    constexpr TimeDelta run_window{250'000};  // 250ms; the alarm fires at ~50ms
+    const DateTime      start_time = hgraph::testing::wall_now();
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + run_window);
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    CHECK(eval_count.load() == 2);  // the start cycle and the alarm
+    CHECK(hgraph::testing::wall_now() - start_time >= run_window * 3 / 4);
 }
 
 TEST_CASE("real-time executor stop request wakes a sleeping executor")
