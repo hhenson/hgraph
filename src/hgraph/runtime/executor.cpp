@@ -142,7 +142,7 @@ namespace hgraph
             DateTime                     start_time{MIN_ST};
             DateTime                     end_time{MAX_ET};
             DateTime                     evaluation_time{MIN_ST};
-            TimeDelta                    max_wait_slice{100'000};
+            TimeDelta                    max_wait_slice{10'000'000};
             std::uint32_t                immediate_cycle_limit{0};
             std::uint32_t                consecutive_immediate_cycles{0};
             ErrorCaptureOptions          error_capture_options{};
@@ -386,18 +386,23 @@ namespace hgraph
             DateTime wall_now = current_wall_time();
             {
                 std::unique_lock lock{state.mutex};
+                const auto wake_requested = [&state] {
+                    return state.push_update_pending ||
+                           state.stop_requested.load(std::memory_order_acquire);
+                };
                 // A push delivered while the previous cycle was evaluating is
                 // already pending, so this does not wait at all.
-                while (!state.push_update_pending && wall_now < target &&
-                       !state.stop_requested.load(std::memory_order_acquire))
+                while (wall_now < target && !wake_requested())
                 {
-                    // `mark_push_update_pending` and `request_stop` both
-                    // notify under this mutex, so the slice is a bound on a
-                    // lost wake-up rather than a poll interval. It also keeps
-                    // the duration handed to `wait_for` finite when the graph
-                    // is idle and `target` is MAX_ET.
-                    state.condition.wait_for(lock, std::min(target - wall_now, state.max_wait_slice));
+                    // The predicate overload absorbs spurious wakes. A false
+                    // return is the forced slice timeout; it only refreshes
+                    // wall_now and loops unless target has become due.
+                    const bool wake_requested_before_timeout = state.condition.wait_for(
+                        lock,
+                        std::min(target - wall_now, state.max_wait_slice),
+                        wake_requested);
                     wall_now = current_wall_time();
+                    if (wake_requested_before_timeout) { break; }
                 }
             }
 
@@ -407,7 +412,7 @@ namespace hgraph
             // 1. Evaluation time advances. A producer wake is timed by the
             //    wall clock, and two wakes can land in the same microsecond,
             //    so floor the wall clock at `next_cycle`.
-            DateTime next = std::max(wall_now, next_cycle);
+            const DateTime wall_or_next_cycle = std::max(wall_now, next_cycle);
             // 2. Evaluation time never passes `target`. It is the earliest
             //    pending scheduled time, so running ahead of it would skip
             //    that cycle: if the wall clock has already slipped past it —
@@ -419,7 +424,7 @@ namespace hgraph
             // The ceiling outranks the floor, and must: on the first cycle
             // `target` is `start_time`, which is already the evaluation time,
             // and that cycle still has to run.
-            if (next > target) { next = target; }
+            const DateTime next = std::min(target, wall_or_next_cycle);
             if (wall_now >= state.end_time && next <= next_cycle &&
                 state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
             {
@@ -692,8 +697,10 @@ namespace hgraph
         void realtime_request_stop_impl(const void *, void *memory) noexcept
         {
             auto &state = realtime_storage(memory);
-            state.stop_requested.store(true, std::memory_order_release);
-            std::lock_guard lock{state.mutex};
+            {
+                std::lock_guard lock{state.mutex};
+                state.stop_requested.store(true, std::memory_order_release);
+            }
             state.condition.notify_all();
         }
 
@@ -1423,7 +1430,7 @@ namespace hgraph
 
     GraphExecutorBuilder &GraphExecutorBuilder::max_wait_slice(TimeDelta slice) noexcept
     {
-        max_wait_slice_ = slice > TimeDelta::zero() ? slice : TimeDelta{100'000};
+        max_wait_slice_ = slice > TimeDelta::zero() ? slice : TimeDelta{10'000'000};
         return *this;
     }
 

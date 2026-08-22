@@ -13,8 +13,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -221,6 +223,7 @@ TEST_CASE("real-time executor defaults an omitted start time to the wall clock")
     executor_builder.graph_builder(std::move(graph_builder))
         .mode(GraphExecutorMode::RealTime)
         .end_time(before + TimeDelta{1'000'000});
+    CHECK(executor_builder.max_wait_slice() == TimeDelta{10'000'000});
 
     GraphExecutorValue executor = executor_builder.make_executor();
     const DateTime after = hgraph::testing::wall_now();
@@ -550,6 +553,148 @@ TEST_CASE("real-time executor runs to end_time after its schedule empties")
 
     CHECK(eval_count.load() == 2);  // the start cycle and the alarm
     CHECK(hgraph::testing::wall_now() - start_time >= run_window * 3 / 4);
+}
+
+TEST_CASE("real-time wait predicates and evaluation-time precedence match Python")
+{
+    using namespace hgraph;
+
+    // Exercise every choice in Python's
+    // min(target, max(previous + MIN_TD, wall_now)) rule:
+    //
+    // * short forced wait slices before a target do not create graph cycles;
+    // * producer notifications create wall-clock-aligned cycles before target;
+    // * evaluation time remains strictly increasing; and
+    // * the earliest scheduled target is retained and evaluated exactly even
+    //   after earlier producer cycles.
+    constexpr TimeDelta scheduled_delay{1'000'000};
+    constexpr TimeDelta forced_wait_slice{5'000};
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *input_schema = hgraph::testing::single_input_schema(*ts_int);
+
+    PushSourceSender        sender;
+    std::mutex              sender_mutex;
+    std::condition_variable sender_ready;
+    bool                    sender_is_ready{false};
+
+    std::mutex              observations_mutex;
+    std::condition_variable observation_ready;
+    std::vector<DateTime>   push_evaluation_times;
+    DateTime                scheduled_evaluation_time{MIN_DT};
+
+    struct EvaluationCounter final : LifecycleObserver
+    {
+        void on_before_graph_evaluation(const GraphView &) override { ++count; }
+        std::size_t count{0};
+    } evaluation_counter;
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(make_push_source_node(
+        *ts_int,
+        [&](PushSourceSender started_sender) {
+            {
+                std::lock_guard lock{sender_mutex};
+                sender = std::move(started_sender);
+                sender_is_ready = true;
+            }
+            sender_ready.notify_one();
+        }));
+
+    NodeTypeMetaData sink_schema;
+    sink_schema.display_name = "record_push_evaluation_time";
+    sink_schema.input_schema = input_schema;
+    sink_schema.node_kind = NodeKind::Sink;
+    NodeCallbacks sink_callbacks;
+    sink_callbacks.evaluate = [&](const NodeView &, DateTime evaluation_time) {
+        {
+            std::lock_guard lock{observations_mutex};
+            push_evaluation_times.push_back(evaluation_time);
+        }
+        observation_ready.notify_one();
+    };
+    graph_builder.add_node(NodeBuilder::native(
+        std::move(sink_schema),
+        std::move(sink_callbacks),
+        hgraph::testing::single_input_endpoint(*input_schema, *ts_int)));
+    graph_builder.add_edge(GraphEdge{
+        .source_node = make_graph_edge_source(0),
+        .source_path = {},
+        .target_node = 1,
+        .target_path = {0},
+    });
+
+    NodeTypeMetaData scheduled_schema;
+    scheduled_schema.display_name = "scheduled_target_source";
+    scheduled_schema.output_schema = ts_int;
+    scheduled_schema.node_kind = NodeKind::PullSource;
+    NodeCallbacks scheduled_callbacks;
+    scheduled_callbacks.start = [scheduled_delay](const NodeView &view, DateTime start_time) {
+        view.graph_value()->schedule_node(
+            view.node_index(), start_time + scheduled_delay);
+    };
+    scheduled_callbacks.evaluate = [&](const NodeView &view, DateTime evaluation_time) {
+        scheduled_evaluation_time = evaluation_time;
+        testing::set_output_value(view, evaluation_time, Int{1});
+    };
+    graph_builder.add_node(NodeBuilder::native(
+        std::move(scheduled_schema), std::move(scheduled_callbacks)));
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    const DateTime scheduled_target = start_time + scheduled_delay;
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(scheduled_target + TimeDelta{50'000})
+        .max_wait_slice(forced_wait_slice)
+        .add_lifecycle_observer(&evaluation_counter);
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    auto               view     = executor.view();
+    hgraph::testing::AsyncGraphExecutorRun runner{view};
+
+    {
+        std::unique_lock lock{sender_mutex};
+        REQUIRE(sender_ready.wait_for(
+            lock, std::chrono::seconds{2}, [&] { return sender_is_ready; }));
+    }
+
+    // Let several forced slices expire. None may escape the predicate wait as
+    // an evaluation cycle.
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    const DateTime first_send_time = hgraph::testing::wall_now();
+    sender.send_blocking(Int{1});
+    {
+        std::unique_lock lock{observations_mutex};
+        REQUIRE(observation_ready.wait_for(
+            lock,
+            std::chrono::seconds{2},
+            [&] { return push_evaluation_times.size() >= 1; }));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+    const DateTime second_send_time = hgraph::testing::wall_now();
+    sender.send_blocking(Int{2});
+    {
+        std::unique_lock lock{observations_mutex};
+        REQUIRE(observation_ready.wait_for(
+            lock,
+            std::chrono::seconds{2},
+            [&] { return push_evaluation_times.size() >= 2; }));
+    }
+    runner.join();
+
+    REQUIRE(push_evaluation_times.size() == 2);
+    CHECK(evaluation_counter.count == 3);
+    CHECK(push_evaluation_times[0] >= first_send_time);
+    CHECK(push_evaluation_times[0] < scheduled_target);
+    CHECK(push_evaluation_times[1] >= second_send_time);
+    CHECK(push_evaluation_times[1] >= push_evaluation_times[0] + MIN_TD);
+    CHECK(push_evaluation_times[1] < scheduled_target);
+    CHECK(scheduled_evaluation_time == scheduled_target);
 }
 
 TEST_CASE("real-time executor stop request wakes a sleeping executor")

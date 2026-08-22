@@ -335,15 +335,16 @@ namespace hgraph
          * Longest single wait the real-time run loop performs before it
          * re-reads the wall clock and the pending-push flag.
          *
-         * A producer's ``mark_push_update_pending`` sets that flag and
-         * notifies under the run loop's own mutex, so the wake is not
-         * expected to be lost and this slice is not a poll interval. It
-         * bounds two things: the worst case if a notification ever were
-         * lost, and the duration handed to ``wait_for`` when the graph is
-         * idle and the target is ``MAX_ET`` (which would otherwise overflow
-         * the conversion to the condition variable's clock).
+         * A producer's ``mark_push_update_pending`` sets that flag under the
+         * run loop's mutex before notifying. The wait uses the pending-push
+         * and stop flags as its predicate, so a spurious wake does not return
+         * control to the run loop. A slice timeout only refreshes the wall
+         * clock and re-enters the wait unless the target is due.
          *
-         * The default is 100ms. Ignored in simulation mode.
+         * The finite slice also avoids overflowing the duration conversion
+         * inside ``wait_for`` when an idle graph targets ``MAX_ET``. The
+         * default is 10 seconds, matching the Python runtime. Ignored in
+         * simulation mode.
          */
         GraphExecutorBuilder &max_wait_slice(TimeDelta slice) noexcept;
         /** Register a lifecycle observer for this executor's run (see ``LifecycleObserver``). */
@@ -381,7 +382,7 @@ namespace hgraph
         bool                            cleanup_on_error_{true};
         GraphExecutorPhaseRunner        phase_runner_{};
         std::uint32_t                   max_consecutive_immediate_cycles_{0};
-        TimeDelta                       max_wait_slice_{100'000};
+        TimeDelta                       max_wait_slice_{10'000'000};
         std::vector<LifecycleObserver *> lifecycle_observers_{};
         mutable ExecutorTypeRef          type_{};
     };

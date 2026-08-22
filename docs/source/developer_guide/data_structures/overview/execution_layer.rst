@@ -40,13 +40,24 @@ Current implementation
     target; or a stop was requested, and the run ends. A lagging graph whose
     wall clock is already past the target does not wait at all.
 
-    Waits are issued in slices of at most
-    ``GraphExecutorBuilder::max_wait_slice`` (default 100ms). Both the push
-    and stop notifications are made under the loop's own mutex and the flags
-    are re-read under it, so the slice is not a poll interval — it bounds the
-    worst case should a notification ever be lost, and keeps the duration
-    handed to ``wait_for`` finite when an idle graph is waiting on a
-    ``MAX_ET`` target.
+    Waits use the pending-push and stop flags as the condition-variable
+    predicate. A producer sets the pending flag under the wait mutex before
+    notifying, and stop follows the same state-before-notify rule. Spurious
+    wakes are therefore absorbed by the condition-variable wait rather than
+    returned to the run loop. Waits are issued in slices of at most
+    ``GraphExecutorBuilder::max_wait_slice`` (default 10 seconds, matching the
+    Python runtime) so an idle ``MAX_ET`` target cannot overflow the duration
+    conversion inside ``wait_for``. A slice timeout before the target only
+    refreshes the wall clock and re-enters the wait; it does not create an
+    evaluation cycle.
+
+    The next evaluation time follows the Python runtime's precedence exactly:
+    ``target = min(next_scheduled_time, end_time)``, followed by
+    ``evaluation_time = min(target, max(previous_evaluation_time + MIN_TD,
+    wall_now))``. Consequently, a producer notification before the target
+    evaluates at wall time (subject to the ``MIN_TD`` monotonic floor), a due
+    target evaluates at its exact logical time even if the wall clock has
+    passed it, and neither case can skip the earliest scheduled cycle.
 
     **Nothing scheduled.** In *simulation* an empty schedule ends the run:
     simulated time is driven entirely by the schedule, so nothing can become
