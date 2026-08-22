@@ -27,6 +27,8 @@
 
 namespace hgraph
 {
+    class ListBuilder;
+
     /**
      * Compact, immutable-after-construction storage shapes for the value
      * layer's container kinds. See *Allocation, Plans and Ops > Scalar
@@ -485,6 +487,19 @@ namespace hgraph
         }
 
       private:
+        friend class ListBuilder;
+
+        struct AdoptElementsTag
+        {
+        };
+
+        ListStorage(AdoptElementsTag, const ValueTypeRef &element_binding,
+                    void *bytes, std::size_t size, std::vector<bool> validity) noexcept
+            : bytes_{bytes}, size_{size}, element_binding_{element_binding},
+              validity_{std::move(validity)}
+        {
+        }
+
         void clear() noexcept
         {
             if (element_binding_ == nullptr) { return; }

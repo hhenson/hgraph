@@ -44,7 +44,7 @@ method in Python is to use the ``push_queue`` decorator. This is shown below:
 
     from hgraph import push_queue, TS
 
-    def _user_input(sender: Callable[[str], None]):
+    def _user_input(sender: Callable[[str], bool]):
         while True:
             s = sys.stdin.readline().strip("\n")
             sender(s)
@@ -52,7 +52,7 @@ method in Python is to use the ``push_queue`` decorator. This is shown below:
                 break
 
     @push_queue(TS[str])
-    def my_push_queue(sender: Callable[[str], None]) -> TS[str]:
+    def my_push_queue(sender: Callable[[str], bool]) -> TS[str]:
         threading.Thread(target=_user_input, args=(sender,)).start()
 
 The function accepts at least one parameter, namely the sender. This is a callable
@@ -110,6 +110,5 @@ consuming ticks in a graph and forms the leaves in the DAG.
 Here the sink node takes the value and prints it out. In all cases, no further ticks
 are produced. Once all the scheduled nodes have been processed, the graph evaluation cycle is marked as complete
 and the next cycle is started (or we will wait until we are ready to start the next cycle).
-
 
 

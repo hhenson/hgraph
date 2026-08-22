@@ -23,12 +23,13 @@ Replace the sender's ``void send(Value)`` with an explicit pair:
 .. code-block:: cpp
 
    [[nodiscard]] bool try_send(Value value) const;
-   void               send_blocking(Value value) const;
+   bool               send_blocking(Value value) const;
 
 ``try_send`` returns ``false`` when the selected policy cannot accept the
-value.  ``send_blocking`` waits until it can, or until the node stops.  Capacity
-is a count of admitted elements; there is no byte accounting in the core
-contract.
+value.  ``send_blocking`` waits until it can and returns ``true``, or returns
+``false`` if the receiver stops before admission.  Its result may be discarded
+when a producer has no stop-specific action.  Capacity is a count of admitted
+elements; there is no byte accounting in the core contract.
 
 The push-source node then *is* the queue.  A service implementation uses one
 push source to carry every value its adaptor returns to the graph, in one
@@ -128,7 +129,7 @@ Sender
    class HGRAPH_EXPORT PushSourceSender
    {
      public:
-       PushSourceSender() noexcept = default;
+       PushSourceSender() noexcept;
 
        [[nodiscard]] bool valid() const noexcept;
        [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
@@ -143,13 +144,12 @@ Sender
 
        /** Enqueue, waiting for capacity if necessary.
         *
-        * Must not be called from the graph evaluation thread. Throws
-        * ``PushSourceStopped`` if the node is not accepting when called, or
-        * becomes non-accepting while waiting. */
-       void send_blocking(Value value) const;
+        * Returns false only when the node stops before admission. Must not be
+        * called from the graph evaluation thread when it would wait. */
+       bool send_blocking(Value value) const;
 
        template <typename T> [[nodiscard]] bool try_send(T &&value) const;
-       template <typename T> void send_blocking(T &&value) const;
+       template <typename T> bool send_blocking(T &&value) const;
    };
 
 ``void send(Value)`` is removed rather than deprecated.  It has few call sites
@@ -261,7 +261,7 @@ longer belong to the sender queue.
        *ts_type<TS<HomogeneousTuple<Int>>>(), 256);
 
    // Both calls contribute scalar elements to a later tuple-valued tick.
-   static_cast<void>(sender.try_send(Int{1}));
+   sender.send_blocking(Int{1});
    sender.send_blocking(Int{2});
 
 Protocol acknowledgements
@@ -281,37 +281,54 @@ not change capacity in the push-source queue.
 Usage model
 ~~~~~~~~~~~
 
-A service implementation uses **one** push source for everything its adaptor
-returns to the graph.  The sender schema is a discriminated envelope; the
-implementation demultiplexes it into its several service outputs with ordinary
-graph nodes.
+A service implementation uses one push source for each independently ordered
+asynchronous result stream.  When several related result kinds require one
+order, their sender schema is a discriminated envelope and the implementation
+demultiplexes it with ordinary graph nodes.  A service implementation may own
+more than one push source when the external streams are genuinely independent.
 
 This is the point of the design rather than an incidental economy.  One queue
 is one order, so values that are related — a record and the state change that
 explains it, a delivery failure and its event — arrive in the order the adaptor
 produced them.  Several push sources cannot promise that at any price.
 
-The core does not enforce one push source per implementation; it is the
-documented pattern, and the extension migrations below follow it.
+The core does not expose the sender's queue, lock, condition variable, executor
+notification, or selected policy to the service implementation.  Adaptors only
+retain the sender and use its admission operations.
 
 Python contract
 ---------------
 
-``PySender`` gains no boolean.  Python has no established way to express a
-refused send in the ``push_queue`` protocol today, so its bound ``send`` method
-continues to be passed to the start callback as ``sender(value)`` and maps to
-native ``send_blocking``:
+``PySender.send`` maps to native ``send_blocking`` and returns its boolean
+admission result:
 
 .. code-block:: python
 
    @push_queue(TS[int])
-   def my_source(sender: Callable[[int], None]):
-       sender(1)          # blocks if the queue is full
+   def my_source(sender: Callable[[int], bool]):
+       accepted = sender(1)  # blocks if full; false only after receiver stop
 
 ``PySender::send`` already releases the GIL around the native call
 (``python/py_carriers.h``), so blocking there does not stall the interpreter.
-A stopped node raises ``RuntimeError`` from the same call, replacing the
-current silent discard.
+A stopped node returns ``False``.  The common producer loop may discard this
+result because its stop callback requests task shutdown; a producer that needs
+different shutdown behaviour can inspect it.  Internal sender lifecycle or
+queue implementation types are not exposed to Python.
+
+``@push_queue`` also supports a lifecycle stop hook.  The start hook constructs
+and starts an external task or worker thread and stores it in ``STATE``; the
+stop hook requests shutdown and joins it:
+
+.. code-block:: python
+
+   @push_queue(TS[int])
+   def my_source(sender, state: STATE = None):
+       state.task = start_task(sender)
+
+   @my_source.stop
+   def stop_my_source(state: STATE = None):
+       state.task.request_stop()
+       state.task.join()
 
 ``@push_queue`` gains optional ``max_pending`` and ``burst`` keyword arguments:
 
@@ -378,15 +395,29 @@ Threading:
 * several producer threads may share one sender.  Both entry points are
   safe under the queue mutex.
 
-``send_blocking`` must never be called from the graph evaluation thread.  A
-debug assertion compares against the executor's evaluation thread id; release
-builds do not pay for the check.
+``send_blocking`` must never wait on the graph evaluation thread.  The queue
+captures its consumer thread at start and rejects a full-queue call from that
+thread before entering the condition-variable wait.  An immediately
+admissible call remains legal during a start callback, preserving existing
+unbounded start-hook behaviour.
 
-The sender remains a non-templated, type-erased facade.  The selected policy
-validates each admitted ``Value`` against its sender schema.  Queue and
-conflating policies therefore continue to accept the output delta schema;
-burst accepts the element schema derived from its output tuple.  There is no
-per-send or per-evaluation registry lookup.
+The sender remains a non-templated, type-erased facade.  Its private, non-null
+operations table dispatches either to the live control block or to a canonical
+stopped sentinel; default and moved-from senders therefore return ``false``
+without branches at call sites.  The selected policy validates each admitted
+``Value`` against its sender schema.  Queue and conflating policies therefore
+continue to accept the output delta schema; burst accepts the element schema
+derived from its output tuple.  There is no per-send or per-evaluation registry
+lookup.
+
+The control block holds the sender's internal executor projection.  A policy
+first queues or applies the value under its own synchronization and returns
+whether executor wake-up is required.  Only after successful admission does
+the sender mark push work pending and notify the real-time executor's condition
+variable.  The executor consults that pending state to decide whether to run
+the push-source prefix in the next cycle; the same notification wakes an
+executor waiting for its next scheduled time.  External producer code never
+receives the executor projection or invokes the graph directly.
 
 The ``Burst`` selection uses the queue storage, admission operations, and
 condition-variable machinery unchanged.  Only its ``emit_next`` operation is
@@ -415,12 +446,11 @@ operations that have entered policy storage.  Stop proceeds in this order:
 5. detach the control from node and executor storage before either is
    destroyed.
 
-After step 1, ``try_send`` returns ``false`` and ``send_blocking`` throws
-``PushSourceStopped`` without accessing node storage.  ``valid()`` means the
-control is attached to a running, accepting policy, rather than merely holding
-a non-null historical pointer.  This is one small, explicit erased-ownership
-boundary per push source; payload and queue storage remain owned by the node's
-planned storage.
+After step 1, both sender operations return ``false`` without accessing node
+storage.  ``valid()`` means the control is attached to a running, accepting
+policy, rather than merely holding a non-null historical pointer.  This is one
+small, explicit erased-ownership boundary per push source; payload and queue
+storage remain owned by the node's planned storage.
 
 Performance and memory
 ----------------------
@@ -466,8 +496,8 @@ Source compatibility
 
 Behavioural compatibility
    Default ``max_pending == 0`` preserves today's queue semantics.  The one
-   visible change for existing users is that a Python ``sender(value)`` after
-   stop now raises instead of silently discarding.
+   visible change for existing users is that Python ``sender(value)`` returns
+   a boolean; after stop it returns ``False`` instead of silently discarding.
    ``burst=False`` is the default, so existing Python output schemas and sender
    payload types are unchanged.
 
@@ -594,22 +624,15 @@ Passing a tuple to the sender
    scalar per call so the graph's evaluation cadence defines the opportunistic
    batch boundary.
 
-Unresolved questions
---------------------
+Deferred questions
+------------------
 
-1. **``send_blocking`` on stop.**  This RFC proposes throwing
-   ``PushSourceStopped`` both when called on a stopped node and when stop
-   arrives during the wait.  The alternative is to return silently, matching
-   today's discard.  Throwing is chosen because a discarded message is a
-   silent failure.  The cost is that a clean shutdown racing an in-flight send
-   produces an exception on a normal path.  Resolve before implementation.
-
-2. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
+1. **Control-lane headroom.**  Some transports must guarantee that a lifecycle
    record cannot be starved by a full payload queue.  With one queue this is
    reserved headroom rather than a second lane.  It remains downstream until
    the migrations establish a shared domain-independent requirement.
 
-3. **Two-phase reserve.**  Some producers reserve capacity before performing
+2. **Two-phase reserve.**  Some producers reserve capacity before performing
    work so its resulting control record always has somewhere to land.  This is
    deferred until multiple migrations establish a shared contract.
 
@@ -660,7 +683,10 @@ Behaviour
      under TSAN and ASan.
    * ``max_pending == 0`` reproduces today's unbounded behaviour, including the
      existing real-time execution tests unchanged.
-   * A stopped node's Python ``sender(value)`` raises rather than discarding.
+   * A stopped node's native and Python blocking send returns ``false`` rather
+     than exposing a sender-internal exception.
+   * Python blocking admission releases the GIL, and a ``@push_queue`` stop
+     hook can request task shutdown and join its thread using shared ``STATE``.
    * Burst rejects every output except ``TS[tuple[SCALAR, ...]]`` and rejects a
      sender value whose schema is not ``SCALAR``.
    * Burst uses the same bounded and unbounded enqueue path as ordinary queue
@@ -694,7 +720,29 @@ Compatibility
 Implementation status
 ---------------------
 
-Not started.  This RFC is ``Proposed`` and contains no implementation.
+Stages 1 and 2 are implemented on the RFC implementation branch.  The native
+sender exposes ``try_send`` and ``send_blocking`` through a shared lifecycle
+control, bounded FIFO admission releases capacity at dequeue, stop wakes and
+quiesces blocked producers, and burst reuses that admission queue while
+materialising all detached values into a homogeneous tuple.  Burst
+materialisation moves owning values into an adopted list buffer and uses its
+preselected binding; it performs no per-tick schema lookup or avoidable second
+payload copy.
+
+Python ``push_queue`` exposes ``burst`` and ``max_pending``, maps its sender to
+native boolean blocking admission with the GIL released, and provides a stop
+hook for task shutdown and thread joining through shared ``STATE``.  Native
+and Python tests cover capacity refusal/release, stop and retained-sender
+safety, concurrent producers, burst FIFO/batch boundaries, invalid schemas and
+option validation, Python blocking behaviour, and start/stop task lifecycle.
+The installed-SDK fixture exercises bounded queue and burst factories through
+public headers.
+
+Stage 3 remains the pair of separate downstream migration pull requests.  The
+downstream before/after latency and allocation measurements required for
+``Accepted`` status will be recorded when those duplicate queues are removed.
+Until the implementation and conformance tests merge, this RFC remains
+``Proposed`` as required by RFC 0000.
 
 References
 ----------

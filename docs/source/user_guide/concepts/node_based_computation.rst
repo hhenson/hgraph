@@ -112,7 +112,7 @@ is called during the start life-cycle. It takes at least one input, the sender, 
 ::
 
     @push_queue(TS[bool])
-    def my_message_sender(sender: Callable[[SCALAR], None]):
+    def my_message_sender(sender: Callable[[SCALAR], bool]):
         ...
 
 The ``push_queue`` takes the output type, as a parameter, then the function is
@@ -444,4 +444,3 @@ This is more intrusive and requires you to wire the component into your graph in
 be available.
 
 For more information see :doc:`../tools/inspector`.
-

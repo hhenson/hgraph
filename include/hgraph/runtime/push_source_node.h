@@ -3,8 +3,11 @@
 
 #include <hgraph/runtime/executor.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace hgraph
@@ -17,13 +20,15 @@ namespace hgraph
     {
         struct PushSourcePolicyOps;
         struct PushSourcePolicyAccess;
-        struct PushSourcePolicyStorageRef;
+        struct PushSourceSenderOps;
+        class PushSourceSenderControl;
     }
 
     enum class PushSourcePolicyKind : std::uint8_t
     {
         Queue,
         Conflating,
+        Burst,
     };
 
     class HGRAPH_EXPORT PushSourcePolicy
@@ -37,7 +42,7 @@ namespace hgraph
 
       private:
         friend struct detail::PushSourcePolicyAccess;
-        friend struct detail::PushSourcePolicyStorageRef;
+        friend class detail::PushSourceSenderControl;
 
         PushSourcePolicy(const detail::PushSourcePolicyOps *ops, const void *context) noexcept;
 
@@ -47,17 +52,6 @@ namespace hgraph
 
     namespace detail
     {
-        struct PushSourcePolicyStorageRef
-        {
-            PushSourcePolicy   policy{};
-            void              *storage{nullptr};
-            PushQueueEngineView push_engine{};
-            const TypeRealizationSnapshot *type_realization{nullptr};
-
-            [[nodiscard]] bool bound() const noexcept;
-            void send(Value value) const;
-        };
-
         struct PushSourcePolicyAccess
         {
             [[nodiscard]] static PushSourcePolicy make_policy(
@@ -66,10 +60,7 @@ namespace hgraph
             [[nodiscard]] static const MemoryUtils::StoragePlan &storage_plan(
                 const PushSourcePolicy &policy);
             [[nodiscard]] static PushSourceSender make_sender(
-                PushSourcePolicy policy,
-                void *storage,
-                PushQueueEngineView push_engine,
-                const TypeRealizationSnapshot *type_realization) noexcept;
+                std::shared_ptr<PushSourceSenderControl> control) noexcept;
             static void start(const PushSourcePolicy &policy,
                               void *storage,
                               const TSValueTypeMetaData &output_schema);
@@ -85,32 +76,54 @@ namespace hgraph
     /**
      * Sender handed to push-source user code during node start.
      *
-     * The sender is a lightweight handle onto the owning node's policy storage.
-     * Sending copies/moves an owned value into the policy and marks the root
-     * real-time executor when the policy accepts a ready update.
+     * The sender is a copyable handle onto a lifetime-safe control block for
+     * the owning node's policy storage. Admission marks the root real-time
+     * executor only after the policy accepts a ready update. Its policy and
+     * synchronization remain internal; default and moved-from handles bind a
+     * canonical stopped sentinel.
      */
     class HGRAPH_EXPORT PushSourceSender
     {
       public:
-        PushSourceSender() noexcept = default;
+        PushSourceSender() noexcept;
+        PushSourceSender(const PushSourceSender &) noexcept = default;
+        PushSourceSender &operator=(const PushSourceSender &) noexcept = default;
+        PushSourceSender(PushSourceSender &&other) noexcept;
+        PushSourceSender &operator=(PushSourceSender &&other) noexcept;
 
         [[nodiscard]] bool valid() const noexcept;
         [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
 
-        void send(Value value) const;
+        /** Attempt admission without waiting. Returns false at capacity or
+         * when the source is not accepting values. */
+        [[nodiscard]] bool try_send(Value value) const;
+
+        /** Wait for admission when a bounded queue is full. Returns false
+         * only when the source stops before admission. The result may be
+         * discarded when the producer has no stop-specific action. This must
+         * not wait on the graph evaluation thread. */
+        bool send_blocking(Value value) const;
 
         template <typename T>
-        void send(T &&value) const
+        [[nodiscard]] bool try_send(T &&value) const
         {
-            send(Value{std::forward<T>(value)});
+            return try_send(Value{std::forward<T>(value)});
+        }
+
+        template <typename T>
+        bool send_blocking(T &&value) const
+        {
+            return send_blocking(Value{std::forward<T>(value)});
         }
 
       private:
         friend struct detail::PushSourcePolicyAccess;
 
-        explicit PushSourceSender(detail::PushSourcePolicyStorageRef policy_storage) noexcept;
+        explicit PushSourceSender(
+            std::shared_ptr<detail::PushSourceSenderControl> control) noexcept;
 
-        detail::PushSourcePolicyStorageRef policy_storage_{};
+        const detail::PushSourceSenderOps                  *ops_;
+        std::shared_ptr<detail::PushSourceSenderControl> control_{};
     };
 
     using PushSourceStartCallback = std::function<void(PushSourceSender)>;
@@ -134,7 +147,7 @@ namespace hgraph
         const ValueTypeMetaData &sender_schema);
 
     [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_queue_policy(
-        const ValueTypeMetaData &sender_schema);
+        const ValueTypeMetaData &sender_schema, std::size_t max_pending = 0);
 
     [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_conflating_policy(
         const ValueTypeMetaData &sender_schema);
@@ -149,7 +162,12 @@ namespace hgraph
         const ValueTypeMetaData *authored_schema);
 
     [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_queue_policy(
-        const TSValueTypeMetaData &output_schema);
+        const TSValueTypeMetaData &output_schema, std::size_t max_pending = 0);
+
+    /** Queue individual scalar values and deliver all pending values as one
+     * homogeneous variadic tuple per graph evaluation. */
+    [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_burst_policy(
+        const TSValueTypeMetaData &output_schema, std::size_t max_pending = 0);
 
     [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_conflating_policy(
         const TSValueTypeMetaData &output_schema);

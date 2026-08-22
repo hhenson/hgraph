@@ -33,7 +33,7 @@ def test_shared_callable_signatures_match_python_authoring_surface():
     )
     assert _parameters(hg.push_queue) == (
         "tp", "overloads", "resolvers", "requires", "label", "deprecated",
-        "conflate",
+        "conflate", "burst", "max_pending",
     )
     assert _parameters(hg.feedback) == ("tp_or_wp", "default")
     assert tuple(inspect.signature(hg.dispatch_).parameters)[:2] == (

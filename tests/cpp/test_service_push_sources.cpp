@@ -401,7 +401,7 @@ TEST_CASE("service push sources: a reference service implementation owns a root 
     AsyncGraphExecutorRun runner{view};
     auto sender = ticks_sender.await();
     REQUIRE(sender.has_value());
-    sender->send(Int{42});
+    sender->send_blocking(Int{42});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{42}});
@@ -427,8 +427,8 @@ TEST_CASE("service push sources: two implementations contribute two push sources
     auto alt_ticks = alt_ticks_sender.await();
     REQUIRE(ticks.has_value());
     REQUIRE(alt_ticks.has_value());
-    ticks->send(Int{40});
-    alt_ticks->send(Int{2});
+    ticks->send_blocking(Int{40});
+    alt_ticks->send_blocking(Int{2});
     runner.join();
 
     REQUIRE(observed.size() == 1);
@@ -448,7 +448,7 @@ TEST_CASE("service push sources: a subscription service implementation owns a ro
     AsyncGraphExecutorRun runner{view};
     auto sender = quotes_sender.await();
     REQUIRE(sender.has_value());
-    sender->send(Int{99});
+    sender->send_blocking(Int{99});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{99}});
@@ -467,7 +467,7 @@ TEST_CASE("service push sources: a request/reply service implementation owns a r
     AsyncGraphExecutorRun runner{view};
     auto sender = replies_sender.await();
     REQUIRE(sender.has_value());
-    sender->send(Int{55});
+    sender->send_blocking(Int{55});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{55}});
@@ -486,7 +486,7 @@ TEST_CASE("service push sources: an adaptor implementation owns a root push sour
     AsyncGraphExecutorRun runner{view};
     auto sender = adaptor_sender.await();
     REQUIRE(sender.has_value());
-    sender->send(Int{13});
+    sender->send_blocking(Int{13});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{13}});

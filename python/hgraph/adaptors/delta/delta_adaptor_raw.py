@@ -144,6 +144,9 @@ def delta_read_adaptor_raw_impl(
 
     @send_query.stop
     def stop_send_query(request_id: TS[int], _state: STATE = None):
+        # A mapped child can stop after its push source during whole-graph
+        # teardown. The removal is then unobservable, so the sender's false
+        # result can be discarded here.
         sender_ref["sender"]({request_id.value: __import__("hgraph").REMOVE})
 
     map_(
