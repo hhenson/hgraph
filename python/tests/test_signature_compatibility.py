@@ -1,5 +1,6 @@
 import inspect
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
@@ -140,17 +141,24 @@ def test_realtime_run_defaults_start_time_to_now():
     def app() -> hg.TS[int]:
         return hg.const(1)
 
+    run_window = timedelta(milliseconds=50)
     before = hg.utc_now()
+    started = time.perf_counter()
     result = hg.run_graph(
         app,
         run_mode=hg.EvaluationMode.REAL_TIME,
-        end_time=timedelta(milliseconds=50),
+        end_time=run_window,
     )
+    elapsed = time.perf_counter() - started
     after = hg.utc_now()
 
     assert len(result) == 1
     assert result[0][1] == 1
     assert before <= result[0][0] <= after
+    # A real-time run occupies its requested wall-clock window even after its
+    # one-shot schedule empties. Leave margin for differing wall/steady clock
+    # granularity while still catching the former immediate return.
+    assert elapsed >= run_window.total_seconds() * 0.75
 
 
 def test_graph_configuration_applies_logger_formatter_to_python_and_native_nodes(caplog):

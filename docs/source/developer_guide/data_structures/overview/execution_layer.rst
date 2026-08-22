@@ -28,6 +28,44 @@ Current implementation
     receive ``evaluation_time`` explicitly, and "next scheduled time" is the
     minimum over the graph's per-node schedule entries.
 
+    **The real-time cycle.** Each iteration takes the minimum of
+    ``next_scheduled_time`` and ``end_time`` as its target. If the wall clock
+    has not reached that target the loop waits on the executor's condition
+    variable — the same one push-source producers notify through
+    ``mark_push_update_pending``, and that ``request_stop`` notifies. It
+    leaves the wait for one of three reasons: the target arrived, so the
+    cycle evaluates at the target (its *logical* time, which is what delivers
+    a late alarm rather than dropping it); a producer notified, so the cycle
+    evaluates at ``now()``, which the wait condition holds at or before the
+    target; or a stop was requested, and the run ends. A lagging graph whose
+    wall clock is already past the target does not wait at all.
+
+    Waits use the pending-push and stop flags as the condition-variable
+    predicate. A producer sets the pending flag under the wait mutex before
+    notifying, and stop follows the same state-before-notify rule. Spurious
+    wakes are therefore absorbed by the condition-variable wait rather than
+    returned to the run loop. Waits are issued in slices of at most
+    ``GraphExecutorBuilder::max_wait_slice`` (default 10 seconds, matching the
+    Python runtime) so an idle ``MAX_ET`` target cannot overflow the duration
+    conversion inside ``wait_for``. A slice timeout before the target only
+    refreshes the wall clock and re-enters the wait; it does not create an
+    evaluation cycle.
+
+    The next evaluation time follows the Python runtime's precedence exactly:
+    ``target = min(next_scheduled_time, end_time)``, followed by
+    ``evaluation_time = min(target, max(previous_evaluation_time + MIN_TD,
+    wall_now))``. Consequently, a producer notification before the target
+    evaluates at wall time (subject to the ``MIN_TD`` monotonic floor), a due
+    target evaluates at its exact logical time even if the wall clock has
+    passed it, and neither case can skip the earliest scheduled cycle.
+
+    **Nothing scheduled.** In *simulation* an empty schedule ends the run:
+    simulated time is driven entirely by the schedule, so nothing can become
+    due. In *real time* it does not — the wall clock still runs, and the loop
+    waits for ``end_time``, a producer, or ``request_stop``. This holds
+    whether or not the graph contains a push source; a real-time run occupies
+    its wall-clock window regardless of what the graph contains.
+
     **End-of-run enforcement.** ``end_time`` bounds the run in *evaluation*
     time — the loop exits once the next evaluation time reaches it. A
     real-time graph may lag the wall clock (cycles cost more wall time than
