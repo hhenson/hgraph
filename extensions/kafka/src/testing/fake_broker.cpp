@@ -1,10 +1,8 @@
 #include <hgraph/kafka/testing/fake_broker.h>
 
-#include "detail/service_bridge.h"
+#include "detail/service_transport.h"
 
-#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
-#include <hgraph/types/value/value_builder.h>
 
 #include <chrono>
 #include <compare>
@@ -32,29 +30,58 @@ struct FakeBrokerHandle {
 
 class FakeRuntime {
 public:
-  FakeRuntime(FakeBrokerPtr broker,
-              ::hgraph::kafka::detail::ServiceBridgeHandle bridge)
-      : broker_{std::move(broker)}, bridge_{std::move(bridge)} {
-    if (!broker_ || !bridge_.value) {
+  FakeRuntime(FakeBrokerPtr broker, PushSourceSender sender,
+              ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings)
+      : broker_{std::move(broker)}, sender_{std::move(sender)},
+        bindings_{std::move(bindings)} {
+    if (!broker_ || !sender_.valid() || !bindings_.value) {
       throw std::invalid_argument(
-          "Kafka fake service requires a broker and bridge");
+          "Kafka fake service requires a broker and transport sender");
     }
   }
+  ~FakeRuntime() { stop(); }
 
   void start();
   void stop() noexcept;
   void subscriptions(Value delta);
+  void remove_subscription(Value key);
   void publish(Int request_id, Str topic, Value record);
   void commit(Value cursor);
 
 private:
   FakeBrokerPtr broker_{};
-  ::hgraph::kafka::detail::ServiceBridgeHandle bridge_{};
+  PushSourceSender sender_{};
+  ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings_{};
   bool attached_{false};
 };
 
+class FakeRuntimeResource {
+public:
+  void install(std::shared_ptr<FakeRuntime> runtime) {
+    std::lock_guard lock{mutex_};
+    if (runtime_) {
+      throw std::logic_error("Kafka fake runtime was installed twice");
+    }
+    runtime_ = std::move(runtime);
+  }
+
+  [[nodiscard]] std::shared_ptr<FakeRuntime> get() const {
+    std::lock_guard lock{mutex_};
+    return runtime_;
+  }
+
+  [[nodiscard]] std::shared_ptr<FakeRuntime> take() noexcept {
+    std::lock_guard lock{mutex_};
+    return std::exchange(runtime_, {});
+  }
+
+private:
+  mutable std::mutex mutex_{};
+  std::shared_ptr<FakeRuntime> runtime_{};
+};
+
 struct FakeRuntimeHandle {
-  std::shared_ptr<FakeRuntime> value{};
+  std::shared_ptr<FakeRuntimeResource> value{};
 
   friend bool operator==(const FakeRuntimeHandle &,
                          const FakeRuntimeHandle &) noexcept = default;
@@ -107,22 +134,6 @@ template <> struct scalar_name<kafka::testing::detail::FakeRuntimeHandle> {
 
 namespace hgraph::kafka::testing {
 namespace {
-template <typename T> [[nodiscard]] Value atomic(T value) {
-  static_cast<void>(scalar_descriptor<T>::value_meta());
-  return Value{std::move(value)};
-}
-
-template <typename Schema>
-[[nodiscard]] Value
-bundle(std::vector<std::pair<std::string_view, Value>> fields) {
-  BundleBuilder builder{ValuePlanFactory::instance().type_for(
-      scalar_descriptor<Schema>::value_meta())};
-  for (auto &[name, field] : fields) {
-    builder.set(name, std::move(field));
-  }
-  return builder.build();
-}
-
 [[nodiscard]] Str optional_string_field(const Value &record,
                                         std::string_view name) {
   const auto field = record.view().as_bundle().at(name);
@@ -130,34 +141,33 @@ bundle(std::vector<std::pair<std::string_view, Value>> fields) {
 }
 
 [[nodiscard]] Value subscription_envelope(Value key, Value record, Value cursor,
-                                          KafkaSubscriptionState state) {
-  return bundle<::hgraph::kafka::detail::KafkaSubscriptionEnvelope>({
-      {"subscription_key", std::move(key)},
-      {"record", std::move(record)},
-      {"cursor", std::move(cursor)},
-      {"state", atomic(state)},
-  });
+                                          KafkaSubscriptionState state,
+                                          const ::hgraph::kafka::detail::
+                                              KafkaTransportBindings &bindings) {
+  return ::hgraph::kafka::detail::subscription_transport_event(
+      bindings, std::move(key), std::move(record), std::move(cursor), state);
 }
 
-[[nodiscard]] Value delivery_envelope(Int request_id, Value report) {
-  return bundle<::hgraph::kafka::detail::KafkaDeliveryEnvelope>({
-      {"request_id", atomic(request_id)},
-      {"report", std::move(report)},
-  });
+[[nodiscard]] Value delivery_envelope(
+    Int request_id, Value report,
+    const ::hgraph::kafka::detail::KafkaTransportBindings &bindings) {
+  return ::hgraph::kafka::detail::delivery_transport_event(
+      bindings, request_id, std::move(report));
 }
 
-[[nodiscard]] Value event_envelope(Value event) {
-  return bundle<::hgraph::kafka::detail::KafkaEventEnvelope>({
-      {"event", std::move(event)},
-      {"stop_graph", atomic(Bool{false})},
-  });
+[[nodiscard]] Value event_envelope(
+    Value event,
+    const ::hgraph::kafka::detail::KafkaTransportBindings &bindings) {
+  return ::hgraph::kafka::detail::service_transport_event(bindings,
+                                                          std::move(event));
 }
 } // namespace
 
 struct FakeBroker::Impl {
   mutable std::mutex mutex{};
   mutable std::condition_variable changed{};
-  std::shared_ptr<::hgraph::kafka::detail::ServiceBridge> bridge{};
+  PushSourceSender sender{};
+  ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings{};
   std::size_t attaches{};
   Int sequence{};
   std::vector<Value> subscription_updates{};
@@ -166,12 +176,13 @@ struct FakeBroker::Impl {
 };
 
 struct detail::FakeRuntimeAccess {
-  static void
-  attach(FakeBroker &broker,
-         std::shared_ptr<::hgraph::kafka::detail::ServiceBridge> bridge) {
+  static void attach(
+      FakeBroker &broker, PushSourceSender sender,
+      ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings) {
     {
       std::lock_guard lock{broker.impl_->mutex};
-      broker.impl_->bridge = std::move(bridge);
+      broker.impl_->sender = std::move(sender);
+      broker.impl_->bindings = std::move(bindings);
       ++broker.impl_->attaches;
     }
     broker.impl_->changed.notify_all();
@@ -180,7 +191,8 @@ struct detail::FakeRuntimeAccess {
   static void detach(FakeBroker &broker) noexcept {
     {
       std::lock_guard lock{broker.impl_->mutex};
-      broker.impl_->bridge.reset();
+      broker.impl_->sender = PushSourceSender{};
+      broker.impl_->bindings = {};
     }
     broker.impl_->changed.notify_all();
   }
@@ -195,28 +207,31 @@ struct detail::FakeRuntimeAccess {
 
   static void publish(FakeBroker &broker, Int request_id, Str topic,
                       Value record) {
-    std::shared_ptr<::hgraph::kafka::detail::ServiceBridge> bridge;
+    PushSourceSender sender;
+    ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings;
     Int sequence{};
     Str user_token = optional_string_field(record, "user_token");
     {
       std::lock_guard lock{broker.impl_->mutex};
-      if (!broker.impl_->bridge) {
+      if (!broker.impl_->sender.valid()) {
         throw std::logic_error(
             "Kafka fake broker is not attached to a running graph");
       }
       sequence = ++broker.impl_->sequence;
       broker.impl_->publications.push_back(
           FakePublishedRecord{request_id, topic, record.clone()});
-      bridge = broker.impl_->bridge;
+      sender = broker.impl_->sender;
+      bindings = broker.impl_->bindings;
     }
     broker.impl_->changed.notify_all();
 
     Value report =
         make_delivery_report(std::move(user_token), sequence, std::move(topic),
                              KafkaDeliveryStatus::Delivered, Int{0}, sequence);
-    if (!bridge->push(::hgraph::kafka::detail::OutputChannel::Delivery,
-                      delivery_envelope(request_id, std::move(report)), 1)) {
-      throw std::overflow_error("Kafka fake delivery queue is full");
+    if (!sender.send_blocking(
+            delivery_envelope(request_id, std::move(report),
+                              *bindings.value))) {
+      throw std::runtime_error("Kafka fake graph stopped before delivery");
     }
   }
 
@@ -234,13 +249,14 @@ FakeBroker::~FakeBroker() = default;
 
 bool FakeBroker::wait_until_attached(std::chrono::milliseconds timeout) const {
   std::unique_lock lock{impl_->mutex};
-  return impl_->changed.wait_for(
-      lock, timeout, [&] { return static_cast<bool>(impl_->bridge); });
+  return impl_->changed.wait_for(lock, timeout,
+                                 [&] { return impl_->sender.valid(); });
 }
 
 bool FakeBroker::wait_until_detached(std::chrono::milliseconds timeout) const {
   std::unique_lock lock{impl_->mutex};
-  return impl_->changed.wait_for(lock, timeout, [&] { return !impl_->bridge; });
+  return impl_->changed.wait_for(lock, timeout,
+                                 [&] { return !impl_->sender.valid(); });
 }
 
 bool FakeBroker::wait_for_subscription_updates(
@@ -295,21 +311,22 @@ void FakeBroker::emit_subscription(Value subscription_key, Value record,
         "Kafka fake subscription payload has the wrong schema");
   }
 
-  std::shared_ptr<::hgraph::kafka::detail::ServiceBridge> bridge;
+  PushSourceSender sender;
+  ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings;
   {
     std::lock_guard lock{impl_->mutex};
-    if (!impl_->bridge) {
+    if (!impl_->sender.valid()) {
       throw std::logic_error(
           "Kafka fake broker is not attached to a running graph");
     }
-    bridge = impl_->bridge;
+    sender = impl_->sender;
+    bindings = impl_->bindings;
   }
-  if (!bridge->push(::hgraph::kafka::detail::OutputChannel::Subscription,
-                    subscription_envelope(std::move(subscription_key),
-                                          std::move(record), std::move(cursor),
-                                          state),
-                    1)) {
-    throw std::overflow_error("Kafka fake subscription queue is full");
+  if (!sender.send_blocking(subscription_envelope(std::move(subscription_key),
+                                                  std::move(record),
+                                                  std::move(cursor), state,
+                                                  *bindings.value))) {
+    throw std::runtime_error("Kafka fake graph stopped before subscription");
   }
 }
 
@@ -317,24 +334,25 @@ void FakeBroker::emit_event(Value event) {
   if (event.schema() != scalar_descriptor<KafkaEvent>::value_meta()) {
     throw std::invalid_argument("Kafka fake event has the wrong schema");
   }
-  std::shared_ptr<::hgraph::kafka::detail::ServiceBridge> bridge;
+  PushSourceSender sender;
+  ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings;
   {
     std::lock_guard lock{impl_->mutex};
-    if (!impl_->bridge) {
+    if (!impl_->sender.valid()) {
       throw std::logic_error(
           "Kafka fake broker is not attached to a running graph");
     }
-    bridge = impl_->bridge;
+    sender = impl_->sender;
+    bindings = impl_->bindings;
   }
-  if (!bridge->push(::hgraph::kafka::detail::OutputChannel::Event,
-                    event_envelope(std::move(event)), 1)) {
-    throw std::overflow_error("Kafka fake event queue is full");
+  if (!sender.send_blocking(
+          event_envelope(std::move(event), *bindings.value))) {
+    throw std::runtime_error("Kafka fake graph stopped before event");
   }
 }
 
 void detail::FakeRuntime::start() {
-  bridge_.value->start();
-  FakeRuntimeAccess::attach(*broker_, bridge_.value);
+  FakeRuntimeAccess::attach(*broker_, sender_, bindings_);
   attached_ = true;
 }
 
@@ -342,13 +360,18 @@ void detail::FakeRuntime::stop() noexcept {
   if (!attached_) {
     return;
   }
-  bridge_.value->stop();
   FakeRuntimeAccess::detach(*broker_);
   attached_ = false;
 }
 
 void detail::FakeRuntime::subscriptions(Value delta) {
   FakeRuntimeAccess::subscriptions(*broker_, std::move(delta));
+}
+
+void detail::FakeRuntime::remove_subscription(Value key) {
+  static_cast<void>(sender_.send_blocking(
+      ::hgraph::kafka::detail::subscription_removed_transport_event(
+          *bindings_.value, std::move(key))));
 }
 
 void detail::FakeRuntime::publish(Int request_id, Str topic, Value record) {
@@ -361,88 +384,108 @@ void detail::FakeRuntime::commit(Value cursor) {
 }
 
 namespace {
-struct FakeRuntimeNode {
-  static constexpr auto name = "kafka_fake_runtime";
-  using signature_args = std::tuple<
-      In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>,
-      In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>,
-      In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>,
-      Scalar<"broker", detail::FakeBrokerHandle>,
-      Scalar<"bridge", ::hgraph::kafka::detail::ServiceBridgeHandle>,
-      State<detail::FakeRuntimeHandle>>;
-
-  static void
-  start(Scalar<"broker", detail::FakeBrokerHandle> broker,
-        Scalar<"bridge", ::hgraph::kafka::detail::ServiceBridgeHandle> bridge,
-        State<detail::FakeRuntimeHandle> state) {
-    auto runtime = std::make_shared<detail::FakeRuntime>(broker.value().value,
-                                                         bridge.value());
-    runtime->start();
-    try {
-      state.set(detail::FakeRuntimeHandle{runtime});
-    } catch (...) {
-      runtime->stop();
-      throw;
-    }
+[[nodiscard]] std::shared_ptr<detail::FakeRuntime>
+fake_runtime(Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+  auto value = runtime.value().value->get();
+  if (!value) {
+    throw std::logic_error("Kafka fake command evaluated before runtime start");
   }
+  return value;
+}
+
+struct FakeTransportTag {};
+
+[[nodiscard]] Port<TS<::hgraph::kafka::detail::KafkaTransportEvent>>
+wire_fake_transport(Wiring &w, detail::FakeBrokerHandle broker,
+                    detail::FakeRuntimeHandle runtime,
+                    ::hgraph::kafka::detail::KafkaTransportBindingsHandle
+                        bindings) {
+  return ::hgraph::kafka::detail::wire_transport_source<FakeTransportTag>(
+      w,
+      [broker = std::move(broker), runtime,
+       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+        auto task = std::make_shared<detail::FakeRuntime>(
+            broker.value, std::move(sender), bindings);
+        task->start();
+        runtime.value->install(task);
+      },
+      [runtime](const NodeView &) {
+        if (auto task = runtime.value->take()) {
+          task->stop();
+        }
+      });
+}
+
+/** Fake graph-to-broker subscription boundary. It mirrors the production sink
+ *  by forwarding only the TSS delta; cost is O(A + R) per modified tick. */
+struct FakeSubscriptionSink {
+  static constexpr auto name = "kafka_fake_subscription_commands";
 
   static void
   eval(In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>
            subscriptions,
-       In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>
+       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+    if (!subscriptions.modified()) {
+      return;
+    }
+    auto task = fake_runtime(runtime);
+    const auto &erased = static_cast<const TSSInputView &>(subscriptions);
+    for (const auto key : erased.removed()) {
+      task->remove_subscription(key.clone());
+    }
+    task->subscriptions(subscriptions.delta().clone());
+  }
+};
+
+/** Fake graph-to-broker publish boundary. It forwards valid modified records
+ *  and preserves the production sink's O(M) per-tick traversal. */
+struct FakePublishSink {
+  static constexpr auto name = "kafka_fake_publish_commands";
+
+  static void
+  eval(In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>
            publish_requests,
-       In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>
-           commits,
-       Scalar<"bridge", ::hgraph::kafka::detail::ServiceBridgeHandle> bridge,
-       State<detail::FakeRuntimeHandle> state) {
-    auto runtime = state.get().value;
-    if (!runtime) {
-      throw std::logic_error("Kafka fake runtime evaluated before start");
+       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+    if (!publish_requests.modified()) {
+      return;
     }
-
-    if (subscriptions.modified()) {
-      const auto &erased = static_cast<const TSSInputView &>(subscriptions);
-      for (const auto key : erased.removed()) {
-        if (!bridge.value().value->erase_subscription(key.clone())) {
-          throw std::overflow_error(
-              "Kafka fake subscription-removal queue is full");
-        }
+    auto task = fake_runtime(runtime);
+    for (const auto &[request_id_view, request] :
+         publish_requests.modified_items()) {
+      auto record = request.template field<"record">();
+      auto topic = request.template field<"topic">();
+      if (!record.modified() || !record.valid()) {
+        continue;
       }
-      runtime->subscriptions(subscriptions.delta().clone());
-    }
-
-    if (publish_requests.modified()) {
-      for (const auto &[request_id_view, request] :
-           publish_requests.modified_items()) {
-        auto record = request.template field<"record">();
-        auto topic = request.template field<"topic">();
-        if (!record.modified() || !record.valid()) {
-          continue;
-        }
-        if (!topic.valid()) {
-          throw std::invalid_argument(
-              "Kafka publish record requires a valid topic");
-        }
-        runtime->publish(request_id_view.checked_as<Int>(), topic.value(),
-                         record.base().value().clone());
+      if (!topic.valid()) {
+        throw std::invalid_argument(
+            "Kafka publish record requires a valid topic");
       }
-    }
-
-    if (commits.modified()) {
-      for (const auto &[request_id, cursor] : commits.modified_items()) {
-        static_cast<void>(request_id);
-        if (cursor.valid() && cursor.modified()) {
-          runtime->commit(cursor.base().value().clone());
-        }
-      }
+      task->publish(request_id_view.checked_as<Int>(), topic.value(),
+                    record.base().value().clone());
     }
   }
+};
 
-  static void stop(State<detail::FakeRuntimeHandle> state) {
-    if (auto runtime = state.get().value) {
-      runtime->stop();
+/** Fake graph-to-broker commit boundary. It forwards only modified valid
+ *  cursors and costs O(M) per modified tick. */
+struct FakeCommitSink {
+  static constexpr auto name = "kafka_fake_commit_commands";
+
+  static void
+  eval(In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>
+           commits,
+       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+    if (!commits.modified()) {
+      return;
     }
-    state.set(detail::FakeRuntimeHandle{});
+    auto task = fake_runtime(runtime);
+    for (const auto &[request_id, cursor] : commits.modified_items()) {
+      static_cast<void>(request_id);
+      if (cursor.valid() && cursor.modified()) {
+        task->commit(cursor.base().value().clone());
+      }
+    }
   }
 };
 
@@ -466,30 +509,19 @@ struct KafkaFakeServiceImpl {
         service::impl_input<KafkaPublishService>(w, binding);
     auto commit_requests = service::impl_input<KafkaCommitService>(w, binding);
 
-    const auto config_fields = config.value().view().as_bundle();
-    const auto consumer = config_fields.at("consumer_defaults").as_bundle();
-    const auto producer = config_fields.at("producer").as_bundle();
-    const auto ingress_records = static_cast<std::size_t>(
-        consumer.at("ingress_record_limit").checked_as<Int>());
-    const auto ingress_bytes = static_cast<std::size_t>(
-        consumer.at("ingress_byte_limit").checked_as<Int>());
-    const auto outbound_records = static_cast<std::size_t>(
-        producer.at("outbound_record_limit").checked_as<Int>());
-    const auto outbound_bytes = static_cast<std::size_t>(
-        producer.at("outbound_byte_limit").checked_as<Int>());
+    detail::FakeRuntimeHandle runtime{
+        std::make_shared<detail::FakeRuntimeResource>()};
+    const auto transport_bindings =
+        ::hgraph::kafka::detail::make_transport_bindings();
+    auto transport =
+        wire_fake_transport(w, broker.value(), runtime, transport_bindings);
+    auto outputs = ::hgraph::kafka::detail::wire_service_outputs(
+        w, transport, transport_bindings);
 
-    ::hgraph::kafka::detail::ServiceBridgeHandle bridge{
-        std::make_shared<::hgraph::kafka::detail::ServiceBridge>(
-            ::hgraph::kafka::detail::OutputLimits{ingress_records,
-                                                  ingress_bytes},
-            ::hgraph::kafka::detail::OutputLimits{outbound_records,
-                                                  outbound_bytes},
-            ::hgraph::kafka::detail::OutputLimits{1024, 1024 * 1024})};
-    auto outputs = ::hgraph::kafka::detail::wire_service_outputs(w, bridge);
-
-    static_cast<void>(wire<FakeRuntimeNode>(w, subscription_keys,
-                                            publish_requests, commit_requests,
-                                            broker.value(), bridge));
+    static_cast<void>(
+        wire<FakeSubscriptionSink>(w, subscription_keys, runtime));
+    static_cast<void>(wire<FakePublishSink>(w, publish_requests, runtime));
+    static_cast<void>(wire<FakeCommitSink>(w, commit_requests, runtime));
 
     service::impl_output<KafkaSubscriptionService>(w, binding,
                                                    outputs.subscriptions);

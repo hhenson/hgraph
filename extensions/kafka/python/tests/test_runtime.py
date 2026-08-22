@@ -77,7 +77,6 @@ def test_python_authoring_uses_native_record_time_simulation() -> None:
                 ),
                 consumer_defaults=kafka.KafkaConsumerDefaults(
                     ingress_record_limit=3,
-                    ingress_byte_limit=4096,
                 ),
             ),
             path="simulation",
@@ -336,7 +335,6 @@ def test_python_record_time_recovery_waits_for_independent_topics() -> None:
                 ),
                 consumer_defaults=kafka.KafkaConsumerDefaults(
                     ingress_record_limit=2,
-                    ingress_byte_limit=4096,
                 ),
             ),
             path="recovery-cohort",

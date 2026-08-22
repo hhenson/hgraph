@@ -537,8 +537,8 @@ introducing a second scalar collection representation.
 Removal plan, as separate linked pull requests after the core change lands:
 
 1. ``hgraph-kafka`` delegates record admission and storage to one core push
-   source, removes its duplicate queue, and uses a pull source for deterministic
-   replay.
+   source, removes its duplicate queue, and uses an ordinary scheduled node for
+   deterministic simulation replay.
 2. ``hgraph-web`` delegates record admission and storage to the same core
    contract and removes its duplicate queue.
 
@@ -653,8 +653,8 @@ Stage 2 — burst delivery
 
 Stage 3 — extension migration
    Kafka and web each move to one push source, remove their duplicate queues,
-   and Kafka moves replay to a pull source.  Separate linked pull requests per
-   RFC 0000.
+   and Kafka moves replay to an ordinary simulation-scheduled graph node.
+   Separate linked pull requests per RFC 0000.
 
 Acceptance criteria
 -------------------
@@ -738,9 +738,13 @@ option validation, Python blocking behaviour, and start/stop task lifecycle.
 The installed-SDK fixture exercises bounded queue and burst factories through
 public headers.
 
-Stage 3 remains the pair of separate downstream migration pull requests.  The
-downstream before/after latency and allocation measurements required for
-``Accepted`` status will be recorded when those duplicate queues are removed.
+The Kafka half of Stage 3 is implemented: one FIFO push source carries its
+ordered transport envelope, graph nodes project public service outputs, graph
+sinks issue commands and commits, byte-capacity configuration is removed, and
+simulation uses a scheduled replay node without a worker or push source.  The
+web migration and downstream before/after latency and allocation measurements
+remain outstanding before
+``Accepted`` status can be recorded.
 Until the implementation and conformance tests merge, this RFC remains
 ``Proposed`` as required by RFC 0000.
 

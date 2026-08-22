@@ -377,14 +377,14 @@ namespace hgraph::kafka
                                          Field<"client_id", Str>, Field<"options", HomogeneousTuple<KafkaOption>>>;
 
     using KafkaConsumerDefaults =
-        Bundle<"hgraph.kafka::KafkaConsumerDefaults", Field<"ingress_record_limit", Int>, Field<"ingress_byte_limit", Int>,
+        Bundle<"hgraph.kafka::KafkaConsumerDefaults", Field<"ingress_record_limit", Int>,
                Field<"inbound_overflow", KafkaOverflowAction>, Field<"failure_policy", KafkaFailurePolicy>,
                Field<"options", HomogeneousTuple<KafkaOption>>>;
 
     using KafkaProducerOptions =
         Bundle<"hgraph.kafka::KafkaProducerOptions", Field<"idempotent", Bool>, Field<"acknowledgements", Str>,
                Field<"retries", Int>, Field<"linger_ms", Int>, Field<"batch_record_limit", Int>,
-               Field<"outbound_record_limit", Int>, Field<"outbound_byte_limit", Int>, Field<"overflow", KafkaOverflowAction>,
+               Field<"outbound_record_limit", Int>, Field<"overflow", KafkaOverflowAction>,
                Field<"stage_overflow", KafkaOverflowAction>, Field<"shutdown_drain_timeout_ms", Int>,
                Field<"failure_policy", KafkaFailurePolicy>, Field<"options", HomogeneousTuple<KafkaOption>>>;
 

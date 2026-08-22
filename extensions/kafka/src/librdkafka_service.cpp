@@ -1,10 +1,9 @@
 #include <hgraph/kafka/service.h>
 #include <hgraph/kafka/value_builders.h>
 
-#include "detail/service_bridge.h"
+#include "detail/service_transport.h"
 
 #include <hgraph/runtime/node_scheduler.h>
-#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
@@ -31,7 +30,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -47,72 +45,29 @@
 
 namespace hgraph::kafka::detail {
 namespace {
-template <typename T> [[nodiscard]] Value atomic(T value) {
-  static_cast<void>(scalar_descriptor<T>::value_meta());
-  return Value{std::move(value)};
-}
-
-template <typename Schema>
 [[nodiscard]] Value
-bundle(std::vector<std::pair<std::string_view, Value>> fields) {
-  BundleBuilder builder{ValuePlanFactory::instance().type_for(
-      scalar_descriptor<Schema>::value_meta())};
-  for (auto &[name, field] : fields) {
-    if (field.has_value()) {
-      builder.set(name, std::move(field));
-    }
-  }
-  return builder.build();
-}
-
-[[nodiscard]] Value
-subscription_envelope(Value key, std::optional<Value> record,
+subscription_envelope(const KafkaTransportBindings &bindings, Value key,
+                      std::optional<Value> record,
                       std::optional<Value> cursor, KafkaSubscriptionState state,
-                      std::optional<DateTime> evaluation_time) {
-  std::vector<std::pair<std::string_view, Value>> fields;
-  fields.emplace_back("subscription_key", std::move(key));
-  if (record.has_value()) {
-    fields.emplace_back("record", std::move(*record));
-  }
-  if (cursor.has_value()) {
-    fields.emplace_back("cursor", std::move(*cursor));
-  }
-  fields.emplace_back("state", atomic(state));
-  if (evaluation_time.has_value()) {
-    fields.emplace_back("evaluation_time", atomic(*evaluation_time));
-  }
-  return bundle<KafkaSubscriptionEnvelope>(std::move(fields));
+                      std::optional<DateTime> evaluation_time,
+                      Bool recovery = false) {
+  return subscription_transport_event(bindings, std::move(key),
+                                      std::move(record), std::move(cursor), state,
+                                      evaluation_time, recovery);
 }
 
-[[nodiscard]] Value delivery_envelope(Int request_id, Value report) {
-  return bundle<KafkaDeliveryEnvelope>({
-      {"request_id", atomic(request_id)},
-      {"report", std::move(report)},
-  });
+[[nodiscard]] Value delivery_envelope(const KafkaTransportBindings &bindings,
+                                      Int request_id, Value report) {
+  return delivery_transport_event(bindings, request_id, std::move(report));
 }
 
-[[nodiscard]] Value event_envelope(Value event, Bool stop_graph) {
-  return bundle<KafkaEventEnvelope>({
-      {"event", std::move(event)},
-      {"stop_graph", atomic(stop_graph)},
-  });
+[[nodiscard]] Value event_envelope(const KafkaTransportBindings &bindings,
+                                   Value event, Bool stop_graph) {
+  return service_transport_event(bindings, std::move(event), stop_graph);
 }
 
 [[nodiscard]] bool present(const ValueView &value) noexcept {
   return value.data() != nullptr;
-}
-
-[[nodiscard]] std::size_t
-text_bytes(ValueView value, std::initializer_list<std::string_view> fields) {
-  std::size_t result{256};
-  const auto bundle_fields = value.as_bundle();
-  for (const auto field : fields) {
-    const auto item = bundle_fields.at(field);
-    if (present(item)) {
-      result += item.checked_as<Str>().size();
-    }
-  }
-  return result;
 }
 
 [[nodiscard]] std::vector<Str> strings(ValueView value) {
@@ -127,16 +82,6 @@ using Options = std::vector<std::pair<Str, Str>>;
 
 void validate_option_sets(const Options &common, const Options &specific,
                           bool consumer);
-
-[[nodiscard]] std::size_t kibibytes_for_limit(std::size_t bytes) noexcept;
-
-[[nodiscard]] OutputLimits
-subscription_control_limits(OutputLimits ingress) noexcept {
-  constexpr auto maximum = std::numeric_limits<std::size_t>::max();
-  const auto bytes =
-      ingress.records > maximum / 512 ? maximum : ingress.records * 512;
-  return OutputLimits{ingress.records, std::max<std::size_t>(bytes, 4096)};
-}
 
 [[nodiscard]] Options options(ValueView value) {
   Options result;
@@ -159,8 +104,8 @@ struct RuntimeConfig {
   std::int64_t retries{};
   std::int64_t linger_ms{};
   std::int64_t batch_record_limit{};
-  OutputLimits ingress{};
-  OutputLimits outbound{};
+  std::size_t ingress_records{};
+  std::size_t outbound_records{};
   KafkaOverflowAction inbound_overflow{KafkaOverflowAction::Fail};
   KafkaFailurePolicy consumer_failure_policy{KafkaFailurePolicy::Report};
   KafkaOverflowAction outbound_overflow{KafkaOverflowAction::Stage};
@@ -200,16 +145,10 @@ struct RuntimeConfig {
   result.linger_ms = producer.at("linger_ms").checked_as<Int>();
   result.batch_record_limit =
       producer.at("batch_record_limit").checked_as<Int>();
-  result.ingress = OutputLimits{
-      positive_limit(consumer.at("ingress_record_limit"),
-                     "ingress record limit"),
-      positive_limit(consumer.at("ingress_byte_limit"), "ingress byte limit"),
-  };
-  result.outbound = OutputLimits{
-      positive_limit(producer.at("outbound_record_limit"),
-                     "outbound record limit"),
-      positive_limit(producer.at("outbound_byte_limit"), "outbound byte limit"),
-  };
+  result.ingress_records = positive_limit(consumer.at("ingress_record_limit"),
+                                          "ingress record limit");
+  result.outbound_records = positive_limit(producer.at("outbound_record_limit"),
+                                           "outbound record limit");
   result.inbound_overflow =
       consumer.at("inbound_overflow").checked_as<KafkaOverflowAction>();
   result.consumer_failure_policy =
@@ -332,10 +271,6 @@ void validate_option_sets(const Options &common, const Options &specific,
   };
   validate(common);
   validate(specific);
-}
-
-[[nodiscard]] std::size_t kibibytes_for_limit(std::size_t bytes) noexcept {
-  return bytes / 1024 + static_cast<std::size_t>(bytes % 1024 != 0);
 }
 
 struct KafkaConfDeleter {
@@ -550,8 +485,6 @@ struct ProduceRecord {
   std::vector<Header> headers{};
   std::optional<std::int64_t> timestamp_ms{};
   std::int32_t partition{RD_KAFKA_PARTITION_UA};
-  std::size_t retained_bytes{};
-  std::size_t delivery_reservation_bytes{};
 };
 
 [[nodiscard]] ProduceRecord parse_produce_record(Int request_id, Int sequence,
@@ -563,26 +496,18 @@ struct ProduceRecord {
   result.sequence = sequence;
   result.topic = std::move(topic);
   result.user_token = fields.at("user_token").checked_as<Str>();
-  result.retained_bytes =
-      sizeof(ProduceRecord) + result.topic.size() + result.user_token.size();
-  result.delivery_reservation_bytes =
-      2048 + result.topic.size() + result.user_token.size();
   if (present(fields.at("value"))) {
     result.value = fields.at("value").checked_as<Bytes>().data;
-    result.retained_bytes += result.value->size();
   }
   if (present(fields.at("key"))) {
     result.key = fields.at("key").checked_as<Bytes>().data;
-    result.retained_bytes += result.key->size();
   }
   for (const auto header : fields.at("headers").as_list()) {
     const auto header_fields = header.as_bundle();
     ProduceRecord::Header item;
     item.name = header_fields.at("name").checked_as<Str>();
-    result.retained_bytes += sizeof(ProduceRecord::Header) + item.name.size();
     if (present(header_fields.at("value"))) {
       item.value = header_fields.at("value").checked_as<Bytes>().data;
-      result.retained_bytes += item.value->size();
     }
     result.headers.push_back(std::move(item));
   }
@@ -665,7 +590,6 @@ private:
     Str topic{};
     std::int32_t partition{};
     std::int64_t offset{};
-    std::size_t retained_bytes{};
   };
 
   static void rebalance_callback(rd_kafka_t *consumer,
@@ -684,7 +608,6 @@ private:
   void consume(rd_kafka_message_t *message);
   void process_commits(rd_kafka_t *consumer);
   void check_positions(rd_kafka_t *consumer);
-  void update_flow_control(rd_kafka_t *consumer);
   void prepare_recovery_flush(rd_kafka_t *consumer,
                               bool bounded_after_recovery);
   void flush_recovery_records(rd_kafka_t *consumer);
@@ -705,6 +628,7 @@ private:
   void emit_state(KafkaSubscriptionState state,
                   std::optional<DateTime> evaluation_time = std::nullopt);
   void complete_preload(Str error = {});
+  [[nodiscard]] bool preload_is_complete() const;
   void abandon_record_time_recovery() noexcept;
 
   KafkaRuntime &owner_;
@@ -725,19 +649,17 @@ private:
   std::vector<PositionBoundary> assignment_starts_{};
   std::vector<std::pair<Str, std::int32_t>> assigned_{};
   std::vector<PositionBoundary> committed_{};
-  bool paused_{};
   bool bounded_complete_{};
   bool failed_{};
   bool recovery_ready_{};
   bool recovery_paused_{};
   bool bounded_after_recovery_{};
   std::deque<BufferedRecord> recovery_records_{};
-  std::size_t recovery_bytes_{};
   std::optional<DateTime> last_recovery_evaluation_time_{};
   bool record_time_recovery_participant_{};
   bool record_time_recovery_arrived_{};
   bool record_time_recovery_finished_{};
-  std::mutex preload_mutex_{};
+  mutable std::mutex preload_mutex_{};
   std::condition_variable preload_changed_{};
   bool preload_complete_{};
   Str preload_error_{};
@@ -745,36 +667,26 @@ private:
 
 class KafkaRuntime : public std::enable_shared_from_this<KafkaRuntime> {
 public:
-  KafkaRuntime(RuntimeConfig config, Str path, ServiceBridgeHandle bridge,
+  using Output = std::function<bool(Value)>;
+
+  KafkaRuntime(RuntimeConfig config, Str path,
+               KafkaTransportBindings bindings, Output output,
                DateTime graph_start_time, bool simulation)
       : config_{std::move(config)}, path_{std::move(path)},
-        bridge_{std::move(bridge)},
+        bindings_{std::move(bindings)},
+        output_{std::move(output)},
         graph_start_ms_{std::chrono::duration_cast<std::chrono::milliseconds>(
                             graph_start_time.time_since_epoch())
                             .count()},
         simulation_{simulation} {
-    if (!bridge_.value) {
-      throw std::invalid_argument("Kafka runtime requires an output bridge");
+    if (!output_) {
+      throw std::invalid_argument("Kafka runtime requires an output target");
     }
   }
 
   ~KafkaRuntime() { stop(); }
 
-  void start() {
-    bridge_.value->start(!simulation_);
-    try {
-      accepting_ = true;
-      std::weak_ptr<KafkaRuntime> weak = shared_from_this();
-      bridge_.value->on_subscription_delivered([weak](Value cursor) {
-        if (auto runtime = weak.lock()) {
-          runtime->graph_delivered(std::move(cursor));
-        }
-      });
-    } catch (...) {
-      bridge_.value->stop();
-      throw;
-    }
-  }
+  void start() { accepting_ = true; }
 
   void stop() noexcept {
     if (!accepting_.exchange(false) && !producer_) {
@@ -797,7 +709,6 @@ public:
       rd_kafka_destroy(producer_);
       producer_ = nullptr;
     }
-    bridge_.value->stop();
   }
 
   void add_subscriptions(std::vector<Value> keys) {
@@ -841,14 +752,16 @@ public:
           *this, std::move(key), std::move(spec)));
     }
 
-    const auto record_time_participants = static_cast<std::size_t>(
-        std::ranges::count_if(additions, [](const auto &session) {
-          return session->uses_record_time_recovery();
-        }));
+    const auto record_time_participants =
+        simulation_ ? std::size_t{0}
+                    : static_cast<std::size_t>(std::ranges::count_if(
+                          additions, [](const auto &session) {
+                            return session->uses_record_time_recovery();
+                          }));
     sessions_.reserve(sessions_.size() + additions.size());
     begin_record_time_recovery(record_time_participants);
     for (auto &session : additions) {
-      if (session->uses_record_time_recovery()) {
+      if (!simulation_ && session->uses_record_time_recovery()) {
         session->coordinate_record_time_recovery();
       }
     }
@@ -883,9 +796,8 @@ public:
     }
     (*found)->stop();
     sessions_.erase(found);
-    if (!bridge_.value->erase_subscription(key.clone())) {
-      throw std::overflow_error("Kafka subscription-removal queue is full");
-    }
+    static_cast<void>(
+        output_(subscription_removed_transport_event(bindings_, key.clone())));
   }
 
   void publish(Int request_id, Str topic, Value record) {
@@ -897,37 +809,11 @@ public:
     const Int sequence = ++sequence_;
     ProduceRecord parsed =
         parse_produce_record(request_id, sequence, std::move(topic), record);
-    if (!bridge_.value->reserve(OutputChannel::Delivery,
-                                parsed.delivery_reservation_bytes)) {
-      const bool reported = emit_delivery(
-          request_id,
-          make_delivery_report(parsed.user_token, sequence, parsed.topic,
-                               KafkaDeliveryStatus::EnqueueRejected,
-                               parsed.partition, std::nullopt,
-                               RD_KAFKA_RESP_ERR__QUEUE_FULL, true, false,
-                               Str{"delivery result queue is full"}));
-      if (!reported) {
-        throw std::overflow_error(
-            "Kafka delivery result and rejection queues are full");
-      }
-      emit_event(
-          KafkaSeverity::Error, Str{"producer"}, Str{"delivery_queue_overflow"},
-          RD_KAFKA_RESP_ERR__QUEUE_FULL, true, false,
-          Str{"publish was rejected before enqueue because delivery result "
-              "capacity is exhausted"},
-          {}, parsed.user_token,
-          config_.producer_failure_policy == KafkaFailurePolicy::StopGraph);
-      return;
-    }
     {
       std::lock_guard lock{producer_mutex_};
       const bool records_full =
-          producer_queue_.size() >= config_.outbound.records;
-      const bool bytes_full =
-          parsed.retained_bytes >
-          config_.outbound.bytes -
-              std::min(producer_bytes_, config_.outbound.bytes);
-      if (!accepting_ || records_full || bytes_full) {
+          producer_queue_.size() >= config_.outbound_records;
+      if (!accepting_ || records_full) {
         const KafkaOverflowAction action =
             config_.outbound_overflow == KafkaOverflowAction::Stage
                 ? config_.stage_overflow
@@ -942,8 +828,7 @@ public:
                                          : KafkaDeliveryStatus::EnqueueRejected,
                                  parsed.partition, std::nullopt,
                                  RD_KAFKA_RESP_ERR__QUEUE_FULL, true, false,
-                                 Str{"outbound queue is full"}),
-            parsed.delivery_reservation_bytes);
+                                 Str{"outbound queue is full"}));
         emit_event(dropped ? KafkaSeverity::Warning : KafkaSeverity::Error,
                    Str{"producer"}, Str{"queue_overflow"},
                    RD_KAFKA_RESP_ERR__QUEUE_FULL, true, false,
@@ -953,18 +838,7 @@ public:
                    {}, parsed.user_token, stop_graph);
         return;
       }
-      const std::size_t retained_bytes = parsed.retained_bytes;
-      const std::size_t delivery_reservation_bytes =
-          parsed.delivery_reservation_bytes;
-      producer_bytes_ += retained_bytes;
-      try {
-        producer_queue_.push_back(std::move(parsed));
-      } catch (...) {
-        producer_bytes_ -= retained_bytes;
-        bridge_.value->release_reservation(OutputChannel::Delivery,
-                                           delivery_reservation_bytes);
-        throw;
-      }
+      producer_queue_.push_back(std::move(parsed));
     }
     producer_changed_.notify_one();
   }
@@ -987,65 +861,24 @@ public:
   [[nodiscard]] std::int64_t graph_start_ms() const noexcept {
     return graph_start_ms_;
   }
-
-  [[nodiscard]] bool ingress_at_high_watermark() const {
-    if (simulation_) {
-      return false;
-    }
-    const auto pending =
-        bridge_.value->payload_pending(OutputChannel::Subscription);
-    const auto bytes =
-        bridge_.value->payload_retained_bytes(OutputChannel::Subscription);
-    const auto high_records =
-        std::max<std::size_t>(1, config_.ingress.records * 4 / 5);
-    const auto high_bytes =
-        std::max<std::size_t>(1, config_.ingress.bytes * 4 / 5);
-    return pending >= high_records || bytes >= high_bytes;
-  }
-
-  [[nodiscard]] bool ingress_below_low_watermark() const {
-    if (simulation_) {
-      return true;
-    }
-    return bridge_.value->payload_pending(OutputChannel::Subscription) <=
-               config_.ingress.records / 2 &&
-           bridge_.value->payload_retained_bytes(OutputChannel::Subscription) <=
-               config_.ingress.bytes / 2;
-  }
-
-  [[nodiscard]] bool ingress_can_accept(std::size_t retained_bytes) const {
-    return bridge_.value->can_accept(OutputChannel::Subscription,
-                                     retained_bytes);
-  }
-
-  [[nodiscard]] bool
-  recovery_ingress_can_accept(std::size_t retained_bytes) const {
-    return bridge_.value->can_accept_recovery(OutputChannel::Subscription,
-                                              retained_bytes);
-  }
+  [[nodiscard]] bool simulation() const noexcept { return simulation_; }
 
   bool
   emit_subscription(Value key, std::optional<Value> record,
                     std::optional<Value> cursor, KafkaSubscriptionState state,
-                    std::size_t retained_bytes,
                     std::optional<DateTime> evaluation_time = std::nullopt) {
-    return bridge_.value->push(
-        OutputChannel::Subscription,
-        subscription_envelope(std::move(key), std::move(record),
-                              std::move(cursor), state, evaluation_time),
-        retained_bytes);
+    return output_(subscription_envelope(
+        bindings_, std::move(key), std::move(record), std::move(cursor), state,
+        evaluation_time));
   }
 
   bool emit_recovery_subscription(Value key, std::optional<Value> record,
                                   std::optional<Value> cursor,
                                   KafkaSubscriptionState state,
-                                  std::size_t retained_bytes,
                                   std::optional<DateTime> evaluation_time) {
-    return bridge_.value->push_recovery(
-        OutputChannel::Subscription,
-        subscription_envelope(std::move(key), std::move(record),
-                              std::move(cursor), state, evaluation_time),
-        retained_bytes);
+    return output_(subscription_envelope(
+        bindings_, std::move(key), std::move(record), std::move(cursor), state,
+        evaluation_time, !simulation_));
   }
 
   void begin_record_time_recovery(std::size_t participants) {
@@ -1054,12 +887,14 @@ public:
     }
     std::lock_guard lock{recovery_mutex_};
     if (participants > std::numeric_limits<std::size_t>::max() -
-                           record_time_recoveries_pending_) {
+                           record_time_recoveries_pending_ ||
+        participants > std::numeric_limits<std::size_t>::max() -
+                           record_time_recovery_flushes_pending_) {
       throw std::overflow_error(
           "Kafka record-time recovery participant count overflowed");
     }
-    bridge_.value->begin_record_time_recovery(participants);
     record_time_recoveries_pending_ += participants;
+    record_time_recovery_flushes_pending_ += participants;
   }
 
   void record_time_recovery_ready(std::optional<DateTime> tail) {
@@ -1072,26 +907,39 @@ public:
                              *tail > *record_time_recovery_tail_)) {
       record_time_recovery_tail_ = *tail;
     }
-    bridge_.value->complete_record_time_recovery();
     --record_time_recoveries_pending_;
   }
 
   void finish_record_time_recovery() {
-    std::lock_guard lock{recovery_mutex_};
-    bridge_.value->finish_record_time_recovery();
+    bool release{};
+    {
+      std::lock_guard lock{recovery_mutex_};
+      if (record_time_recovery_flushes_pending_ == 0) {
+        throw std::logic_error(
+            "Kafka record-time recovery flush completed twice");
+      }
+      release = --record_time_recovery_flushes_pending_ == 0;
+    }
+    if (release) {
+      static_cast<void>(output_(recovery_barrier_transport_event(bindings_)));
+    }
   }
 
   void cancel_record_time_recovery(bool already_ready) noexcept {
     try {
-      std::lock_guard lock{recovery_mutex_};
-      if (!already_ready) {
-        if (record_time_recoveries_pending_ == 0) {
-          return;
+      bool release{};
+      {
+        std::lock_guard lock{recovery_mutex_};
+        if (!already_ready && record_time_recoveries_pending_ != 0) {
+          --record_time_recoveries_pending_;
         }
-        bridge_.value->complete_record_time_recovery();
-        --record_time_recoveries_pending_;
+        if (record_time_recovery_flushes_pending_ != 0) {
+          release = --record_time_recovery_flushes_pending_ == 0;
+        }
       }
-      bridge_.value->finish_record_time_recovery();
+      if (release) {
+        static_cast<void>(output_(recovery_barrier_transport_event(bindings_)));
+      }
     } catch (...) {
     }
   }
@@ -1106,39 +954,18 @@ public:
       Value key, KafkaSubscriptionState state,
       std::optional<DateTime> evaluation_time = std::nullopt) noexcept {
     try {
-      if (!bridge_.value->push_control(
-              OutputChannel::Subscription,
-              subscription_envelope(std::move(key), std::nullopt, std::nullopt,
-                                    state, evaluation_time),
-              512)) {
-        emit_event(
-            KafkaSeverity::Fatal, Str{"consumer"},
-            Str{"control_queue_overflow"}, RD_KAFKA_RESP_ERR__QUEUE_FULL, false,
-            true, Str{"bounded Kafka subscription state queue is full"}, {}, {},
-            config_.consumer_failure_policy == KafkaFailurePolicy::StopGraph);
-      }
+      static_cast<void>(output_(subscription_envelope(
+          bindings_, std::move(key), std::nullopt, std::nullopt, state,
+          evaluation_time)));
     } catch (...) {
     }
   }
 
-  bool emit_delivery(
-      Int request_id, Value report,
-      std::optional<std::size_t> reservation = std::nullopt) noexcept {
+  bool emit_delivery(Int request_id, Value report) noexcept {
     try {
-      const std::size_t retained =
-          text_bytes(report.view(), {"user_token", "topic", "message"});
-      Value envelope = delivery_envelope(request_id, std::move(report));
-      return reservation.has_value()
-                 ? bridge_.value->push_reserved(OutputChannel::Delivery,
-                                                std::move(envelope), retained,
-                                                *reservation)
-                 : bridge_.value->push_control(OutputChannel::Delivery,
-                                               std::move(envelope), retained);
+      return output_(delivery_envelope(bindings_, request_id,
+                                       std::move(report)));
     } catch (...) {
-      if (reservation.has_value()) {
-        bridge_.value->release_reservation(OutputChannel::Delivery,
-                                           *reservation);
-      }
       return false;
     }
   }
@@ -1152,17 +979,8 @@ public:
           severity, std::move(component), std::move(category), path_,
           std::move(message), error_code, retriable, fatal,
           std::move(subscription_identity), std::move(publisher_identity));
-      const std::size_t retained =
-          text_bytes(event.view(), {"component", "category", "service_path",
-                                    "subscription_identity",
-                                    "publisher_identity", "message"});
-      Value envelope = event_envelope(std::move(event), stop_graph);
-      const bool pushed =
-          bridge_.value->push(OutputChannel::Event, envelope.clone(), retained);
-      if (!pushed && stop_graph) {
-        static_cast<void>(bridge_.value->push_control(
-            OutputChannel::Event, std::move(envelope), retained));
-      }
+      static_cast<void>(
+          output_(event_envelope(bindings_, std::move(event), stop_graph)));
     } catch (...) {
     }
   }
@@ -1174,7 +992,6 @@ private:
     Int sequence{};
     Str topic{};
     Str user_token{};
-    std::size_t delivery_reservation_bytes{};
   };
 
   static void delivery_callback(rd_kafka_t *producer,
@@ -1213,8 +1030,7 @@ private:
               delivered && message->offset >= 0
                   ? std::optional<Int>{static_cast<Int>(message->offset)}
                   : std::nullopt,
-              static_cast<Int>(message->err), retriable, fatal, error_message),
-          opaque->delivery_reservation_bytes);
+              static_cast<Int>(message->err), retriable, fatal, error_message));
       if (!delivered) {
         opaque->runtime->emit_event(
             fatal ? KafkaSeverity::Fatal : KafkaSeverity::Error,
@@ -1260,9 +1076,7 @@ private:
     set_conf(conf.get(), "batch.num.messages",
              std::to_string(config_.batch_record_limit));
     set_conf(conf.get(), "queue.buffering.max.messages",
-             std::to_string(config_.outbound.records));
-    set_conf(conf.get(), "queue.buffering.max.kbytes",
-             std::to_string(kibibytes_for_limit(config_.outbound.bytes)));
+             std::to_string(config_.outbound_records));
     apply_options(conf.get(), config_.common_options, false);
     apply_options(conf.get(), config_.producer_options, false);
     rd_kafka_conf_set_opaque(conf.get(), this);
@@ -1304,7 +1118,6 @@ private:
         if (!producer_queue_.empty()) {
           record.emplace(std::move(producer_queue_.front()));
           producer_queue_.pop_front();
-          producer_bytes_ -= record->retained_bytes;
         } else if (producer_stopping_) {
           break;
         }
@@ -1313,13 +1126,7 @@ private:
         if (record.has_value() && !produce(*record)) {
           {
             std::lock_guard lock{producer_mutex_};
-            producer_bytes_ += record->retained_bytes;
-            try {
-              producer_queue_.push_front(std::move(*record));
-            } catch (...) {
-              producer_bytes_ -= record->retained_bytes;
-              throw;
-            }
+            producer_queue_.push_front(std::move(*record));
           }
           rd_kafka_poll(producer_, 10);
         } else {
@@ -1332,8 +1139,7 @@ private:
               make_delivery_report(
                   record->user_token, record->sequence, record->topic,
                   KafkaDeliveryStatus::PermanentFailure, record->partition,
-                  std::nullopt, 0, false, true, exception.what()),
-              record->delivery_reservation_bytes));
+                  std::nullopt, 0, false, true, exception.what())));
         }
         emit_event(KafkaSeverity::Fatal, Str{"producer"}, Str{"worker"}, 0,
                    false, true, exception.what(), {},
@@ -1359,7 +1165,7 @@ private:
   [[nodiscard]] bool produce(ProduceRecord &record) {
     auto opaque = std::make_unique<DeliveryOpaque>(
         DeliveryOpaque{this, record.request_id, record.sequence, record.topic,
-                       record.user_token, record.delivery_reservation_bytes});
+                       record.user_token});
     rd_kafka_headers_t *headers = rd_kafka_headers_new(record.headers.size());
     if (!headers) {
       throw std::bad_alloc{};
@@ -1379,8 +1185,7 @@ private:
                           record.user_token, record.sequence, record.topic,
                           KafkaDeliveryStatus::EnqueueRejected,
                           record.partition, std::nullopt, error, false, false,
-                          Str{rd_kafka_err2str(error)}),
-                      record.delivery_reservation_bytes);
+                          Str{rd_kafka_err2str(error)}));
         emit_event(
             KafkaSeverity::Error, Str{"producer"}, Str{"header"}, error, false,
             false, Str{rd_kafka_err2str(error)}, {}, record.user_token,
@@ -1455,8 +1260,7 @@ private:
                              dropped ? KafkaDeliveryStatus::Dropped
                                      : KafkaDeliveryStatus::EnqueueRejected,
                              record.partition, std::nullopt, error, retriable,
-                             fatal, std::move(error_message)),
-        record.delivery_reservation_bytes);
+                             fatal, std::move(error_message)));
     emit_event(fatal     ? KafkaSeverity::Fatal
                : dropped ? KafkaSeverity::Warning
                          : KafkaSeverity::Error,
@@ -1493,20 +1297,21 @@ private:
 
   RuntimeConfig config_{};
   Str path_{};
-  ServiceBridgeHandle bridge_{};
+  KafkaTransportBindings bindings_{};
+  Output output_{};
   std::int64_t graph_start_ms_{};
   bool simulation_{};
   std::atomic<bool> accepting_{};
   std::vector<std::unique_ptr<ConsumerSession>> sessions_{};
   mutable std::mutex recovery_mutex_{};
   std::size_t record_time_recoveries_pending_{};
+  std::size_t record_time_recovery_flushes_pending_{};
   std::optional<DateTime> record_time_recovery_tail_{};
   rd_kafka_t *producer_{};
   std::thread producer_thread_{};
   std::mutex producer_mutex_{};
   std::condition_variable producer_changed_{};
   std::deque<ProduceRecord> producer_queue_{};
-  std::size_t producer_bytes_{};
   std::atomic<bool> producer_stopping_{};
   std::atomic<Int> sequence_{};
   std::atomic<Int> assignment_generation_{};
@@ -1520,7 +1325,11 @@ ConsumerSession::~ConsumerSession() { stop(); }
 
 void ConsumerSession::start() {
   emit_state(KafkaSubscriptionState::Starting);
-  thread_ = std::thread{[this] { run(); }};
+  if (owner_.simulation()) {
+    run();
+  } else {
+    thread_ = std::thread{[this] { run(); }};
+  }
 }
 
 void ConsumerSession::wait_until_preloaded() {
@@ -1548,6 +1357,11 @@ void ConsumerSession::complete_preload(Str error) {
     preload_complete_ = true;
   }
   preload_changed_.notify_all();
+}
+
+bool ConsumerSession::preload_is_complete() const {
+  std::lock_guard lock{preload_mutex_};
+  return preload_complete_;
 }
 
 void ConsumerSession::stop() noexcept {
@@ -1638,8 +1452,6 @@ void ConsumerSession::run() noexcept {
     set_conf(conf.get(), "enable.auto.commit", "false");
     set_conf(conf.get(), "enable.auto.offset.store", "false");
     set_conf(conf.get(), "isolation.level", spec_.isolation);
-    set_conf(conf.get(), "queued.max.messages.kbytes",
-             std::to_string(kibibytes_for_limit(config.ingress.bytes)));
     switch (spec_.start_fallback) {
     case KafkaOffsetFallback::Earliest:
       set_conf(conf.get(), "auto.offset.reset", "earliest");
@@ -1743,7 +1555,6 @@ void ConsumerSession::run() noexcept {
     while (!stopping_) {
       poll_manual_reconnect(consumer);
       process_commits(consumer);
-      update_flow_control(consumer);
       check_positions(consumer);
       if (stopping_) {
         break;
@@ -1761,8 +1572,7 @@ void ConsumerSession::run() noexcept {
               static_cast<void>(rd_kafka_seek(pending->rkt, pending->partition,
                                               pending->offset, 0));
             } else if (pending->err != RD_KAFKA_RESP_ERR__PARTITION_EOF) {
-              handle_poll_error(pending->err,
-                                rd_kafka_message_errstr(pending));
+              handle_poll_error(pending->err, rd_kafka_message_errstr(pending));
             }
             rd_kafka_message_destroy(pending);
           }
@@ -1779,6 +1589,9 @@ void ConsumerSession::run() noexcept {
         rd_kafka_message_destroy(message);
       }
       check_positions(consumer);
+      if (owner_.simulation() && preload_is_complete()) {
+        break;
+      }
     }
     process_commits(consumer);
     static_cast<void>(rd_kafka_consumer_close(consumer));
@@ -1892,7 +1705,6 @@ void ConsumerSession::configure_assignment(
     assignment_starts_.clear();
     assigned_.clear();
     recovery_records_.clear();
-    recovery_bytes_ = 0;
     recovery_ready_ = false;
     recovery_paused_ = false;
     bounded_after_recovery_ = false;
@@ -1954,11 +1766,6 @@ void ConsumerSession::configure_assignment(
         complete_preload();
       }
     }
-    if (paused_) {
-      auto *assigned = rd_kafka_topic_partition_list_copy(partitions);
-      static_cast<void>(rd_kafka_pause_partitions(consumer, assigned));
-      rd_kafka_topic_partition_list_destroy(assigned);
-    }
   } else if (error == RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS) {
     // Cursors already accepted from the graph are the only positions
     // this session is allowed to advance. Flush those before changing
@@ -1972,7 +1779,6 @@ void ConsumerSession::configure_assignment(
     assignment_starts_.clear();
     assigned_.clear();
     recovery_records_.clear();
-    recovery_bytes_ = 0;
     recovery_ready_ = false;
     recovery_paused_ = false;
     bounded_after_recovery_ = false;
@@ -2023,8 +1829,8 @@ void ConsumerSession::resolve_start_positions(
     // coordinator is ready.  Committed-offset discovery is a startup/recovery
     // operation, so retry coordinator transitions within the existing
     // five-second resolution budget instead of terminating the subscription.
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds{5'000};
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds{5'000};
     rd_kafka_resp_err_t error{};
     do {
       error = rd_kafka_committed(consumer, partitions, 500);
@@ -2275,7 +2081,6 @@ void ConsumerSession::consume(rd_kafka_message_t *message) {
   }
 
   std::vector<KafkaHeaderInput> headers;
-  std::size_t header_bytes{};
   rd_kafka_headers_t *raw_headers{};
   if (rd_kafka_message_headers(message, &raw_headers) ==
       RD_KAFKA_RESP_ERR_NO_ERROR) {
@@ -2292,9 +2097,6 @@ void ConsumerSession::consume(rd_kafka_message_t *message) {
                                ? std::optional<Bytes>{Bytes{std::string{
                                      static_cast<const char *>(value), size}}}
                                : std::nullopt);
-      header_bytes += sizeof(KafkaHeaderInput) +
-                      std::char_traits<char>::length(name) +
-                      (value != nullptr ? size : 0);
     }
   }
 
@@ -2314,8 +2116,6 @@ void ConsumerSession::consume(rd_kafka_message_t *message) {
                   timestamp, timestamp_type(raw_timestamp_type));
   Value cursor = make_cursor(spec_.identity, assignment_generation_, topic,
                              message->partition, message->offset + 1);
-  const std::size_t retained =
-      message->len + message->key_len + topic.size() + header_bytes + 512;
   if (recovering_ && buffers_recovery()) {
     buffer_recovery_record(BufferedRecord{
         .record = std::move(record),
@@ -2324,30 +2124,17 @@ void ConsumerSession::consume(rd_kafka_message_t *message) {
         .topic = topic,
         .partition = message->partition,
         .offset = message->offset,
-        .retained_bytes = retained,
     });
     return;
   }
   if (!owner_.emit_subscription(key_.clone(), std::move(record),
                                 std::move(cursor),
                                 recovering_ ? KafkaSubscriptionState::Recovering
-                                            : KafkaSubscriptionState::Live,
-                                retained)) {
-    const bool dropped =
-        owner_.config().inbound_overflow == KafkaOverflowAction::Drop;
-    owner_.emit_event(dropped ? KafkaSeverity::Warning : KafkaSeverity::Fatal,
-                      Str{"consumer"}, Str{"queue_overflow"},
-                      RD_KAFKA_RESP_ERR__QUEUE_FULL, false, !dropped,
-                      dropped ? Str{"Kafka record was dropped because the "
-                                    "bounded ingress queue is full"}
-                              : Str{"bounded ingress queue is full"},
-                      spec_.identity, {},
-                      !dropped && owner_.config().consumer_failure_policy ==
-                                      KafkaFailurePolicy::StopGraph);
-    if (!dropped) {
-      failed_ = true;
-      stopping_ = true;
-    }
+                                            : KafkaSubscriptionState::Live)) {
+    // Standard blocking sends fail only after graph teardown closes the
+    // receiver. This is lifecycle completion, not overflow or record loss in
+    // a running graph.
+    stopping_ = true;
   }
 }
 
@@ -2357,13 +2144,9 @@ bool ConsumerSession::buffers_recovery() const noexcept {
 }
 
 void ConsumerSession::buffer_recovery_record(BufferedRecord record) {
-  const auto &limits = owner_.config().ingress;
-  const bool records_full = recovery_records_.size() >= limits.records;
-  const bool bytes_full =
-      record.retained_bytes >
-      limits.bytes - std::min(recovery_bytes_, limits.bytes);
-  if (!records_full && !bytes_full) {
-    recovery_bytes_ += record.retained_bytes;
+  const bool records_full =
+      recovery_records_.size() >= owner_.config().ingress_records;
+  if (!records_full) {
     recovery_records_.push_back(std::move(record));
     return;
   }
@@ -2403,8 +2186,7 @@ void ConsumerSession::prepare_recovery_flush(rd_kafka_t *consumer,
   recovery_ready_ = true;
 
   rd_kafka_topic_partition_list_t *partitions{};
-  if (!paused_ &&
-      rd_kafka_assignment(consumer, &partitions) ==
+  if (rd_kafka_assignment(consumer, &partitions) ==
           RD_KAFKA_RESP_ERR_NO_ERROR &&
       partitions && partitions->cnt > 0) {
     const auto error = rd_kafka_pause_partitions(consumer, partitions);
@@ -2425,13 +2207,6 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
   while (!recovery_records_.empty()) {
     auto &front = recovery_records_.front();
     const bool coordinated_record_time = record_time_recovery_participant_;
-    const bool can_accept =
-        coordinated_record_time
-            ? owner_.recovery_ingress_can_accept(front.retained_bytes)
-            : owner_.ingress_can_accept(front.retained_bytes);
-    if (!can_accept) {
-      return;
-    }
 
     std::optional<DateTime> evaluation_time;
     if (spec_.recovery_clock == KafkaRecoveryClock::RecordTimestamp) {
@@ -2455,16 +2230,16 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
             ? owner_.emit_recovery_subscription(
                   key_.clone(), std::move(front.record),
                   std::move(front.cursor), KafkaSubscriptionState::Recovering,
-                  front.retained_bytes, evaluation_time)
+                  evaluation_time)
             : owner_.emit_subscription(key_.clone(), std::move(front.record),
                                        std::move(front.cursor),
                                        KafkaSubscriptionState::Recovering,
-                                       front.retained_bytes, evaluation_time);
+                                       evaluation_time);
     if (!pushed) {
-      throw std::logic_error(
-          "Kafka recovery queue capacity changed after reservation");
+      stopping_ = true;
+      recovery_records_.clear();
+      return;
     }
-    recovery_bytes_ -= front.retained_bytes;
     recovery_records_.erase(recovery_records_.begin());
   }
 
@@ -2487,12 +2262,7 @@ void ConsumerSession::flush_recovery_records(rd_kafka_t *consumer) {
 
   recovery_ready_ = false;
   recovering_ = false;
-  if (recovery_paused_ && owner_.ingress_at_high_watermark()) {
-    // Keep the assignment paused under the ordinary flow-control
-    // state as replay hands over to live polling.
-    paused_ = true;
-    recovery_paused_ = false;
-  } else if (recovery_paused_ && !paused_) {
+  if (recovery_paused_) {
     rd_kafka_topic_partition_list_t *partitions{};
     if (rd_kafka_assignment(consumer, &partitions) ==
             RD_KAFKA_RESP_ERR_NO_ERROR &&
@@ -2601,55 +2371,6 @@ void ConsumerSession::process_commits(rd_kafka_t *consumer) {
   }
 }
 
-void ConsumerSession::update_flow_control(rd_kafka_t *consumer) {
-  // A coordinated participant must reach its captured snapshot before the
-  // shared recovery drain can open. Its local recovery buffer is independently
-  // bounded, so another participant's already-staged records must not pause it
-  // behind the very barrier it is responsible for releasing.
-  const bool loading_coordinated_recovery =
-      record_time_recovery_participant_ && !recovery_ready_;
-  const bool should_pause = !loading_coordinated_recovery && !paused_ &&
-                            !recovery_paused_ &&
-                            owner_.ingress_at_high_watermark();
-  const bool should_resume =
-      paused_ && !recovery_ready_ && owner_.ingress_below_low_watermark();
-  if (!should_pause && !should_resume) {
-    return;
-  }
-
-  rd_kafka_topic_partition_list_t *partitions{};
-  if (rd_kafka_assignment(consumer, &partitions) !=
-          RD_KAFKA_RESP_ERR_NO_ERROR ||
-      !partitions || partitions->cnt == 0) {
-    if (partitions) {
-      rd_kafka_topic_partition_list_destroy(partitions);
-    }
-    return;
-  }
-  const auto error = should_pause
-                         ? rd_kafka_pause_partitions(consumer, partitions)
-                         : rd_kafka_resume_partitions(consumer, partitions);
-  bool partition_error = false;
-  for (int index = 0; index < partitions->cnt; ++index) {
-    partition_error = partition_error || partitions->elems[index].err !=
-                                             RD_KAFKA_RESP_ERR_NO_ERROR;
-  }
-  rd_kafka_topic_partition_list_destroy(partitions);
-  if (error == RD_KAFKA_RESP_ERR_NO_ERROR && !partition_error) {
-    paused_ = should_pause;
-    owner_.emit_event(
-        KafkaSeverity::Debug, Str{"consumer"},
-        should_pause ? Str{"paused"} : Str{"resumed"}, 0, false, false,
-        should_pause ? Str{"ingress queue reached its high watermark"}
-                     : Str{"ingress queue fell below its low watermark"},
-        spec_.identity);
-  } else {
-    owner_.emit_event(KafkaSeverity::Error, Str{"consumer"},
-                      Str{"flow_control"}, error, true, false,
-                      Str{rd_kafka_err2str(error)}, spec_.identity);
-  }
-}
-
 void ConsumerSession::check_positions(rd_kafka_t *consumer) {
   if ((!recovering_ || recovery_ends_.empty()) && stop_ends_.empty()) {
     return;
@@ -2713,8 +2434,33 @@ void ConsumerSession::emit_state(KafkaSubscriptionState state,
   owner_.emit_subscription_state(key_.clone(), state, evaluation_time);
 }
 
+class KafkaRuntimeResource {
+public:
+  void install(std::shared_ptr<KafkaRuntime> runtime) {
+    std::lock_guard lock{mutex_};
+    if (runtime_) {
+      throw std::logic_error("Kafka runtime resource was installed twice");
+    }
+    runtime_ = std::move(runtime);
+  }
+
+  [[nodiscard]] std::shared_ptr<KafkaRuntime> get() const {
+    std::lock_guard lock{mutex_};
+    return runtime_;
+  }
+
+  [[nodiscard]] std::shared_ptr<KafkaRuntime> take() noexcept {
+    std::lock_guard lock{mutex_};
+    return std::exchange(runtime_, {});
+  }
+
+private:
+  mutable std::mutex mutex_{};
+  std::shared_ptr<KafkaRuntime> runtime_{};
+};
+
 struct KafkaRuntimeHandle {
-  std::shared_ptr<KafkaRuntime> value{};
+  std::shared_ptr<KafkaRuntimeResource> value{};
 
   friend bool operator==(const KafkaRuntimeHandle &,
                          const KafkaRuntimeHandle &) noexcept = default;
@@ -2748,6 +2494,116 @@ inline std::ostream &operator<<(std::ostream &stream,
                                 const RuntimeConfigHandle &value) {
   return stream << "RuntimeConfigHandle(" << value.value.get() << ')';
 }
+
+class SimulationTransportQueue {
+public:
+  explicit SimulationTransportQueue(KafkaTransportBindings bindings)
+      : bindings_{std::move(bindings)} {}
+
+  [[nodiscard]] bool push(Value value) {
+    std::lock_guard lock{mutex_};
+    const auto position =
+        std::upper_bound(values_.begin(), values_.end(), value,
+                         [](const Value &lhs, const Value &rhs) {
+                           const auto lhs_time = evaluation_time(lhs.view());
+                           const auto rhs_time = evaluation_time(rhs.view());
+                           if (!lhs_time.has_value()) {
+                             return rhs_time.has_value();
+                           }
+                           return rhs_time.has_value() && *lhs_time < *rhs_time;
+                         });
+    values_.insert(position, std::move(value));
+    return true;
+  }
+
+  [[nodiscard]] std::optional<DateTime> next_time() const {
+    std::lock_guard lock{mutex_};
+    return values_.empty() ? std::nullopt
+                           : evaluation_time(values_.front().view());
+  }
+
+  [[nodiscard]] std::vector<Value> pop_batch() {
+    std::lock_guard lock{mutex_};
+    if (values_.empty()) {
+      return {};
+    }
+    std::vector<Value> result;
+    const auto batch_time = evaluation_time(values_.front().view());
+    const bool batch_subscriptions =
+        batch_time.has_value() &&
+        values_.front()
+                .view()
+                .as_bundle()
+                .at("kind")
+                .checked_as<KafkaTransportEventKind>() ==
+            KafkaTransportEventKind::Subscription;
+    result.push_back(std::move(values_.front()));
+    values_.pop_front();
+    while (batch_subscriptions && !values_.empty() &&
+           evaluation_time(values_.front().view()) == batch_time &&
+           values_.front()
+                   .view()
+                   .as_bundle()
+                   .at("kind")
+                   .checked_as<KafkaTransportEventKind>() ==
+               KafkaTransportEventKind::Subscription) {
+      result.push_back(std::move(values_.front()));
+      values_.pop_front();
+    }
+    return result;
+  }
+
+  [[nodiscard]] bool empty() const {
+    std::lock_guard lock{mutex_};
+    return values_.empty();
+  }
+
+  [[nodiscard]] Value build_batch(const std::vector<Value> &batch) const {
+    ListBuilder builder{bindings_.event};
+    for (const auto &value : batch) {
+      builder.push_back_copy(value.view().data());
+    }
+    ListStorage storage = builder.build_storage();
+    return Value{bindings_.batch, &storage};
+  }
+
+  [[nodiscard]] const KafkaTransportBindings &bindings() const noexcept {
+    return bindings_;
+  }
+
+private:
+  [[nodiscard]] static std::optional<DateTime>
+  evaluation_time(const ValueView &value) {
+    const auto field = value.as_bundle().at("evaluation_time");
+    return field.data() == nullptr
+               ? std::nullopt
+               : std::optional<DateTime>{field.checked_as<DateTime>()};
+  }
+
+  mutable std::mutex mutex_{};
+  std::deque<Value> values_{};
+  KafkaTransportBindings bindings_{};
+};
+
+struct SimulationTransportQueueHandle {
+  std::shared_ptr<SimulationTransportQueue> value{};
+
+  friend bool
+  operator==(const SimulationTransportQueueHandle &,
+             const SimulationTransportQueueHandle &) noexcept = default;
+  friend std::strong_ordering
+  operator<=>(const SimulationTransportQueueHandle &lhs,
+              const SimulationTransportQueueHandle &rhs) noexcept {
+    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
+           reinterpret_cast<std::uintptr_t>(rhs.value.get());
+  }
+};
+
+inline std::ostream &operator<<(std::ostream &stream,
+                                const SimulationTransportQueueHandle &value) {
+  return stream << "SimulationTransportQueueHandle(" << value.value.get()
+                << ')';
+}
 } // namespace hgraph::kafka::detail
 
 namespace std {
@@ -2764,6 +2620,13 @@ template <> struct hash<hgraph::kafka::detail::RuntimeConfigHandle> {
     return hash<const void *>{}(value.value.get());
   }
 };
+
+template <> struct hash<hgraph::kafka::detail::SimulationTransportQueueHandle> {
+  size_t operator()(const hgraph::kafka::detail::SimulationTransportQueueHandle
+                        &value) const noexcept {
+    return hash<const void *>{}(value.value.get());
+  }
+};
 } // namespace std
 
 namespace hgraph::static_schema_detail {
@@ -2776,6 +2639,11 @@ template <> struct scalar_name<kafka::detail::RuntimeConfigHandle> {
   static constexpr std::string_view value{
       "hgraph.kafka.internal::RuntimeConfigHandle"};
 };
+
+template <> struct scalar_name<kafka::detail::SimulationTransportQueueHandle> {
+  static constexpr std::string_view value{
+      "hgraph.kafka.internal::SimulationTransportQueueHandle"};
+};
 } // namespace hgraph::static_schema_detail
 
 namespace hgraph::kafka {
@@ -2787,154 +2655,231 @@ using KafkaPublishInput =
 using KafkaCommitInput =
     In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>;
 
-void start_runtime(Scalar<"config", detail::RuntimeConfigHandle> config,
-                   Scalar<"path", Str> path,
-                   Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
-                   State<detail::KafkaRuntimeHandle> &state,
-                   SingleShotScheduler scheduler, bool simulation) {
-    auto runtime = std::make_shared<detail::KafkaRuntime>(
-        *config.value().value, path.value(), bridge.value(), scheduler.now(),
-        simulation);
-    runtime->start();
-    try {
-      state.set(detail::KafkaRuntimeHandle{runtime});
-    } catch (...) {
-      runtime->stop();
-      throw;
-    }
-}
-
-void process_inputs(KafkaSubscriptionsInput &subscriptions,
-                    KafkaPublishInput &publish_requests,
-                    KafkaCommitInput &commits,
-                    State<detail::KafkaRuntimeHandle> &state) {
-    auto runtime = state.get().value;
-    if (!runtime) {
-      throw std::logic_error("Kafka runtime evaluated before start");
-    }
-
-    if (subscriptions.modified()) {
-      const auto &erased = static_cast<const TSSInputView &>(subscriptions);
-      for (const auto key : erased.removed()) {
-        runtime->remove_subscription(key);
-      }
-      std::vector<Value> additions;
-      for (const auto key : erased.added()) {
-        additions.push_back(key.clone());
-      }
-      if (!additions.empty()) {
-        runtime->add_subscriptions(std::move(additions));
-      }
-    }
-
-    if (publish_requests.modified()) {
-      for (const auto &[request_id_view, request] :
-           publish_requests.modified_items()) {
-        auto record = request.template field<"record">();
-        auto topic = request.template field<"topic">();
-        if (!record.modified() || !record.valid()) {
-          continue;
-        }
-        if (!topic.valid()) {
-          throw std::invalid_argument(
-              "Kafka publish record requires a valid topic");
-        }
-        runtime->publish(request_id_view.checked_as<Int>(), topic.value(),
-                         record.base().value().clone());
-      }
-    }
-
-    if (commits.modified()) {
-      for (const auto &[request_id, cursor] : commits.modified_items()) {
-        static_cast<void>(request_id);
-        if (cursor.valid() && cursor.modified()) {
-          runtime->explicit_commit(cursor.base().value().clone());
-        }
-      }
-    }
-}
-
-void stop_runtime(State<detail::KafkaRuntimeHandle> &state) {
-    if (auto runtime = state.get().value) {
-      runtime->stop();
-    }
-    state.set(detail::KafkaRuntimeHandle{});
-}
-
-struct KafkaRealtimeRuntimeNode {
-  static constexpr auto name = "kafka_runtime.realtime";
-  using signature_args = std::tuple<
-      KafkaSubscriptionsInput, KafkaPublishInput, KafkaCommitInput,
-      Scalar<"config", detail::RuntimeConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", detail::ServiceBridgeHandle>,
-      State<detail::KafkaRuntimeHandle>>;
-
-  static void start(Scalar<"config", detail::RuntimeConfigHandle> config,
-                    Scalar<"path", Str> path,
-                    Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
-                    State<detail::KafkaRuntimeHandle> state,
-                    SingleShotScheduler scheduler) {
-    start_runtime(config, path, bridge, state, scheduler, false);
+[[nodiscard]] std::shared_ptr<detail::KafkaRuntime>
+live_runtime(Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+  if (!runtime.value().value) {
+    throw std::logic_error("Kafka runtime resource is not configured");
   }
+  auto value = runtime.value().value->get();
+  if (!value) {
+    throw std::logic_error("Kafka command evaluated before runtime start");
+  }
+  return value;
+}
+
+void process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
+                                   detail::KafkaRuntime &runtime) {
+  if (!subscriptions.modified()) {
+    return;
+  }
+  const auto &erased = static_cast<const TSSInputView &>(subscriptions);
+  for (const auto key : erased.removed()) {
+    runtime.remove_subscription(key);
+  }
+  std::vector<Value> additions;
+  for (const auto key : erased.added()) {
+    additions.push_back(key.clone());
+  }
+  if (!additions.empty()) {
+    runtime.add_subscriptions(std::move(additions));
+  }
+}
+
+/** Graph-to-runtime subscription boundary. A sink is required for the external
+ *  side effect; it processes only the TSS delta and starts/stops the affected
+ *  consumer sessions. Cost is O(A + R) per tick for additions A and removals
+ *  R; removal may wait for the corresponding owner thread to join. */
+struct KafkaSubscriptionCommandSink {
+  static constexpr auto name = "kafka_subscription_commands";
 
   static void eval(KafkaSubscriptionsInput subscriptions,
-                   KafkaPublishInput publish_requests,
-                   KafkaCommitInput commits,
-                   State<detail::KafkaRuntimeHandle> state) {
-    process_inputs(subscriptions, publish_requests, commits, state);
-  }
-
-  static void stop(State<detail::KafkaRuntimeHandle> state) {
-    stop_runtime(state);
+                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+    process_subscription_commands(subscriptions, *live_runtime(runtime));
   }
 };
 
-struct KafkaSimulationRuntimeNode {
-  static constexpr auto name = "kafka_runtime.simulation";
-  using signature_args = std::tuple<
-      KafkaSubscriptionsInput, KafkaPublishInput, KafkaCommitInput,
-      Scalar<"config", detail::RuntimeConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", detail::ServiceBridgeHandle>,
-      State<detail::KafkaRuntimeHandle>, Out<TS<Int>>>;
+/** Graph-to-runtime publish boundary. It processes only modified publish
+ *  requests and stages each valid record for the producer task. Cost is O(M)
+ *  per tick for M modified requests; producer creation is lazy and one-off. */
+struct KafkaPublishSink {
+  static constexpr auto name = "kafka_publish_commands";
 
-  static void start(Scalar<"config", detail::RuntimeConfigHandle> config,
-                    Scalar<"path", Str> path,
-                    Scalar<"bridge", detail::ServiceBridgeHandle> bridge,
-                    State<detail::KafkaRuntimeHandle> state,
-                    SingleShotScheduler scheduler) {
-    start_runtime(config, path, bridge, state, scheduler, true);
+  static void eval(KafkaPublishInput publish_requests,
+                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+    if (!publish_requests.modified()) {
+      return;
+    }
+    auto task = live_runtime(runtime);
+    for (const auto &[request_id_view, request] :
+         publish_requests.modified_items()) {
+      auto record = request.template field<"record">();
+      auto topic = request.template field<"topic">();
+      if (!record.modified() || !record.valid()) {
+        continue;
+      }
+      if (!topic.valid()) {
+        throw std::invalid_argument(
+            "Kafka publish record requires a valid topic");
+      }
+      task->publish(request_id_view.checked_as<Int>(), topic.value(),
+                    record.base().value().clone());
+    }
   }
+};
 
-  /** Simulation waits for the bounded record-time preload in process_inputs,
-   * then emits one ordinary edge tick. The downstream drains schedule the
-   * retained records at their deterministic Kafka timestamps.
-   *
-   * Per evaluation: O(subscription changes + publication/commit requests).
-   * Retained history is bounded by the configured ingress limits. */
+/** Graph-to-runtime explicit-commit boundary. It forwards only modified valid
+ *  cursors to their consumer sessions, with O(M) work per modified tick. */
+struct KafkaCommitSink {
+  static constexpr auto name = "kafka_commit_commands";
+
+  static void eval(KafkaCommitInput commits,
+                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+    if (!commits.modified()) {
+      return;
+    }
+    auto task = live_runtime(runtime);
+    for (const auto &[request_id, cursor] : commits.modified_items()) {
+      static_cast<void>(request_id);
+      if (cursor.valid() && cursor.modified()) {
+        task->explicit_commit(cursor.base().value().clone());
+      }
+    }
+  }
+};
+
+/** Protocol acknowledgement boundary for OnGraphDelivery. It observes the
+ *  graph-side subscription projection, never sender admission, and forwards
+ *  only cursors that the graph has received. Cost is O(M) per modified tick. */
+struct KafkaGraphDeliveryCommitSink {
+  static constexpr auto name = "kafka_graph_delivery_commit";
+
+  static void
+  eval(In<"subscriptions", TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>,
+          InputValidity::Unchecked>
+           subscriptions,
+       Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+    if (!subscriptions.modified()) {
+      return;
+    }
+    auto task = live_runtime(runtime);
+    for (const auto &[key, update] : subscriptions.modified_items()) {
+      static_cast<void>(key);
+      auto cursor = update.template field<"cursor">();
+      if (cursor.valid() && cursor.modified()) {
+        task->graph_delivered(cursor.base().value().clone());
+      }
+    }
+  }
+};
+
+struct KafkaRealtimeTransportTag {};
+
+[[nodiscard]] Port<TS<detail::KafkaTransportEvent>>
+wire_realtime_transport(Wiring &w, detail::RuntimeConfigHandle config, Str path,
+                        detail::KafkaRuntimeHandle runtime,
+                        detail::KafkaTransportBindingsHandle bindings) {
+  return detail::wire_transport_source<KafkaRealtimeTransportTag>(
+      w,
+      [config = std::move(config), path = std::move(path), runtime,
+       bindings](PushSourceSender sender, const NodeView &, DateTime now) {
+        auto task = std::make_shared<detail::KafkaRuntime>(
+            *config.value, path, *bindings.value,
+            [sender = std::move(sender)](Value value) {
+              return sender.send_blocking(std::move(value));
+            },
+            now, false);
+        task->start();
+        auto rollback = make_scope_exit<true>([&] { task->stop(); });
+        runtime.value->install(task);
+        rollback.release();
+      },
+      [runtime](const NodeView &) {
+        if (auto task = runtime.value->take()) {
+          task->stop();
+        }
+      });
+}
+
+/** Simulation subscription primitive. A runtime node is required because the
+ *  finite Kafka read is a tick-time external operation; it runs synchronously
+ *  on the graph thread, creates no worker, and signals replay readiness after
+ *  processing the subscription delta. Cost is the bounded recovery read. */
+struct KafkaSimulationSubscriptionNode {
+  static constexpr auto name = "kafka_simulation_subscription_commands";
+
   static void eval(KafkaSubscriptionsInput subscriptions,
-                   KafkaPublishInput publish_requests,
-                   KafkaCommitInput commits,
-                   State<detail::KafkaRuntimeHandle> state, Out<TS<Int>> ready) {
-    process_inputs(subscriptions, publish_requests, commits, state);
+                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime,
+                   Out<TS<Int>> ready) {
+    process_subscription_commands(subscriptions, *live_runtime(runtime));
     ready.set(Int{1});
   }
-
-  static void stop(State<detail::KafkaRuntimeHandle> state) {
-    stop_runtime(state);
-  }
 };
 
-[[nodiscard]] detail::ServiceOutputs wire_simulation_outputs(
-    Wiring &w, detail::ServiceBridgeHandle bridge, Port<TS<Int>> ready) {
-  return detail::ServiceOutputs{
-      wire<detail::SubscriptionDrainNode>(w, ready, bridge)
-          .template as<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>>(),
-      wire<detail::DeliveryDrainNode>(w, ready, bridge)
-          .template as<TSD<Int, TS<KafkaDeliveryReport>>>(),
-      wire<detail::EventDrainNode>(w, ready, bridge)
-          .template as<TS<KafkaEvent>>(),
-  };
-}
+/** Graph-owned scheduled source for finite simulation history. Start installs
+ *  the simulation runtime without a sender or worker; eval releases retained
+ *  envelopes at their Kafka timestamps; stop releases the runtime. */
+struct KafkaSimulationReplayNode {
+  static constexpr auto name = "kafka_simulation_replay";
+  using signature_args = std::tuple<
+      In<"ready", TS<Int>>, Scalar<"config", detail::RuntimeConfigHandle>,
+      Scalar<"path", Str>, Scalar<"runtime", detail::KafkaRuntimeHandle>,
+      Scalar<"queue", detail::SimulationTransportQueueHandle>,
+      SingleShotScheduler, Out<TS<detail::KafkaTransportEventBatch>>>;
+
+  static void
+  start(Scalar<"config", detail::RuntimeConfigHandle> config,
+        Scalar<"path", Str> path,
+        Scalar<"runtime", detail::KafkaRuntimeHandle> runtime,
+        Scalar<"queue", detail::SimulationTransportQueueHandle> queue,
+        SingleShotScheduler scheduler) {
+    auto task = std::make_shared<detail::KafkaRuntime>(
+        *config.value().value, path.value(), queue.value().value->bindings(),
+        [queue = queue.value().value](Value value) {
+          return queue->push(std::move(value));
+        },
+        scheduler.now(), true);
+    task->start();
+    auto rollback = make_scope_exit<true>([&] { task->stop(); });
+    runtime.value().value->install(task);
+    rollback.release();
+  }
+
+  /** Replays the next transport event at its recorded graph time. Kafka reads
+   *  occur synchronously when subscription commands arrive; simulation owns
+   *  no worker thread and never enters the push-source path.
+   *
+   *  Per tick: O(1) dequeue plus transport-envelope projection. Retained
+   *  memory is O(n) in the bounded replay history. */
+  static void
+  eval(In<"ready", TS<Int>>,
+       Scalar<"queue", detail::SimulationTransportQueueHandle> queue,
+       SingleShotScheduler scheduler,
+       Out<TS<detail::KafkaTransportEventBatch>> out) {
+    const auto next_time = queue.value().value->next_time();
+    if (next_time.has_value() && *next_time > scheduler.now()) {
+      scheduler.schedule(*next_time);
+      return;
+    }
+    auto batch = queue.value().value->pop_batch();
+    if (batch.empty()) {
+      return;
+    }
+    const Value value = queue.value().value->build_batch(batch);
+    out.apply(value.view());
+    const auto following_time = queue.value().value->next_time();
+    if (following_time.has_value() && *following_time > scheduler.now()) {
+      scheduler.schedule(*following_time);
+    } else if (!queue.value().value->empty()) {
+      scheduler.schedule(MIN_TD);
+    }
+  }
+
+  static void stop(Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+    if (auto task = runtime.value().value->take()) {
+      task->stop();
+    }
+  }
+};
 
 struct KafkaServiceImpl {
   static constexpr auto name = "kafka_service_impl";
@@ -2953,24 +2898,35 @@ struct KafkaServiceImpl {
         service::impl_input<KafkaPublishService>(w, binding);
     auto commit_requests = service::impl_input<KafkaCommitService>(w, binding);
 
-    detail::ServiceBridgeHandle bridge{std::make_shared<detail::ServiceBridge>(
-        parsed.ingress, parsed.outbound,
-        detail::OutputLimits{1024, 1024 * 1024},
-        detail::subscription_control_limits(parsed.ingress), parsed.outbound,
-        detail::OutputLimits{1, 64 * 1024})};
+    detail::KafkaRuntimeHandle runtime{
+        std::make_shared<detail::KafkaRuntimeResource>()};
+    const auto transport_bindings = detail::make_transport_bindings();
     detail::ServiceOutputs outputs = [&] {
       if (simulation.value()) {
-        auto ready = wire<KafkaSimulationRuntimeNode>(
-            w, subscription_keys, publish_requests, commit_requests,
-            runtime_config, path.value(), bridge);
-        return wire_simulation_outputs(w, bridge, ready);
+        detail::SimulationTransportQueueHandle queue{
+            std::make_shared<detail::SimulationTransportQueue>(
+                *transport_bindings.value)};
+        auto ready = wire<KafkaSimulationSubscriptionNode>(w, subscription_keys,
+                                                           runtime);
+        static_cast<void>(wire<KafkaPublishSink>(w, publish_requests, runtime));
+        static_cast<void>(wire<KafkaCommitSink>(w, commit_requests, runtime));
+        auto replay =
+            wire<KafkaSimulationReplayNode>(w, ready, runtime_config,
+                                            path.value(), runtime, queue)
+                .template as<TS<detail::KafkaTransportEventBatch>>();
+        return detail::wire_simulation_service_outputs(
+            w, replay, transport_bindings);
       }
-      auto realtime_outputs = detail::wire_service_outputs(w, bridge);
-      static_cast<void>(wire<KafkaRealtimeRuntimeNode>(
-          w, subscription_keys, publish_requests, commit_requests,
-          runtime_config, path.value(), bridge));
-      return realtime_outputs;
+      auto source = wire_realtime_transport(w, runtime_config, path.value(),
+                                            runtime, transport_bindings);
+      static_cast<void>(
+          wire<KafkaSubscriptionCommandSink>(w, subscription_keys, runtime));
+      static_cast<void>(wire<KafkaPublishSink>(w, publish_requests, runtime));
+      static_cast<void>(wire<KafkaCommitSink>(w, commit_requests, runtime));
+      return detail::wire_service_outputs(w, source, transport_bindings);
     }();
+    static_cast<void>(
+        wire<KafkaGraphDeliveryCommitSink>(w, outputs.subscriptions, runtime));
 
     service::impl_output<KafkaSubscriptionService>(w, binding,
                                                    outputs.subscriptions);
@@ -2984,8 +2940,7 @@ void register_service(Wiring &w, service::ServicePath path,
                       Value service_config) {
   service::register_services<KafkaServiceImpl, KafkaSubscriptionService,
                              KafkaPublishService, KafkaCommitService,
-                             KafkaEventService>(w, std::move(path),
-                                                std::move(service_config),
-                                                Bool{!w.is_realtime()});
+                             KafkaEventService>(
+      w, std::move(path), std::move(service_config), Bool{!w.is_realtime()});
 }
 } // namespace hgraph::kafka

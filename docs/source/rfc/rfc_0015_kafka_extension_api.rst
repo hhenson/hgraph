@@ -59,19 +59,18 @@ the same native extension and preserve the released ``KafkaMessage``, replay,
 ``recovered``, flush, and legacy cross-partition ordering behavior.  New code
 does not depend on magic ``msg``/``recovered`` parameter names.
 
-Live Kafka queue ingress is real-time-only.  The broker queue wakes the root
-graph; graph-owned drain nodes then emit Kafka records, delivery reports, and
-events through ordinary graph edges.  Kafka does not add a second wake
-mechanism and no push source is permitted in simulation.  The simulation
-service specialization instead accepts only bounded record-time recovery,
-preloads that finite history before graph evaluation proceeds, and drains it
-through ordinary nodes scheduled at the retained record timestamps.
+Live Kafka ingress is real-time-only.  One standard FIFO push source carries a
+discriminated, fully owned transport envelope for subscription values,
+delivery reports, and service events.  Ordinary graph nodes project that
+ordered stream into the public service outputs and apply graph-stop and
+commit-on-delivery policy.  There is no extension-owned ingress queue,
+conflated wake token, or drain node in front of the graph.
 
-Bounded Kafka queues and pause/resume remain in the extension.  A conflating
-root push source wakes a graph-owned drain node, so the core push queue carries
-at most a wake-up signal rather than every broker payload.  A generic bounded
-cross-thread channel may be proposed for core only after a second downstream
-integration demonstrates the same contract and supplies promotion evidence.
+No push source is permitted in simulation.  The simulation specialization
+performs a finite bounded read without a worker thread, retains the resulting
+history in graph-owned replay state, and schedules it at the recorded Kafka
+timestamps.  Subscription records sharing one timestamp are applied in one
+keyed mutation so exact simulated time is preserved.
 
 Motivation
 ----------
@@ -99,8 +98,7 @@ shape and runtime ownership are not a suitable basis for a native extension:
   wrapper;
 * offset commits, rebalances, delivery acknowledgements, queue overflow,
   backpressure, and fatal-error policy are not part of the user contract; and
-* the live push queue is unbounded and the released implementation can reduce
-  a worker failure to a log message.
+* the released implementation can reduce a worker failure to a log message.
 
 Some current implementation details are worth preserving.  Recovery takes an
 end-offset snapshot, consumes only records before that per-partition boundary,
@@ -606,16 +604,16 @@ and not one opaque node which bypasses graph inputs.  It wires:
 * a publish-command sink consuming
   ``TSD<Int, KafkaPublishRequest>``;
 * a commit-command sink consuming ``TSD<Int, TS<KafkaCursor>>``;
-* real-time root push-source/drain nodes, or deterministic simulation
-  scheduled drains, producing
+* one real-time root push source plus graph-side projection nodes, or a
+  deterministic simulation replay node, producing
   ``TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>``,
   ``TSD<Int, TS<KafkaDeliveryReport>>``, and ``TS<KafkaEvent>``; and
 * one graph-local lifecycle/resource state shared only by those nodes.
 
-The sinks are the only graph-to-Kafka route.  In real time, push sources are
+The sinks are the only graph-to-Kafka route.  In real time, the push source is
 the only Kafka-to-graph wake route.  In simulation, the bounded preload
-completes before one ordinary graph edge releases scheduled drains; no push
-source is wired.  The implementation is inlined into the root graph, as all
+is performed without an external worker and an ordinary graph edge releases
+the scheduled replay; no push source is wired.  The implementation is inlined into the root graph, as all
 native service implementations are, so the selected nodes are legal and the
 keyed transport planner can inspect the real decoupled dependency graph.
 
@@ -640,9 +638,8 @@ The graph-local runtime resource owns:
 * one shared producer and poll thread for the path's producer configuration;
 * one consumer owner thread per consumer session;
 * a session registry keyed by the complete semantic subscription identity;
-* bounded inbound record/event queues and bounded outbound staging queues;
-* in real time, the senders published by the implementation's graph-side
-  push/drain nodes; and
+* the standard push-source sender used for ordered real-time ingress;
+* the bounded, record-counted simulation recovery and producer staging state;
 * explicit start, accepting, stopping, and stopped states.
 
 One thread owns all subscribe, assign, seek, poll, pause/resume, commit, and
@@ -652,45 +649,33 @@ ordering auditable and also works with Kafka clients whose consumer object is
 not thread-safe.
 
 The producer is asynchronous.  Only the publish sink node moves a graph-owned
-record into the extension queue or librdkafka queue.  The producer poll thread
-serves delivery and error callbacks and sends reports/events to the bounded
-queues which wake the implementation's push/drain nodes.
+record into the task's record-counted staging queue or librdkafka queue.  The
+producer poll thread serves delivery and error callbacks and sends fully owned
+reports/events through the standard transport sender.
 
 No worker thread calls ``EvaluationEngineApi``, requests graph stop, mutates a
 time-series value, or retains a borrowed graph value.  Fatal events cross the
 push boundary, and an ordinary graph-thread node applies the configured
 ``Report`` or ``StopGraph`` policy.
 
-Flow control and bounded memory
--------------------------------
+Queue ownership and capacity
+----------------------------
 
-The existing queue push-source policy is intentionally unbounded.  Passing
-every Kafka payload directly to it would allow broker rate to determine graph
-memory use.  The extension instead owns a bounded queue measured in both
-records and bytes:
+RFC 0027 makes the push-source node the cross-thread queue.  Kafka therefore
+does not duplicate its storage, locking, wake generation, or receiver-lifetime
+logic.  A consumer callback constructs one owned ``KafkaTransportEvent`` and
+calls ``send_blocking`` on the unbounded FIFO policy selected by the service
+graph.  The send cannot wait for capacity; ``false`` means only that graph
+teardown closed the receiver.  Storage is updated before the sender wakes the
+real-time executor.
 
-1. the consumer thread moves a fully owned internal envelope containing the
-   subscription key, ``KafkaRecord``, and ``KafkaCursor`` into the queue;
-2. the empty-to-non-empty transition sends a conflated wake-up signal;
-3. the service implementation's graph-owned drain node emits a keyed
-   ``KafkaSubscriptionOutput`` mutation, with record and cursor ticking
-   together; and
-4. if work remains, the drain node schedules another wake-up.
-
-The wake-up protocol must be generation-safe and prove that a concurrent push
-cannot be lost between the final drain check and signal reset.  The core queue
-therefore retains at most a small signal, not the payload backlog.
-
-At the inbound high watermark, the consumer thread pauses assigned
-partitions.  It continues polling often enough to serve group heartbeats and
-rebalance callbacks.  It resumes below the low watermark and reapplies pause
-state after rebalance because Kafka does not preserve pause/resume state across
-assignment changes.
-
-A fetched record which cannot fit the configured record/byte limit applies the
-explicit inbound ``Fail`` or ``Drop`` policy.  It is never allowed to expand an
-otherwise bounded queue silently.  The default is ``Fail``; dropping produces
-a typed event and never advances a managed commit position.
+The public Kafka configuration has record counts, not byte limits.  The
+consumer record limit bounds finite recovery retained before replay; the
+producer record limit bounds its protocol staging queue.  Real-time ingress
+has no second Kafka-specific capacity setting.  If production evidence later
+requires a bounded push source, that policy can be selected directly and must
+include an explicit ``try_send`` refusal plan that keeps broker polling and
+group membership live.
 
 Outbound overflow is an explicit wiring-time policy:
 
@@ -720,7 +705,7 @@ The native default promises:
   explicit conflating graph operation.
 
 Record timestamp is metadata.  A live record's evaluation time is the graph
-cycle in which the bounded ingress drain emits it; its Kafka timestamp does
+cycle in which the transport projection emits it; its Kafka timestamp does
 not rewrite live engine time.
 
 Historical replay has an explicit clock policy.  ``ArrivalClock`` catches up
@@ -740,7 +725,7 @@ publishing, commits, unbounded subscriptions, arrival-clock recovery, and
 non-deterministic partition merging.  A valid subscription is finite, uses
 record timestamps with the deterministic
 ``(timestamp, topic, partition, offset)`` merge, and is fully preloaded before
-the graph receives a release tick.  Ordinary drain nodes then schedule each
+the graph receives a release tick.  An ordinary replay node then schedules each
 retained value in simulated graph time; broker-thread timing never determines
 an evaluation timestamp.
 
@@ -786,8 +771,9 @@ Consumer commit mode is one of:
    Do not store or commit offsets.
 
 ``OnGraphDelivery``
-   Store the next offset after the record enters its hgraph time series.  This
-   is explicitly not acknowledgement of arbitrary downstream work.
+   Wire the projected cursor into the same graph-side commit sink after the
+   record enters its hgraph time series.  This is explicitly not
+   acknowledgement of arbitrary downstream work and is not a sender callback.
 
 ``Explicit``
    Commit only cursors supplied through ``KafkaCommitService``.  User code can
@@ -810,12 +796,10 @@ Lifecycle and teardown
 
 Start order is:
 
-1. start the service implementation's planned sink, queue, and lifecycle-node
-   storage, plus real-time push sources when that specialization was selected;
-2. in real time, publish the push sources' wake-up senders to the graph-local
-   runtime resource with a synchronization edge;
-3. initialize that resource from the registered ``KafkaServiceConfig`` and
-   construct/configure librdkafka handles;
+1. initialize graph-side projection and command-sink storage;
+2. in real time, start the one transport push source, construct the graph-local
+   runtime resource with its framework sender, and then start the Kafka task;
+3. in simulation, construct the replay resource without a sender or worker;
 4. start non-daemon owner threads; and
 5. have each consumer owner establish assignment and the recovery snapshot
    before it reports the session ready.
@@ -828,12 +812,13 @@ Stop order is:
 3. apply the configured producer drain/abort timeout;
 4. join every extension-owned thread;
 5. close consumer and producer handles in their required order;
-6. clear queued values and release callbacks; and only then
-7. allow any push-source and graph storage to be erased.
+6. release protocol handles and task-owned staging; and only then
+7. release the graph-scoped runtime resource.
 
-The last ordering is load-bearing: ``PushSourceSender`` is a lightweight view
-onto graph-owned policy storage.  No sender may outlive the joined thread which
-can use it.  Destructors repeat a noexcept emergency stop if normal graph stop
+Push-source stop closes its sender before invoking the adaptor stop callback,
+so blocked sends return ``false`` and the callback can join every task thread
+without deadlock.  A retained sender is an inert lifetime-safe handle after
+teardown.  Destructors repeat a noexcept emergency stop if normal graph stop
 was skipped, but normal cleanup failures are reported before destruction.
 
 Removing one subscription stops only its session/client reference.  Shared
@@ -969,22 +954,23 @@ The native hot path must avoid Python and minimise copies:
 
 * librdkafka payloads are copied or retained exactly once into an owned
   cross-thread record according to the chosen safe lifetime strategy;
-* the bounded ingress queue retains records by move;
+* the standard push-source queue retains transport envelopes by move;
 * graph-thread publication moves into the native time-series value;
 * codecs run after transport unless a native codec explicitly opts into safe
   off-thread decoding; and
 * delivery callbacks use their opaque token to avoid record lookup by content.
 
 Benchmarks report throughput, p50/p99 ingress latency, producer enqueue and
-delivery latency, copies/allocations per record, resident memory at both queue
-watermarks, recovery throughput, and shutdown drain time.  Measurements cover
+delivery latency, copies/allocations per record, pending ingress count,
+recovery throughput, and shutdown drain time.  Measurements cover
 small records, large records, headers, several partitions, several graph
 clients, and two concurrent pure-C++ engines.
 
-There is no acceptable unbounded-memory mode hidden behind the default API.
-Queue sizes and retained bytes are visible through service inspection and
-``KafkaEvent`` diagnostics.  The extension should expose data-only inspection
-views rather than requiring debuggers to decode librdkafka or STL layouts.
+The real-time ingress policy is explicitly the standard unbounded FIFO rather
+than a hidden extension queue.  Capacity may be introduced later only by
+selecting the core bounded policy with a documented refusal path.  The
+extension should expose data-only inspection views rather than requiring
+debuggers to decode librdkafka or STL layouts.
 
 Alternatives considered
 -----------------------
@@ -1006,9 +992,9 @@ Add a generic core messaging connector first
    domain-independent acknowledgement, checkpoint, or backpressure contract.
 
 Send every record through the core queue policy
-   Rejected because the current queue is unbounded.  A bounded extension queue
-   plus conflated wake-up uses existing core facilities without allowing
-   broker rate to determine graph memory.
+   Selected after RFC 0027 supplied the shared sender admission, shutdown, and
+   queue-lifetime contract.  The former extension queue and conflated wake-up
+   duplicated that core boundary and were removed.
 
 Expose only a sink and hide delivery reports
    Rejected.  Asynchronous enqueue and broker delivery are different events;
@@ -1041,9 +1027,10 @@ Public C++ and extension boundary
   service interfaces.
 * One ``KafkaServiceImpl`` materializes for one demanded path and configuration;
   duplicate registration at that path is rejected.
-* Its graph-to-Kafka edges are sink nodes over ``impl_input``.  Real-time
-  Kafka-to-graph edges use root push sources; bounded simulation recovery uses
-  ordinary scheduled drains.  Both are published through ``impl_output``.
+* Its graph-to-Kafka edges are distinct sink nodes over ``impl_input``.
+  Real-time Kafka-to-graph values use one ordered root push source and ordinary
+  projection nodes; bounded simulation recovery uses a scheduled replay node.
+  Both are published through ``impl_output``.
 * The real-time/simulation implementation is selected at wiring time.  A
   simulation graph contains no push source and accepts only deterministic,
   bounded record-time subscriptions.
@@ -1059,8 +1046,8 @@ Behavior
   its compatibility error.
 * Multiple identical subscriptions share one session, while explicitly
   independent subscriptions do not.
-* Per-partition record order is preserved through replay, live ingress,
-  backpressure pause/resume, and rebalance.
+* Per-partition record order is preserved through replay, live ingress, and
+  rebalance.
 * End-offset snapshot hand-off has no lost or duplicated boundary record,
   including a poll batch which crosses several partition snapshots.
 * Starting and stopping positions cover earliest, latest, committed with
@@ -1085,10 +1072,8 @@ Lifetime, failure, and flow control
 * Consumer failure, producer delivery failure, rebalance failure, queue
   overflow, and shutdown timeout are observable as typed events.
 * Only a graph-thread node applies graph-stop policy.
-* High/low watermarks pause and resume consumers while polling continues to
-  serve group membership.
-* Producer and consumer memory remains bounded under a deliberately stalled
-  graph.
+* Producer staging and finite simulation recovery are bounded by record count;
+  no byte-capacity contract is exposed.
 * Stop prevents new publication, wakes polling, joins all threads, closes
   handles, and only then releases sender storage.
 * Repeated start/stop, partial start failure, subscription removal/re-add, and
@@ -1126,27 +1111,35 @@ Implementation plan
    seam, CMake package, and installed pure-C++ smoke consumer.
 2. Implement one multi-interface ``KafkaServiceImpl`` and the four service
    contracts using a fake transport; prove one materialization per path,
-   sink/push boundaries, lifecycle, bounded queues, generation, and
+   sink/push boundaries, lifecycle, ordered transport delivery, generation, and
    multi-engine behavior before introducing librdkafka.
 3. Add the librdkafka C RAII layer, consumer recovery/live state machine,
-   producer callbacks, commits, rebalances, pause/resume, and typed events.
+   producer callbacks, commits, rebalances, and typed events.
 4. Add native byte codecs and the Python bridge/new service wiring API.
 5. Move the existing decorators and ``KafkaMessage`` implementation into
    ``hgraph_kafka``, retain a guarded, core-owned ``hgraph.adaptors.kafka``
    forwarding shim, and run differential behavior tests against released
    hgraph without adding a core dependency on the extension.
-6. Add broker integration, failure injection, memory/performance evidence,
+6. After RFC 0027, replace the private ingress queues, byte accounting,
+   generation wake tokens, and drain nodes with the standard push-source FIFO,
+   graph-side envelope projections, command sinks, and scheduled simulation
+   replay described above.
+7. Add broker integration, failure injection, memory/performance evidence,
    ASan/TSan validation, and packaging on supported platforms.
-7. Land the extension addition and removal of the core Kafka implementation
+8. Land the extension addition and removal of the core Kafka implementation
    atomically, and update this RFC to Accepted only when implementation and
    transition tests have merged.
 
 Implementation status
 ---------------------
 
-No implementation is included with this proposed RFC.  The existing Python
-Kafka adaptor remains the shipped behavior until the extension and
-compatibility migration satisfy the acceptance criteria.
+The native extension, service interfaces, fake transport, librdkafka runtime,
+and Python authoring bridge are implemented.  The RFC 0027 migration described
+in step 6 is included in the current implementation: real-time ingress uses the
+standard push source and simulation uses graph-owned scheduled replay.  This
+RFC remains ``Proposed`` until the remaining performance, sanitizer,
+installed-package, and compatibility-transition evidence satisfies the
+acceptance criteria above.
 
 References
 ----------
