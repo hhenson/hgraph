@@ -34,9 +34,9 @@ namespace hgraph
      *
      * Each builder is single-use. The accumulated elements live in a
      * type-erased contiguous buffer driven by the bound element plan;
-     * ``build_storage()`` copies them into a freshly-constructed
-     * compact storage of the now-known size and the builder's buffer
-     * is reset.
+     * ``build_storage()`` transfers that buffer into compact storage and
+     * resets the builder. Owning ``Value`` inputs can likewise be moved into
+     * the accumulator, avoiding another payload copy during materialisation.
      */
 
     namespace builder_detail
@@ -52,6 +52,13 @@ namespace hgraph
         class ElementAccumulator
         {
           public:
+            struct ReleasedElements
+            {
+                void             *bytes{nullptr};
+                std::size_t       size{0};
+                std::vector<bool> validity{};
+            };
+
             explicit ElementAccumulator(const MemoryUtils::StoragePlan &plan) : plan_{&plan} {}
 
             ElementAccumulator(const ElementAccumulator &)            = delete;
@@ -123,6 +130,45 @@ namespace hgraph
                 rollback.release();
             }
 
+            /** Append by transferring an owning value into the accumulator.
+                Exact bindings use the storage plan's move constructor;
+                compatible representations use their erased move-assignment
+                operation. */
+            void push_back_from(const ValueTypeRef &target, Value &&source)
+            {
+                if (!source.has_value())
+                {
+                    throw std::invalid_argument("container builder requires a live source value");
+                }
+                if (target.plan() != plan_)
+                {
+                    throw std::logic_error("container builder target binding does not match its accumulator plan");
+                }
+                const auto source_binding = source.binding();
+                if (!source_binding || !target.ops_ref().accepts_source(target, source_binding))
+                {
+                    throw std::invalid_argument(
+                        "container builder target binding does not accept its source binding");
+                }
+                if (size_ == capacity_) { grow(std::max<std::size_t>(capacity_ * 2, 8)); }
+                void *destination = slot_address(size_);
+                if (target == source_binding)
+                {
+                    plan_->move_construct(destination, const_cast<void *>(source.view().data()));
+                }
+                else
+                {
+                    plan_->default_construct(destination);
+                    auto rollback = make_scope_exit([&]() noexcept { plan_->destroy(destination); });
+                    target.ops_ref().move_assign_from(
+                        target, destination, source_binding,
+                        const_cast<void *>(source.view().data()));
+                    rollback.release();
+                }
+                if (!validity_.empty()) { validity_.push_back(true); }
+                ++size_;
+            }
+
             /** Append a default-constructed HOLE (element validity): the slot
                 is live memory but reads report it unset. The first hole sizes
                 the (otherwise-empty, dense) validity bitset. */
@@ -158,6 +204,28 @@ namespace hgraph
                     .stride = plan_->layout.size,
                     .plan   = plan_,
                 };
+            }
+
+            [[nodiscard]] ReleasedElements release()
+            {
+                // Compact storage promises an exact-size allocation. Shrink by
+                // moving elements when geometric accumulation left headroom.
+                if (size_ == 0)
+                {
+                    clear();
+                    return {};
+                }
+                if (capacity_ != size_) { grow(size_); }
+                ReleasedElements result{
+                    .bytes = bytes_,
+                    .size = size_,
+                    .validity = std::move(validity_),
+                };
+                bytes_ = nullptr;
+                capacity_ = 0;
+                size_ = 0;
+                validity_.clear();
+                return result;
             }
 
             void clear() noexcept
@@ -281,6 +349,13 @@ namespace hgraph
             accumulator_.push_back_from(element_binding_, value);
         }
 
+        /** Append by moving an owning value into the result buffer. */
+        void push_back(Value &&value)
+        {
+            ensure_not_built();
+            accumulator_.push_back_from(element_binding_, std::move(value));
+        }
+
         /** Append an UNSET element (a hole) - element validity. */
         void push_back_unset()
         {
@@ -300,8 +375,10 @@ namespace hgraph
         [[nodiscard]] ListStorage build_storage()
         {
             ensure_not_built();
-            ListStorage storage{element_binding_, accumulator_.as_span(), accumulator_.validity()};
-            accumulator_.clear();
+            auto elements = accumulator_.release();
+            ListStorage storage{
+                ListStorage::AdoptElementsTag{}, element_binding_, elements.bytes,
+                elements.size, std::move(elements.validity)};
             built_ = true;
             return storage;
         }

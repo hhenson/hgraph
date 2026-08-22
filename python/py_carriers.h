@@ -12,6 +12,8 @@
 
 #include "module_internal.h"
 
+#include <atomic>
+
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/types/time_series/ts_output/alternative.h>
 #include <hgraph/types/wired_fn.h>
@@ -127,23 +129,31 @@ namespace hgraph::python_bridge
     {
         PushSourceSender           sender{};
         const TSValueTypeMetaData *schema{nullptr};
+        const ValueTypeMetaData   *sender_value_schema{nullptr};
         const TypeRealizationSnapshot *type_realization{nullptr};
+        std::atomic_bool           started_once{false};
     };
 
     struct PySender
     {
         std::shared_ptr<PySenderSlot> slot;
 
-        void send(nb::handle object) const
+        [[nodiscard]] bool send(nb::handle object) const
         {
             if (slot == nullptr || !slot->sender.valid())
             {
+                if (slot != nullptr && slot->started_once.load(std::memory_order_acquire))
+                {
+                    return false;
+                }
                 throw std::logic_error("push sender is not started yet (the graph must be running)");
             }
             TypeRealizationScope realization_scope{slot->type_realization};
-            Value value = py_to_delta(object, slot->schema);
+            Value value = slot->sender_value_schema != nullptr
+                              ? py_to_value_as(object, slot->sender_value_schema)
+                              : py_to_delta(object, slot->schema);
             nb::gil_scoped_release release;
-            slot->sender.send(std::move(value));
+            return slot->sender.send_blocking(std::move(value));
         }
     };
 

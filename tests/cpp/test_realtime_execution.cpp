@@ -804,7 +804,7 @@ TEST_CASE("real-time executor evaluates root push queues after pending update si
 
     std::this_thread::sleep_for(std::chrono::milliseconds{20});
     REQUIRE(sender.valid());
-    sender.send(Int{42});
+    sender.send_blocking(Int{42});
     runner.join();
 
     CHECK(sink_eval_count == 1);
@@ -835,8 +835,8 @@ TEST_CASE("push source exposes pending work through the data-only inspection con
     graph.start(start_time);
     REQUIRE(sender.valid());
 
-    sender.send(Int{41});
-    sender.send(Int{42});
+    sender.send_blocking(Int{41});
+    sender.send_blocking(Int{42});
     REQUIRE(graph.node_at(0).inspection_metrics().pending_items.has_value());
     CHECK(*graph.node_at(0).inspection_metrics().pending_items == 2);
 
@@ -929,8 +929,8 @@ TEST_CASE("real-time push source drains multiple queued values across cycles")
 
     std::this_thread::sleep_for(std::chrono::milliseconds{20});
     REQUIRE(sender.valid());
-    sender.send(Int{1});
-    sender.send(Int{2});
+    sender.send_blocking(Int{1});
+    sender.send_blocking(Int{2});
     runner.join();
 
     REQUIRE(observed_values.size() == 2);
@@ -956,8 +956,8 @@ TEST_CASE("real-time push source applies queued collection deltas in order")
     graph_builder.add_node(make_push_source_node(
         *tsd_int,
         [](PushSourceSender sender) {
-            sender.send(dict_delta<Str, TS<Int>>({{"a"s, Int{1}}, {"b"s, Int{2}}}));
-            sender.send(dict_delta<Str, TS<Int>>({{"a"s, Int{3}}}, {"b"s}));
+            sender.send_blocking(dict_delta<Str, TS<Int>>({{"a"s, Int{1}}, {"b"s, Int{2}}}));
+            sender.send_blocking(dict_delta<Str, TS<Int>>({{"a"s, Int{3}}}, {"b"s}));
         }));
 
     NodeTypeMetaData sink_schema;
@@ -1071,8 +1071,8 @@ TEST_CASE("real-time push source moves external polymorphic keys into graph pool
 
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
         REQUIRE(sender.valid());
-        sender.send(initial_delta);
-        sender.send(update_delta);
+        sender.send_blocking(initial_delta);
+        sender.send_blocking(update_delta);
         runner.join();
 
         const auto pools = view.graph().compound_scalar_storage().inspect();
@@ -1110,8 +1110,8 @@ TEST_CASE("real-time conflating push source emits only the latest pending value"
         *ts_int,
         make_push_source_conflating_policy(*ts_int->value_schema),
         [](PushSourceSender sender) {
-            sender.send(Int{1});
-            sender.send(Int{2});
+            sender.send_blocking(Int{1});
+            sender.send_blocking(Int{2});
         }));
     graph_builder.add_node(hgraph::testing::recording_scalar_sink<Int>(
         *input_schema,
@@ -1160,9 +1160,9 @@ TEST_CASE("real-time conflating push source applies collection deltas before emi
         *tsd_int,
         make_push_source_conflating_policy(*tsd_int->delta_value_schema),
         [](PushSourceSender sender) {
-            sender.send(dict_delta<Str, TS<Int>>({{"a"s, Int{1}}}));
-            sender.send(dict_delta<Str, TS<Int>>({{"b"s, Int{2}}}));
-            sender.send(dict_delta<Str, TS<Int>>({{"a"s, Int{3}}}));
+            sender.send_blocking(dict_delta<Str, TS<Int>>({{"a"s, Int{1}}}));
+            sender.send_blocking(dict_delta<Str, TS<Int>>({{"b"s, Int{2}}}));
+            sender.send_blocking(dict_delta<Str, TS<Int>>({{"a"s, Int{3}}}));
         }));
     graph_builder.add_node(hgraph::testing::recording_value_sink(
         *input_schema,
@@ -1230,12 +1230,12 @@ TEST_CASE("push source policy validates output shape and sender payload schema s
 
     std::this_thread::sleep_for(std::chrono::milliseconds{20});
     REQUIRE(sender.valid());
-    CHECK_THROWS_AS(sender.send(Str{"wrong-schema"}), std::invalid_argument);
+    CHECK_THROWS_AS(sender.send_blocking(Str{"wrong-schema"}), std::invalid_argument);
     view.request_stop();
     runner.join();
 }
 
-TEST_CASE("push source sender ignores values after graph shutdown")
+TEST_CASE("push source sender reports values refused during and after graph shutdown")
 {
     using namespace hgraph;
 
@@ -1245,6 +1245,8 @@ TEST_CASE("push source sender ignores values after graph shutdown")
 
     const auto check_policy = [&](PushSourcePolicy policy) {
         PushSourceSender sender;
+        bool stop_try_accepted{true};
+        bool stop_blocking_accepted{true};
         GraphBuilder graph_builder;
         graph_builder.add_node(make_push_source_node(
             *ts_int,
@@ -1253,7 +1255,10 @@ TEST_CASE("push source sender ignores values after graph shutdown")
         NodeTypeMetaData stop_sender_schema;
         stop_sender_schema.display_name = "send_during_stop";
         NodeCallbacks stop_sender_callbacks;
-        stop_sender_callbacks.stop = [&sender](const NodeView &, DateTime) { sender.send(Int{41}); };
+        stop_sender_callbacks.stop = [&](const NodeView &, DateTime) {
+            stop_try_accepted = sender.try_send(Int{41});
+            stop_blocking_accepted = sender.send_blocking(Int{41});
+        };
         graph_builder.add_node(NodeBuilder::native(
             std::move(stop_sender_schema), std::move(stop_sender_callbacks)));
 
@@ -1273,7 +1278,10 @@ TEST_CASE("push source sender ignores values after graph shutdown")
         view.request_stop();
         runner.join();
 
-        CHECK_NOTHROW(sender.send(Int{42}));
+        CHECK_FALSE(stop_try_accepted);
+        CHECK_FALSE(stop_blocking_accepted);
+        CHECK_FALSE(sender.try_send(Int{42}));
+        CHECK_FALSE(sender.send_blocking(Int{42}));
     };
 
     SECTION("queue policy") { check_policy(make_push_source_queue_policy(*int_meta)); }

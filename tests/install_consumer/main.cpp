@@ -107,6 +107,50 @@ namespace
         &apply_consumer_table,
     };
 
+    void check_push_source_queue_contract()
+    {
+        using namespace hgraph;
+
+        auto &registry = TypeRegistry::instance();
+        const auto *integer = scalar_descriptor<Int>::value_meta();
+        const auto *ts_int = registry.ts(integer);
+        const auto *ts_tuple = registry.ts(registry.list(integer, 0, true));
+
+        const auto check_capacity = [](const TSValueTypeMetaData &output_schema,
+                                       PushSourcePolicy policy) {
+            PushSourceSender sender;
+            GraphBuilder graph_builder;
+            graph_builder.add_node(make_push_source_node(
+                output_schema, std::move(policy),
+                [&sender](PushSourceSender started) {
+                    sender = std::move(started);
+                }));
+
+            GraphExecutorBuilder executor_builder;
+            executor_builder.graph_builder(std::move(graph_builder))
+                .mode(GraphExecutorMode::RealTime)
+                .start_time(MIN_ST)
+                .end_time(MIN_ST + TimeDelta{1});
+            auto executor = executor_builder.make_executor();
+            auto graph = executor.view().graph();
+            graph.start(MIN_ST);
+            if (!sender.try_send(Int{1}) || sender.try_send(Int{2}))
+            {
+                throw std::runtime_error(
+                    "installed bounded push-source sender does not report capacity");
+            }
+            graph.stop(MIN_ST);
+            if (sender.valid() || sender.try_send(Int{3}))
+            {
+                throw std::runtime_error(
+                    "installed push-source sender remains valid after stop");
+            }
+        };
+
+        check_capacity(*ts_int, make_push_source_queue_policy(*ts_int, 1));
+        check_capacity(*ts_tuple, make_push_source_burst_policy(*ts_tuple, 1));
+    }
+
     // ------------------------------------------------------------------
     // A trivial EXTERNAL record/replay backend (RFC 0025 checkpoint 3):
     // registers overloads of the core operator markers through public
@@ -517,6 +561,7 @@ int main()
     }
 
     check_probe_backend_round_trip();
+    check_push_source_queue_contract();
     hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;

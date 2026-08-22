@@ -356,7 +356,7 @@ Push queues enable asynchronous external data injection with thread-safe semanti
 
 ```python
 @push_queue(TS[str])
-def my_message_sender(sender: Callable[[str], None], values: tuple[str, ...]):
+def my_message_sender(sender: Callable[[str], bool], values: tuple[str, ...]):
     """
     The sender callable is provided by the runtime.
     Call sender(value) from any thread to inject data into the graph.
@@ -380,7 +380,7 @@ from typing import Callable
 from datetime import timedelta
 from hgraph import push_queue, TS, graph, evaluate_graph, GraphConfiguration, EvaluationMode, debug_print, if_true, stop_engine
 
-def _user_input(sender: Callable[[str], None]):
+def _user_input(sender: Callable[[str], bool]):
     while True:
         s = sys.stdin.readline().strip("\n")
         sender(s)
@@ -388,7 +388,7 @@ def _user_input(sender: Callable[[str], None]):
             break
 
 @push_queue(TS[str])
-def user_input(sender: Callable[[str], None]):
+def user_input(sender: Callable[[str], bool]):
     threading.Thread(target=_user_input, args=(sender,)).start()
 
 @graph
@@ -405,13 +405,13 @@ evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_t
 ```python
 # From hgraph_unit_tests/nodes/test_push_queue.py
 def test_push_queue():
-    def _sender(sender: Callable[[str], None], values: [str]):
+    def _sender(sender: Callable[[str], bool], values: [str]):
         for value in values:
             sender(value)
             time.sleep(0.1)
 
     @push_queue(TS[str])
-    def my_message_sender(sender: Callable[[str], None], values: tuple[str, ...]):
+    def my_message_sender(sender: Callable[[str], bool], values: tuple[str, ...]):
         threading.Thread(target=_sender, args=(sender, values)).start()
 
     @graph
@@ -434,12 +434,12 @@ Collect multiple values into tuples before sending:
 ```python
 # From hgraph_unit_tests/nodes/test_push_queue.py
 def test_batch_push_queue():
-    def _sender(sender: Callable[[str], None], values: [str]):
+    def _sender(sender: Callable[[str], bool], values: [str]):
         for value in values:
             sender(value)
 
     @push_queue(TS[Tuple[str, ...]])
-    def my_message_sender(sender: Callable[[str], None], values: tuple[str, ...], batch: bool = True):
+    def my_message_sender(sender: Callable[[str], bool], values: tuple[str, ...], batch: bool = True):
         threading.Thread(target=_sender, args=(sender, values)).start()
 
     @graph
@@ -463,12 +463,12 @@ Skip intermediate values, only forward final state changes:
 ```python
 # From hgraph_unit_tests/nodes/test_push_queue.py
 def test_elide_push_queue():
-    def _sender(sender: Callable[[str], None], values: [str]):
+    def _sender(sender: Callable[[str], bool], values: [str]):
         for value in values:
             sender(value)
 
     @push_queue(TS[str])
-    def my_message_sender(sender: Callable[[str], None], values: tuple[str, ...], elide: bool = True):
+    def my_message_sender(sender: Callable[[str], bool], values: tuple[str, ...], elide: bool = True):
         threading.Thread(target=_sender, args=(sender, values)).start()
 
     @graph
@@ -492,13 +492,13 @@ For multi-keyed data streams:
 ```python
 # From hgraph_unit_tests/nodes/test_push_queue.py
 def test_tsd_push_queue():
-    def _sender(sender: Callable[[str, float], None], values: Tuple[dict[str, float]]):
+    def _sender(sender: Callable[[str, float], bool], values: Tuple[dict[str, float]]):
         for value in values:
             sender(value)
             time.sleep(0.01)
 
     @push_queue(TSD[str, TS[float]])
-    def my_message_sender(sender: Callable[[str, float], None], values: tuple[dict[str, float], ...]):
+    def my_message_sender(sender: Callable[[str, float], bool], values: tuple[dict[str, float], ...]):
         threading.Thread(target=_sender, args=(sender, values)).start()
 
     @graph
@@ -525,11 +525,11 @@ from typing import Callable
 from threading import Thread, Event
 
 @push_queue(TS[bytes])
-def _message_subscriber_queue(sender: Callable[[SCALAR], None] = None, *, topic: str):
+def _message_subscriber_queue(sender: Callable[[SCALAR], bool] = None, *, topic: str):
     KafkaMessageState.instance().set_subscriber_sender(topic, sender)
 
 class KafkaConsumerThread(Thread):
-    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[bytes], None]):
+    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[bytes], bool]):
         super().__init__()
         self.topic = topic
         self.consumer = consumer
@@ -1161,4 +1161,3 @@ HGraph's data source system provides:
 7. **Mode selection** for simulation vs real-time execution
 
 The separation of pull and push sources ensures that simulation mode remains deterministic while real-time mode can handle external events. The record/replay system enables reproducible testing and back-testing of live systems.
-

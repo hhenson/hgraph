@@ -547,6 +547,10 @@ implementation can serve **multiple interfaces** via
 ``register_adaptors<Impl, Interfaces…>(w, path)`` — e.g. a sink-only interface
 in, a source-only interface out:
 
+The task ownership, sender admission, stop/join, simulation specialization,
+and protocol-confirmation rules for such an implementation are defined in
+:doc:`real_time_adaptors`.
+
 .. code-block:: cpp
 
    struct MultiAdaptorImpl
