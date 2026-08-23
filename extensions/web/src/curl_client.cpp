@@ -5,12 +5,13 @@
 #include <hgraph/web/service.h>
 #include <hgraph/web/value_builders.h>
 
-#include "detail/service_bridge.h"
+#include "detail/service_transport.h"
 
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/util/scope.h>
 
 #include <curl/curl.h>
 
@@ -680,7 +681,7 @@ struct HttpTransfer : TransferTag {
 
   /** True when retaining `extra` more bytes would push body + headers past
    * the budget.  Written as a subtraction from the budget so it cannot
-   * overflow, matching the bridge's own limit checks. */
+   * overflow, matching the admission budget's own limit checks. */
   [[nodiscard]] bool would_exceed_budget(std::size_t extra) const noexcept {
     const std::size_t budget = payload_budget();
     const std::size_t used = body.size() + header_bytes_used;
@@ -786,8 +787,33 @@ inline std::ostream &operator<<(std::ostream &stream,
   return stream << "ClientRuntimeConfigHandle(" << value.value.get() << ')';
 }
 
+class ClientRuntimeResource {
+public:
+  void install(std::shared_ptr<WebClientRuntime> runtime) {
+    std::lock_guard lock{mutex_};
+    if (runtime_) {
+      throw std::logic_error("Web client runtime was installed twice");
+    }
+    runtime_ = std::move(runtime);
+  }
+
+  [[nodiscard]] std::shared_ptr<WebClientRuntime> get() const {
+    std::lock_guard lock{mutex_};
+    return runtime_;
+  }
+
+  [[nodiscard]] std::shared_ptr<WebClientRuntime> take() noexcept {
+    std::lock_guard lock{mutex_};
+    return std::exchange(runtime_, {});
+  }
+
+private:
+  mutable std::mutex mutex_{};
+  std::shared_ptr<WebClientRuntime> runtime_{};
+};
+
 struct ClientRuntimeHandle {
-  std::shared_ptr<WebClientRuntime> value{};
+  std::shared_ptr<ClientRuntimeResource> value{};
 
   friend bool operator==(const ClientRuntimeHandle &,
                          const ClientRuntimeHandle &) noexcept = default;
@@ -838,18 +864,22 @@ namespace hgraph::web::detail {
 /**
  * One curl-multi owner thread per client runtime (RFC 0024).  The graph thread
  * only stages owned Values under `mutex_` and wakes the loop; every curl call,
- * every completion, and every bridge push for inbound work happens on the
- * owner thread.
+ * every completion, and every standard push-source send for inbound work
+ * happens on the owner thread.
  */
 class WebClientRuntime {
 public:
   WebClientRuntime(ClientRuntimeConfig config, Str path,
-                   ClientBridgeHandle bridge, bool simulation)
+                   ClientAdmissionHandle admission,
+                   WebTransportBindingsHandle transport_bindings,
+                   PushSourceSender sender)
       : config_{std::move(config)}, path_{std::move(path)},
-        bridge_{std::move(bridge)}, simulation_{simulation} {
-    if (!bridge_.value) {
+        admission_{std::move(admission)},
+        output_{std::move(sender), admission_,
+                std::move(transport_bindings)} {
+    if (!admission_.value) {
       throw std::invalid_argument(
-          "Web client runtime requires an output bridge");
+          "Web client runtime requires an admission budget");
     }
   }
 
@@ -861,16 +891,6 @@ public:
   void start() {
     started_ = true;
     bindings_.resolve_all();
-    bridge_.value->start();
-    if (simulation_) {
-      // Live transport is hard-rejected under a simulation executor, exactly
-      // as kafka does; deterministic tests use the fake transport seam.  The
-      // warning is emitted on the first rejected submission rather than here:
-      // a value pushed during start marks a push update pending before the
-      // first cycle, and the simulation executor then advances to
-      // start_time + MIN_TD, skipping every node scheduled at start_time.
-      return;
-    }
     try {
       ensure_curl_initialized();
       multi_ = curl_multi_init();
@@ -899,7 +919,7 @@ public:
           config_.ingress.bytes *
               static_cast<std::size_t>(config_.watermark_low_pct) / 100,
       };
-      bridge_.value->set_watermark(
+      admission_.value->set_watermark(
           index(ClientChannel::Response),
           WatermarkConfig{high, low, [this](bool paused) {
                             ingress_paused_.store(paused,
@@ -916,14 +936,13 @@ public:
         curl_multi_cleanup(multi_);
         multi_ = nullptr;
       }
-      bridge_.value->stop();
       throw;
     }
   }
 
   /** Stop order (RFC 0024, lifecycle): stop intake, drain in-flight within
    * the budget, close WebSockets with 1001, join the owner thread, release
-   * curl state, and only then stop the bridge. */
+   * curl state, and only then stop the admission budget. */
   void stop() noexcept {
     if (!started_ || stopped_.exchange(true)) {
       return;
@@ -943,10 +962,6 @@ public:
       curl_multi_cleanup(multi_);
       multi_ = nullptr;
     }
-    try {
-      bridge_.value->stop();
-    } catch (...) {
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -954,17 +969,15 @@ public:
 
   void call(Int client_id, Value request, Value options) {
     if (!live()) {
-      warn_simulation_once();
-      reject_call(client_id, simulation_ ? kSimulationCode : kStoppedCode,
-                  simulation_ ? Str{"web client is real-time only"}
-                              : Str{"web client is not accepting calls"});
+      reject_call(client_id, kStoppedCode,
+                  Str{"web client is not accepting calls"});
       return;
     }
     // The response reservation is taken before curl sees the request, so a
     // completion can never be dropped for lack of queue space (RFC 0024,
     // flow control).
-    if (!bridge_.value->reserve(index(ClientChannel::Response),
-                                config_.max_response_bytes)) {
+    if (!admission_.value->reserve(index(ClientChannel::Response),
+                                   config_.max_response_bytes)) {
       reject_call(client_id, kIngressFullCode,
                   Str{"web client ingress is full"}, true);
       return;
@@ -990,10 +1003,7 @@ public:
 
   void ws_key_added(Value key) {
     if (!live()) {
-      warn_simulation_once();
-      reject_ws_key(std::move(key), simulation_
-                                        ? Str{"web client is real-time only"}
-                                        : Str{"web client is stopping"});
+      reject_ws_key(std::move(key), Str{"web client is stopping"});
       return;
     }
     {
@@ -1016,11 +1026,8 @@ public:
 
   void ws_send(Int client_id, Value key, Value frame) {
     if (!live()) {
-      warn_simulation_once();
       report_send(client_id, WebDeliveryStatus::EnqueueRejected,
-                  simulation_ ? kSimulationCode : kStoppedCode,
-                  simulation_ ? Str{"web client is real-time only"}
-                              : Str{"web client is not accepting sends"},
+                  kStoppedCode, Str{"web client is not accepting sends"},
                   false, true);
       return;
     }
@@ -1078,19 +1085,7 @@ private:
   using Clock = std::chrono::steady_clock;
 
   [[nodiscard]] bool live() const noexcept {
-    return !simulation_ && accepting_.load(std::memory_order_acquire);
-  }
-
-  /** One warning per runtime, on the first submission a simulation refuses. */
-  void warn_simulation_once() noexcept {
-    if (!simulation_ || simulation_warned_) {
-      return;
-    }
-    simulation_warned_ = true;
-    emit_event(WebSeverity::Warning, Str{"client"}, Str{"simulation"},
-               Str{"web client is real-time only; calls, connections, and "
-                   "sends are rejected under a simulation executor"},
-               kSimulationCode, false, false);
+    return accepting_.load(std::memory_order_acquire);
   }
 
   void wake() noexcept {
@@ -1183,7 +1178,7 @@ private:
   }
 
   // -------------------------------------------------------------------------
-  // Bridge pushes (safe from either thread)
+  // Standard push-source transport (safe from either thread)
 
   void push_response(Value envelope, std::size_t retained,
                      std::size_t reserved) noexcept {
@@ -1191,14 +1186,19 @@ private:
       // Defensive only: the write and header callbacks hold body + header
       // bytes at max_response_bytes - kEnvelopeOverhead, so a completion's
       // retained estimate is already within its reservation.  The clamp keeps
-      // push_reserved's "exceeded its reservation" invariant from throwing if
+      // send_reserved's "exceeded its reservation" invariant from throwing if
       // that accounting ever drifts.
-      static_cast<void>(bridge_.value->push_reserved(
-          index(ClientChannel::Response), std::move(envelope),
-          std::min(retained, reserved), reserved));
+      if (!output_.send_reserved(
+              WebTransportEventKind::ClientResponse, "response",
+              std::move(envelope), index(ClientChannel::Response),
+              std::min(retained, reserved), reserved)) {
+        // The reservation makes queue capacity certain. Refusal here means
+        // graph teardown closed the receiver; the late completion is done.
+        return;
+      }
     } catch (...) {
-      bridge_.value->release_reservation(index(ClientChannel::Response),
-                                         reserved);
+      admission_.value->release_reservation(index(ClientChannel::Response),
+                                            reserved);
     }
   }
 
@@ -1209,8 +1209,11 @@ private:
           response_envelope(bindings_, client_id, Value{},
                             transport_error(bindings_, error_code,
                                             std::move(message), retriable));
-      static_cast<void>(bridge_.value->push_control(
-          index(ClientChannel::Response), std::move(envelope), 512));
+      if (!output_.send(WebTransportEventKind::ClientResponse, "response",
+                        std::move(envelope),
+                        index(ClientChannel::Response), 512, true)) {
+        dropped_.fetch_add(1, std::memory_order_relaxed);
+      }
     } catch (...) {
     }
   }
@@ -1221,11 +1224,13 @@ private:
           bindings_, std::move(key),
           ws_event(bindings_, 0, WsConnectionState::Failed, 0, message),
           Value{});
-      static_cast<void>(bridge_.value->push_control(
-          index(ClientChannel::WsIngress), std::move(envelope), 512));
+      if (!output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
+                        std::move(envelope),
+                        index(ClientChannel::WsIngress), 512, true)) {
+        dropped_.fetch_add(1, std::memory_order_relaxed);
+      }
       emit_event(WebSeverity::Warning, Str{"client"}, Str{"ws_connect"},
-                 std::move(message),
-                 simulation_ ? kSimulationCode : kStoppedCode, false, false);
+                 std::move(message), kStoppedCode, false, false);
     } catch (...) {
     }
   }
@@ -1240,16 +1245,23 @@ private:
       Value envelope =
           delivery_envelope(bindings_, client_id, std::move(report));
       if (control) {
-        static_cast<void>(bridge_.value->push_control(
-            index(ClientChannel::SendDelivery), std::move(envelope), retained));
+        if (!output_.send(WebTransportEventKind::ClientSendDelivery,
+                          "delivery", std::move(envelope),
+                          index(ClientChannel::SendDelivery), retained, true)) {
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
         return;
       }
-      if (!bridge_.value->push(index(ClientChannel::SendDelivery),
-                               envelope.clone(), retained)) {
+      if (!output_.send(WebTransportEventKind::ClientSendDelivery, "delivery",
+                        envelope.clone(), index(ClientChannel::SendDelivery),
+                        retained)) {
         // A delivery report the payload lane could not take still has to
         // reach its requester; the control lane is sized for exactly this.
-        static_cast<void>(bridge_.value->push_control(
-            index(ClientChannel::SendDelivery), std::move(envelope), retained));
+        if (!output_.send(WebTransportEventKind::ClientSendDelivery,
+                          "delivery", std::move(envelope),
+                          index(ClientChannel::SendDelivery), retained, true)) {
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
       }
     } catch (...) {
     }
@@ -1267,10 +1279,14 @@ private:
       const bool stop_graph =
           fatal && config_.failure_policy == WebFailurePolicy::StopGraph;
       Value envelope = event_envelope(bindings_, std::move(event), stop_graph);
-      if (!bridge_.value->push(index(ClientChannel::Event), envelope.clone(),
-                               retained)) {
-        static_cast<void>(bridge_.value->push_control(
-            index(ClientChannel::Event), std::move(envelope), retained));
+      if (!output_.send(WebTransportEventKind::ClientEvent, "event",
+                        envelope.clone(), index(ClientChannel::Event),
+                        retained)) {
+        if (!output_.send(WebTransportEventKind::ClientEvent, "event",
+                          std::move(envelope), index(ClientChannel::Event),
+                          retained, true)) {
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
       }
     } catch (...) {
     }
@@ -1833,14 +1849,17 @@ private:
   void push_ws(Value envelope, std::size_t retained,
                bool lifecycle = true) noexcept {
     try {
-      if (bridge_.value->push(
-              index(ClientChannel::WsIngress),
-              lifecycle ? envelope.clone() : std::move(envelope), retained)) {
+      if (output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
+                       lifecycle ? envelope.clone() : std::move(envelope),
+                       index(ClientChannel::WsIngress), retained)) {
         return;
       }
       if (lifecycle) {
-        static_cast<void>(bridge_.value->push_control(
-            index(ClientChannel::WsIngress), std::move(envelope), retained));
+        if (!output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
+                          std::move(envelope),
+                          index(ClientChannel::WsIngress), retained, true)) {
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
       }
     } catch (...) {
     }
@@ -1937,8 +1956,9 @@ private:
                       : ws_binary_frame(bindings_, std::move(payload));
     Value envelope = ws_client_envelope(bindings_, connection.key.clone(),
                                         Value{}, std::move(frame));
-    if (bridge_.value->push(index(ClientChannel::WsIngress),
-                            std::move(envelope), retained)) {
+    if (output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
+                     std::move(envelope), index(ClientChannel::WsIngress),
+                     retained)) {
       return true;
     }
     // Client WS ingress has no read-pause seam in v1 (curl owns the socket
@@ -2160,16 +2180,20 @@ private:
             {"staged_count", bindings_.number(static_cast<Int>(staged))},
             {"ws_connection_count", bindings_.number(open_connections)},
             {"ingress_record_count",
-             bindings_.number(static_cast<Int>(bridge_.value->payload_pending(
+             bindings_.number(static_cast<Int>(admission_.value->payload_pending(
                  index(ClientChannel::Response))))},
             {"ingress_byte_count", bindings_.number(static_cast<Int>(
-                                       bridge_.value->payload_retained_bytes(
+                                       admission_.value->payload_retained_bytes(
                                            index(ClientChannel::Response))))},
             {"dropped_count", bindings_.number(static_cast<Int>(
                                   dropped_.load(std::memory_order_relaxed)))},
         });
-    bridge_.value->push_latest(index(ClientChannel::Stats), std::move(stats),
-                               1);
+    if (!output_.send(WebTransportEventKind::ClientStats, "client_stats",
+                      std::move(stats), index(ClientChannel::Stats), 1)) {
+      // Statistics are self-superseding. A later sample reports this drop and
+      // the current state; no protocol work is lost.
+      dropped_.fetch_add(1, std::memory_order_relaxed);
+    }
   }
 
   void shutdown() noexcept {
@@ -2190,7 +2214,7 @@ private:
       for (auto &transfer : transfers_) {
         static_cast<void>(curl_multi_remove_handle(multi_, transfer->easy));
         // The reservation is consumed by the report, so nothing leaks even
-        // when the bridge has already refused the push.
+        // when graph teardown has already closed the push source.
         push_response(
             response_envelope(
                 bindings_, transfer->client_id, Value{},
@@ -2233,10 +2257,9 @@ private:
   ClientRuntimeConfig config_;
   ValueBindings bindings_{};
   Str path_;
-  ClientBridgeHandle bridge_;
-  bool simulation_{};
+  ClientAdmissionHandle admission_;
+  ClientTransportOutput output_;
   bool started_{};
-  bool simulation_warned_{};
 
   std::atomic<bool> accepting_{};
   std::atomic<bool> stopping_{};
@@ -2266,104 +2289,131 @@ namespace hgraph::web {
 namespace {
 namespace wd = ::hgraph::web::detail;
 
-struct WebClientRuntimeNode {
-  static constexpr auto name = "web_curl_client_runtime";
-  using signature_args = std::tuple<
-      In<"calls", TSD<Int, HttpClientCall>, InputValidity::Unchecked>,
-      In<"ws_keys", TSS<WsClientKey>, InputValidity::Unchecked>,
-      In<"ws_sends", TSD<Int, WsClientSendRequest>, InputValidity::Unchecked>,
-      Scalar<"config", wd::ClientRuntimeConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", wd::ClientBridgeHandle>, State<wd::ClientRuntimeHandle>>;
-
-  static void start(Scalar<"config", wd::ClientRuntimeConfigHandle> config,
-                    Scalar<"path", Str> path,
-                    Scalar<"bridge", wd::ClientBridgeHandle> bridge,
-                    State<wd::ClientRuntimeHandle> state,
-                    EngineControlView engine) {
-    auto runtime = std::make_shared<wd::WebClientRuntime>(
-        *config.value().value, path.value(), bridge.value(),
-        engine.mode() == GraphExecutorMode::Simulation);
-    runtime->start();
-    try {
-      state.set(wd::ClientRuntimeHandle{runtime});
-    } catch (...) {
-      runtime->stop();
-      throw;
-    }
+[[nodiscard]] std::shared_ptr<wd::WebClientRuntime>
+live_client_runtime(Scalar<"runtime", wd::ClientRuntimeHandle> runtime) {
+  if (!runtime.value().value) {
+    throw std::logic_error("Web client runtime resource is not configured");
   }
-
-  static void
-  eval(In<"calls", TSD<Int, HttpClientCall>, InputValidity::Unchecked> calls,
-       In<"ws_keys", TSS<WsClientKey>, InputValidity::Unchecked> ws_keys,
-       In<"ws_sends", TSD<Int, WsClientSendRequest>, InputValidity::Unchecked>
-           ws_sends,
-       Scalar<"bridge", wd::ClientBridgeHandle> bridge,
-       State<wd::ClientRuntimeHandle> state) {
-    auto runtime = state.get().value;
-    if (!runtime) {
-      throw std::logic_error("Web client runtime evaluated before start");
-    }
-
-    if (calls.modified()) {
-      for (const auto &[client_id, call] : calls.modified_items()) {
-        auto request = call.template field<"request">();
-        auto options = call.template field<"options">();
-        if (!request.modified() || !request.valid()) {
-          continue;
-        }
-        runtime->call(client_id.template checked_as<Int>(),
-                      request.base().value().clone(),
-                      options.valid() ? options.base().value().clone()
-                                      : Value{});
-      }
-    }
-
-    if (ws_keys.modified()) {
-      const auto &erased = static_cast<const TSSInputView &>(ws_keys);
-      for (const auto key : erased.removed()) {
-        if (!wd::erase_keyed<wd::WsClientEnvelope>(
-                *bridge.value().value, wd::index(wd::ClientChannel::WsIngress),
-                "key", key.clone())) {
-          throw std::overflow_error("Web client key-removal queue is full");
-        }
-        runtime->ws_key_removed(key.clone());
-      }
-      for (const auto key : erased.added()) {
-        runtime->ws_key_added(key.clone());
-      }
-    }
-
-    if (ws_sends.modified()) {
-      for (const auto &[client_id, request] : ws_sends.modified_items()) {
-        auto frame = request.template field<"frame">();
-        auto key = request.template field<"key">();
-        if (!frame.modified() || !frame.valid()) {
-          continue;
-        }
-        if (!key.valid()) {
-          throw std::invalid_argument(
-              "Web WS client send requires a valid key");
-        }
-        runtime->ws_send(client_id.template checked_as<Int>(),
-                         key.base().value().clone(),
-                         frame.base().value().clone());
-      }
-    }
+  auto value = runtime.value().value->get();
+  if (!value) {
+    throw std::logic_error("Web client command evaluated before runtime start");
   }
+  return value;
+}
 
-  static void stop(State<wd::ClientRuntimeHandle> state) {
-    if (auto runtime = state.get().value) {
-      runtime->stop();
+/** Stages modified HTTP calls for the curl owner task. Cost is O(M) for M
+ *  modified calls. */
+struct WebClientCallSink {
+  static constexpr auto name = "web_client_call";
+
+  static void eval(
+      In<"calls", TSD<Int, HttpClientCall>, InputValidity::Unchecked> calls,
+      Scalar<"runtime", wd::ClientRuntimeHandle> runtime) {
+    if (!calls.modified()) {
+      return;
     }
-    state.set(wd::ClientRuntimeHandle{});
+    auto task = live_client_runtime(runtime);
+    for (const auto &[client_id, call] : calls.modified_items()) {
+      auto request = call.template field<"request">();
+      auto options = call.template field<"options">();
+      if (!request.modified() || !request.valid()) {
+        continue;
+      }
+      task->call(client_id.template checked_as<Int>(),
+                 request.base().value().clone(),
+                 options.valid() ? options.base().value().clone() : Value{});
+    }
   }
 };
+
+/** Applies WebSocket connection-key deltas to the curl owner task. Cost is
+ *  O(A + R) per tick. */
+struct WebClientWsKeySink {
+  static constexpr auto name = "web_client_ws_keys";
+
+  static void eval(
+      In<"keys", TSS<WsClientKey>, InputValidity::Unchecked> keys,
+      Scalar<"runtime", wd::ClientRuntimeHandle> runtime) {
+    if (!keys.modified()) {
+      return;
+    }
+    auto task = live_client_runtime(runtime);
+    const auto &erased = static_cast<const TSSInputView &>(keys);
+    for (const auto key : erased.removed()) {
+      task->ws_key_removed(key.clone());
+    }
+    for (const auto key : erased.added()) {
+      task->ws_key_added(key.clone());
+    }
+  }
+};
+
+/** Stages graph-produced WebSocket sends. Cost is O(M) for M modified sends. */
+struct WebClientWsSendSink {
+  static constexpr auto name = "web_client_ws_send";
+
+  static void eval(
+      In<"sends", TSD<Int, WsClientSendRequest>, InputValidity::Unchecked>
+          sends,
+      Scalar<"runtime", wd::ClientRuntimeHandle> runtime) {
+    if (!sends.modified()) {
+      return;
+    }
+    auto task = live_client_runtime(runtime);
+    for (const auto &[client_id, request] : sends.modified_items()) {
+      auto frame = request.template field<"frame">();
+      auto key = request.template field<"key">();
+      if (!frame.modified() || !frame.valid()) {
+        continue;
+      }
+      if (!key.valid()) {
+        throw std::invalid_argument("Web WS client send requires a valid key");
+      }
+      task->ws_send(client_id.template checked_as<Int>(),
+                    key.base().value().clone(),
+                    frame.base().value().clone());
+    }
+  }
+};
+
+struct WebClientTransportTag {};
+
+[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_client_transport(
+    Wiring &w, wd::ClientRuntimeConfigHandle config, Str path,
+    wd::ClientRuntimeHandle runtime, wd::ClientAdmissionHandle admission,
+    wd::WebTransportBindingsHandle bindings) {
+  return wd::wire_transport_source<WebClientTransportTag>(
+      w, admission.value->max_pending(),
+      [config = std::move(config), path = std::move(path), runtime, admission,
+       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+        admission.value->start();
+        auto admission_rollback =
+            make_scope_exit<true>([&] { admission.value->stop(); });
+        auto task = std::make_shared<wd::WebClientRuntime>(
+            *config.value, path, admission, bindings, std::move(sender));
+        task->start();
+        auto task_rollback = make_scope_exit<true>([&] { task->stop(); });
+        runtime.value->install(task);
+        task_rollback.release();
+        admission_rollback.release();
+      },
+      [runtime, admission](const NodeView &) {
+        if (auto task = runtime.value->take()) {
+          task->stop();
+        }
+        admission.value->stop();
+      });
+}
 
 struct WebClientImpl {
   static constexpr auto name = "web_client_impl";
 
   static void compose(Wiring &w, Scalar<"config", Value> config,
                       Scalar<"path", Str> path) {
+    if (!w.is_realtime()) {
+      throw std::invalid_argument(
+          "the live web client requires a real-time graph");
+    }
     register_web_types();
     wd::register_internal_types();
     // Wiring is parse/validate only (RFC 0024, lifecycle): a graph that wires
@@ -2377,11 +2427,18 @@ struct WebClientImpl {
     auto ws_keys = service::impl_input<WsClientService>(w, binding);
     auto ws_sends = service::impl_input<WsClientSendService>(w, binding);
 
-    auto bridge = wd::make_client_bridge(config.value());
-    auto outputs = wd::wire_client_outputs(w, bridge);
-
-    static_cast<void>(wire<WebClientRuntimeNode>(
-        w, calls, ws_keys, ws_sends, runtime_config, path.value(), bridge));
+    wd::ClientRuntimeHandle runtime{
+        std::make_shared<wd::ClientRuntimeResource>()};
+    auto admission = wd::make_client_admission(config.value());
+    auto transport_bindings = wd::make_transport_bindings();
+    auto transport = wire_client_transport(w, runtime_config, path.value(),
+                                           runtime, admission,
+                                           transport_bindings);
+    static_cast<void>(wire<WebClientCallSink>(w, calls, runtime));
+    static_cast<void>(wire<WebClientWsKeySink>(w, ws_keys, runtime));
+    static_cast<void>(wire<WebClientWsSendSink>(w, ws_sends, runtime));
+    auto outputs = wd::wire_client_outputs(
+        w, transport, ws_keys, admission, transport_bindings);
 
     service::impl_output<HttpClientService>(w, binding, outputs.responses);
     service::impl_output<WsClientService>(w, binding, outputs.ws);

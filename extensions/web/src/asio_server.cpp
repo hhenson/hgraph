@@ -10,9 +10,11 @@
 
 #include "detail/h2_engine.h"
 #include "detail/route_table.h"
-#include "detail/service_bridge.h"
+#include "detail/service_transport.h"
 #include "detail/web_bindings.h"
 #include "detail/stream_model.h"
+
+#include <hgraph/util/scope.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -337,21 +339,7 @@ void validate_literal_static_path(std::string_view path,
 
 struct ServerConfigHandle {
   std::shared_ptr<const ServerRuntimeConfig> value{};
-
-  friend bool operator==(const ServerConfigHandle &,
-                         const ServerConfigHandle &) noexcept = default;
-  friend std::strong_ordering
-  operator<=>(const ServerConfigHandle &lhs,
-              const ServerConfigHandle &rhs) noexcept {
-    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
-           reinterpret_cast<std::uintptr_t>(rhs.value.get());
-  }
 };
-
-inline std::ostream &operator<<(std::ostream &stream,
-                                const ServerConfigHandle &value) {
-  return stream << "ServerConfigHandle(" << value.value.get() << ')';
-}
 
 [[nodiscard]] std::optional<HttpMethod> method_from(http::verb verb) noexcept {
   switch (verb) {
@@ -874,7 +862,8 @@ public:
    * connection keeps serving the other attachees' streams (review P1).
    * The barrier is held through every handler the retirement schedules,
    * so the stopping runtime can await ITS completion — without waiting
-   * on other attachees' connections — before clearing its bridge. */
+   * on other attachees' connections — before releasing its admission
+   * budget. */
   virtual void retire_runtime(const WebServerRuntime *runtime,
                               std::shared_ptr<const void> barrier) = 0;
   /** The listener itself is shutting down (last attachee): close the
@@ -886,9 +875,13 @@ class WebServerRuntime
     : public std::enable_shared_from_this<WebServerRuntime> {
 public:
   WebServerRuntime(std::shared_ptr<const ServerRuntimeConfig> config, Str path,
-                   ServerBridgeHandle bridge, bool simulation)
+                   ServerAdmissionHandle admission,
+                   WebTransportBindingsHandle transport_bindings,
+                   PushSourceSender sender)
       : config_{std::move(config)}, path_{std::move(path)},
-        bridge_{std::move(bridge)}, simulation_{simulation} {}
+        admission_{std::move(admission)},
+        output_{std::move(sender), admission_,
+                std::move(transport_bindings)} {}
 
   ~WebServerRuntime() { stop(); }
 
@@ -912,7 +905,6 @@ public:
     return bindings_;
   }
   [[nodiscard]] const Str &path() const noexcept { return path_; }
-  [[nodiscard]] ServerBridgeHandle &bridge() noexcept { return bridge_; }
   [[nodiscard]] asio::ssl::context *tls_context() noexcept {
     return tls_context_ ? tls_context_.get() : nullptr;
   }
@@ -954,36 +946,37 @@ public:
   }
 
   // Ingress admission (review P1): a connection reserves its projected
-  // retained bytes on the bridge BEFORE reading the request body or arming
+  // retained bytes in the admission budget BEFORE reading the request body or arming
   // a WebSocket message read, so concurrent connections cannot each hold a
-  // full payload while the bridge is full — the excess stays unread in the
-  // kernel (RFC 0024, flow control).  The bridge's reservation covers the
-  // record and byte limits under one lock, and the reserved push cannot
-  // fail, so an admitted payload never needs a retry that would retain it
-  // outside the bridge.
+  // full payload while the graph transport is full — the excess stays unread
+  // in the kernel (RFC 0024, flow control). The budget reservation covers the
+  // record and byte limits under one lock, and the standard push-source queue
+  // has matching aggregate capacity, so an admitted payload needs no retry or
+  // second queue.
   [[nodiscard]] bool reserve_request(std::size_t bytes) {
-    return bridge_.value->reserve(index(ServerChannel::Request), bytes);
+    return admission_.value->reserve(index(ServerChannel::Request), bytes);
   }
   [[nodiscard]] bool grow_request_reservation(std::size_t bytes) {
-    return bridge_.value->grow_reservation(index(ServerChannel::Request),
-                                           bytes);
+    return admission_.value->grow_reservation(index(ServerChannel::Request),
+                                              bytes);
   }
   [[nodiscard]] Int allocate_connection_id() noexcept {
     return ++process_request_ids;
   }
   void release_request_reservation(std::size_t bytes) noexcept {
-    bridge_.value->release_reservation(index(ServerChannel::Request), bytes);
+    admission_.value->release_reservation(index(ServerChannel::Request),
+                                          bytes);
   }
   [[nodiscard]] bool reserve_ws_ingress(std::size_t bytes) {
-    return bridge_.value->reserve(index(ServerChannel::WsIngress), bytes);
+    return admission_.value->reserve(index(ServerChannel::WsIngress), bytes);
   }
   [[nodiscard]] bool grow_ws_reservation(std::size_t bytes) {
-    return bridge_.value->grow_reservation(index(ServerChannel::WsIngress),
-                                           bytes);
+    return admission_.value->grow_reservation(index(ServerChannel::WsIngress),
+                                              bytes);
   }
   void release_ws_reservation(std::size_t bytes) noexcept {
-    bridge_.value->release_reservation(index(ServerChannel::WsIngress),
-                                       bytes);
+    admission_.value->release_reservation(index(ServerChannel::WsIngress),
+                                          bytes);
   }
 
 private:
@@ -1000,8 +993,8 @@ private:
   std::shared_ptr<const ServerRuntimeConfig> config_{};
   WebBindings bindings_{};
   Str path_{};
-  ServerBridgeHandle bridge_{};
-  bool simulation_{};
+  ServerAdmissionHandle admission_{};
+  ServerTransportOutput output_;
   bool started_{};
   std::shared_ptr<WebListener> listener_{};
   std::unique_ptr<asio::ssl::context> tls_context_{};
@@ -1274,7 +1267,7 @@ private:
   // while ws_read_buffer_ stays chunk-sized: Beast's flat_buffer keeps its
   // allocated capacity after consume(), so assembling messages inside it
   // would let every idle connection retain its largest-ever message
-  // outside bridge accounting (review P1).
+  // outside admission accounting (review P1).
   std::string ws_message_{};
   Int pending_request_id_{-1};
   Int ws_connection_id_{-1};
@@ -1311,10 +1304,10 @@ private:
 //
 // Owns the TLS socket after ALPN selects "h2" and pumps bytes through the
 // pure H2Engine; every protocol event arrives via H2Host on this strand.
-// Requests flow through the SAME bridge contract as h1: header admission
+// Requests flow through the SAME admission contract as h1: header admission
 // reserves on the matched runtime before any DATA window is released, DATA
 // chunks grow the reservation before the engine may consume them, and the
-// reserved push transfers everything to the queued value.
+// reserved send transfers everything to the standard push-source value.
 
 class H2Driver final : public std::enable_shared_from_this<H2Driver>,
                        public PendingTarget,
@@ -1446,7 +1439,7 @@ private:
     bool headers_counted{};
     // A retirement barrier rides the stream to its terminal event —
     // close, reset, or write failure — so a flow-control-blocked
-    // response cannot let stop() clear the bridge early (review P1).
+    // response cannot let stop() clear its admission budget early (review P1).
     std::shared_ptr<const void> retire_barrier{};
     bool end_stream_seen{};
     bool discarding{};
@@ -1525,7 +1518,7 @@ private:
   std::vector<PendingReport> pending_flush_reports_{};
   // Bytes buffered ahead of admission across ALL streams; the connection
   // read loop stalls at one window's worth so backpressured streams
-  // cannot accumulate stream-window x stream-count outside the bridge
+  // cannot accumulate stream-window x stream-count outside the admission
   // budget (review P1).
   std::size_t unaccounted_total_{};
   bool read_stalled_{};
@@ -1753,7 +1746,7 @@ void WebListener::set_reads_paused(ReadTier tier, const void *token,
       // Only attached runtimes may pause: a watermark callback racing a
       // stop() could otherwise re-add the departing runtime's token after
       // its withdrawal, leaving the shared listener paused forever once
-      // bridge.stop() discards the callback (review P1).  detach() and
+      // admission stop discards the callback (review P1). detach() and
       // this check share mutex_, so the window is closed.
       const bool attached =
           std::any_of(runtimes_.begin(), runtimes_.end(),
@@ -1803,15 +1796,6 @@ void WebServerRuntime::start() {
   register_web_types();
   register_internal_types();
   bindings_.resolve_all();
-  if (simulation_) {
-    // Live transport is real-time only (RFC 0024, lifecycle): no socket is
-    // bound and every sink command is rejected with a typed report.
-    bridge_.value->start();
-    started_ = true;
-    emit_event(WebSeverity::Warning, Str{"server"}, Str{"simulation"},
-               Str{"the web server transport is real-time only"});
-    return;
-  }
 
   if (config_->tls.enabled) {
     tls_context_ = std::make_unique<asio::ssl::context>(
@@ -1904,7 +1888,6 @@ void WebServerRuntime::start() {
       listener_->ensure_listening();
     }
     listener_->start_io();
-    bridge_.value->start();
   } catch (...) {
     if (ListenerRegistry::instance().release(listener_, this)) {
       listener_->stop_io();
@@ -1925,7 +1908,7 @@ void WebServerRuntime::start() {
       config_->ingress.records * static_cast<std::size_t>(config_->watermark_low_pct) / 100,
       config_->ingress.bytes * static_cast<std::size_t>(config_->watermark_low_pct) / 100,
   };
-  bridge_.value->set_watermark(
+  admission_.value->set_watermark(
       index(ServerChannel::Request),
       WatermarkConfig{high, low,
                       [listener = listener_, token = this](bool paused) {
@@ -1944,7 +1927,7 @@ void WebServerRuntime::start() {
       config_->ws_ingress.bytes *
           static_cast<std::size_t>(config_->watermark_low_pct) / 100,
   };
-  bridge_.value->set_watermark(
+  admission_.value->set_watermark(
       index(ServerChannel::WsIngress),
       WatermarkConfig{ws_high, ws_low,
                       [listener = listener_, token = this](bool paused) {
@@ -1979,15 +1962,31 @@ void WebServerRuntime::stop() noexcept {
   stopping_.store(true, std::memory_order_release);
   try {
     if (listener_) {
+      // Cancel the runtime-owned timers while the listener's io pool is
+      // still running.  Their wait handlers capture this runtime; stopping
+      // the io_context first would strand those handlers and form the cycle
+      // runtime -> listener -> io_context -> handler -> runtime.
+      auto sweep_timer = std::exchange(sweep_timer_, {});
+      auto stats_timer = std::exchange(stats_timer_, {});
+      const auto cancel_timer = [](const auto &timer) {
+        if (timer) {
+          asio::post(timer->get_executor(), [timer] {
+            static_cast<void>(timer->cancel());
+          });
+        }
+      };
+      cancel_timer(sweep_timer);
+      cancel_timer(stats_timer);
+
       // (1) stop intake, (2) 503 pending + drain, (3) WS Close(1001),
-      // (4) cancel + join IO, (5) bridge last (RFC 0024, lifecycle).
+      // (4) cancel + join IO, (5) admission budget last (RFC 0024, lifecycle).
       const bool last =
           ListenerRegistry::instance().release(listener_, this);
 
       // Withdraw this runtime's pause tokens AFTER detaching: from here the
       // listener refuses new pauses from this runtime, so a watermark
       // callback racing this stop cannot re-add the token that
-      // bridge_.stop() below would orphan (review P1).
+      // admission stop below would orphan (review P1).
       listener_->set_reads_paused(WebListener::ReadTier::Http, this, false);
       listener_->set_reads_paused(WebListener::ReadTier::Ws, this, false);
 
@@ -2025,28 +2024,17 @@ void WebServerRuntime::stop() noexcept {
         const auto deadline = std::chrono::steady_clock::now() +
                               config_->shutdown_drain_timeout;
         while (std::chrono::steady_clock::now() < deadline &&
-               listener_->open_connections() != 0) {
+               (listener_->open_connections() != 0 ||
+                (sweep_timer && sweep_timer.use_count() > 1) ||
+                (stats_timer && stats_timer.use_count() > 1))) {
           std::this_thread::sleep_for(std::chrono::milliseconds{10});
         }
         listener_->stop_io();
       }
-      // Cancellation is posted onto each timer's strand: for a non-last
-      // attachee the io pool keeps running, and a handler that expired just
-      // before this stop still holds the runtime alive via shared_from_this
-      // (it re-arms nothing once stopping_ is set).
-      for (auto &timer : {sweep_timer_, stats_timer_}) {
-        if (timer) {
-          asio::post(timer->get_executor(),
-                     [timer] { static_cast<void>(timer->cancel()); });
-        }
-      }
-      sweep_timer_.reset();
-      stats_timer_.reset();
       listener_.reset();
     }
   } catch (...) {
   }
-  bridge_.value->stop();
 }
 
 void WebServerRuntime::rebuild(
@@ -2078,9 +2066,6 @@ void WebServerRuntime::rebuild(
 
 void WebServerRuntime::apply_http_routes(std::vector<Value> added,
                                          std::vector<Value> removed) {
-  if (simulation_) {
-    return;
-  }
   if (listener_) {
     listener_->check_route_conflicts(this, false, added);
   }
@@ -2099,21 +2084,7 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
           "'");
     }
   }
-  std::vector<Value> announce;
-  for (const Value &route : added) {
-    announce.push_back(route.clone());
-  }
   rebuild(http_routes_, http_master_, std::move(added), std::move(removed));
-  for (Value &route : announce) {
-    static_cast<void>(bridge_.value->push(
-        index(ServerChannel::Request),
-        build_on(bindings_.request_envelope,
-                 {
-                     {"route", std::move(route)},
-                     {"state", bindings_.enum_value(WebRouteState::Serving)},
-                 }),
-        256));
-  }
   if (config_->bind_deferred && listener_) {
     listener_->ensure_listening();
     emit_event(WebSeverity::Info, Str{"server"}, Str{"listening"},
@@ -2124,9 +2095,6 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
 
 void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
                                        std::vector<Value> removed) {
-  if (simulation_) {
-    return;
-  }
   if (listener_) {
     listener_->check_route_conflicts(this, true, added);
   }
@@ -2195,14 +2163,14 @@ bool WebServerRuntime::push_request_reserved(Value route, Value request,
                Str{"request retained estimate exceeded its reservation"});
     retained_bytes = reserved_bytes;
   }
-  return bridge_.value->push_reserved(
-      index(ServerChannel::Request),
+  return output_.send_reserved(
+      WebTransportEventKind::ServerRequest, "request",
       build_on(bindings_.request_envelope,
                {
                    {"route", std::move(route)},
                    {"request", std::move(request)},
                }),
-      retained_bytes, reserved_bytes);
+      index(ServerChannel::Request), retained_bytes, reserved_bytes);
 }
 
 bool WebServerRuntime::push_ws_event_reserved(Value route, Value event,
@@ -2210,13 +2178,14 @@ bool WebServerRuntime::push_ws_event_reserved(Value route, Value event,
                                               std::size_t reserved_bytes) {
   // Terminal lifecycle events ride capacity reserved at accept, so a full
   // channel can never lose a Closed/Failed event (review P1).
-  return bridge_.value->push_reserved(
-      index(ServerChannel::WsIngress),
+  return output_.send_reserved(
+      WebTransportEventKind::ServerWsIngress, "server_ws",
       build_on(bindings_.ws_ingress_envelope,
                {
                    {"route", std::move(route)},
                    {"event", std::move(event)},
                }),
+      index(ServerChannel::WsIngress),
       std::min(retained_bytes, reserved_bytes), reserved_bytes);
 }
 
@@ -2230,25 +2199,28 @@ bool WebServerRuntime::push_ws_event(Value route, Value event,
                                       {"route", std::move(route)},
                                       {"event", std::move(event)},
                                   });
-  if (bridge_.value->push(index(ServerChannel::WsIngress), envelope.clone(),
-                          retained_bytes)) {
+  if (output_.send(WebTransportEventKind::ServerWsIngress, "server_ws",
+                   envelope.clone(), index(ServerChannel::WsIngress),
+                   retained_bytes)) {
     return true;
   }
-  return bridge_.value->push_control(index(ServerChannel::WsIngress),
-                                     envelope.clone(), retained_bytes);
+  return output_.send(WebTransportEventKind::ServerWsIngress, "server_ws",
+                      envelope.clone(), index(ServerChannel::WsIngress),
+                      retained_bytes, true);
 }
 
 [[nodiscard]] bool
 WebServerRuntime::push_ws_frame_reserved(Value route, Value inbound_frame,
                                          std::size_t retained_bytes,
                                          std::size_t reserved_bytes) {
-  return bridge_.value->push_reserved(
-      index(ServerChannel::WsIngress),
+  return output_.send_reserved(
+      WebTransportEventKind::ServerWsIngress, "server_ws",
       build_on(bindings_.ws_ingress_envelope,
                {
                    {"route", std::move(route)},
                    {"frame", std::move(inbound_frame)},
                }),
+      index(ServerChannel::WsIngress),
       std::min(retained_bytes, reserved_bytes), reserved_bytes);
 }
 
@@ -2261,9 +2233,14 @@ void WebServerRuntime::report(std::size_t channel, Int client_id,
                    {"request_id", bindings_.number(client_id)},
                    {"report", std::move(report_value)},
                });
-  if (!bridge_.value->push(channel, envelope.clone(), retained)) {
-    static_cast<void>(
-        bridge_.value->push_control(channel, envelope.clone(), retained));
+  const auto kind = channel == index(ServerChannel::RespondDelivery)
+                        ? WebTransportEventKind::ServerRespondDelivery
+                        : WebTransportEventKind::ServerWsSendDelivery;
+  if (!output_.send(kind, "delivery", envelope.clone(), channel, retained)) {
+    if (!output_.send(kind, "delivery", envelope.clone(), channel, retained,
+                      true)) {
+      count_drop();
+    }
   }
 }
 
@@ -2307,10 +2284,13 @@ void WebServerRuntime::emit_event(WebSeverity severity, Str component,
                                       {"event", std::move(event)},
                                       {"stop_graph", b.flag(stop_graph)},
                                   });
-  if (!bridge_.value->push(index(ServerChannel::Event), envelope.clone(),
-                           retained)) {
-    static_cast<void>(bridge_.value->push_control(index(ServerChannel::Event),
-                                                  envelope.clone(), retained));
+  if (!output_.send(WebTransportEventKind::ServerEvent, "event",
+                    envelope.clone(), index(ServerChannel::Event), retained)) {
+    if (!output_.send(WebTransportEventKind::ServerEvent, "event",
+                      envelope.clone(), index(ServerChannel::Event), retained,
+                      true)) {
+      count_drop();
+    }
   }
 }
 
@@ -2376,31 +2356,35 @@ void WebServerRuntime::emit_stats_once() {
     ws_count = ws_connections_.size();
   }
   const auto &b = bindings_;
-  bridge_.value->push_latest(
-      index(ServerChannel::Stats),
-      build_on(b.server_stats,
-               {
-                   {"listening_port",
-                    b.number(Int{listener_ ? listener_->bound_port() : 0})},
-                   {"connection_count",
-                    b.number(Int(listener_ ? listener_->open_connections()
-                                           : 0))},
-                   {"ws_connection_count", b.number(Int(ws_count))},
-                   {"pending_request_count", b.number(Int(pending_count))},
-                   {"ingress_record_count",
-                    b.number(Int(bridge_.value->payload_pending(
-                        index(ServerChannel::Request))))},
-                   {"ingress_byte_count",
-                    b.number(Int(bridge_.value->payload_retained_bytes(
-                        index(ServerChannel::Request))))},
-                   {"outbound_byte_count", b.number(Int{0})},
-                   {"dropped_count", b.number(dropped_.load())},
-               }),
-      256);
+  if (!output_.send(
+          WebTransportEventKind::ServerStats, "server_stats",
+          build_on(b.server_stats,
+                   {
+                       {"listening_port",
+                        b.number(Int{listener_ ? listener_->bound_port() : 0})},
+                       {"connection_count",
+                        b.number(Int(listener_ ? listener_->open_connections()
+                                               : 0))},
+                       {"ws_connection_count", b.number(Int(ws_count))},
+                       {"pending_request_count", b.number(Int(pending_count))},
+                       {"ingress_record_count",
+                        b.number(Int(admission_.value->payload_pending(
+                            index(ServerChannel::Request))))},
+                       {"ingress_byte_count",
+                        b.number(Int(admission_.value->payload_retained_bytes(
+                            index(ServerChannel::Request))))},
+                       {"outbound_byte_count", b.number(Int{0})},
+                       {"dropped_count", b.number(dropped_.load())},
+                   }),
+          index(ServerChannel::Stats), 256)) {
+    // Statistics are self-superseding; the next admitted sample contains the
+    // current counters, including this refusal.
+    count_drop();
+  }
 }
 
 void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
-  if (simulation_ || stopping_.load(std::memory_order_acquire)) {
+  if (stopping_.load(std::memory_order_acquire)) {
     report(index(ServerChannel::RespondDelivery), client_id,
            delivery_report(request_id, WebDeliveryStatus::EnqueueRejected, 0,
                            Str{"web server is not serving"}));
@@ -2428,7 +2412,7 @@ void WebServerRuntime::respond(Int client_id, Int request_id, Value response) {
 }
 
 void WebServerRuntime::ws_send(Int client_id, Int connection_id, Value frame) {
-  if (simulation_ || stopping_.load(std::memory_order_acquire)) {
+  if (stopping_.load(std::memory_order_acquire)) {
     report(index(ServerChannel::WsSendDelivery), client_id,
            delivery_report(connection_id, WebDeliveryStatus::EnqueueRejected,
                            0, Str{"web server is not serving"}));
@@ -2477,7 +2461,7 @@ void ServerConnection::read_next() {
                              : *plain_stream_;
   stream_timeout.expires_after(config.idle_timeout);
   // Headers first: route admission happens BEFORE the body is read, so a
-  // request the bridge cannot hold stays unread in the kernel instead of
+  // request the admission budget cannot hold stays unread in the kernel instead of
   // being retained per-connection (review P1; RFC 0024, flow control).
   const auto on_headers = asio::bind_executor(
       strand_, [self = shared_from_this()](beast::error_code ec, std::size_t) {
@@ -2800,7 +2784,7 @@ Value ServerConnection::build_server_request(const MatchedRoute &matched,
                          std::string{field.value()});
     header_bytes += headers.back().first.size() + headers.back().second.size();
   }
-  // The bridge accounts for real payload memory, so byte limits and
+  // The admission budget accounts for real payload memory, so byte limits and
   // watermarks bound what a peer can make the graph retain (review P1).
   // Moving the body out empties the Beast message, so once the value is
   // pushed the connection itself no longer retains the payload.
@@ -2843,9 +2827,10 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   std::size_t retained_bytes = 0;
   Value server_request =
       build_server_request(matched, request_id, retained_bytes);
-  // The reserved push consumes the admission taken before the body read;
+  // The reserved send consumes the admission taken before the body read;
   // capacity was decided there, so no retry can retain a body outside the
-  // bridge (review P1).  It fails only once the bridge stops accepting.
+  // standard push-source queue (review P1). It fails only once graph teardown
+  // stops admission.
   const bool pushed = runtime->push_request_reserved(
       matched.route->clone(), std::move(server_request), retained_bytes,
       admitted_bytes_);
@@ -3320,8 +3305,8 @@ void ServerConnection::ws_continue_message() {
 
 void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
   // Capacity was reserved before the read was armed (review P1), so the
-  // reserved push cannot fail for lack of space; false means the bridge
-  // has stopped accepting and the connection is being torn down.
+  // A reserved send cannot fail for lack of space; false means graph teardown
+  // has stopped admission and the connection is being torn down.
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
   const std::size_t reserved = ws_reserved_bytes_;
   ws_reserved_bytes_ = 0;
@@ -3620,7 +3605,7 @@ void ServerConnection::finish_ws(WsConnectionState state, Int close_code,
       static_cast<void>(runtime->push_ws_event_reserved(
           ws_route_->clone(), std::move(terminal), terminal_bytes, reserved));
     } else {
-      // Only reachable after bridge teardown or for a pre-reservation
+      // Only reachable after transport teardown or for a pre-reservation
       // connection; retain the best-effort fallback for orderly cleanup.
       static_cast<void>(runtime->push_ws_event(
           ws_route_->clone(), std::move(terminal), terminal_bytes));
@@ -3980,7 +3965,7 @@ void H2Driver::admit_stream(std::int32_t stream_id) {
   if (stream.discarding) {
     // Already answered by the transport (a retiring runtime's 503): the
     // admission retry loop ends here instead of spinning against a
-    // stopped bridge (review P1).
+    // stopped admission budget (review P1).
     return;
   }
   stream.admission_in_flight = false;
@@ -4294,7 +4279,7 @@ void H2Driver::respond_transport(std::int32_t stream_id, int status,
   if (found != streams_.end()) {
     Stream &stream = found->second;
     // One release path restores unconsumed DATA credit and drops every
-    // retained request buffer before giving the bridge reservation back.
+    // retained request buffer before giving the admission reservation back.
     // Trailer-overflow resets, peer resets, transport answers, and shutdown
     // all share the same invariant (review P1).
     release_stream(stream_id, stream);
@@ -4597,11 +4582,36 @@ Value H2Driver::peer_value(const WebBindings &b) {
 } // namespace
 
 // ---------------------------------------------------------------------------
-// Runtime node + service implementation
+// Graph-scoped runtime resource + service implementation
 
 namespace {
+class WebServerRuntimeResource {
+public:
+  void install(std::shared_ptr<WebServerRuntime> runtime) {
+    std::lock_guard lock{mutex_};
+    if (runtime_) {
+      throw std::logic_error("Web server runtime was installed twice");
+    }
+    runtime_ = std::move(runtime);
+  }
+
+  [[nodiscard]] std::shared_ptr<WebServerRuntime> get() const {
+    std::lock_guard lock{mutex_};
+    return runtime_;
+  }
+
+  [[nodiscard]] std::shared_ptr<WebServerRuntime> take() noexcept {
+    std::lock_guard lock{mutex_};
+    return std::exchange(runtime_, {});
+  }
+
+private:
+  mutable std::mutex mutex_{};
+  std::shared_ptr<WebServerRuntime> runtime_{};
+};
+
 struct WebServerRuntimeHandle {
-  std::shared_ptr<WebServerRuntime> value{};
+  std::shared_ptr<WebServerRuntimeResource> value{};
 
   friend bool operator==(const WebServerRuntimeHandle &,
                          const WebServerRuntimeHandle &) noexcept = default;
@@ -4628,12 +4638,6 @@ template <> struct hash<hgraph::web::detail::WebServerRuntimeHandle> {
   }
 };
 
-template <> struct hash<hgraph::web::detail::ServerConfigHandle> {
-  size_t operator()(const hgraph::web::detail::ServerConfigHandle &value)
-      const noexcept {
-    return hash<const void *>{}(value.value.get());
-  }
-};
 } // namespace std
 
 namespace hgraph::static_schema_detail {
@@ -4642,112 +4646,113 @@ template <> struct scalar_name<web::detail::WebServerRuntimeHandle> {
       "hgraph.web.internal::WebServerRuntimeHandle"};
 };
 
-template <> struct scalar_name<web::detail::ServerConfigHandle> {
-  static constexpr std::string_view value{
-      "hgraph.web.internal::ServerConfigHandle"};
-};
 } // namespace hgraph::static_schema_detail
 
 namespace hgraph::web {
 namespace {
 namespace wd = ::hgraph::web::detail;
 
-struct WebServerRuntimeNode {
-  static constexpr auto name = "web_server_runtime";
-  using signature_args = std::tuple<
-      In<"http_routes", TSS<WebRoute>, InputValidity::Unchecked>,
-      In<"ws_routes", TSS<WebRoute>, InputValidity::Unchecked>,
-      In<"responses", TSD<Int, HttpRespondRequest>, InputValidity::Unchecked>,
-      In<"ws_sends", TSD<Int, WsSendRequest>, InputValidity::Unchecked>,
-      Scalar<"config", wd::ServerConfigHandle>, Scalar<"path", Str>,
-      Scalar<"bridge", wd::ServerBridgeHandle>,
-      State<wd::WebServerRuntimeHandle>>;
+[[nodiscard]] std::shared_ptr<wd::WebServerRuntime>
+live_server_runtime(Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
+  if (!runtime.value().value) {
+    throw std::logic_error("Web server runtime resource is not configured");
+  }
+  auto value = runtime.value().value->get();
+  if (!value) {
+    throw std::logic_error("Web server command evaluated before runtime start");
+  }
+  return value;
+}
 
-  static void start(Scalar<"config", wd::ServerConfigHandle> config,
-                    Scalar<"path", Str> path,
-                    Scalar<"bridge", wd::ServerBridgeHandle> bridge,
-                    State<wd::WebServerRuntimeHandle> state,
-                    EngineControlView engine) {
-    auto runtime = std::make_shared<wd::WebServerRuntime>(
-        config.value().value, path.value(), bridge.value(),
-        engine.mode() == GraphExecutorMode::Simulation);
-    runtime->start();
-    try {
-      state.set(wd::WebServerRuntimeHandle{runtime});
-    } catch (...) {
-      runtime->stop();
-      throw;
+/** Applies route deltas to the transport's immutable routing snapshot.
+ *  Cost is O(A + R) plus route-table rebuild for additions A/removals R. */
+struct WebServerHttpRouteSink {
+  static constexpr auto name = "web_server_http_routes";
+
+  static void eval(
+      In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
+    if (!routes.modified()) {
+      return;
+    }
+    const auto &erased = static_cast<const TSSInputView &>(routes);
+    std::vector<Value> removed;
+    for (const auto route : erased.removed()) {
+      removed.push_back(route.clone());
+    }
+    std::vector<Value> added;
+    for (const auto route : erased.added()) {
+      added.push_back(route.clone());
+    }
+    live_server_runtime(runtime)->apply_http_routes(std::move(added),
+                                                    std::move(removed));
+  }
+};
+
+/** Applies WebSocket route deltas to the transport routing snapshot.
+ *  Cost is O(A + R) plus route-table rebuild. */
+struct WebServerWsRouteSink {
+  static constexpr auto name = "web_server_ws_routes";
+
+  static void eval(
+      In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
+    if (!routes.modified()) {
+      return;
+    }
+    const auto &erased = static_cast<const TSSInputView &>(routes);
+    std::vector<Value> removed;
+    for (const auto route : erased.removed()) {
+      removed.push_back(route.clone());
+    }
+    std::vector<Value> added;
+    for (const auto route : erased.added()) {
+      added.push_back(route.clone());
+    }
+    live_server_runtime(runtime)->apply_ws_routes(std::move(added),
+                                                  std::move(removed));
+  }
+};
+
+/** Dispatches graph-produced HTTP responses to their owning connection.
+ *  Cost is O(M) for M modified response requests. */
+struct WebServerRespondSink {
+  static constexpr auto name = "web_server_respond";
+
+  static void eval(
+      In<"responses", TSD<Int, HttpRespondRequest>, InputValidity::Unchecked>
+          responses,
+      Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
+    if (!responses.modified()) {
+      return;
+    }
+    auto task = live_server_runtime(runtime);
+    for (const auto &[client_id, request] : responses.modified_items()) {
+      auto response = request.template field<"response">();
+      auto request_id = request.template field<"request_id">();
+      if (!response.modified() || !response.valid()) {
+        continue;
+      }
+      if (!request_id.valid()) {
+        throw std::invalid_argument("Web respond requires a valid request id");
+      }
+      task->respond(client_id.template checked_as<Int>(), request_id.value(),
+                    response.base().value().clone());
     }
   }
+};
 
-  static void
-  eval(In<"http_routes", TSS<WebRoute>, InputValidity::Unchecked> http_routes,
-       In<"ws_routes", TSS<WebRoute>, InputValidity::Unchecked> ws_routes,
-       In<"responses", TSD<Int, HttpRespondRequest>, InputValidity::Unchecked>
-           responses,
-       In<"ws_sends", TSD<Int, WsSendRequest>, InputValidity::Unchecked>
-           ws_sends,
-       Scalar<"bridge", wd::ServerBridgeHandle> bridge,
-       State<wd::WebServerRuntimeHandle> state) {
-    auto runtime = state.get().value;
-    if (!runtime) {
-      throw std::logic_error("Web server runtime evaluated before start");
-    }
+/** Dispatches graph-produced WebSocket frames. Cost is O(M) for M modified
+ *  sends. */
+struct WebServerWsSendSink {
+  static constexpr auto name = "web_server_ws_send";
 
-    if (http_routes.modified()) {
-      const auto &erased = static_cast<const TSSInputView &>(http_routes);
-      std::vector<Value> removed;
-      for (const auto route : erased.removed()) {
-        if (!wd::erase_keyed<wd::WebRequestEnvelope>(
-                *bridge.value().value, wd::index(wd::ServerChannel::Request),
-                "route", route.clone())) {
-          throw std::overflow_error("Web route-removal queue is full");
-        }
-        removed.push_back(route.clone());
-      }
-      std::vector<Value> added;
-      for (const auto route : erased.added()) {
-        added.push_back(route.clone());
-      }
-      runtime->apply_http_routes(std::move(added), std::move(removed));
-    }
-
-    if (ws_routes.modified()) {
-      const auto &erased = static_cast<const TSSInputView &>(ws_routes);
-      std::vector<Value> removed;
-      for (const auto route : erased.removed()) {
-        if (!wd::erase_keyed<wd::WsIngressEnvelope>(
-                *bridge.value().value, wd::index(wd::ServerChannel::WsIngress),
-                "route", route.clone())) {
-          throw std::overflow_error("Web WS route-removal queue is full");
-        }
-        removed.push_back(route.clone());
-      }
-      std::vector<Value> added;
-      for (const auto route : erased.added()) {
-        added.push_back(route.clone());
-      }
-      runtime->apply_ws_routes(std::move(added), std::move(removed));
-    }
-
-    if (responses.modified()) {
-      for (const auto &[client_id, request] : responses.modified_items()) {
-        auto response = request.template field<"response">();
-        auto request_id = request.template field<"request_id">();
-        if (!response.modified() || !response.valid()) {
-          continue;
-        }
-        if (!request_id.valid()) {
-          throw std::invalid_argument(
-              "Web respond requires a valid request id");
-        }
-        runtime->respond(client_id.template checked_as<Int>(),
-                         request_id.value(),
-                         response.base().value().clone());
-      }
-    }
-
+  static void eval(
+      In<"ws_sends", TSD<Int, WsSendRequest>, InputValidity::Unchecked>
+          ws_sends,
+      Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
     if (ws_sends.modified()) {
+      auto task = live_server_runtime(runtime);
       for (const auto &[client_id, request] : ws_sends.modified_items()) {
         auto frame = request.template field<"frame">();
         auto connection_id = request.template field<"connection_id">();
@@ -4758,26 +4763,51 @@ struct WebServerRuntimeNode {
           throw std::invalid_argument(
               "Web WS send requires a valid connection id");
         }
-        runtime->ws_send(client_id.template checked_as<Int>(),
-                         connection_id.value(),
-                         frame.base().value().clone());
+        task->ws_send(client_id.template checked_as<Int>(),
+                      connection_id.value(), frame.base().value().clone());
       }
     }
   }
-
-  static void stop(State<wd::WebServerRuntimeHandle> state) {
-    if (auto runtime = state.get().value) {
-      runtime->stop();
-    }
-    state.set(wd::WebServerRuntimeHandle{});
-  }
 };
+
+struct WebServerTransportTag {};
+
+[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_server_transport(
+    Wiring &w, wd::ServerConfigHandle config, Str path,
+    wd::WebServerRuntimeHandle runtime, wd::ServerAdmissionHandle admission,
+    wd::WebTransportBindingsHandle bindings) {
+  return wd::wire_transport_source<WebServerTransportTag>(
+      w, admission.value->max_pending(),
+      [config = std::move(config), path = std::move(path), runtime, admission,
+       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+        admission.value->start();
+        auto admission_rollback =
+            make_scope_exit<true>([&] { admission.value->stop(); });
+        auto task = std::make_shared<wd::WebServerRuntime>(
+            config.value, path, admission, bindings, std::move(sender));
+        task->start();
+        auto task_rollback = make_scope_exit<true>([&] { task->stop(); });
+        runtime.value->install(task);
+        task_rollback.release();
+        admission_rollback.release();
+      },
+      [runtime, admission](const NodeView &) {
+        if (auto task = runtime.value->take()) {
+          task->stop();
+        }
+        admission.value->stop();
+      });
+}
 
 struct WebServerImpl {
   static constexpr auto name = "web_server_impl";
 
   static void compose(Wiring &w, Scalar<"config", Value> config,
                       Scalar<"path", Str> path) {
+    if (!w.is_realtime()) {
+      throw std::invalid_argument(
+          "the live web server requires a real-time graph");
+    }
     register_web_types();
     wd::register_internal_types();
     // Fail every structural error at wiring time (RFC 0024, configuration).
@@ -4791,13 +4821,19 @@ struct WebServerImpl {
     auto responses = service::impl_input<HttpRespondService>(w, binding);
     auto ws_sends = service::impl_input<WsSendService>(w, binding);
 
-    auto bridge = wd::make_server_bridge(config.value());
-    auto outputs = wd::wire_server_outputs(w, bridge);
-
-    static_cast<void>(wire<WebServerRuntimeNode>(w, http_routes, ws_routes,
-                                                 responses, ws_sends,
-                                                 runtime_config, path.value(),
-                                                 bridge));
+    wd::WebServerRuntimeHandle runtime{
+        std::make_shared<wd::WebServerRuntimeResource>()};
+    auto admission = wd::make_server_admission(config.value());
+    auto transport_bindings = wd::make_transport_bindings();
+    auto transport = wire_server_transport(w, runtime_config, path.value(),
+                                           runtime, admission,
+                                           transport_bindings);
+    static_cast<void>(wire<WebServerHttpRouteSink>(w, http_routes, runtime));
+    static_cast<void>(wire<WebServerWsRouteSink>(w, ws_routes, runtime));
+    static_cast<void>(wire<WebServerRespondSink>(w, responses, runtime));
+    static_cast<void>(wire<WebServerWsSendSink>(w, ws_sends, runtime));
+    auto outputs = wd::wire_server_outputs(
+        w, transport, http_routes, ws_routes, admission, transport_bindings);
 
     service::impl_output<HttpServeService>(w, binding, outputs.requests);
     service::impl_output<WsServeService>(w, binding, outputs.ws);

@@ -738,13 +738,17 @@ option validation, Python blocking behaviour, and start/stop task lifecycle.
 The installed-SDK fixture exercises bounded queue and burst factories through
 public headers.
 
-The Kafka half of Stage 3 is implemented: one FIFO push source carries its
-ordered transport envelope, graph nodes project public service outputs, graph
-sinks issue commands and commits, byte-capacity configuration is removed, and
-simulation uses a scheduled replay node without a worker or push source.  The
-web migration and downstream before/after latency and allocation measurements
-remain outstanding before
-``Accepted`` status can be recorded.
+Stage 3 is implemented for both extensions. Kafka uses one FIFO push source
+for its ordered transport envelope, graph nodes project public service outputs,
+graph sinks issue commands and commits, byte-capacity configuration is removed, and
+simulation uses a scheduled replay node without a worker or push source. Web
+uses one FIFO push source per server/client runtime, graph nodes project its
+discriminated event envelope, graph sinks issue transport commands, and its
+former value queues, wake sources, and drain nodes are removed. Web retains
+only data-free domain byte/reservation accounting; callback-driven live and
+fake transports reject simulation wiring. Downstream before/after latency and
+allocation measurements remain outstanding before ``Accepted`` status can be
+recorded.
 Until the implementation and conformance tests merge, this RFC remains
 ``Proposed`` as required by RFC 0000.
 

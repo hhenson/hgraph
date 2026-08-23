@@ -22,9 +22,10 @@ namespace hgraph::web::detail {
 //
 // Flow control IS the ingress admission contract: the engine never
 // releases connection or stream window for request DATA by itself — the
-// host calls consume() once reservation-accounted on the bridge, or discard()
-// once the bytes are deliberately abandoned, so an unadmitted stream stalls
-// at the sender exactly like an unread h1 socket (RFC 0024, flow control).
+// host calls consume() once the web admission budget reserves the bytes, or
+// discard() once the bytes are deliberately abandoned, so an unadmitted
+// stream stalls at the sender exactly like an unread h1 socket (RFC 0024,
+// flow control).
 
 using H2Headers = std::vector<std::pair<std::string, std::string>>;
 

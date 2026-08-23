@@ -285,7 +285,9 @@ void run_loopback_once() {
 
     const DateTime start = wall_now();
     GraphExecutorBuilder executor_builder;
-    executor_builder.graph_builder(build_graph<ClientLoopbackGraph>())
+    executor_builder
+        .graph_builder(build_graph<ClientLoopbackGraph>(
+            WiringOptions{.is_realtime = true}))
         .mode(GraphExecutorMode::RealTime)
         .start_time(start)
         .end_time(start + TimeDelta{20'000'000});

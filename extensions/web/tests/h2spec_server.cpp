@@ -188,7 +188,9 @@ int main(int argc, char **argv) {
 
     const DateTime start = wall_now();
     GraphExecutorBuilder executor_builder;
-    executor_builder.graph_builder(build_graph<H2SpecGraph>())
+    executor_builder
+        .graph_builder(build_graph<H2SpecGraph>(
+            WiringOptions{.is_realtime = true}))
         .mode(GraphExecutorMode::RealTime)
         .start_time(start)
         .end_time(start + TimeDelta{static_cast<std::int64_t>(seconds) *

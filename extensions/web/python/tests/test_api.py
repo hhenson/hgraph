@@ -405,7 +405,7 @@ def test_every_service_interface_wires_against_one_registered_path() -> None:
         del request
         return web.HttpResponse(200)
 
-    wiring = _hgraph.Wiring()
+    wiring = _hgraph.Wiring(is_realtime=True)
     key = web.WsClientKey("ws://127.0.0.1:9/live")
 
     with use_wiring(wiring):
@@ -457,7 +457,7 @@ def test_every_service_interface_wires_against_one_registered_path() -> None:
 
 
 def test_a_dynamic_route_and_an_explicit_options_arm_wire_the_same_way() -> None:
-    wiring = _hgraph.Wiring()
+    wiring = _hgraph.Wiring(is_realtime=True)
 
     with use_wiring(wiring):
         web.register_web_server(web.WebServerConfig(port=0), path="site")

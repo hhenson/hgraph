@@ -114,12 +114,14 @@ extension:
 * every request pays a feedback engine cycle and two GIL crossings because
   the adaptor round-trips through Python queues.
 
-The kafka extension (RFC 0015) established the architecture this RFC reuses:
-bounded bridge channels with conflating wake push-sources, graph-owned drain
-nodes, one multi-interface implementation per path, strict start/stop
-orderings, a fake transport seam for socketless testing, and a separately
-versioned wheel over the installed SDK.  Where this RFC is silent on a
-mechanism, RFC 0015's contract applies unchanged.
+The kafka extension (RFC 0015) established the service architecture this RFC
+reuses: one multi-interface implementation per path, strict start/stop
+ordering, a fake transport seam for socketless testing, and a separately
+versioned wheel over the installed SDK. The original web implementation also
+reused Kafka's private queue-and-wake bridge. Web then supplied the second
+independent implementation evidence that promoted bounded queue ownership into
+the standard push source in RFC 0027. The current implementation uses that
+shared core contract and retains only web-specific byte/reservation accounting.
 
 Prior art and evidence
 ----------------------
@@ -212,9 +214,11 @@ The first-party extension lives under ``extensions/web`` in the hg_cpp
 monorepo, with its own CMake package, ``pyproject.toml``, version, and
 release artifacts, exactly as ``extensions/kafka`` does.
 
-No generic connector layer is introduced by this RFC.  The bridge pattern is
-deliberately re-instantiated per extension; promotion to core waits for the
-promotion evidence rule of RFC 0000.
+No generic connector layer is introduced by this RFC. RFC 0027 subsequently
+promoted only the proven domain-independent transport primitive: the bounded
+push-source queue and sender admission contract. Web-specific byte sizing,
+watermarks, reservations, overflow policy, and protocol completion remain in
+this extension.
 
 Public value contract
 ---------------------
@@ -419,10 +423,10 @@ The primary operations are:
    TS[HttpServerRequest]`` and ``state: TS[WebRouteState]``.  The service
    mechanism converts live route keys to the implementation's
    ``TSS[WebRoute]``; the transport compiles the table and delivers each
-   matched request on its route's stream.  Distinct routes tick in the same
-   cycle; multiple pending requests on ONE route are paced one per engine
-   cycle at ``MIN_TD`` — the same drain the kafka subscription service
-   uses.  A batched nested-TSD delivery shape is the identified follow-up
+   matched request on its route's stream. Distinct routes tick in the same
+   cycle; multiple pending requests on ONE route are delivered from the
+   standard FIFO push source one per engine cycle. A batched nested-TSD
+   delivery shape is the identified follow-up
    if pacing proves limiting on very hot routes.
 
 ``wire<HttpRespondService>(w, path, HttpRespondRequest)``
@@ -509,39 +513,44 @@ registry, and that holds no graph state.
   ``curl_multi_poll`` and woken by ``curl_multi_wakeup`` when the graph
   stages a submission.  WebSocket handles join the same loop; all
   ``curl_ws_send``/``curl_ws_recv`` calls happen on this thread.
-* **Bridge**: the kafka service-bridge contract verbatim — one mutex over
-  all channels, per-channel bounded deques with record and byte limits and
-  payload/control lanes, one payload-free conflating ``TS<Int>`` wake
-  push-source per channel, drain nodes on the evaluation thread, and a
-  reserve/push-reserved protocol so a response or report always has
-  guaranteed queue capacity before the corresponding work is accepted.
-  Server channels: requests, WS ingress, respond deliveries, WS send
-  deliveries, events, stats.  Client channels: responses, WS ingress, send
-  deliveries, events, stats.  Stats is the only channel permitted
-  drop-oldest overflow (it is self-superseding).
+* **Graph transport**: one bounded standard FIFO push source carries a
+  discriminated, fully owned event envelope for each server or client runtime.
+  Ordinary graph nodes project requests, WS ingress, delivery reports, events,
+  and statistics onto the service outputs, preserving one cross-kind order.
+  The graph-to-runtime direction consists of purpose-specific sink nodes for
+  route/key deltas, responses, calls, and WebSocket sends. A graph-scoped
+  admission budget retains the web-specific per-channel byte limits,
+  reservations, payload/control headroom, and watermarks, but owns no
+  ``Value`` storage; the push source is the sole cross-thread value queue. Its
+  record capacity is the aggregate reserved capacity, so a successful domain
+  admission cannot later fail because the core queue is full. Statistics allow
+  one pending sample; additional periodic samples are self-superseding and are
+  refused until the graph dequeues it, after which the next sample reports the
+  current state.
 * No worker thread calls ``EvaluationEngineApi``, mutates a time series, or
   retains a borrowed graph value.  ``PushSourceSender`` is the only
   cross-thread runtime boundary; off-thread value construction runs under
   the sender's type-realization scope.  Fatal conditions (acceptor death,
   io_context failure, curl fatal) cross the event channel, and a
-  graph-thread drain node applies the configured ``Report`` or
+  graph-thread event projection applies the configured ``Report`` or
   ``StopGraph`` policy.
 
 Flow control and bounded memory
 -------------------------------
 
-Every queue is bounded in records and bytes.  At the configured high
+The standard push-source queue is bounded in records, and the web admission
+budget bounds each logical channel in records and bytes. At the configured high
 watermark (default 80%) the transport stops issuing socket reads — HTTP/1.1
 backpressure propagates naturally through TCP; the client pauses transfers
 with ``curl_easy_pause``; the future h2 session withholds window updates —
 and resumes below the low watermark (default 50%).
 
 Server ingress admission is reservation-based, so payload memory outside
-the bridge is bounded by the same limits as memory inside it.  An HTTP
+the standard queue is bounded by the same domain limits. An HTTP
 connection reads headers first, projects the request's retained bytes from
 ``Content-Length`` (the body limit when chunked), and reserves that on the
 ingress channel — records and bytes under one lock — before reading the
-body; the reserved push then transfers the reservation to the queued value
+body; the reserved send then transfers the reservation to the queued value
 and cannot fail for lack of space.  A WebSocket connection accounts
 incrementally: message data is read in bounded chunks and each chunk is
 reserved as it arrives (growing one reservation per message), so an idle
@@ -551,8 +560,8 @@ in-flight chunk per connection, the same order as the kernel socket buffer
 that precedes it.  On reservation failure the explicit
 ``inbound_overflow`` policy applies: ``Backpressure`` leaves the payload
 unread in the kernel (no further read is armed); ``Reject`` answers 503 /
-closes 1013 from the transport without graph involvement.  A stopped
-bridge rejects late completions from a shared listener's still-draining
+closes 1013 from the transport without graph involvement. A stopped admission
+budget rejects late completions from a shared listener's still-draining
 connections instead of treating them as errors.
 Configuration floors guarantee a single maximal payload always fits an
 empty channel, so an admitted wait always terminates.  On HTTP/2 the
@@ -577,10 +586,10 @@ queue space.  Reservation failure rejects the call with a typed
 Lifecycle and teardown
 ----------------------
 
-Wiring is parse/validate only.  Start order: push sources start first and
-attach senders; the runtime then constructs, binds or attaches its listener
-(bind failure fails graph start), starts I/O threads, verifies every sender
-is attached, and begins accepting.  A start exception unwinds in reverse.
+Wiring is parse/validate only. Start order: the standard push source activates
+its admission budget, constructs the graph-scoped runtime with its sender,
+binds or attaches the listener (bind failure fails graph start), starts I/O
+threads, and begins accepting. A start exception unwinds in reverse.
 
 Server stop order is strict: (1) stop intake — detach routes, and if last
 attachee cancel accept and close the listener; late keep-alive requests get
@@ -588,15 +597,16 @@ attachee cancel accept and close the listener; late keep-alive requests get
 gets a transport-generated 503 and queued outbound bytes flush within the
 shutdown drain timeout; (3) WebSockets get Close(1001) with a bounded
 handshake wait; (4) cancel outstanding operations, stop the io_context,
-join I/O threads; (5) only then stop the bridge — no worker can push into a
-cleared bridge; (6) release state.  The client mirrors this around the curl
-multi loop.  Destructors repeat a noexcept emergency stop if normal graph
-stop was skipped.
+join I/O threads; (5) only then stop the admission budget — no worker can send
+into a closed push source; (6) release state. The client mirrors this around
+the curl multi loop. Destructors repeat a noexcept emergency stop if normal
+graph stop was skipped.
 
-Simulation mode hard-rejects live transport, exactly as kafka does: the
-server does not bind, the client does not connect, and sends are rejected
-with typed reports plus a warning event.  Deterministic simulation tests
-use the fake transport seam.
+Simulation wiring hard-rejects the live and callback-driven fake transports:
+push sources belong only to real-time graphs. The server therefore never binds
+and the client never connects when a simulation graph is built. Deterministic
+simulation requires a separate graph-owned scheduled/pull implementation for
+the chosen recorded web model; it must not emulate push inside simulation.
 
 Ordering and time
 -----------------
@@ -605,7 +615,7 @@ Ordering and time
   invented across connections.
 * One hgraph tick per request/frame; no conflation unless the user wires
   it.
-* A request's evaluation time is the cycle in which the drain emits it;
+* A request's evaluation time is the cycle in which the push source emits it;
   ``Date`` headers and payload timestamps are metadata.
 * Multiple requests pending on one route are delivered on consecutive
   ``MIN_TD`` cycles in arrival order.
@@ -773,7 +783,7 @@ releases only through an explicit consume after reservation, or an explicit
 discard when the bytes will not be retained.  The latter restores connection
 credit immediately because a reset may remove stream-scoped queued updates;
 the connection driver (in ``asio_server.cpp``, the only Asio TU)
-owns the socket, the strand, and the bridge integration.  The engine is
+owns the socket, the strand, and the admission/push-source integration. The engine is
 validated in-memory against a genuine nghttp2 client session
 (``hgraph_web_h2_engine_tests``) before any socket exists.
 
@@ -792,7 +802,7 @@ to the general criteria of this RFC:
   last processed stream id and drains in-flight streams within the
   shutdown drain timeout; a received GOAWAY stops new work on that
   connection while in-flight streams complete.
-* Stream-level flow control maps to the bridge contract: window updates
+* Stream-level flow control maps to the admission contract: window updates
   are withheld per stream while its ingress reservation cannot be taken
   (the same admission rule as h1), and the connection-level window tracks
   the watermark state.  Rejected and reset streams return abandoned DATA
@@ -831,7 +841,7 @@ client-streaming, and bidirectional-streaming calls are restrictions or graph
 adaptors over that primitive, not four independent transports.  The current
 ``HttpRequest`` / ``HttpResponse`` services remain supported as the unary
 complete-message adaptor.  Phase 3 is additive; a user that does not request a
-streaming service pays no streaming bridge or scheduling cost.
+streaming service pays no streaming transport or scheduling cost.
 
 Reliability is scoped to one active call: every accepted chunk is delivered in
 order or the call terminates with an explicit error.  It does not promise
@@ -866,13 +876,13 @@ the real HTTP/2 stream id is added once assigned.  Server calls use the same
 event and command vocabulary with direction reversed.  A terminal event occurs
 exactly once and retires all retained reservations, pending commands, timers,
 and route/runtime ownership for that call.  Python exposes the same schemas and
-services through the native bridge rather than running a second stream
+services through the native extension bridge rather than running a second stream
 scheduler.
 
 Flow control is part of this service contract, not an implementation detail:
 
 * Inbound DATA credit is released only after the corresponding chunk has a
-  bounded bridge reservation.  The graph may therefore lag the socket without
+  bounded admission reservation. The graph may therefore lag the socket without
   creating unaccounted payload storage.
 * Initial metadata, trailers, envelope overhead, compression state, and queued
   protocol output count toward memory limits as well as DATA.  A configured
@@ -887,7 +897,8 @@ Flow control is part of this service contract, not an implementation detail:
   streams.
 * Cancel, reset, timeout, and shutdown release reservations exactly once.
   Every accepted-but-undelivered command receives a terminal report.
-* Buffer ownership and lifetime are explicit across the type-erased bridge.
+* Buffer ownership and lifetime are explicit across the type-erased graph
+  transport boundary.
   The streaming hot path must not first assemble or copy a complete unary body.
 
 HTTP/2 is the first implementation, but the public primitive is not named for
@@ -978,17 +989,20 @@ nghttp2 for the day-one server
 A per-request adaptor-duplex endpoint per route
    Rejected in favor of routes as subscription keys.  Route-set delivery
    through ``TSS`` deltas reuses the kafka subscription mechanism
-   unchanged, keeps the bridge channel count compile-time fixed, and makes
+   unchanged, keeps route membership as graph data, and makes
    routes dynamic data instead of requiring a new wiring-time route
    enumeration mechanism.
 
-One shared wake push-source across channels
-   Rejected: shared wakes couple unrelated channels' scheduling, and
-   conflating wakes are nearly free.
+One wake push-source per logical channel
+   Rejected by RFC 0027. A single discriminated event stream preserves the
+   order between related request, lifecycle, delivery, and failure events and
+   avoids duplicate queues and drain nodes. Independently ordered streams may
+   still use independent push sources when their contract requires it.
 
-Blocking sends or unbounded queues
-   Rejected, as in RFC 0015.  Every boundary queue is bounded with an
-   explicit, observable overflow policy.
+Blocking socket/event-loop sends or unbounded queues
+   Rejected, as in RFC 0015. The standard boundary queue is bounded. Socket
+   tasks use ``try_send`` only after web-domain admission and apply the
+   channel's explicit overflow action; they do not block an I/O loop.
 
 Acceptance criteria
 -------------------
@@ -1004,8 +1018,9 @@ Public C++ and extension boundary
   interface.
 * One implementation materializes per demanded path; duplicate
   registration is rejected.
-* Graph-to-transport edges are sinks over ``impl_input``; transport-to-
-  graph edges are root push sources published with ``impl_output``.
+* Graph-to-transport edges are sinks over ``impl_input``; each materialized
+  server or client runtime has exactly one root push source whose graph
+  projections are published with ``impl_output``.
 * A same-cycle handler's response dispatches with zero added engine cycles
   between request arrival and response handoff (the RFC 0014 criterion),
   asserted by test.
@@ -1039,7 +1054,7 @@ Lifetime, failure, and flow control
 * Slow-consumer policies act as configured and are observable in reports
   and stats.
 * Stop prevents new intake, drains within its budget, closes WebSockets
-  with 1001, joins all threads, and only then stops the bridge; repeated
+  with 1001, joins all threads, and only then stops admission; repeated
   start/stop and partial-start failure pass under AddressSanitizer, and
   race-sensitive paths under ThreadSanitizer where platforms permit.
 * Only a graph-thread node applies graph-stop policy.
@@ -1072,8 +1087,8 @@ Implementation plan
 1. Land this RFC with the extension skeleton: CMake package, pyproject,
    public headers (types, service, value builders), CI wiring, and the
    packaging audit.
-2. Implement the service bridge, route table, and drain nodes against a
-   fake transport; prove bridge semantics, routing, pacing, reservation,
+2. Implement the original service bridge, route table, and drain nodes against
+   a fake transport; prove transport semantics, routing, pacing, reservation,
    and lifecycle without sockets.
 3. Implement the Asio/Beast server transport: listener registry, strands,
    h1 + WS, TLS/ALPN seam, watermarks, stop orderings.
@@ -1085,6 +1100,9 @@ Implementation plan
    deviations.
 7. Land HTTP/2 server activation (``nghttp2_session.cpp``) in a v1.x
    release behind the already-shipped seam.
+8. Migrate server, client, and fake transports to RFC 0027: one standard
+   bounded push source per runtime, graph projection and command sink nodes,
+   no private ``Value`` queue, and a separate real-time wiring path.
 
 Implementation status
 ---------------------
@@ -1097,6 +1115,12 @@ surface, and ``hgraph_web.compat`` — which now serves the released
 ``hgraph.adaptors.tornado`` server modules.  The h2 server remains a
 sealed seam per the activation plan above.
 
+The RFC 0027 web migration is also implemented: the former per-channel value
+deques, wake push sources, and drain nodes are removed. One standard bounded
+push source now owns the asynchronous event queue and executor notification;
+web retains only data-free byte/reservation accounting and protocol policy.
+Live and callback-driven fake implementations reject simulation wiring.
+
 References
 ----------
 
@@ -1105,6 +1129,8 @@ References
   decoupled external sinks and sources.
 * :doc:`rfc_0015_kafka_extension_api` — the extension architecture this
   RFC instantiates for the web domain.
+* :doc:`rfc_0027_bounded_push_source_queues` — the standard queue and sender
+  contract that replaces the original private bridge.
 * :doc:`../developer_guide/services` — authoritative service and adaptor
   boundary behavior.
 * `Boost.Beast HTTP/2 status <https://github.com/boostorg/beast/issues/2950>`_.

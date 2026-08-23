@@ -1,6 +1,6 @@
-// Service-boundary tests over the socketless fake transport: the same
-// bridge, drains, and composition as the real transports with only the
-// runtime node swapped (RFC 0024, implementation plan step 2).
+// Service-boundary tests over the socketless fake transport. The fake uses
+// the same standard push-source transport, graph projections, and graph sinks
+// as the live adaptors; only the external task is replaced (RFC 0024/0027).
 
 #include <hgraph/web/service.h>
 #include <hgraph/web/testing/fake_transport.h>
@@ -93,6 +93,7 @@ inline Value observed_client_ws_frame{};
 inline Value observed_client_ws_report{};
 inline std::size_t backlog_request_count{};
 inline std::vector<Int> backlog_request_ids{};
+inline std::vector<Str> observed_transport_order{};
 
 void release_test_state() {
   serve_server.reset();
@@ -119,6 +120,7 @@ void release_test_state() {
   observed_ws_report = Value{};
   observed_client_ws_frame = Value{};
   observed_client_ws_report = Value{};
+  observed_transport_order.clear();
   backlog_request_ids.clear();
 }
 
@@ -386,6 +388,69 @@ struct BacklogGraph {
   }
 };
 
+void capture_transport_order(NodeView &node, Str kind) {
+  observed_transport_order.push_back(std::move(kind));
+  if (observed_transport_order.size() == 3) {
+    node.graph().executor().request_stop();
+  }
+}
+
+struct OrderedEventCapture {
+  static constexpr auto name = "web_ordered_event_capture";
+
+  static void eval(NodeView node,
+                   In<"event", TS<WebEvent>, InputValidity::Unchecked> event) {
+    if (event.valid() && event.modified()) {
+      capture_transport_order(node, Str{"event"});
+    }
+  }
+};
+
+struct OrderedRequestCapture {
+  static constexpr auto name = "web_ordered_request_capture";
+
+  static void eval(
+      NodeView node,
+      In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
+    auto request = routed.template field<"request">();
+    if (request.valid() && request.modified()) {
+      capture_transport_order(node, Str{"request"});
+    }
+  }
+};
+
+struct OrderedWsCapture {
+  static constexpr auto name = "web_ordered_ws_capture";
+
+  static void eval(NodeView node,
+                   In<"routed", WsRouteOutput, InputValidity::Unchecked>
+                       routed) {
+    auto event = routed.template field<"event">();
+    if (event.valid() && event.modified()) {
+      capture_transport_order(node, Str{"ws"});
+    }
+  }
+};
+
+struct OrderedTransportGraph {
+  static constexpr auto name = "web_ordered_transport_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("web-ordered-transport");
+    register_fake_server(w, path, server_configuration.clone(),
+                         lifecycle_server);
+    auto http_route =
+        wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
+    auto websocket_route =
+        wire<stdlib::const_, TS<WebRoute>>(w, ws_route.clone());
+    static_cast<void>(
+        wire<OrderedRequestCapture>(w, serve(w, path, http_route)));
+    static_cast<void>(
+        wire<OrderedWsCapture>(w, ws_serve(w, path, websocket_route)));
+    static_cast<void>(wire<OrderedEventCapture>(w, server_events(w, path)));
+  }
+};
+
 struct DuplicateRegistrationGraph {
   static constexpr auto name = "web_duplicate_registration_graph";
 
@@ -399,13 +464,90 @@ struct DuplicateRegistrationGraph {
   }
 };
 
+template <typename G> GraphBuilder build_realtime() {
+  return build_graph<G>(WiringOptions{.is_realtime = true});
+}
+
+[[nodiscard]] std::size_t count_nodes(const GraphBuilder &graph,
+                                      NodeKind kind) {
+  std::size_t count = 0;
+  for (const auto &node : graph.nodes()) {
+    const auto *schema = node.type().schema();
+    if (schema != nullptr && schema->node_kind == kind) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+[[nodiscard]] bool has_node(const GraphBuilder &graph,
+                            std::string_view name) {
+  for (const auto &node : graph.nodes()) {
+    const auto *schema = node.type().schema();
+    if (schema != nullptr && schema->display_name != nullptr &&
+        std::string_view{schema->display_name} == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void test_runtime_specific_wiring_shapes() {
+  serve_server = std::make_shared<FakeWebServer>();
+  const auto server = build_realtime<ServeGraph>();
+  require(count_nodes(server, NodeKind::PushSource) == 1,
+          "web server did not wire exactly one standard push source");
+  for (const auto name :
+       {std::string_view{"web_fake_server_http_routes"},
+        std::string_view{"web_fake_server_respond"},
+        std::string_view{"web_server_request_projection"},
+        std::string_view{"web_transport_admission_release"}}) {
+    require(has_node(server, name),
+            "web server wiring is missing graph node " + Str{name});
+  }
+
+  ws_client = std::make_shared<FakeWebClient>();
+  const auto client = build_realtime<ClientWsGraph>();
+  require(count_nodes(client, NodeKind::PushSource) == 1,
+          "web client did not wire exactly one standard push source");
+  for (const auto name :
+       {std::string_view{"web_fake_client_ws_keys"},
+        std::string_view{"web_fake_client_ws_send"},
+        std::string_view{"web_client_ws_projection"},
+        std::string_view{"web_transport_admission_release"}}) {
+    require(has_node(client, name),
+            "web client wiring is missing graph node " + Str{name});
+  }
+
+  for (const auto retired :
+       {std::string_view{"web_request_drain"},
+        std::string_view{"web_ws_ingress_drain"},
+        std::string_view{"web_response_drain"},
+        std::string_view{"web_client_ws_drain"}}) {
+    require(!has_node(server, retired) && !has_node(client, retired),
+            "web wiring retained private bridge drain " + Str{retired});
+  }
+}
+
+void test_simulation_rejects_live_push_adaptors() {
+  serve_server = std::make_shared<FakeWebServer>();
+  require_failure(
+      [] { static_cast<void>(build_graph<ServeGraph>()); },
+      "simulation wiring accepted a push-based web server");
+
+  ws_client = std::make_shared<FakeWebClient>();
+  require_failure(
+      [] { static_cast<void>(build_graph<ClientWsGraph>()); },
+      "simulation wiring accepted a push-based web client");
+}
+
 void test_serve_boundary() {
   serve_server = std::make_shared<FakeWebServer>();
   observed_request = Value{};
   observed_request_count = 0;
   observed_serving_state = false;
 
-  auto executor = start_realtime(build_graph<ServeGraph>());
+  auto executor = start_realtime(build_realtime<ServeGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -449,7 +591,7 @@ void test_respond_boundary() {
   observed_report = Value{};
   observed_report_count = 0;
 
-  auto executor = start_realtime(build_graph<RespondGraph>());
+  auto executor = start_realtime(build_realtime<RespondGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -479,7 +621,7 @@ void test_client_call_response_arm() {
   observed_response_count = 0;
   observed_failure_count = 0;
 
-  auto executor = start_realtime(build_graph<CallGraph>());
+  auto executor = start_realtime(build_realtime<CallGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -510,7 +652,7 @@ void test_client_call_failure_arm() {
   observed_response_count = 0;
   observed_failure_count = 0;
 
-  auto executor = start_realtime(build_graph<FailureGraph>());
+  auto executor = start_realtime(build_realtime<FailureGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -534,7 +676,7 @@ void test_ws_server_boundary() {
   observed_ws_frame = Value{};
   observed_ws_report = Value{};
 
-  auto executor = start_realtime(build_graph<WsGraph>());
+  auto executor = start_realtime(build_realtime<WsGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -585,7 +727,7 @@ void test_ws_client_boundary() {
   observed_client_ws_frame = Value{};
   observed_client_ws_report = Value{};
 
-  auto executor = start_realtime(build_graph<ClientWsGraph>());
+  auto executor = start_realtime(build_realtime<ClientWsGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -608,12 +750,12 @@ void test_ws_client_boundary() {
           "WS client send was not reported");
 }
 
-void test_push_backlogs_drain_one_request_per_cycle() {
+void test_push_backlogs_deliver_one_request_per_cycle() {
   backlog_server = std::make_shared<FakeWebServer>();
   backlog_request_count = 0;
   backlog_request_ids.clear();
 
-  auto executor = start_realtime(build_graph<BacklogGraph>());
+  auto executor = start_realtime(build_realtime<BacklogGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -633,17 +775,48 @@ void test_push_backlogs_drain_one_request_per_cycle() {
           "backlogged requests were reordered");
 }
 
+void test_transport_preserves_order_across_event_kinds() {
+  lifecycle_server = std::make_shared<FakeWebServer>();
+  observed_transport_order.clear();
+
+  auto executor = start_realtime(build_realtime<OrderedTransportGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+
+  require(lifecycle_server->wait_for_http_routes(1, 2s),
+          "ordered transport HTTP route did not reach its sink");
+  require(lifecycle_server->wait_for_ws_routes(1, 2s),
+          "ordered transport WS route did not reach its sink");
+  lifecycle_server->emit_event(
+      make_event(WebSeverity::Info, Str{"test"}, Str{"ordering"},
+                 Str{"web-ordered-transport"}, Str{"first"}));
+  lifecycle_server->emit_request(serve_route.clone(),
+                                 make_server_request(Int{73}));
+  BundleBuilder ws_event{ValuePlanFactory::instance().type_for(
+      scalar_descriptor<WsEvent>::value_meta())};
+  ws_event.set("connection_id", Value{Int{9}});
+  ws_event.set("state", Value{WsConnectionState::Open});
+  lifecycle_server->emit_ws_event(ws_route.clone(), ws_event.build());
+  runner.join();
+
+  require(observed_transport_order ==
+              std::vector<Str>{Str{"event"}, Str{"request"}, Str{"ws"}},
+          "the standard web push source reordered related event kinds");
+}
+
 void test_duplicate_registration_fails_and_service_restarts() {
   serve_server = std::make_shared<FakeWebServer>();
   require_failure(
-      [] { static_cast<void>(build_graph<DuplicateRegistrationGraph>()); },
+      [] {
+        static_cast<void>(build_realtime<DuplicateRegistrationGraph>());
+      },
       "duplicate web service registration was accepted");
 
   for (int run = 0; run != 2; ++run) {
     observed_request = Value{};
     observed_request_count = 0;
     observed_serving_state = false;
-    auto executor = start_realtime(build_graph<ServeGraph>());
+    auto executor = start_realtime(build_realtime<ServeGraph>());
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
     require(serve_server->wait_for_http_routes(
@@ -664,13 +837,16 @@ int main() {
     hgraph::stdlib::register_standard_operators();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
+    test_runtime_specific_wiring_shapes();
+    test_simulation_rejects_live_push_adaptors();
     test_serve_boundary();
     test_respond_boundary();
     test_client_call_response_arm();
     test_client_call_failure_arm();
     test_ws_server_boundary();
     test_ws_client_boundary();
-    test_push_backlogs_drain_one_request_per_cycle();
+    test_push_backlogs_deliver_one_request_per_cycle();
+    test_transport_preserves_order_across_event_kinds();
     test_duplicate_registration_fails_and_service_restarts();
     std::cout << "hgraph-web service tests passed\n";
     return 0;
