@@ -62,6 +62,14 @@ struct OutputLimits {
   std::size_t bytes{};
 };
 
+/** One active subscription key and the graph evaluation that created it.
+ * External tasks copy this generation into routed events so a graph can
+ * reject work queued for an earlier remove/re-add lifetime. */
+struct SubscriptionBinding {
+  Value key{};
+  DateTime generation{MIN_ST};
+};
+
 inline constexpr std::size_t kControlLaneBytes = 1024 * 1024;
 
 struct WatermarkConfig {
@@ -529,6 +537,43 @@ private:
 using ServerTransportOutput = TransportOutput<ServerAdmission>;
 using ClientTransportOutput = TransportOutput<ClientAdmission>;
 
+/** Materialises a generation for each active subscription lifetime. The
+ * generation is graph data derived from the key-set delta and retained in the
+ * TSD output; no private loopback state is required. Cost is O(A + R) per
+ * modified key tick and O(K) retained graph output for K active keys. */
+template <typename Key> struct SubscriptionGenerationNode {
+  static constexpr auto name = "web_subscription_generation";
+
+  static void eval(In<"keys", TSS<Key>, InputValidity::Unchecked> keys,
+                   Out<TSD<Key, TS<DateTime>>> out) {
+    if (!keys.modified()) {
+      return;
+    }
+    const auto &delta = static_cast<const TSSInputView &>(keys);
+    auto mutation = out.begin_mutation(out.evaluation_time());
+    for (const auto key : delta.added()) {
+      const Value generation{out.evaluation_time()};
+      mutation.set(key, generation.view());
+    }
+    // Removal wins if a malformed delta names one key in both collections.
+    for (const auto key : delta.removed()) {
+      static_cast<void>(mutation.erase(key));
+    }
+  }
+};
+
+[[nodiscard]] inline bool generation_matches(
+    const TSDInputView &generations, const ValueView &key,
+    const ValueView &generation) {
+  if (generation.data() == nullptr) {
+    return false;
+  }
+  const auto current = generations.at(key);
+  return current.valid() &&
+         current.value().checked_as<DateTime>() ==
+             generation.checked_as<DateTime>();
+}
+
 /** Releases domain record/byte accounting once the graph dequeues an event.
  * Cost is O(1) per transport tick. */
 template <typename Handle> struct AdmissionReleaseSink {
@@ -554,6 +599,8 @@ struct ServerRequestProjectionNode {
       In<"transport", TS<WebTransportEvent>, InputValidity::Unchecked>
           transport,
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WebRoute, WebRouteOutput>> out) {
     const bool has_event =
@@ -572,16 +619,20 @@ struct ServerRequestProjectionNode {
                                 .as_bundle()
                                 .at("request")
                                 .as_bundle();
-      BundleBuilder value{bindings.value().value->server_route_output};
-      for (const auto name : {std::string_view{"request"},
-                              std::string_view{"state"}}) {
-        const auto field = envelope.at(name);
-        if (field.data() != nullptr) {
-          value.set(name, field.clone());
+      if (generation_matches(static_cast<const TSDInputView &>(generations),
+                             envelope.at("route"),
+                             envelope.at("generation"))) {
+        BundleBuilder value{bindings.value().value->server_route_output};
+        for (const auto name : {std::string_view{"request"},
+                                std::string_view{"state"}}) {
+          const auto field = envelope.at(name);
+          if (field.data() != nullptr) {
+            value.set(name, field.clone());
+          }
         }
+        const Value update = value.build();
+        mutation.set(envelope.at("route"), update.view());
       }
-      const Value update = value.build();
-      mutation.set(envelope.at("route"), update.view());
     }
     if (routes.modified()) {
       for (const auto route : route_delta.added()) {
@@ -610,6 +661,8 @@ struct ServerWsProjectionNode {
       In<"transport", TS<WebTransportEvent>, InputValidity::Unchecked>
           transport,
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WebRoute, WsRouteOutput>> out) {
     const bool has_event =
@@ -628,16 +681,20 @@ struct ServerWsProjectionNode {
                                 .as_bundle()
                                 .at("server_ws")
                                 .as_bundle();
-      BundleBuilder value{bindings.value().value->server_ws_output};
-      for (const auto name :
-           {std::string_view{"event"}, std::string_view{"frame"}}) {
-        const auto field = envelope.at(name);
-        if (field.data() != nullptr) {
-          value.set(name, field.clone());
+      if (generation_matches(static_cast<const TSDInputView &>(generations),
+                             envelope.at("route"),
+                             envelope.at("generation"))) {
+        BundleBuilder value{bindings.value().value->server_ws_output};
+        for (const auto name :
+             {std::string_view{"event"}, std::string_view{"frame"}}) {
+          const auto field = envelope.at(name);
+          if (field.data() != nullptr) {
+            value.set(name, field.clone());
+          }
         }
+        const Value update = value.build();
+        mutation.set(envelope.at("route"), update.view());
       }
-      const Value update = value.build();
-      mutation.set(envelope.at("route"), update.view());
     }
     if (routes.modified()) {
       for (const auto route : removed) {
@@ -737,6 +794,8 @@ struct ClientWsProjectionNode {
       In<"transport", TS<WebTransportEvent>, InputValidity::Unchecked>
           transport,
       In<"keys", TSS<WsClientKey>, InputValidity::Unchecked> keys,
+      In<"generations", TSD<WsClientKey, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WsClientKey, WsClientOutput>> out) {
     const bool has_event =
@@ -755,16 +814,20 @@ struct ClientWsProjectionNode {
                                 .as_bundle()
                                 .at("client_ws")
                                 .as_bundle();
-      BundleBuilder value{bindings.value().value->client_ws_output};
-      for (const auto name :
-           {std::string_view{"event"}, std::string_view{"frame"}}) {
-        const auto field = envelope.at(name);
-        if (field.data() != nullptr) {
-          value.set(name, field.clone());
+      if (generation_matches(static_cast<const TSDInputView &>(generations),
+                             envelope.at("key"),
+                             envelope.at("generation"))) {
+        BundleBuilder value{bindings.value().value->client_ws_output};
+        for (const auto name :
+             {std::string_view{"event"}, std::string_view{"frame"}}) {
+          const auto field = envelope.at(name);
+          if (field.data() != nullptr) {
+            value.set(name, field.clone());
+          }
         }
+        const Value update = value.build();
+        mutation.set(envelope.at("key"), update.view());
       }
-      const Value update = value.build();
-      mutation.set(envelope.at("key"), update.view());
     }
     if (keys.modified()) {
       for (const auto key : removed) {
@@ -786,14 +849,18 @@ struct ServerOutputs {
 [[nodiscard]] inline ServerOutputs wire_server_outputs(
     Wiring &w, Port<TS<WebTransportEvent>> transport,
     Port<TSS<WebRoute>> http_routes, Port<TSS<WebRoute>> ws_routes,
+    Port<TSD<WebRoute, TS<DateTime>>> http_generations,
+    Port<TSD<WebRoute, TS<DateTime>>> ws_generations,
     ServerAdmissionHandle admission, WebTransportBindingsHandle bindings) {
   static_cast<void>(
       wire<AdmissionReleaseSink<ServerAdmissionHandle>>(w, transport,
                                                         admission));
   return ServerOutputs{
-      wire<ServerRequestProjectionNode>(w, transport, http_routes, bindings)
+      wire<ServerRequestProjectionNode>(w, transport, http_routes,
+                                        http_generations, bindings)
           .template as<TSD<WebRoute, WebRouteOutput>>(),
-      wire<ServerWsProjectionNode>(w, transport, ws_routes, bindings)
+      wire<ServerWsProjectionNode>(w, transport, ws_routes, ws_generations,
+                                   bindings)
           .template as<TSD<WebRoute, WsRouteOutput>>(),
       wire<DeliveryProjectionNode<
           WebTransportEventKind::ServerRespondDelivery>>(w, transport)
@@ -820,7 +887,9 @@ struct ClientOutputs {
 
 [[nodiscard]] inline ClientOutputs wire_client_outputs(
     Wiring &w, Port<TS<WebTransportEvent>> transport,
-    Port<TSS<WsClientKey>> ws_keys, ClientAdmissionHandle admission,
+    Port<TSS<WsClientKey>> ws_keys,
+    Port<TSD<WsClientKey, TS<DateTime>>> ws_generations,
+    ClientAdmissionHandle admission,
     WebTransportBindingsHandle bindings) {
   static_cast<void>(
       wire<AdmissionReleaseSink<ClientAdmissionHandle>>(w, transport,
@@ -828,7 +897,8 @@ struct ClientOutputs {
   return ClientOutputs{
       wire<ClientResponseProjectionNode>(w, transport, bindings)
           .template as<TSD<Int, HttpCallResult>>(),
-      wire<ClientWsProjectionNode>(w, transport, ws_keys, bindings)
+      wire<ClientWsProjectionNode>(w, transport, ws_keys, ws_generations,
+                                   bindings)
           .template as<TSD<WsClientKey, WsClientOutput>>(),
       wire<DeliveryProjectionNode<WebTransportEventKind::ClientSendDelivery>>(
           w, transport)

@@ -16,15 +16,15 @@ namespace hgraph::web::detail
 
     using WebRequestEnvelope =
         Bundle<"hgraph.web.internal::WebRequestEnvelope", Field<"route", WebRoute>, Field<"request", HttpServerRequest>,
-               Field<"state", WebRouteState>, Field<"removed", Bool>>;
+               Field<"state", WebRouteState>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     using WsIngressEnvelope =
         Bundle<"hgraph.web.internal::WsIngressEnvelope", Field<"route", WebRoute>, Field<"event", WsEvent>,
-               Field<"frame", WsInboundFrame>, Field<"removed", Bool>>;
+               Field<"frame", WsInboundFrame>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     using WsClientEnvelope =
         Bundle<"hgraph.web.internal::WsClientEnvelope", Field<"key", WsClientKey>, Field<"event", WsEvent>,
-               Field<"frame", WsFrame>, Field<"removed", Bool>>;
+               Field<"frame", WsFrame>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     // Exactly one of response/failure is set: transport failure is never
     // disguised as an HTTP status (RFC 0024).

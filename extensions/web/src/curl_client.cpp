@@ -275,11 +275,13 @@ template <typename T>
 }
 
 [[nodiscard]] Value ws_client_envelope(const ValueBindings &b, Value key,
-                                       Value event, Value frame) {
+                                       DateTime generation, Value event,
+                                       Value frame) {
   return build(b.ws_client_envelope, {
                                          {"key", std::move(key)},
                                          {"event", std::move(event)},
                                          {"frame", std::move(frame)},
+                                         {"generation", Value{generation}},
                                      });
 }
 
@@ -720,6 +722,7 @@ struct WsConnection : TransferTag {
   CURL *easy{};
   curl_slist *headers{};
   Value key{};
+  DateTime generation{MIN_ST};
   Int connection_id{};
   bool handshaking{true};
   bool open{};
@@ -759,6 +762,7 @@ struct WsSendItem {
  * the same engine cycle must not be reordered into an add that survives. */
 struct WsCommand {
   Value key{};
+  DateTime generation{MIN_ST};
   bool added{};
 };
 
@@ -1001,14 +1005,15 @@ public:
     wake();
   }
 
-  void ws_key_added(Value key) {
+  void ws_key_added(Value key, DateTime generation) {
     if (!live()) {
-      reject_ws_key(std::move(key), Str{"web client is stopping"});
+      reject_ws_key(std::move(key), generation, Str{"web client is stopping"});
       return;
     }
     {
       std::lock_guard lock{mutex_};
-      pending_ws_commands_.push_back(WsCommand{std::move(key), true});
+      pending_ws_commands_.push_back(
+          WsCommand{std::move(key), generation, true});
     }
     wake();
   }
@@ -1019,7 +1024,8 @@ public:
     }
     {
       std::lock_guard lock{mutex_};
-      pending_ws_commands_.push_back(WsCommand{std::move(key), false});
+      pending_ws_commands_.push_back(
+          WsCommand{std::move(key), MIN_ST, false});
     }
     wake();
   }
@@ -1218,10 +1224,10 @@ private:
     }
   }
 
-  void reject_ws_key(Value key, Str message) noexcept {
+  void reject_ws_key(Value key, DateTime generation, Str message) noexcept {
     try {
       Value envelope = ws_client_envelope(
-          bindings_, std::move(key),
+          bindings_, std::move(key), generation,
           ws_event(bindings_, 0, WsConnectionState::Failed, 0, message),
           Value{});
       if (!output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
@@ -1399,7 +1405,7 @@ private:
     }
     for (auto &command : commands) {
       if (command.added) {
-        begin_connect(std::move(command.key));
+        begin_connect(std::move(command.key), command.generation);
       } else {
         close_connection_for(command.key, 1001,
                              Str{"graph removed the connection key"});
@@ -1711,9 +1717,10 @@ private:
   // -------------------------------------------------------------------------
   // WebSocket connections
 
-  void begin_connect(Value key) {
+  void begin_connect(Value key, DateTime generation) {
     auto connection = std::make_unique<WsConnection>();
     connection->key = std::move(key);
+    connection->generation = generation;
     const auto fields = connection->key.view().as_bundle();
     const Str url = text_or(fields, "url");
     if (url.empty()) {
@@ -1825,7 +1832,7 @@ private:
     raw->socket = socket;
     raw->open = true;
     raw->connection_id = ++next_connection_id_;
-    push_ws(ws_client_envelope(bindings_, raw->key.clone(),
+    push_ws(ws_client_envelope(bindings_, raw->key.clone(), raw->generation,
                                ws_event(bindings_, raw->connection_id,
                                         WsConnectionState::Open),
                                Value{}),
@@ -1835,6 +1842,7 @@ private:
   void fail_connection(WsConnection &connection, Int error_code, Str message,
                        bool retriable = false) {
     push_ws(ws_client_envelope(bindings_, connection.key.clone(),
+                               connection.generation,
                                ws_event(bindings_, connection.connection_id,
                                         WsConnectionState::Failed, 0, message),
                                Value{}),
@@ -1954,8 +1962,9 @@ private:
     Value frame = connection.message_is_text
                       ? ws_text_frame(bindings_, std::move(payload))
                       : ws_binary_frame(bindings_, std::move(payload));
-    Value envelope = ws_client_envelope(bindings_, connection.key.clone(),
-                                        Value{}, std::move(frame));
+    Value envelope = ws_client_envelope(
+        bindings_, connection.key.clone(), connection.generation, Value{},
+        std::move(frame));
     if (output_.send(WebTransportEventKind::ClientWsIngress, "client_ws",
                      std::move(envelope), index(ClientChannel::WsIngress),
                      retained)) {
@@ -1979,6 +1988,7 @@ private:
     connection.open = false;
     connection.closing = true;
     push_ws(ws_client_envelope(bindings_, connection.key.clone(),
+                               connection.generation,
                                ws_event(bindings_, connection.connection_id,
                                         state, close_code, reason),
                                Value{}),
@@ -2333,6 +2343,8 @@ struct WebClientWsKeySink {
 
   static void eval(
       In<"keys", TSS<WsClientKey>, InputValidity::Unchecked> keys,
+      In<"generations", TSD<WsClientKey, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"runtime", wd::ClientRuntimeHandle> runtime) {
     if (!keys.modified()) {
       return;
@@ -2342,8 +2354,15 @@ struct WebClientWsKeySink {
     for (const auto key : erased.removed()) {
       task->ws_key_removed(key.clone());
     }
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
     for (const auto key : erased.added()) {
-      task->ws_key_added(key.clone());
+      const auto generation = generation_values.at(key);
+      if (!generation.valid()) {
+        throw std::logic_error("WebSocket client generation is unavailable");
+      }
+      task->ws_key_added(key.clone(),
+                         generation.value().checked_as<DateTime>());
     }
   }
 };
@@ -2434,11 +2453,15 @@ struct WebClientImpl {
     auto transport = wire_client_transport(w, runtime_config, path.value(),
                                            runtime, admission,
                                            transport_bindings);
+    auto ws_generations =
+        wire<wd::SubscriptionGenerationNode<WsClientKey>>(w, ws_keys)
+            .template as<TSD<WsClientKey, TS<DateTime>>>();
     static_cast<void>(wire<WebClientCallSink>(w, calls, runtime));
-    static_cast<void>(wire<WebClientWsKeySink>(w, ws_keys, runtime));
+    static_cast<void>(
+        wire<WebClientWsKeySink>(w, ws_keys, ws_generations, runtime));
     static_cast<void>(wire<WebClientWsSendSink>(w, ws_sends, runtime));
     auto outputs = wd::wire_client_outputs(
-        w, transport, ws_keys, admission, transport_bindings);
+        w, transport, ws_keys, ws_generations, admission, transport_bindings);
 
     service::impl_output<HttpClientService>(w, binding, outputs.responses);
     service::impl_output<WsClientService>(w, binding, outputs.ws);

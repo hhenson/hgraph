@@ -2,6 +2,7 @@
 
 #include "../detail/service_transport.h"
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -186,34 +187,41 @@ void require_schema(const Value &value, const void *expected,
   return str_bytes(fields.at("message")) + 512;
 }
 
-[[nodiscard]] Value request_envelope(Value route, Value request) {
+[[nodiscard]] Value request_envelope(Value route, DateTime generation,
+                                     Value request) {
   return bundle<wd::WebRequestEnvelope>({
       {"route", std::move(route)},
       {"request", std::move(request)},
+      {"generation", atomic(generation)},
   });
 }
 
-[[nodiscard]] Value route_state_envelope(Value route, WebRouteState state) {
+[[nodiscard]] Value route_state_envelope(Value route, DateTime generation,
+                                         WebRouteState state) {
   return bundle<wd::WebRequestEnvelope>({
       {"route", std::move(route)},
       {"state", atomic(state)},
+      {"generation", atomic(generation)},
   });
 }
 
-[[nodiscard]] Value ws_ingress_envelope(Value route, Value event,
-                                        Value frame) {
+[[nodiscard]] Value ws_ingress_envelope(Value route, DateTime generation,
+                                        Value event, Value frame) {
   return bundle<wd::WsIngressEnvelope>({
       {"route", std::move(route)},
       {"event", std::move(event)},
       {"frame", std::move(frame)},
+      {"generation", atomic(generation)},
   });
 }
 
-[[nodiscard]] Value ws_client_envelope(Value key, Value event, Value frame) {
+[[nodiscard]] Value ws_client_envelope(Value key, DateTime generation,
+                                       Value event, Value frame) {
   return bundle<wd::WsClientEnvelope>({
       {"key", std::move(key)},
       {"event", std::move(event)},
       {"frame", std::move(frame)},
+      {"generation", atomic(generation)},
   });
 }
 
@@ -239,6 +247,19 @@ void require_schema(const Value &value, const void *expected,
       {"stop_graph", atomic(Bool{stop_graph})},
   });
 }
+
+[[nodiscard]] DateTime active_generation(
+    const std::vector<wd::SubscriptionBinding> &bindings, const Value &key,
+    std::string_view what) {
+  const auto found = std::ranges::find_if(bindings, [&](const auto &binding) {
+    return binding.key.view().equals(key.view());
+  });
+  if (found == bindings.end()) {
+    throw std::logic_error("Web fake " + std::string{what} +
+                           " is not actively subscribed");
+  }
+  return found->generation;
+}
 } // namespace
 
 struct FakeWebServer::Impl {
@@ -248,8 +269,10 @@ struct FakeWebServer::Impl {
   std::size_t attaches{};
   Int sequence{};
   std::vector<Value> http_routes{};
+  std::vector<wd::SubscriptionBinding> http_bindings{};
   std::vector<Value> removed_http_routes{};
   std::vector<Value> ws_routes{};
+  std::vector<wd::SubscriptionBinding> ws_bindings{};
   std::vector<Value> removed_ws_routes{};
   std::vector<FakeResponse> responses{};
   std::vector<FakeWsSend> ws_sends{};
@@ -280,14 +303,19 @@ struct detail::FakeServerAccess {
     {
       std::lock_guard lock{server.impl_->mutex};
       server.impl_->output.reset();
+      server.impl_->http_bindings.clear();
+      server.impl_->ws_bindings.clear();
     }
     server.impl_->changed.notify_all();
   }
 
-  static void http_route_added(FakeWebServer &server, Value route) {
+  static void http_route_added(FakeWebServer &server, Value route,
+                               DateTime generation) {
     {
       std::lock_guard lock{server.impl_->mutex};
-      server.impl_->http_routes.push_back(std::move(route));
+      server.impl_->http_routes.push_back(route.clone());
+      server.impl_->http_bindings.push_back(
+          wd::SubscriptionBinding{std::move(route), generation});
     }
     server.impl_->changed.notify_all();
   }
@@ -295,15 +323,21 @@ struct detail::FakeServerAccess {
   static void http_route_removed(FakeWebServer &server, Value route) {
     {
       std::lock_guard lock{server.impl_->mutex};
+      std::erase_if(server.impl_->http_bindings, [&](const auto &binding) {
+        return binding.key.view().equals(route.view());
+      });
       server.impl_->removed_http_routes.push_back(std::move(route));
     }
     server.impl_->changed.notify_all();
   }
 
-  static void ws_route_added(FakeWebServer &server, Value route) {
+  static void ws_route_added(FakeWebServer &server, Value route,
+                             DateTime generation) {
     {
       std::lock_guard lock{server.impl_->mutex};
-      server.impl_->ws_routes.push_back(std::move(route));
+      server.impl_->ws_routes.push_back(route.clone());
+      server.impl_->ws_bindings.push_back(
+          wd::SubscriptionBinding{std::move(route), generation});
     }
     server.impl_->changed.notify_all();
   }
@@ -311,9 +345,25 @@ struct detail::FakeServerAccess {
   static void ws_route_removed(FakeWebServer &server, Value route) {
     {
       std::lock_guard lock{server.impl_->mutex};
+      std::erase_if(server.impl_->ws_bindings, [&](const auto &binding) {
+        return binding.key.view().equals(route.view());
+      });
       server.impl_->removed_ws_routes.push_back(std::move(route));
     }
     server.impl_->changed.notify_all();
+  }
+
+  [[nodiscard]] static DateTime http_generation(const FakeWebServer &server,
+                                                const Value &route) {
+    std::lock_guard lock{server.impl_->mutex};
+    return active_generation(server.impl_->http_bindings, route, "HTTP route");
+  }
+
+  [[nodiscard]] static DateTime ws_generation(const FakeWebServer &server,
+                                              const Value &route) {
+    std::lock_guard lock{server.impl_->mutex};
+    return active_generation(server.impl_->ws_bindings, route,
+                             "WebSocket route");
   }
 
   static void respond(FakeWebServer &server, Int client_id, Int request_id,
@@ -463,9 +513,12 @@ void FakeWebServer::emit_request(Value route, Value request) {
   require_schema(request, scalar_descriptor<HttpServerRequest>::value_meta(),
                  "request");
   auto output = attached_server_output(*this);
+  const DateTime generation =
+      detail::FakeServerAccess::http_generation(*this, route);
   const std::size_t retained = server_request_bytes(request);
   if (!output->send(wd::WebTransportEventKind::ServerRequest, "request",
-                    request_envelope(std::move(route), std::move(request)),
+                    request_envelope(std::move(route), generation,
+                                     std::move(request)),
                     wd::index(wd::ServerChannel::Request), retained)) {
     throw std::overflow_error("Web fake request queue is full");
   }
@@ -474,8 +527,10 @@ void FakeWebServer::emit_request(Value route, Value request) {
 void FakeWebServer::emit_route_state(Value route, WebRouteState state) {
   require_schema(route, scalar_descriptor<WebRoute>::value_meta(), "route");
   auto output = attached_server_output(*this);
+  const DateTime generation =
+      detail::FakeServerAccess::http_generation(*this, route);
   if (!output->send(wd::WebTransportEventKind::ServerRequest, "request",
-                    route_state_envelope(std::move(route), state),
+                    route_state_envelope(std::move(route), generation, state),
                     wd::index(wd::ServerChannel::Request), 256)) {
     throw std::overflow_error("Web fake request queue is full");
   }
@@ -485,10 +540,13 @@ void FakeWebServer::emit_ws_event(Value route, Value event) {
   require_schema(route, scalar_descriptor<WebRoute>::value_meta(), "route");
   require_schema(event, scalar_descriptor<WsEvent>::value_meta(), "WS event");
   auto output = attached_server_output(*this);
+  const DateTime generation =
+      detail::FakeServerAccess::ws_generation(*this, route);
   const std::size_t retained = ws_event_bytes(event);
   if (!output->send(
           wd::WebTransportEventKind::ServerWsIngress, "server_ws",
-          ws_ingress_envelope(std::move(route), std::move(event), Value{}),
+          ws_ingress_envelope(std::move(route), generation, std::move(event),
+                              Value{}),
           wd::index(wd::ServerChannel::WsIngress), retained)) {
     throw std::overflow_error("Web fake WS ingress queue is full");
   }
@@ -500,10 +558,12 @@ void FakeWebServer::emit_ws_frame(Value route, Value inbound_frame) {
                  scalar_descriptor<WsInboundFrame>::value_meta(),
                  "inbound frame");
   auto output = attached_server_output(*this);
+  const DateTime generation =
+      detail::FakeServerAccess::ws_generation(*this, route);
   const std::size_t retained = inbound_frame_bytes(inbound_frame);
   if (!output->send(
           wd::WebTransportEventKind::ServerWsIngress, "server_ws",
-          ws_ingress_envelope(std::move(route), Value{},
+          ws_ingress_envelope(std::move(route), generation, Value{},
                               std::move(inbound_frame)),
           wd::index(wd::ServerChannel::WsIngress), retained)) {
     throw std::overflow_error("Web fake WS ingress queue is full");
@@ -541,6 +601,7 @@ struct FakeWebClient::Impl {
   Int sequence{};
   std::vector<FakeHttpCall> calls{};
   std::vector<Value> ws_keys{};
+  std::vector<wd::SubscriptionBinding> ws_bindings{};
   std::vector<Value> removed_ws_keys{};
   std::vector<FakeClientWsSend> ws_sends{};
 };
@@ -570,6 +631,7 @@ struct detail::FakeClientAccess {
     {
       std::lock_guard lock{client.impl_->mutex};
       client.impl_->output.reset();
+      client.impl_->ws_bindings.clear();
     }
     client.impl_->changed.notify_all();
   }
@@ -588,10 +650,13 @@ struct detail::FakeClientAccess {
     client.impl_->changed.notify_all();
   }
 
-  static void ws_key_added(FakeWebClient &client, Value key) {
+  static void ws_key_added(FakeWebClient &client, Value key,
+                           DateTime generation) {
     {
       std::lock_guard lock{client.impl_->mutex};
-      client.impl_->ws_keys.push_back(std::move(key));
+      client.impl_->ws_keys.push_back(key.clone());
+      client.impl_->ws_bindings.push_back(
+          wd::SubscriptionBinding{std::move(key), generation});
     }
     client.impl_->changed.notify_all();
   }
@@ -599,9 +664,19 @@ struct detail::FakeClientAccess {
   static void ws_key_removed(FakeWebClient &client, Value key) {
     {
       std::lock_guard lock{client.impl_->mutex};
+      std::erase_if(client.impl_->ws_bindings, [&](const auto &binding) {
+        return binding.key.view().equals(key.view());
+      });
       client.impl_->removed_ws_keys.push_back(std::move(key));
     }
     client.impl_->changed.notify_all();
+  }
+
+  [[nodiscard]] static DateTime ws_generation(const FakeWebClient &client,
+                                              const Value &key) {
+    std::lock_guard lock{client.impl_->mutex};
+    return active_generation(client.impl_->ws_bindings, key,
+                             "WebSocket client key");
   }
 
   static void ws_send(FakeWebClient &client, Int client_id, Value key,
@@ -733,10 +808,13 @@ void FakeWebClient::emit_ws_event(Value key, Value event) {
   require_schema(key, scalar_descriptor<WsClientKey>::value_meta(), "WS key");
   require_schema(event, scalar_descriptor<WsEvent>::value_meta(), "WS event");
   auto output = attached_client_output(*this);
+  const DateTime generation =
+      detail::FakeClientAccess::ws_generation(*this, key);
   const std::size_t retained = ws_event_bytes(event);
   if (!output->send(
           wd::WebTransportEventKind::ClientWsIngress, "client_ws",
-          ws_client_envelope(std::move(key), std::move(event), Value{}),
+          ws_client_envelope(std::move(key), generation, std::move(event),
+                             Value{}),
           wd::index(wd::ClientChannel::WsIngress), retained)) {
     throw std::overflow_error("Web fake client WS queue is full");
   }
@@ -746,10 +824,13 @@ void FakeWebClient::emit_ws_frame(Value key, Value frame) {
   require_schema(key, scalar_descriptor<WsClientKey>::value_meta(), "WS key");
   require_schema(frame, scalar_descriptor<WsFrame>::value_meta(), "frame");
   auto output = attached_client_output(*this);
+  const DateTime generation =
+      detail::FakeClientAccess::ws_generation(*this, key);
   const std::size_t retained = ws_frame_bytes(frame.view()) + 256;
   if (!output->send(
           wd::WebTransportEventKind::ClientWsIngress, "client_ws",
-          ws_client_envelope(std::move(key), Value{}, std::move(frame)),
+          ws_client_envelope(std::move(key), generation, Value{},
+                             std::move(frame)),
           wd::index(wd::ClientChannel::WsIngress), retained)) {
     throw std::overflow_error("Web fake client WS queue is full");
   }
@@ -811,6 +892,8 @@ struct FakeServerHttpRouteSink {
 
   static void eval(
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"server", detail::FakeServerHandle> server) {
     if (!routes.modified()) {
       return;
@@ -820,9 +903,17 @@ struct FakeServerHttpRouteSink {
       detail::FakeServerAccess::http_route_removed(*server.value().value,
                                                    route.clone());
     }
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
     for (const auto route : erased.added()) {
+      const auto generation = generation_values.at(route);
+      if (!generation.valid()) {
+        throw std::logic_error("Fake HTTP route generation is unavailable");
+      }
       detail::FakeServerAccess::http_route_added(*server.value().value,
-                                                 route.clone());
+                                                 route.clone(),
+                                                 generation.value().checked_as<
+                                                     DateTime>());
     }
   }
 };
@@ -834,6 +925,8 @@ struct FakeServerWsRouteSink {
 
   static void eval(
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"server", detail::FakeServerHandle> server) {
     if (!routes.modified()) {
       return;
@@ -843,9 +936,17 @@ struct FakeServerWsRouteSink {
       detail::FakeServerAccess::ws_route_removed(*server.value().value,
                                                  route.clone());
     }
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
     for (const auto route : erased.added()) {
+      const auto generation = generation_values.at(route);
+      if (!generation.valid()) {
+        throw std::logic_error("Fake WebSocket route generation is unavailable");
+      }
       detail::FakeServerAccess::ws_route_added(*server.value().value,
-                                               route.clone());
+                                               route.clone(),
+                                               generation.value().checked_as<
+                                                   DateTime>());
     }
   }
 };
@@ -933,16 +1034,23 @@ struct FakeWebServerImpl {
     auto transport_bindings = wd::make_transport_bindings();
     auto transport = wire_fake_server_transport(
         w, server.value(), admission, transport_bindings);
-    static_cast<void>(
-        wire<FakeServerHttpRouteSink>(w, http_routes, server.value()));
-    static_cast<void>(
-        wire<FakeServerWsRouteSink>(w, ws_routes, server.value()));
+    auto http_generations =
+        wire<wd::SubscriptionGenerationNode<WebRoute>>(w, http_routes)
+            .template as<TSD<WebRoute, TS<DateTime>>>();
+    auto ws_generations =
+        wire<wd::SubscriptionGenerationNode<WebRoute>>(w, ws_routes)
+            .template as<TSD<WebRoute, TS<DateTime>>>();
+    static_cast<void>(wire<FakeServerHttpRouteSink>(
+        w, http_routes, http_generations, server.value()));
+    static_cast<void>(wire<FakeServerWsRouteSink>(
+        w, ws_routes, ws_generations, server.value()));
     static_cast<void>(
         wire<FakeServerRespondSink>(w, responses, server.value()));
     static_cast<void>(
         wire<FakeServerWsSendSink>(w, ws_sends, server.value()));
     auto outputs = wd::wire_server_outputs(
-        w, transport, http_routes, ws_routes, admission, transport_bindings);
+        w, transport, http_routes, ws_routes, http_generations, ws_generations,
+        admission, transport_bindings);
 
     service::impl_output<HttpServeService>(w, binding, outputs.requests);
     service::impl_output<WsServeService>(w, binding, outputs.ws);
@@ -1012,6 +1120,8 @@ struct FakeClientWsKeySink {
 
   static void eval(
       In<"keys", TSS<WsClientKey>, InputValidity::Unchecked> keys,
+      In<"generations", TSD<WsClientKey, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"client", detail::FakeClientHandle> client) {
     if (!keys.modified()) {
       return;
@@ -1021,9 +1131,16 @@ struct FakeClientWsKeySink {
       detail::FakeClientAccess::ws_key_removed(*client.value().value,
                                                key.clone());
     }
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
     for (const auto key : erased.added()) {
-      detail::FakeClientAccess::ws_key_added(*client.value().value,
-                                             key.clone());
+      const auto generation = generation_values.at(key);
+      if (!generation.valid()) {
+        throw std::logic_error("Fake WebSocket client generation is unavailable");
+      }
+      detail::FakeClientAccess::ws_key_added(
+          *client.value().value, key.clone(),
+          generation.value().checked_as<DateTime>());
     }
   }
 };
@@ -1082,12 +1199,16 @@ struct FakeWebClientImpl {
     auto transport_bindings = wd::make_transport_bindings();
     auto transport = wire_fake_client_transport(
         w, client.value(), admission, transport_bindings);
+    auto ws_generations =
+        wire<wd::SubscriptionGenerationNode<WsClientKey>>(w, ws_keys)
+            .template as<TSD<WsClientKey, TS<DateTime>>>();
     static_cast<void>(wire<FakeClientCallSink>(w, calls, client.value()));
-    static_cast<void>(wire<FakeClientWsKeySink>(w, ws_keys, client.value()));
+    static_cast<void>(wire<FakeClientWsKeySink>(w, ws_keys, ws_generations,
+                                                client.value()));
     static_cast<void>(
         wire<FakeClientWsSendSink>(w, ws_sends, client.value()));
     auto outputs = wd::wire_client_outputs(
-        w, transport, ws_keys, admission, transport_bindings);
+        w, transport, ws_keys, ws_generations, admission, transport_bindings);
 
     service::impl_output<HttpClientService>(w, binding, outputs.responses);
     service::impl_output<WsClientService>(w, binding, outputs.ws);

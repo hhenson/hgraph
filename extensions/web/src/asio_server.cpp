@@ -406,6 +406,7 @@ class WebServerRuntime;
 struct CompiledRoutes {
   RouteTable table{RouteTable::build({})};
   std::vector<Value> routes{};
+  std::vector<DateTime> generations{};
 };
 
 struct CompiledStaticFiles {
@@ -423,6 +424,7 @@ struct MatchedRoute {
   // which the retained estimate accounts via route_weight().
   std::shared_ptr<const CompiledRoutes> snapshot{};
   const Value *route{};
+  DateTime generation{MIN_ST};
   // Capture NAMES are views into the snapshot's route table; values are
   // owned (request-derived).  Materialized into owning pairs only after
   // admission (review P1).
@@ -888,8 +890,10 @@ public:
   void start();
   void stop() noexcept;
 
-  void apply_http_routes(std::vector<Value> added, std::vector<Value> removed);
-  void apply_ws_routes(std::vector<Value> added, std::vector<Value> removed);
+  void apply_http_routes(std::vector<SubscriptionBinding> added,
+                         std::vector<Value> removed);
+  void apply_ws_routes(std::vector<SubscriptionBinding> added,
+                       std::vector<Value> removed);
   void respond(Int client_id, Int request_id, Value response);
   void ws_send(Int client_id, Int connection_id, Value frame);
 
@@ -921,15 +925,18 @@ public:
       const std::shared_ptr<ServerConnection> &connection);
   void unregister_ws_connection(Int connection_id) noexcept;
 
-  [[nodiscard]] bool push_request_reserved(Value route, Value request,
+  [[nodiscard]] bool push_request_reserved(Value route, DateTime generation,
+                                           Value request,
                                            std::size_t retained_bytes,
                                            std::size_t reserved_bytes);
-  [[nodiscard]] bool push_ws_event(Value route, Value event,
+  [[nodiscard]] bool push_ws_event(Value route, DateTime generation, Value event,
                                    std::size_t retained_bytes);
-  [[nodiscard]] bool push_ws_event_reserved(Value route, Value event,
+  [[nodiscard]] bool push_ws_event_reserved(Value route, DateTime generation,
+                                            Value event,
                                             std::size_t retained_bytes,
                                             std::size_t reserved_bytes);
-  [[nodiscard]] bool push_ws_frame_reserved(Value route, Value inbound_frame,
+  [[nodiscard]] bool push_ws_frame_reserved(Value route, DateTime generation,
+                                            Value inbound_frame,
                                             std::size_t retained_bytes,
                                             std::size_t reserved_bytes);
   [[nodiscard]] Value delivery_report(Int request_id, WebDeliveryStatus status,
@@ -985,8 +992,10 @@ private:
   void arm_stats_timer();
   void emit_stats_once();
   void rebuild(std::shared_ptr<const CompiledRoutes> &slot,
-               std::vector<std::tuple<HttpMethod, std::string, Value>> &master,
-               std::vector<Value> added, std::vector<Value> removed);
+               std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>>
+                   &master,
+               std::vector<SubscriptionBinding> added,
+               std::vector<Value> removed);
 
   friend class ServerConnection;
 
@@ -1006,8 +1015,9 @@ private:
   std::shared_ptr<const CompiledRoutes> ws_routes_{
       std::make_shared<CompiledRoutes>()};
   std::mutex routes_mutex_{};
-  std::vector<std::tuple<HttpMethod, std::string, Value>> http_master_{};
-  std::vector<std::tuple<HttpMethod, std::string, Value>> ws_master_{};
+  std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>>
+      http_master_{};
+  std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>> ws_master_{};
 
   std::mutex pending_mutex_{};
   struct Pending {
@@ -1277,6 +1287,7 @@ private:
   // and accounted via ws_route_weight_.
   std::shared_ptr<const CompiledRoutes> ws_route_snapshot_{};
   const Value *ws_route_{};
+  DateTime ws_generation_{MIN_ST};
   std::size_t ws_route_weight_{};
   std::optional<http::response<http::string_body>> outgoing_{};
   std::optional<http::response<http::file_body>> outgoing_file_{};
@@ -1616,6 +1627,7 @@ std::optional<MatchedRoute> WebListener::match(HttpMethod method,
     if (matched.matched) {
       return MatchedRoute{runtime, snapshot,
                           &snapshot->routes[matched.entry_index],
+                          snapshot->generations[matched.entry_index],
                           matched.params};
     }
   }
@@ -2039,37 +2051,44 @@ void WebServerRuntime::stop() noexcept {
 
 void WebServerRuntime::rebuild(
     std::shared_ptr<const CompiledRoutes> &slot,
-    std::vector<std::tuple<HttpMethod, std::string, Value>> &master,
-    std::vector<Value> added, std::vector<Value> removed) {
+    std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>> &master,
+    std::vector<SubscriptionBinding> added, std::vector<Value> removed) {
   std::lock_guard lock{routes_mutex_};
   for (const Value &route : removed) {
     std::erase_if(master, [&](const auto &entry) {
       return std::get<2>(entry).view().equals(route.view());
     });
   }
-  for (Value &route : added) {
-    const auto fields = route.view().as_bundle();
+  for (SubscriptionBinding &binding : added) {
+    const auto fields = binding.key.view().as_bundle();
     master.emplace_back(fields.at("method").checked_as<HttpMethod>(),
                         std::string{fields.at("pattern").checked_as<Str>()},
-                        std::move(route));
+                        std::move(binding.key), binding.generation);
   }
   auto compiled = std::make_shared<CompiledRoutes>();
   std::vector<RouteTable::Entry> entries;
   entries.reserve(master.size());
-  for (const auto &[method, pattern, route] : master) {
+  for (const auto &[method, pattern, route, generation] : master) {
     entries.push_back(RouteTable::Entry{method, pattern});
     compiled->routes.push_back(route.clone());
+    compiled->generations.push_back(generation);
   }
   compiled->table = RouteTable::build(std::move(entries));
   atomic_store_routes(&slot, compiled);
 }
 
-void WebServerRuntime::apply_http_routes(std::vector<Value> added,
+void WebServerRuntime::apply_http_routes(std::vector<SubscriptionBinding> added,
                                          std::vector<Value> removed) {
   if (listener_) {
-    listener_->check_route_conflicts(this, false, added);
+    std::vector<Value> routes;
+    routes.reserve(added.size());
+    for (const auto &binding : added) {
+      routes.push_back(binding.key.clone());
+    }
+    listener_->check_route_conflicts(this, false, routes);
   }
-  for (const Value &route : added) {
+  for (const SubscriptionBinding &binding : added) {
+    const Value &route = binding.key;
     // Route-aware floor: a maximal request on this route (its envelope
     // route copy and capture names included) must fit an empty ingress
     // channel, or Backpressure could park it forever (review P1).
@@ -2093,12 +2112,18 @@ void WebServerRuntime::apply_http_routes(std::vector<Value> added,
   }
 }
 
-void WebServerRuntime::apply_ws_routes(std::vector<Value> added,
+void WebServerRuntime::apply_ws_routes(std::vector<SubscriptionBinding> added,
                                        std::vector<Value> removed) {
   if (listener_) {
-    listener_->check_route_conflicts(this, true, added);
+    std::vector<Value> routes;
+    routes.reserve(added.size());
+    for (const auto &binding : added) {
+      routes.push_back(binding.key.clone());
+    }
+    listener_->check_route_conflicts(this, true, routes);
   }
-  for (const Value &route : added) {
+  for (const SubscriptionBinding &binding : added) {
+    const Value &route = binding.key;
     // Route-aware floor: BOTH the maximal message and the largest
     // lifecycle record (the Open event carries the upgrade request's
     // metadata and capture names) must fit — the payload lane for the
@@ -2152,7 +2177,8 @@ void WebServerRuntime::unregister_ws_connection(Int connection_id) noexcept {
   ws_connections_.erase(connection_id);
 }
 
-bool WebServerRuntime::push_request_reserved(Value route, Value request,
+bool WebServerRuntime::push_request_reserved(Value route, DateTime generation,
+                                             Value request,
                                              std::size_t retained_bytes,
                                              std::size_t reserved_bytes) {
   if (retained_bytes > reserved_bytes) {
@@ -2169,11 +2195,13 @@ bool WebServerRuntime::push_request_reserved(Value route, Value request,
                {
                    {"route", std::move(route)},
                    {"request", std::move(request)},
+                   {"generation", Value{generation}},
                }),
       index(ServerChannel::Request), retained_bytes, reserved_bytes);
 }
 
-bool WebServerRuntime::push_ws_event_reserved(Value route, Value event,
+bool WebServerRuntime::push_ws_event_reserved(Value route,
+                                              DateTime generation, Value event,
                                               std::size_t retained_bytes,
                                               std::size_t reserved_bytes) {
   // Terminal lifecycle events ride capacity reserved at accept, so a full
@@ -2184,12 +2212,14 @@ bool WebServerRuntime::push_ws_event_reserved(Value route, Value event,
                {
                    {"route", std::move(route)},
                    {"event", std::move(event)},
+                   {"generation", Value{generation}},
                }),
       index(ServerChannel::WsIngress),
       std::min(retained_bytes, reserved_bytes), reserved_bytes);
 }
 
-bool WebServerRuntime::push_ws_event(Value route, Value event,
+bool WebServerRuntime::push_ws_event(Value route, DateTime generation,
+                                     Value event,
                                      std::size_t retained_bytes) {
   // Connection lifecycle is graph data and must never be lost (review P1):
   // an event the payload lane cannot take goes through the control lane,
@@ -2198,6 +2228,7 @@ bool WebServerRuntime::push_ws_event(Value route, Value event,
                                   {
                                       {"route", std::move(route)},
                                       {"event", std::move(event)},
+                                      {"generation", Value{generation}},
                                   });
   if (output_.send(WebTransportEventKind::ServerWsIngress, "server_ws",
                    envelope.clone(), index(ServerChannel::WsIngress),
@@ -2210,7 +2241,8 @@ bool WebServerRuntime::push_ws_event(Value route, Value event,
 }
 
 [[nodiscard]] bool
-WebServerRuntime::push_ws_frame_reserved(Value route, Value inbound_frame,
+WebServerRuntime::push_ws_frame_reserved(Value route, DateTime generation,
+                                         Value inbound_frame,
                                          std::size_t retained_bytes,
                                          std::size_t reserved_bytes) {
   return output_.send_reserved(
@@ -2219,6 +2251,7 @@ WebServerRuntime::push_ws_frame_reserved(Value route, Value inbound_frame,
                {
                    {"route", std::move(route)},
                    {"frame", std::move(inbound_frame)},
+                   {"generation", Value{generation}},
                }),
       index(ServerChannel::WsIngress),
       std::min(retained_bytes, reserved_bytes), reserved_bytes);
@@ -2832,8 +2865,8 @@ void ServerConnection::dispatch_http(MatchedRoute matched, bool keep_alive) {
   // standard push-source queue (review P1). It fails only once graph teardown
   // stops admission.
   const bool pushed = runtime->push_request_reserved(
-      matched.route->clone(), std::move(server_request), retained_bytes,
-      admitted_bytes_);
+      matched.route->clone(), matched.generation, std::move(server_request),
+      retained_bytes, admitted_bytes_);
   admitted_runtime_.reset();
   admitted_bytes_ = 0;
   if (!pushed) {
@@ -3132,6 +3165,7 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
   ws_runtime_ = runtime;
   ws_route_snapshot_ = matched.snapshot;
   ws_route_ = matched.route;
+  ws_generation_ = matched.generation;
   ws_route_weight_ = route_weight(*ws_route_);
   ws_connection_id_ = runtime->register_ws_connection(shared_from_this());
 
@@ -3181,7 +3215,7 @@ void ServerConnection::accept_ws(MatchedRoute matched) {
         }
         self->ws_close_reserved_ = close_weight;
         const bool open_delivered = runtime->push_ws_event(
-            self->ws_route_->clone(),
+            self->ws_route_->clone(), self->ws_generation_,
             build_on(b.ws_event,
                      {
                          {"connection_id", b.number(self->ws_connection_id_)},
@@ -3310,8 +3344,8 @@ void ServerConnection::deliver_ws_ingress(Value inbound, std::size_t bytes) {
   const std::shared_ptr<WebServerRuntime> runtime = ws_runtime_;
   const std::size_t reserved = ws_reserved_bytes_;
   ws_reserved_bytes_ = 0;
-  if (runtime->push_ws_frame_reserved(ws_route_->clone(), std::move(inbound),
-                                      bytes, reserved)) {
+  if (runtime->push_ws_frame_reserved(ws_route_->clone(), ws_generation_,
+                                      std::move(inbound), bytes, reserved)) {
     ws_read_continue();
   }
 }
@@ -3603,12 +3637,14 @@ void ServerConnection::finish_ws(WsConnectionState state, Int close_code,
       const std::size_t reserved = ws_close_reserved_;
       ws_close_reserved_ = 0;
       static_cast<void>(runtime->push_ws_event_reserved(
-          ws_route_->clone(), std::move(terminal), terminal_bytes, reserved));
+          ws_route_->clone(), ws_generation_, std::move(terminal),
+          terminal_bytes, reserved));
     } else {
       // Only reachable after transport teardown or for a pre-reservation
       // connection; retain the best-effort fallback for orderly cleanup.
       static_cast<void>(runtime->push_ws_event(
-          ws_route_->clone(), std::move(terminal), terminal_bytes));
+          ws_route_->clone(), ws_generation_, std::move(terminal),
+          terminal_bytes));
     }
   }
   close();
@@ -4259,8 +4295,8 @@ void H2Driver::maybe_dispatch(std::int32_t stream_id) {
   const std::size_t reserved = stream.reserved;
   stream.reserved = 0;
   const bool pushed = runtime->push_request_reserved(
-      stream.matched.route->clone(), std::move(server_request), retained,
-      reserved);
+      stream.matched.route->clone(), stream.matched.generation,
+      std::move(server_request), retained, reserved);
   if (!pushed) {
     runtime->unregister_pending(request_id);
     respond_transport(stream_id, 503, "server shutting down");
@@ -4671,6 +4707,8 @@ struct WebServerHttpRouteSink {
 
   static void eval(
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
     if (!routes.modified()) {
       return;
@@ -4680,9 +4718,16 @@ struct WebServerHttpRouteSink {
     for (const auto route : erased.removed()) {
       removed.push_back(route.clone());
     }
-    std::vector<Value> added;
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
+    std::vector<wd::SubscriptionBinding> added;
     for (const auto route : erased.added()) {
-      added.push_back(route.clone());
+      const auto generation = generation_values.at(route);
+      if (!generation.valid()) {
+        throw std::logic_error("Web HTTP route generation is unavailable");
+      }
+      added.push_back(wd::SubscriptionBinding{
+          route.clone(), generation.value().checked_as<DateTime>()});
     }
     live_server_runtime(runtime)->apply_http_routes(std::move(added),
                                                     std::move(removed));
@@ -4696,6 +4741,8 @@ struct WebServerWsRouteSink {
 
   static void eval(
       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
+      In<"generations", TSD<WebRoute, TS<DateTime>>,
+         InputValidity::Unchecked> generations,
       Scalar<"runtime", wd::WebServerRuntimeHandle> runtime) {
     if (!routes.modified()) {
       return;
@@ -4705,9 +4752,16 @@ struct WebServerWsRouteSink {
     for (const auto route : erased.removed()) {
       removed.push_back(route.clone());
     }
-    std::vector<Value> added;
+    const auto &generation_values =
+        static_cast<const TSDInputView &>(generations);
+    std::vector<wd::SubscriptionBinding> added;
     for (const auto route : erased.added()) {
-      added.push_back(route.clone());
+      const auto generation = generation_values.at(route);
+      if (!generation.valid()) {
+        throw std::logic_error("WebSocket route generation is unavailable");
+      }
+      added.push_back(wd::SubscriptionBinding{
+          route.clone(), generation.value().checked_as<DateTime>()});
     }
     live_server_runtime(runtime)->apply_ws_routes(std::move(added),
                                                   std::move(removed));
@@ -4828,12 +4882,21 @@ struct WebServerImpl {
     auto transport = wire_server_transport(w, runtime_config, path.value(),
                                            runtime, admission,
                                            transport_bindings);
-    static_cast<void>(wire<WebServerHttpRouteSink>(w, http_routes, runtime));
-    static_cast<void>(wire<WebServerWsRouteSink>(w, ws_routes, runtime));
+    auto http_generations =
+        wire<wd::SubscriptionGenerationNode<WebRoute>>(w, http_routes)
+            .template as<TSD<WebRoute, TS<DateTime>>>();
+    auto ws_generations =
+        wire<wd::SubscriptionGenerationNode<WebRoute>>(w, ws_routes)
+            .template as<TSD<WebRoute, TS<DateTime>>>();
+    static_cast<void>(wire<WebServerHttpRouteSink>(
+        w, http_routes, http_generations, runtime));
+    static_cast<void>(wire<WebServerWsRouteSink>(w, ws_routes, ws_generations,
+                                                 runtime));
     static_cast<void>(wire<WebServerRespondSink>(w, responses, runtime));
     static_cast<void>(wire<WebServerWsSendSink>(w, ws_sends, runtime));
     auto outputs = wd::wire_server_outputs(
-        w, transport, http_routes, ws_routes, admission, transport_bindings);
+        w, transport, http_routes, ws_routes, http_generations, ws_generations,
+        admission, transport_bindings);
 
     service::impl_output<HttpServeService>(w, binding, outputs.requests);
     service::impl_output<WsServeService>(w, binding, outputs.ws);

@@ -526,7 +526,12 @@ registry, and that holds no graph state.
   admission cannot later fail because the core queue is full. Statistics allow
   one pending sample; additional periodic samples are self-superseding and are
   refused until the graph dequeues it, after which the next sample reports the
-  current state.
+  current state. Each active route or WebSocket client key also has a
+  graph-owned lifetime generation. The external task stamps that generation on
+  routed ingress, and the graph projection accepts it only while the same
+  generation remains active. A queued event can therefore neither recreate a
+  removed output key nor cross a rapid remove/re-add boundary; the queue remains
+  the sole owner of event ordering and storage.
 * No worker thread calls ``EvaluationEngineApi``, mutates a time series, or
   retains a borrowed graph value.  ``PushSourceSender`` is the only
   cross-thread runtime boundary; off-thread value construction runs under
@@ -619,6 +624,10 @@ Ordering and time
   ``Date`` headers and payload timestamps are metadata.
 * Multiple requests pending on one route are delivered on consecutive
   ``MIN_TD`` cycles in arrival order.
+* Route/key removal invalidates all ingress already queued for that subscription
+  lifetime. Re-adding an equal key creates a new lifetime; old HTTP requests,
+  server WebSocket events/frames, and client WebSocket events/frames are not
+  delivered to it.
 
 Python API
 ----------
@@ -1032,7 +1041,8 @@ Behavior
   bodies round-trip in C++ and Python.
 * Route precedence (literal > param > rest), percent-decoding, and typed
   path captures behave as specified; route add/remove at runtime takes
-  effect without restart.
+  effect without restart. Queued ingress for a removed route/key lifetime is
+  discarded and cannot leak into an equal key that is subsequently re-added.
 * TLS termination, mTLS subject surfacing, SNI, and ALPN negotiation work
   on server and client; the client negotiates HTTP/2 end-to-end.
 * Transport failure and HTTP error status arrive on distinct arms of the

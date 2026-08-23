@@ -10,14 +10,20 @@
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/push_source_node.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/util/scope.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <iostream>
+#include <mutex>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <typeindex>
 #include <utility>
 #include <vector>
 
@@ -72,7 +78,11 @@ inline FakeWebClientPtr ws_client{};
 inline Value server_configuration{};
 inline Value client_configuration{};
 inline Value serve_route{};
+inline Value alternate_route{};
 inline Value ws_route{};
+inline Value alternate_ws_route{};
+inline Value client_ws_key{};
+inline Value alternate_client_ws_key{};
 inline Value emitted_request{};
 inline Value respond_response{};
 inline Value client_request{};
@@ -94,6 +104,79 @@ inline Value observed_client_ws_report{};
 inline std::size_t backlog_request_count{};
 inline std::vector<Int> backlog_request_ids{};
 inline std::vector<Str> observed_transport_order{};
+inline std::vector<Int> post_readd_request_ids{};
+inline std::vector<Str> post_readd_ws_frames{};
+inline std::vector<Str> post_readd_client_ws_frames{};
+
+class SenderLatch {
+public:
+  void reset() {
+    std::lock_guard lock{mutex_};
+    sender_.reset();
+  }
+
+  void publish(PushSourceSender sender) {
+    {
+      std::lock_guard lock{mutex_};
+      sender_ = std::move(sender);
+    }
+    changed_.notify_all();
+  }
+
+  [[nodiscard]] std::optional<PushSourceSender>
+  await(std::chrono::milliseconds timeout) {
+    std::unique_lock lock{mutex_};
+    if (!changed_.wait_for(lock, timeout,
+                           [&] { return sender_.has_value(); })) {
+      return std::nullopt;
+    }
+    return sender_;
+  }
+
+private:
+  std::mutex mutex_{};
+  std::condition_variable changed_{};
+  std::optional<PushSourceSender> sender_{};
+};
+
+class EvaluationGate {
+public:
+  void reset() {
+    std::lock_guard lock{mutex_};
+    blocked_ = false;
+    released_ = false;
+  }
+
+  void block() {
+    std::unique_lock lock{mutex_};
+    blocked_ = true;
+    changed_.notify_all();
+    changed_.wait(lock, [&] { return released_; });
+  }
+
+  [[nodiscard]] bool await_blocked(std::chrono::milliseconds timeout) {
+    std::unique_lock lock{mutex_};
+    return changed_.wait_for(lock, timeout, [&] { return blocked_; });
+  }
+
+  void release() {
+    {
+      std::lock_guard lock{mutex_};
+      released_ = true;
+    }
+    changed_.notify_all();
+  }
+
+private:
+  std::mutex mutex_{};
+  std::condition_variable changed_{};
+  bool blocked_{};
+  bool released_{};
+};
+
+inline SenderLatch route_sender{};
+inline EvaluationGate route_generation_gate{};
+inline std::size_t route_value_count{};
 
 void release_test_state() {
   serve_server.reset();
@@ -107,7 +190,11 @@ void release_test_state() {
   server_configuration = Value{};
   client_configuration = Value{};
   serve_route = Value{};
+  alternate_route = Value{};
   ws_route = Value{};
+  alternate_ws_route = Value{};
+  client_ws_key = Value{};
+  alternate_client_ws_key = Value{};
   emitted_request = Value{};
   respond_response = Value{};
   client_request = Value{};
@@ -122,6 +209,11 @@ void release_test_state() {
   observed_client_ws_report = Value{};
   observed_transport_order.clear();
   backlog_request_ids.clear();
+  post_readd_request_ids.clear();
+  post_readd_ws_frames.clear();
+  post_readd_client_ws_frames.clear();
+  route_sender.reset();
+  route_generation_gate.release();
 }
 
 [[nodiscard]] Value make_server_request(Int request_id) {
@@ -139,12 +231,24 @@ void release_test_state() {
   return builder.build();
 }
 
+[[nodiscard]] Value make_inbound_frame(Str text) {
+  BundleBuilder inbound{ValuePlanFactory::instance().type_for(
+      scalar_descriptor<WsInboundFrame>::value_meta())};
+  inbound.set("connection_id", Value{Int{5}});
+  inbound.set("frame", make_text_frame(std::move(text)));
+  return inbound.build();
+}
+
 void initialize_values() {
   register_web_types();
   server_configuration = server_config().build();
   client_configuration = client_config().build();
   serve_route = make_route(HttpMethod::Get, "/orders/{id}");
+  alternate_route = make_route(HttpMethod::Get, "/alternate");
   ws_route = make_route(HttpMethod::Get, "/live", true);
+  alternate_ws_route = make_route(HttpMethod::Get, "/alternate-live", true);
+  client_ws_key = make_ws_client_key("wss://feed/live");
+  alternate_client_ws_key = make_ws_client_key("wss://feed/alternate");
   emitted_request = make_server_request(Int{41});
   respond_response =
       make_response(Int{201}, {{"Content-Type", "application/json"}},
@@ -385,6 +489,185 @@ struct BacklogGraph {
     auto route =
         wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
     static_cast<void>(wire<BacklogCapture>(w, serve(w, path, route)));
+  }
+};
+
+struct RouteGenerationSourceTag {};
+
+struct RouteGenerationForward {
+  static constexpr auto name = "web_route_generation_forward";
+
+  static void eval(In<"route", TS<WebRoute>> route,
+                   Out<TS<WebRoute>> out) {
+    ++route_value_count;
+    out.apply(route.base().value());
+  }
+};
+
+struct RouteGenerationCapture {
+  static constexpr auto name = "web_route_generation_capture";
+
+  static void eval(
+      NodeView node,
+      In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
+    auto request = routed.template field<"request">();
+    if (!request.valid() || !request.modified()) {
+      return;
+    }
+    const Int request_id =
+        request.base().value().as_bundle().at("request_id").checked_as<Int>();
+    if (request_id == Int{100}) {
+      route_generation_gate.block();
+      return;
+    }
+    if (route_value_count >= 3) {
+      post_readd_request_ids.push_back(request_id);
+      if (request_id == Int{999}) {
+        node.graph().executor().request_stop();
+      }
+    }
+  }
+};
+
+struct RouteGenerationGraph {
+  static constexpr auto name = "web_route_generation_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("web-route-generation");
+    register_fake_server(w, path, server_configuration.clone(),
+                         lifecycle_server);
+    const auto *route_schema = ts_type<TS<WebRoute>>();
+    auto route = Port<TS<WebRoute>>{
+        w, w.add_unique_node(
+               std::type_index(typeid(RouteGenerationSourceTag)),
+               make_push_source_node(
+                   *route_schema,
+                   make_push_source_queue_policy(*route_schema, 8),
+                   [](PushSourceSender sender) {
+                     route_sender.publish(std::move(sender));
+                   }),
+               std::span<const WiringPortRef>{}, Value{})};
+    auto forwarded = wire<RouteGenerationForward>(w, route);
+    static_cast<void>(wire<RouteGenerationCapture>(
+        w, serve(w, path, forwarded.template as<TS<WebRoute>>())));
+  }
+};
+
+struct WsRouteGenerationSourceTag {};
+
+struct WsRouteGenerationCapture {
+  static constexpr auto name = "web_ws_route_generation_capture";
+
+  static void eval(
+      NodeView node,
+      In<"routed", WsRouteOutput, InputValidity::Unchecked> routed) {
+    auto inbound = routed.template field<"frame">();
+    if (!inbound.valid() || !inbound.modified()) {
+      return;
+    }
+    const Str text = inbound.base()
+                         .value()
+                         .as_bundle()
+                         .at("frame")
+                         .as_bundle()
+                         .at("text")
+                         .checked_as<Str>();
+    if (text == Str{"block"}) {
+      route_generation_gate.block();
+      return;
+    }
+    if (route_value_count >= 3) {
+      post_readd_ws_frames.push_back(text);
+      if (text == Str{"new"}) {
+        node.graph().executor().request_stop();
+      }
+    }
+  }
+};
+
+struct WsRouteGenerationGraph {
+  static constexpr auto name = "web_ws_route_generation_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("web-ws-route-generation");
+    register_fake_server(w, path, server_configuration.clone(),
+                         lifecycle_server);
+    const auto *route_schema = ts_type<TS<WebRoute>>();
+    auto route = Port<TS<WebRoute>>{
+        w, w.add_unique_node(
+               std::type_index(typeid(WsRouteGenerationSourceTag)),
+               make_push_source_node(
+                   *route_schema,
+                   make_push_source_queue_policy(*route_schema, 8),
+                   [](PushSourceSender sender) {
+                     route_sender.publish(std::move(sender));
+                   }),
+               std::span<const WiringPortRef>{}, Value{})};
+    auto forwarded = wire<RouteGenerationForward>(w, route);
+    static_cast<void>(wire<WsRouteGenerationCapture>(
+        w, ws_serve(w, path, forwarded.template as<TS<WebRoute>>())));
+  }
+};
+
+struct ClientKeyGenerationSourceTag {};
+
+struct ClientKeyGenerationForward {
+  static constexpr auto name = "web_client_key_generation_forward";
+
+  static void eval(In<"key", TS<WsClientKey>> key,
+                   Out<TS<WsClientKey>> out) {
+    ++route_value_count;
+    out.apply(key.base().value());
+  }
+};
+
+struct ClientKeyGenerationCapture {
+  static constexpr auto name = "web_client_key_generation_capture";
+
+  static void eval(
+      NodeView node,
+      In<"output", WsClientOutput, InputValidity::Unchecked> output) {
+    auto frame = output.template field<"frame">();
+    if (!frame.valid() || !frame.modified()) {
+      return;
+    }
+    const Str text = frame.base()
+                         .value()
+                         .as_bundle()
+                         .at("text")
+                         .checked_as<Str>();
+    if (text == Str{"block"}) {
+      route_generation_gate.block();
+      return;
+    }
+    if (route_value_count >= 3) {
+      post_readd_client_ws_frames.push_back(text);
+      if (text == Str{"new"}) {
+        node.graph().executor().request_stop();
+      }
+    }
+  }
+};
+
+struct ClientKeyGenerationGraph {
+  static constexpr auto name = "web_client_key_generation_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("web-client-key-generation");
+    register_fake_client(w, path, client_configuration.clone(), ws_client);
+    const auto *key_schema = ts_type<TS<WsClientKey>>();
+    auto key = Port<TS<WsClientKey>>{
+        w, w.add_unique_node(
+               std::type_index(typeid(ClientKeyGenerationSourceTag)),
+               make_push_source_node(
+                   *key_schema, make_push_source_queue_policy(*key_schema, 8),
+                   [](PushSourceSender sender) {
+                     route_sender.publish(std::move(sender));
+                   }),
+               std::span<const WiringPortRef>{}, Value{})};
+    auto forwarded = wire<ClientKeyGenerationForward>(w, key);
+    static_cast<void>(wire<ClientKeyGenerationCapture>(
+        w, ws_connect(w, path, forwarded.template as<TS<WsClientKey>>())));
   }
 };
 
@@ -804,6 +1087,146 @@ void test_transport_preserves_order_across_event_kinds() {
           "the standard web push source reordered related event kinds");
 }
 
+void test_removed_route_drops_queued_events_after_readd() {
+  lifecycle_server = std::make_shared<FakeWebServer>();
+  route_sender.reset();
+  route_generation_gate.reset();
+  route_value_count = 0;
+  post_readd_request_ids.clear();
+
+  auto executor = start_realtime(build_realtime<RouteGenerationGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { route_generation_gate.release(); });
+
+  const auto sender = route_sender.await(2s);
+  require(sender.has_value(), "dynamic route sender did not start");
+  require(sender->send_blocking(serve_route.clone()),
+          "initial route was refused");
+  require(lifecycle_server->wait_for_http_routes(1, 2s),
+          "initial route did not reach the transport sink");
+
+  // Hold the graph in one legitimate request evaluation. This makes the
+  // reviewed race deterministic: all following requests match the first
+  // route lifetime before its removal, while the two route changes wait in a
+  // separate standard push-source FIFO.
+  lifecycle_server->emit_request(serve_route.clone(),
+                                 make_server_request(Int{100}));
+  require(route_generation_gate.await_blocked(2s),
+          "route-generation capture did not block");
+  for (Int request_id : {Int{101}, Int{102}, Int{103}, Int{104}}) {
+    lifecycle_server->emit_request(serve_route.clone(),
+                                   make_server_request(request_id));
+  }
+  require(sender->send_blocking(alternate_route.clone()),
+          "route removal was refused");
+  require(sender->send_blocking(serve_route.clone()),
+          "route re-addition was refused");
+  route_generation_gate.release();
+
+  require(lifecycle_server->wait_for_http_routes(3, 2s),
+          "route remove/re-add did not reach the transport sink");
+  lifecycle_server->emit_request(serve_route.clone(),
+                                 make_server_request(Int{999}));
+  runner.join();
+
+  require(route_value_count == 3,
+          "route lifetime did not process all three route values");
+  require(post_readd_request_ids == std::vector<Int>{Int{999}},
+          "an event queued for the removed route lifetime reached the "
+          "re-added subscription");
+}
+
+void test_removed_ws_route_drops_queued_frames_after_readd() {
+  lifecycle_server = std::make_shared<FakeWebServer>();
+  route_sender.reset();
+  route_generation_gate.reset();
+  route_value_count = 0;
+  post_readd_ws_frames.clear();
+
+  auto executor = start_realtime(build_realtime<WsRouteGenerationGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { route_generation_gate.release(); });
+
+  const auto sender = route_sender.await(2s);
+  require(sender.has_value(), "dynamic WebSocket route sender did not start");
+  require(sender->send_blocking(ws_route.clone()),
+          "initial WebSocket route was refused");
+  require(lifecycle_server->wait_for_ws_routes(1, 2s),
+          "initial WebSocket route did not reach the transport sink");
+  lifecycle_server->emit_ws_frame(ws_route.clone(),
+                                  make_inbound_frame(Str{"block"}));
+  require(route_generation_gate.await_blocked(2s),
+          "WebSocket route-generation capture did not block");
+  for (const auto &text : {Str{"old-1"}, Str{"old-2"}, Str{"old-3"}}) {
+    lifecycle_server->emit_ws_frame(ws_route.clone(),
+                                    make_inbound_frame(text));
+  }
+  require(sender->send_blocking(alternate_ws_route.clone()),
+          "WebSocket route removal was refused");
+  require(sender->send_blocking(ws_route.clone()),
+          "WebSocket route re-addition was refused");
+  route_generation_gate.release();
+
+  require(lifecycle_server->wait_for_ws_routes(3, 2s),
+          "WebSocket route remove/re-add did not reach the transport sink");
+  lifecycle_server->emit_ws_frame(ws_route.clone(),
+                                  make_inbound_frame(Str{"new"}));
+  runner.join();
+
+  require(route_value_count == 3,
+          "WebSocket route lifetime did not process all three values");
+  require(post_readd_ws_frames == std::vector<Str>{Str{"new"}},
+          "a frame queued for the removed WebSocket route lifetime reached "
+          "the re-added subscription");
+}
+
+void test_removed_client_key_drops_queued_frames_after_readd() {
+  ws_client = std::make_shared<FakeWebClient>();
+  route_sender.reset();
+  route_generation_gate.reset();
+  route_value_count = 0;
+  post_readd_client_ws_frames.clear();
+
+  auto executor = start_realtime(build_realtime<ClientKeyGenerationGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { route_generation_gate.release(); });
+
+  const auto sender = route_sender.await(2s);
+  require(sender.has_value(), "dynamic WebSocket client sender did not start");
+  require(sender->send_blocking(client_ws_key.clone()),
+          "initial WebSocket client key was refused");
+  require(ws_client->wait_for_ws_keys(1, 2s),
+          "initial WebSocket client key did not reach the transport sink");
+  ws_client->emit_ws_frame(client_ws_key.clone(), make_text_frame("block"));
+  require(route_generation_gate.await_blocked(2s),
+          "WebSocket client generation capture did not block");
+  for (const auto &text : {Str{"old-1"}, Str{"old-2"}, Str{"old-3"}}) {
+    ws_client->emit_ws_frame(client_ws_key.clone(), make_text_frame(text));
+  }
+  require(sender->send_blocking(alternate_client_ws_key.clone()),
+          "WebSocket client key removal was refused");
+  require(sender->send_blocking(client_ws_key.clone()),
+          "WebSocket client key re-addition was refused");
+  route_generation_gate.release();
+
+  require(ws_client->wait_for_ws_keys(3, 2s),
+          "WebSocket client remove/re-add did not reach the transport sink");
+  ws_client->emit_ws_frame(client_ws_key.clone(), make_text_frame("new"));
+  runner.join();
+
+  require(route_value_count == 3,
+          "WebSocket client lifetime did not process all three values");
+  require(post_readd_client_ws_frames == std::vector<Str>{Str{"new"}},
+          "a frame queued for the removed WebSocket client lifetime reached "
+          "the re-added subscription");
+}
+
 void test_duplicate_registration_fails_and_service_restarts() {
   serve_server = std::make_shared<FakeWebServer>();
   require_failure(
@@ -847,6 +1270,9 @@ int main() {
     test_ws_client_boundary();
     test_push_backlogs_deliver_one_request_per_cycle();
     test_transport_preserves_order_across_event_kinds();
+    test_removed_route_drops_queued_events_after_readd();
+    test_removed_ws_route_drops_queued_frames_after_readd();
+    test_removed_client_key_drops_queued_frames_after_readd();
     test_duplicate_registration_fails_and_service_restarts();
     std::cout << "hgraph-web service tests passed\n";
     return 0;

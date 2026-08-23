@@ -7,7 +7,9 @@
   projections and command sinks, domain byte/reservation watermarks without a
   second value queue, the eleven service interfaces wired through
   `impl_input`/`impl_output`, wiring sugar, and the socketless
-  `FakeWebServer`/`FakeWebClient` transports (RFC 0024/0027).
+  `FakeWebServer`/`FakeWebClient` transports. Graph-owned subscription
+  generations prevent queued HTTP or WebSocket ingress from crossing route/key
+  removal and re-addition boundaries (RFC 0024/0027).
 - Python surface: the `hgraph_web` schemas/services/wiring helpers, the
   `@http_endpoint`/`@ws_endpoint` decorators with JSON/text codec helpers
   and route/server authenticators, and `hgraph_web.compat` — the released
