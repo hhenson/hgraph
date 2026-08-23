@@ -214,15 +214,13 @@ namespace hgraph::kafka
         return *this;
     }
 
-    ServiceConfigBuilder &ServiceConfigBuilder::ingress_limits(Int records, Int bytes) {
+    ServiceConfigBuilder &ServiceConfigBuilder::ingress_limit(Int records) {
         ingress_record_limit_ = records;
-        ingress_byte_limit_   = bytes;
         return *this;
     }
 
-    ServiceConfigBuilder &ServiceConfigBuilder::outbound_limits(Int records, Int bytes) {
+    ServiceConfigBuilder &ServiceConfigBuilder::outbound_limit(Int records) {
         outbound_record_limit_ = records;
-        outbound_byte_limit_   = bytes;
         return *this;
     }
 
@@ -269,8 +267,8 @@ namespace hgraph::kafka
 
     Value ServiceConfigBuilder::build() const {
         return make_service_config(
-            bootstrap_servers_, client_id_, idempotent_producer_, ingress_record_limit_, ingress_byte_limit_,
-            outbound_record_limit_, outbound_byte_limit_, common_options_, consumer_options_, producer_options_, inbound_overflow_,
+            bootstrap_servers_, client_id_, idempotent_producer_, ingress_record_limit_, outbound_record_limit_, common_options_,
+            consumer_options_, producer_options_, inbound_overflow_,
             consumer_failure_policy_, outbound_overflow_, stage_overflow_, shutdown_drain_timeout_ms_, producer_failure_policy_,
             producer_acknowledgements_, producer_retries_, producer_linger_ms_, producer_batch_record_limit_);
     }
@@ -457,7 +455,7 @@ namespace hgraph::kafka
     }
 
     Value make_service_config(std::vector<Str> bootstrap_servers, Str client_id, bool idempotent_producer, Int ingress_record_limit,
-                              Int ingress_byte_limit, Int outbound_record_limit, Int outbound_byte_limit,
+                              Int outbound_record_limit,
                               std::vector<KafkaOptionInput> common_options, std::vector<KafkaOptionInput> consumer_options,
                               std::vector<KafkaOptionInput> producer_options, KafkaOverflowAction inbound_overflow,
                               KafkaFailurePolicy consumer_failure_policy, KafkaOverflowAction outbound_overflow,
@@ -471,7 +469,7 @@ namespace hgraph::kafka
         if (std::ranges::any_of(bootstrap_servers, [](const Str &server) { return server.empty(); })) {
             throw std::invalid_argument("Kafka bootstrap servers cannot be empty");
         }
-        if (ingress_record_limit <= 0 || ingress_byte_limit <= 0 || outbound_record_limit <= 0 || outbound_byte_limit <= 0) {
+        if (ingress_record_limit <= 0 || outbound_record_limit <= 0) {
             throw std::invalid_argument("Kafka queue limits must be positive");
         }
         if (shutdown_drain_timeout_ms < 0) { throw std::invalid_argument("Kafka shutdown drain timeout must be non-negative"); }
@@ -499,7 +497,6 @@ namespace hgraph::kafka
         });
         Value consumer   = bundle<KafkaConsumerDefaults>({
             {"ingress_record_limit", atomic(ingress_record_limit)},
-            {"ingress_byte_limit", atomic(ingress_byte_limit)},
             {"inbound_overflow", atomic(inbound_overflow)},
             {"failure_policy", atomic(consumer_failure_policy)},
             {"options", options(std::move(consumer_options))},
@@ -511,7 +508,6 @@ namespace hgraph::kafka
             {"linger_ms", atomic(producer_linger_ms)},
             {"batch_record_limit", atomic(producer_batch_record_limit)},
             {"outbound_record_limit", atomic(outbound_record_limit)},
-            {"outbound_byte_limit", atomic(outbound_byte_limit)},
             {"overflow", atomic(outbound_overflow)},
             {"stage_overflow", atomic(stage_overflow)},
             {"shutdown_drain_timeout_ms", atomic(shutdown_drain_timeout_ms)},

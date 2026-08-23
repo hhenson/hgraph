@@ -39,8 +39,8 @@ namespace hgraph::kafka
         ServiceConfigBuilder &producer_retries(Int value);
         ServiceConfigBuilder &producer_linger(std::chrono::milliseconds value);
         ServiceConfigBuilder &producer_batch_record_limit(Int value);
-        ServiceConfigBuilder &ingress_limits(Int records, Int bytes);
-        ServiceConfigBuilder &outbound_limits(Int records, Int bytes);
+        ServiceConfigBuilder &ingress_limit(Int records);
+        ServiceConfigBuilder &outbound_limit(Int records);
         ServiceConfigBuilder &inbound_overflow(KafkaOverflowAction value);
         ServiceConfigBuilder &consumer_failure_policy(KafkaFailurePolicy value);
         ServiceConfigBuilder &outbound_overflow(KafkaOverflowAction value,
@@ -62,9 +62,7 @@ namespace hgraph::kafka
         Int                           producer_linger_ms_{5};
         Int                           producer_batch_record_limit_{1'000};
         Int                           ingress_record_limit_{10'000};
-        Int                           ingress_byte_limit_{64 * 1024 * 1024};
         Int                           outbound_record_limit_{10'000};
-        Int                           outbound_byte_limit_{64 * 1024 * 1024};
         std::vector<KafkaOptionInput> common_options_{};
         std::vector<KafkaOptionInput> consumer_options_{};
         std::vector<KafkaOptionInput> producer_options_{};
@@ -127,7 +125,7 @@ namespace hgraph::kafka
 
     [[nodiscard]] HGRAPH_KAFKA_EXPORT Value make_service_config(
         std::vector<Str> bootstrap_servers, Str client_id = {}, bool idempotent_producer = true, Int ingress_record_limit = 10'000,
-        Int ingress_byte_limit = 64 * 1024 * 1024, Int outbound_record_limit = 10'000, Int outbound_byte_limit = 64 * 1024 * 1024,
+        Int outbound_record_limit = 10'000,
         std::vector<KafkaOptionInput> common_options = {}, std::vector<KafkaOptionInput> consumer_options = {},
         std::vector<KafkaOptionInput> producer_options = {}, KafkaOverflowAction inbound_overflow = KafkaOverflowAction::Fail,
         KafkaFailurePolicy  consumer_failure_policy = KafkaFailurePolicy::Report,

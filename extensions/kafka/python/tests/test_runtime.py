@@ -77,7 +77,6 @@ def test_python_authoring_uses_native_record_time_simulation() -> None:
                 ),
                 consumer_defaults=kafka.KafkaConsumerDefaults(
                     ingress_record_limit=3,
-                    ingress_byte_limit=4096,
                 ),
             ),
             path="simulation",
@@ -336,7 +335,6 @@ def test_python_record_time_recovery_waits_for_independent_topics() -> None:
                 ),
                 consumer_defaults=kafka.KafkaConsumerDefaults(
                     ingress_record_limit=2,
-                    ingress_byte_limit=4096,
                 ),
             ),
             path="recovery-cohort",
@@ -375,6 +373,84 @@ def test_python_record_time_recovery_waits_for_independent_topics() -> None:
         (b"late-1", late_time),
         (b"early-2", second_early_time),
         (b"late-2", second_late_time),
+    ]
+    assert len(completed) == 2
+
+
+def test_python_equal_record_time_recovery_batches_independent_keys() -> None:
+    cluster = MockCluster()
+    topics = ("python-recovery-equal-a", "python-recovery-equal-b")
+    for topic in topics:
+        cluster.create_topic(topic)
+    shared_time = hg.utc_now().replace(microsecond=0) + timedelta(seconds=2)
+    for topic, payload in zip(topics, (b"equal-a", b"equal-b"), strict=True):
+        cluster.seed_record(
+            topic,
+            payload,
+            timestamp_ms=int(shared_time.replace(tzinfo=UTC).timestamp() * 1000),
+        )
+    observed = []
+    completed = []
+
+    @hg.sink_node
+    def capture_record(
+        record: hg.TS[kafka.KafkaRecord],
+        _clock: hg.CLOCK = None,
+    ):
+        observed.append((record.value.value, _clock.evaluation_time))
+
+    @hg.sink_node
+    def capture_state(
+        state: hg.TS[kafka.KafkaSubscriptionState],
+        _api: hg.EvaluationEngineApi = None,
+    ):
+        if state.value == kafka.KafkaSubscriptionState.BOUNDED_COMPLETE:
+            completed.append(True)
+            if len(completed) == 2:
+                _api.request_engine_stop()
+
+    @hg.graph
+    def app():
+        kafka.register_kafka_service(
+            kafka.KafkaServiceConfig(
+                connection=kafka.KafkaConnectionConfig(
+                    (cluster.bootstrap_servers(),), "python-recovery-equal"
+                ),
+                consumer_defaults=kafka.KafkaConsumerDefaults(
+                    ingress_record_limit=1,
+                ),
+            ),
+            path="recovery-equal",
+        )
+        for topic in topics:
+            key = kafka.KafkaSubscriptionKey(
+                topics=(topic,),
+                group_id=topic,
+                assignment_mode=kafka.KafkaAssignmentMode.INDEPENDENT,
+                start_position=kafka.KafkaStartPosition.earliest(),
+                stop_position=kafka.KafkaStopPosition.snapshot(),
+                recovery_clock=kafka.KafkaRecoveryClock.RECORD_TIMESTAMP,
+                merge_policy=(
+                    kafka.KafkaMergePolicy.TIMESTAMP_TOPIC_PARTITION_OFFSET
+                ),
+                sharing_identity=topic,
+            )
+            subscription = kafka.kafka_subscribe(
+                hg.const(key, tp=hg.TS[kafka.KafkaSubscriptionKey]),
+                path="recovery-equal",
+            )
+            capture_record(subscription["record"])
+            capture_state(subscription["state"])
+
+    hg.run_graph(
+        app,
+        run_mode=hg.EvaluationMode.REAL_TIME,
+        end_time=shared_time + timedelta(seconds=2),
+    )
+
+    assert sorted(observed) == [
+        (b"equal-a", shared_time),
+        (b"equal-b", shared_time),
     ]
     assert len(completed) == 2
 

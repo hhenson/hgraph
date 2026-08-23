@@ -37,9 +37,10 @@ namespace hgraph::kafka
 
     /** Register one lazy, path-bound production Kafka service implementation.
      * The wiring context selects the concrete execution-compatible graph:
-     * real-time uses queue-owned root push sources; simulation preloads bounded
-     * record-time history and emits it through ordinary scheduled nodes. No
-     * Kafka client or worker thread is created until the graph is started. */
+     * real-time uses one ordered standard-FIFO root push source and graph-side
+     * projections; simulation reads bounded record-time history without a
+     * worker and emits it through an ordinary scheduled node. No Kafka client
+     * or worker thread is created until the graph is started. */
     HGRAPH_KAFKA_EXPORT void register_service(Wiring &w, service::ServicePath path, Value service_config);
 
     [[nodiscard]] HGRAPH_KAFKA_EXPORT Port<KafkaSubscriptionOutput> subscribe(Wiring &w, service::ServicePath path,

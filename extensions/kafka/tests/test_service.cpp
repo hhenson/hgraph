@@ -1,5 +1,3 @@
-#include "detail/service_bridge.h"
-
 #include <hgraph/kafka/service.h>
 #include <hgraph/kafka/testing/fake_broker.h>
 #include <hgraph/kafka/testing/mock_cluster.h>
@@ -42,7 +40,7 @@ void require(bool condition, std::string message) {
   }
 }
 
-void test_bridge_wake_handles_graph_teardown() {
+void test_transport_sender_handles_graph_teardown() {
   const auto *ts_int = ts_type<TS<Int>>();
   PushSourceSender sender;
   GraphBuilder builder;
@@ -60,25 +58,12 @@ void test_bridge_wake_handles_graph_teardown() {
   auto graph = executor.view().graph();
   graph.start(start);
 
-  hgraph::kafka::detail::ServiceBridge bridge{{4, 4096}, {4, 4096},
-                                               {4, 4096}};
-  bridge.attach(hgraph::kafka::detail::OutputChannel::Subscription, sender);
-  bridge.attach(hgraph::kafka::detail::OutputChannel::Delivery, sender);
-  bridge.attach(hgraph::kafka::detail::OutputChannel::Event, sender);
-  bridge.start();
   graph.stop(start);
 
-  // Broker callbacks can enqueue after graph teardown has closed the retained
-  // sender but before service teardown disables bridge admission. Exercise
-  // both the retained stopped sender and the outstanding-notification path.
-  using hgraph::kafka::detail::OutputChannel;
-  require(bridge.push(OutputChannel::Event, Value{Int{1}}, sizeof(Int)),
-          "a Kafka bridge push racing graph teardown was rejected");
-  require(bridge.push(OutputChannel::Event, Value{Int{2}}, sizeof(Int)),
-          "a Kafka bridge push with an outstanding wake was rejected");
-  require(bridge.pending(OutputChannel::Event) == 2,
-          "teardown-racing Kafka values were not retained");
-  bridge.stop();
+  // A callback retaining the adaptor's only graph-facing object becomes
+  // inert as soon as the graph closes the push source.
+  require(!sender.send_blocking(Value{Int{1}}),
+          "a Kafka transport sender accepted work after graph teardown");
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -274,8 +259,7 @@ inline std::size_t multi_bounded_complete_count{};
 inline std::size_t multi_bounded_failed_count{};
 inline std::vector<Int> backlog_offsets{};
 inline std::vector<Str> backlog_events{};
-inline std::vector<Str> flow_control_events{};
-inline bool flow_control_complete{};
+inline bool ordered_ingress_complete{};
 inline Value bounded_event{};
 inline std::size_t bounded_event_count{};
 inline std::size_t subscription_count{};
@@ -659,55 +643,95 @@ struct MultiBoundedSubscriptionGraph {
   }
 };
 
-struct FlowControlCapture {
-  static constexpr auto name = "kafka_flow_control_capture";
+[[nodiscard]] std::size_t count_nodes(const GraphBuilder &graph,
+                                      NodeKind kind) {
+  return static_cast<std::size_t>(std::ranges::count_if(
+      graph.nodes(), [kind](const NodeBuilder &node) {
+        const auto *schema = node.type().schema();
+        return schema != nullptr && schema->node_kind == kind;
+      }));
+}
+
+[[nodiscard]] const NodeTypeMetaData *
+find_node_schema(const GraphBuilder &graph, std::string_view name) {
+  const auto found = std::ranges::find_if(
+      graph.nodes(), [name](const NodeBuilder &node) {
+        const auto *schema = node.type().schema();
+        return schema != nullptr && schema->display_name != nullptr &&
+               std::string_view{schema->display_name} == name;
+      });
+  return found == graph.nodes().end() ? nullptr : found->type().schema();
+}
+
+void test_runtime_specific_wiring_shapes() {
+  Value saved_config = std::move(production_config);
+  production_config = service_config.clone();
+  const auto restore_config = make_scope_exit([&] {
+    production_config = std::move(saved_config);
+  });
+  const auto realtime =
+      build_realtime_graph<BoundedSubscriptionGraph>();
+  require(count_nodes(realtime, NodeKind::PushSource) == 1,
+          "real-time Kafka did not wire exactly one standard push source");
+  for (const auto name :
+       {std::string_view{"kafka_subscription_commands"},
+        std::string_view{"kafka_publish_commands"},
+        std::string_view{"kafka_commit_commands"},
+        std::string_view{"kafka_graph_delivery_commit"},
+        std::string_view{"kafka_subscription_projection"}}) {
+    require(find_node_schema(realtime, name) != nullptr,
+            "real-time Kafka wiring is missing " + Str{name});
+  }
+  require(find_node_schema(realtime, "kafka_simulation_replay") == nullptr,
+          "real-time Kafka unexpectedly wired simulation replay");
+
+  const auto simulation = build_graph<BoundedSubscriptionGraph>();
+  require(count_nodes(simulation, NodeKind::PushSource) == 0,
+          "simulation Kafka unexpectedly wired a push source");
+  const auto *replay = find_node_schema(simulation, "kafka_simulation_replay");
+  require(replay != nullptr,
+          "simulation Kafka did not wire graph-owned replay");
+  require(find_node_schema(simulation,
+                           "kafka_simulation_subscription_commands") !=
+              nullptr,
+          "simulation Kafka did not wire graph-side subscription commands");
+  require(find_node_schema(simulation,
+                           "kafka_simulation_subscription_projection") !=
+              nullptr,
+          "simulation Kafka did not wire graph-side subscription projection");
+}
+
+struct OrderedIngressCapture {
+  static constexpr auto name = "kafka_ordered_ingress_capture";
 
   static void
   eval(NodeView node,
        In<"subscription", KafkaSubscriptionOutput, InputValidity::Unchecked>
-           subscription,
-       In<"event", TS<KafkaEvent>, InputValidity::Unchecked> event) {
+           subscription) {
     auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
-      const bool first_record = bounded_offsets.empty();
       bounded_offsets.push_back(
           record.base().value().as_bundle().at("offset").checked_as<Int>());
-      if (first_record) {
-        // Hold the graph consumer briefly while the broker owner fills the
-        // two-record ingress channel. This makes the watermark transition a
-        // constructed ordering property rather than a scheduler-speed race.
-        std::this_thread::sleep_for(100ms);
-      }
     }
     auto state = subscription.template field<"state">();
     if (state.valid() && state.modified() &&
         state.value() == KafkaSubscriptionState::BoundedComplete) {
-      flow_control_complete = true;
-    }
-    if (event.valid() && event.modified()) {
-      flow_control_events.push_back(
-          event.base().value().as_bundle().at("category").checked_as<Str>());
-    }
-    if (flow_control_complete &&
-        std::ranges::find(flow_control_events, Str{"paused"}) !=
-            flow_control_events.end() &&
-        std::ranges::find(flow_control_events, Str{"resumed"}) !=
-            flow_control_events.end()) {
+      ordered_ingress_complete = true;
       node.graph().executor().request_stop();
     }
   }
 };
 
-struct FlowControlledSubscriptionGraph {
-  static constexpr auto name = "kafka_flow_control_test_graph";
+struct OrderedIngressSubscriptionGraph {
+  static constexpr auto name = "kafka_ordered_ingress_test_graph";
 
   static void compose(Wiring &w) {
-    const auto path = service::path("production-flow-control");
+    const auto path = service::path("production-ordered-ingress");
     register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
     static_cast<void>(
-        wire<FlowControlCapture>(w, subscribe(w, path, key), events(w, path)));
+        wire<OrderedIngressCapture>(w, subscribe(w, path, key)));
   }
 };
 
@@ -1323,10 +1347,10 @@ void test_service_can_start_and_stop_repeatedly() {
           "service did not materialize once per graph run");
 }
 
-void test_ingress_is_bounded_before_the_graph_drains() {
+void test_standard_ingress_accepts_before_the_graph_drains() {
   service_config =
       make_service_config({Str{"localhost:9092"}}, Str{"bounded-test"}, true,
-                          Int{1}, Int{1024}, Int{1}, Int{1024});
+                          Int{1}, Int{1});
   subscription_broker = std::make_shared<FakeBroker>();
   subscription_observed = Value{};
   subscription_count = 0;
@@ -1340,24 +1364,17 @@ void test_ingress_is_bounded_before_the_graph_drains() {
 
   subscription_broker->emit_subscription(
       subscription_key.clone(), consumed_record.clone(), cursor.clone());
-  bool overflowed = false;
-  try {
-    subscription_broker->emit_subscription(
-        subscription_key.clone(), consumed_record.clone(), cursor.clone());
-  } catch (const std::overflow_error &) {
-    overflowed = true;
-  }
+  subscription_broker->emit_subscription(
+      subscription_key.clone(), consumed_record.clone(), cursor.clone());
   graph.stop(start);
 
-  require(overflowed,
-          "bounded ingress silently accepted work beyond its record limit");
   require(subscription_broker->wait_until_detached(2s),
-          "bounded service did not detach");
+          "standard-queue service did not detach");
   service_config =
       make_service_config({Str{"localhost:9092"}}, Str{"native-test"});
 }
 
-void test_librdkafka_ingress_pauses_and_resumes_at_watermarks() {
+void test_librdkafka_standard_ingress_preserves_order() {
   MockCluster cluster;
   cluster.create_topic(Str{"typed-flow-control"});
   for (Int offset = 0; offset < 8; ++offset) {
@@ -1367,7 +1384,7 @@ void test_librdkafka_ingress_pauses_and_resumes_at_watermarks() {
   production_config = hgraph::kafka::service_config()
                           .bootstrap_servers({cluster.bootstrap_servers()})
                           .client_id(Str{"typed-flow-control-subscriber"})
-                          .ingress_limits(2, 64 * 1024)
+                          .ingress_limit(2)
                           .build();
   subscription_key = make_subscription_key(
       {Str{"typed-flow-control"}}, Str{"typed-flow-control-group"},
@@ -1375,26 +1392,19 @@ void test_librdkafka_ingress_pauses_and_resumes_at_watermarks() {
       make_stop_position(KafkaStopPositionKind::Snapshot),
       KafkaCommitMode::None, Str{"typed-flow-control-subscription"});
   bounded_offsets.clear();
-  flow_control_events.clear();
-  flow_control_complete = false;
+  ordered_ingress_complete = false;
 
-  auto executor = start_realtime(build_realtime_graph<FlowControlledSubscriptionGraph>(),
+  auto executor = start_realtime(build_realtime_graph<OrderedIngressSubscriptionGraph>(),
                                  TimeDelta{20'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
 
-  require(flow_control_complete,
-          "flow-controlled Kafka subscription did not complete");
+  require(ordered_ingress_complete,
+          "standard-ingress Kafka subscription did not complete");
   require(bounded_offsets == std::vector<Int>{Int{0}, Int{1}, Int{2}, Int{3},
                                               Int{4}, Int{5}, Int{6}, Int{7}},
-          "flow control changed per-partition record order");
-  require(std::ranges::find(flow_control_events, Str{"paused"}) !=
-              flow_control_events.end(),
-          "Kafka consumer did not report its high-watermark pause");
-  require(std::ranges::find(flow_control_events, Str{"resumed"}) !=
-              flow_control_events.end(),
-          "Kafka consumer did not report its low-watermark resume");
+          "standard ingress changed per-partition record order");
   initialize_values();
 }
 
@@ -2179,7 +2189,7 @@ void test_record_time_recovery_waits_for_independent_subscriptions() {
   production_config = hgraph::kafka::service_config()
                           .bootstrap_servers({cluster.bootstrap_servers()})
                           .client_id(Str{"typed-recovery-cohort"})
-                          .ingress_limits(Int{2}, Int{4096})
+                          .ingress_limit(Int{2})
                           .build();
   subscription_key =
       hgraph::kafka::subscription_key()
@@ -2235,6 +2245,70 @@ void test_record_time_recovery_waits_for_independent_subscriptions() {
               std::to_string(multi_bounded_complete_count) + ")");
 }
 
+void test_equal_record_time_recovery_batches_independent_subscriptions() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-recovery-equal-a"});
+  cluster.create_topic(Str{"typed-recovery-equal-b"});
+  const DateTime shared_time{
+      std::chrono::duration_cast<TimeDelta>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              wall_now().time_since_epoch())) +
+      TimeDelta{1'000'000}};
+  cluster.seed_record(Str{"typed-recovery-equal-a"}, Bytes{"equal-a"},
+                      std::nullopt, {}, 0, shared_time);
+  cluster.seed_record(Str{"typed-recovery-equal-b"}, Bytes{"equal-b"},
+                      std::nullopt, {}, 0, shared_time);
+
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-recovery-equal"})
+                          .ingress_limit(Int{1})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-equal-a"}, Int{0}}})
+          .group_id(Str{"typed-recovery-equal-a"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-equal-a"})
+          .build();
+  secondary_subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-equal-b"}, Int{0}}})
+          .group_id(Str{"typed-recovery-equal-b"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-equal-b"})
+          .build();
+  bounded_payloads.clear();
+  multi_bounded_records.clear();
+  multi_bounded_complete_count = 0;
+  multi_bounded_failed_count = 0;
+
+  auto executor =
+      start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
+                     TimeDelta{5'000'000});
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  runner.join();
+
+  auto observed = multi_bounded_records;
+  std::ranges::sort(observed, {}, &decltype(observed)::value_type::first);
+  require(observed ==
+              std::vector<std::pair<Str, DateTime>>{
+                  {Str{"equal-a"}, shared_time},
+                  {Str{"equal-b"}, shared_time},
+              },
+          "equal-timestamp recovery records from independent subscription "
+          "keys were not projected in one graph-time cohort");
+  require(multi_bounded_complete_count == 2,
+          "the equal-timestamp recovery cohort did not complete both streams");
+}
+
 void test_record_time_recovery_releases_a_failed_participant() {
   MockCluster cluster;
   cluster.create_topic(Str{"typed-recovery-failure-a"});
@@ -2250,7 +2324,7 @@ void test_record_time_recovery_releases_a_failed_participant() {
   production_config = hgraph::kafka::service_config()
                           .bootstrap_servers({cluster.bootstrap_servers()})
                           .client_id(Str{"typed-recovery-failure"})
-                          .ingress_limits(Int{2}, Int{4096})
+                          .ingress_limit(Int{2})
                           .build();
   subscription_key =
       hgraph::kafka::subscription_key()
@@ -2360,7 +2434,7 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
   production_config = hgraph::kafka::service_config()
                           .bootstrap_servers({cluster.bootstrap_servers()})
                           .client_id(Str{"simulation-multi-preload"})
-                          .ingress_limits(Int{3}, Int{4096})
+                          .ingress_limit(Int{3})
                           .build();
   subscription_key =
       hgraph::kafka::subscription_key()
@@ -2409,7 +2483,12 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
         static_cast<Int>(std::stoll(payload.substr(separator + 1)));
     require(evaluation_time == record_time + offset * MIN_TD,
             "multiple simulation subscriptions replayed '" + payload +
-                "' at drain time instead of its Kafka record timestamp");
+                "' at " +
+                std::to_string(evaluation_time.time_since_epoch().count()) +
+                " instead of Kafka record timestamp " +
+                std::to_string((record_time + offset * MIN_TD)
+                                   .time_since_epoch()
+                                   .count()));
   }
   require(multi_bounded_complete_count == 2,
           "simulation did not complete both bounded subscriptions");
@@ -2522,9 +2601,10 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
 int main() {
   try {
     hgraph::stdlib::register_standard_operators();
-    test_bridge_wake_handles_graph_teardown();
+    test_transport_sender_handles_graph_teardown();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
+    test_runtime_specific_wiring_shapes();
     test_public_value_validation_and_producer_configuration();
     test_simulation_rejects_publish_and_commit_work();
     test_subscription_boundary();
@@ -2534,8 +2614,8 @@ int main() {
     test_push_backlogs_drain_one_value_per_graph_cycle();
     test_service_can_start_and_stop_repeatedly();
     test_subscription_removal_and_readd_uses_a_fresh_assignment_generation();
-    test_ingress_is_bounded_before_the_graph_drains();
-    test_librdkafka_ingress_pauses_and_resumes_at_watermarks();
+    test_standard_ingress_accepts_before_the_graph_drains();
+    test_librdkafka_standard_ingress_preserves_order();
     test_commit_and_event_boundaries();
     test_concurrent_engines_are_independent();
     test_librdkafka_publish_path();
@@ -2553,6 +2633,7 @@ int main() {
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_hands_off_before_live_records();
     test_record_time_recovery_waits_for_independent_subscriptions();
+    test_equal_record_time_recovery_batches_independent_subscriptions();
     test_record_time_recovery_releases_a_failed_participant();
     test_graph_lifetime_stop_is_bounded_in_simulation();
     test_multiple_simulation_subscriptions_replay_at_record_time();

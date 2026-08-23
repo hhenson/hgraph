@@ -51,11 +51,12 @@ use another path when those settings must differ.
      - One shared stream of connection, rebalance, queue, retry, and failure
        events for that service path.
 
-The actual Kafka clients and their worker threads are created when the graph
-starts and joined when it stops.  There is no Python or C++ Kafka manager to
-construct, poll, or close outside the graph.  The worker threads exchange data
-with graph evaluation through bounded extension-owned queues, so broker input
-does not create an unbounded graph queue.
+The actual Kafka clients and their worker threads are owned by the graph and
+joined when it stops.  There is no Python or C++ Kafka manager to construct,
+poll, or close outside the graph.  In real time, callbacks send one internal
+ordered envelope stream through a standard FIFO push source; ordinary graph
+nodes project that stream into the public subscription, delivery, and event
+outputs.  Kafka owns no second ingress queue or wake-token protocol.
 
 The essential data flow is:
 
@@ -314,7 +315,7 @@ Simulation
 
 Kafka selects a separate service graph for simulation.  It contains no push
 source: the service first preloads a finite recovery window, then ordinary
-drain nodes schedule records by their Kafka timestamps.  This path requires a
+replay nodes schedule records by their Kafka timestamps.  This path requires a
 bounded stop position, ``RECORD_TIMESTAMP`` recovery, and
 ``TIMESTAMP_TOPIC_PARTITION_OFFSET`` merge ordering.  ``GRAPH_LIFETIME`` is
 treated as a snapshot boundary in simulation.  Publishing, committing,
@@ -328,15 +329,16 @@ registration reads it from the wiring context::
    auto realtime = build_graph<KafkaGraph>(
        WiringOptions{.is_realtime = true});
 
-The preload barrier keeps broker-thread timing out of simulated graph time;
-only the retained record timestamps drive later evaluations.
+Simulation creates no Kafka worker thread or push source.  Its finite read is
+retained by graph-owned replay state, and only the retained record timestamps
+drive later evaluations.
 
 Configuration, flow control, and failures
 ------------------------------------------
 
 ``KafkaServiceConfig`` has separate connection, consumer-default, and
 producer sections.  The defaults are suitable for a local broker, but
-production applications should make their queue limits, failure policy, and
+production applications should make their record limits, failure policy, and
 librdkafka options explicit.  Options are immutable ``KafkaOption`` pairs;
 keep secrets out of source control and supply the appropriate Kafka security
 options through deployment configuration.
@@ -354,7 +356,6 @@ options through deployment configuration.
        ),
        consumer_defaults=kafka.KafkaConsumerDefaults(
            ingress_record_limit=20_000,
-           ingress_byte_limit=128 * 1024 * 1024,
            inbound_overflow=kafka.KafkaOverflowAction.FAIL,
            failure_policy=kafka.KafkaFailurePolicy.STOP_GRAPH,
        ),
@@ -363,16 +364,18 @@ options through deployment configuration.
            acknowledgements="all",
            linger_ms=10,
            outbound_record_limit=20_000,
-           outbound_byte_limit=128 * 1024 * 1024,
            overflow=kafka.KafkaOverflowAction.STAGE,
            stage_overflow=kafka.KafkaOverflowAction.FAIL,
            failure_policy=kafka.KafkaFailurePolicy.STOP_GRAPH,
        ),
    )
 
-Ingress overflow may ``FAIL`` or ``DROP``; it cannot stage.  Outbound overflow
-may ``FAIL``, ``DROP``, or ``STAGE`` in a second bounded queue, whose own
-overflow action must be ``FAIL`` or ``DROP``.  A failure policy of ``REPORT``
+The ingress record limit bounds finite recovery retained before replay; live
+real-time ingress uses the service's standard unbounded FIFO push source and
+has no byte-capacity setting.  Recovery overflow may ``FAIL`` or ``DROP``; it
+cannot stage.  Outbound overflow may ``FAIL``, ``DROP``, or ``STAGE`` in a
+record-counted queue, whose own overflow action must be ``FAIL`` or ``DROP``.
+A failure policy of ``REPORT``
 keeps the graph running and reports the problem as ``KafkaEvent`` or a delivery
 report; ``STOP_GRAPH`` requests an orderly graph stop.  Choose it according to
 whether your application can safely continue after that failure.

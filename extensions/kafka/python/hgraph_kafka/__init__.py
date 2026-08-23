@@ -195,14 +195,13 @@ class KafkaConnectionConfig(CompoundScalar, namespace=_NAMESPACE):
 @dataclass(frozen=True)
 class KafkaConsumerDefaults(CompoundScalar, namespace=_NAMESPACE):
     ingress_record_limit: int = 10_000
-    ingress_byte_limit: int = 64 * 1024 * 1024
     inbound_overflow: KafkaOverflowAction = KafkaOverflowAction.FAIL
     failure_policy: KafkaFailurePolicy = KafkaFailurePolicy.REPORT
     options: tuple[KafkaOption, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.ingress_record_limit <= 0 or self.ingress_byte_limit <= 0:
-            raise ValueError("Kafka ingress limits must be positive")
+        if self.ingress_record_limit <= 0:
+            raise ValueError("Kafka ingress record limit must be positive")
         if self.inbound_overflow == KafkaOverflowAction.STAGE:
             raise ValueError("Kafka inbound overflow cannot use Stage")
 
@@ -215,7 +214,6 @@ class KafkaProducerOptions(CompoundScalar, namespace=_NAMESPACE):
     linger_ms: int = 5
     batch_record_limit: int = 1_000
     outbound_record_limit: int = 10_000
-    outbound_byte_limit: int = 64 * 1024 * 1024
     overflow: KafkaOverflowAction = KafkaOverflowAction.STAGE
     stage_overflow: KafkaOverflowAction = KafkaOverflowAction.FAIL
     shutdown_drain_timeout_ms: int = 5_000
@@ -223,8 +221,8 @@ class KafkaProducerOptions(CompoundScalar, namespace=_NAMESPACE):
     options: tuple[KafkaOption, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.outbound_record_limit <= 0 or self.outbound_byte_limit <= 0:
-            raise ValueError("Kafka outbound limits must be positive")
+        if self.outbound_record_limit <= 0:
+            raise ValueError("Kafka outbound record limit must be positive")
         if self.acknowledgements not in ("0", "1", "all", "-1"):
             raise ValueError("Kafka acknowledgements must be 0, 1, all, or -1")
         if self.idempotent and self.acknowledgements not in ("all", "-1"):
