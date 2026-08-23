@@ -2245,6 +2245,70 @@ void test_record_time_recovery_waits_for_independent_subscriptions() {
               std::to_string(multi_bounded_complete_count) + ")");
 }
 
+void test_equal_record_time_recovery_batches_independent_subscriptions() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"typed-recovery-equal-a"});
+  cluster.create_topic(Str{"typed-recovery-equal-b"});
+  const DateTime shared_time{
+      std::chrono::duration_cast<TimeDelta>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              wall_now().time_since_epoch())) +
+      TimeDelta{1'000'000}};
+  cluster.seed_record(Str{"typed-recovery-equal-a"}, Bytes{"equal-a"},
+                      std::nullopt, {}, 0, shared_time);
+  cluster.seed_record(Str{"typed-recovery-equal-b"}, Bytes{"equal-b"},
+                      std::nullopt, {}, 0, shared_time);
+
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"typed-recovery-equal"})
+                          .ingress_limit(Int{1})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-equal-a"}, Int{0}}})
+          .group_id(Str{"typed-recovery-equal-a"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-equal-a"})
+          .build();
+  secondary_subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"typed-recovery-equal-b"}, Int{0}}})
+          .group_id(Str{"typed-recovery-equal-b"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"typed-recovery-equal-b"})
+          .build();
+  bounded_payloads.clear();
+  multi_bounded_records.clear();
+  multi_bounded_complete_count = 0;
+  multi_bounded_failed_count = 0;
+
+  auto executor =
+      start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
+                     TimeDelta{5'000'000});
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  runner.join();
+
+  auto observed = multi_bounded_records;
+  std::ranges::sort(observed, {}, &decltype(observed)::value_type::first);
+  require(observed ==
+              std::vector<std::pair<Str, DateTime>>{
+                  {Str{"equal-a"}, shared_time},
+                  {Str{"equal-b"}, shared_time},
+              },
+          "equal-timestamp recovery records from independent subscription "
+          "keys were not projected in one graph-time cohort");
+  require(multi_bounded_complete_count == 2,
+          "the equal-timestamp recovery cohort did not complete both streams");
+}
+
 void test_record_time_recovery_releases_a_failed_participant() {
   MockCluster cluster;
   cluster.create_topic(Str{"typed-recovery-failure-a"});
@@ -2569,6 +2633,7 @@ int main() {
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_hands_off_before_live_records();
     test_record_time_recovery_waits_for_independent_subscriptions();
+    test_equal_record_time_recovery_batches_independent_subscriptions();
     test_record_time_recovery_releases_a_failed_participant();
     test_graph_lifetime_stop_is_bounded_in_simulation();
     test_multiple_simulation_subscriptions_replay_at_record_time();

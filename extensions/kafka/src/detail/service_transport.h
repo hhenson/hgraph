@@ -140,10 +140,7 @@ public:
                            : evaluation_time(values_.front().view());
   }
 
-  [[nodiscard]] std::optional<Value> pop() {
-    if (values_.empty()) {
-      return std::nullopt;
-    }
+  [[nodiscard]] Value pop() {
     Value value = std::move(values_.front());
     values_.pop_front();
     return value;
@@ -328,8 +325,9 @@ transport_event(const KafkaTransportBindings &bindings,
  *  the envelope kind and recovery timestamp arrive on each tick. This compute
  *  node activates on every transport envelope, retains only the ordered
  *  subscription schedule, and emits keyed subscription mutations. Insertion
- *  is O(n) in queued subscription events, dequeue is O(1), and retained memory
- *  is O(n); state is ephemeral ingress state and is discarded at stop. */
+ *  is O(n) in queued subscription events and equal-timestamp cohort projection
+ *  is O(B) for cohort size B; retained memory is O(n). State is ephemeral
+ *  ingress state and is discarded at stop. */
 struct SubscriptionProjectionNode {
   static constexpr auto name = "kafka_subscription_projection";
 
@@ -360,18 +358,15 @@ struct SubscriptionProjectionNode {
     if (schedule->recovery_blocked()) {
       return;
     }
+    if (schedule->empty()) {
+      return;
+    }
 
     const auto next_time = schedule->next_time();
     if (next_time.has_value() && *next_time > scheduler.now()) {
       scheduler.schedule(*next_time);
       return;
     }
-    auto next = schedule->pop();
-    if (!next.has_value()) {
-      return;
-    }
-
-    const auto fields = next->view().as_bundle();
     const auto schedule_following = [&] {
       const auto following_time = schedule->next_time();
       if (following_time.has_value() && *following_time > scheduler.now()) {
@@ -382,24 +377,31 @@ struct SubscriptionProjectionNode {
     };
 
     auto mutation = out.begin_mutation(out.evaluation_time());
-    const auto removed = fields.at("removed");
-    if (removed.data() != nullptr && removed.checked_as<Bool>()) {
-      static_cast<void>(mutation.erase(fields.at("subscription_key")));
-      schedule_following();
-      return;
-    }
-
-    BundleBuilder update{schedule->subscription_output_binding()};
-    for (const auto name :
-         {std::string_view{"record"}, std::string_view{"cursor"},
-          std::string_view{"state"}}) {
-      const auto field = fields.at(name);
-      if (field.data() != nullptr) {
-        update.set(name, field.clone());
+    const auto apply_event = [&](const Value &event) {
+      const auto fields = event.view().as_bundle();
+      const auto removed = fields.at("removed");
+      if (removed.data() != nullptr && removed.checked_as<Bool>()) {
+        static_cast<void>(mutation.erase(fields.at("subscription_key")));
+        return;
       }
+
+      BundleBuilder update{schedule->subscription_output_binding()};
+      for (const auto name :
+           {std::string_view{"record"}, std::string_view{"cursor"},
+            std::string_view{"state"}}) {
+        const auto field = fields.at(name);
+        if (field.data() != nullptr) {
+          update.set(name, field.clone());
+        }
+      }
+      const Value value = update.build();
+      mutation.set(fields.at("subscription_key"), value.view());
+    };
+
+    apply_event(schedule->pop());
+    while (next_time.has_value() && schedule->next_time() == next_time) {
+      apply_event(schedule->pop());
     }
-    const Value value = update.build();
-    mutation.set(fields.at("subscription_key"), value.view());
     schedule_following();
   }
 };
