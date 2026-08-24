@@ -93,6 +93,27 @@ namespace
     using exact_float_auto_const_ = exact_auto_const_<"exact_float_auto_const", Float>;
     using exact_float32_auto_const_ = exact_auto_const_<"exact_float32_auto_const", float>;
 
+    struct requires_auto_const_
+        : Operator<"requires_auto_const", In<"ts", TS<Float>>,
+                   Scalar<"option", Int>, Out<TS<Float>>>
+    {
+    };
+
+    struct requires_auto_const_impl
+    {
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return operator_type_resolution::ts_value_schema_at(context, 0) ==
+                       scalar_descriptor<Float>::value_meta() &&
+                   operator_type_resolution::time_series_schema_at(context, 1) == nullptr;
+        }
+
+        static void eval(In<"ts", TS<Float>> ts, Scalar<"option", Int>, Out<TS<Float>> out)
+        {
+            out.set(ts.value());
+        }
+    };
+
     // --- a scalar-argument operator: in * factor (exercises scalar matching + bundle) ---
     struct scale_ : Operator<"scale", In<"in", TsVar<"S">>, Scalar<"factor", ScalarVar<"T">>, Out<TsVar<"S">>>
     {
@@ -798,6 +819,13 @@ TEST_CASE("operators: scalar values auto-wire as const inputs for TS parameters"
     // The Int{3} second argument is a scalar where add_ expects a TS input; it auto-wires as
     // a const TS<Int> and is added per cycle.
     CHECK_OUTPUT(eval_node<add_>(values<Int>(1, 2, 3), Int{3}), values<Int>(4, 5, 6));
+}
+
+TEST_CASE("operators: requires predicates see the effective auto-const input schema")
+{
+    register_overload<requires_auto_const_, requires_auto_const_impl>();
+
+    CHECK_OUTPUT(eval_node<requires_auto_const_>(Float{1.25}, Int{7}), values<Float>(1.25));
 }
 
 TEST_CASE("operators: scalar auto-const inputs require exact atomic schemas")

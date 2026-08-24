@@ -127,14 +127,27 @@ namespace hgraph::operator_type_resolution
                                                   : arg.port.schema;
     }
 
-    /** Return the time-series schema at ``index``, or null for non-TS/missing args. */
+    /**
+     * Return the effective time-series schema at ``index``. A plain value
+     * matched to an input parameter is represented as ``TS[value_type]``;
+     * overload resolution uses the same virtual schema before the winning
+     * implementation materializes its auto-const node.
+     */
     [[nodiscard]] inline const TSValueTypeMetaData *time_series_schema_at(
         OperatorCallContext context,
         std::size_t         index,
-        SchemaRefMode       mode = SchemaRefMode::Dereference) noexcept
+        SchemaRefMode       mode = SchemaRefMode::Dereference)
     {
-        const WiringArg *arg = time_series_arg_at(context, index);
-        return arg != nullptr ? time_series_schema(*arg, mode) : nullptr;
+        const WiringArg *arg = arg_at(context, index);
+        if (arg == nullptr) { return nullptr; }
+        if (arg->kind == WiringArg::Kind::TimeSeries) { return time_series_schema(*arg, mode); }
+        if (index >= context.params.size() ||
+            context.params[index].kind != ParamPattern::Kind::Input ||
+            arg->scalar_meta == nullptr)
+        {
+            return nullptr;
+        }
+        return TypeRegistry::instance().ts(arg->scalar_meta);
     }
 
     /** Match a concrete input schema against a static recursive time-series pattern. */
@@ -261,7 +274,7 @@ namespace hgraph::operator_type_resolution
     [[nodiscard]] inline const ValueTypeMetaData *ts_value_schema_at(
         OperatorCallContext context,
         std::size_t         index,
-        SchemaRefMode       mode = SchemaRefMode::Dereference) noexcept
+        SchemaRefMode       mode = SchemaRefMode::Dereference)
     {
         return ts_value_schema(time_series_schema_at(context, index, mode));
     }
