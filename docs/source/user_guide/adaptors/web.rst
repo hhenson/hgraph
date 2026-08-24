@@ -61,10 +61,13 @@ root push sources, and the graph reaches the sockets only through sink
 nodes — evaluation itself stays single-threaded, with the bounded boundary
 queues (and their short handoff locks) as the only cross-thread
 touchpoints.  Each independently ordered service-output channel has its own
-FIFO push source: HTTP ingress cannot sit behind a WebSocket, delivery-report,
-diagnostic, or statistics backlog.  FIFO is guaranteed within a channel; no
-total order is invented across channels, and active channels may tick in the
-same engine cycle.  A request
+burst push source: HTTP ingress cannot sit behind a WebSocket, delivery-report,
+diagnostic, or statistics backlog.  Distinct route, connection, or request-id
+keys pending in one burst tick together; repeated values for one key retain
+FIFO order over consecutive ``MIN_TD`` cycles.  Scalar diagnostic streams are
+unrolled one event per cycle, while statistics use the latest sample.  No total
+order is invented across channels, and active channels may tick in the same
+engine cycle.  A request
 that a same-cycle handler can answer dispatches its response in that same
 engine cycle; there is no per-request feedback cycle.
 

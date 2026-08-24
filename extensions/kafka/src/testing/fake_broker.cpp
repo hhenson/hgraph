@@ -140,10 +140,9 @@ namespace {
   return field.data() != nullptr ? field.checked_as<Str>() : Str{};
 }
 
-[[nodiscard]] Value subscription_envelope(Value key, Value record, Value cursor,
-                                          KafkaSubscriptionState state,
-                                          const ::hgraph::kafka::detail::
-                                              KafkaTransportBindings &bindings) {
+[[nodiscard]] Value subscription_envelope(
+    Value key, Value record, Value cursor, KafkaSubscriptionState state,
+    const ::hgraph::kafka::detail::KafkaTransportBindings &bindings) {
   return ::hgraph::kafka::detail::subscription_transport_event(
       bindings, std::move(key), std::move(record), std::move(cursor), state);
 }
@@ -151,8 +150,8 @@ namespace {
 [[nodiscard]] Value delivery_envelope(
     Int request_id, Value report,
     const ::hgraph::kafka::detail::KafkaTransportBindings &bindings) {
-  return ::hgraph::kafka::detail::delivery_transport_event(
-      bindings, request_id, std::move(report));
+  return ::hgraph::kafka::detail::delivery_transport_event(bindings, request_id,
+                                                           std::move(report));
 }
 
 [[nodiscard]] Value event_envelope(
@@ -176,9 +175,9 @@ struct FakeBroker::Impl {
 };
 
 struct detail::FakeRuntimeAccess {
-  static void attach(
-      FakeBroker &broker, PushSourceSender sender,
-      ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings) {
+  static void
+  attach(FakeBroker &broker, PushSourceSender sender,
+         ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings) {
     {
       std::lock_guard lock{broker.impl_->mutex};
       broker.impl_->sender = std::move(sender);
@@ -228,9 +227,8 @@ struct detail::FakeRuntimeAccess {
     Value report =
         make_delivery_report(std::move(user_token), sequence, std::move(topic),
                              KafkaDeliveryStatus::Delivered, Int{0}, sequence);
-    if (!sender.send_blocking(
-            delivery_envelope(request_id, std::move(report),
-                              *bindings.value))) {
+    if (!sender.send_blocking(delivery_envelope(request_id, std::move(report),
+                                                *bindings.value))) {
       throw std::runtime_error("Kafka fake graph stopped before delivery");
     }
   }
@@ -322,10 +320,9 @@ void FakeBroker::emit_subscription(Value subscription_key, Value record,
     sender = impl_->sender;
     bindings = impl_->bindings;
   }
-  if (!sender.send_blocking(subscription_envelope(std::move(subscription_key),
-                                                  std::move(record),
-                                                  std::move(cursor), state,
-                                                  *bindings.value))) {
+  if (!sender.send_blocking(
+          subscription_envelope(std::move(subscription_key), std::move(record),
+                                std::move(cursor), state, *bindings.value))) {
     throw std::runtime_error("Kafka fake graph stopped before subscription");
   }
 }
@@ -395,11 +392,11 @@ fake_runtime(Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
 
 struct FakeTransportTag {};
 
-[[nodiscard]] Port<TS<::hgraph::kafka::detail::KafkaTransportEvent>>
-wire_fake_transport(Wiring &w, detail::FakeBrokerHandle broker,
-                    detail::FakeRuntimeHandle runtime,
-                    ::hgraph::kafka::detail::KafkaTransportBindingsHandle
-                        bindings) {
+[[nodiscard]] Port<TS<::hgraph::kafka::detail::KafkaTransportEventBatch>>
+wire_fake_transport(
+    Wiring &w, detail::FakeBrokerHandle broker,
+    detail::FakeRuntimeHandle runtime,
+    ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings) {
   return ::hgraph::kafka::detail::wire_transport_source<FakeTransportTag>(
       w,
       [broker = std::move(broker), runtime,

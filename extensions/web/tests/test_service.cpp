@@ -1,5 +1,5 @@
 // Service-boundary tests over the socketless fake transport. The fake uses
-// the same standard channel push sources, graph projections, and graph sinks
+// the same burst channel push sources, graph projections, and graph sinks
 // as the live adaptors; only the external task is replaced (RFC 0024/0027).
 
 #include <hgraph/web/service.h>
@@ -104,6 +104,7 @@ inline Value observed_client_ws_report{};
 inline std::size_t backlog_request_count{};
 inline std::vector<Int> backlog_request_ids{};
 inline std::vector<std::pair<Str, DateTime>> observed_transport_progress{};
+inline std::vector<std::pair<Int, DateTime>> observed_burst_requests{};
 inline std::vector<Int> post_readd_request_ids{};
 inline std::vector<Str> post_readd_ws_frames{};
 inline std::vector<Str> post_readd_client_ws_frames{};
@@ -177,6 +178,7 @@ private:
 inline SenderLatch route_sender{};
 inline EvaluationGate route_generation_gate{};
 inline EvaluationGate transport_channel_gate{};
+inline EvaluationGate burst_route_gate{};
 inline std::size_t route_value_count{};
 
 void release_test_state() {
@@ -209,6 +211,7 @@ void release_test_state() {
   observed_client_ws_frame = Value{};
   observed_client_ws_report = Value{};
   observed_transport_progress.clear();
+  observed_burst_requests.clear();
   backlog_request_ids.clear();
   post_readd_request_ids.clear();
   post_readd_ws_frames.clear();
@@ -216,6 +219,7 @@ void release_test_state() {
   route_sender.reset();
   route_generation_gate.release();
   transport_channel_gate.release();
+  burst_route_gate.release();
 }
 
 [[nodiscard]] Value make_server_request(Int request_id) {
@@ -252,20 +256,19 @@ void initialize_values() {
   client_ws_key = make_ws_client_key("wss://feed/live");
   alternate_client_ws_key = make_ws_client_key("wss://feed/alternate");
   emitted_request = make_server_request(Int{41});
-  respond_response =
-      make_response(Int{201}, {{"Content-Type", "application/json"}},
-                    Bytes{"{\"ok\":true}"});
-  client_request = make_client_request(HttpMethod::Post, "https://api/orders",
-                                       {{"Content-Type", "application/json"}},
-                                       Bytes{"{}"});
+  respond_response = make_response(
+      Int{201}, {{"Content-Type", "application/json"}}, Bytes{"{\"ok\":true}"});
+  client_request =
+      make_client_request(HttpMethod::Post, "https://api/orders",
+                          {{"Content-Type", "application/json"}}, Bytes{"{}"});
 }
 
 struct ServeCapture {
   static constexpr auto name = "web_serve_capture";
 
-  static void eval(NodeView node,
-                   In<"routed", WebRouteOutput, InputValidity::Unchecked>
-                       routed) {
+  static void
+  eval(NodeView node,
+       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
     auto state = routed.template field<"state">();
     if (state.valid() && state.modified() &&
         state.value() == WebRouteState::Serving) {
@@ -287,8 +290,7 @@ struct ServeGraph {
   static void compose(Wiring &w) {
     const auto path = service::path("web-serve");
     register_fake_server(w, path, server_configuration.clone(), serve_server);
-    auto route =
-        wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
+    auto route = wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
     static_cast<void>(wire<ServeCapture>(w, serve(w, path, route)));
   }
 };
@@ -296,10 +298,9 @@ struct ServeGraph {
 struct ReportCapture {
   static constexpr auto name = "web_report_capture";
 
-  static void eval(NodeView node,
-                   In<"report", TS<WebDeliveryReport>,
-                      InputValidity::Unchecked>
-                       report) {
+  static void
+  eval(NodeView node,
+       In<"report", TS<WebDeliveryReport>, InputValidity::Unchecked> report) {
     if (!report.valid() || !report.modified()) {
       return;
     }
@@ -314,13 +315,11 @@ struct RespondGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("web-respond");
-    register_fake_server(w, path, server_configuration.clone(),
-                         respond_server);
+    register_fake_server(w, path, server_configuration.clone(), respond_server);
     auto request_id = wire<stdlib::const_, TS<Int>>(w, Int{41});
     auto response =
         wire<stdlib::const_, TS<HttpResponse>>(w, respond_response.clone());
-    auto reports =
-        respond(w, path, respond_request(w, request_id, response));
+    auto reports = respond(w, path, respond_request(w, request_id, response));
     static_cast<void>(wire<ReportCapture>(w, reports));
   }
 };
@@ -328,9 +327,9 @@ struct RespondGraph {
 struct CallCapture {
   static constexpr auto name = "web_call_capture";
 
-  static void eval(NodeView node,
-                   In<"result", HttpCallResult, InputValidity::Unchecked>
-                       result) {
+  static void
+  eval(NodeView node,
+       In<"result", HttpCallResult, InputValidity::Unchecked> result) {
     auto response = result.template field<"response">();
     if (response.valid() && response.modified()) {
       observed_response = response.base().value().clone();
@@ -354,8 +353,8 @@ struct CallGraph {
     register_fake_client(w, path, client_configuration.clone(), call_client);
     auto request =
         wire<stdlib::const_, TS<HttpClientRequest>>(w, client_request.clone());
-    static_cast<void>(
-        wire<CallCapture>(w, http_request(w, path, http_client_call(w, request))));
+    static_cast<void>(wire<CallCapture>(
+        w, http_request(w, path, http_client_call(w, request))));
   }
 };
 
@@ -364,21 +363,20 @@ struct FailureGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("web-failure");
-    register_fake_client(w, path, client_configuration.clone(),
-                         failure_client);
+    register_fake_client(w, path, client_configuration.clone(), failure_client);
     auto request =
         wire<stdlib::const_, TS<HttpClientRequest>>(w, client_request.clone());
-    static_cast<void>(
-        wire<CallCapture>(w, http_request(w, path, http_client_call(w, request))));
+    static_cast<void>(wire<CallCapture>(
+        w, http_request(w, path, http_client_call(w, request))));
   }
 };
 
 struct WsCapture {
   static constexpr auto name = "web_ws_capture";
 
-  static void eval(NodeView node,
-                   In<"routed", WsRouteOutput, InputValidity::Unchecked>
-                       routed) {
+  static void
+  eval(NodeView node,
+       In<"routed", WsRouteOutput, InputValidity::Unchecked> routed) {
     auto event = routed.template field<"event">();
     if (event.valid() && event.modified()) {
       observed_ws_event = event.base().value().clone();
@@ -394,9 +392,8 @@ struct WsCapture {
 struct WsReportCapture {
   static constexpr auto name = "web_ws_report_capture";
 
-  static void eval(In<"report", TS<WebDeliveryReport>,
-                      InputValidity::Unchecked>
-                       report) {
+  static void
+  eval(In<"report", TS<WebDeliveryReport>, InputValidity::Unchecked> report) {
     if (report.valid() && report.modified()) {
       observed_ws_report = report.base().value().clone();
     }
@@ -412,10 +409,8 @@ struct WsGraph {
     auto route = wire<stdlib::const_, TS<WebRoute>>(w, ws_route.clone());
     static_cast<void>(wire<WsCapture>(w, ws_serve(w, path, route)));
     auto connection_id = wire<stdlib::const_, TS<Int>>(w, Int{5});
-    auto frame =
-        wire<stdlib::const_, TS<WsFrame>>(w, make_text_frame("hello"));
-    auto reports =
-        ws_send(w, path, ws_send_request(w, connection_id, frame));
+    auto frame = wire<stdlib::const_, TS<WsFrame>>(w, make_text_frame("hello"));
+    auto reports = ws_send(w, path, ws_send_request(w, connection_id, frame));
     static_cast<void>(wire<WsReportCapture>(w, reports));
   }
 };
@@ -423,9 +418,9 @@ struct WsGraph {
 struct ClientWsCapture {
   static constexpr auto name = "web_client_ws_capture";
 
-  static void eval(NodeView node,
-                   In<"output", WsClientOutput, InputValidity::Unchecked>
-                       output) {
+  static void
+  eval(NodeView node,
+       In<"output", WsClientOutput, InputValidity::Unchecked> output) {
     auto frame = output.template field<"frame">();
     if (frame.valid() && frame.modified()) {
       observed_client_ws_frame = frame.base().value().clone();
@@ -437,9 +432,8 @@ struct ClientWsCapture {
 struct ClientWsReportCapture {
   static constexpr auto name = "web_client_ws_report_capture";
 
-  static void eval(In<"report", TS<WebDeliveryReport>,
-                      InputValidity::Unchecked>
-                       report) {
+  static void
+  eval(In<"report", TS<WebDeliveryReport>, InputValidity::Unchecked> report) {
     if (report.valid() && report.modified()) {
       observed_client_ws_report = report.base().value().clone();
     }
@@ -457,7 +451,8 @@ struct ClientWsGraph {
     static_cast<void>(wire<ClientWsCapture>(w, ws_connect(w, path, key)));
     auto frame =
         wire<stdlib::const_, TS<WsFrame>>(w, make_text_frame("subscribe"));
-    auto reports = ws_client_send(w, path, ws_client_send_request(w, key, frame));
+    auto reports =
+        ws_client_send(w, path, ws_client_send_request(w, key, frame));
     static_cast<void>(wire<ClientWsReportCapture>(w, reports));
   }
 };
@@ -465,9 +460,9 @@ struct ClientWsGraph {
 struct BacklogCapture {
   static constexpr auto name = "web_backlog_capture";
 
-  static void eval(NodeView node,
-                   In<"routed", WebRouteOutput, InputValidity::Unchecked>
-                       routed) {
+  static void
+  eval(NodeView node,
+       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
     auto request = routed.template field<"request">();
     if (!request.valid() || !request.modified()) {
       return;
@@ -486,11 +481,46 @@ struct BacklogGraph {
 
   static void compose(Wiring &w) {
     const auto path = service::path("web-backlog");
-    register_fake_server(w, path, server_configuration.clone(),
-                         backlog_server);
-    auto route =
-        wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
+    register_fake_server(w, path, server_configuration.clone(), backlog_server);
+    auto route = wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
     static_cast<void>(wire<BacklogCapture>(w, serve(w, path, route)));
+  }
+};
+
+struct BurstRouteCapture {
+  static constexpr auto name = "web_burst_route_capture";
+
+  static void
+  eval(NodeView node, DateTime evaluation_time,
+       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
+    auto request = routed.template field<"request">();
+    if (!request.valid() || !request.modified()) {
+      return;
+    }
+    const Int request_id =
+        request.base().value().as_bundle().at("request_id").checked_as<Int>();
+    if (request_id == Int{80}) {
+      burst_route_gate.block();
+      return;
+    }
+    observed_burst_requests.emplace_back(request_id, evaluation_time);
+    if (observed_burst_requests.size() == 3) {
+      node.graph().executor().request_stop();
+    }
+  }
+};
+
+struct BurstRouteGraph {
+  static constexpr auto name = "web_burst_route_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("web-burst-routes");
+    register_fake_server(w, path, server_configuration.clone(), backlog_server);
+    auto first = wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
+    auto second =
+        wire<stdlib::const_, TS<WebRoute>>(w, alternate_route.clone());
+    static_cast<void>(wire<BurstRouteCapture>(w, serve(w, path, first)));
+    static_cast<void>(wire<BurstRouteCapture>(w, serve(w, path, second)));
   }
 };
 
@@ -499,8 +529,7 @@ struct RouteGenerationSourceTag {};
 struct RouteGenerationForward {
   static constexpr auto name = "web_route_generation_forward";
 
-  static void eval(In<"route", TS<WebRoute>> route,
-                   Out<TS<WebRoute>> out) {
+  static void eval(In<"route", TS<WebRoute>> route, Out<TS<WebRoute>> out) {
     ++route_value_count;
     out.apply(route.base().value());
   }
@@ -509,9 +538,9 @@ struct RouteGenerationForward {
 struct RouteGenerationCapture {
   static constexpr auto name = "web_route_generation_capture";
 
-  static void eval(
-      NodeView node,
-      In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
+  static void
+  eval(NodeView node,
+       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
     auto request = routed.template field<"request">();
     if (!request.valid() || !request.modified()) {
       return;
@@ -540,15 +569,15 @@ struct RouteGenerationGraph {
                          lifecycle_server);
     const auto *route_schema = ts_type<TS<WebRoute>>();
     auto route = Port<TS<WebRoute>>{
-        w, w.add_unique_node(
-               std::type_index(typeid(RouteGenerationSourceTag)),
-               make_push_source_node(
-                   *route_schema,
-                   make_push_source_queue_policy(*route_schema, 8),
-                   [](PushSourceSender sender) {
-                     route_sender.publish(std::move(sender));
-                   }),
-               std::span<const WiringPortRef>{}, Value{})};
+        w,
+        w.add_unique_node(std::type_index(typeid(RouteGenerationSourceTag)),
+                          make_push_source_node(
+                              *route_schema,
+                              make_push_source_queue_policy(*route_schema, 8),
+                              [](PushSourceSender sender) {
+                                route_sender.publish(std::move(sender));
+                              }),
+                          std::span<const WiringPortRef>{}, Value{})};
     auto forwarded = wire<RouteGenerationForward>(w, route);
     static_cast<void>(wire<RouteGenerationCapture>(
         w, serve(w, path, forwarded.template as<TS<WebRoute>>())));
@@ -560,9 +589,9 @@ struct WsRouteGenerationSourceTag {};
 struct WsRouteGenerationCapture {
   static constexpr auto name = "web_ws_route_generation_capture";
 
-  static void eval(
-      NodeView node,
-      In<"routed", WsRouteOutput, InputValidity::Unchecked> routed) {
+  static void
+  eval(NodeView node,
+       In<"routed", WsRouteOutput, InputValidity::Unchecked> routed) {
     auto inbound = routed.template field<"frame">();
     if (!inbound.valid() || !inbound.modified()) {
       return;
@@ -596,15 +625,15 @@ struct WsRouteGenerationGraph {
                          lifecycle_server);
     const auto *route_schema = ts_type<TS<WebRoute>>();
     auto route = Port<TS<WebRoute>>{
-        w, w.add_unique_node(
-               std::type_index(typeid(WsRouteGenerationSourceTag)),
-               make_push_source_node(
-                   *route_schema,
-                   make_push_source_queue_policy(*route_schema, 8),
-                   [](PushSourceSender sender) {
-                     route_sender.publish(std::move(sender));
-                   }),
-               std::span<const WiringPortRef>{}, Value{})};
+        w,
+        w.add_unique_node(std::type_index(typeid(WsRouteGenerationSourceTag)),
+                          make_push_source_node(
+                              *route_schema,
+                              make_push_source_queue_policy(*route_schema, 8),
+                              [](PushSourceSender sender) {
+                                route_sender.publish(std::move(sender));
+                              }),
+                          std::span<const WiringPortRef>{}, Value{})};
     auto forwarded = wire<RouteGenerationForward>(w, route);
     static_cast<void>(wire<WsRouteGenerationCapture>(
         w, ws_serve(w, path, forwarded.template as<TS<WebRoute>>())));
@@ -616,8 +645,7 @@ struct ClientKeyGenerationSourceTag {};
 struct ClientKeyGenerationForward {
   static constexpr auto name = "web_client_key_generation_forward";
 
-  static void eval(In<"key", TS<WsClientKey>> key,
-                   Out<TS<WsClientKey>> out) {
+  static void eval(In<"key", TS<WsClientKey>> key, Out<TS<WsClientKey>> out) {
     ++route_value_count;
     out.apply(key.base().value());
   }
@@ -626,18 +654,15 @@ struct ClientKeyGenerationForward {
 struct ClientKeyGenerationCapture {
   static constexpr auto name = "web_client_key_generation_capture";
 
-  static void eval(
-      NodeView node,
-      In<"output", WsClientOutput, InputValidity::Unchecked> output) {
+  static void
+  eval(NodeView node,
+       In<"output", WsClientOutput, InputValidity::Unchecked> output) {
     auto frame = output.template field<"frame">();
     if (!frame.valid() || !frame.modified()) {
       return;
     }
-    const Str text = frame.base()
-                         .value()
-                         .as_bundle()
-                         .at("text")
-                         .checked_as<Str>();
+    const Str text =
+        frame.base().value().as_bundle().at("text").checked_as<Str>();
     if (text == Str{"block"}) {
       route_generation_gate.block();
       return;
@@ -695,9 +720,9 @@ struct IndependentEventCapture {
 struct IndependentRequestCapture {
   static constexpr auto name = "web_independent_request_capture";
 
-  static void eval(
-      NodeView node, DateTime evaluation_time,
-      In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
+  static void
+  eval(NodeView node, DateTime evaluation_time,
+       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
     auto request = routed.template field<"request">();
     if (!request.valid() || !request.modified()) {
       return;
@@ -715,9 +740,9 @@ struct IndependentRequestCapture {
 struct IndependentWsCapture {
   static constexpr auto name = "web_independent_ws_capture";
 
-  static void eval(NodeView node, DateTime evaluation_time,
-                   In<"routed", WsRouteOutput, InputValidity::Unchecked>
-                       routed) {
+  static void
+  eval(NodeView node, DateTime evaluation_time,
+       In<"routed", WsRouteOutput, InputValidity::Unchecked> routed) {
     auto event = routed.template field<"event">();
     if (event.valid() && event.modified()) {
       capture_transport_progress(node, Str{"ws"}, evaluation_time);
@@ -740,8 +765,7 @@ struct IndependentTransportGraph {
         wire<IndependentRequestCapture>(w, serve(w, path, http_route)));
     static_cast<void>(
         wire<IndependentWsCapture>(w, ws_serve(w, path, websocket_route)));
-    static_cast<void>(
-        wire<IndependentEventCapture>(w, server_events(w, path)));
+    static_cast<void>(wire<IndependentEventCapture>(w, server_events(w, path)));
   }
 };
 
@@ -752,8 +776,7 @@ struct DuplicateRegistrationGraph {
     const auto path = service::path("web-duplicate");
     register_fake_server(w, path, server_configuration.clone(), serve_server);
     register_fake_server(w, path, server_configuration.clone(), serve_server);
-    auto route =
-        wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
+    auto route = wire<stdlib::const_, TS<WebRoute>>(w, serve_route.clone());
     static_cast<void>(wire<ServeCapture>(w, serve(w, path, route)));
   }
 };
@@ -774,8 +797,7 @@ template <typename G> GraphBuilder build_realtime() {
   return count;
 }
 
-[[nodiscard]] bool has_node(const GraphBuilder &graph,
-                            std::string_view name) {
+[[nodiscard]] bool has_node(const GraphBuilder &graph, std::string_view name) {
   for (const auto &node : graph.nodes()) {
     const auto *schema = node.type().schema();
     if (schema != nullptr && schema->display_name != nullptr &&
@@ -790,12 +812,10 @@ void test_runtime_specific_wiring_shapes() {
   serve_server = std::make_shared<FakeWebServer>();
   const auto server = build_realtime<ServeGraph>();
   require(count_nodes(server, NodeKind::PushSource) == 6,
-          "web server did not wire one standard push source per channel");
-  for (const auto name :
-       {std::string_view{"web_fake_server_http_routes"},
-        std::string_view{"web_fake_server_respond"},
-        std::string_view{"web_server_request_projection"},
-        std::string_view{"web_transport_admission_release"}}) {
+          "web server did not wire one burst push source per channel");
+  for (const auto name : {std::string_view{"web_fake_server_http_routes"},
+                          std::string_view{"web_fake_server_respond"},
+                          std::string_view{"web_server_request_projection"}}) {
     require(has_node(server, name),
             "web server wiring is missing graph node " + Str{name});
   }
@@ -803,12 +823,10 @@ void test_runtime_specific_wiring_shapes() {
   ws_client = std::make_shared<FakeWebClient>();
   const auto client = build_realtime<ClientWsGraph>();
   require(count_nodes(client, NodeKind::PushSource) == 5,
-          "web client did not wire one standard push source per channel");
-  for (const auto name :
-       {std::string_view{"web_fake_client_ws_keys"},
-        std::string_view{"web_fake_client_ws_send"},
-        std::string_view{"web_client_ws_projection"},
-        std::string_view{"web_transport_admission_release"}}) {
+          "web client did not wire one burst push source per channel");
+  for (const auto name : {std::string_view{"web_fake_client_ws_keys"},
+                          std::string_view{"web_fake_client_ws_send"},
+                          std::string_view{"web_client_ws_projection"}}) {
     require(has_node(client, name),
             "web client wiring is missing graph node " + Str{name});
   }
@@ -817,7 +835,8 @@ void test_runtime_specific_wiring_shapes() {
        {std::string_view{"web_request_drain"},
         std::string_view{"web_ws_ingress_drain"},
         std::string_view{"web_response_drain"},
-        std::string_view{"web_client_ws_drain"}}) {
+        std::string_view{"web_client_ws_drain"},
+        std::string_view{"web_transport_admission_release"}}) {
     require(!has_node(server, retired) && !has_node(client, retired),
             "web wiring retained private bridge drain " + Str{retired});
   }
@@ -825,14 +844,12 @@ void test_runtime_specific_wiring_shapes() {
 
 void test_simulation_rejects_live_push_adaptors() {
   serve_server = std::make_shared<FakeWebServer>();
-  require_failure(
-      [] { static_cast<void>(build_graph<ServeGraph>()); },
-      "simulation wiring accepted a push-based web server");
+  require_failure([] { static_cast<void>(build_graph<ServeGraph>()); },
+                  "simulation wiring accepted a push-based web server");
 
   ws_client = std::make_shared<FakeWebClient>();
-  require_failure(
-      [] { static_cast<void>(build_graph<ClientWsGraph>()); },
-      "simulation wiring accepted a push-based web client");
+  require_failure([] { static_cast<void>(build_graph<ClientWsGraph>()); },
+                  "simulation wiring accepted a push-based web client");
 }
 
 void test_serve_boundary() {
@@ -851,11 +868,8 @@ void test_serve_boundary() {
           "route did not reach the transport sink");
   const auto routes = serve_server->http_routes();
   require(routes.size() == 1, "unexpected route count");
-  require(routes.front()
-                  .view()
-                  .as_bundle()
-                  .at("pattern")
-                  .checked_as<Str>() == Str{"/orders/{id}"},
+  require(routes.front().view().as_bundle().at("pattern").checked_as<Str>() ==
+              Str{"/orders/{id}"},
           "route pattern was not preserved");
   serve_server->emit_request(serve_route.clone(), emitted_request.clone());
   runner.join();
@@ -923,9 +937,10 @@ void test_client_call_response_arm() {
           "client call did not reach the transport sink");
   const auto calls = call_client->calls();
   require(calls.size() == 1, "unexpected call count");
-  require(calls.front().request.view().as_bundle().at("url").checked_as<Str>() ==
-              Str{"https://api/orders"},
-          "client request url was not preserved");
+  require(
+      calls.front().request.view().as_bundle().at("url").checked_as<Str>() ==
+          Str{"https://api/orders"},
+      "client request url was not preserved");
   require(calls.front().options.has_value(),
           "client call options were not delivered");
   call_client->respond(calls.front().client_id,
@@ -1069,6 +1084,55 @@ void test_push_backlogs_deliver_one_request_per_cycle() {
           "backlogged requests were reordered");
 }
 
+void test_burst_distributes_distinct_routes_and_unrolls_collisions() {
+  backlog_server = std::make_shared<FakeWebServer>();
+  observed_burst_requests.clear();
+  burst_route_gate.reset();
+
+  auto executor = start_realtime(build_realtime<BurstRouteGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { burst_route_gate.release(); });
+
+  require(backlog_server->wait_for_http_routes(2, 2s),
+          "burst routes did not reach the transport sink");
+  backlog_server->emit_request(serve_route.clone(),
+                               make_server_request(Int{80}));
+  require(burst_route_gate.await_blocked(2s),
+          "burst route capture did not block");
+  backlog_server->emit_request(serve_route.clone(),
+                               make_server_request(Int{81}));
+  backlog_server->emit_request(alternate_route.clone(),
+                               make_server_request(Int{91}));
+  backlog_server->emit_request(serve_route.clone(),
+                               make_server_request(Int{82}));
+  burst_route_gate.release();
+  runner.join();
+
+  require(observed_burst_requests.size() == 3,
+          "burst requests were lost or conflated");
+  std::optional<DateTime> first_route_time;
+  std::optional<DateTime> second_route_time;
+  std::optional<DateTime> collision_time;
+  for (const auto &[request_id, evaluation_time] : observed_burst_requests) {
+    if (request_id == Int{81}) {
+      first_route_time = evaluation_time;
+    } else if (request_id == Int{91}) {
+      second_route_time = evaluation_time;
+    } else if (request_id == Int{82}) {
+      collision_time = evaluation_time;
+    }
+  }
+  require(first_route_time.has_value() && second_route_time.has_value() &&
+              collision_time.has_value(),
+          "burst requests were delivered under unexpected ids");
+  require(*first_route_time == *second_route_time,
+          "distinct routes from one burst did not tick together");
+  require(*collision_time == *first_route_time + MIN_TD,
+          "same-route collision was not unrolled on the next cycle");
+}
+
 void test_transport_channels_progress_independently() {
   lifecycle_server = std::make_shared<FakeWebServer>();
   observed_transport_progress.clear();
@@ -1189,8 +1253,7 @@ void test_removed_ws_route_drops_queued_frames_after_readd() {
   require(route_generation_gate.await_blocked(2s),
           "WebSocket route-generation capture did not block");
   for (const auto &text : {Str{"old-1"}, Str{"old-2"}, Str{"old-3"}}) {
-    lifecycle_server->emit_ws_frame(ws_route.clone(),
-                                    make_inbound_frame(text));
+    lifecycle_server->emit_ws_frame(ws_route.clone(), make_inbound_frame(text));
   }
   require(sender->send_blocking(alternate_ws_route.clone()),
           "WebSocket route removal was refused");
@@ -1257,9 +1320,7 @@ void test_removed_client_key_drops_queued_frames_after_readd() {
 void test_duplicate_registration_fails_and_service_restarts() {
   serve_server = std::make_shared<FakeWebServer>();
   require_failure(
-      [] {
-        static_cast<void>(build_realtime<DuplicateRegistrationGraph>());
-      },
+      [] { static_cast<void>(build_realtime<DuplicateRegistrationGraph>()); },
       "duplicate web service registration was accepted");
 
   for (int run = 0; run != 2; ++run) {
@@ -1274,8 +1335,7 @@ void test_duplicate_registration_fails_and_service_restarts() {
             "route did not reach the transport sink on restart");
     serve_server->emit_request(serve_route.clone(), emitted_request.clone());
     runner.join();
-    require(observed_request_count == 1,
-            "request did not tick after restart");
+    require(observed_request_count == 1, "request did not tick after restart");
   }
   require(serve_server->attach_count() == 2,
           "restarted service did not attach once per run");
@@ -1296,6 +1356,7 @@ int main() {
     test_ws_server_boundary();
     test_ws_client_boundary();
     test_push_backlogs_deliver_one_request_per_cycle();
+    test_burst_distributes_distinct_routes_and_unrolls_collisions();
     test_transport_channels_progress_independently();
     test_removed_route_drops_queued_events_after_readd();
     test_removed_ws_route_drops_queued_frames_after_readd();

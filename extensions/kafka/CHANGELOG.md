@@ -5,9 +5,11 @@
 - Rebuild manual/independent assignments as a new recovery generation after a
   broker disconnect, allowing live consumers to resume from committed offsets
   and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.
-- Route all real-time results through one ordered standard-FIFO push source,
-  with subscription, delivery, event, stop-policy, and delivery-commit logic
-  implemented by graph nodes and sinks rather than a private bridge queue.
+- Route all real-time results through one standard unbounded burst push source.
+  Graph projections distribute distinct subscription keys and delivery ids in
+  one tick, unroll same-key and scalar-event collisions in FIFO order, and keep
+  stop-policy and delivery-commit logic on graph rather than in a private
+  bridge queue.
 - Preserve bounded deterministic Kafka recovery in simulation through an
   ordinary scheduled service graph with no push source or consumer worker.
 - Replay recovered records at their Kafka timestamps across all subscriptions

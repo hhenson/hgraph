@@ -59,12 +59,16 @@ the same native extension and preserve the released ``KafkaMessage``, replay,
 ``recovered``, flush, and legacy cross-partition ordering behavior.  New code
 does not depend on magic ``msg``/``recovered`` parameter names.
 
-Live Kafka ingress is real-time-only.  One standard FIFO push source carries a
-discriminated, fully owned transport envelope for subscription values,
-delivery reports, and service events.  Ordinary graph nodes project that
-ordered stream into the public service outputs and apply graph-stop and
-commit-on-delivery policy.  There is no extension-owned ingress queue,
-conflated wake token, or drain node in front of the graph.
+Live Kafka ingress is real-time-only.  One standard unbounded burst push source
+carries discriminated, fully owned transport envelopes for subscription
+values, delivery reports, and service events.  Each sender call admits one
+envelope; one source evaluation transfers all currently pending envelopes as
+an ordered tuple.  Ordinary graph nodes distribute independent subscription
+keys and delivery reports in one public tick, preserve same-key FIFO by
+unrolling collisions over later cycles, unroll the scalar event stream, and
+apply graph-stop and commit-on-delivery policy.  There is no extension-owned
+cross-thread ingress queue, conflated wake token, or drain node in front of the
+graph.
 
 No push source is permitted in simulation.  The simulation specialization
 performs a finite bounded read without a worker thread, retains the resulting
@@ -638,7 +642,7 @@ The graph-local runtime resource owns:
 * one shared producer and poll thread for the path's producer configuration;
 * one consumer owner thread per consumer session;
 * a session registry keyed by the complete semantic subscription identity;
-* the standard push-source sender used for ordered real-time ingress;
+* the standard burst push-source sender used for real-time ingress;
 * the bounded, record-counted simulation recovery and producer staging state;
 * explicit start, accepting, stopping, and stopped states.
 
@@ -664,10 +668,11 @@ Queue ownership and capacity
 RFC 0027 makes the push-source node the cross-thread queue.  Kafka therefore
 does not duplicate its storage, locking, wake generation, or receiver-lifetime
 logic.  A consumer callback constructs one owned ``KafkaTransportEvent`` and
-calls ``send_blocking`` on the unbounded FIFO policy selected by the service
-graph.  The send cannot wait for capacity; ``false`` means only that graph
-teardown closed the receiver.  Storage is updated before the sender wakes the
-real-time executor.
+calls ``send_blocking`` on the unbounded burst policy selected by the service
+graph.  The scalar call moves one envelope into the queue; dequeue produces a
+tuple containing all work pending at that point.  The send cannot wait for
+capacity; ``false`` means only that graph teardown closed the receiver.
+Storage is updated before the sender wakes the real-time executor.
 
 The public Kafka configuration has record counts, not byte limits.  The
 consumer record limit bounds finite recovery retained before replay; the
@@ -700,9 +705,18 @@ The native default promises:
 
 * record offset order within each Kafka partition;
 * no invented total order across partitions;
-* worker/poll arrival order for records already classified as live; and
-* one hgraph tick per record, with no conflation unless the user wires an
-  explicit conflating graph operation.
+* worker/poll arrival order for records already classified as live on the same
+  subscription key; and
+* one keyed modification per record, with no conflation: distinct subscription
+  keys pending in one burst tick together, while repeated values for one key
+  are emitted in arrival order on consecutive ``MIN_TD`` cycles.
+
+Delivery reports for distinct request ids distribute together as one keyed
+mutation.  Repeated reports for one id retain FIFO order over later cycles,
+just like repeated subscription values for one key.  Service events are scalar
+and are unrolled in FIFO order, one per graph cycle.  The discriminated tuple
+preserves admission order for projection, but no public total order is promised
+between independent subscription keys, delivery reports, and service events.
 
 Record timestamp is metadata.  A live record's evaluation time is the graph
 cycle in which the transport projection emits it; its Kafka timestamp does
@@ -954,7 +968,7 @@ The native hot path must avoid Python and minimise copies:
 
 * librdkafka payloads are copied or retained exactly once into an owned
   cross-thread record according to the chosen safe lifetime strategy;
-* the standard push-source queue retains transport envelopes by move;
+* the standard burst push-source queue retains transport envelopes by move;
 * graph-thread publication moves into the native time-series value;
 * codecs run after transport unless a native codec explicitly opts into safe
   off-thread decoding; and
@@ -966,11 +980,12 @@ recovery throughput, and shutdown drain time.  Measurements cover
 small records, large records, headers, several partitions, several graph
 clients, and two concurrent pure-C++ engines.
 
-The real-time ingress policy is explicitly the standard unbounded FIFO rather
-than a hidden extension queue.  Capacity may be introduced later only by
-selecting the core bounded policy with a documented refusal path.  The
-extension should expose data-only inspection views rather than requiring
-debuggers to decode librdkafka or STL layouts.
+The real-time ingress policy is explicitly the standard unbounded burst queue
+rather than a hidden extension queue.  The graph retains only same-key or
+scalar collisions that cannot share one public tick.  Capacity may be
+introduced later only by selecting the core bounded policy with a documented
+refusal path.  The extension should expose data-only inspection views rather
+than requiring debuggers to decode librdkafka or STL layouts.
 
 Alternatives considered
 -----------------------
@@ -1028,7 +1043,7 @@ Public C++ and extension boundary
 * One ``KafkaServiceImpl`` materializes for one demanded path and configuration;
   duplicate registration at that path is rejected.
 * Its graph-to-Kafka edges are distinct sink nodes over ``impl_input``.
-  Real-time Kafka-to-graph values use one ordered root push source and ordinary
+  Real-time Kafka-to-graph values use one burst root push source and ordinary
   projection nodes; bounded simulation recovery uses a scheduled replay node.
   Both are published through ``impl_output``.
 * The real-time/simulation implementation is selected at wiring time.  A
@@ -1136,8 +1151,8 @@ Implementation status
 The native extension, service interfaces, fake transport, librdkafka runtime,
 and Python authoring bridge are implemented.  The RFC 0027 migration described
 in step 6 is included in the current implementation: real-time ingress uses the
-standard push source and simulation uses graph-owned scheduled replay.  This
-RFC remains ``Proposed`` until the remaining performance, sanitizer,
+standard burst push source and simulation uses graph-owned scheduled replay.
+This RFC remains ``Proposed`` until the remaining performance, sanitizer,
 installed-package, and compatibility-transition evidence satisfies the
 acceptance criteria above.
 

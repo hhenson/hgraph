@@ -3,9 +3,10 @@
 ## Unreleased
 
 - Initial extension skeleton (RFC 0024).
-- Service tier: one standard bounded push source per independently ordered
-  logical channel, avoiding cross-channel head-of-line blocking while
-  preserving FIFO within each channel; graph-side projections and command
+- Service tier: one standard bounded burst push source per independently
+  ordered logical channel, avoiding cross-channel head-of-line blocking while
+  distributing distinct TSD keys together and preserving same-key/scalar FIFO;
+  graph-side projections and command
   sinks; domain byte/reservation watermarks without a second value queue; the
   eleven service interfaces wired through
   `impl_input`/`impl_output`, wiring sugar, and the socketless

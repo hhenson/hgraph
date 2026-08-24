@@ -21,6 +21,8 @@
 #include <span>
 #include <string_view>
 #include <typeindex>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -83,8 +85,7 @@ inline std::ostream &operator<<(std::ostream &stream,
   return stream << "KafkaTransportBindingsHandle(" << value.value.get() << ')';
 }
 
-[[nodiscard]] inline KafkaTransportBindingsHandle
-make_transport_bindings() {
+[[nodiscard]] inline KafkaTransportBindingsHandle make_transport_bindings() {
   auto &factory = ValuePlanFactory::instance();
   return KafkaTransportBindingsHandle{
       std::make_shared<const KafkaTransportBindings>(KafkaTransportBindings{
@@ -144,6 +145,56 @@ public:
     Value value = std::move(values_.front());
     values_.pop_front();
     return value;
+  }
+
+  /** Detaches the next graph-visible cohort. Explicit recovery timestamps
+   * remain atomic; live events without timestamps release at most one event
+   * per subscription key so independent subscriptions can advance together.
+   * Cost is O(N) for N queued subscription events. */
+  [[nodiscard]] std::vector<Value> pop_ready_cohort() {
+    std::vector<Value> result;
+    if (values_.empty()) {
+      return result;
+    }
+    const auto cohort_time = evaluation_time(values_.front().view());
+    if (cohort_time.has_value()) {
+      while (!values_.empty() &&
+             evaluation_time(values_.front().view()) == cohort_time) {
+        result.push_back(pop());
+      }
+      return result;
+    }
+
+    struct Hash {
+      [[nodiscard]] std::size_t operator()(const Value &value) const {
+        return value.hash();
+      }
+    };
+    struct Equal {
+      [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const {
+        return lhs.equals(rhs.view());
+      }
+    };
+    std::unordered_set<Value, Hash, Equal> emitted;
+    std::deque<Value> remaining;
+    while (!values_.empty()) {
+      Value value = pop();
+      if (evaluation_time(value.view()).has_value()) {
+        remaining.push_back(std::move(value));
+        while (!values_.empty()) {
+          remaining.push_back(pop());
+        }
+        break;
+      }
+      const auto key = value.view().as_bundle().at("subscription_key");
+      if (emitted.emplace(key).second) {
+        result.push_back(std::move(value));
+      } else {
+        remaining.push_back(std::move(value));
+      }
+    }
+    values_.swap(remaining);
+    return result;
   }
 
   [[nodiscard]] bool empty() const noexcept { return values_.empty(); }
@@ -209,17 +260,106 @@ struct SubscriptionEventScheduleHandle {
   }
 };
 
+/** Graph-thread spill used when one burst contains several delivery reports
+ * for the same service request id. Distinct ids never enter this state. Drain
+ * cost is O(P) for P pending ids; retained memory is O(C) for collisions. */
+class DeliveryEventSchedule {
+public:
+  template <typename Apply>
+  void drain(std::unordered_set<Int> &emitted, Apply &&apply) {
+    for (auto entry = values_.begin(); entry != values_.end();) {
+      auto &queue = entry->second;
+      Value event = std::move(queue.front());
+      queue.pop_front();
+      apply(event.view());
+      emitted.emplace(entry->first);
+      if (queue.empty()) {
+        entry = values_.erase(entry);
+      } else {
+        ++entry;
+      }
+    }
+  }
+
+  void defer(Int request_id, const ValueView &event) {
+    values_[request_id].emplace_back(event);
+  }
+
+  [[nodiscard]] bool empty() const noexcept { return values_.empty(); }
+
+private:
+  std::unordered_map<Int, std::deque<Value>> values_{};
+};
+
+struct DeliveryEventScheduleHandle {
+  std::shared_ptr<DeliveryEventSchedule> value{};
+
+  friend bool
+  operator==(const DeliveryEventScheduleHandle &,
+             const DeliveryEventScheduleHandle &) noexcept = default;
+  friend std::strong_ordering
+  operator<=>(const DeliveryEventScheduleHandle &lhs,
+              const DeliveryEventScheduleHandle &rhs) noexcept {
+    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
+           reinterpret_cast<std::uintptr_t>(rhs.value.get());
+  }
+};
+
+/** Graph-thread FIFO used only when a burst contains several scalar service
+ * events. Cost is O(1) to emit and retain each event; memory is O(E) for E
+ * events awaiting their own ticks. */
+class KafkaEventSchedule {
+public:
+  void defer(const ValueView &event) { values_.emplace_back(event); }
+
+  [[nodiscard]] std::optional<Value> pop() {
+    if (values_.empty()) {
+      return std::nullopt;
+    }
+    Value value = std::move(values_.front());
+    values_.pop_front();
+    return value;
+  }
+
+  [[nodiscard]] bool empty() const noexcept { return values_.empty(); }
+
+private:
+  std::deque<Value> values_{};
+};
+
+struct KafkaEventScheduleHandle {
+  std::shared_ptr<KafkaEventSchedule> value{};
+
+  friend bool operator==(const KafkaEventScheduleHandle &,
+                         const KafkaEventScheduleHandle &) noexcept = default;
+  friend std::strong_ordering
+  operator<=>(const KafkaEventScheduleHandle &lhs,
+              const KafkaEventScheduleHandle &rhs) noexcept {
+    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
+           reinterpret_cast<std::uintptr_t>(rhs.value.get());
+  }
+};
+
 inline std::ostream &operator<<(std::ostream &stream,
                                 const SubscriptionEventScheduleHandle &value) {
   return stream << "SubscriptionEventScheduleHandle(" << value.value.get()
                 << ')';
 }
 
+inline std::ostream &operator<<(std::ostream &stream,
+                                const DeliveryEventScheduleHandle &value) {
+  return stream << "DeliveryEventScheduleHandle(" << value.value.get() << ')';
+}
+
+inline std::ostream &operator<<(std::ostream &stream,
+                                const KafkaEventScheduleHandle &value) {
+  return stream << "KafkaEventScheduleHandle(" << value.value.get() << ')';
+}
+
 } // namespace hgraph::kafka::detail
 
 namespace std {
-template <>
-struct hash<hgraph::kafka::detail::KafkaTransportBindingsHandle> {
+template <> struct hash<hgraph::kafka::detail::KafkaTransportBindingsHandle> {
   size_t operator()(const hgraph::kafka::detail::KafkaTransportBindingsHandle
                         &value) const noexcept {
     return hash<const void *>{}(value.value.get());
@@ -229,6 +369,20 @@ struct hash<hgraph::kafka::detail::KafkaTransportBindingsHandle> {
 template <>
 struct hash<hgraph::kafka::detail::SubscriptionEventScheduleHandle> {
   size_t operator()(const hgraph::kafka::detail::SubscriptionEventScheduleHandle
+                        &value) const noexcept {
+    return hash<const void *>{}(value.value.get());
+  }
+};
+
+template <> struct hash<hgraph::kafka::detail::DeliveryEventScheduleHandle> {
+  size_t operator()(const hgraph::kafka::detail::DeliveryEventScheduleHandle
+                        &value) const noexcept {
+    return hash<const void *>{}(value.value.get());
+  }
+};
+
+template <> struct hash<hgraph::kafka::detail::KafkaEventScheduleHandle> {
+  size_t operator()(const hgraph::kafka::detail::KafkaEventScheduleHandle
                         &value) const noexcept {
     return hash<const void *>{}(value.value.get());
   }
@@ -244,6 +398,16 @@ template <> struct scalar_name<kafka::detail::KafkaTransportBindingsHandle> {
 template <> struct scalar_name<kafka::detail::SubscriptionEventScheduleHandle> {
   static constexpr std::string_view value{
       "hgraph.kafka.internal::SubscriptionEventScheduleHandle"};
+};
+
+template <> struct scalar_name<kafka::detail::DeliveryEventScheduleHandle> {
+  static constexpr std::string_view value{
+      "hgraph.kafka.internal::DeliveryEventScheduleHandle"};
+};
+
+template <> struct scalar_name<kafka::detail::KafkaEventScheduleHandle> {
+  static constexpr std::string_view value{
+      "hgraph.kafka.internal::KafkaEventScheduleHandle"};
 };
 } // namespace hgraph::static_schema_detail
 
@@ -293,65 +457,70 @@ transport_event(const KafkaTransportBindings &bindings,
                          std::move(fields));
 }
 
-[[nodiscard]] inline Value recovery_barrier_transport_event(
-    const KafkaTransportBindings &bindings) {
+[[nodiscard]] inline Value
+recovery_barrier_transport_event(const KafkaTransportBindings &bindings) {
   return transport_event(bindings, KafkaTransportEventKind::RecoveryBarrier,
                          {});
 }
 
-[[nodiscard]] inline Value subscription_removed_transport_event(
-    const KafkaTransportBindings &bindings, Value key) {
+[[nodiscard]] inline Value
+subscription_removed_transport_event(const KafkaTransportBindings &bindings,
+                                     Value key) {
   return transport_event(bindings, KafkaTransportEventKind::Subscription,
                          {{"subscription_key", std::move(key)},
                           {"removed", transport_atomic(Bool{true})}});
 }
 
-[[nodiscard]] inline Value delivery_transport_event(
-    const KafkaTransportBindings &bindings, Int request_id, Value report) {
+[[nodiscard]] inline Value
+delivery_transport_event(const KafkaTransportBindings &bindings, Int request_id,
+                         Value report) {
   return transport_event(bindings, KafkaTransportEventKind::Delivery,
                          {{"request_id", transport_atomic(request_id)},
                           {"report", std::move(report)}});
 }
 
-[[nodiscard]] inline Value service_transport_event(
-    const KafkaTransportBindings &bindings, Value event,
-    Bool stop_graph = false) {
+[[nodiscard]] inline Value
+service_transport_event(const KafkaTransportBindings &bindings, Value event,
+                        Bool stop_graph = false) {
   return transport_event(bindings, KafkaTransportEventKind::Event,
                          {{"event", std::move(event)},
                           {"stop_graph", transport_atomic(stop_graph)}});
 }
 
 /** Runtime demultiplexing cannot be expressed as a wiring-time graph because
- *  the envelope kind and recovery timestamp arrive on each tick. This compute
- *  node activates on every transport envelope, retains only the ordered
- *  subscription schedule, and emits keyed subscription mutations. Insertion
- *  is O(n) in queued subscription events and equal-timestamp cohort projection
- *  is O(B) for cohort size B; retained memory is O(n). State is ephemeral
- *  ingress state and is discarded at stop. */
+ * the envelope kind and recovery timestamp arrive in each burst. This compute
+ * node retains the ordered subscription schedule and emits one event per
+ * independent subscription key in a live cycle, while explicit same-time
+ * recovery cohorts remain atomic. Insertion and live cohort selection are
+ * O(n) in queued subscription events; projection is O(B) for emitted cohort
+ * size B and retained memory is O(n). State is ephemeral ingress state and is
+ * discarded at stop. */
 struct SubscriptionProjectionNode {
   static constexpr auto name = "kafka_subscription_projection";
 
-  static void
-  start(Scalar<"bindings", KafkaTransportBindingsHandle> bindings,
-        State<SubscriptionEventScheduleHandle> state) {
+  static void start(Scalar<"bindings", KafkaTransportBindingsHandle> bindings,
+                    State<SubscriptionEventScheduleHandle> state) {
     state.set(SubscriptionEventScheduleHandle{
         std::make_shared<SubscriptionEventSchedule>(*bindings.value().value)});
   }
 
   static void
-  eval(In<"transport", TS<KafkaTransportEvent>> transport,
+  eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
        Scalar<"bindings", KafkaTransportBindingsHandle>,
        State<SubscriptionEventScheduleHandle> state,
        SingleShotScheduler scheduler,
        Out<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>> out) {
     auto schedule = state.get().value;
     if (transport.modified()) {
-      const auto fields = transport.base().value().as_bundle();
-      const auto kind = fields.at("kind").checked_as<KafkaTransportEventKind>();
-      if (kind == KafkaTransportEventKind::Subscription) {
-        schedule->push(transport.base().value().clone());
-      } else if (kind == KafkaTransportEventKind::RecoveryBarrier) {
-        schedule->release_recovery();
+      for (const auto event : transport.base().value().as_list()) {
+        const auto fields = event.as_bundle();
+        const auto kind =
+            fields.at("kind").checked_as<KafkaTransportEventKind>();
+        if (kind == KafkaTransportEventKind::Subscription) {
+          schedule->push(event.clone());
+        } else if (kind == KafkaTransportEventKind::RecoveryBarrier) {
+          schedule->release_recovery();
+        }
       }
     }
 
@@ -398,48 +567,102 @@ struct SubscriptionProjectionNode {
       mutation.set(fields.at("subscription_key"), value.view());
     };
 
-    apply_event(schedule->pop());
-    while (next_time.has_value() && schedule->next_time() == next_time) {
-      apply_event(schedule->pop());
+    for (const auto &event : schedule->pop_ready_cohort()) {
+      apply_event(event);
     }
     schedule_following();
   }
 };
 
-/** Stateless runtime projection for delivery envelopes. It activates on every
- *  transport tick, emits only delivery events, and costs O(1) per tick. */
+/** Runtime projection for delivery envelopes. Distinct request ids tick
+ * together; same-id collisions retain FIFO order. Cost is O(B + P) per tick
+ * for burst size B and P pending ids; retained memory is O(C) for collisions.
+ * State is ephemeral ingress state and is discarded at stop. */
 struct DeliveryProjectionNode {
   static constexpr auto name = "kafka_delivery_projection";
 
-  static void eval(In<"transport", TS<KafkaTransportEvent>> transport,
+  static void start(State<DeliveryEventScheduleHandle> state) {
+    state.set(
+        DeliveryEventScheduleHandle{std::make_shared<DeliveryEventSchedule>()});
+  }
+
+  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
+                   State<DeliveryEventScheduleHandle> state,
+                   SingleShotScheduler scheduler,
                    Out<TSD<Int, TS<KafkaDeliveryReport>>> out) {
-    const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
-        KafkaTransportEventKind::Delivery) {
-      return;
-    }
+    auto schedule = state.get().value;
     auto mutation = out.begin_mutation(out.evaluation_time());
-    mutation.set(fields.at("request_id"), fields.at("report"));
+    std::unordered_set<Int> emitted;
+    const auto apply_event = [&](const ValueView &event) {
+      const auto fields = event.as_bundle();
+      mutation.set(fields.at("request_id"), fields.at("report"));
+    };
+    schedule->drain(emitted, apply_event);
+    if (transport.modified()) {
+      for (const auto event : transport.base().value().as_list()) {
+        const auto fields = event.as_bundle();
+        if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
+            KafkaTransportEventKind::Delivery) {
+          continue;
+        }
+        const Int request_id = fields.at("request_id").checked_as<Int>();
+        if (emitted.emplace(request_id).second) {
+          apply_event(event);
+        } else {
+          schedule->defer(request_id, event);
+        }
+      }
+    }
+    if (!schedule->empty()) {
+      scheduler.schedule(MIN_TD);
+    }
   }
 };
 
-/** Stateless runtime projection for service-event envelopes. It activates on
- *  every transport tick, emits only service events, and applies stop policy on
- *  the graph thread. Cost is O(1) per tick. */
+/** Runtime projection for scalar service-event output. A burst is scanned in
+ * O(B), the first event is emitted, and remaining events are retained in FIFO
+ * order using O(E) memory until their individual ticks. */
 struct EventProjectionNode {
   static constexpr auto name = "kafka_event_projection";
 
-  static void eval(In<"transport", TS<KafkaTransportEvent>> transport,
-                   EngineControlView engine, Out<TS<KafkaEvent>> out) {
-    const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
-        KafkaTransportEventKind::Event) {
-      return;
+  static void start(State<KafkaEventScheduleHandle> state) {
+    state.set(KafkaEventScheduleHandle{std::make_shared<KafkaEventSchedule>()});
+  }
+
+  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
+                   State<KafkaEventScheduleHandle> state,
+                   SingleShotScheduler scheduler, EngineControlView engine,
+                   Out<TS<KafkaEvent>> out) {
+    auto schedule = state.get().value;
+    bool emitted = false;
+    const auto apply_event = [&](const ValueView &event) {
+      const auto fields = event.as_bundle();
+      out.apply(fields.at("event"));
+      const auto stop_graph = fields.at("stop_graph");
+      if (stop_graph.data() != nullptr && stop_graph.checked_as<Bool>()) {
+        engine.request_stop();
+      }
+      emitted = true;
+    };
+    if (auto pending = schedule->pop()) {
+      apply_event(pending->view());
     }
-    out.apply(fields.at("event"));
-    const auto stop_graph = fields.at("stop_graph");
-    if (stop_graph.data() != nullptr && stop_graph.checked_as<Bool>()) {
-      engine.request_stop();
+    if (transport.modified()) {
+      for (const auto event : transport.base().value().as_list()) {
+        const auto fields = event.as_bundle();
+        if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
+            KafkaTransportEventKind::Event) {
+          continue;
+        }
+        if (emitted) {
+          schedule->defer(event);
+        } else {
+          apply_event(event);
+        }
+      }
+    }
+    if (!schedule->empty()) {
+      scheduler.schedule(MIN_TD);
     }
   }
 };
@@ -450,9 +673,8 @@ struct EventProjectionNode {
 struct SimulationSubscriptionProjectionNode {
   static constexpr auto name = "kafka_simulation_subscription_projection";
 
-  static void
-  start(Scalar<"bindings", KafkaTransportBindingsHandle> bindings,
-        State<SubscriptionEventScheduleHandle> state) {
+  static void start(Scalar<"bindings", KafkaTransportBindingsHandle> bindings,
+                    State<SubscriptionEventScheduleHandle> state) {
     state.set(SubscriptionEventScheduleHandle{
         std::make_shared<SubscriptionEventSchedule>(*bindings.value().value)});
   }
@@ -560,7 +782,7 @@ struct ServiceOutputs {
 };
 
 [[nodiscard]] inline ServiceOutputs
-wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEvent>> transport,
+wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport,
                      KafkaTransportBindingsHandle bindings) {
   return ServiceOutputs{
       wire<SubscriptionProjectionNode>(w, transport, bindings)
@@ -586,18 +808,18 @@ wire_simulation_service_outputs(Wiring &w,
 }
 
 template <typename Tag>
-[[nodiscard]] Port<TS<KafkaTransportEvent>>
+[[nodiscard]] Port<TS<KafkaTransportEventBatch>>
 wire_transport_source(Wiring &w, PushSourceStartViewCallback on_start,
                       std::function<void(const NodeView &)> on_stop) {
-  const auto *schema = ts_type<TS<KafkaTransportEvent>>();
+  const auto *schema = ts_type<TS<KafkaTransportEventBatch>>();
   PushSourceNodeExtension extension{
       .on_start = std::move(on_start),
       .on_stop = std::move(on_stop),
   };
-  return Port<TS<KafkaTransportEvent>>{
+  return Port<TS<KafkaTransportEventBatch>>{
       w, w.add_unique_node(std::type_index(typeid(Tag)),
                            make_push_source_node_with_view(
-                               *schema, make_push_source_queue_policy(*schema),
+                               *schema, make_push_source_burst_policy(*schema),
                                std::move(extension)),
                            std::span<const WiringPortRef>{}, Value{})};
 }

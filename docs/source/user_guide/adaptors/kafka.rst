@@ -53,10 +53,19 @@ use another path when those settings must differ.
 
 The actual Kafka clients and their worker threads are owned by the graph and
 joined when it stops.  There is no Python or C++ Kafka manager to construct,
-poll, or close outside the graph.  In real time, callbacks send one internal
-ordered envelope stream through a standard FIFO push source; ordinary graph
-nodes project that stream into the public subscription, delivery, and event
-outputs.  Kafka owns no second ingress queue or wake-token protocol.
+poll, or close outside the graph.  In real time, callbacks send scalar
+envelopes through one standard unbounded burst push source.  A graph cycle
+receives the pending envelopes as an ordered tuple; ordinary graph nodes
+project it into the public subscription, delivery, and event outputs.  Kafka
+owns no second cross-thread ingress queue or wake-token protocol.
+
+Distinct subscription keys in one burst tick together.  Repeated records for
+one subscription keep FIFO order and are unrolled over consecutive ``MIN_TD``
+cycles, so no record is conflated.  Delivery reports for distinct request ids
+distribute in one keyed tick; repeated reports for one id are likewise
+FIFO-unrolled.  The scalar service-event output remains FIFO and emits one
+event per graph cycle.  There is no public total order between these
+independent outputs.
 
 The essential data flow is:
 
@@ -371,7 +380,7 @@ options through deployment configuration.
    )
 
 The ingress record limit bounds finite recovery retained before replay; live
-real-time ingress uses the service's standard unbounded FIFO push source and
+real-time ingress uses the service's standard unbounded burst push source and
 has no byte-capacity setting.  Recovery overflow may ``FAIL`` or ``DROP``; it
 cannot stage.  Outbound overflow may ``FAIL``, ``DROP``, or ``STAGE`` in a
 record-counted queue, whose own overflow action must be ``FAIL`` or ``DROP``.

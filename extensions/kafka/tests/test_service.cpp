@@ -6,9 +6,12 @@
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/util/scope.h>
+
+#include "../src/detail/service_transport.h"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +19,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
+#include <initializer_list>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -66,6 +70,50 @@ void test_transport_sender_handles_graph_teardown() {
           "a Kafka transport sender accepted work after graph teardown");
 }
 
+Value delivery_burst(
+    const kafka::detail::KafkaTransportBindingsHandle &bindings, Int request_id,
+    std::initializer_list<Value> reports) {
+  ListBuilder builder{
+      bindings.value->event,
+      *scalar_descriptor<
+          kafka::detail::KafkaTransportEventBatch>::value_meta()};
+  for (const auto &report : reports) {
+    builder.push_back(kafka::detail::delivery_transport_event(
+        *bindings.value, request_id, report.clone()));
+  }
+  return builder.build();
+}
+
+void test_delivery_burst_unrolls_repeated_request_ids() {
+  const auto bindings = kafka::detail::make_transport_bindings();
+  const Int request_id{17};
+  Value first = make_delivery_report(Str{"first"}, Int{1}, Str{"orders"},
+                                     KafkaDeliveryStatus::Delivered);
+  Value second = make_delivery_report(Str{"second"}, Int{2}, Str{"orders"},
+                                      KafkaDeliveryStatus::Delivered);
+  std::vector<std::optional<Value>> input;
+  input.emplace_back(
+      delivery_burst(bindings, request_id, {first.clone(), second.clone()}));
+
+  const auto output = eval_node<kafka::detail::DeliveryProjectionNode>(input);
+  require(output.size() >= 2 && output[0].has_value() && output[1].has_value(),
+          "same-id delivery reports did not unroll over two ticks");
+  const Value key{request_id};
+  const auto sequence_at = [&](std::size_t index) {
+    return output[index]
+        ->view()
+        .as_bundle()
+        .at("modified")
+        .as_map()
+        .at(key.view())
+        .as_bundle()
+        .at("sequence")
+        .checked_as<Int>();
+  };
+  require(sequence_at(0) == Int{1} && sequence_at(1) == Int{2},
+          "same-id delivery reports were conflated or reordered");
+}
+
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
   bool rejected = false;
   try {
@@ -98,8 +146,7 @@ void capture_value(Wiring &w, Port<Schema> port, Value &observed,
       std::span<const WiringPortRef>{inputs}, Value{});
 }
 
-template <typename G>
-[[nodiscard]] GraphBuilder build_realtime_graph() {
+template <typename G> [[nodiscard]] GraphBuilder build_realtime_graph() {
   return build_graph<G>(WiringOptions{.is_realtime = true});
 }
 
@@ -210,12 +257,48 @@ private:
   std::size_t count_{};
 };
 
+class EvaluationGate {
+public:
+  void reset() {
+    std::lock_guard lock{mutex_};
+    blocked_ = false;
+    released_ = false;
+  }
+
+  void block() {
+    std::unique_lock lock{mutex_};
+    blocked_ = true;
+    changed_.notify_all();
+    changed_.wait(lock, [&] { return released_; });
+  }
+
+  [[nodiscard]] bool await_blocked(std::chrono::milliseconds timeout) {
+    std::unique_lock lock{mutex_};
+    return changed_.wait_for(lock, timeout, [&] { return blocked_; });
+  }
+
+  void release() {
+    {
+      std::lock_guard lock{mutex_};
+      released_ = true;
+    }
+    changed_.notify_all();
+  }
+
+private:
+  std::mutex mutex_{};
+  std::condition_variable changed_{};
+  bool blocked_{};
+  bool released_{};
+};
+
 inline SenderLatch subscription_key_sender{};
 inline SenderLatch subscription_commit_sender{};
 inline GenerationLatch subscription_generations{};
 inline CountLatch stale_commit_events{};
 inline CountLatch graph_lifetime_live{};
 inline CountLatch record_time_recovery_started{};
+inline EvaluationGate burst_subscription_gate{};
 
 inline Value service_config{};
 inline Value subscription_key{};
@@ -259,6 +342,7 @@ inline std::size_t multi_bounded_complete_count{};
 inline std::size_t multi_bounded_failed_count{};
 inline std::vector<Int> backlog_offsets{};
 inline std::vector<Str> backlog_events{};
+inline std::vector<std::pair<Int, DateTime>> burst_subscription_records{};
 inline bool ordered_ingress_complete{};
 inline Value bounded_event{};
 inline std::size_t bounded_event_count{};
@@ -305,6 +389,31 @@ struct EventBacklogCapture {
     backlog_events.push_back(
         event.base().value().as_bundle().at("category").checked_as<Str>());
     if (backlog_events.size() == 3) {
+      node.graph().executor().request_stop();
+    }
+  }
+};
+
+struct BurstSubscriptionCapture {
+  static constexpr auto name = "kafka_burst_subscription_capture";
+
+  static void
+  eval(NodeView node,
+       In<"subscription", KafkaSubscriptionOutput, InputValidity::Unchecked>
+           subscription) {
+    auto record = subscription.template field<"record">();
+    if (!record.valid() || !record.modified()) {
+      return;
+    }
+    const Int offset =
+        record.base().value().as_bundle().at("offset").checked_as<Int>();
+    if (offset == Int{99}) {
+      burst_subscription_gate.block();
+      return;
+    }
+    burst_subscription_records.emplace_back(offset,
+                                            node.graph().evaluation_time());
+    if (burst_subscription_records.size() == 3) {
       node.graph().executor().request_stop();
     }
   }
@@ -506,8 +615,8 @@ struct GraphLifetimeSubscriptionGraph {
     register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
-    static_cast<void>(wire<GraphLifetimeSubscriptionCapture>(
-        w, subscribe(w, path, key)));
+    static_cast<void>(
+        wire<GraphLifetimeSubscriptionCapture>(w, subscribe(w, path, key)));
   }
 };
 
@@ -645,8 +754,8 @@ struct MultiBoundedSubscriptionGraph {
 
 [[nodiscard]] std::size_t count_nodes(const GraphBuilder &graph,
                                       NodeKind kind) {
-  return static_cast<std::size_t>(std::ranges::count_if(
-      graph.nodes(), [kind](const NodeBuilder &node) {
+  return static_cast<std::size_t>(
+      std::ranges::count_if(graph.nodes(), [kind](const NodeBuilder &node) {
         const auto *schema = node.type().schema();
         return schema != nullptr && schema->node_kind == kind;
       }));
@@ -654,8 +763,8 @@ struct MultiBoundedSubscriptionGraph {
 
 [[nodiscard]] const NodeTypeMetaData *
 find_node_schema(const GraphBuilder &graph, std::string_view name) {
-  const auto found = std::ranges::find_if(
-      graph.nodes(), [name](const NodeBuilder &node) {
+  const auto found =
+      std::ranges::find_if(graph.nodes(), [name](const NodeBuilder &node) {
         const auto *schema = node.type().schema();
         return schema != nullptr && schema->display_name != nullptr &&
                std::string_view{schema->display_name} == name;
@@ -666,19 +775,16 @@ find_node_schema(const GraphBuilder &graph, std::string_view name) {
 void test_runtime_specific_wiring_shapes() {
   Value saved_config = std::move(production_config);
   production_config = service_config.clone();
-  const auto restore_config = make_scope_exit([&] {
-    production_config = std::move(saved_config);
-  });
-  const auto realtime =
-      build_realtime_graph<BoundedSubscriptionGraph>();
+  const auto restore_config =
+      make_scope_exit([&] { production_config = std::move(saved_config); });
+  const auto realtime = build_realtime_graph<BoundedSubscriptionGraph>();
   require(count_nodes(realtime, NodeKind::PushSource) == 1,
           "real-time Kafka did not wire exactly one standard push source");
-  for (const auto name :
-       {std::string_view{"kafka_subscription_commands"},
-        std::string_view{"kafka_publish_commands"},
-        std::string_view{"kafka_commit_commands"},
-        std::string_view{"kafka_graph_delivery_commit"},
-        std::string_view{"kafka_subscription_projection"}}) {
+  for (const auto name : {std::string_view{"kafka_subscription_commands"},
+                          std::string_view{"kafka_publish_commands"},
+                          std::string_view{"kafka_commit_commands"},
+                          std::string_view{"kafka_graph_delivery_commit"},
+                          std::string_view{"kafka_subscription_projection"}}) {
     require(find_node_schema(realtime, name) != nullptr,
             "real-time Kafka wiring is missing " + Str{name});
   }
@@ -692,8 +798,7 @@ void test_runtime_specific_wiring_shapes() {
   require(replay != nullptr,
           "simulation Kafka did not wire graph-owned replay");
   require(find_node_schema(simulation,
-                           "kafka_simulation_subscription_commands") !=
-              nullptr,
+                           "kafka_simulation_subscription_commands") != nullptr,
           "simulation Kafka did not wire graph-side subscription commands");
   require(find_node_schema(simulation,
                            "kafka_simulation_subscription_projection") !=
@@ -730,8 +835,7 @@ struct OrderedIngressSubscriptionGraph {
     register_service(w, path, production_config.clone());
     auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
         w, subscription_key.clone());
-    static_cast<void>(
-        wire<OrderedIngressCapture>(w, subscribe(w, path, key)));
+    static_cast<void>(wire<OrderedIngressCapture>(w, subscribe(w, path, key)));
   }
 };
 
@@ -923,6 +1027,23 @@ struct EventBacklogGraph {
   }
 };
 
+struct BurstSubscriptionGraph {
+  static constexpr auto name = "kafka_burst_subscription_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("burst-subscription");
+    register_fake_service(w, path, service_config.clone(), backlog_broker);
+    auto first = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, subscription_key.clone());
+    auto second = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, independent_subscription_key.clone());
+    static_cast<void>(
+        wire<BurstSubscriptionCapture>(w, subscribe(w, path, first)));
+    static_cast<void>(
+        wire<BurstSubscriptionCapture>(w, subscribe(w, path, second)));
+  }
+};
+
 void initialize_values() {
   register_kafka_types();
   service_config =
@@ -958,19 +1079,30 @@ void release_test_state() noexcept {
   multi_publish_broker.reset();
   sharing_broker.reset();
   backlog_broker.reset();
+  burst_subscription_gate.release();
 
   for (Value *value : std::array{
-           &service_config,        &subscription_key,
-           &consumed_record,       &cursor,
-           &produced_record,       &event_value,
-           &production_config,     &independent_subscription_key,
+           &service_config,
+           &subscription_key,
+           &consumed_record,
+           &cursor,
+           &produced_record,
+           &event_value,
+           &production_config,
+           &independent_subscription_key,
            &secondary_subscription_key,
-           &subscription_observed, &delivery_observed,
-           &event_observed,        &engine_a_event,
-           &engine_b_event,        &production_delivery,
-           &multi_delivery_a,      &multi_delivery_b,
-           &production_record,     &production_cursor,
-           &first_commit_cursor,   &first_readded_cursor,
+           &subscription_observed,
+           &delivery_observed,
+           &event_observed,
+           &engine_a_event,
+           &engine_b_event,
+           &production_delivery,
+           &multi_delivery_a,
+           &multi_delivery_b,
+           &production_record,
+           &production_cursor,
+           &first_commit_cursor,
+           &first_readded_cursor,
            &bounded_event,
        }) {
     *value = Value{};
@@ -1262,7 +1394,8 @@ void test_multiple_publishers_and_dynamic_topics() {
 
 void test_subscription_sharing_is_explicit_and_duplicate_registration_fails() {
   sharing_broker = std::make_shared<FakeBroker>();
-  auto executor = start_realtime(build_realtime_graph<SubscriptionSharingGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<SubscriptionSharingGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
 
@@ -1314,7 +1447,8 @@ void test_push_backlogs_drain_one_value_per_graph_cycle() {
 
   backlog_broker = std::make_shared<FakeBroker>();
   backlog_events.clear();
-  auto event_executor = start_realtime(build_realtime_graph<EventBacklogGraph>());
+  auto event_executor =
+      start_realtime(build_realtime_graph<EventBacklogGraph>());
   auto event_view = event_executor.view();
   AsyncGraphExecutorRun event_runner{event_view};
   require(backlog_broker->wait_until_attached(2s),
@@ -1328,6 +1462,67 @@ void test_push_backlogs_drain_one_value_per_graph_cycle() {
   require(backlog_events ==
               std::vector<Str>{Str{"event-0"}, Str{"event-1"}, Str{"event-2"}},
           "event backlog was conflated, reordered, or lost");
+}
+
+void test_burst_distributes_subscriptions_and_unrolls_key_collisions() {
+  backlog_broker = std::make_shared<FakeBroker>();
+  burst_subscription_records.clear();
+  burst_subscription_gate.reset();
+
+  auto executor =
+      start_realtime(build_realtime_graph<BurstSubscriptionGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { burst_subscription_gate.release(); });
+
+  require(backlog_broker->wait_for_subscription_updates(1, 2s),
+          "burst subscriptions did not reach the transport sink");
+  backlog_broker->emit_subscription(
+      subscription_key.clone(),
+      make_record(Str{"orders-a"}, Int{0}, Int{99}, Bytes{"gate"}),
+      make_cursor(Str{"orders-risk"}, Int{1}, Str{"orders-a"}, Int{0}, Int{0}));
+  require(burst_subscription_gate.await_blocked(2s),
+          "burst subscription capture did not block");
+  backlog_broker->emit_subscription(
+      subscription_key.clone(),
+      make_record(Str{"orders-a"}, Int{0}, Int{10}, Bytes{"first"}),
+      make_cursor(Str{"orders-risk"}, Int{1}, Str{"orders-a"}, Int{0},
+                  Int{11}));
+  backlog_broker->emit_subscription(
+      independent_subscription_key.clone(),
+      make_record(Str{"orders-b"}, Int{0}, Int{20}, Bytes{"second"}),
+      make_cursor(Str{"orders-risk-independent"}, Int{1}, Str{"orders-b"},
+                  Int{0}, Int{21}));
+  backlog_broker->emit_subscription(
+      subscription_key.clone(),
+      make_record(Str{"orders-a"}, Int{0}, Int{11}, Bytes{"collision"}),
+      make_cursor(Str{"orders-risk"}, Int{1}, Str{"orders-a"}, Int{0},
+                  Int{12}));
+  burst_subscription_gate.release();
+  runner.join();
+
+  require(burst_subscription_records.size() == 3,
+          "burst subscription records were lost or conflated");
+  std::optional<DateTime> first_time;
+  std::optional<DateTime> independent_time;
+  std::optional<DateTime> collision_time;
+  for (const auto &[offset, evaluation_time] : burst_subscription_records) {
+    if (offset == Int{10}) {
+      first_time = evaluation_time;
+    } else if (offset == Int{20}) {
+      independent_time = evaluation_time;
+    } else if (offset == Int{11}) {
+      collision_time = evaluation_time;
+    }
+  }
+  require(first_time.has_value() && independent_time.has_value() &&
+              collision_time.has_value(),
+          "burst subscription records used unexpected offsets");
+  require(*first_time == *independent_time,
+          "distinct Kafka subscription keys did not tick together");
+  require(*collision_time == *first_time + MIN_TD,
+          "same Kafka subscription key was not unrolled next cycle");
 }
 
 void test_service_can_start_and_stop_repeatedly() {
@@ -1348,9 +1543,8 @@ void test_service_can_start_and_stop_repeatedly() {
 }
 
 void test_standard_ingress_accepts_before_the_graph_drains() {
-  service_config =
-      make_service_config({Str{"localhost:9092"}}, Str{"bounded-test"}, true,
-                          Int{1}, Int{1});
+  service_config = make_service_config(
+      {Str{"localhost:9092"}}, Str{"bounded-test"}, true, Int{1}, Int{1});
   subscription_broker = std::make_shared<FakeBroker>();
   subscription_observed = Value{};
   subscription_count = 0;
@@ -1394,8 +1588,9 @@ void test_librdkafka_standard_ingress_preserves_order() {
   bounded_offsets.clear();
   ordered_ingress_complete = false;
 
-  auto executor = start_realtime(build_realtime_graph<OrderedIngressSubscriptionGraph>(),
-                                 TimeDelta{20'000'000});
+  auto executor =
+      start_realtime(build_realtime_graph<OrderedIngressSubscriptionGraph>(),
+                     TimeDelta{20'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1486,7 +1681,8 @@ void test_librdkafka_publish_path() {
   production_delivery = Value{};
   production_delivery_count = 0;
 
-  auto executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<ProductionPublishGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1530,7 +1726,8 @@ void test_librdkafka_delivery_failures_are_typed() {
     production_delivery = Value{};
     production_delivery_count = 0;
 
-    auto executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
+    auto executor =
+        start_realtime(build_realtime_graph<ProductionPublishGraph>());
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
     runner.join();
@@ -1570,7 +1767,8 @@ void test_librdkafka_subscription_path() {
   production_record = Value{};
   production_cursor = Value{};
 
-  auto executor = start_realtime(build_realtime_graph<ProductionSubscriptionGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<ProductionSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1631,10 +1829,10 @@ void test_graph_lifetime_stop_remains_live_in_real_time() {
   runner.join();
 
   require(production_record.view()
-              .as_bundle()
-              .at("value")
-              .checked_as<Bytes>()
-              .data == "live",
+                  .as_bundle()
+                  .at("value")
+                  .checked_as<Bytes>()
+                  .data == "live",
           "graph-lifetime subscription stopped at the real-time snapshot");
   initialize_values();
 }
@@ -1658,7 +1856,8 @@ void test_permanent_consumer_failure_stops_the_graph() {
   bounded_event_count = 0;
 
   const auto started = std::chrono::steady_clock::now();
-  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1669,10 +1868,7 @@ void test_permanent_consumer_failure_stops_the_graph() {
           "permanent Kafka consumer failure did not publish an event");
   require(bundle_string(bounded_event, "category") == Str{"poll"},
           "permanent Kafka consumer failure used the wrong event category");
-  require(bounded_event.view()
-              .as_bundle()
-              .at("fatal")
-              .checked_as<Bool>(),
+  require(bounded_event.view().as_bundle().at("fatal").checked_as<Bool>(),
           "permanent Kafka consumer failure was not marked fatal");
 }
 
@@ -1700,7 +1896,8 @@ void test_typed_explicit_partition_boundaries() {
   bounded_event = Value{};
   bounded_event_count = 0;
 
-  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1729,7 +1926,8 @@ void test_latest_snapshot_is_empty() {
   bounded_offsets.clear();
   bounded_states.clear();
 
-  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1751,7 +1949,8 @@ void run_bounded_subscription(std::string_view context = {}) {
   bounded_evaluation_times.clear();
   bounded_event = Value{};
   bounded_event_count = 0;
-  auto executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
+  auto executor =
+      start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -1843,8 +2042,8 @@ void test_subscription_removal_and_readd_uses_a_fresh_assignment_generation() {
   subscription_generations.reset();
   stale_commit_events.reset();
   first_readded_cursor = Value{};
-  auto executor = start_realtime(build_realtime_graph<ReaddedSubscriptionGraph>(),
-                                 TimeDelta{20'000'000});
+  auto executor = start_realtime(
+      build_realtime_graph<ReaddedSubscriptionGraph>(), TimeDelta{20'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   auto sender = subscription_key_sender.await();
@@ -1952,10 +2151,11 @@ void test_committed_start_retries_coordinator_initialization() {
   cluster.create_topic(Str{"typed-coordinator-startup"});
   cluster.seed_record(Str{"typed-coordinator-startup"}, Bytes{"available"});
   cluster.fail_next_committed_offset_fetch(2);
-  production_config = hgraph::kafka::service_config()
-                          .bootstrap_servers({cluster.bootstrap_servers()})
-                          .client_id(Str{"typed-coordinator-startup-subscriber"})
-                          .build();
+  production_config =
+      hgraph::kafka::service_config()
+          .bootstrap_servers({cluster.bootstrap_servers()})
+          .client_id(Str{"typed-coordinator-startup-subscriber"})
+          .build();
   subscription_key =
       hgraph::kafka::subscription_key()
           .topics({Str{"typed-coordinator-startup"}})
@@ -2142,8 +2342,9 @@ void test_record_time_recovery_hands_off_before_live_records() {
   record_time_recovery_started.reset();
   recovery_live_records.clear();
 
-  auto executor = start_realtime(build_realtime_graph<RecordTimeRecoveryLiveGraph>(),
-                                 TimeDelta{8'000'000});
+  auto executor =
+      start_realtime(build_realtime_graph<RecordTimeRecoveryLiveGraph>(),
+                     TimeDelta{8'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   require(record_time_recovery_started.await(1),
@@ -2216,8 +2417,9 @@ void test_record_time_recovery_waits_for_independent_subscriptions() {
   multi_bounded_complete_count = 0;
   multi_bounded_failed_count = 0;
 
-  auto executor = start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
-                                 TimeDelta{5'000'000});
+  auto executor =
+      start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
+                     TimeDelta{5'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -2351,8 +2553,9 @@ void test_record_time_recovery_releases_a_failed_participant() {
   multi_bounded_complete_count = 0;
   multi_bounded_failed_count = 0;
 
-  auto executor = start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
-                                 TimeDelta{5'000'000});
+  auto executor =
+      start_realtime(build_realtime_graph<MultiBoundedSubscriptionGraph>(),
+                     TimeDelta{5'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
@@ -2403,12 +2606,12 @@ void test_graph_lifetime_stop_is_bounded_in_simulation() {
                               graph_start, record_time + TimeDelta{1'000'000},
                               GraphExecutorMode::Simulation));
 
-  require(
-      bounded_payloads == std::vector<Str>{Str{"simulation-history"}},
-      "graph-lifetime simulation completed before record-time history became available");
-  require(
-      bounded_evaluation_times == std::vector<DateTime>{record_time},
-      "graph-lifetime simulation did not use Kafka record time as the historical graph time");
+  require(bounded_payloads == std::vector<Str>{Str{"simulation-history"}},
+          "graph-lifetime simulation completed before record-time history "
+          "became available");
+  require(bounded_evaluation_times == std::vector<DateTime>{record_time},
+          "graph-lifetime simulation did not use Kafka record time as the "
+          "historical graph time");
 }
 
 void test_multiple_simulation_subscriptions_replay_at_record_time() {
@@ -2481,14 +2684,13 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
             "timestamp replay test produced an unexpected payload");
     const auto offset =
         static_cast<Int>(std::stoll(payload.substr(separator + 1)));
-    require(evaluation_time == record_time + offset * MIN_TD,
-            "multiple simulation subscriptions replayed '" + payload +
-                "' at " +
-                std::to_string(evaluation_time.time_since_epoch().count()) +
-                " instead of Kafka record timestamp " +
-                std::to_string((record_time + offset * MIN_TD)
-                                   .time_since_epoch()
-                                   .count()));
+    require(
+        evaluation_time == record_time + offset * MIN_TD,
+        "multiple simulation subscriptions replayed '" + payload + "' at " +
+            std::to_string(evaluation_time.time_since_epoch().count()) +
+            " instead of Kafka record timestamp " +
+            std::to_string(
+                (record_time + offset * MIN_TD).time_since_epoch().count()));
   }
   require(multi_bounded_complete_count == 2,
           "simulation did not complete both bounded subscriptions");
@@ -2521,7 +2723,8 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   production_delivery = Value{};
   production_delivery_count = 0;
 
-  auto publish_executor = start_realtime(build_realtime_graph<ProductionPublishGraph>());
+  auto publish_executor =
+      start_realtime(build_realtime_graph<ProductionPublishGraph>());
   auto publish_view = publish_executor.view();
   AsyncGraphExecutorRun publish_runner{publish_view};
   publish_runner.join();
@@ -2549,9 +2752,9 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   bounded_evaluation_times.clear();
   bounded_event = Value{};
   bounded_event_count = 0;
-  auto commit_executor = start_realtime(
-      build_realtime_graph<BoundedSubscriptionCommitGraph>(),
-      TimeDelta{20'000'000});
+  auto commit_executor =
+      start_realtime(build_realtime_graph<BoundedSubscriptionCommitGraph>(),
+                     TimeDelta{20'000'000});
   auto commit_view = commit_executor.view();
   AsyncGraphExecutorRun commit_runner{commit_view};
   commit_runner.join();
@@ -2580,8 +2783,8 @@ void test_real_broker_publish_subscribe_and_commit_round_trip() {
   bounded_evaluation_times.clear();
   bounded_event = Value{};
   bounded_event_count = 0;
-  auto verify_executor = start_realtime(build_realtime_graph<BoundedSubscriptionGraph>(),
-                                        TimeDelta{20'000'000});
+  auto verify_executor = start_realtime(
+      build_realtime_graph<BoundedSubscriptionGraph>(), TimeDelta{20'000'000});
   auto verify_view = verify_executor.view();
   AsyncGraphExecutorRun verify_runner{verify_view};
   verify_runner.join();
@@ -2602,6 +2805,7 @@ int main() {
   try {
     hgraph::stdlib::register_standard_operators();
     test_transport_sender_handles_graph_teardown();
+    test_delivery_burst_unrolls_repeated_request_ids();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_runtime_specific_wiring_shapes();
@@ -2612,6 +2816,7 @@ int main() {
     test_multiple_publishers_and_dynamic_topics();
     test_subscription_sharing_is_explicit_and_duplicate_registration_fails();
     test_push_backlogs_drain_one_value_per_graph_cycle();
+    test_burst_distributes_subscriptions_and_unrolls_key_collisions();
     test_service_can_start_and_stop_repeatedly();
     test_subscription_removal_and_readd_uses_a_fresh_assignment_generation();
     test_standard_ingress_accepts_before_the_graph_drains();
