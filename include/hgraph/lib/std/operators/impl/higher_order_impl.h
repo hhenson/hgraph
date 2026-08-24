@@ -1863,9 +1863,9 @@ namespace hgraph::stdlib
             static constexpr Int no_match  = Int{-1};
             static constexpr Int ambiguous = Int{-2};
 
-            std::vector<std::vector<const ValueTypeMetaData *>> alternatives{};
-            std::vector<Int>                                  selected_case{};
-            bool                                              has_default{false};
+            std::vector<std::vector<const ValueTypeMetaData *>> case_types{};
+            std::vector<bool>                                  more_specific{};
+            bool                                               has_default{false};
         };
 
         [[nodiscard]] inline bool dispatch_case_more_specific(
@@ -1919,15 +1919,21 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument("dispatch_: at least one dispatch argument is required");
             }
+            if (!cases.declared_types.empty() &&
+                cases.declared_types.size() != cases.dispatch_args.size())
+            {
+                throw std::invalid_argument(
+                    "dispatch_: declared type count must match the dispatch argument count");
+            }
 
             DispatchSelectionPlan plan;
             plan.has_default = cases.default_branch.has_value();
-            plan.alternatives.reserve(cases.dispatch_args.size());
 
             std::vector<bool> selected_slots(slot_schemas.size(), false);
-            std::size_t table_size = 1;
-            for (const std::size_t slot : cases.dispatch_args)
+            for (std::size_t domain_index = 0;
+                 domain_index < cases.dispatch_args.size(); ++domain_index)
             {
+                const std::size_t slot = cases.dispatch_args[domain_index];
                 if (slot >= slot_schemas.size())
                 {
                     throw std::out_of_range("dispatch_: dispatch argument index is out of range");
@@ -1944,21 +1950,19 @@ namespace hgraph::stdlib
                     throw std::invalid_argument(
                         "dispatch_: selected arguments must be scalar TS values over named Bundles");
                 }
-
-                auto alternatives = TypeRegistry::instance().bundle_descendants(declared);
-                if (alternatives.empty())
+                if (!cases.declared_types.empty())
                 {
-                    throw std::invalid_argument(
-                        "dispatch_: a selected Bundle has no concrete alternatives");
+                    const auto *domain = cases.declared_types[domain_index];
+                    if (domain == nullptr || !domain->is_named_bundle() ||
+                        !TypeRegistry::instance().bundle_is_a(declared, domain))
+                    {
+                        throw std::invalid_argument(
+                            "dispatch_: selected argument type must derive from its declared dispatch type");
+                    }
                 }
-                if (table_size > std::numeric_limits<std::size_t>::max() / alternatives.size())
-                {
-                    throw std::length_error("dispatch_: closed alternative product is too large");
-                }
-                table_size *= alternatives.size();
-                plan.alternatives.push_back(std::move(alternatives));
             }
 
+            plan.case_types.reserve(cases.cases.size());
             for (const DispatchCase &entry : cases.cases)
             {
                 if (!entry.branch.valid())
@@ -1974,15 +1978,18 @@ namespace hgraph::stdlib
                 for (std::size_t i = 0; i < entry.types.size(); ++i)
                 {
                     const auto *target = entry.types[i];
-                    const auto *declared = dispatch_bundle_schema(
-                        slot_schemas[cases.dispatch_args[i]]);
+                    const auto *declared = cases.declared_types.empty()
+                                               ? dispatch_bundle_schema(
+                                                     slot_schemas[cases.dispatch_args[i]])
+                                               : cases.declared_types[i];
                     if (target == nullptr || !target->is_named_bundle() ||
                         !TypeRegistry::instance().bundle_is_a(target, declared))
                     {
                         throw std::invalid_argument(
-                            "dispatch_: case types must derive from their selected argument type");
+                        "dispatch_: case types must derive from their selected argument type");
                     }
                 }
+                plan.case_types.push_back(entry.types);
             }
             if (cases.default_branch.has_value() && !cases.default_branch->valid())
             {
@@ -1991,74 +1998,16 @@ namespace hgraph::stdlib
             }
 
             const std::size_t case_count = cases.cases.size();
-            std::vector<bool> more_specific(case_count * case_count, false);
+            plan.more_specific.resize(case_count * case_count, false);
             for (std::size_t lhs = 0; lhs < case_count; ++lhs)
             {
                 for (std::size_t rhs = 0; rhs < case_count; ++rhs)
                 {
                     if (lhs != rhs)
                     {
-                        more_specific[lhs * case_count + rhs] =
+                        plan.more_specific[lhs * case_count + rhs] =
                             dispatch_case_more_specific(cases.cases[lhs], cases.cases[rhs]);
                     }
-                }
-            }
-
-            plan.selected_case.resize(table_size, DispatchSelectionPlan::no_match);
-            std::vector<const ValueTypeMetaData *> actual(cases.dispatch_args.size());
-            std::vector<bool> matches(case_count, false);
-            for (std::size_t flat = 0; flat < table_size; ++flat)
-            {
-                std::size_t remaining = flat;
-                for (std::size_t i = plan.alternatives.size(); i-- > 0;)
-                {
-                    const auto &dimension = plan.alternatives[i];
-                    actual[i] = dimension[remaining % dimension.size()];
-                    remaining /= dimension.size();
-                }
-
-                std::fill(matches.begin(), matches.end(), false);
-                for (std::size_t c = 0; c < case_count; ++c)
-                {
-                    matches[c] = true;
-                    for (std::size_t i = 0; i < actual.size(); ++i)
-                    {
-                        if (!TypeRegistry::instance().bundle_is_a(actual[i], cases.cases[c].types[i]))
-                        {
-                            matches[c] = false;
-                            break;
-                        }
-                    }
-                }
-
-                std::size_t winner = case_count;
-                std::size_t winner_count = 0;
-                for (std::size_t c = 0; c < case_count; ++c)
-                {
-                    if (!matches[c]) { continue; }
-                    bool dominates = true;
-                    for (std::size_t other = 0; other < case_count; ++other)
-                    {
-                        if (c != other && matches[other] &&
-                            !more_specific[c * case_count + other])
-                        {
-                            dominates = false;
-                            break;
-                        }
-                    }
-                    if (dominates)
-                    {
-                        winner = c;
-                        ++winner_count;
-                    }
-                }
-                if (winner_count == 1)
-                {
-                    plan.selected_case[flat] = static_cast<Int>(winner);
-                }
-                else if (std::ranges::any_of(matches, [](bool value) { return value; }))
-                {
-                    plan.selected_case[flat] = DispatchSelectionPlan::ambiguous;
                 }
             }
             return plan;
@@ -2108,23 +2057,53 @@ namespace hgraph::stdlib
                                                           DateTime evaluation_time) {
                 auto input = view.input(evaluation_time);
                 auto bundle = input.as_bundle();
-                std::size_t flat = 0;
-                for (std::size_t i = 0; i < plan.alternatives.size(); ++i)
-                {
-                    const auto concrete = bundle[i].value().concrete();
-                    const auto *actual = concrete.schema();
-                    const auto &dimension = plan.alternatives[i];
-                    const auto found = std::ranges::find(dimension, actual);
-                    if (found == dimension.end())
+                const std::size_t case_count = plan.case_types.size();
+                const auto matches = [&](std::size_t candidate) {
+                    const auto &targets = plan.case_types[candidate];
+                    for (std::size_t i = 0; i < targets.size(); ++i)
                     {
-                        throw std::runtime_error(
-                            "dispatch_: active Bundle leaf was not visible when the dispatch plan was wired");
+                        const auto *actual = bundle[i].value().concrete().schema();
+                        if (!TypeRegistry::instance().bundle_is_a(actual, targets[i]))
+                        {
+                            return false;
+                        }
                     }
-                    flat = flat * dimension.size() +
-                           static_cast<std::size_t>(std::distance(dimension.begin(), found));
+                    return true;
+                };
+
+                std::size_t winner = case_count;
+                std::size_t winner_count = 0;
+                bool any_match = false;
+                for (std::size_t candidate = 0; candidate < case_count; ++candidate)
+                {
+                    if (!matches(candidate)) { continue; }
+                    any_match = true;
+                    bool dominates = true;
+                    for (std::size_t other = 0; other < case_count; ++other)
+                    {
+                        if (candidate != other && matches(other) &&
+                            !plan.more_specific[candidate * case_count + other])
+                        {
+                            dominates = false;
+                            break;
+                        }
+                    }
+                    if (dominates)
+                    {
+                        winner = candidate;
+                        ++winner_count;
+                    }
                 }
 
-                const Int selected = plan.selected_case[flat];
+                Int selected = DispatchSelectionPlan::no_match;
+                if (winner_count == 1)
+                {
+                    selected = static_cast<Int>(winner);
+                }
+                else if (any_match)
+                {
+                    selected = DispatchSelectionPlan::ambiguous;
+                }
                 if (selected == DispatchSelectionPlan::ambiguous)
                 {
                     throw std::invalid_argument(
@@ -2222,7 +2201,12 @@ namespace hgraph::stdlib
                 {
                     if (dispatch_slots[selected] != slot || case_types.empty()) { continue; }
                     const auto *target = TypeRegistry::instance().ts(case_types[selected]);
-                    if (target != schema)
+                    const auto *source_type = dispatch_bundle_schema(schema);
+                    const bool source_already_satisfies_case =
+                        source_type != nullptr &&
+                        TypeRegistry::instance().bundle_is_a(
+                            source_type, case_types[selected]);
+                    if (target != schema && !source_already_satisfies_case)
                     {
                         port = wire_checked_downcast(child, std::move(port), target);
                     }
@@ -2357,33 +2341,62 @@ namespace hgraph::stdlib
                 {ts.data(), ts.size()},
                 {cases.dispatch_args.data(), cases.dispatch_args.size()});
 
+            DispatchCases reachable_cases = cases;
+            std::erase_if(
+                reachable_cases.cases,
+                [&](const DispatchCase &entry) {
+                    if (entry.types.size() != cases.dispatch_args.size())
+                    {
+                        return false;
+                    }
+                    for (std::size_t i = 0; i < cases.dispatch_args.size(); ++i)
+                    {
+                        const auto *source = dispatch_bundle_schema(
+                            ts[cases.dispatch_args[i]].schema);
+                        const auto *target = entry.types[i];
+                        if (source == nullptr || target == nullptr)
+                        {
+                            return false;
+                        }
+                        if (!TypeRegistry::instance().bundle_is_a(source, target) &&
+                            !TypeRegistry::instance().bundle_is_a(target, source))
+                        {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+
             WiringPortRef key = wire_dispatch_key(
-                w, cases, std::span<const WiringPortRef>{ts.data(), ts.size()});
+                w, reachable_cases,
+                std::span<const WiringPortRef>{ts.data(), ts.size()});
 
             const TSValueTypeMetaData *output_schema = nullptr;
             SwitchNodeSpec spec;
             std::vector<ExternalServiceSlot> external_services;
-            spec.branches.reserve(cases.cases.size());
-            for (std::size_t i = 0; i < cases.cases.size(); ++i)
+            spec.branches.reserve(reachable_cases.cases.size());
+            for (std::size_t i = 0; i < reachable_cases.cases.size(); ++i)
             {
-                const DispatchCase &entry = cases.cases[i];
+                const DispatchCase &entry = reachable_cases.cases[i];
                 spec.branches.push_back(SwitchBranch{
                     .key = Value{static_cast<Int>(i)},
                     .spec = compile_dispatch_branch(
                         &w,
                         entry.branch, {entry.types.data(), entry.types.size()},
-                        {cases.dispatch_args.data(), cases.dispatch_args.size()},
+                        {reachable_cases.dispatch_args.data(),
+                         reachable_cases.dispatch_args.size()},
                         ts, positional_count,
                         {named_slots.data(), named_slots.size()}, output_schema,
                         external_services),
                 });
             }
-            if (cases.default_branch.has_value())
+            if (reachable_cases.default_branch.has_value())
             {
                 spec.default_branch = compile_dispatch_branch(
                     &w,
-                    *cases.default_branch, {},
-                    {cases.dispatch_args.data(), cases.dispatch_args.size()},
+                    *reachable_cases.default_branch, {},
+                    {reachable_cases.dispatch_args.data(),
+                     reachable_cases.dispatch_args.size()},
                     ts, positional_count,
                     {named_slots.data(), named_slots.size()}, output_schema,
                     external_services);

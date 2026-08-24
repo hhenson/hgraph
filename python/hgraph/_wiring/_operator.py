@@ -61,6 +61,11 @@ class _Operator:
 
         return extract_signature(self.fn, WiringNodeType.OPERATOR)
 
+    @property
+    def overloads(self):
+        """Decorated implementations registered on this operator."""
+        return tuple(implementation for implementation, _ in self._overloads)
+
     def __call__(self, *args, **kwargs):
         deprecated = getattr(self, "_deprecated", False)
         if deprecated:
@@ -678,7 +683,9 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
             classes = key if isinstance(key, tuple) else (key,)
             entries.append((tuple(_value_type(cls) for cls in classes), _as_wired(branch)))
         erased = _hgraph.dispatch_cases(
-            entries, [port_names.index(name) for name in names]
+            entries,
+            [port_names.index(name) for name in names],
+            declared_types=[_value_type(dispatch_params[name]) for name in names],
         )
         return wire("dispatch_", erased, output_type=__output_type, **port_kwargs)
 

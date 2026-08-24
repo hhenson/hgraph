@@ -56,6 +56,8 @@ def test_dispatch_decorator():
     def make_sound(pet: TS[Pet], count: TS[int]) -> TS[str]:
         return pet_sound(pet, count)
 
+    assert pet_sound_dog in pet_sound.overloads
+    assert pet_sound_cat in pet_sound.overloads
     assert eval_node(
         make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3]
     ) == [None, "woof", None, "meow", "unknown 2", "unknown 3"]
@@ -347,6 +349,103 @@ def test_compound_scalar_dispatch_can_be_a_switch_branch():
         return switch_(enabled, {True: sound, False: sound}, animal)
 
     assert eval_node(app, [True], [Dog()]) == ["woof"]
+
+
+def test_compound_scalar_dispatch_accepts_statically_narrower_input():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    @dispatch
+    def sound(animal: TS[Animal]) -> TS[str]:
+        return "default"
+
+    @graph(overloads=sound)
+    def dog_sound(animal: TS[Dog]) -> TS[str]:
+        return "woof"
+
+    @graph
+    def app(animal: TS[Dog]) -> TS[str]:
+        return sound(animal)
+
+    assert eval_node(app, [Dog()]) == ["woof"]
+
+
+def test_dispatch_preserves_python_structured_parent_through_multiple_inheritance():
+    @dataclass(frozen=True)
+    class Animal:
+        name: str
+
+    @dataclass(frozen=True)
+    class Tagged:
+        tag: int
+
+    @dataclass(frozen=True)
+    class Dog(Tagged, Animal):
+        pass
+
+    @dispatch
+    def sound(animal: TS[Animal]) -> TS[str]:
+        return "default"
+
+    @graph(overloads=sound)
+    def dog_sound(animal: TS[Dog]) -> TS[str]:
+        return "woof"
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[str]:
+        return sound(animal)
+
+    assert eval_node(app, [Dog(name="Fido", tag=1)]) == ["woof"]
+
+
+def test_compound_scalar_multi_dispatch_does_not_expand_descendant_product():
+    class Animal(CompoundScalar): ...
+
+    class Food(CompoundScalar): ...
+
+    class SelectedAnimal(Animal): ...
+
+    class SelectedFood(Food): ...
+
+    animals = tuple(
+        type(
+            f"DispatchScaleAnimal{i}",
+            (Animal,),
+            {"__module__": __name__},
+        )
+        for i in range(256)
+    )
+    foods = tuple(
+        type(
+            f"DispatchScaleFood{i}",
+            (Food,),
+            {"__module__": __name__},
+        )
+        for i in range(256)
+    )
+
+    @dispatch
+    def choose(animal: TS[Animal], food: TS[Food]) -> TS[str]:
+        return "base"
+
+    @graph(overloads=choose)
+    def choose_animal(animal: TS[SelectedAnimal], food: TS[Food]) -> TS[str]:
+        return "animal"
+
+    @graph(overloads=choose)
+    def choose_both(animal: TS[SelectedAnimal], food: TS[SelectedFood]) -> TS[str]:
+        return "both"
+
+    @graph
+    def app(animal: TS[Animal], food: TS[Food]) -> TS[str]:
+        return choose(animal, food)
+
+    assert eval_node(
+        app,
+        [animals[-1](), SelectedAnimal(), SelectedAnimal()],
+        [foods[-1](), foods[-1](), SelectedFood()],
+    ) == ["base", "animal", "both"]
 
 
 def test_compound_scalar_downcast_rejects_the_wrong_active_leaf():

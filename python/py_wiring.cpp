@@ -1194,7 +1194,8 @@ namespace hgraph::python_bridge
         return PySwitchCases{std::move(result)};
     }, nb::arg("cases"), nb::arg("reload") = false,
        nb::arg("key_type") = nb::none());
-    m.def("dispatch_cases", [](nb::list entries, nb::list on, nb::object default_branch) {
+    m.def("dispatch_cases", [](nb::list entries, nb::list on, nb::object default_branch,
+                                nb::list declared_types) {
         const auto as_wired_fn = [](nb::handle branch) {
             if (nb::isinstance<PyWiredFn>(branch))
             {
@@ -1215,6 +1216,10 @@ namespace hgraph::python_bridge
         {
             result.dispatch_args.push_back(nb::cast<std::size_t>(index));
         }
+        for (nb::handle type : declared_types)
+        {
+            result.declared_types.push_back(nb::cast<PyValueType &>(type).meta);
+        }
         for (nb::handle item : entries)
         {
             nb::tuple pair = nb::cast<nb::tuple>(item);
@@ -1230,7 +1235,8 @@ namespace hgraph::python_bridge
         }
         if (!default_branch.is_none()) { result.default_branch = as_wired_fn(default_branch); }
         return PyDispatchCases{std::move(result)};
-    }, nb::arg("entries"), nb::arg("on"), nb::arg("default_branch").none() = nb::none());
+    }, nb::arg("entries"), nb::arg("on"), nb::arg("default_branch").none() = nb::none(),
+       nb::arg("declared_types") = nb::list());
     m.def("wired_op", [](const std::string &name, std::optional<PyTsType> expected_output) {
         const auto &table = wired_fn_table();
         const auto  found = table.find(name);
