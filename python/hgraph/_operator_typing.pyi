@@ -938,7 +938,7 @@ class _const_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``value`` : scalar; ``SCALAR``
+    ``value`` : scalar; ``SCALAR``, ``py_object``
        Python value adapted to the selected time-series schema.
 
     ``delay`` : scalar; ``timedelta``
@@ -961,6 +961,8 @@ class _const_Operator(_Protocol):
 
     - ``const(value: SCALAR) -> OUT``
     - ``const(value: SCALAR, delay: timedelta) -> OUT``
+    - ``const(value: py_object) -> OUT``
+    - ``const(value: py_object, delay: timedelta) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

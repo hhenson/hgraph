@@ -319,8 +319,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`const <python-operator-const>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - :ref:`contains_ <python-operator-contains_>`
      - ``6 overloads``
      - 6 native overloads; lazy operator

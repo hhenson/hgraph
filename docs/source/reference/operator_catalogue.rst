@@ -1018,7 +1018,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : scalar; ``SCALAR``
+``value`` : scalar; ``SCALAR``, ``py_object``
    Python value adapted to the selected time-series schema.
 
 ``delay`` : scalar; ``timedelta``
@@ -1043,6 +1043,8 @@ Accepted native overloads
 
    const(value: SCALAR) -> OUT
    const(value: SCALAR, delay: timedelta) -> OUT
+   const(value: py_object) -> OUT
+   const(value: py_object, delay: timedelta) -> OUT
 
 .. _python-operator-contains_:
 
@@ -1519,7 +1521,7 @@ Accepted native overloads
 ``dispatch_``
 -------------
 
-``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note Retained memory: the frozen selection table is O(∏ per-argument closed-union alternatives) — multiplicative per dispatch argument.
+``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note Retained memory is quadratic in the number of cases for the precomputed specificity relation. Registered Bundle descendants do not increase the plan size.
 
 Python entry point: ``dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs)`` (explicit helper).
 
