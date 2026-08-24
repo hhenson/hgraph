@@ -320,7 +320,7 @@ def test_auxiliary_output_handlers_return_their_bundle_to_the_caller() -> None:
             seen=connection_id(frame),
         )
 
-    wiring = _hgraph.Wiring()
+    wiring = _hgraph.Wiring(is_realtime=True)
     with use_wiring(wiring):
         web.register_web_server(web.WebServerConfig(port=0), path="site")
 

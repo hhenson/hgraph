@@ -60,7 +60,11 @@ Under the hood, transport I/O threads deliver into the graph only through
 root push sources, and the graph reaches the sockets only through sink
 nodes — evaluation itself stays single-threaded, with the bounded boundary
 queues (and their short handoff locks) as the only cross-thread
-touchpoints.  A request
+touchpoints.  Each independently ordered service-output channel has its own
+FIFO push source: HTTP ingress cannot sit behind a WebSocket, delivery-report,
+diagnostic, or statistics backlog.  FIFO is guaranteed within a channel; no
+total order is invented across channels, and active channels may tick in the
+same engine cycle.  A request
 that a same-cycle handler can answer dispatches its response in that same
 engine cycle; there is no per-request feedback cycle.
 
@@ -71,6 +75,34 @@ registrations may share one listening port when their configurations are
 identical; requests dispatch per route, and a stopping registration
 retires only its own work while the shared listener keeps serving the
 rest.
+
+Execution mode
+--------------
+
+The live server and client are asynchronous adaptors backed by root push
+sources, so a graph that materializes either implementation must be wired and
+run in **real-time mode**.  The socketless fake transports use the same
+callback-driven boundary and have the same requirement.  Python applications
+select the mode when running the graph:
+
+.. code-block:: python
+
+    hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME)
+
+Native C++ applications select real-time topology before composition and use a
+matching executor mode:
+
+.. code-block:: cpp
+
+    auto graph = build_graph<App>(WiringOptions{.is_realtime = true});
+    GraphExecutorBuilder executor;
+    executor.graph_builder(std::move(graph))
+        .mode(GraphExecutorMode::RealTime);
+
+Using the live or fake web registration from a simulation graph is a wiring
+error; no socket is bound and no transport thread is started.  Deterministic
+simulation needs a separate graph-owned scheduled or pull-source
+implementation over recorded web data rather than an emulated push source.
 
 Serving HTTP
 ------------

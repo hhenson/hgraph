@@ -745,7 +745,9 @@ int main() {
 
     const DateTime start = wall_now();
     GraphExecutorBuilder executor_builder;
-    executor_builder.graph_builder(build_graph<H2LoopbackGraph>())
+    executor_builder
+        .graph_builder(build_graph<H2LoopbackGraph>(
+            WiringOptions{.is_realtime = true}))
         .mode(GraphExecutorMode::RealTime)
         .start_time(start)
         .end_time(start + TimeDelta{30'000'000});

@@ -3,24 +3,28 @@
 
 #include <hgraph/web/types.h>
 
+#include <cstdint>
+#include <string_view>
+
 namespace hgraph::web::detail
 {
-    // Internal cross-thread envelopes (RFC 0024, runtime architecture).  The
-    // transports move fully owned Values of these schemas through the bridge;
-    // the drain nodes unpack them into the public service outputs.  A set
-    // `removed` field is a control record erasing the enclosing key.
+    // Internal transport payloads. External tasks wrap these fully owned
+    // values in one WebTransportEvent stream; graph nodes project the public
+    // service outputs. A set `removed` field is retained for compatibility
+    // with persisted/test payloads, although graph-side key deltas now own
+    // route and connection removal.
 
     using WebRequestEnvelope =
         Bundle<"hgraph.web.internal::WebRequestEnvelope", Field<"route", WebRoute>, Field<"request", HttpServerRequest>,
-               Field<"state", WebRouteState>, Field<"removed", Bool>>;
+               Field<"state", WebRouteState>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     using WsIngressEnvelope =
         Bundle<"hgraph.web.internal::WsIngressEnvelope", Field<"route", WebRoute>, Field<"event", WsEvent>,
-               Field<"frame", WsInboundFrame>, Field<"removed", Bool>>;
+               Field<"frame", WsInboundFrame>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     using WsClientEnvelope =
         Bundle<"hgraph.web.internal::WsClientEnvelope", Field<"key", WsClientKey>, Field<"event", WsEvent>,
-               Field<"frame", WsFrame>, Field<"removed", Bool>>;
+               Field<"frame", WsFrame>, Field<"generation", DateTime>, Field<"removed", Bool>>;
 
     // Exactly one of response/failure is set: transport failure is never
     // disguised as an HTTP status (RFC 0024).
@@ -34,6 +38,44 @@ namespace hgraph::web::detail
     using WebEventEnvelope =
         Bundle<"hgraph.web.internal::WebEventEnvelope", Field<"event", WebEvent>, Field<"stop_graph", Bool>>;
 
+    /** The one ordered event stream crossing from a web runtime into its
+     *  graph. Server and client implementations each own one queue of this
+     *  schema; the kind selects the populated payload field. */
+    enum class WebTransportEventKind : std::int64_t
+    {
+        ServerRequest,
+        ServerWsIngress,
+        ServerRespondDelivery,
+        ServerWsSendDelivery,
+        ServerEvent,
+        ServerStats,
+        ClientResponse,
+        ClientWsIngress,
+        ClientSendDelivery,
+        ClientEvent,
+        ClientStats,
+    };
+
+}  // namespace hgraph::web::detail
+
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<web::detail::WebTransportEventKind>
+    {
+        static constexpr std::string_view value{"hgraph.web.internal::WebTransportEventKind"};
+    };
+}  // namespace hgraph::static_schema_detail
+
+namespace hgraph::web::detail
+{
+    using WebTransportEvent = Bundle<
+        "hgraph.web.internal::WebTransportEvent", Field<"kind", WebTransportEventKind>,
+        Field<"request", WebRequestEnvelope>, Field<"server_ws", WsIngressEnvelope>,
+        Field<"client_ws", WsClientEnvelope>, Field<"response", WebResponseEnvelope>,
+        Field<"delivery", WebDeliveryEnvelope>, Field<"event", WebEventEnvelope>,
+        Field<"server_stats", WebServerStats>, Field<"client_stats", WebClientStats>, Field<"channel", Int>,
+        Field<"retained_bytes", Int>, Field<"control", Bool>>;
+
     inline void register_internal_types() {
         static_cast<void>(scalar_descriptor<WebRequestEnvelope>::value_meta());
         static_cast<void>(scalar_descriptor<WsIngressEnvelope>::value_meta());
@@ -41,6 +83,7 @@ namespace hgraph::web::detail
         static_cast<void>(scalar_descriptor<WebResponseEnvelope>::value_meta());
         static_cast<void>(scalar_descriptor<WebDeliveryEnvelope>::value_meta());
         static_cast<void>(scalar_descriptor<WebEventEnvelope>::value_meta());
+        static_cast<void>(scalar_descriptor<WebTransportEvent>::value_meta());
     }
 }  // namespace hgraph::web::detail
 

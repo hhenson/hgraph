@@ -503,7 +503,9 @@ int main() {
     });
 
     auto executor =
-        start_realtime(build_graph<LoopbackGraph>(), TimeDelta{30'000'000});
+        start_realtime(
+            build_graph<LoopbackGraph>(WiringOptions{.is_realtime = true}),
+            TimeDelta{30'000'000});
     auto view = executor.view();
     AsyncGraphExecutorRun runner{view};
 
