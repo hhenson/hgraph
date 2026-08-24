@@ -2124,7 +2124,8 @@ struct PythonRetainedBindingEntry {
     nb::gil_scoped_acquire gil;
     const Py_hash_t result = PyObject_Hash(stored.object);
     if (result == -1) {
-      throw nb::python_error();
+      PyErr_Clear();
+      return std::hash<const void *>{}(stored.object);
     }
     return static_cast<std::size_t>(result);
   }

@@ -694,6 +694,18 @@ struct OutputReaders {
   bool native{false};
 };
 
+[[nodiscard]] bool
+supports_output_value_storage(const TSValueTypeMetaData *schema) noexcept {
+  if (schema == nullptr) {
+    return false;
+  }
+  if (schema->kind == TSTypeKind::TS) {
+    return true;
+  }
+  return schema->kind == TSTypeKind::TSD && schema->element_ts() != nullptr &&
+         schema->element_ts()->kind == TSTypeKind::TS;
+}
+
 void collect_output_reader(
     const WiringPortRef &source, bool python_reader,
     const std::unordered_set<const WiringInstance *> &owned,
@@ -777,7 +789,7 @@ void select_output_value_storage(
     const auto *producer_schema = instance.builder.type().schema();
     const auto found = readers.find(&instance);
     if (producer_schema == nullptr || !producer_schema->has_output() ||
-        producer_schema->output_schema->kind != TSTypeKind::TS ||
+        !supports_output_value_storage(producer_schema->output_schema) ||
         !instance.builder.output_endpoint().empty() ||
         found == readers.end() || !found->second.python) {
       continue;

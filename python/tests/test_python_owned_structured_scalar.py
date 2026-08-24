@@ -26,6 +26,7 @@ from hgraph import (
     graph,
     operator,
     register_python_object_type,
+    sink_node,
     to_json_builder,
 )
 from hgraph._types import _value_type
@@ -83,6 +84,60 @@ def test_python_owned_assignment_is_lenient_until_a_field_is_extracted():
     assert eval_node(identity, [value])[0] is value
     with pytest.raises(Exception, match="int"):
         eval_node(number, [value])
+
+
+def test_explicit_accessor_type_can_read_a_pre_inflation_field_value():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    @graph
+    def spec_symbol(series: TS[Series]) -> TS[str]:
+        return getattr_[SCALAR:str](series, "spec")
+
+    assert eval_node(spec_symbol, [Series(spec="ICE_H")]) == ["ICE_H"]
+
+
+def test_const_map_retains_pre_inflation_python_owned_values():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class DerivedSpec(Spec):
+        venue: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    @dataclass(frozen=True, kw_only=True)
+    class SeriesMixin:
+        months_ahead: int
+
+    @dataclass(frozen=True, kw_only=True)
+    class DerivedSeries(SeriesMixin, Series):
+        spec: DerivedSpec
+
+    _value_type(DerivedSeries)
+    value = DerivedSeries(spec="ICE_H", months_ahead=12)
+
+    captured = []
+
+    @sink_node
+    def capture(items: TSD[str, TS[Series]]):
+        captured.append(items.value)
+
+    @graph
+    def app():
+        capture(const({"item": value}, TSD[str, TS[Series]]))
+
+    eval_node(app)
+    assert captured == [{"item": value}]
 
 
 def test_explicit_registration_supports_annotated_application_classes():
@@ -201,6 +256,22 @@ def test_parameterized_dataclass_inheritance_preserves_the_active_child():
     assert fields(TS[Base[int]]) == {"value": int}
     assert eval_node(
         app, [IntegerValue(value=1, label="one")]) == [True]
+
+
+def test_python_owned_property_access_resolves_its_return_type():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        @property
+        def doubled(self) -> int:
+            return self.number * 2
+
+    @graph
+    def app(value: TS[Value]) -> TS[int]:
+        return value.doubled
+
+    assert eval_node(app, [Value(3)]) == [6]
 
 
 def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
@@ -489,6 +560,23 @@ def test_python_equality_hashing_and_deduplication_are_preserved():
         TSS[Unhashable]
     with pytest.raises(TypeError, match="hashable"):
         TSD[Unhashable, TS[int]]
+
+
+def test_const_map_uses_identity_when_a_python_owned_value_hash_fails():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        def __hash__(self):
+            raise RuntimeError("value hash must not be required")
+
+    value = Value(7)
+
+    @graph
+    def app() -> TSD[str, TS[Value]]:
+        return const({"item": value}, TSD[str, TS[Value]])
+
+    assert eval_node(app) == [{"item": value}]
 
 
 def test_python_equality_exceptions_cross_the_bridge():

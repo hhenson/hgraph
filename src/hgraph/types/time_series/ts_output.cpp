@@ -49,7 +49,7 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
     const auto canonical_key =
         ValuePlanFactory::instance().type_for(schema->key_type());
     const auto realized_element = realized_output_type_for(
-        schema->element_ts(), snapshot, ValueStorageVariant::Native);
+        schema->element_ts(), snapshot, value_storage);
     const auto canonical_element =
         factory.output_type_for(schema->element_ts());
     if ((realized_key && realized_key != canonical_key) ||

@@ -15,6 +15,7 @@
 #include "py_bindings.h"
 #include "py_runtime.h"
 
+#include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/python/ts_data_conversion.h>
 
@@ -1511,6 +1512,43 @@ struct materialize_node {
 struct op_materialize
     : Operator<"__materialize", In<"ts", TsVar<"S">>, Out<TsVar<"S">>> {};
 
+/** Python-authored const fallback. The ordinary const overload keeps its
+    fully typed wiring-time value; this overload preserves legacy generator
+    semantics only when the binding layer supplies an opaque PyObj. */
+struct python_const_source {
+  static constexpr auto name = "const_python";
+  static constexpr bool schedule_on_start = true;
+  static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
+
+  static void eval(Scalar<"value", PyObj> value, Out<TsVar<"S">> out) {
+    translate_python_error([&] {
+      apply_python_result(static_cast<const TSOutputView &>(out),
+                          value.value().get());
+    });
+  }
+};
+
+struct python_const_delayed {
+  static constexpr auto name = "const_python_delayed";
+  static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
+
+  static void start(Scalar<"delay", TimeDelta> delay,
+                    SingleShotScheduler scheduler) {
+    scheduler.schedule(delay.value());
+  }
+
+  static void eval(Scalar<"value", PyObj> value,
+                   Scalar<"delay", TimeDelta> delay, Out<TsVar<"S">> out) {
+    static_cast<void>(delay);
+    translate_python_error([&] {
+      apply_python_result(static_cast<const TSOutputView &>(out),
+                          value.value().get());
+    });
+  }
+};
+
 /** ``type_(ts)`` — the python TYPE of each tick's value. The type object
     remains an opaque PyObj contained by the native Any output. */
 struct type_py_node {
@@ -1692,6 +1730,8 @@ void register_python_overloads() {
                     stdlib::component_detail::recovering_pass_through>();
   register_overload<op_harness_replay, harness_replay>();
   register_overload<op_harness_record, harness_record>();
+  register_overload<stdlib::const_, python_const_source>();
+  register_overload<stdlib::const_, python_const_delayed>();
   register_overload<stdlib::type_, type_py_node>();
   register_overload<stdlib::getattr_, getattr_type_name_node>();
 }

@@ -521,7 +521,7 @@ class _OperatorFunction:
         # SLICES. ``op[OUT: X]`` names the requested OUTPUT type; other
         # typevar slices are dropped (resolution happens from the wired
         # inputs). A plain type subscript is the requested output type.
-        from .._types import OUT, _type_var_name
+        from .._types import OUT, TS, _type_var_name
 
         # ``with_columns[RowSchema](...)`` is the released hgraph spelling:
         # its plain subscript selects the Frame row schema, not a bare Bundle
@@ -548,6 +548,10 @@ class _OperatorFunction:
                     # positional hint remains for eval_node input seeding.
                     resolutions[_type_var_name(i.start)] = i.stop
                     ts_hints.append(i.stop)
+                    if (self.__name__ == "getattr_"
+                            and _type_var_name(i.start) == "SCALAR"
+                            and output_type is None):
+                        output_type = TS[i.stop]
                 continue
             if output_type is None:
                 output_type = i
