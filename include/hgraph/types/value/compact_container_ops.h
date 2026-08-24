@@ -219,7 +219,8 @@ namespace hgraph
             return result;
         }
 
-        void list_from_python(const void *, const ValueTypeRef &binding, void *memory, nb::handle source);
+        HGRAPH_EXPORT void list_from_python(const void *, const ValueTypeRef &binding, void *memory,
+                                            nb::handle source);
 
         /** The VARIADIC-TUPLE variant: same storage, python reads back a
             TUPLE (ops-variant selection at binding time - the type-erasure
@@ -368,8 +369,8 @@ namespace hgraph
             return result;
         }
 
-        void cyclic_buffer_from_python(const void *, const ValueTypeRef &binding, void *memory,
-                                       nb::handle source);
+        HGRAPH_EXPORT void cyclic_buffer_from_python(const void *, const ValueTypeRef &binding, void *memory,
+                                                     nb::handle source);
 #endif
 
         // ----- Queue (read in arrival order) ----------------------------
@@ -492,7 +493,8 @@ namespace hgraph
             return result;
         }
 
-        void queue_from_python(const void *, const ValueTypeRef &binding, void *memory, nb::handle source);
+        HGRAPH_EXPORT void queue_from_python(const void *, const ValueTypeRef &binding, void *memory,
+                                             nb::handle source);
 #endif
 
         // ----- Set (order-independent) ----------------------------------
@@ -582,7 +584,8 @@ namespace hgraph
             return nb::steal(PyFrozenSet_New(items.ptr()));
         }
 
-        void set_from_python(const void *, const ValueTypeRef &binding, void *memory, nb::handle source);
+        HGRAPH_EXPORT void set_from_python(const void *, const ValueTypeRef &binding, void *memory,
+                                           nb::handle source);
 #endif
 
         // ----- Map (order-independent over keys) ------------------------
@@ -711,7 +714,8 @@ namespace hgraph
             return result;
         }
 
-        void map_from_python(const void *, const ValueTypeRef &binding, void *memory, nb::handle source);
+        HGRAPH_EXPORT void map_from_python(const void *, const ValueTypeRef &binding, void *memory,
+                                           nb::handle source);
 #endif
 
         // ----- Read accessors that go through the storage's public surface.

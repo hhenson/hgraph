@@ -329,6 +329,11 @@ hgraph_add_test_executable(hgraph_unit_tests
     $<TARGET_OBJECTS:hgraph_record_test_objects>
 )
 
+# The dataframe tests call Arrow APIs directly. In shared builds Arrow is a
+# private implementation dependency of the hgraph DSOs, so these executables
+# must also name it on their own link lines.
+target_link_libraries(hgraph_unit_tests PRIVATE ${_hgraph_arrow_targets})
+
 foreach(_hgraph_test_domain IN LISTS HGRAPH_TEST_OBJECT_LIBS)
     string(REPLACE "hgraph_" "" _hgraph_domain_name "${_hgraph_test_domain}")
     string(REPLACE "_test_objects" "" _hgraph_domain_name "${_hgraph_domain_name}")
@@ -336,6 +341,8 @@ foreach(_hgraph_test_domain IN LISTS HGRAPH_TEST_OBJECT_LIBS)
         $<TARGET_OBJECTS:${_hgraph_test_domain}>
     )
 endforeach()
+
+target_link_libraries(hgraph_unit_tests_stdlib PRIVATE ${_hgraph_arrow_targets})
 
 add_executable(hgraph_json_perf
     json_perf.cpp
