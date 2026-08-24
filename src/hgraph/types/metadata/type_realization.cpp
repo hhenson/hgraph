@@ -895,6 +895,13 @@ struct TypeRealizationSnapshot::Impl {
         found != exact_types.end()) {
       return found->second;
     }
+    if (std::ranges::find(
+            realization_path,
+            RealizationStep{schema, RealizationKind::ExternalExact}) !=
+        realization_path.end()) {
+      return ValuePlanFactory::instance().type_for(
+          TypeRegistry::instance().owned(schema));
+    }
     auto realization =
         enter_realization(schema, RealizationKind::ExternalExact);
 
@@ -1040,6 +1047,13 @@ struct TypeRealizationSnapshot::Impl {
     if (const auto found = graph_exact_types.find(schema);
         found != graph_exact_types.end()) {
       return found->second;
+    }
+    if (std::ranges::find(
+            realization_path,
+            RealizationStep{schema, RealizationKind::GraphExact}) !=
+        realization_path.end()) {
+      return ValuePlanFactory::instance().type_for(
+          TypeRegistry::instance().owned(schema));
     }
     auto realization = enter_realization(schema, RealizationKind::GraphExact);
 

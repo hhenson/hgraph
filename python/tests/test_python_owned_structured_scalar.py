@@ -798,6 +798,31 @@ def test_mutually_recursive_python_owned_classes_are_schema_only_recursion():
     assert eval_node(nested_value, [source]) == [3]
 
 
+def test_indirect_recursive_union_realization_is_entry_order_independent():
+    @dataclass(frozen=True)
+    class Instrument:
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Specification:
+        underlying: Instrument
+
+    @dataclass(frozen=True)
+    class Series:
+        specification: Specification
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        series: Series
+
+    @compute_node
+    def underlying_identifier(value: TS[Series]) -> TS[int]:
+        return value.value.specification.underlying.identifier
+
+    value = Series(Specification(Instrument(7)))
+    assert eval_node(underlying_identifier, [value]) == [7]
+
+
 def test_in_place_mutation_does_not_create_a_new_value_tick():
     @dataclass
     class Mutable:

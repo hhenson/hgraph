@@ -954,6 +954,35 @@ TEST_CASE(
 }
 
 TEST_CASE(
+    "indirect recursive Bundle realization is independent of entry order") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  const auto *instrument = registry.bundle(
+      "tests.realization.entry_order", "Instrument", {{"id", integer}});
+  const auto *specification = registry.bundle(
+      "tests.realization.entry_order", "Specification",
+      {{"underlying", instrument}});
+  const auto *series = registry.bundle(
+      "tests.realization.entry_order", "Series",
+      {{"specification", specification}});
+  const auto *future = registry.bundle(
+      "tests.realization.entry_order", "Future",
+      {{"id", integer}, {"series", series}}, {instrument});
+
+  const auto snapshot = TypeRealizationSnapshot::capture(registry);
+  REQUIRE_NOTHROW(snapshot->type_for(series));
+
+  const auto realized_future = snapshot->type_for(future);
+  Value future_value{realized_future};
+  auto future_fields = future_value.as_bundle().begin_mutation();
+  REQUIRE(future_fields["series"].binding().schema()->is_owned());
+  REQUIRE(future_fields["series"].binding().schema()->element_type == series);
+}
+
+TEST_CASE(
     "polymorphic Bundle JSON requires and consumes an external discriminator") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();
