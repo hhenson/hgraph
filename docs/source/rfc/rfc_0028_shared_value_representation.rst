@@ -256,11 +256,21 @@ Two conditions have to hold, and only the second is a real cost:
   single-threaded, so this would introduce a cross-thread edge inside per-tick
   value storage.
 
-There is a form that removes the second cost without new atomics or a new lock:
-freed slots are not returned eagerly but accumulated on the graph side and
-handed back in a batch under the queue mutex that ``take_all`` already takes.
-Slot recycling then rides an existing synchronisation point, the pool stays
-lock-free on both sides, and the invariant above is preserved end to end.
+The second cost has a clean remedy: freed slots are not returned eagerly but
+accumulated on the graph side and handed back in one batch from an
+**after-evaluation notification**.  ``EngineControlView::
+add_after_evaluation_notification`` already provides exactly this — a one-shot
+callback *"fired at the applicable root cycle boundary and drained there to
+completion"*, and the C++-primary facility behind Python's
+``EvaluationEngineApi.add_after_evaluation_notification``.  The push node
+re-arms one each cycle in which slots were freed.
+
+That gives slot recycling a defined engine boundary rather than an incidental
+one, and reduces the producer-facing handoff from once per value to once per
+cycle — at which point a plain mutex over a vector swap is negligible and sits
+outside the per-tick value path, alongside the queue lock ``take_all`` already
+takes each cycle.  The invariant above is preserved end to end: the count is
+still only ever touched on the graph thread.
 
 One shape question remains.  Kafka runs one consumer thread per session plus a
 producer thread, so a node-owned pool would be written by several publishers.
@@ -501,6 +511,9 @@ References
   ``ValueTypeFlags::Owned``.
 * ``include/hgraph/types/storage_metrics.h`` — ``DynamicStorageMetrics``, which
   carries no identity and therefore cannot deduplicate.
+* ``include/hgraph/runtime/executor.h`` —
+  ``EngineControlView::add_after_evaluation_notification``, the root
+  cycle-boundary hook proposed for batched slot handback.
 * ``src/hgraph/runtime/push_source_node.cpp`` —
   ``push_value_schema_acceptable``, the sender-schema enforcement point, and
   ``make_burst``, the graph-thread sharing point.
