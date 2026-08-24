@@ -31,11 +31,11 @@ namespace hgraph::web::testing
         Value frame{};
     };
 
-    /** The socketless server transport: the same standard push source, graph
-     * projections, graph sinks, and service composition as the real transport
-     * with only the external task swapped (RFC 0024/0027). Production
-     * configuration never accepts a transport object; this seam is confined
-     * to testing. */
+    /** The socketless server transport: the same standard channel push
+     * sources, graph projections, graph sinks, and service composition as the
+     * real transport with only the external task swapped (RFC 0024/0027).
+     * Production configuration never accepts a transport object; this seam is
+     * confined to testing. */
     class HGRAPH_WEB_EXPORT FakeWebServer
     {
       public:

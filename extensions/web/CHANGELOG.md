@@ -3,9 +3,11 @@
 ## Unreleased
 
 - Initial extension skeleton (RFC 0024).
-- Service tier: one standard bounded push source per runtime, graph-side
-  projections and command sinks, domain byte/reservation watermarks without a
-  second value queue, the eleven service interfaces wired through
+- Service tier: one standard bounded push source per independently ordered
+  logical channel, avoiding cross-channel head-of-line blocking while
+  preserving FIFO within each channel; graph-side projections and command
+  sinks; domain byte/reservation watermarks without a second value queue; the
+  eleven service interfaces wired through
   `impl_input`/`impl_output`, wiring sugar, and the socketless
   `FakeWebServer`/`FakeWebClient` transports. Graph-owned subscription
   generations prevent queued HTTP or WebSocket ingress from crossing route/key

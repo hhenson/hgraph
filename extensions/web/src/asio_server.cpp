@@ -879,10 +879,10 @@ public:
   WebServerRuntime(std::shared_ptr<const ServerRuntimeConfig> config, Str path,
                    ServerAdmissionHandle admission,
                    WebTransportBindingsHandle transport_bindings,
-                   PushSourceSender sender)
+                   ServerTransportOutput::Senders senders)
       : config_{std::move(config)}, path_{std::move(path)},
         admission_{std::move(admission)},
-        output_{std::move(sender), admission_,
+        output_{std::move(senders), admission_,
                 std::move(transport_bindings)} {}
 
   ~WebServerRuntime() { stop(); }
@@ -4826,19 +4826,20 @@ struct WebServerWsSendSink {
 
 struct WebServerTransportTag {};
 
-[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_server_transport(
+[[nodiscard]] wd::ServerTransportPorts wire_server_transport(
     Wiring &w, wd::ServerConfigHandle config, Str path,
     wd::WebServerRuntimeHandle runtime, wd::ServerAdmissionHandle admission,
     wd::WebTransportBindingsHandle bindings) {
-  return wd::wire_transport_source<WebServerTransportTag>(
-      w, admission.value->max_pending(),
+  return wd::wire_transport_sources<WebServerTransportTag>(
+      w, admission,
       [config = std::move(config), path = std::move(path), runtime, admission,
-       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+       bindings](wd::ServerTransportOutput::Senders senders,
+                 const NodeView &, DateTime) {
         admission.value->start();
         auto admission_rollback =
             make_scope_exit<true>([&] { admission.value->stop(); });
         auto task = std::make_shared<wd::WebServerRuntime>(
-            config.value, path, admission, bindings, std::move(sender));
+            config.value, path, admission, bindings, std::move(senders));
         task->start();
         auto task_rollback = make_scope_exit<true>([&] { task->stop(); });
         runtime.value->install(task);

@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <typeindex>
+#include <type_traits>
 #include <utility>
 
 namespace hgraph::web::detail {
@@ -79,15 +80,18 @@ struct WatermarkConfig {
 };
 
 /**
- * Domain byte and reservation accounting for one standard push-source queue.
+ * Domain byte and reservation accounting for standard channel push sources.
  *
- * This object owns no Values and is not a second transport queue. The core
- * push source owns record storage, admission and wake-up. The web runtime uses
- * this graph-scoped budget only to reserve payload bytes before socket reads,
- * retain the existing per-channel watermarks, and guarantee control headroom.
+ * This object owns no Values and is not a second transport queue. Each core
+ * push source owns its channel's record storage, admission and wake-up. The
+ * web runtime uses this graph-scoped budget only to reserve payload bytes
+ * before socket reads, retain per-channel watermarks, and guarantee control
+ * headroom.
  */
 template <std::size_t ChannelCount> class AdmissionBudget {
 public:
+  static constexpr std::size_t channel_count = ChannelCount;
+
   explicit AdmissionBudget(
       std::array<OutputLimits, ChannelCount> limits,
       std::array<OutputLimits, ChannelCount> control_limits = {}) {
@@ -97,14 +101,13 @@ public:
       }
       channels_[channel].limits = limits[channel];
       channels_[channel].control_limits = control_limits[channel];
-      for (const std::size_t records :
-           {limits[channel].records, control_limits[channel].records}) {
-        if (records > std::numeric_limits<std::size_t>::max() - max_pending_) {
-          throw std::overflow_error(
-              "Aggregate web transport record capacity overflowed");
-        }
-        max_pending_ += records;
+      if (control_limits[channel].records >
+          std::numeric_limits<std::size_t>::max() - limits[channel].records) {
+        throw std::overflow_error(
+            "Web transport channel record capacity overflowed");
       }
+      max_pending_[channel] =
+          limits[channel].records + control_limits[channel].records;
     }
   }
 
@@ -132,8 +135,8 @@ public:
     }
   }
 
-  [[nodiscard]] std::size_t max_pending() const noexcept {
-    return max_pending_;
+  [[nodiscard]] std::size_t max_pending(std::size_t channel) const {
+    return max_pending_.at(channel);
   }
 
   void set_watermark(std::size_t channel, WatermarkConfig config) {
@@ -326,7 +329,7 @@ private:
   mutable std::mutex mutex_{};
   std::mutex watermark_delivery_mutex_{};
   std::array<Channel, ChannelCount> channels_{};
-  std::size_t max_pending_{};
+  std::array<std::size_t, ChannelCount> max_pending_{};
   bool accepting_{};
 };
 
@@ -482,9 +485,11 @@ inline std::ostream &operator<<(std::ostream &stream,
 
 template <typename Budget> class TransportOutput {
 public:
-  TransportOutput(PushSourceSender sender, AdmissionHandle<Budget> admission,
+  using Senders = std::array<PushSourceSender, Budget::channel_count>;
+
+  TransportOutput(Senders senders, AdmissionHandle<Budget> admission,
                   WebTransportBindingsHandle bindings)
-      : sender_{std::move(sender)}, admission_{std::move(admission)},
+      : senders_{std::move(senders)}, admission_{std::move(admission)},
         bindings_{std::move(bindings)} {}
 
   [[nodiscard]] bool send(WebTransportEventKind kind,
@@ -500,7 +505,7 @@ public:
     Value event = transport_event(*bindings_.value, kind, payload_name,
                                   std::move(payload), channel, retained_bytes,
                                   control);
-    if (!sender_.try_send(std::move(event))) {
+    if (!senders_.at(channel).try_send(std::move(event))) {
       return false;
     }
     rollback.release();
@@ -521,7 +526,7 @@ public:
     Value event = transport_event(*bindings_.value, kind, payload_name,
                                   std::move(payload), channel, retained_bytes,
                                   false);
-    if (!sender_.try_send(std::move(event))) {
+    if (!senders_.at(channel).try_send(std::move(event))) {
       return false;
     }
     rollback.release();
@@ -529,13 +534,17 @@ public:
   }
 
 private:
-  PushSourceSender sender_{};
+  Senders senders_{};
   AdmissionHandle<Budget> admission_{};
   WebTransportBindingsHandle bindings_{};
 };
 
 using ServerTransportOutput = TransportOutput<ServerAdmission>;
 using ClientTransportOutput = TransportOutput<ClientAdmission>;
+using ServerTransportPorts =
+    std::array<Port<TS<WebTransportEvent>>, ServerAdmission::channel_count>;
+using ClientTransportPorts =
+    std::array<Port<TS<WebTransportEvent>>, ClientAdmission::channel_count>;
 
 /** Materialises a generation for each active subscription lifetime. The
  * generation is graph data derived from the key-set delta and retained in the
@@ -603,10 +612,7 @@ struct ServerRequestProjectionNode {
          InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WebRoute, WebRouteOutput>> out) {
-    const bool has_event =
-        transport.modified() &&
-        transport.base().value().as_bundle().at("kind").checked_as<
-            WebTransportEventKind>() == WebTransportEventKind::ServerRequest;
+    const bool has_event = transport.modified();
     const auto &route_delta = static_cast<const TSSInputView &>(routes);
     const auto removed = route_delta.removed();
     if (!has_event && !routes.modified()) {
@@ -665,10 +671,7 @@ struct ServerWsProjectionNode {
          InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WebRoute, WsRouteOutput>> out) {
-    const bool has_event =
-        transport.modified() &&
-        transport.base().value().as_bundle().at("kind").checked_as<
-            WebTransportEventKind>() == WebTransportEventKind::ServerWsIngress;
+    const bool has_event = transport.modified();
     const auto &route_delta = static_cast<const TSSInputView &>(routes);
     const auto removed = route_delta.removed();
     if (!has_event && (!routes.modified() || removed.begin() == removed.end())) {
@@ -705,15 +708,12 @@ struct ServerWsProjectionNode {
 };
 
 /** Projects one delivery-report event. Cost is O(1) per transport tick. */
-template <WebTransportEventKind Kind> struct DeliveryProjectionNode {
+struct DeliveryProjectionNode {
   static constexpr auto name = "web_delivery_projection";
 
   static void eval(In<"transport", TS<WebTransportEvent>> transport,
                    Out<TSD<Int, TS<WebDeliveryReport>>> out) {
     const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<WebTransportEventKind>() != Kind) {
-      return;
-    }
     const auto envelope = fields.at("delivery").as_bundle();
     auto mutation = out.begin_mutation(out.evaluation_time());
     mutation.set(envelope.at("request_id"), envelope.at("report"));
@@ -722,15 +722,12 @@ template <WebTransportEventKind Kind> struct DeliveryProjectionNode {
 
 /** Projects one service event and applies its stop policy on graph. Cost is
  * O(1) per transport tick. */
-template <WebTransportEventKind Kind> struct EventProjectionNode {
+struct EventProjectionNode {
   static constexpr auto name = "web_event_projection";
 
   static void eval(In<"transport", TS<WebTransportEvent>> transport,
                    EngineControlView engine, Out<TS<WebEvent>> out) {
     const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<WebTransportEventKind>() != Kind) {
-      return;
-    }
     const auto envelope = fields.at("event").as_bundle();
     out.apply(envelope.at("event"));
     if (envelope.at("stop_graph").checked_as<Bool>()) {
@@ -740,17 +737,13 @@ template <WebTransportEventKind Kind> struct EventProjectionNode {
 };
 
 /** Projects one statistics sample. Cost is O(1) per transport tick. */
-template <WebTransportEventKind Kind, typename Stats>
-struct StatsProjectionNode {
+template <typename Stats> struct StatsProjectionNode {
   static constexpr auto name = "web_stats_projection";
 
   static void eval(In<"transport", TS<WebTransportEvent>> transport,
                    Out<TS<Stats>> out) {
     const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<WebTransportEventKind>() != Kind) {
-      return;
-    }
-    if constexpr (Kind == WebTransportEventKind::ServerStats) {
+    if constexpr (std::is_same_v<Stats, WebServerStats>) {
       out.apply(fields.at("server_stats"));
     } else {
       out.apply(fields.at("client_stats"));
@@ -766,10 +759,6 @@ struct ClientResponseProjectionNode {
                    Scalar<"bindings", WebTransportBindingsHandle> bindings,
                    Out<TSD<Int, HttpCallResult>> out) {
     const auto fields = transport.base().value().as_bundle();
-    if (fields.at("kind").checked_as<WebTransportEventKind>() !=
-        WebTransportEventKind::ClientResponse) {
-      return;
-    }
     const auto envelope = fields.at("response").as_bundle();
     BundleBuilder value{bindings.value().value->client_call_result};
     for (const auto name :
@@ -798,10 +787,7 @@ struct ClientWsProjectionNode {
          InputValidity::Unchecked> generations,
       Scalar<"bindings", WebTransportBindingsHandle> bindings,
       Out<TSD<WsClientKey, WsClientOutput>> out) {
-    const bool has_event =
-        transport.modified() &&
-        transport.base().value().as_bundle().at("kind").checked_as<
-            WebTransportEventKind>() == WebTransportEventKind::ClientWsIngress;
+    const bool has_event = transport.modified();
     const auto &key_delta = static_cast<const TSSInputView &>(keys);
     const auto removed = key_delta.removed();
     if (!has_event && (!keys.modified() || removed.begin() == removed.end())) {
@@ -847,32 +833,34 @@ struct ServerOutputs {
 };
 
 [[nodiscard]] inline ServerOutputs wire_server_outputs(
-    Wiring &w, Port<TS<WebTransportEvent>> transport,
+    Wiring &w, const ServerTransportPorts &transport,
     Port<TSS<WebRoute>> http_routes, Port<TSS<WebRoute>> ws_routes,
     Port<TSD<WebRoute, TS<DateTime>>> http_generations,
     Port<TSD<WebRoute, TS<DateTime>>> ws_generations,
     ServerAdmissionHandle admission, WebTransportBindingsHandle bindings) {
-  static_cast<void>(
-      wire<AdmissionReleaseSink<ServerAdmissionHandle>>(w, transport,
-                                                        admission));
+  for (const auto &channel : transport) {
+    static_cast<void>(wire<AdmissionReleaseSink<ServerAdmissionHandle>>(
+        w, channel, admission));
+  }
   return ServerOutputs{
-      wire<ServerRequestProjectionNode>(w, transport, http_routes,
-                                        http_generations, bindings)
+      wire<ServerRequestProjectionNode>(
+          w, transport[index(ServerChannel::Request)], http_routes,
+          http_generations, bindings)
           .template as<TSD<WebRoute, WebRouteOutput>>(),
-      wire<ServerWsProjectionNode>(w, transport, ws_routes, ws_generations,
-                                   bindings)
+      wire<ServerWsProjectionNode>(
+          w, transport[index(ServerChannel::WsIngress)], ws_routes,
+          ws_generations, bindings)
           .template as<TSD<WebRoute, WsRouteOutput>>(),
-      wire<DeliveryProjectionNode<
-          WebTransportEventKind::ServerRespondDelivery>>(w, transport)
+      wire<DeliveryProjectionNode>(
+          w, transport[index(ServerChannel::RespondDelivery)])
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<DeliveryProjectionNode<
-          WebTransportEventKind::ServerWsSendDelivery>>(w, transport)
+      wire<DeliveryProjectionNode>(
+          w, transport[index(ServerChannel::WsSendDelivery)])
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<EventProjectionNode<WebTransportEventKind::ServerEvent>>(w,
-                                                                    transport)
+      wire<EventProjectionNode>(w, transport[index(ServerChannel::Event)])
           .template as<TS<WebEvent>>(),
-      wire<StatsProjectionNode<WebTransportEventKind::ServerStats,
-                               WebServerStats>>(w, transport)
+      wire<StatsProjectionNode<WebServerStats>>(
+          w, transport[index(ServerChannel::Stats)])
           .template as<TS<WebServerStats>>(),
   };
 }
@@ -886,48 +874,113 @@ struct ClientOutputs {
 };
 
 [[nodiscard]] inline ClientOutputs wire_client_outputs(
-    Wiring &w, Port<TS<WebTransportEvent>> transport,
+    Wiring &w, const ClientTransportPorts &transport,
     Port<TSS<WsClientKey>> ws_keys,
     Port<TSD<WsClientKey, TS<DateTime>>> ws_generations,
     ClientAdmissionHandle admission,
     WebTransportBindingsHandle bindings) {
-  static_cast<void>(
-      wire<AdmissionReleaseSink<ClientAdmissionHandle>>(w, transport,
-                                                        admission));
+  for (const auto &channel : transport) {
+    static_cast<void>(wire<AdmissionReleaseSink<ClientAdmissionHandle>>(
+        w, channel, admission));
+  }
   return ClientOutputs{
-      wire<ClientResponseProjectionNode>(w, transport, bindings)
+      wire<ClientResponseProjectionNode>(
+          w, transport[index(ClientChannel::Response)], bindings)
           .template as<TSD<Int, HttpCallResult>>(),
-      wire<ClientWsProjectionNode>(w, transport, ws_keys, ws_generations,
-                                   bindings)
+      wire<ClientWsProjectionNode>(
+          w, transport[index(ClientChannel::WsIngress)], ws_keys,
+          ws_generations, bindings)
           .template as<TSD<WsClientKey, WsClientOutput>>(),
-      wire<DeliveryProjectionNode<WebTransportEventKind::ClientSendDelivery>>(
-          w, transport)
+      wire<DeliveryProjectionNode>(
+          w, transport[index(ClientChannel::SendDelivery)])
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<EventProjectionNode<WebTransportEventKind::ClientEvent>>(w,
-                                                                    transport)
+      wire<EventProjectionNode>(w, transport[index(ClientChannel::Event)])
           .template as<TS<WebEvent>>(),
-      wire<StatsProjectionNode<WebTransportEventKind::ClientStats,
-                               WebClientStats>>(w, transport)
+      wire<StatsProjectionNode<WebClientStats>>(
+          w, transport[index(ClientChannel::Stats)])
           .template as<TS<WebClientStats>>(),
   };
 }
 
-template <typename Tag>
-[[nodiscard]] Port<TS<WebTransportEvent>> wire_transport_source(
-    Wiring &w, std::size_t max_pending, PushSourceStartViewCallback on_start,
-    std::function<void(const NodeView &)> on_stop) {
+template <typename Tag, std::size_t Channel> struct TransportSourceChannelTag {};
+
+template <typename Budget> class TransportSourceGroup {
+public:
+  using Senders = typename TransportOutput<Budget>::Senders;
+  using Start = std::function<void(Senders, const NodeView &, DateTime)>;
+
+  TransportSourceGroup(Start on_start,
+                       std::function<void(const NodeView &)> on_stop)
+      : on_start_{std::move(on_start)}, on_stop_{std::move(on_stop)} {}
+
+  void start(std::size_t channel, PushSourceSender sender,
+             const NodeView &node, DateTime evaluation_time) {
+    senders_.at(channel) = std::move(sender);
+    if (channel + 1 != Budget::channel_count) {
+      return;
+    }
+    for (const auto &installed : senders_) {
+      if (!installed.valid()) {
+        throw std::logic_error(
+            "Web transport push sources did not start in channel order");
+      }
+    }
+    on_start_(std::move(senders_), node, evaluation_time);
+  }
+
+  void stop(std::size_t channel, const NodeView &node) {
+    auto clear = make_scope_exit([&] { senders_.at(channel) = {}; });
+    if (channel + 1 == Budget::channel_count && on_stop_) {
+      on_stop_(node);
+    }
+  }
+
+private:
+  Senders senders_{};
+  Start on_start_{};
+  std::function<void(const NodeView &)> on_stop_{};
+};
+
+template <typename Tag, typename Budget, std::size_t... Channel>
+[[nodiscard]] std::array<Port<TS<WebTransportEvent>>, Budget::channel_count>
+wire_transport_sources_impl(
+    Wiring &w, const AdmissionHandle<Budget> &admission,
+    const std::shared_ptr<TransportSourceGroup<Budget>> &group,
+    std::index_sequence<Channel...>) {
   const auto *schema = ts_type<TS<WebTransportEvent>>();
-  PushSourceNodeExtension extension{
-      .on_start = std::move(on_start),
-      .on_stop = std::move(on_stop),
-  };
-  return Port<TS<WebTransportEvent>>{
-      w, w.add_unique_node(
-             std::type_index(typeid(Tag)),
-             make_push_source_node_with_view(
-                 *schema, make_push_source_queue_policy(*schema, max_pending),
-                 std::move(extension)),
-             std::span<const WiringPortRef>{}, Value{})};
+  return {Port<TS<WebTransportEvent>>{
+      w,
+      w.add_unique_node(
+          std::type_index(typeid(TransportSourceChannelTag<Tag, Channel>)),
+          make_push_source_node_with_view(
+              *schema,
+              make_push_source_queue_policy(
+                  *schema, admission.value->max_pending(Channel)),
+              PushSourceNodeExtension{
+                  .on_start = [group](PushSourceSender sender,
+                                      const NodeView &node,
+                                      DateTime evaluation_time) {
+                    group->start(Channel, std::move(sender), node,
+                                 evaluation_time);
+                  },
+                  .on_stop = [group](const NodeView &node) {
+                    group->stop(Channel, node);
+                  },
+              }),
+          std::span<const WiringPortRef>{}, Value{})}...};
+}
+
+template <typename Tag, typename Budget>
+[[nodiscard]] std::array<Port<TS<WebTransportEvent>>, Budget::channel_count>
+wire_transport_sources(
+    Wiring &w, AdmissionHandle<Budget> admission,
+    typename TransportSourceGroup<Budget>::Start on_start,
+    std::function<void(const NodeView &)> on_stop) {
+  auto group = std::make_shared<TransportSourceGroup<Budget>>(
+      std::move(on_start), std::move(on_stop));
+  return wire_transport_sources_impl<Tag>(
+      w, admission, group,
+      std::make_index_sequence<Budget::channel_count>{});
 }
 
 } // namespace hgraph::web::detail

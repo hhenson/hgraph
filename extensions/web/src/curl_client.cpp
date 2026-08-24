@@ -876,10 +876,10 @@ public:
   WebClientRuntime(ClientRuntimeConfig config, Str path,
                    ClientAdmissionHandle admission,
                    WebTransportBindingsHandle transport_bindings,
-                   PushSourceSender sender)
+                   ClientTransportOutput::Senders senders)
       : config_{std::move(config)}, path_{std::move(path)},
         admission_{std::move(admission)},
-        output_{std::move(sender), admission_,
+        output_{std::move(senders), admission_,
                 std::move(transport_bindings)} {
     if (!admission_.value) {
       throw std::invalid_argument(
@@ -2397,19 +2397,20 @@ struct WebClientWsSendSink {
 
 struct WebClientTransportTag {};
 
-[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_client_transport(
+[[nodiscard]] wd::ClientTransportPorts wire_client_transport(
     Wiring &w, wd::ClientRuntimeConfigHandle config, Str path,
     wd::ClientRuntimeHandle runtime, wd::ClientAdmissionHandle admission,
     wd::WebTransportBindingsHandle bindings) {
-  return wd::wire_transport_source<WebClientTransportTag>(
-      w, admission.value->max_pending(),
+  return wd::wire_transport_sources<WebClientTransportTag>(
+      w, admission,
       [config = std::move(config), path = std::move(path), runtime, admission,
-       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+       bindings](wd::ClientTransportOutput::Senders senders,
+                 const NodeView &, DateTime) {
         admission.value->start();
         auto admission_rollback =
             make_scope_exit<true>([&] { admission.value->stop(); });
         auto task = std::make_shared<wd::WebClientRuntime>(
-            *config.value, path, admission, bindings, std::move(sender));
+            *config.value, path, admission, bindings, std::move(senders));
         task->start();
         auto task_rollback = make_scope_exit<true>([&] { task->stop(); });
         runtime.value->install(task);

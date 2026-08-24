@@ -83,7 +83,8 @@ void test_stopped_sender_refusal_rolls_back_admission() {
   budget->start();
   auto bindings = hgraph::web::detail::make_transport_bindings();
   TransportOutput<TestBudget> output{
-      PushSourceSender{}, AdmissionHandle<TestBudget>{budget}, bindings};
+      TransportOutput<TestBudget>::Senders{PushSourceSender{}},
+      AdmissionHandle<TestBudget>{budget}, bindings};
 
   require(!output.send(WebTransportEventKind::ServerEvent, "event",
                        empty_event_envelope(), 0, 128),

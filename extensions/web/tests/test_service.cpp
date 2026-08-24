@@ -1,5 +1,5 @@
 // Service-boundary tests over the socketless fake transport. The fake uses
-// the same standard push-source transport, graph projections, and graph sinks
+// the same standard channel push sources, graph projections, and graph sinks
 // as the live adaptors; only the external task is replaced (RFC 0024/0027).
 
 #include <hgraph/web/service.h>
@@ -103,7 +103,7 @@ inline Value observed_client_ws_frame{};
 inline Value observed_client_ws_report{};
 inline std::size_t backlog_request_count{};
 inline std::vector<Int> backlog_request_ids{};
-inline std::vector<Str> observed_transport_order{};
+inline std::vector<std::pair<Str, DateTime>> observed_transport_progress{};
 inline std::vector<Int> post_readd_request_ids{};
 inline std::vector<Str> post_readd_ws_frames{};
 inline std::vector<Str> post_readd_client_ws_frames{};
@@ -176,6 +176,7 @@ private:
 
 inline SenderLatch route_sender{};
 inline EvaluationGate route_generation_gate{};
+inline EvaluationGate transport_channel_gate{};
 inline std::size_t route_value_count{};
 
 void release_test_state() {
@@ -207,13 +208,14 @@ void release_test_state() {
   observed_ws_report = Value{};
   observed_client_ws_frame = Value{};
   observed_client_ws_report = Value{};
-  observed_transport_order.clear();
+  observed_transport_progress.clear();
   backlog_request_ids.clear();
   post_readd_request_ids.clear();
   post_readd_ws_frames.clear();
   post_readd_client_ws_frames.clear();
   route_sender.reset();
   route_generation_gate.release();
+  transport_channel_gate.release();
 }
 
 [[nodiscard]] Value make_server_request(Int request_id) {
@@ -671,55 +673,63 @@ struct ClientKeyGenerationGraph {
   }
 };
 
-void capture_transport_order(NodeView &node, Str kind) {
-  observed_transport_order.push_back(std::move(kind));
-  if (observed_transport_order.size() == 3) {
+void capture_transport_progress(NodeView &node, Str kind,
+                                DateTime evaluation_time) {
+  observed_transport_progress.emplace_back(std::move(kind), evaluation_time);
+  if (observed_transport_progress.size() == 3) {
     node.graph().executor().request_stop();
   }
 }
 
-struct OrderedEventCapture {
-  static constexpr auto name = "web_ordered_event_capture";
+struct IndependentEventCapture {
+  static constexpr auto name = "web_independent_event_capture";
 
-  static void eval(NodeView node,
+  static void eval(NodeView node, DateTime evaluation_time,
                    In<"event", TS<WebEvent>, InputValidity::Unchecked> event) {
     if (event.valid() && event.modified()) {
-      capture_transport_order(node, Str{"event"});
+      capture_transport_progress(node, Str{"event"}, evaluation_time);
     }
   }
 };
 
-struct OrderedRequestCapture {
-  static constexpr auto name = "web_ordered_request_capture";
+struct IndependentRequestCapture {
+  static constexpr auto name = "web_independent_request_capture";
 
   static void eval(
-      NodeView node,
+      NodeView node, DateTime evaluation_time,
       In<"routed", WebRouteOutput, InputValidity::Unchecked> routed) {
     auto request = routed.template field<"request">();
-    if (request.valid() && request.modified()) {
-      capture_transport_order(node, Str{"request"});
+    if (!request.valid() || !request.modified()) {
+      return;
+    }
+    const Int request_id =
+        request.base().value().as_bundle().at("request_id").checked_as<Int>();
+    if (request_id == Int{70}) {
+      transport_channel_gate.block();
+    } else if (request_id == Int{71}) {
+      capture_transport_progress(node, Str{"request"}, evaluation_time);
     }
   }
 };
 
-struct OrderedWsCapture {
-  static constexpr auto name = "web_ordered_ws_capture";
+struct IndependentWsCapture {
+  static constexpr auto name = "web_independent_ws_capture";
 
-  static void eval(NodeView node,
+  static void eval(NodeView node, DateTime evaluation_time,
                    In<"routed", WsRouteOutput, InputValidity::Unchecked>
                        routed) {
     auto event = routed.template field<"event">();
     if (event.valid() && event.modified()) {
-      capture_transport_order(node, Str{"ws"});
+      capture_transport_progress(node, Str{"ws"}, evaluation_time);
     }
   }
 };
 
-struct OrderedTransportGraph {
-  static constexpr auto name = "web_ordered_transport_test_graph";
+struct IndependentTransportGraph {
+  static constexpr auto name = "web_independent_transport_test_graph";
 
   static void compose(Wiring &w) {
-    const auto path = service::path("web-ordered-transport");
+    const auto path = service::path("web-independent-transport");
     register_fake_server(w, path, server_configuration.clone(),
                          lifecycle_server);
     auto http_route =
@@ -727,10 +737,11 @@ struct OrderedTransportGraph {
     auto websocket_route =
         wire<stdlib::const_, TS<WebRoute>>(w, ws_route.clone());
     static_cast<void>(
-        wire<OrderedRequestCapture>(w, serve(w, path, http_route)));
+        wire<IndependentRequestCapture>(w, serve(w, path, http_route)));
     static_cast<void>(
-        wire<OrderedWsCapture>(w, ws_serve(w, path, websocket_route)));
-    static_cast<void>(wire<OrderedEventCapture>(w, server_events(w, path)));
+        wire<IndependentWsCapture>(w, ws_serve(w, path, websocket_route)));
+    static_cast<void>(
+        wire<IndependentEventCapture>(w, server_events(w, path)));
   }
 };
 
@@ -778,8 +789,8 @@ template <typename G> GraphBuilder build_realtime() {
 void test_runtime_specific_wiring_shapes() {
   serve_server = std::make_shared<FakeWebServer>();
   const auto server = build_realtime<ServeGraph>();
-  require(count_nodes(server, NodeKind::PushSource) == 1,
-          "web server did not wire exactly one standard push source");
+  require(count_nodes(server, NodeKind::PushSource) == 6,
+          "web server did not wire one standard push source per channel");
   for (const auto name :
        {std::string_view{"web_fake_server_http_routes"},
         std::string_view{"web_fake_server_respond"},
@@ -791,8 +802,8 @@ void test_runtime_specific_wiring_shapes() {
 
   ws_client = std::make_shared<FakeWebClient>();
   const auto client = build_realtime<ClientWsGraph>();
-  require(count_nodes(client, NodeKind::PushSource) == 1,
-          "web client did not wire exactly one standard push source");
+  require(count_nodes(client, NodeKind::PushSource) == 5,
+          "web client did not wire one standard push source per channel");
   for (const auto name :
        {std::string_view{"web_fake_client_ws_keys"},
         std::string_view{"web_fake_client_ws_send"},
@@ -1058,33 +1069,49 @@ void test_push_backlogs_deliver_one_request_per_cycle() {
           "backlogged requests were reordered");
 }
 
-void test_transport_preserves_order_across_event_kinds() {
+void test_transport_channels_progress_independently() {
   lifecycle_server = std::make_shared<FakeWebServer>();
-  observed_transport_order.clear();
+  observed_transport_progress.clear();
+  transport_channel_gate.reset();
 
-  auto executor = start_realtime(build_realtime<OrderedTransportGraph>());
+  auto executor = start_realtime(build_realtime<IndependentTransportGraph>());
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
+  const auto release_gate =
+      hgraph::make_scope_exit([] { transport_channel_gate.release(); });
 
   require(lifecycle_server->wait_for_http_routes(1, 2s),
-          "ordered transport HTTP route did not reach its sink");
+          "independent transport HTTP route did not reach its sink");
   require(lifecycle_server->wait_for_ws_routes(1, 2s),
-          "ordered transport WS route did not reach its sink");
+          "independent transport WS route did not reach its sink");
+
+  lifecycle_server->emit_request(serve_route.clone(),
+                                 make_server_request(Int{70}));
+  require(transport_channel_gate.await_blocked(2s),
+          "transport channel capture did not block");
+  for (Int request_id : {Int{71}, Int{72}, Int{73}, Int{74}}) {
+    lifecycle_server->emit_request(serve_route.clone(),
+                                   make_server_request(request_id));
+  }
   lifecycle_server->emit_event(
       make_event(WebSeverity::Info, Str{"test"}, Str{"ordering"},
-                 Str{"web-ordered-transport"}, Str{"first"}));
-  lifecycle_server->emit_request(serve_route.clone(),
-                                 make_server_request(Int{73}));
+                 Str{"web-independent-transport"}, Str{"independent"}));
   BundleBuilder ws_event{ValuePlanFactory::instance().type_for(
       scalar_descriptor<WsEvent>::value_meta())};
   ws_event.set("connection_id", Value{Int{9}});
   ws_event.set("state", Value{WsConnectionState::Open});
   lifecycle_server->emit_ws_event(ws_route.clone(), ws_event.build());
+  transport_channel_gate.release();
   runner.join();
 
-  require(observed_transport_order ==
-              std::vector<Str>{Str{"event"}, Str{"request"}, Str{"ws"}},
-          "the standard web push source reordered related event kinds");
+  require(observed_transport_progress.size() == 3,
+          "not every independent transport channel made progress");
+  const DateTime progress_time = observed_transport_progress.front().second;
+  for (const auto &[kind, evaluation_time] : observed_transport_progress) {
+    require(evaluation_time == progress_time,
+            "the " + kind +
+                " channel was blocked behind another channel's backlog");
+  }
 }
 
 void test_removed_route_drops_queued_events_after_readd() {
@@ -1269,7 +1296,7 @@ int main() {
     test_ws_server_boundary();
     test_ws_client_boundary();
     test_push_backlogs_deliver_one_request_per_cycle();
-    test_transport_preserves_order_across_event_kinds();
+    test_transport_channels_progress_independently();
     test_removed_route_drops_queued_events_after_readd();
     test_removed_ws_route_drops_queued_frames_after_readd();
     test_removed_client_key_drops_queued_frames_after_readd();

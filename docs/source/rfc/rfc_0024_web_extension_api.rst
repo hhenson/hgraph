@@ -120,8 +120,9 @@ ordering, a fake transport seam for socketless testing, and a separately
 versioned wheel over the installed SDK. The original web implementation also
 reused Kafka's private queue-and-wake bridge. Web then supplied the second
 independent implementation evidence that promoted bounded queue ownership into
-the standard push source in RFC 0027. The current implementation uses that
-shared core contract and retains only web-specific byte/reservation accounting.
+the standard push source in RFC 0027. The current implementation uses one such
+source for each independently ordered logical channel and retains only
+web-specific byte/reservation accounting.
 
 Prior art and evidence
 ----------------------
@@ -513,25 +514,31 @@ registry, and that holds no graph state.
   ``curl_multi_poll`` and woken by ``curl_multi_wakeup`` when the graph
   stages a submission.  WebSocket handles join the same loop; all
   ``curl_ws_send``/``curl_ws_recv`` calls happen on this thread.
-* **Graph transport**: one bounded standard FIFO push source carries a
-  discriminated, fully owned event envelope for each server or client runtime.
-  Ordinary graph nodes project requests, WS ingress, delivery reports, events,
-  and statistics onto the service outputs, preserving one cross-kind order.
+* **Graph transport**: one bounded standard FIFO push source carries the fully
+  owned event envelopes for each independently ordered logical channel. A
+  server has request, WS-ingress, response-delivery, WS-send-delivery, event,
+  and statistics sources; a client has response, WS-ingress, send-delivery,
+  event, and statistics sources. Ordinary graph nodes project each source onto
+  its service output. FIFO is preserved within each channel, while independent
+  channels may advance in the same engine cycle and cannot head-of-line block
+  one another. No public contract requires a total order across those service
+  outputs.
   The graph-to-runtime direction consists of purpose-specific sink nodes for
   route/key deltas, responses, calls, and WebSocket sends. A graph-scoped
   admission budget retains the web-specific per-channel byte limits,
   reservations, payload/control headroom, and watermarks, but owns no
-  ``Value`` storage; the push source is the sole cross-thread value queue. Its
-  record capacity is the aggregate reserved capacity, so a successful domain
-  admission cannot later fail because the core queue is full. Statistics allow
+  ``Value`` storage; the push sources are the sole cross-thread value queues.
+  Each source's record capacity is that channel's payload plus control
+  capacity, so a successful domain admission cannot later fail because its
+  core queue is full. Statistics allow
   one pending sample; additional periodic samples are self-superseding and are
   refused until the graph dequeues it, after which the next sample reports the
   current state. Each active route or WebSocket client key also has a
   graph-owned lifetime generation. The external task stamps that generation on
   routed ingress, and the graph projection accepts it only while the same
   generation remains active. A queued event can therefore neither recreate a
-  removed output key nor cross a rapid remove/re-add boundary; the queue remains
-  the sole owner of event ordering and storage.
+  removed output key nor cross a rapid remove/re-add boundary; the channel
+  queue remains the sole owner of event ordering and storage.
 * No worker thread calls ``EvaluationEngineApi``, mutates a time series, or
   retains a borrowed graph value.  ``PushSourceSender`` is the only
   cross-thread runtime boundary; off-thread value construction runs under
@@ -543,8 +550,8 @@ registry, and that holds no graph state.
 Flow control and bounded memory
 -------------------------------
 
-The standard push-source queue is bounded in records, and the web admission
-budget bounds each logical channel in records and bytes. At the configured high
+Each standard push-source queue is bounded in records, and the web admission
+budget bounds its logical channel in records and bytes. At the configured high
 watermark (default 80%) the transport stops issuing socket reads — HTTP/1.1
 backpressure propagates naturally through TCP; the client pauses transfers
 with ``curl_easy_pause``; the future h2 session withholds window updates —
@@ -591,8 +598,9 @@ queue space.  Reservation failure rejects the call with a typed
 Lifecycle and teardown
 ----------------------
 
-Wiring is parse/validate only. Start order: the standard push source activates
-its admission budget, constructs the graph-scoped runtime with its sender,
+Wiring is parse/validate only. Start order: the logical-channel push sources
+activate, the final source starts the shared admission budget and constructs
+the graph-scoped runtime with the complete sender set,
 binds or attaches the listener (bind failure fails graph start), starts I/O
 threads, and begins accepting. A start exception unwinds in reverse.
 
@@ -624,6 +632,10 @@ Ordering and time
   ``Date`` headers and payload timestamps are metadata.
 * Multiple requests pending on one route are delivered on consecutive
   ``MIN_TD`` cycles in arrival order.
+* FIFO ordering is scoped to one logical channel. HTTP ingress, WebSocket
+  ingress, delivery reports, diagnostics, and statistics are independent
+  service outputs: they may tick in the same cycle and a backlog in one does
+  not delay another.
 * Route/key removal invalidates all ingress already queued for that subscription
   lifetime. Re-adding an equal key creates a new lifetime; old HTTP requests,
   server WebSocket events/frames, and client WebSocket events/frames are not
@@ -1002,11 +1014,14 @@ A per-request adaptor-duplex endpoint per route
    routes dynamic data instead of requiring a new wiring-time route
    enumeration mechanism.
 
-One wake push-source per logical channel
-   Rejected by RFC 0027. A single discriminated event stream preserves the
-   order between related request, lifecycle, delivery, and failure events and
-   avoids duplicate queues and drain nodes. Independently ordered streams may
-   still use independent push sources when their contract requires it.
+One standard push source per logical channel
+   Selected. RFC 0027 removes the private value queues and wake-only nodes; it
+   does not require unrelated service outputs to share one FIFO. HTTP ingress,
+   WebSocket ingress, delivery reports, diagnostics, and statistics have no
+   public cross-channel ordering contract, so separate standard sources retain
+   FIFO where it is meaningful and avoid head-of-line blocking across domains.
+   The sources share one graph-scoped runtime and admission budget and require
+   no private queue or drain node.
 
 Blocking socket/event-loop sends or unbounded queues
    Rejected, as in RFC 0015. The standard boundary queue is bounded. Socket
@@ -1028,8 +1043,8 @@ Public C++ and extension boundary
 * One implementation materializes per demanded path; duplicate
   registration is rejected.
 * Graph-to-transport edges are sinks over ``impl_input``; each materialized
-  server or client runtime has exactly one root push source whose graph
-  projections are published with ``impl_output``.
+  server or client runtime has one root push source per logical output channel,
+  whose graph projections are published with ``impl_output``.
 * A same-cycle handler's response dispatches with zero added engine cycles
   between request arrival and response handoff (the RFC 0014 criterion),
   asserted by test.
@@ -1111,8 +1126,9 @@ Implementation plan
 7. Land HTTP/2 server activation (``nghttp2_session.cpp``) in a v1.x
    release behind the already-shipped seam.
 8. Migrate server, client, and fake transports to RFC 0027: one standard
-   bounded push source per runtime, graph projection and command sink nodes,
-   no private ``Value`` queue, and a separate real-time wiring path.
+   bounded push source per independently ordered channel, graph projection and
+   command sink nodes, no private ``Value`` queue, and a separate real-time
+   wiring path.
 
 Implementation status
 ---------------------
@@ -1125,10 +1141,11 @@ surface, and ``hgraph_web.compat`` — which now serves the released
 ``hgraph.adaptors.tornado`` server modules.  The h2 server remains a
 sealed seam per the activation plan above.
 
-The RFC 0027 web migration is also implemented: the former per-channel value
-deques, wake push sources, and drain nodes are removed. One standard bounded
-push source now owns the asynchronous event queue and executor notification;
-web retains only data-free byte/reservation accounting and protocol policy.
+The RFC 0027 web migration is also implemented: the former private per-channel
+value deques, wake-only push sources, and drain nodes are removed. One standard
+bounded push source per logical channel now owns asynchronous value storage and
+executor notification; web retains only data-free byte/reservation accounting
+and protocol policy.
 Live and callback-driven fake implementations reject simulation wiring.
 
 References

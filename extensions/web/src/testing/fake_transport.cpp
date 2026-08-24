@@ -860,20 +860,20 @@ void FakeWebClient::emit_stats(Value stats) {
 namespace {
 struct FakeServerTransportTag {};
 
-[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_fake_server_transport(
+[[nodiscard]] wd::ServerTransportPorts wire_fake_server_transport(
     Wiring &w, detail::FakeServerHandle server,
     wd::ServerAdmissionHandle admission,
     wd::WebTransportBindingsHandle bindings) {
-  return wd::wire_transport_source<FakeServerTransportTag>(
-      w, admission.value->max_pending(),
-      [server, admission, bindings](PushSourceSender sender, const NodeView &,
-                                    DateTime) {
+  return wd::wire_transport_sources<FakeServerTransportTag>(
+      w, admission,
+      [server, admission, bindings](wd::ServerTransportOutput::Senders senders,
+                                    const NodeView &, DateTime) {
         admission.value->start();
         try {
           detail::FakeServerAccess::attach(
               *server.value,
               std::make_shared<wd::ServerTransportOutput>(
-                  std::move(sender), admission, bindings));
+                  std::move(senders), admission, bindings));
         } catch (...) {
           admission.value->stop();
           throw;
@@ -1064,20 +1064,20 @@ struct FakeWebServerImpl {
 
 struct FakeClientTransportTag {};
 
-[[nodiscard]] Port<TS<wd::WebTransportEvent>> wire_fake_client_transport(
+[[nodiscard]] wd::ClientTransportPorts wire_fake_client_transport(
     Wiring &w, detail::FakeClientHandle client,
     wd::ClientAdmissionHandle admission,
     wd::WebTransportBindingsHandle bindings) {
-  return wd::wire_transport_source<FakeClientTransportTag>(
-      w, admission.value->max_pending(),
-      [client, admission, bindings](PushSourceSender sender, const NodeView &,
-                                    DateTime) {
+  return wd::wire_transport_sources<FakeClientTransportTag>(
+      w, admission,
+      [client, admission, bindings](wd::ClientTransportOutput::Senders senders,
+                                    const NodeView &, DateTime) {
         admission.value->start();
         try {
           detail::FakeClientAccess::attach(
               *client.value,
               std::make_shared<wd::ClientTransportOutput>(
-                  std::move(sender), admission, bindings));
+                  std::move(senders), admission, bindings));
         } catch (...) {
           admission.value->stop();
           throw;
