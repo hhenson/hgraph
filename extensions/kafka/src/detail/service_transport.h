@@ -3,7 +3,12 @@
 
 #include <hgraph/kafka/service.h>
 
+#include <hgraph/lib/std/operators/container.h>
+#include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/higher_order.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/runtime/push_source_node.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -59,6 +64,23 @@ using KafkaTransportEvent =
            Field<"report", KafkaDeliveryReport>, Field<"event", KafkaEvent>,
            Field<"stop_graph", Bool>>;
 using KafkaTransportEventBatch = HomogeneousTuple<KafkaTransportEvent>;
+using SequencedKafkaTransportBatch =
+    Bundle<"hgraph.kafka.internal::SequencedKafkaTransportBatch",
+           Field<"sequence", DateTime>,
+           Field<"events", KafkaTransportEventBatch>>;
+using KafkaDeliveryTransportBatches =
+    Map<Int, SequencedKafkaTransportBatch>;
+
+struct KafkaKeyedBatchBindings {
+  ValueTypeRef key{};
+  ValueTypeRef event{};
+  ValueTypeRef event_batch{};
+  ValueTypeRef sequenced_batch{};
+  ValueTypeRef batch_map{};
+
+  friend bool operator==(const KafkaKeyedBatchBindings &,
+                         const KafkaKeyedBatchBindings &) noexcept = default;
+};
 
 struct KafkaTransportBindings {
   ValueTypeRef event{};
@@ -260,86 +282,6 @@ struct SubscriptionEventScheduleHandle {
   }
 };
 
-/** Graph-thread spill used when one burst contains several delivery reports
- * for the same service request id. Distinct ids never enter this state. Drain
- * cost is O(P) for P pending ids; retained memory is O(C) for collisions. */
-class DeliveryEventSchedule {
-public:
-  template <typename Apply>
-  void drain(std::unordered_set<Int> &emitted, Apply &&apply) {
-    for (auto entry = values_.begin(); entry != values_.end();) {
-      auto &queue = entry->second;
-      Value event = std::move(queue.front());
-      queue.pop_front();
-      apply(event.view());
-      emitted.emplace(entry->first);
-      if (queue.empty()) {
-        entry = values_.erase(entry);
-      } else {
-        ++entry;
-      }
-    }
-  }
-
-  void defer(Int request_id, const ValueView &event) {
-    values_[request_id].emplace_back(event);
-  }
-
-  [[nodiscard]] bool empty() const noexcept { return values_.empty(); }
-
-private:
-  std::unordered_map<Int, std::deque<Value>> values_{};
-};
-
-struct DeliveryEventScheduleHandle {
-  std::shared_ptr<DeliveryEventSchedule> value{};
-
-  friend bool
-  operator==(const DeliveryEventScheduleHandle &,
-             const DeliveryEventScheduleHandle &) noexcept = default;
-  friend std::strong_ordering
-  operator<=>(const DeliveryEventScheduleHandle &lhs,
-              const DeliveryEventScheduleHandle &rhs) noexcept {
-    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
-           reinterpret_cast<std::uintptr_t>(rhs.value.get());
-  }
-};
-
-/** Graph-thread FIFO used only when a burst contains several scalar service
- * events. Cost is O(1) to emit and retain each event; memory is O(E) for E
- * events awaiting their own ticks. */
-class KafkaEventSchedule {
-public:
-  void defer(const ValueView &event) { values_.emplace_back(event); }
-
-  [[nodiscard]] std::optional<Value> pop() {
-    if (values_.empty()) {
-      return std::nullopt;
-    }
-    Value value = std::move(values_.front());
-    values_.pop_front();
-    return value;
-  }
-
-  [[nodiscard]] bool empty() const noexcept { return values_.empty(); }
-
-private:
-  std::deque<Value> values_{};
-};
-
-struct KafkaEventScheduleHandle {
-  std::shared_ptr<KafkaEventSchedule> value{};
-
-  friend bool operator==(const KafkaEventScheduleHandle &,
-                         const KafkaEventScheduleHandle &) noexcept = default;
-  friend std::strong_ordering
-  operator<=>(const KafkaEventScheduleHandle &lhs,
-              const KafkaEventScheduleHandle &rhs) noexcept {
-    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
-           reinterpret_cast<std::uintptr_t>(rhs.value.get());
-  }
-};
-
 inline std::ostream &operator<<(std::ostream &stream,
                                 const SubscriptionEventScheduleHandle &value) {
   return stream << "SubscriptionEventScheduleHandle(" << value.value.get()
@@ -347,13 +289,9 @@ inline std::ostream &operator<<(std::ostream &stream,
 }
 
 inline std::ostream &operator<<(std::ostream &stream,
-                                const DeliveryEventScheduleHandle &value) {
-  return stream << "DeliveryEventScheduleHandle(" << value.value.get() << ')';
-}
-
-inline std::ostream &operator<<(std::ostream &stream,
-                                const KafkaEventScheduleHandle &value) {
-  return stream << "KafkaEventScheduleHandle(" << value.value.get() << ')';
+                                const KafkaKeyedBatchBindings &value) {
+  return stream << "KafkaKeyedBatchBindings(" << value.batch_map.schema()
+                << ')';
 }
 
 } // namespace hgraph::kafka::detail
@@ -374,17 +312,15 @@ struct hash<hgraph::kafka::detail::SubscriptionEventScheduleHandle> {
   }
 };
 
-template <> struct hash<hgraph::kafka::detail::DeliveryEventScheduleHandle> {
-  size_t operator()(const hgraph::kafka::detail::DeliveryEventScheduleHandle
+template <> struct hash<hgraph::kafka::detail::KafkaKeyedBatchBindings> {
+  size_t operator()(const hgraph::kafka::detail::KafkaKeyedBatchBindings
                         &value) const noexcept {
-    return hash<const void *>{}(value.value.get());
-  }
-};
-
-template <> struct hash<hgraph::kafka::detail::KafkaEventScheduleHandle> {
-  size_t operator()(const hgraph::kafka::detail::KafkaEventScheduleHandle
-                        &value) const noexcept {
-    return hash<const void *>{}(value.value.get());
+    size_t result = hash<hgraph::ValueTypeRef>{}(value.key);
+    result ^= hash<hgraph::ValueTypeRef>{}(value.event) + 0x9e3779b9U +
+              (result << 6U) + (result >> 2U);
+    result ^= hash<hgraph::ValueTypeRef>{}(value.batch_map) + 0x9e3779b9U +
+              (result << 6U) + (result >> 2U);
+    return result;
   }
 };
 } // namespace std
@@ -400,14 +336,9 @@ template <> struct scalar_name<kafka::detail::SubscriptionEventScheduleHandle> {
       "hgraph.kafka.internal::SubscriptionEventScheduleHandle"};
 };
 
-template <> struct scalar_name<kafka::detail::DeliveryEventScheduleHandle> {
+template <> struct scalar_name<kafka::detail::KafkaKeyedBatchBindings> {
   static constexpr std::string_view value{
-      "hgraph.kafka.internal::DeliveryEventScheduleHandle"};
-};
-
-template <> struct scalar_name<kafka::detail::KafkaEventScheduleHandle> {
-  static constexpr std::string_view value{
-      "hgraph.kafka.internal::KafkaEventScheduleHandle"};
+      "hgraph.kafka.internal::KafkaKeyedBatchBindings"};
 };
 } // namespace hgraph::static_schema_detail
 
@@ -574,98 +505,163 @@ struct SubscriptionProjectionNode {
   }
 };
 
-/** Runtime projection for delivery envelopes. Distinct request ids tick
- * together; same-id collisions retain FIFO order. Cost is O(B + P) per tick
- * for burst size B and P pending ids; retained memory is O(C) for collisions.
- * State is ephemeral ingress state and is discarded at stop. */
+/** Groups delivery events by request id with O(B) work and O(B) transient
+ * memory. Standard collect retains the per-key batches; map_ gives every id an
+ * independent standard emit node for FIFO delivery. */
+struct GroupDeliveryBatchNode {
+  static constexpr auto name = "kafka_group_delivery_batch";
+
+  static void start(State<KafkaKeyedBatchBindings> bindings) {
+    const auto key = value_type_for_active_realization(
+        scalar_descriptor<Int>::value_meta());
+    const auto event = value_type_for_active_realization(
+        scalar_descriptor<KafkaTransportEvent>::value_meta());
+    const auto *event_batch_meta =
+        scalar_descriptor<KafkaTransportEventBatch>::value_meta();
+    const auto event_batch = compact_list_type(event, *event_batch_meta);
+    const auto sequenced_batch = value_type_for_active_realization(
+        scalar_descriptor<SequencedKafkaTransportBatch>::value_meta());
+    bindings.set(KafkaKeyedBatchBindings{
+        .key = key,
+        .event = event,
+        .event_batch = event_batch,
+        .sequenced_batch = sequenced_batch,
+        .batch_map = compact_map_type(key, sequenced_batch),
+    });
+  }
+
+  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
+                   State<KafkaKeyedBatchBindings> bindings,
+                   Out<TS<KafkaDeliveryTransportBatches>> out) {
+    std::unordered_map<Int, std::vector<std::size_t>> grouped;
+    const auto events = transport.base().value().as_list();
+    for (std::size_t index = 0; index != events.size(); ++index) {
+      const auto fields = events.at(index).as_bundle();
+      if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
+          KafkaTransportEventKind::Delivery) {
+        continue;
+      }
+      grouped[fields.at("request_id").checked_as<Int>()].push_back(index);
+    }
+    if (grouped.empty()) {
+      return;
+    }
+
+    const auto &resolved = bindings.ref();
+    const auto *event_batch_meta =
+        scalar_descriptor<KafkaTransportEventBatch>::value_meta();
+    MapBuilder batches{resolved.key, resolved.sequenced_batch};
+    for (const auto &[request_id, indices] : grouped) {
+      ListBuilder event_batch{resolved.event, *event_batch_meta};
+      for (const auto index : indices) {
+        event_batch.push_back(events.at(index));
+      }
+      ListStorage event_storage = event_batch.build_storage();
+      Value event_value{resolved.event_batch, &event_storage};
+      BundleBuilder batch{resolved.sequenced_batch};
+      batch.set("sequence", Value{out.evaluation_time()});
+      batch.set("events", std::move(event_value));
+      const Value key{request_id};
+      batches.set_item(key.view(), batch.build().view());
+    }
+    MapStorage batch_storage = batches.build_storage();
+    out.apply(ValueView{resolved.batch_map, &batch_storage});
+  }
+};
+
+/** Projects one delivery report; buffering and scheduling are graph-owned. */
 struct DeliveryProjectionNode {
   static constexpr auto name = "kafka_delivery_projection";
 
-  static void start(State<DeliveryEventScheduleHandle> state) {
-    state.set(
-        DeliveryEventScheduleHandle{std::make_shared<DeliveryEventSchedule>()});
-  }
-
-  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
-                   State<DeliveryEventScheduleHandle> state,
-                   SingleShotScheduler scheduler,
-                   Out<TSD<Int, TS<KafkaDeliveryReport>>> out) {
-    auto schedule = state.get().value;
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    std::unordered_set<Int> emitted;
-    const auto apply_event = [&](const ValueView &event) {
-      const auto fields = event.as_bundle();
-      mutation.set(fields.at("request_id"), fields.at("report"));
-    };
-    schedule->drain(emitted, apply_event);
-    if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto fields = event.as_bundle();
-        if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
-            KafkaTransportEventKind::Delivery) {
-          continue;
-        }
-        const Int request_id = fields.at("request_id").checked_as<Int>();
-        if (emitted.emplace(request_id).second) {
-          apply_event(event);
-        } else {
-          schedule->defer(request_id, event);
-        }
-      }
-    }
-    if (!schedule->empty()) {
-      scheduler.schedule(MIN_TD);
-    }
+  static void eval(In<"event", TS<KafkaTransportEvent>> event,
+                   Out<TS<KafkaDeliveryReport>> out) {
+    out.apply(event.base().value().as_bundle().at("report"));
   }
 };
 
-/** Runtime projection for scalar service-event output. A burst is scanned in
- * O(B), the first event is emitted, and remaining events are retained in FIFO
- * order using O(E) memory until their individual ticks. */
+struct DeliveryProjectionGraph {
+  static constexpr auto name = "kafka_delivery_projection_graph";
+
+  static Port<TS<KafkaDeliveryReport>>
+  compose(Wiring &w, NamedPort<"key", TS<Int>>,
+          Port<TS<SequencedKafkaTransportBatch>> batch) {
+    auto events = wire<stdlib::getattr_, TS<KafkaTransportEventBatch>>(
+        w, batch, Str{"events"});
+    auto event = wire<stdlib::emit>(w, events)
+                     .template as<TS<KafkaTransportEvent>>();
+    return wire<DeliveryProjectionNode>(w, event)
+        .template as<TS<KafkaDeliveryReport>>();
+  }
+};
+
+[[nodiscard]] inline Port<TSD<Int, TS<KafkaDeliveryReport>>>
+wire_delivery_output(Wiring &w,
+                     Port<TS<KafkaTransportEventBatch>> transport) {
+  auto grouped = wire<GroupDeliveryBatchNode>(w, transport)
+                     .template as<TS<KafkaDeliveryTransportBatches>>();
+  auto batches =
+      wire<stdlib::collect, TSD<Int, TS<SequencedKafkaTransportBatch>>>(
+          w, grouped);
+  return wire<stdlib::map_, TSD<Int, TS<KafkaDeliveryReport>>>(
+      w, fn<DeliveryProjectionGraph>(), batches);
+}
+
+/** Selects scalar service events from a mixed transport burst. It performs
+ * O(B) work and transient memory; standard emit owns the FIFO thereafter. */
+struct SelectEventBatchNode {
+  static constexpr auto name = "kafka_select_event_batch";
+
+  static void start(State<stdlib::ResolvedBindings> bindings) {
+    const auto *batch_meta =
+        scalar_descriptor<KafkaTransportEventBatch>::value_meta();
+    bindings.set(stdlib::resolve_list_bindings(batch_meta));
+  }
+
+  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
+                   State<stdlib::ResolvedBindings> bindings,
+                   Out<TS<KafkaTransportEventBatch>> out) {
+    const auto &resolved = bindings.ref();
+    ListBuilder selected{resolved.primary,
+                         *scalar_descriptor<
+                             KafkaTransportEventBatch>::value_meta()};
+    for (const auto event : transport.base().value().as_list()) {
+      const auto fields = event.as_bundle();
+      if (fields.at("kind").checked_as<KafkaTransportEventKind>() ==
+          KafkaTransportEventKind::Event) {
+        selected.push_back(event);
+      }
+    }
+    if (selected.empty()) {
+      return;
+    }
+    ListStorage storage = selected.build_storage();
+    out.apply(ValueView{resolved.result, &storage});
+  }
+};
+
+/** Projects one scalar service event and applies stop policy on graph. */
 struct EventProjectionNode {
   static constexpr auto name = "kafka_event_projection";
 
-  static void start(State<KafkaEventScheduleHandle> state) {
-    state.set(KafkaEventScheduleHandle{std::make_shared<KafkaEventSchedule>()});
-  }
-
-  static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
-                   State<KafkaEventScheduleHandle> state,
-                   SingleShotScheduler scheduler, EngineControlView engine,
-                   Out<TS<KafkaEvent>> out) {
-    auto schedule = state.get().value;
-    bool emitted = false;
-    const auto apply_event = [&](const ValueView &event) {
-      const auto fields = event.as_bundle();
-      out.apply(fields.at("event"));
-      const auto stop_graph = fields.at("stop_graph");
-      if (stop_graph.data() != nullptr && stop_graph.checked_as<Bool>()) {
-        engine.request_stop();
-      }
-      emitted = true;
-    };
-    if (auto pending = schedule->pop()) {
-      apply_event(pending->view());
-    }
-    if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto fields = event.as_bundle();
-        if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
-            KafkaTransportEventKind::Event) {
-          continue;
-        }
-        if (emitted) {
-          schedule->defer(event);
-        } else {
-          apply_event(event);
-        }
-      }
-    }
-    if (!schedule->empty()) {
-      scheduler.schedule(MIN_TD);
+  static void eval(In<"event", TS<KafkaTransportEvent>> event,
+                   EngineControlView engine, Out<TS<KafkaEvent>> out) {
+    const auto fields = event.base().value().as_bundle();
+    out.apply(fields.at("event"));
+    const auto stop_graph = fields.at("stop_graph");
+    if (stop_graph.data() != nullptr && stop_graph.checked_as<Bool>()) {
+      engine.request_stop();
     }
   }
 };
+
+[[nodiscard]] inline Port<TS<KafkaEvent>>
+wire_event_output(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport) {
+  auto selected = wire<SelectEventBatchNode>(w, transport)
+                      .template as<TS<KafkaTransportEventBatch>>();
+  auto event = wire<stdlib::emit>(w, selected)
+                   .template as<TS<KafkaTransportEvent>>();
+  return wire<EventProjectionNode>(w, event).template as<TS<KafkaEvent>>();
+}
 
 /** Simulation projection applies a same-time batch as one keyed mutation so
  *  the graph observes an atomic replay cohort. It retains no replay history;
@@ -787,9 +783,8 @@ wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport,
   return ServiceOutputs{
       wire<SubscriptionProjectionNode>(w, transport, bindings)
           .template as<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>>(),
-      wire<DeliveryProjectionNode>(w, transport)
-          .template as<TSD<Int, TS<KafkaDeliveryReport>>>(),
-      wire<EventProjectionNode>(w, transport).template as<TS<KafkaEvent>>(),
+      wire_delivery_output(w, transport),
+      wire_event_output(w, transport),
   };
 }
 

@@ -5,8 +5,12 @@
 
 #include "stream_model.h"
 
+#include <hgraph/lib/std/operators/container.h>
+#include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/higher_order.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/push_source_node.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -17,12 +21,10 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <ostream>
 #include <span>
 #include <stdexcept>
@@ -30,8 +32,8 @@
 #include <type_traits>
 #include <typeindex>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace hgraph::web::detail {
 
@@ -89,8 +91,8 @@ struct WatermarkConfig {
  * This object owns no Values and is not a second transport queue. Each core
  * push source owns its channel's cross-thread record storage, queue admission,
  * and wake-up. The web runtime uses this graph-scoped budget only to reserve
- * payload bytes before socket reads, account for graph-side same-key spill,
- * retain per-channel watermarks, and guarantee control headroom.
+ * payload bytes before socket reads, retain per-channel watermarks, and
+ * guarantee control headroom until the admitted burst enters graph processing.
  */
 template <std::size_t ChannelCount> class AdmissionBudget {
 public:
@@ -419,11 +421,6 @@ struct WebTransportBindings {
   ValueTypeRef event_kind{};
   ValueTypeRef integer{};
   ValueTypeRef boolean{};
-  ValueTypeRef route_state{};
-  ValueTypeRef server_route_output{};
-  ValueTypeRef server_ws_output{};
-  ValueTypeRef client_call_result{};
-  ValueTypeRef client_ws_output{};
 };
 
 struct WebTransportBindingsHandle {
@@ -467,87 +464,18 @@ struct OwnedValueEqual {
   }
 };
 
-/** Graph-thread-only overflow retained after a burst contains more than one
- * event for the same public TSD key, plus scalar events awaiting their own
- * ticks. Distinct keys never enter this state. Keyed drain is O(P) per tick
- * for P pending keys; scalar drain is O(1). Retained memory is O(C + S) for C
- * same-key collisions and S scalar events. */
-class WebProjectionSchedule {
-public:
-  using EmittedKeys =
-      std::unordered_set<Value, OwnedValueHash, OwnedValueEqual>;
+/** Wiring-fixed value bindings used by the one graph-side grouping primitive.
+ * The node performs only O(B) transient classification. Standard collect,
+ * map_, and emit nodes own all state used to unroll same-key collisions. */
+struct WebKeyedBatchBindings {
+  ValueTypeRef key{};
+  ValueTypeRef event{};
+  ValueTypeRef event_batch{};
+  ValueTypeRef sequenced_batch{};
+  ValueTypeRef batch_map{};
 
-  template <typename Apply>
-  void drain_keyed(EmittedKeys &emitted, Apply &&apply) {
-    for (auto entry = keyed_.begin(); entry != keyed_.end();) {
-      auto &queue = entry->second;
-      bool did_emit = false;
-      while (!queue.empty() && !did_emit) {
-        Value event = std::move(queue.front());
-        queue.pop_front();
-        did_emit = apply(event.view());
-      }
-      if (did_emit) {
-        emitted.emplace(entry->first.clone());
-      }
-      if (queue.empty()) {
-        entry = keyed_.erase(entry);
-      } else {
-        ++entry;
-      }
-    }
-  }
-
-  [[nodiscard]] static bool contains(const EmittedKeys &emitted,
-                                     const ValueView &key) {
-    return emitted.contains(key);
-  }
-
-  static void mark(EmittedKeys &emitted, const ValueView &key) {
-    emitted.emplace(key);
-  }
-
-  void defer(const ValueView &key, const ValueView &event) {
-    auto entry = keyed_.find(key);
-    if (entry == keyed_.end()) {
-      entry = keyed_.try_emplace(Value{key}).first;
-    }
-    entry->second.emplace_back(event);
-  }
-
-  [[nodiscard]] bool keyed_empty() const noexcept { return keyed_.empty(); }
-
-  void defer_scalar(const ValueView &event) { scalar_.emplace_back(event); }
-
-  [[nodiscard]] std::optional<Value> pop_scalar() {
-    if (scalar_.empty()) {
-      return std::nullopt;
-    }
-    Value event = std::move(scalar_.front());
-    scalar_.pop_front();
-    return event;
-  }
-
-  [[nodiscard]] bool scalar_empty() const noexcept { return scalar_.empty(); }
-
-private:
-  std::unordered_map<Value, std::deque<Value>, OwnedValueHash, OwnedValueEqual>
-      keyed_{};
-  std::deque<Value> scalar_{};
-};
-
-struct WebProjectionScheduleHandle {
-  std::shared_ptr<WebProjectionSchedule> value{};
-
-  friend bool
-  operator==(const WebProjectionScheduleHandle &,
-             const WebProjectionScheduleHandle &) noexcept = default;
-  friend std::strong_ordering
-  operator<=>(const WebProjectionScheduleHandle &lhs,
-              const WebProjectionScheduleHandle &rhs) noexcept {
-    return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=>
-           reinterpret_cast<std::uintptr_t>(rhs.value.get());
-  }
+  friend bool operator==(const WebKeyedBatchBindings &,
+                         const WebKeyedBatchBindings &) noexcept = default;
 };
 
 inline std::ostream &operator<<(std::ostream &stream,
@@ -556,8 +484,8 @@ inline std::ostream &operator<<(std::ostream &stream,
 }
 
 inline std::ostream &operator<<(std::ostream &stream,
-                                const WebProjectionScheduleHandle &value) {
-  return stream << "WebProjectionScheduleHandle(" << value.value.get() << ')';
+                                const WebKeyedBatchBindings &value) {
+  return stream << "WebKeyedBatchBindings(" << value.batch_map.schema() << ')';
 }
 
 [[nodiscard]] inline WebTransportBindingsHandle make_transport_bindings() {
@@ -569,15 +497,6 @@ inline std::ostream &operator<<(std::ostream &stream,
               scalar_descriptor<WebTransportEventKind>::value_meta()),
           factory.type_for(scalar_descriptor<Int>::value_meta()),
           factory.type_for(scalar_descriptor<Bool>::value_meta()),
-          factory.type_for(scalar_descriptor<WebRouteState>::value_meta()),
-          factory.type_for(
-              schema_descriptor<WebRouteOutput>::ts_meta()->value_schema),
-          factory.type_for(
-              schema_descriptor<WsRouteOutput>::ts_meta()->value_schema),
-          factory.type_for(
-              schema_descriptor<HttpCallResult>::ts_meta()->value_schema),
-          factory.type_for(
-              schema_descriptor<WsClientOutput>::ts_meta()->value_schema),
       })};
 }
 
@@ -692,451 +611,335 @@ template <typename Key> struct SubscriptionGenerationNode {
   }
 };
 
-[[nodiscard]] inline bool generation_matches(const TSDInputView &generations,
-                                             const ValueView &key,
-                                             const ValueView &generation) {
-  if (generation.data() == nullptr) {
-    return false;
-  }
-  const auto current = generations.at(key);
-  return current.valid() && current.value().checked_as<DateTime>() ==
-                                generation.checked_as<DateTime>();
-}
+/** Releases the domain admission for a burst once the standard push source has
+ * handed it to graph processing. Protocol completion remains a later sink-node
+ * concern. Cost is O(B) per burst and retained memory is O(1). */
+template <typename Handle> struct ReleaseTransportBatchSink {
+  static constexpr auto name = "web_release_transport_batch";
 
-/** Releases one transport event after its public output has been applied or
- * the event has been discarded. Deferred same-key collisions remain admitted,
- * so the configured web record/byte limits also bound graph-side spill.
- * Cost is O(1) per consumed event. */
-template <typename Handle>
-void release_transport_event(const Handle &admission, const ValueView &event) {
-  const auto fields = event.as_bundle();
-  admission.value->release(
-      static_cast<std::size_t>(fields.at("channel").checked_as<Int>()),
-      static_cast<std::size_t>(fields.at("retained_bytes").checked_as<Int>()),
-      fields.at("control").checked_as<Bool>());
-}
-
-/** Projects HTTP route lifecycle and request bursts. Distinct routes tick
- * together; same-route collisions retain FIFO order over following cycles.
- * Cost is O(A + R + B + P) per tick for route delta sizes A/R, burst size B,
- * and P pending route keys. Retained memory is O(C) for deferred collisions. */
-struct ServerRequestProjectionNode {
-  static constexpr auto name = "web_server_request_projection";
-
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void
-  eval(In<"transport", TS<WebTransportEventBatch>, InputValidity::Unchecked>
-           transport,
-       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
-       In<"generations", TSD<WebRoute, TS<DateTime>>, InputValidity::Unchecked>
-           generations,
-       Scalar<"admission", ServerAdmissionHandle> admission,
-       Scalar<"bindings", WebTransportBindingsHandle> bindings,
-       State<WebProjectionScheduleHandle> state, SingleShotScheduler scheduler,
-       Out<TSD<WebRoute, WebRouteOutput>> out) {
-    const bool has_batch = transport.modified();
-    auto schedule = state.get().value;
-    const auto &route_delta = static_cast<const TSSInputView &>(routes);
-    const auto removed = route_delta.removed();
-    if (!has_batch && !routes.modified() && schedule->keyed_empty()) {
-      return;
-    }
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    WebProjectionSchedule::EmittedKeys emitted;
-    const auto apply_envelope = [&](const auto &envelope) {
-      if (generation_matches(static_cast<const TSDInputView &>(generations),
-                             envelope.at("route"), envelope.at("generation"))) {
-        BundleBuilder value{bindings.value().value->server_route_output};
-        for (const auto name :
-             {std::string_view{"request"}, std::string_view{"state"}}) {
-          const auto field = envelope.at(name);
-          if (field.data() != nullptr) {
-            value.set(name, field.clone());
-          }
-        }
-        const Value update = value.build();
-        mutation.set(envelope.at("route"), update.view());
-        return true;
-      }
-      return false;
-    };
-    schedule->drain_keyed(emitted, [&](const ValueView &event) {
-      const bool applied =
-          apply_envelope(event.as_bundle().at("request").as_bundle());
-      release_transport_event(admission.value(), event);
-      return applied;
-    });
-    if (has_batch) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto envelope = event.as_bundle().at("request").as_bundle();
-        const auto key = envelope.at("route");
-        if (WebProjectionSchedule::contains(emitted, key)) {
-          schedule->defer(key, event);
-        } else {
-          if (apply_envelope(envelope)) {
-            WebProjectionSchedule::mark(emitted, key);
-          }
-          release_transport_event(admission.value(), event);
-        }
-      }
-    }
-    if (!schedule->keyed_empty()) {
-      scheduler.schedule(MIN_TD);
-    }
-    if (routes.modified()) {
-      for (const auto route : route_delta.added()) {
-        const WebRouteState state = WebRouteState::Serving;
-        BundleBuilder value{bindings.value().value->server_route_output};
-        value.set("state", transport_scalar(bindings.value().value->route_state,
-                                            &state));
-        const Value update = value.build();
-        mutation.set(route, update.view());
-      }
-      // Push sources run before ordinary nodes. If the last admitted event and
-      // a graph-side route removal meet in one cycle, the later removal wins.
-      for (const auto route : removed) {
-        static_cast<void>(mutation.erase(route));
-      }
+  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
+                   Scalar<"admission", Handle> admission) {
+    for (const auto event : transport.base().value().as_list()) {
+      const auto fields = event.as_bundle();
+      admission.value().value->release(
+          static_cast<std::size_t>(fields.at("channel").checked_as<Int>()),
+          static_cast<std::size_t>(
+              fields.at("retained_bytes").checked_as<Int>()),
+          fields.at("control").checked_as<Bool>());
     }
   }
 };
 
-/** Projects WebSocket ingress and route removal. Distinct routes tick
- * together; same-route collisions retain FIFO order. Cost is O(R + B + P)
- * per tick for R removals, burst size B, and P pending route keys. Retained
- * memory is O(C) for deferred collisions. */
+/** Groups one burst by its public TSD key. This is the only web-specific
+ * collection primitive: it performs O(B) average work and O(B) transient
+ * memory per burst. Standard collect retains the latest per-key batch and a
+ * mapped standard emit supplies FIFO unrolling independently for every key. */
+template <typename Key, fixed_string PayloadField, fixed_string KeyField>
+struct GroupTransportBatchNode {
+  static constexpr auto name = "web_group_transport_batch";
+
+  static void start(State<WebKeyedBatchBindings> bindings) {
+    const auto key = value_type_for_active_realization(
+        scalar_descriptor<Key>::value_meta());
+    const auto event = value_type_for_active_realization(
+        scalar_descriptor<WebTransportEvent>::value_meta());
+    const auto *event_batch_meta =
+        scalar_descriptor<WebTransportEventBatch>::value_meta();
+    const auto event_batch = compact_list_type(event, *event_batch_meta);
+    const auto sequenced_batch = value_type_for_active_realization(
+        scalar_descriptor<SequencedWebTransportBatch>::value_meta());
+    bindings.set(WebKeyedBatchBindings{
+        .key = key,
+        .event = event,
+        .event_batch = event_batch,
+        .sequenced_batch = sequenced_batch,
+        .batch_map = compact_map_type(key, sequenced_batch),
+    });
+  }
+
+  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
+                   State<WebKeyedBatchBindings> bindings,
+                   Out<TS<KeyedWebTransportBatches<Key>>> out) {
+    using EventsByKey = std::unordered_map<Value, std::vector<std::size_t>,
+                                           OwnedValueHash, OwnedValueEqual>;
+    EventsByKey grouped;
+    const auto events = transport.base().value().as_list();
+    grouped.reserve(events.size());
+    for (std::size_t index = 0; index != events.size(); ++index) {
+      const auto event = events.at(index);
+      const auto envelope =
+          event.as_bundle().at(PayloadField.sv()).as_bundle();
+      const auto key = envelope.at(KeyField.sv());
+      auto entry = grouped.find(key);
+      if (entry == grouped.end()) {
+        entry = grouped.try_emplace(Value{key}).first;
+      }
+      entry->second.push_back(index);
+    }
+
+    const auto &resolved = bindings.ref();
+    const auto *event_batch_meta =
+        scalar_descriptor<WebTransportEventBatch>::value_meta();
+    MapBuilder batches{resolved.key, resolved.sequenced_batch};
+    for (const auto &[key, grouped_events] : grouped) {
+      ListBuilder event_batch{resolved.event, *event_batch_meta};
+      for (const auto index : grouped_events) {
+        event_batch.push_back(events.at(index));
+      }
+      ListStorage event_storage = event_batch.build_storage();
+      Value event_value{resolved.event_batch, &event_storage};
+      BundleBuilder batch{resolved.sequenced_batch};
+      batch.set("sequence", Value{out.evaluation_time()});
+      batch.set("events", std::move(event_value));
+      batches.set_item(key.view(), batch.build().view());
+    }
+    MapStorage batch_storage = batches.build_storage();
+    out.apply(ValueView{resolved.batch_map, &batch_storage});
+  }
+};
+
+template <typename Key, typename GroupNode>
+[[nodiscard]] Port<TSD<Key, TS<SequencedWebTransportBatch>>>
+wire_keyed_transport_batches(Wiring &w,
+                             Port<TS<WebTransportEventBatch>> transport) {
+  auto grouped = wire<GroupNode>(w, transport)
+                     .template as<TS<KeyedWebTransportBatches<Key>>>();
+  return wire<stdlib::collect,
+              TSD<Key, TS<SequencedWebTransportBatch>>>(w, grouped);
+}
+
+[[nodiscard]] inline Port<TS<WebTransportEvent>>
+wire_unrolled_transport_event(Wiring &w,
+                              Port<TS<SequencedWebTransportBatch>> batch) {
+  auto events = wire<stdlib::getattr_, TS<WebTransportEventBatch>>(
+      w, batch, Str{"events"});
+  return wire<stdlib::emit>(w, events).template as<TS<WebTransportEvent>>();
+}
+
+using ServerRequestBatchNode =
+    GroupTransportBatchNode<WebRoute, "request", "route">;
+using ServerWsBatchNode =
+    GroupTransportBatchNode<WebRoute, "server_ws", "route">;
+using DeliveryBatchNode =
+    GroupTransportBatchNode<Int, "delivery", "request_id">;
+using ClientResponseBatchNode =
+    GroupTransportBatchNode<Int, "response", "request_id">;
+using ClientWsBatchNode =
+    GroupTransportBatchNode<WsClientKey, "client_ws", "key">;
+
+/** Projects one request event. Route lifetime and same-route FIFO ownership
+ * are supplied by map_ and emit respectively, so this node retains no state. */
+struct ServerRequestProjectionNode {
+  static constexpr auto name = "web_server_request_projection";
+  static constexpr bool schedule_on_start = true;
+
+  static void eval(
+      In<"event", TS<WebTransportEvent>, InputValidity::Unchecked> event,
+      In<"generation", TS<DateTime>, InputValidity::Unchecked> generation,
+      Out<WebRouteOutput> out) {
+    auto state = out.template field<"state">();
+    if (!state.valid()) {
+      state.set(WebRouteState::Serving);
+    }
+    if (!event.modified() || !event.valid() || !generation.valid()) {
+      return;
+    }
+    const auto envelope =
+        event.base().value().as_bundle().at("request").as_bundle();
+    const auto event_generation = envelope.at("generation");
+    if (event_generation.data() == nullptr ||
+        event_generation.checked_as<DateTime>() != generation.value()) {
+      return;
+    }
+    const auto request = envelope.at("request");
+    if (request.data() != nullptr) {
+      out.template field<"request">().apply(request);
+    }
+  }
+};
+
+struct ServerRequestProjectionGraph {
+  static constexpr auto name = "web_server_request_projection_graph";
+
+  static Port<WebRouteOutput>
+  compose(Wiring &w, NamedPort<"key", TS<WebRoute>>,
+          Port<TS<SequencedWebTransportBatch>> batch,
+          Port<TS<DateTime>> generation) {
+    return wire<ServerRequestProjectionNode>(
+               w, wire_unrolled_transport_event(w, batch), generation)
+        .template as<WebRouteOutput>();
+  }
+};
+
+/** Projects one server WebSocket event. Cost is O(1) per event. */
 struct ServerWsProjectionNode {
   static constexpr auto name = "web_server_ws_projection";
 
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void
-  eval(In<"transport", TS<WebTransportEventBatch>, InputValidity::Unchecked>
-           transport,
-       In<"routes", TSS<WebRoute>, InputValidity::Unchecked> routes,
-       In<"generations", TSD<WebRoute, TS<DateTime>>, InputValidity::Unchecked>
-           generations,
-       Scalar<"admission", ServerAdmissionHandle> admission,
-       Scalar<"bindings", WebTransportBindingsHandle> bindings,
-       State<WebProjectionScheduleHandle> state, SingleShotScheduler scheduler,
-       Out<TSD<WebRoute, WsRouteOutput>> out) {
-    const bool has_batch = transport.modified();
-    auto schedule = state.get().value;
-    const auto &route_delta = static_cast<const TSSInputView &>(routes);
-    const auto removed = route_delta.removed();
-    if (!has_batch && schedule->keyed_empty() &&
-        (!routes.modified() || removed.begin() == removed.end())) {
+  static void eval(In<"event", TS<WebTransportEvent>> event,
+                   In<"generation", TS<DateTime>, InputValidity::Unchecked>
+                       generation,
+                   Out<WsRouteOutput> out) {
+    if (!generation.valid()) {
       return;
     }
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    WebProjectionSchedule::EmittedKeys emitted;
-    const auto apply_envelope = [&](const auto &envelope) {
-      if (generation_matches(static_cast<const TSDInputView &>(generations),
-                             envelope.at("route"), envelope.at("generation"))) {
-        BundleBuilder value{bindings.value().value->server_ws_output};
-        for (const auto name :
-             {std::string_view{"event"}, std::string_view{"frame"}}) {
-          const auto field = envelope.at(name);
-          if (field.data() != nullptr) {
-            value.set(name, field.clone());
-          }
-        }
-        const Value update = value.build();
-        mutation.set(envelope.at("route"), update.view());
-        return true;
-      }
-      return false;
-    };
-    schedule->drain_keyed(emitted, [&](const ValueView &event) {
-      const bool applied =
-          apply_envelope(event.as_bundle().at("server_ws").as_bundle());
-      release_transport_event(admission.value(), event);
-      return applied;
-    });
-    if (has_batch) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto envelope = event.as_bundle().at("server_ws").as_bundle();
-        const auto key = envelope.at("route");
-        if (WebProjectionSchedule::contains(emitted, key)) {
-          schedule->defer(key, event);
-        } else {
-          if (apply_envelope(envelope)) {
-            WebProjectionSchedule::mark(emitted, key);
-          }
-          release_transport_event(admission.value(), event);
-        }
-      }
+    const auto envelope =
+        event.base().value().as_bundle().at("server_ws").as_bundle();
+    const auto event_generation = envelope.at("generation");
+    if (event_generation.data() == nullptr ||
+        event_generation.checked_as<DateTime>() != generation.value()) {
+      return;
     }
-    if (!schedule->keyed_empty()) {
-      scheduler.schedule(MIN_TD);
+    const auto event_value = envelope.at("event");
+    if (event_value.data() != nullptr) {
+      out.template field<"event">().apply(event_value);
     }
-    if (routes.modified()) {
-      for (const auto route : removed) {
-        static_cast<void>(mutation.erase(route));
-      }
+    const auto frame = envelope.at("frame");
+    if (frame.data() != nullptr) {
+      out.template field<"frame">().apply(frame);
     }
   }
 };
 
-/** Projects delivery-report bursts. Distinct request ids tick together;
- * duplicate ids retain FIFO order. Cost is O(B + P) per tick for burst size B
- * and P pending ids. Retained memory is O(C) for duplicate-id collisions. */
-template <typename Admission> struct DeliveryProjectionNode {
+struct ServerWsProjectionGraph {
+  static constexpr auto name = "web_server_ws_projection_graph";
+
+  static Port<WsRouteOutput>
+  compose(Wiring &w, NamedPort<"key", TS<WebRoute>>,
+          Port<TS<SequencedWebTransportBatch>> batch,
+          Port<TS<DateTime>> generation) {
+    return wire<ServerWsProjectionNode>(
+               w, wire_unrolled_transport_event(w, batch), generation)
+        .template as<WsRouteOutput>();
+  }
+};
+
+/** Projects one delivery report. Cost and retained memory are O(1). */
+struct DeliveryProjectionNode {
   static constexpr auto name = "web_delivery_projection";
 
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
-                   Scalar<"admission", Admission> admission,
-                   State<WebProjectionScheduleHandle> state,
-                   SingleShotScheduler scheduler,
-                   Out<TSD<Int, TS<WebDeliveryReport>>> out) {
-    auto schedule = state.get().value;
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    WebProjectionSchedule::EmittedKeys emitted;
-    const auto apply_event = [&](const ValueView &event) {
-      const auto envelope = event.as_bundle().at("delivery").as_bundle();
-      mutation.set(envelope.at("request_id"), envelope.at("report"));
-      return true;
-    };
-    schedule->drain_keyed(emitted, [&](const ValueView &event) {
-      const bool applied = apply_event(event);
-      release_transport_event(admission.value(), event);
-      return applied;
-    });
-    if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto key =
-            event.as_bundle().at("delivery").as_bundle().at("request_id");
-        if (WebProjectionSchedule::contains(emitted, key)) {
-          schedule->defer(key, event);
-        } else {
-          static_cast<void>(apply_event(event));
-          WebProjectionSchedule::mark(emitted, key);
-          release_transport_event(admission.value(), event);
-        }
-      }
-    }
-    if (!schedule->keyed_empty()) {
-      scheduler.schedule(MIN_TD);
-    }
+  static void eval(In<"event", TS<WebTransportEvent>> event,
+                   Out<TS<WebDeliveryReport>> out) {
+    out.apply(event.base()
+                  .value()
+                  .as_bundle()
+                  .at("delivery")
+                  .as_bundle()
+                  .at("report"));
   }
 };
 
-/** Projects service-event bursts and applies stop policy on graph. Scalar
- * output requires FIFO unrolling: O(B) to admit a burst, O(1) to emit, and
- * O(S) retained memory for S pending events. */
-template <typename Admission> struct EventProjectionNode {
+struct DeliveryProjectionGraph {
+  static constexpr auto name = "web_delivery_projection_graph";
+
+  static Port<TS<WebDeliveryReport>>
+  compose(Wiring &w, NamedPort<"key", TS<Int>>,
+          Port<TS<SequencedWebTransportBatch>> batch) {
+    return wire<DeliveryProjectionNode>(
+               w, wire_unrolled_transport_event(w, batch))
+        .template as<TS<WebDeliveryReport>>();
+  }
+};
+
+/** Projects one graph service event and applies stop policy on graph. */
+struct EventProjectionNode {
   static constexpr auto name = "web_event_projection";
 
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
-                   Scalar<"admission", Admission> admission,
-                   State<WebProjectionScheduleHandle> state,
-                   SingleShotScheduler scheduler, EngineControlView engine,
-                   Out<TS<WebEvent>> out) {
-    auto schedule = state.get().value;
-    bool emitted = false;
-    const auto apply_event = [&](const ValueView &event) {
-      const auto envelope = event.as_bundle().at("event").as_bundle();
-      out.apply(envelope.at("event"));
-      if (envelope.at("stop_graph").checked_as<Bool>()) {
-        engine.request_stop();
-      }
-      emitted = true;
-    };
-    if (auto pending = schedule->pop_scalar()) {
-      apply_event(pending->view());
-      release_transport_event(admission.value(), pending->view());
-    }
-    if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
-        if (emitted) {
-          schedule->defer_scalar(event);
-        } else {
-          apply_event(event);
-          release_transport_event(admission.value(), event);
-        }
-      }
-    }
-    if (!schedule->scalar_empty()) {
-      scheduler.schedule(MIN_TD);
+  static void eval(In<"event", TS<WebTransportEvent>> event,
+                   EngineControlView engine, Out<TS<WebEvent>> out) {
+    const auto envelope =
+        event.base().value().as_bundle().at("event").as_bundle();
+    out.apply(envelope.at("event"));
+    if (envelope.at("stop_graph").checked_as<Bool>()) {
+      engine.request_stop();
     }
   }
 };
 
-/** Projects the latest statistics sample in a burst. Statistics describe
- * current state rather than an event-accurate stream, so older samples are
- * superseded. Cost is O(1) per tick and retained memory is O(1). */
-template <typename Stats, typename Admission> struct StatsProjectionNode {
+/** Projects the selected latest statistics event. */
+template <typename Stats> struct StatsProjectionNode {
   static constexpr auto name = "web_stats_projection";
 
-  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
-                   Scalar<"admission", Admission> admission,
+  static void eval(In<"event", TS<WebTransportEvent>> event,
                    Out<TS<Stats>> out) {
-    const auto events = transport.base().value().as_list();
-    const auto fields = events.at(events.size() - 1).as_bundle();
+    const auto fields = event.base().value().as_bundle();
     if constexpr (std::is_same_v<Stats, WebServerStats>) {
       out.apply(fields.at("server_stats"));
     } else {
       out.apply(fields.at("client_stats"));
     }
-    for (const auto event : events) {
-      release_transport_event(admission.value(), event);
-    }
   }
 };
 
-/** Projects HTTP client result bursts. Distinct request ids tick together;
- * duplicate ids retain FIFO order. Cost is O(B + P) per tick for burst size B
- * and P pending ids. Retained memory is O(C) for duplicate-id collisions. */
+/** Projects one HTTP client result. Cost and retained memory are O(1). */
 struct ClientResponseProjectionNode {
   static constexpr auto name = "web_client_response_projection";
 
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void eval(In<"transport", TS<WebTransportEventBatch>> transport,
-                   Scalar<"admission", ClientAdmissionHandle> admission,
-                   Scalar<"bindings", WebTransportBindingsHandle> bindings,
-                   State<WebProjectionScheduleHandle> state,
-                   SingleShotScheduler scheduler,
-                   Out<TSD<Int, HttpCallResult>> out) {
-    auto schedule = state.get().value;
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    WebProjectionSchedule::EmittedKeys emitted;
-    const auto apply_event = [&](const ValueView &event) {
-      const auto envelope = event.as_bundle().at("response").as_bundle();
-      BundleBuilder value{bindings.value().value->client_call_result};
-      for (const auto name :
-           {std::string_view{"response"}, std::string_view{"failure"}}) {
-        const auto field = envelope.at(name);
-        if (field.data() != nullptr) {
-          value.set(name, field.clone());
-        }
-      }
-      const Value update = value.build();
-      mutation.set(envelope.at("request_id"), update.view());
-      return true;
-    };
-    schedule->drain_keyed(emitted, [&](const ValueView &event) {
-      const bool applied = apply_event(event);
-      release_transport_event(admission.value(), event);
-      return applied;
-    });
-    if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto key =
-            event.as_bundle().at("response").as_bundle().at("request_id");
-        if (WebProjectionSchedule::contains(emitted, key)) {
-          schedule->defer(key, event);
-        } else {
-          static_cast<void>(apply_event(event));
-          WebProjectionSchedule::mark(emitted, key);
-          release_transport_event(admission.value(), event);
-        }
-      }
+  static void eval(In<"event", TS<WebTransportEvent>> event,
+                   Out<HttpCallResult> out) {
+    const auto envelope =
+        event.base().value().as_bundle().at("response").as_bundle();
+    const auto response = envelope.at("response");
+    if (response.data() != nullptr) {
+      out.template field<"response">().apply(response);
     }
-    if (!schedule->keyed_empty()) {
-      scheduler.schedule(MIN_TD);
+    const auto failure = envelope.at("failure");
+    if (failure.data() != nullptr) {
+      out.template field<"failure">().apply(failure);
     }
   }
 };
 
-/** Projects WebSocket client ingress and key removal. Distinct subscription
- * keys tick together; same-key collisions retain FIFO order. Cost is
- * O(R + B + P) per tick for R removals, burst size B, and P pending keys.
- * Retained memory is O(C) for deferred collisions. */
+struct ClientResponseProjectionGraph {
+  static constexpr auto name = "web_client_response_projection_graph";
+
+  static Port<HttpCallResult>
+  compose(Wiring &w, NamedPort<"key", TS<Int>>,
+          Port<TS<SequencedWebTransportBatch>> batch) {
+    return wire<ClientResponseProjectionNode>(
+               w, wire_unrolled_transport_event(w, batch))
+        .template as<HttpCallResult>();
+  }
+};
+
+/** Projects one WebSocket client event. Cost is O(1) per event. */
 struct ClientWsProjectionNode {
   static constexpr auto name = "web_client_ws_projection";
 
-  static void start(State<WebProjectionScheduleHandle> state) {
-    state.set(
-        WebProjectionScheduleHandle{std::make_shared<WebProjectionSchedule>()});
-  }
-
-  static void
-  eval(In<"transport", TS<WebTransportEventBatch>, InputValidity::Unchecked>
-           transport,
-       In<"keys", TSS<WsClientKey>, InputValidity::Unchecked> keys,
-       In<"generations", TSD<WsClientKey, TS<DateTime>>,
-          InputValidity::Unchecked>
-           generations,
-       Scalar<"admission", ClientAdmissionHandle> admission,
-       Scalar<"bindings", WebTransportBindingsHandle> bindings,
-       State<WebProjectionScheduleHandle> state, SingleShotScheduler scheduler,
-       Out<TSD<WsClientKey, WsClientOutput>> out) {
-    const bool has_batch = transport.modified();
-    auto schedule = state.get().value;
-    const auto &key_delta = static_cast<const TSSInputView &>(keys);
-    const auto removed = key_delta.removed();
-    if (!has_batch && schedule->keyed_empty() &&
-        (!keys.modified() || removed.begin() == removed.end())) {
+  static void eval(In<"event", TS<WebTransportEvent>> event,
+                   In<"generation", TS<DateTime>, InputValidity::Unchecked>
+                       generation,
+                   Out<WsClientOutput> out) {
+    if (!generation.valid()) {
       return;
     }
-    auto mutation = out.begin_mutation(out.evaluation_time());
-    WebProjectionSchedule::EmittedKeys emitted;
-    const auto apply_envelope = [&](const auto &envelope) {
-      if (generation_matches(static_cast<const TSDInputView &>(generations),
-                             envelope.at("key"), envelope.at("generation"))) {
-        BundleBuilder value{bindings.value().value->client_ws_output};
-        for (const auto name :
-             {std::string_view{"event"}, std::string_view{"frame"}}) {
-          const auto field = envelope.at(name);
-          if (field.data() != nullptr) {
-            value.set(name, field.clone());
-          }
-        }
-        const Value update = value.build();
-        mutation.set(envelope.at("key"), update.view());
-        return true;
-      }
-      return false;
-    };
-    schedule->drain_keyed(emitted, [&](const ValueView &event) {
-      const bool applied =
-          apply_envelope(event.as_bundle().at("client_ws").as_bundle());
-      release_transport_event(admission.value(), event);
-      return applied;
-    });
-    if (has_batch) {
-      for (const auto event : transport.base().value().as_list()) {
-        const auto envelope = event.as_bundle().at("client_ws").as_bundle();
-        const auto key = envelope.at("key");
-        if (WebProjectionSchedule::contains(emitted, key)) {
-          schedule->defer(key, event);
-        } else {
-          if (apply_envelope(envelope)) {
-            WebProjectionSchedule::mark(emitted, key);
-          }
-          release_transport_event(admission.value(), event);
-        }
-      }
+    const auto envelope =
+        event.base().value().as_bundle().at("client_ws").as_bundle();
+    const auto event_generation = envelope.at("generation");
+    if (event_generation.data() == nullptr ||
+        event_generation.checked_as<DateTime>() != generation.value()) {
+      return;
     }
-    if (!schedule->keyed_empty()) {
-      scheduler.schedule(MIN_TD);
+    const auto event_value = envelope.at("event");
+    if (event_value.data() != nullptr) {
+      out.template field<"event">().apply(event_value);
     }
-    if (keys.modified()) {
-      for (const auto key : removed) {
-        static_cast<void>(mutation.erase(key));
-      }
+    const auto frame = envelope.at("frame");
+    if (frame.data() != nullptr) {
+      out.template field<"frame">().apply(frame);
     }
+  }
+};
+
+struct ClientWsProjectionGraph {
+  static constexpr auto name = "web_client_ws_projection_graph";
+
+  static Port<WsClientOutput>
+  compose(Wiring &w, NamedPort<"key", TS<WsClientKey>>,
+          Port<TS<SequencedWebTransportBatch>> batch,
+          Port<TS<DateTime>> generation) {
+    return wire<ClientWsProjectionNode>(
+               w, wire_unrolled_transport_event(w, batch), generation)
+        .template as<WsClientOutput>();
   }
 };
 
@@ -1155,26 +958,49 @@ struct ServerOutputs {
     Port<TSD<WebRoute, TS<DateTime>>> http_generations,
     Port<TSD<WebRoute, TS<DateTime>>> ws_generations,
     ServerAdmissionHandle admission, WebTransportBindingsHandle bindings) {
+  static_cast<void>(bindings);
+  for (const auto &channel : transport) {
+    static_cast<void>(
+        wire<ReleaseTransportBatchSink<ServerAdmissionHandle>>(w, channel,
+                                                               admission));
+  }
+
+  auto requests = wire_keyed_transport_batches<WebRoute,
+                                                ServerRequestBatchNode>(
+      w, transport[index(ServerChannel::Request)]);
+  auto ws = wire_keyed_transport_batches<WebRoute, ServerWsBatchNode>(
+      w, transport[index(ServerChannel::WsIngress)]);
+  auto respond_deliveries =
+      wire_keyed_transport_batches<Int, DeliveryBatchNode>(
+          w, transport[index(ServerChannel::RespondDelivery)]);
+  auto ws_send_deliveries =
+      wire_keyed_transport_batches<Int, DeliveryBatchNode>(
+          w, transport[index(ServerChannel::WsSendDelivery)]);
+
+  auto event = wire<stdlib::emit>(w, transport[index(ServerChannel::Event)])
+                   .template as<TS<WebTransportEvent>>();
+  auto latest_stats = wire<stdlib::getitem_>(
+                          w, transport[index(ServerChannel::Stats)],
+                          wire<stdlib::const_, TS<Int>>(w, Int{-1}))
+          .template as<TS<WebTransportEvent>>();
+
   return ServerOutputs{
-      wire<ServerRequestProjectionNode>(
-          w, transport[index(ServerChannel::Request)], http_routes,
-          http_generations, admission, bindings)
+      wire<stdlib::map_, TSD<WebRoute, WebRouteOutput>>(
+          w, fn<ServerRequestProjectionGraph>(), requests, http_generations,
+          arg<"__keys__">(http_routes))
           .template as<TSD<WebRoute, WebRouteOutput>>(),
-      wire<ServerWsProjectionNode>(
-          w, transport[index(ServerChannel::WsIngress)], ws_routes,
-          ws_generations, admission, bindings)
+      wire<stdlib::map_, TSD<WebRoute, WsRouteOutput>>(
+          w, fn<ServerWsProjectionGraph>(), ws, ws_generations,
+          arg<"__keys__">(ws_routes))
           .template as<TSD<WebRoute, WsRouteOutput>>(),
-      wire<DeliveryProjectionNode<ServerAdmissionHandle>>(
-          w, transport[index(ServerChannel::RespondDelivery)], admission)
+      wire<stdlib::map_, TSD<Int, TS<WebDeliveryReport>>>(
+          w, fn<DeliveryProjectionGraph>(), respond_deliveries)
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<DeliveryProjectionNode<ServerAdmissionHandle>>(
-          w, transport[index(ServerChannel::WsSendDelivery)], admission)
+      wire<stdlib::map_, TSD<Int, TS<WebDeliveryReport>>>(
+          w, fn<DeliveryProjectionGraph>(), ws_send_deliveries)
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<EventProjectionNode<ServerAdmissionHandle>>(
-          w, transport[index(ServerChannel::Event)], admission)
-          .template as<TS<WebEvent>>(),
-      wire<StatsProjectionNode<WebServerStats, ServerAdmissionHandle>>(
-          w, transport[index(ServerChannel::Stats)], admission)
+      wire<EventProjectionNode>(w, event).template as<TS<WebEvent>>(),
+      wire<StatsProjectionNode<WebServerStats>>(w, latest_stats)
           .template as<TS<WebServerStats>>(),
   };
 }
@@ -1193,22 +1019,39 @@ wire_client_outputs(Wiring &w, const ClientTransportPorts &transport,
                     Port<TSD<WsClientKey, TS<DateTime>>> ws_generations,
                     ClientAdmissionHandle admission,
                     WebTransportBindingsHandle bindings) {
+  static_cast<void>(bindings);
+  for (const auto &channel : transport) {
+    static_cast<void>(
+        wire<ReleaseTransportBatchSink<ClientAdmissionHandle>>(w, channel,
+                                                               admission));
+  }
+
+  auto responses = wire_keyed_transport_batches<Int, ClientResponseBatchNode>(
+      w, transport[index(ClientChannel::Response)]);
+  auto ws = wire_keyed_transport_batches<WsClientKey, ClientWsBatchNode>(
+      w, transport[index(ClientChannel::WsIngress)]);
+  auto send_deliveries = wire_keyed_transport_batches<Int, DeliveryBatchNode>(
+      w, transport[index(ClientChannel::SendDelivery)]);
+  auto event = wire<stdlib::emit>(w, transport[index(ClientChannel::Event)])
+                   .template as<TS<WebTransportEvent>>();
+  auto latest_stats = wire<stdlib::getitem_>(
+                          w, transport[index(ClientChannel::Stats)],
+                          wire<stdlib::const_, TS<Int>>(w, Int{-1}))
+          .template as<TS<WebTransportEvent>>();
+
   return ClientOutputs{
-      wire<ClientResponseProjectionNode>(
-          w, transport[index(ClientChannel::Response)], admission, bindings)
+      wire<stdlib::map_, TSD<Int, HttpCallResult>>(
+          w, fn<ClientResponseProjectionGraph>(), responses)
           .template as<TSD<Int, HttpCallResult>>(),
-      wire<ClientWsProjectionNode>(w,
-                                   transport[index(ClientChannel::WsIngress)],
-                                   ws_keys, ws_generations, admission, bindings)
+      wire<stdlib::map_, TSD<WsClientKey, WsClientOutput>>(
+          w, fn<ClientWsProjectionGraph>(), ws, ws_generations,
+          arg<"__keys__">(ws_keys))
           .template as<TSD<WsClientKey, WsClientOutput>>(),
-      wire<DeliveryProjectionNode<ClientAdmissionHandle>>(
-          w, transport[index(ClientChannel::SendDelivery)], admission)
+      wire<stdlib::map_, TSD<Int, TS<WebDeliveryReport>>>(
+          w, fn<DeliveryProjectionGraph>(), send_deliveries)
           .template as<TSD<Int, TS<WebDeliveryReport>>>(),
-      wire<EventProjectionNode<ClientAdmissionHandle>>(
-          w, transport[index(ClientChannel::Event)], admission)
-          .template as<TS<WebEvent>>(),
-      wire<StatsProjectionNode<WebClientStats, ClientAdmissionHandle>>(
-          w, transport[index(ClientChannel::Stats)], admission)
+      wire<EventProjectionNode>(w, event).template as<TS<WebEvent>>(),
+      wire<StatsProjectionNode<WebClientStats>>(w, latest_stats)
           .template as<TS<WebClientStats>>(),
   };
 }
@@ -1319,10 +1162,15 @@ template <> struct hash<hgraph::web::detail::WebTransportBindingsHandle> {
   }
 };
 
-template <> struct hash<hgraph::web::detail::WebProjectionScheduleHandle> {
-  size_t operator()(const hgraph::web::detail::WebProjectionScheduleHandle
+template <> struct hash<hgraph::web::detail::WebKeyedBatchBindings> {
+  size_t operator()(const hgraph::web::detail::WebKeyedBatchBindings
                         &value) const noexcept {
-    return hash<const void *>{}(value.value.get());
+    size_t result = hash<hgraph::ValueTypeRef>{}(value.key);
+    result ^= hash<hgraph::ValueTypeRef>{}(value.event) + 0x9e3779b9U +
+              (result << 6U) + (result >> 2U);
+    result ^= hash<hgraph::ValueTypeRef>{}(value.batch_map) + 0x9e3779b9U +
+              (result << 6U) + (result >> 2U);
+    return result;
   }
 };
 } // namespace std
@@ -1343,9 +1191,9 @@ template <> struct scalar_name<web::detail::WebTransportBindingsHandle> {
       "hgraph.web.internal::WebTransportBindingsHandle"};
 };
 
-template <> struct scalar_name<web::detail::WebProjectionScheduleHandle> {
+template <> struct scalar_name<web::detail::WebKeyedBatchBindings> {
   static constexpr std::string_view value{
-      "hgraph.web.internal::WebProjectionScheduleHandle"};
+      "hgraph.web.internal::WebKeyedBatchBindings"};
 };
 } // namespace hgraph::static_schema_detail
 

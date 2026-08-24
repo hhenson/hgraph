@@ -7,9 +7,10 @@
   and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.
 - Route all real-time results through one standard unbounded burst push source.
   Graph projections distribute distinct subscription keys and delivery ids in
-  one tick, unroll same-key and scalar-event collisions in FIFO order, and keep
-  stop-policy and delivery-commit logic on graph rather than in a private
-  bridge queue.
+  one tick; delivery reports use standard `collect` plus mapped `emit`, scalar
+  events use standard `emit`, and only Kafka timestamp/recovery ordering keeps
+  a specialised scheduler. Stop-policy and delivery-commit logic remain on
+  graph rather than in a private bridge queue.
 - Preserve bounded deterministic Kafka recovery in simulation through an
   ordinary scheduled service graph with no push source or consumer worker.
 - Replay recovered records at their Kafka timestamps across all subscriptions

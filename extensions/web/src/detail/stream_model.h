@@ -83,6 +83,17 @@ using WebTransportEvent = Bundle<
 
 using WebTransportEventBatch = HomogeneousTuple<WebTransportEvent>;
 
+/** One per-key slice of a transport burst. The evaluation-time sequence keeps
+ * repeated, value-equal event batches observable when they pass through the
+ * standard collect operator. */
+using SequencedWebTransportBatch =
+    Bundle<"hgraph.web.internal::SequencedWebTransportBatch",
+           Field<"sequence", DateTime>,
+           Field<"events", WebTransportEventBatch>>;
+
+template <typename Key>
+using KeyedWebTransportBatches = Map<Key, SequencedWebTransportBatch>;
+
 inline void register_internal_types() {
   static_cast<void>(scalar_descriptor<WebRequestEnvelope>::value_meta());
   static_cast<void>(scalar_descriptor<WsIngressEnvelope>::value_meta());
@@ -92,6 +103,14 @@ inline void register_internal_types() {
   static_cast<void>(scalar_descriptor<WebEventEnvelope>::value_meta());
   static_cast<void>(scalar_descriptor<WebTransportEvent>::value_meta());
   static_cast<void>(scalar_descriptor<WebTransportEventBatch>::value_meta());
+  static_cast<void>(
+      scalar_descriptor<SequencedWebTransportBatch>::value_meta());
+  static_cast<void>(
+      scalar_descriptor<KeyedWebTransportBatches<WebRoute>>::value_meta());
+  static_cast<void>(
+      scalar_descriptor<KeyedWebTransportBatches<Int>>::value_meta());
+  static_cast<void>(
+      scalar_descriptor<KeyedWebTransportBatches<WsClientKey>>::value_meta());
 }
 } // namespace hgraph::web::detail
 

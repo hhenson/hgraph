@@ -815,7 +815,9 @@ void test_runtime_specific_wiring_shapes() {
           "web server did not wire one burst push source per channel");
   for (const auto name : {std::string_view{"web_fake_server_http_routes"},
                           std::string_view{"web_fake_server_respond"},
-                          std::string_view{"web_server_request_projection"}}) {
+                          std::string_view{"web_group_transport_batch"},
+                          std::string_view{"collect_tsd_from_map"},
+                          std::string_view{"web_release_transport_batch"}}) {
     require(has_node(server, name),
             "web server wiring is missing graph node " + Str{name});
   }
@@ -826,7 +828,9 @@ void test_runtime_specific_wiring_shapes() {
           "web client did not wire one burst push source per channel");
   for (const auto name : {std::string_view{"web_fake_client_ws_keys"},
                           std::string_view{"web_fake_client_ws_send"},
-                          std::string_view{"web_client_ws_projection"}}) {
+                          std::string_view{"web_group_transport_batch"},
+                          std::string_view{"collect_tsd_from_map"},
+                          std::string_view{"web_release_transport_batch"}}) {
     require(has_node(client, name),
             "web client wiring is missing graph node " + Str{name});
   }

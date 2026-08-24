@@ -6,8 +6,9 @@
 - Service tier: one standard bounded burst push source per independently
   ordered logical channel, avoiding cross-channel head-of-line blocking while
   distributing distinct TSD keys together and preserving same-key/scalar FIFO;
-  graph-side projections and command
-  sinks; domain byte/reservation watermarks without a second value queue; the
+  graph-side stateless grouping followed by standard `collect`/mapped `emit`,
+  standard scalar `emit`, and command sinks; domain byte/reservation watermarks
+  released at graph handoff without a second value queue; the
   eleven service interfaces wired through
   `impl_input`/`impl_output`, wiring sugar, and the socketless
   `FakeWebServer`/`FakeWebClient` transports. Graph-owned subscription
@@ -18,6 +19,8 @@
   and route/server authenticators, and `hgraph_web.compat` — the released
   tornado adaptor API re-implemented on the native transports with its
   legacy behaviors reproduced only there (parity notes in the module).
+  Compatibility requests are keyed before route streams merge, preserving
+  concurrent requests matched by distinct routes in one burst cycle.
 - Live transports: the Asio/Beast server (h1.1 + WebSocket, TLS with the
   HTTP/2 ALPN seam, route trie, port-sharing listener registry, request
   timeouts, watermark read-pausing, strict stop ordering) and the libcurl

@@ -84,6 +84,15 @@ Value delivery_burst(
   return builder.build();
 }
 
+struct DeliveryBurstProjectionGraph {
+  static constexpr auto name = "kafka_delivery_burst_projection_test_graph";
+
+  static Port<TSD<Int, TS<KafkaDeliveryReport>>>
+  compose(Wiring &w, Port<TS<kafka::detail::KafkaTransportEventBatch>> batch) {
+    return kafka::detail::wire_delivery_output(w, batch);
+  }
+};
+
 void test_delivery_burst_unrolls_repeated_request_ids() {
   const auto bindings = kafka::detail::make_transport_bindings();
   const Int request_id{17};
@@ -95,7 +104,7 @@ void test_delivery_burst_unrolls_repeated_request_ids() {
   input.emplace_back(
       delivery_burst(bindings, request_id, {first.clone(), second.clone()}));
 
-  const auto output = eval_node<kafka::detail::DeliveryProjectionNode>(input);
+  const auto output = eval_node<DeliveryBurstProjectionGraph>(input);
   require(output.size() >= 2 && output[0].has_value() && output[1].has_value(),
           "same-id delivery reports did not unroll over two ticks");
   const Value key{request_id};
@@ -784,7 +793,10 @@ void test_runtime_specific_wiring_shapes() {
                           std::string_view{"kafka_publish_commands"},
                           std::string_view{"kafka_commit_commands"},
                           std::string_view{"kafka_graph_delivery_commit"},
-                          std::string_view{"kafka_subscription_projection"}}) {
+                          std::string_view{"kafka_subscription_projection"},
+                          std::string_view{"kafka_group_delivery_batch"},
+                          std::string_view{"collect_tsd_from_map"},
+                          std::string_view{"kafka_select_event_batch"}}) {
     require(find_node_schema(realtime, name) != nullptr,
             "real-time Kafka wiring is missing " + Str{name});
   }

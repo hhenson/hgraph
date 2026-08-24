@@ -63,10 +63,12 @@ Live Kafka ingress is real-time-only.  One standard unbounded burst push source
 carries discriminated, fully owned transport envelopes for subscription
 values, delivery reports, and service events.  Each sender call admits one
 envelope; one source evaluation transfers all currently pending envelopes as
-an ordered tuple.  Ordinary graph nodes distribute independent subscription
-keys and delivery reports in one public tick, preserve same-key FIFO by
-unrolling collisions over later cycles, unroll the scalar event stream, and
-apply graph-stop and commit-on-delivery policy.  There is no extension-owned
+an ordered tuple.  The subscription scheduler retains only its required
+timestamp/recovery ordering.  Delivery reports are grouped by a stateless
+classifier and flow through standard ``collect`` and mapped ``emit`` operators;
+the scalar event stream uses standard ``emit`` directly.  This distributes
+independent keys in one public tick, preserves same-key FIFO over later cycles,
+and keeps graph-stop and commit-on-delivery policy on graph.  There is no extension-owned
 cross-thread ingress queue, conflated wake token, or drain node in front of the
 graph.
 
@@ -712,9 +714,10 @@ The native default promises:
   are emitted in arrival order on consecutive ``MIN_TD`` cycles.
 
 Delivery reports for distinct request ids distribute together as one keyed
-mutation.  Repeated reports for one id retain FIFO order over later cycles,
-just like repeated subscription values for one key.  Service events are scalar
-and are unrolled in FIFO order, one per graph cycle.  The discriminated tuple
+mutation.  Repeated reports for one id retain FIFO order over later cycles via
+one standard ``emit`` node per mapped request id, just like repeated
+subscription values for one key.  Service events are scalar and use standard
+``emit`` to unroll in FIFO order, one per graph cycle.  The discriminated tuple
 preserves admission order for projection, but no public total order is promised
 between independent subscription keys, delivery reports, and service events.
 
@@ -981,8 +984,9 @@ small records, large records, headers, several partitions, several graph
 clients, and two concurrent pure-C++ engines.
 
 The real-time ingress policy is explicitly the standard unbounded burst queue
-rather than a hidden extension queue.  The graph retains only same-key or
-scalar collisions that cannot share one public tick.  Capacity may be
+rather than a hidden extension queue.  Standard graph operators retain the
+same-key or scalar work that cannot share one public tick; the adaptor has no
+second projection queue.  Capacity may be
 introduced later only by selecting the core bounded policy with a documented
 refusal path.  The extension should expose data-only inspection views rather
 than requiring debuggers to decode librdkafka or STL layouts.
@@ -1151,7 +1155,8 @@ Implementation status
 The native extension, service interfaces, fake transport, librdkafka runtime,
 and Python authoring bridge are implemented.  The RFC 0027 migration described
 in step 6 is included in the current implementation: real-time ingress uses the
-standard burst push source and simulation uses graph-owned scheduled replay.
+standard burst push source, delivery/scalar unrolling uses standard graph
+composition, and simulation uses graph-owned scheduled replay.
 This RFC remains ``Proposed`` until the remaining performance, sanitizer,
 installed-package, and compatibility-transition evidence satisfies the
 acceptance criteria above.

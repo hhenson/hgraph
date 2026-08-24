@@ -425,8 +425,9 @@ The primary operations are:
    mechanism converts live route keys to the implementation's
    ``TSS[WebRoute]``; the transport compiles the table and delivers each
    matched request on its route's stream. Distinct routes tick in the same
-   cycle; the burst projection retains multiple pending requests on ONE route
-   and delivers them in FIFO order one per engine cycle. A batched nested-TSD
+   cycle; a keyed ``collect`` followed by ``map_(emit, ...)`` retains multiple
+   pending requests on ONE route and delivers them in FIFO order one per
+   engine cycle. A batched nested-TSD
    delivery shape remains the identified follow-up
    if pacing proves limiting on very hot routes.
 
@@ -518,13 +519,15 @@ registry, and that holds no graph state.
   owned event envelopes for each independently ordered logical channel. A
   server has request, WS-ingress, response-delivery, WS-send-delivery, event,
   and statistics sources; a client has response, WS-ingress, send-delivery,
-  event, and statistics sources. Ordinary graph nodes project each source onto
-  its service output. Within a keyed output, distinct keys pending in a burst
-  advance together and same-key collisions are retained in arrival order for
-  later ``MIN_TD`` cycles. Scalar event outputs are unrolled in FIFO order;
-  statistics use the latest sample. Independent channels may advance in the
-  same engine cycle and cannot head-of-line block one another. No public
-  contract requires a total order across those service outputs.
+  event, and statistics sources. A small stateless classifier groups keyed
+  bursts, then the standard ``collect``, ``map_``, and ``emit`` operators
+  project them onto the service outputs. Distinct keys pending in a burst
+  advance together; each mapped ``emit`` retains same-key collisions in FIFO
+  order for later ``MIN_TD`` cycles. Scalar event outputs use standard
+  ``emit`` directly, while statistics select the latest sample. Independent
+  channels may advance in the same engine cycle and cannot head-of-line block
+  one another. No public contract requires a total order across those service
+  outputs.
   The graph-to-runtime direction consists of purpose-specific sink nodes for
   route/key deltas, responses, calls, and WebSocket sends. A graph-scoped
   admission budget retains the web-specific per-channel byte limits,
@@ -534,15 +537,16 @@ registry, and that holds no graph state.
   capacity, so a successful domain admission cannot later fail because its
   core queue is full. Statistics allow
   one pending sample; additional periodic samples are self-superseding and are
-  refused until the graph projects it, after which the next sample reports the
+  refused until the graph receives it, after which the next sample reports the
   current state. Each active route or WebSocket client key also has a
   graph-owned lifetime generation. The external task stamps that generation on
   routed ingress, and the graph projection accepts it only while the same
   generation remains active. A queued event can therefore neither recreate a
-  removed output key nor cross a rapid remove/re-add boundary. Same-key
-  collisions which cannot share a TSD tick are held by graph-thread projection
-  state and remain charged to the admission budget until applied or discarded.
-  The push source remains the sole cross-thread value queue.
+  removed output key nor cross a rapid remove/re-add boundary. Domain record
+  and byte admission is released by a graph sink when the burst is taken from
+  the boundary queue. Any later same-key buffering belongs to standard graph
+  operators and is processing state, not transport admission or protocol
+  acknowledgement. The push source remains the sole cross-thread value queue.
 * No worker thread calls ``EvaluationEngineApi``, mutates a time series, or
   retains a borrowed graph value.  ``PushSourceSender`` is the only
   cross-thread runtime boundary; off-thread value construction runs under
@@ -555,11 +559,16 @@ Flow control and bounded memory
 -------------------------------
 
 Each standard push-source queue is bounded in records, and the web admission
-budget bounds its logical channel in records and bytes. At the configured high
+budget reserves its logical channel in records and bytes until the burst enters
+graph processing. At the configured high
 watermark (default 80%) the transport stops issuing socket reads — HTTP/1.1
 backpressure propagates naturally through TCP; the client pauses transfers
 with ``curl_easy_pause``; the future h2 session withholds window updates —
 and resumes below the low watermark (default 50%).
+These limits bound transport admission and reservation memory, not work that
+has already entered the graph.  A mapped ``emit`` queue is ordinary graph
+processing state; its size therefore follows the arrival-rate/processing-rate
+relationship rather than the transport byte budget.
 
 Server ingress admission is reservation-based, so payload memory outside
 the standard queue is bounded by the same domain limits. An HTTP
@@ -1150,11 +1159,12 @@ surface, and ``hgraph_web.compat`` — which now serves the released
 sealed seam per the activation plan above.
 
 The RFC 0027 web migration is also implemented: the former private per-channel
-value deques, wake-only push sources, and drain nodes are removed. One standard
-bounded burst push source per logical channel now owns asynchronous
-cross-thread value storage and executor notification; web retains
-byte/reservation accounting and graph-thread same-key projection spill so that
-public TSD keys can distribute without conflating collisions.
+value deques, wake-only push sources, projection schedules, and drain nodes are
+removed. One standard bounded burst push source per logical channel now owns
+asynchronous cross-thread value storage and executor notification; web retains
+only byte/reservation accounting until graph handoff. Standard ``collect`` and
+mapped ``emit`` composition distributes public TSD keys without conflating
+same-key collisions.
 Live and callback-driven fake implementations reject simulation wiring.
 
 References

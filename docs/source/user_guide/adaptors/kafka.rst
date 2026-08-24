@@ -56,7 +56,9 @@ joined when it stops.  There is no Python or C++ Kafka manager to construct,
 poll, or close outside the graph.  In real time, callbacks send scalar
 envelopes through one standard unbounded burst push source.  A graph cycle
 receives the pending envelopes as an ordered tuple; ordinary graph nodes
-project it into the public subscription, delivery, and event outputs.  Kafka
+project it into the public subscription, delivery, and event outputs.  Delivery
+reports use standard ``collect`` plus mapped ``emit`` composition, and scalar
+events use standard ``emit`` directly.  Kafka
 owns no second cross-thread ingress queue or wake-token protocol.
 
 Distinct subscription keys in one burst tick together.  Repeated records for
