@@ -655,6 +655,7 @@ def _compound_python_field_types(scalar):
 def _python_object_python_field_types(scalar):
     """Ordered Python annotations for a Python-owned structured scalar."""
     import dataclasses
+    import inspect
     import typing
 
     explicit = _PYTHON_OBJECT_REGISTRATIONS.get(scalar, ...)
@@ -667,10 +668,23 @@ def _python_object_python_field_types(scalar):
         resolved_annotations = {}
 
     if dataclasses.is_dataclass(scalar):
-        return {
-            field.name: resolved_annotations.get(field.name, field.type)
-            for field in dataclasses.fields(scalar)
-        }
+        result = {}
+        for field in scalar.__dataclass_fields__.values():
+            if field._field_type is dataclasses._FIELD_CLASSVAR:
+                continue
+            if field.metadata.get("hidden", False):
+                continue
+            annotation = resolved_annotations.get(field.name, field.type)
+            if isinstance(field.type, dataclasses.InitVar):
+                if not inspect.isdatadescriptor(field.default):
+                    continue
+                annotation = (
+                    annotation.type
+                    if isinstance(annotation, dataclasses.InitVar)
+                    else field.type.type
+                )
+            result[field.name] = annotation
+        return result
 
     result = {}
     for base in reversed(scalar.__mro__):
@@ -1028,7 +1042,17 @@ def _python_object_value_type(scalar, type_args=()):
     local_annotations = _locally_declared_annotations(scalar)
     fields = []
     has_self_recursion = False
-    for field_name, field_type in annotations.items():
+    ordered_fields = dict(inherited_fields)
+    ordered_fields.update({
+        field_name: field_type
+        for field_name, field_type in annotations.items()
+        if field_name not in ordered_fields
+    })
+    for field_name in ordered_fields:
+        if field_name not in annotations:
+            fields.append((field_name, inherited_fields[field_name]))
+            continue
+        field_type = annotations[field_name]
         field_type = _substitute_typevars(field_type, substitutions)
         if field_name in inherited_fields and field_name not in local_annotations:
             fields.append((field_name, inherited_fields[field_name]))
@@ -1734,6 +1758,7 @@ class _TsExpr:
                 # hgraph parity: UNSUPPLIED dataclass fields take their
                 # defaults (supplied-but-invalid stays None in non-strict).
                 import dataclasses
+                import inspect
 
                 try:
                     dataclass_fields = dataclasses.fields(cs_class)
@@ -1741,7 +1766,8 @@ class _TsExpr:
                     dataclass_fields = ()
                 for field in dataclass_fields:
                     if (field.name not in call and field.default is not dataclasses.MISSING
-                            and field.default is not None):
+                            and field.default is not None
+                            and not inspect.isdatadescriptor(field.default)):
                         call[field.name] = field.default
                 if _is_python_object_class(cs_class):
                     unknown = tuple(name for name in call if name not in field_types)

@@ -880,3 +880,55 @@ def test_multiple_inheritance_dispatch_reports_ambiguity():
 
     with pytest.raises(RuntimeError, match="Ambiguous dispatch"):
         eval_node(app, [Hybrid(value=1, left=2, right=3, hybrid=4)])
+
+
+def test_descriptor_backed_initvar_remains_a_field_through_multiple_inheritance():
+    class Doubled:
+        def __get__(self, instance, owner=None):
+            return self if instance is None else instance.number * 2
+
+        def __set__(self, instance, value):
+            pass
+
+    doubled_descriptor = Doubled()
+
+    @dataclass(frozen=True, kw_only=True)
+    class StoredBase:
+        doubled: int
+
+    @dataclass(frozen=True, kw_only=True)
+    class ExpressionMixin:
+        number: int
+        doubled: InitVar[int] = doubled_descriptor
+
+    @dataclass(frozen=True, kw_only=True)
+    class Value(ExpressionMixin, StoredBase):
+        pass
+
+    assert fields(Value) == {"number": int, "doubled": int}
+    assert tuple(name for name, _ in _value_type(Value).fields) == (
+        "number", "doubled")
+    assert Value(number=3).doubled == 6
+
+
+def test_python_owned_combine_does_not_lift_descriptor_defaults():
+    class Doubled:
+        def __get__(self, instance, owner=None):
+            return self if instance is None else instance.number * 2
+
+        def __set__(self, instance, value):
+            if value is not self:
+                raise AttributeError("doubled is computed")
+
+    doubled = Doubled()
+
+    @dataclass(frozen=True, kw_only=True)
+    class Value:
+        number: int
+        result: int = doubled
+
+    @graph
+    def app(number: TS[int]) -> TS[Value]:
+        return combine[TS[Value]](number=number)
+
+    assert eval_node(app, [3]) == [Value(number=3)]
