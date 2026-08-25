@@ -354,7 +354,7 @@ def test_default_tsd_with_polymorphic_compound_keys(key):
     @graph
     def g(trigger: TS[bool]) -> TSD[CompoundKey, TS[SelectedCompoundValue]]:
         return default(
-            nothing(TSD[CompoundKey, TS[SelectedCompoundValue]]),
+            nothing[TSD[CompoundKey, TS[SelectedCompoundValue]]](),
             source(trigger),
         )
 
@@ -412,7 +412,7 @@ def test_ref_tsd_key_set():
 
     @graph
     def main() -> TSS[str]:
-        c = const(frozendict(a=1, b=2), TSD[str, TS[int]])
+        c = const[TSD[str, TS[int]]](frozendict(a=1, b=2))
         r = to_ref(c)
         return r.key_set
 

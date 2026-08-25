@@ -89,8 +89,8 @@ def _zero_or_one_dict(value: TS[int]) -> TSD[int, TS[int]]:
     return switch_(
         value,
         {
-            0: lambda: const({0: 0}, TSD[int, TS[int]]),
-            DEFAULT: lambda: const({1: 1}, TSD[int, TS[int]]),
+            0: lambda: const[TSD[int, TS[int]]]({0: 0}),
+            DEFAULT: lambda: const[TSD[int, TS[int]]]({1: 1}),
         },
     )
 

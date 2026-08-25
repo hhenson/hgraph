@@ -484,10 +484,6 @@ class _OperatorFunction:
         # parameter's default" (upstream defaults optional scalars to None).
         while args and args[-1] is None:
             args = args[:-1]
-        # An explicit positional type is authoritative. Normalise it before
-        # schema inference so ``const(compound, TS[Base])`` does not retain
-        # the type expression as a second runtime argument.
-        args, kwargs = self._normalise_type_arguments(args, kwargs)
         if (self.__name__ == "const" and args
                 and "tp" not in kwargs and "output_type" not in kwargs):
             from .._compat import CompoundScalar
@@ -566,20 +562,6 @@ class _OperatorFunction:
             self.__name__, output_type=output_type, sizes=sizes or None,
             ts_hint=ts_hints or None, resolutions=resolutions or None,
             signature=self.__signature__)
-
-    def _normalise_type_arguments(self, args, kwargs):
-        if "tp" in kwargs or "output_type" in kwargs:
-            return args, kwargs
-        # hgraph's positional ``tp`` arguments (const(value, tp) /
-        # nothing(tp)): a TYPE EXPRESSION is a wiring directive, never a
-        # value - the registry has no type-valued scalars - so the first
-        # one names the requested output, whatever the operator.
-        for index, arg in enumerate(args):
-            if isinstance(arg, _TsExpr):
-                kwargs = dict(kwargs)
-                kwargs["output_type"] = arg
-                return (*args[:index], *args[index + 1:]), kwargs
-        return args, kwargs
 
     def __repr__(self):
         return f"<operator {self.__name__}>"

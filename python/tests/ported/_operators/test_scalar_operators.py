@@ -305,7 +305,7 @@ def test_min_scalars_binary():
 def test_min_scalar_binary_not_strict():
     @graph
     def app(ts1: TS[int]) -> TS[int]:
-        return min_(ts1, nothing(TS[int]), __strict__=False)
+        return min_(ts1, nothing[TS[int]](), __strict__=False)
 
     assert eval_node(app, [4, 5]) == [4, 5]
 
@@ -321,7 +321,7 @@ def test_min_scalar_multi():
 def test_min_scalar_multi_non_strict():
     @graph
     def app(i1: TS[int], i2: TS[int], i3: TS[int]) -> TS[int]:
-        return min_(i1, i2, i3, nothing(TS[int]), __strict__=False)
+        return min_(i1, i2, i3, nothing[TS[int]](), __strict__=False)
 
     assert eval_node(app, [4], [5], [3]) == [3]
 
@@ -329,7 +329,7 @@ def test_min_scalar_multi_non_strict():
 def test_min_scalar_multi_strict_not_all_valid():
     @graph
     def app(i1: TS[int], i2: TS[int], i3: TS[int]) -> TS[int]:
-        return min_(i1, i2, i3, nothing(TS[int]))
+        return min_(i1, i2, i3, nothing[TS[int]]())
 
     assert eval_node(app, [4], [5], [3]) is None
 
@@ -353,7 +353,7 @@ def test_max_scalars_binary():
 def test_max_scalar_binary_not_strict():
     @graph
     def app(ts1: TS[int]) -> TS[int]:
-        return max_(ts1, nothing(TS[int]), __strict__=False)
+        return max_(ts1, nothing[TS[int]](), __strict__=False)
 
     assert eval_node(app, [4, 5]) == [4, 5]
 
@@ -369,7 +369,7 @@ def test_max_scalar_multi():
 def test_max_scalar_multi_non_strict():
     @graph
     def app(i1: TS[int], i2: TS[int], i3: TS[int]) -> TS[int]:
-        return max_(i1, i2, i3, nothing(TS[int]), __strict__=False)
+        return max_(i1, i2, i3, nothing[TS[int]](), __strict__=False)
 
     assert eval_node(app, [4], [9], [3]) == [9]
 
@@ -377,7 +377,7 @@ def test_max_scalar_multi_non_strict():
 def test_max_scalar_multi_strict_not_all_valid():
     @graph
     def app(i1: TS[int], i2: TS[int], i3: TS[int]) -> TS[int]:
-        return max_(i1, i2, i3, nothing(TS[int]))
+        return max_(i1, i2, i3, nothing[TS[int]]())
 
     assert eval_node(app, [4], [9], [3]) is None
 

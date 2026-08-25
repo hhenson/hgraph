@@ -134,7 +134,7 @@ def test_const_map_retains_pre_inflation_python_owned_values():
 
     @graph
     def app():
-        capture(const({"item": value}, TSD[str, TS[Series]]))
+        capture(const[TSD[str, TS[Series]]]({"item": value}))
 
     eval_node(app)
     assert captured == [{"item": value}]
@@ -574,7 +574,7 @@ def test_const_map_uses_identity_when_a_python_owned_value_hash_fails():
 
     @graph
     def app() -> TSD[str, TS[Value]]:
-        return const({"item": value}, TSD[str, TS[Value]])
+        return const[TSD[str, TS[Value]]]({"item": value})
 
     assert eval_node(app) == [{"item": value}]
 

@@ -39,7 +39,7 @@ def test_min_enums_binary():
 def test_min_enums_binary_not_strict():
     @graph
     def app(ts1: TS[ENUM]) -> TS[ENUM]:
-        return min_(ts1, nothing(TS[_TestEnum]), __strict__=False)
+        return min_(ts1, nothing[TS[_TestEnum]](), __strict__=False)
 
     assert eval_node(app, [_TestEnum.B, _TestEnum.A]) == [_TestEnum.B, _TestEnum.A]
 
@@ -55,7 +55,7 @@ def test_min_enums_multi():
 def test_min_enums_multi_non_strict():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
-        return min_(i1, i2, i3, nothing(TS[_TestEnum]), __strict__=False)
+        return min_(i1, i2, i3, nothing[TS[_TestEnum]](), __strict__=False)
 
     assert eval_node(app, _TestEnum.B, _TestEnum.A, _TestEnum.A) == [_TestEnum.A]
 
@@ -63,7 +63,7 @@ def test_min_enums_multi_non_strict():
 def test_min_enums_multi_strict_not_all_valid():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
-        return min_(i1, i2, i3, nothing(TS[_TestEnum]))
+        return min_(i1, i2, i3, nothing[TS[_TestEnum]]())
 
     assert eval_node(app, _TestEnum.B, _TestEnum.A, _TestEnum.A) is None
 
@@ -87,7 +87,7 @@ def test_max_enums_binary():
 def test_max_enums_binary_not_strict():
     @graph
     def app(ts1: TS[ENUM]) -> TS[ENUM]:
-        return max_(ts1, nothing(TS[_TestEnum]), __strict__=False)
+        return max_(ts1, nothing[TS[_TestEnum]](), __strict__=False)
 
     assert eval_node(app, [_TestEnum.B, _TestEnum.A]) == [_TestEnum.B, _TestEnum.A]
 
@@ -103,7 +103,7 @@ def test_max_enums_multi():
 def test_max_enums_multi_non_strict():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
-        return max_(i1, i2, i3, nothing(TS[_TestEnum]), __strict__=False)
+        return max_(i1, i2, i3, nothing[TS[_TestEnum]](), __strict__=False)
 
     assert eval_node(app, _TestEnum.B, _TestEnum.A, _TestEnum.A) == [_TestEnum.B]
 
@@ -111,7 +111,7 @@ def test_max_enums_multi_non_strict():
 def test_max_enums_multi_strict_not_all_valid():
     @graph
     def app(i1: TS[ENUM], i2: TS[ENUM], i3: TS[ENUM]) -> TS[ENUM]:
-        return max_(i1, i2, i3, nothing(TS[_TestEnum]))
+        return max_(i1, i2, i3, nothing[TS[_TestEnum]]())
 
     assert eval_node(app, _TestEnum.B, _TestEnum.A, _TestEnum.A) is None
 

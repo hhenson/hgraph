@@ -250,7 +250,7 @@ def test_decoupled_subscription_from_to_graph_is_same_cycle():
         observe(symbols)
         hg.to_graph(
             quote,
-            hg.const({"rates": 70}, TSD[str, TS[int]]),
+            hg.const[TSD[str, TS[int]]]({"rates": 70}),
             path,
         )
         hg.to_graph(transport_ready, hg.const(True), path)

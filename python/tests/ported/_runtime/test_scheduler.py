@@ -76,7 +76,7 @@ def schedule_bool(ts: TS[bool], ts1: TS[int], _scheduler: SCHEDULER = None) -> T
 def test_tagged_scheduler():
     @graph
     def _schedule_graph(ts: TSD[str, TS[bool]]) -> TSD[str, TS[bool]]:
-        config = const(frozendict({"a": 10, "b": 3}), TSD[str, TS[int]])
+        config = const[TSD[str, TS[int]]](frozendict({"a": 10, "b": 3}))
         return map_(schedule_bool, ts, config)
 
     d = frozendict

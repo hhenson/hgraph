@@ -94,7 +94,7 @@ def test_json_is_a_native_value_and_const_preserves_its_type():
 
     @graph
     def explicitly_typed() -> TS[str]:
-        return json_encode[str](const({"a": 1, "values": [True, None, "x"]}, TS[JSON]))
+        return json_encode[str](const[TS[JSON]]({"a": 1, "values": [True, None, "x"]}))
 
     expected = '{"a": 1, "values": [true, null, "x"]}'
     assert eval_node(inferred) == [expected]

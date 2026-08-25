@@ -322,7 +322,7 @@ def test_compound_scalar_dispatch_propagates_specialized_output_to_overload():
 
     @graph(overloads=value)
     def dog_value(animal: TS[Dog], tp: Type[OUT] = AUTO_RESOLVE) -> OUT:
-        return const(7, tp)
+        return const[tp](7)
 
     @graph
     def app(animal: TS[Animal]) -> TS[int]:

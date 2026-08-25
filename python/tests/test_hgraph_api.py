@@ -230,12 +230,32 @@ def test_wire_does_not_promote_positional_types_generically():
     check(seen["output_type"] is None, f"positional type became output_type: {seen}")
 
 
-def test_const_positional_output_type_compatibility():
+def test_const_explicit_output_type_specialization():
     @graph
     def source() -> TS[int]:
-        return hg.const(5, TS[int])
+        return hg.const[TS[int]](5)
 
-    check(eval_node(source) == [5], "const(value, TS[int])")
+    check(eval_node(source) == [5], "const[TS[int]](value)")
+
+
+def test_operator_does_not_promote_positional_types_generically():
+    from hgraph.test import use_wiring
+
+    seen = {}
+
+    class FakeWiring:
+        def wire(self, name, args, kwargs, output_type=None):
+            seen["name"] = name
+            seen["args"] = args
+            seen["output_type"] = output_type
+            return None
+
+    with use_wiring(FakeWiring()):
+        hg.log_("type {}", TS[int])
+
+    check(seen["name"] == "log_", f"unexpected operator: {seen}")
+    check(len(seen["args"]) == 2, f"positional type was stripped: {seen}")
+    check(seen["output_type"] is None, f"positional type became output_type: {seen}")
 
 
 def test_eval_node_scalar_inputs_follow_ts_annotations():
@@ -995,7 +1015,7 @@ def test_services_from_python():
     try:
         @hg.service_impl(interfaces=doubler)
         def too_few_impl() -> TSD[int, TS[int]]:
-            return hg.nothing(TSD[int, TS[int]])
+            return hg.nothing[TSD[int, TS[int]]]()
         check(False, "expected a shape validation error")
     except TypeError:
         pass

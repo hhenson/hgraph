@@ -174,7 +174,7 @@ def test_frozen_generic_compound_scalar_plain_argument_preserves_specialization(
 
     @graph(overloads=read_box)
     def read_float_box(box: Box[float], trigger: TS[bool]) -> TS[float]:
-        return const(box.value, TS[float])
+        return const[TS[float]](box.value)
 
     # Materialise another specialization first: selection must use the value
     # fields, not registration order.
@@ -723,7 +723,7 @@ def test_eval_node_finalizes_subclasses_before_const_lifting():
 
     @graph
     def app() -> TS[Base]:
-        return const(Derived(value=1, label="one"), TS[Base])
+        return const[TS[Base]](Derived(value=1, label="one"))
 
     assert eval_node(app) == [Derived(value=1, label="one")]
 
