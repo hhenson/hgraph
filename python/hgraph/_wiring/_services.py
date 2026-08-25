@@ -759,6 +759,10 @@ class _ServiceStub:
         suffix = f"[{self._specialization}]"
         return path if path.endswith(suffix) else f"{path}{suffix}"
 
+    def default_path(self):
+        """Return the default user path declared by this service interface."""
+        return self._default_path
+
     @property
     def implementation_arity(self):
         return len(self._request_params)

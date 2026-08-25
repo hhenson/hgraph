@@ -107,6 +107,17 @@ def test_specialized_service_impl_receives_user_path_without_type_suffix():
     assert eval_node(client) == [1]
 
 
+def test_service_interface_exposes_its_default_path():
+    @hg.reference_service
+    def generated() -> TS[int]: ...
+
+    @hg.reference_service
+    def explicit(path: str = "rates") -> TS[int]: ...
+
+    assert generated.default_path() == "generated_default"
+    assert explicit.default_path() == "rates"
+
+
 def test_default_service_impl_serves_custom_path_and_receives_that_path():
     observed = []
 
