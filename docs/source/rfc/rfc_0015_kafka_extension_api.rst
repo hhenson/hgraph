@@ -63,20 +63,24 @@ Live Kafka ingress is real-time-only.  One standard unbounded burst push source
 carries discriminated, fully owned transport envelopes for subscription
 values, delivery reports, and service events.  Each sender call admits one
 envelope; one source evaluation transfers all currently pending envelopes as
-an ordered tuple.  The subscription scheduler retains only its required
-timestamp/recovery ordering.  Delivery reports are grouped by a stateless
-classifier and flow through standard ``collect`` and mapped ``emit`` operators;
-the scalar event stream uses standard ``emit`` directly.  This distributes
-independent keys in one public tick, preserves same-key FIFO over later cycles,
-and keeps graph-stop and commit-on-delivery policy on graph.  There is no extension-owned
-cross-thread ingress queue, conflated wake token, or drain node in front of the
-graph.
+an ordered tuple.  One Kafka-specific graph emit classifies that burst into a
+structural service bundle: keyed subscription and delivery lanes plus a scalar
+service-event lane.  Independent keys are emitted together as keyed deltas;
+only a repeated key, a later scalar event, or timestamp/recovery ordering is
+retained for a later engine cycle.  Standard field projection and ``map_`` then
+give each service lane its public shape.  This preserves same-key FIFO without
+head-of-line blocking across independent keys or services, and keeps graph-stop
+and commit-on-delivery policy on graph.  There is no extension-owned
+cross-thread ingress queue, conflated wake token, or opaque service projection
+or drain object in front of the graph.
 
 No push source is permitted in simulation.  The simulation specialization
 performs a finite bounded read without a worker thread, retains the resulting
 history in graph-owned replay state, and schedules it at the recorded Kafka
-timestamps.  Subscription records sharing one timestamp are applied in one
-keyed mutation so exact simulated time is preserved.
+timestamps.  Replay feeds the same graph emit and mapped service projections as
+live ingress.  Independent subscription records sharing one timestamp are
+applied in one keyed mutation so exact simulated time is preserved; a collision
+on one subscription key is released on the following engine cycle.
 
 Motivation
 ----------
@@ -1047,9 +1051,10 @@ Public C++ and extension boundary
 * One ``KafkaServiceImpl`` materializes for one demanded path and configuration;
   duplicate registration at that path is rejected.
 * Its graph-to-Kafka edges are distinct sink nodes over ``impl_input``.
-  Real-time Kafka-to-graph values use one burst root push source and ordinary
-  projection nodes; bounded simulation recovery uses a scheduled replay node.
-  Both are published through ``impl_output``.
+  Real-time Kafka-to-graph values use one burst root push source, one structural
+  service emit, and mapped projection graphs; bounded simulation recovery uses
+  a scheduled replay node feeding the same emit and projections.  Both are
+  published through ``impl_output``.
 * The real-time/simulation implementation is selected at wiring time.  A
   simulation graph contains no push source and accepts only deterministic,
   bounded record-time subscriptions.

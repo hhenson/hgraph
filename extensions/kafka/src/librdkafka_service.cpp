@@ -2912,8 +2912,7 @@ struct KafkaServiceImpl {
             wire<KafkaSimulationReplayNode>(w, ready, runtime_config,
                                             path.value(), runtime, queue)
                 .template as<TS<detail::KafkaTransportEventBatch>>();
-        return detail::wire_simulation_service_outputs(w, replay,
-                                                       transport_bindings);
+        return detail::wire_service_outputs(w, replay, transport_bindings);
       }
       auto source = wire_realtime_transport(w, runtime_config, path.value(),
                                             runtime, transport_bindings);

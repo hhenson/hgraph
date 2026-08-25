@@ -89,7 +89,20 @@ struct DeliveryBurstProjectionGraph {
 
   static Port<TSD<Int, TS<KafkaDeliveryReport>>>
   compose(Wiring &w, Port<TS<kafka::detail::KafkaTransportEventBatch>> batch) {
-    return kafka::detail::wire_delivery_output(w, batch);
+    return kafka::detail::wire_service_outputs(
+               w, batch, kafka::detail::make_transport_bindings())
+        .deliveries;
+  }
+};
+
+struct MixedTransportEmitGraph {
+  static constexpr auto name = "kafka_mixed_transport_emit_test_graph";
+
+  static Port<kafka::detail::KafkaTransportStreams>
+  compose(Wiring &w, Port<TS<kafka::detail::KafkaTransportEventBatch>> batch) {
+    return wire<kafka::detail::KafkaTransportEmitNode>(
+               w, batch, kafka::detail::make_transport_bindings())
+        .template as<kafka::detail::KafkaTransportStreams>();
   }
 };
 
@@ -121,6 +134,88 @@ void test_delivery_burst_unrolls_repeated_request_ids() {
   };
   require(sequence_at(0) == Int{1} && sequence_at(1) == Int{2},
           "same-id delivery reports were conflated or reordered");
+}
+
+void test_mixed_burst_only_defers_colliding_service_keys() {
+  const auto bindings = kafka::detail::make_transport_bindings();
+  Value first_key = make_subscription_key(
+      {Str{"orders-a"}}, Str{"mixed-a"}, Str{"earliest"}, Str{"unbounded"},
+      KafkaCommitMode::Explicit, Str{"mixed-a"});
+  Value second_key = make_subscription_key(
+      {Str{"orders-b"}}, Str{"mixed-b"}, Str{"earliest"}, Str{"unbounded"},
+      KafkaCommitMode::Explicit, Str{"mixed-b"});
+  Value first_report = make_delivery_report(Str{"first"}, Int{1}, Str{"orders"},
+                                            KafkaDeliveryStatus::Delivered);
+  Value second_report = make_delivery_report(
+      Str{"second"}, Int{2}, Str{"orders"}, KafkaDeliveryStatus::Delivered);
+  Value independent_report =
+      make_delivery_report(Str{"independent"}, Int{3}, Str{"orders"},
+                           KafkaDeliveryStatus::Delivered);
+
+  ListBuilder burst{bindings.value->event,
+                    *scalar_descriptor<
+                        kafka::detail::KafkaTransportEventBatch>::value_meta()};
+  burst.push_back(kafka::detail::subscription_transport_event(
+      *bindings.value, first_key.clone(),
+      make_record(Str{"orders-a"}, Int{0}, Int{1}, Bytes{"first"}),
+      std::nullopt, KafkaSubscriptionState::Live));
+  burst.push_back(kafka::detail::subscription_transport_event(
+      *bindings.value, second_key.clone(),
+      make_record(Str{"orders-b"}, Int{0}, Int{2}, Bytes{"independent"}),
+      std::nullopt, KafkaSubscriptionState::Live));
+  burst.push_back(kafka::detail::subscription_transport_event(
+      *bindings.value, first_key.clone(),
+      make_record(Str{"orders-a"}, Int{0}, Int{3}, Bytes{"collision"}),
+      std::nullopt, KafkaSubscriptionState::Live));
+  burst.push_back(kafka::detail::delivery_transport_event(
+      *bindings.value, Int{17}, std::move(first_report)));
+  burst.push_back(kafka::detail::delivery_transport_event(
+      *bindings.value, Int{23}, std::move(independent_report)));
+  burst.push_back(kafka::detail::delivery_transport_event(
+      *bindings.value, Int{17}, std::move(second_report)));
+  burst.push_back(kafka::detail::service_transport_event(
+      *bindings.value, make_event(KafkaSeverity::Info, Str{"consumer"},
+                                  Str{"first"}, Str{"mixed"}, Str{"first"})));
+  burst.push_back(kafka::detail::service_transport_event(
+      *bindings.value, make_event(KafkaSeverity::Info, Str{"consumer"},
+                                  Str{"second"}, Str{"mixed"}, Str{"second"})));
+
+  std::vector<std::optional<Value>> input;
+  input.emplace_back(burst.build());
+  const auto output = eval_node<MixedTransportEmitGraph>(input);
+  require(output.size() >= 2 && output[0].has_value() && output[1].has_value(),
+          "mixed Kafka burst did not drain its collisions over two cycles");
+
+  const auto first = output[0]->view().as_bundle();
+  const auto first_subscriptions =
+      first.at("subscriptions").as_bundle().at("modified").as_map();
+  const auto first_deliveries =
+      first.at("deliveries").as_bundle().at("modified").as_map();
+  const Value first_delivery_key{Int{17}};
+  const Value independent_delivery_key{Int{23}};
+  require(first_subscriptions.contains(first_key.view()) &&
+              first_subscriptions.contains(second_key.view()),
+          "a subscription collision blocked an independent subscription");
+  require(first_deliveries.contains(first_delivery_key.view()) &&
+              first_deliveries.contains(independent_delivery_key.view()),
+          "a delivery collision blocked an independent delivery");
+  require(first.at("events").data() != nullptr,
+          "keyed collisions blocked the scalar service-event lane");
+
+  const auto second = output[1]->view().as_bundle();
+  const auto second_subscriptions =
+      second.at("subscriptions").as_bundle().at("modified").as_map();
+  const auto second_deliveries =
+      second.at("deliveries").as_bundle().at("modified").as_map();
+  require(second_subscriptions.size() == 1 &&
+              second_subscriptions.contains(first_key.view()),
+          "the colliding subscription was not deferred exactly one cycle");
+  const Value delivery_key{Int{17}};
+  require(second_deliveries.size() == 1 &&
+              second_deliveries.contains(delivery_key.view()),
+          "the colliding delivery was not deferred exactly one cycle");
+  require(second.at("events").data() != nullptr,
+          "the second scalar service event was not drained in FIFO order");
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -793,15 +888,18 @@ void test_runtime_specific_wiring_shapes() {
                           std::string_view{"kafka_publish_commands"},
                           std::string_view{"kafka_commit_commands"},
                           std::string_view{"kafka_graph_delivery_commit"},
-                          std::string_view{"kafka_subscription_projection"},
-                          std::string_view{"kafka_group_delivery_batch"},
-                          std::string_view{"collect_tsd_from_map"},
-                          std::string_view{"kafka_select_event_batch"}}) {
+                          std::string_view{"kafka_transport_emit"},
+                          std::string_view{"kafka_event_projection"}}) {
     require(find_node_schema(realtime, name) != nullptr,
             "real-time Kafka wiring is missing " + Str{name});
   }
   require(find_node_schema(realtime, "kafka_simulation_replay") == nullptr,
           "real-time Kafka unexpectedly wired simulation replay");
+  for (const auto legacy : {std::string_view{"kafka_group_delivery_batch"},
+                            std::string_view{"kafka_select_event_batch"}}) {
+    require(find_node_schema(realtime, legacy) == nullptr,
+            "real-time Kafka retained the private drain node " + Str{legacy});
+  }
 
   const auto simulation = build_graph<BoundedSubscriptionGraph>();
   require(count_nodes(simulation, NodeKind::PushSource) == 0,
@@ -812,10 +910,8 @@ void test_runtime_specific_wiring_shapes() {
   require(find_node_schema(simulation,
                            "kafka_simulation_subscription_commands") != nullptr,
           "simulation Kafka did not wire graph-side subscription commands");
-  require(find_node_schema(simulation,
-                           "kafka_simulation_subscription_projection") !=
-              nullptr,
-          "simulation Kafka did not wire graph-side subscription projection");
+  require(find_node_schema(simulation, "kafka_transport_emit") != nullptr,
+          "simulation Kafka did not wire the shared transport emit");
 }
 
 struct OrderedIngressCapture {
@@ -2820,6 +2916,7 @@ int main() {
     test_delivery_burst_unrolls_repeated_request_ids();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
+    test_mixed_burst_only_defers_colliding_service_keys();
     test_runtime_specific_wiring_shapes();
     test_public_value_validation_and_producer_configuration();
     test_simulation_rejects_publish_and_commit_work();
