@@ -55,3 +55,4 @@ RFC catalogue
    rfc_0025_hgraph_persistence
    rfc_0026_versioned_dataflow_fabric
    rfc_0027_bounded_push_source_queues
+   rfc_0028_shared_value_representation
