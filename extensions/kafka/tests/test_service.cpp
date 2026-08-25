@@ -136,7 +136,7 @@ void test_delivery_burst_unrolls_repeated_request_ids() {
           "same-id delivery reports were conflated or reordered");
 }
 
-void test_mixed_burst_only_defers_colliding_service_keys() {
+void test_mixed_burst_stops_at_first_output_collision() {
   const auto bindings = kafka::detail::make_transport_bindings();
   Value first_key = make_subscription_key(
       {Str{"orders-a"}}, Str{"mixed-a"}, Str{"earliest"}, Str{"unbounded"},
@@ -183,24 +183,25 @@ void test_mixed_burst_only_defers_colliding_service_keys() {
   std::vector<std::optional<Value>> input;
   input.emplace_back(burst.build());
   const auto output = eval_node<MixedTransportEmitGraph>(input);
-  require(output.size() >= 2 && output[0].has_value() && output[1].has_value(),
-          "mixed Kafka burst did not drain its collisions over two cycles");
+  require(output.size() >= 4 && output[0].has_value() &&
+              output[1].has_value() && output[2].has_value() &&
+              output[3].has_value(),
+          "mixed Kafka burst did not resume after each output collision");
+  const auto tsd_delta_empty = [](const ValueView &value) {
+    const auto delta = value.as_bundle();
+    return delta.at("removed").as_set().empty() &&
+           delta.at("modified").as_map().empty();
+  };
 
   const auto first = output[0]->view().as_bundle();
   const auto first_subscriptions =
       first.at("subscriptions").as_bundle().at("modified").as_map();
-  const auto first_deliveries =
-      first.at("deliveries").as_bundle().at("modified").as_map();
-  const Value first_delivery_key{Int{17}};
-  const Value independent_delivery_key{Int{23}};
   require(first_subscriptions.contains(first_key.view()) &&
               first_subscriptions.contains(second_key.view()),
-          "a subscription collision blocked an independent subscription");
-  require(first_deliveries.contains(first_delivery_key.view()) &&
-              first_deliveries.contains(independent_delivery_key.view()),
-          "a delivery collision blocked an independent delivery");
-  require(first.at("events").data() != nullptr,
-          "keyed collisions blocked the scalar service-event lane");
+          "the emitter did not delegate the collision-free queue prefix");
+  require(tsd_delta_empty(first.at("deliveries")) &&
+              !first.at("events").has_value(),
+          "an event overtook the first subscription-key collision");
 
   const auto second = output[1]->view().as_bundle();
   const auto second_subscriptions =
@@ -209,13 +210,30 @@ void test_mixed_burst_only_defers_colliding_service_keys() {
       second.at("deliveries").as_bundle().at("modified").as_map();
   require(second_subscriptions.size() == 1 &&
               second_subscriptions.contains(first_key.view()),
-          "the colliding subscription was not deferred exactly one cycle");
-  const Value delivery_key{Int{17}};
-  require(second_deliveries.size() == 1 &&
-              second_deliveries.contains(delivery_key.view()),
-          "the colliding delivery was not deferred exactly one cycle");
-  require(second.at("events").data() != nullptr,
-          "the second scalar service event was not drained in FIFO order");
+          "the emitter did not resume from the blocked subscription event");
+  const Value first_delivery_key{Int{17}};
+  const Value independent_delivery_key{Int{23}};
+  require(second_deliveries.contains(first_delivery_key.view()) &&
+              second_deliveries.contains(independent_delivery_key.view()),
+          "the emitter did not continue to the delivery-key collision");
+  require(!second.at("events").has_value(),
+          "a service event overtook the delivery-key collision");
+
+  const auto third = output[2]->view().as_bundle();
+  const auto third_deliveries =
+      third.at("deliveries").as_bundle().at("modified").as_map();
+  require(tsd_delta_empty(third.at("subscriptions")) &&
+              third_deliveries.size() == 1 &&
+              third_deliveries.contains(first_delivery_key.view()),
+          "the emitter did not resume from the blocked delivery event");
+  require(third.at("events").has_value(),
+          "the emitter did not continue to the first scalar service event");
+
+  const auto fourth = output[3]->view().as_bundle();
+  require(tsd_delta_empty(fourth.at("subscriptions")) &&
+              tsd_delta_empty(fourth.at("deliveries")) &&
+              fourth.at("events").has_value(),
+          "the emitter did not resume from the scalar output collision");
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -2916,7 +2934,7 @@ int main() {
     test_delivery_burst_unrolls_repeated_request_ids();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
-    test_mixed_burst_only_defers_colliding_service_keys();
+    test_mixed_burst_stops_at_first_output_collision();
     test_runtime_specific_wiring_shapes();
     test_public_value_validation_and_producer_configuration();
     test_simulation_rejects_publish_and_commit_work();

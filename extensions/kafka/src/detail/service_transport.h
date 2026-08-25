@@ -130,10 +130,11 @@ struct OwnedValueEqual {
 
 struct KafkaTransportEmitState {
   ValueTypeRef event_binding{};
-  std::deque<Value> subscriptions{};
-  std::deque<Value> deliveries{};
-  std::deque<Value> events{};
-  std::unordered_set<Value, OwnedValueHash, OwnedValueEqual> emitted_keys{};
+  std::deque<Value> pending{};
+  // Per-evaluation output-occupancy scratch. It is cleared before dequeueing
+  // and never retains transport work; keeping its allocation avoids rebuilding
+  // the hash table on every engine cycle until outputs expose this directly.
+  std::unordered_set<Value, OwnedValueHash, OwnedValueEqual> occupied_keys{};
   bool recovery_blocked{};
 };
 
@@ -237,19 +238,19 @@ service_transport_event(const KafkaTransportBindings &bindings, Value event,
                           {"stop_graph", transport_atomic(stop_graph)}});
 }
 
-/** Splits one Kafka burst into graph-visible service lanes. Runtime envelope
- * kinds cannot be selected at wiring time, so this is the one Kafka-specific
- * emit primitive. Independent subscription keys and delivery request ids are
- * emitted together as keyed deltas; a repeated key is retained for the next
- * engine cycle so its event order remains observable. Scalar service events
- * remain FIFO and release one per cycle. Timestamped recovery events release
- * when due and remain blocked until their recovery barrier arrives.
+/** Splits one ordered Kafka burst into graph-visible service lanes. Runtime
+ * envelope kinds cannot be selected at wiring time, so this is the one
+ * Kafka-specific emit primitive. It walks one pending queue in order and
+ * delegates events until the next event would write a second value to an
+ * already occupied output in the same engine cycle. That event remains at the
+ * queue front and resumes on the next cycle. Timestamped recovery events
+ * release when due and remain blocked until their recovery barrier arrives.
  *
- * Normal live classification and draining are O(B + Q), where B is the
- * incoming burst and Q is retained work examined for the current lanes.
- * Sorted timestamp recovery insertion is O(Bs * Qs) worst-case for Bs new and
- * Qs retained subscription events. Retained memory is O(Q). State is
- * ephemeral ingress sequencing state and is discarded at stop. */
+ * Normal live append and draining are O(B + D), where B is the incoming burst
+ * and D is the prefix delegated this cycle. Sorted timestamp insertion and a
+ * live subscription's recovery-tail lookup are O(Bt * Q) worst-case for Bt
+ * timestamp-related events and Q retained events. Retained memory is O(Q).
+ * State is ephemeral ingress sequencing state and is discarded at stop. */
 struct KafkaTransportEmitNode {
   static constexpr auto name = "kafka_transport_emit";
 
@@ -297,31 +298,38 @@ struct KafkaTransportEmitNode {
       for (std::size_t index = 0; index != incoming.size(); ++index) {
         const auto value = incoming.at(index);
         const auto fields = value.as_bundle();
-        switch (fields.at("kind").checked_as<KafkaTransportEventKind>()) {
-        case KafkaTransportEventKind::Subscription: {
-          Value event = value.clone();
-          auto event_time = evaluation_time(value);
+        const auto kind =
+            fields.at("kind").checked_as<KafkaTransportEventKind>();
+        if (kind == KafkaTransportEventKind::RecoveryBarrier) {
+          current.recovery_blocked = false;
+          continue;
+        }
+
+        Value event = value.clone();
+        auto event_time = evaluation_time(value);
+        if (kind == KafkaTransportEventKind::Subscription) {
           const auto recovery = fields.at("recovery");
           if (recovery.data() != nullptr && recovery.checked_as<Bool>()) {
             current.recovery_blocked = true;
           }
-          // The ordered queue stores all live values before timestamped
-          // recovery. Avoid a predecessor scan on the normal live hot path
-          // when its tail proves that no timestamped value is retained.
+          // Untimed live values normally append in O(1). If timestamped work
+          // remains, a live value for the same subscription follows its
+          // recovery tail on the next engine time.
           const bool has_timestamped_tail =
-              !current.subscriptions.empty() &&
-              evaluation_time(current.subscriptions.back().view()).has_value();
+              !current.pending.empty() &&
+              evaluation_time(current.pending.back().view()).has_value();
           if (!event_time.has_value() && has_timestamped_tail) {
             const auto key = fields.at("subscription_key");
             const auto predecessor = std::find_if(
-                current.subscriptions.rbegin(), current.subscriptions.rend(),
+                current.pending.rbegin(), current.pending.rend(),
                 [&](const Value &candidate) {
-                  return candidate.view()
-                      .as_bundle()
-                      .at("subscription_key")
-                      .equals(key);
+                  const auto candidate_fields = candidate.view().as_bundle();
+                  return candidate_fields.at("kind")
+                                 .checked_as<KafkaTransportEventKind>() ==
+                             KafkaTransportEventKind::Subscription &&
+                         candidate_fields.at("subscription_key").equals(key);
                 });
-            if (predecessor != current.subscriptions.rend()) {
+            if (predecessor != current.pending.rend()) {
               const auto predecessor_time =
                   evaluation_time(predecessor->view());
               if (predecessor_time.has_value()) {
@@ -331,126 +339,89 @@ struct KafkaTransportEmitNode {
               }
             }
           }
-          if (!event_time.has_value() && !has_timestamped_tail) {
-            current.subscriptions.push_back(std::move(event));
-            break;
-          }
-          const auto position = std::upper_bound(
-              current.subscriptions.begin(), current.subscriptions.end(), event,
-              [&](const Value &lhs, const Value &rhs) {
-                const auto lhs_time = evaluation_time(lhs.view());
-                const auto rhs_time = evaluation_time(rhs.view());
-                if (!lhs_time.has_value()) {
-                  return rhs_time.has_value();
-                }
-                return rhs_time.has_value() && *lhs_time < *rhs_time;
-              });
-          current.subscriptions.insert(position, std::move(event));
-          break;
         }
-        case KafkaTransportEventKind::Delivery:
-          current.deliveries.emplace_back(value);
-          break;
-        case KafkaTransportEventKind::Event:
-          current.events.emplace_back(value);
-          break;
-        case KafkaTransportEventKind::RecoveryBarrier:
-          current.recovery_blocked = false;
-          break;
-        }
-      }
-    }
 
-    const auto subscription_is_blocked = [&] {
-      if (!current.recovery_blocked || current.subscriptions.empty()) {
-        return false;
-      }
-      const auto recovery =
-          current.subscriptions.front().view().as_bundle().at("recovery");
-      return recovery.data() != nullptr && recovery.checked_as<Bool>();
-    };
-
-    if (!current.subscriptions.empty() && !subscription_is_blocked()) {
-      const auto cohort_time =
-          evaluation_time(current.subscriptions.front().view());
-      if (!cohort_time.has_value() || *cohort_time <= scheduler.now()) {
-        auto subscriptions = out.template field<"subscriptions">();
-        auto mutation =
-            subscriptions.begin_mutation(subscriptions.evaluation_time());
-        auto &emitted = current.emitted_keys;
-        emitted.clear();
-        std::deque<Value> remaining;
-        while (!current.subscriptions.empty()) {
-          Value event = std::move(current.subscriptions.front());
-          current.subscriptions.pop_front();
-          const auto event_time = evaluation_time(event.view());
-          const bool outside_cohort = cohort_time.has_value()
-                                          ? event_time != cohort_time
-                                          : event_time.has_value();
-          if (outside_cohort) {
-            remaining.push_back(std::move(event));
-            while (!current.subscriptions.empty()) {
-              remaining.push_back(std::move(current.subscriptions.front()));
-              current.subscriptions.pop_front();
-            }
-            break;
-          }
-          const auto fields = event.view().as_bundle();
-          const auto key = fields.at("subscription_key");
-          if (!emitted.emplace(key).second) {
-            remaining.push_back(std::move(event));
-            continue;
-          }
-          const auto removed = fields.at("removed");
-          if (removed.data() != nullptr && removed.checked_as<Bool>()) {
-            static_cast<void>(mutation.erase(key));
-          } else {
-            mutation.set(key, event.view());
-          }
-        }
-        current.subscriptions.swap(remaining);
-      }
-    }
-
-    if (!current.deliveries.empty()) {
-      auto deliveries = out.template field<"deliveries">();
-      auto mutation = deliveries.begin_mutation(deliveries.evaluation_time());
-      auto &emitted = current.emitted_keys;
-      emitted.clear();
-      std::deque<Value> remaining;
-      while (!current.deliveries.empty()) {
-        Value event = std::move(current.deliveries.front());
-        current.deliveries.pop_front();
-        const auto fields = event.view().as_bundle();
-        const auto key = fields.at("request_id");
-        if (!emitted.emplace(key).second) {
-          remaining.push_back(std::move(event));
+        const bool has_timestamped_tail =
+            !current.pending.empty() &&
+            evaluation_time(current.pending.back().view()).has_value();
+        if (!event_time.has_value() && !has_timestamped_tail) {
+          current.pending.push_back(std::move(event));
           continue;
         }
-        mutation.set(key, event.view());
+        const auto position = std::upper_bound(
+            current.pending.begin(), current.pending.end(), event,
+            [&](const Value &lhs, const Value &rhs) {
+              const auto lhs_time = evaluation_time(lhs.view());
+              const auto rhs_time = evaluation_time(rhs.view());
+              if (!lhs_time.has_value()) {
+                return rhs_time.has_value();
+              }
+              return rhs_time.has_value() && *lhs_time < *rhs_time;
+            });
+        current.pending.insert(position, std::move(event));
       }
-      current.deliveries.swap(remaining);
     }
 
-    if (!current.events.empty()) {
-      Value event = std::move(current.events.front());
-      current.events.pop_front();
-      out.template field<"events">().apply(event.view());
-    }
+    auto subscriptions = out.template field<"subscriptions">();
+    std::optional<TSDDataMutationView> subscription_mutation;
+    auto deliveries = out.template field<"deliveries">();
+    std::optional<TSDDataMutationView> delivery_mutation;
+    auto events = out.template field<"events">();
+    auto &occupied = current.occupied_keys;
+    occupied.clear();
+    bool event_emitted{};
 
-    bool schedule_immediately =
-        !current.deliveries.empty() || !current.events.empty();
-    std::optional<DateTime> subscription_time;
-    if (!current.subscriptions.empty() && !subscription_is_blocked()) {
-      subscription_time = evaluation_time(current.subscriptions.front().view());
-      schedule_immediately = schedule_immediately ||
-                             !subscription_time.has_value() ||
-                             *subscription_time <= scheduler.now();
-    }
-    if (schedule_immediately) {
-      scheduler.schedule(MIN_TD);
-    } else if (subscription_time.has_value()) {
-      scheduler.schedule(*subscription_time);
+    while (!current.pending.empty()) {
+      const auto event = current.pending.front().view();
+      const auto fields = event.as_bundle();
+      const auto kind = fields.at("kind").checked_as<KafkaTransportEventKind>();
+
+      if (kind == KafkaTransportEventKind::Subscription) {
+        const auto recovery = fields.at("recovery");
+        if (current.recovery_blocked && recovery.data() != nullptr &&
+            recovery.checked_as<Bool>()) {
+          break;
+        }
+        const auto event_time = evaluation_time(event);
+        if (event_time.has_value() && *event_time > scheduler.now()) {
+          scheduler.schedule(*event_time);
+          break;
+        }
+        const auto key = fields.at("subscription_key");
+        if (!occupied.emplace(key).second) {
+          scheduler.schedule(MIN_TD);
+          break;
+        }
+        const auto removed = fields.at("removed");
+        if (!subscription_mutation.has_value()) {
+          subscription_mutation.emplace(
+              subscriptions.begin_mutation(subscriptions.evaluation_time()));
+        }
+        if (removed.data() != nullptr && removed.checked_as<Bool>()) {
+          static_cast<void>(subscription_mutation->erase(key));
+        } else {
+          subscription_mutation->set(key, event);
+        }
+      } else if (kind == KafkaTransportEventKind::Delivery) {
+        const auto key = fields.at("request_id");
+        if (!occupied.emplace(key).second) {
+          scheduler.schedule(MIN_TD);
+          break;
+        }
+        if (!delivery_mutation.has_value()) {
+          delivery_mutation.emplace(
+              deliveries.begin_mutation(deliveries.evaluation_time()));
+        }
+        delivery_mutation->set(key, event);
+      } else if (kind == KafkaTransportEventKind::Event) {
+        if (event_emitted) {
+          scheduler.schedule(MIN_TD);
+          break;
+        }
+        events.apply(event);
+        event_emitted = true;
+      }
+      current.pending.pop_front();
     }
   }
 };

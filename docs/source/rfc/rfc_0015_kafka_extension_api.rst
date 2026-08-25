@@ -65,14 +65,15 @@ values, delivery reports, and service events.  Each sender call admits one
 envelope; one source evaluation transfers all currently pending envelopes as
 an ordered tuple.  One Kafka-specific graph emit classifies that burst into a
 structural service bundle: keyed subscription and delivery lanes plus a scalar
-service-event lane.  Independent keys are emitted together as keyed deltas;
-only a repeated key, a later scalar event, or timestamp/recovery ordering is
-retained for a later engine cycle.  Standard field projection and ``map_`` then
-give each service lane its public shape.  This preserves same-key FIFO without
-head-of-line blocking across independent keys or services, and keeps graph-stop
-and commit-on-delivery policy on graph.  There is no extension-owned
-cross-thread ingress queue, conflated wake token, or opaque service projection
-or drain object in front of the graph.
+service-event lane.  The emit walks one ordered pending queue and delegates its
+collision-free prefix into that bundle.  Independent keys can therefore share
+a keyed delta, but the first repeated key, second scalar event, or
+timestamp/recovery constraint stops the walk; the front event resumes on the
+next applicable engine cycle.  No later event may overtake that boundary.
+Standard field projection and ``map_`` then give each service lane its public
+shape and keep graph-stop and commit-on-delivery policy on graph.  There is no
+extension-owned cross-thread ingress queue, conflated wake token, or opaque
+service projection or drain object in front of the graph.
 
 No push source is permitted in simulation.  The simulation specialization
 performs a finite bounded read without a worker thread, retains the resulting
@@ -988,9 +989,9 @@ small records, large records, headers, several partitions, several graph
 clients, and two concurrent pure-C++ engines.
 
 The real-time ingress policy is explicitly the standard unbounded burst queue
-rather than a hidden extension queue.  Standard graph operators retain the
-same-key or scalar work that cannot share one public tick; the adaptor has no
-second projection queue.  Capacity may be
+rather than a hidden extension queue.  The Kafka graph emit has one ordered
+pending queue for work that cannot enter the current output tick; it does not
+create a queue per projected service lane.  Capacity may be
 introduced later only by selecting the core bounded policy with a documented
 refusal path.  The extension should expose data-only inspection views rather
 than requiring debuggers to decode librdkafka or STL layouts.
