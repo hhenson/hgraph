@@ -22,7 +22,6 @@
 #include <memory>
 #include <optional>
 #include <ostream>
-#include <ranges>
 #include <span>
 #include <string_view>
 #include <typeindex>
@@ -443,7 +442,9 @@ struct SubscriptionProjectionNode {
        Out<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>> out) {
     auto schedule = state.get().value;
     if (transport.modified()) {
-      for (const auto event : transport.base().value().as_list()) {
+      const auto events = transport.base().value().as_list();
+      for (std::size_t index = 0; index != events.size(); ++index) {
+        const auto event = events.at(index);
         const auto fields = event.as_bundle();
         const auto kind =
             fields.at("kind").checked_as<KafkaTransportEventKind>();
@@ -624,7 +625,9 @@ struct SelectEventBatchNode {
     ListBuilder selected{resolved.primary,
                          *scalar_descriptor<
                              KafkaTransportEventBatch>::value_meta()};
-    for (const auto event : transport.base().value().as_list()) {
+    const auto events = transport.base().value().as_list();
+    for (std::size_t index = 0; index != events.size(); ++index) {
+      const auto event = events.at(index);
       const auto fields = event.as_bundle();
       if (fields.at("kind").checked_as<KafkaTransportEventKind>() ==
           KafkaTransportEventKind::Event) {
@@ -681,18 +684,23 @@ struct SimulationSubscriptionProjectionNode {
        State<SubscriptionEventScheduleHandle> state,
        Out<TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>> out) {
     const auto values = transport.base().value().as_list();
-    const bool has_subscription =
-        std::ranges::any_of(values, [](const ValueView &value) {
-          return value.as_bundle()
-                     .at("kind")
-                     .checked_as<KafkaTransportEventKind>() ==
-                 KafkaTransportEventKind::Subscription;
-        });
+    bool has_subscription = false;
+    for (std::size_t index = 0; index != values.size(); ++index) {
+      if (values.at(index)
+              .as_bundle()
+              .at("kind")
+              .checked_as<KafkaTransportEventKind>() ==
+          KafkaTransportEventKind::Subscription) {
+        has_subscription = true;
+        break;
+      }
+    }
     if (!has_subscription) {
       return;
     }
     auto mutation = out.begin_mutation(out.evaluation_time());
-    for (const auto value : values) {
+    for (std::size_t index = 0; index != values.size(); ++index) {
+      const auto value = values.at(index);
       const auto fields = value.as_bundle();
       if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
           KafkaTransportEventKind::Subscription) {
@@ -726,18 +734,23 @@ struct SimulationDeliveryProjectionNode {
   static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
                    Out<TSD<Int, TS<KafkaDeliveryReport>>> out) {
     const auto values = transport.base().value().as_list();
-    const bool has_delivery =
-        std::ranges::any_of(values, [](const ValueView &value) {
-          return value.as_bundle()
-                     .at("kind")
-                     .checked_as<KafkaTransportEventKind>() ==
-                 KafkaTransportEventKind::Delivery;
-        });
+    bool has_delivery = false;
+    for (std::size_t index = 0; index != values.size(); ++index) {
+      if (values.at(index)
+              .as_bundle()
+              .at("kind")
+              .checked_as<KafkaTransportEventKind>() ==
+          KafkaTransportEventKind::Delivery) {
+        has_delivery = true;
+        break;
+      }
+    }
     if (!has_delivery) {
       return;
     }
     auto mutation = out.begin_mutation(out.evaluation_time());
-    for (const auto value : values) {
+    for (std::size_t index = 0; index != values.size(); ++index) {
+      const auto value = values.at(index);
       const auto fields = value.as_bundle();
       if (fields.at("kind").checked_as<KafkaTransportEventKind>() ==
           KafkaTransportEventKind::Delivery) {
@@ -755,7 +768,9 @@ struct SimulationEventProjectionNode {
 
   static void eval(In<"transport", TS<KafkaTransportEventBatch>> transport,
                    EngineControlView engine, Out<TS<KafkaEvent>> out) {
-    for (const auto value : transport.base().value().as_list()) {
+    const auto values = transport.base().value().as_list();
+    for (std::size_t index = 0; index != values.size(); ++index) {
+      const auto value = values.at(index);
       const auto fields = value.as_bundle();
       if (fields.at("kind").checked_as<KafkaTransportEventKind>() !=
           KafkaTransportEventKind::Event) {
