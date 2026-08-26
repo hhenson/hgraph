@@ -28,6 +28,7 @@
 #include <mutex>
 
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -778,6 +779,10 @@ struct TypeRealizationSnapshot::Impl {
       graph_inline_union_types{};
   mutable std::unordered_map<const ValueTypeMetaData *, PolymorphicValueType>
       graph_pooled_union_types{};
+  // Stable address handed to every pooled entry realized here; the root graph
+  // that runs this realization binds its pool into it.
+  std::unique_ptr<CompoundScalarStorageBinding> pool_binding{
+      std::make_unique<CompoundScalarStorageBinding>()};
   enum class RealizationKind : std::uint8_t {
     ExternalExact,
     ExternalUnion,
@@ -1191,7 +1196,7 @@ struct TypeRealizationSnapshot::Impl {
     ValueTypeRef result{};
     if (use_pool) {
       auto created = detail::make_pooled_polymorphic_value_type(
-          schema, std::move(alternatives)
+          schema, pool_binding.get(), std::move(alternatives)
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
           detail::PolymorphicPythonSourceResolver{
@@ -1368,6 +1373,11 @@ std::uint64_t TypeRealizationSnapshot::generation() const noexcept {
 
 TypeRealizationOptions TypeRealizationSnapshot::options() const noexcept {
   return impl_->options;
+}
+
+CompoundScalarStorageBinding &
+TypeRealizationSnapshot::pool_binding() const noexcept {
+  return *impl_->pool_binding;
 }
 
 bool TypeRealizationSnapshot::pooled_compound_storage_enabled() const noexcept {

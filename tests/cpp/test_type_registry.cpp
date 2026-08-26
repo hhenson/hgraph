@@ -569,7 +569,7 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
 
   CompoundScalarStorage pools = CompoundScalarStorage::make_default();
   TypeRealizationScope realization_scope{snapshot.get()};
-  CompoundScalarStorageScope pool_scope{pools.view()};
+  pools.bind(snapshot->pool_binding());
 
   Value escaped;
   {
@@ -586,18 +586,13 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
     REQUIRE(graph.ops_ref().concrete_type(graph, first.data()).schema() ==
             large);
 
+    // RFC 0029: a realization's pooled types serve exactly one live root
+    // graph, so a second pool cannot claim them while this one is bound.
     CompoundScalarStorage other_root = CompoundScalarStorage::make_default();
-    {
-      CompoundScalarStorageScope other_scope{other_root.view()};
-      Value::storage_type cross_root{first};
-      const void *const cross_root_payload =
-          graph.ops_ref().concrete_memory(cross_root.data());
-      REQUIRE(cross_root_payload != first_payload);
-      REQUIRE(other_root.view().owns(cross_root_payload));
-      REQUIRE_FALSE(pools.view().owns(cross_root_payload));
-      REQUIRE(other_root.view().inspect().live_slot_count == 1);
-    }
+    REQUIRE_THROWS_AS(other_root.bind(snapshot->pool_binding()),
+                      std::logic_error);
     REQUIRE(other_root.view().inspect().live_slot_count == 0);
+    REQUIRE(pools.view().owns(first_payload));
 
     std::vector<Value::storage_type> replicated_keys;
     replicated_keys.reserve(1024);

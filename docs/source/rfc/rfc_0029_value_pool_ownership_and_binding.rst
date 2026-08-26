@@ -256,6 +256,50 @@ Nested graphs inherit the root's binding by construction: they share its
 realization, so they share its cell and never bind one of their own.  A builder
 used to construct two root graphs in sequence binds, unbinds, and binds again.
 
+Concurrency limit: one live pooled root graph per realization
+-------------------------------------------------------------
+
+Exclusivity has a consequence that must be stated rather than discovered.
+``TypeRealizationSnapshot::capture`` **caches** by ``(registry generation,
+options)`` and returns the same snapshot to every caller
+(``type_realization.cpp:1350-1368``).  Two pooled root graphs built at the same
+registry generation with the same options therefore share one realization, and
+so one binding cell: the second to construct is **refused**, with a diagnostic
+naming the conflict.
+
+What still works is most of what is done:
+
+* **Sequential runs** — bind, unbind on teardown, bind again.  A graph run
+  repeatedly from one builder is unaffected.
+* **Nested graphs** — they share their root's realization deliberately and
+  never bind one of their own.
+* **Every graph that has not opted into pooling** — no pool, no cell, no
+  binding, and no behaviour change of any kind.
+* **Concurrent engines whose realizations differ** — a different registry
+  generation or different options gives a different snapshot and a different
+  pool.
+
+What is refused is two *concurrently live* pooled root graphs sharing a
+realization.  RFC 0013 lists "multiple pure-C++ engines execute concurrently on
+separate threads without sharing pool state" as an acceptance criterion, and
+under the thread-local that case worked by giving each thread its own ambient
+slot.  This RFC narrows it for pooled graphs: the case is refused loudly
+instead of served.  That is a deliberate trade — the alternative designs below
+cost considerably more — and it is reversible without changing the binding
+contract.
+
+Two follow-ups would restore it, neither needed until a real use appears:
+
+* **Lease a realization per live pooled graph.**  Capture would hand out a
+  realization whose cell is free rather than a shared one.  The cost is one
+  graph-type compilation per concurrent pooled graph, plus lifetime work that
+  is not incidental: value types interned from a snapshot outlive it today, and
+  the process-wide graph type registry holds them, so realizations are
+  effectively immortal by design.
+* **Thread the pool through the allocating ops.**  Correct for any number of
+  concurrent graphs, and disproportionate: it changes the signature of the ops
+  vocabulary to serve three allocating entries.
+
 Why not per-instance realized types
 -----------------------------------
 
@@ -284,7 +328,9 @@ What is removed
   and the four in the native tests (``test_ts_input.cpp:2268``,
   ``test_type_registry.cpp:572``/``:591``, ``test_value_builder.cpp:302``,
   ``type_erasure_perf.cpp:661``), which become explicit pool arguments; and
-* the allocating no-op entries and ``unavailable_storage()``.
+* the ambient availability condition: an allocating op now fails against its
+  own binding, with a diagnostic saying no root graph is bound, rather than
+  reporting that some scope was never installed.
 
 Explicitly **not** removed, and out of scope here: the type-realization
 thread-locals ``active_snapshot`` and ``graph_value_realization``
@@ -391,8 +437,8 @@ Acceptance criteria
   state is reachable other than through a running graph or a node — enforced by
   a source-level check alongside the existing lock-counting enforcement, so the
   channel cannot quietly return.
-* A test constructs two root graphs on two threads and proves each allocates
-  into its own pool, and the same test passes with both graphs on one thread.
+* Two root graphs whose realizations differ allocate into their own pools, on
+  one thread and on two.
 * Binding a second live root graph to one realization is refused with a
   diagnostic; binding, unbinding, and rebinding in sequence works, including
   after a failed graph construction unwinds.
