@@ -1,6 +1,9 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/record_replay.h>
+#include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/switch_node.h>
 #include <hgraph/types/context_wiring.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/wired_fn.h>
@@ -9,6 +12,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
@@ -304,6 +308,61 @@ namespace
     using CatBranch = ConstantBranch<"cat", 2>;
     using LeftBranch = ConstantBranch<"left", 1>;
     using RightBranch = ConstantBranch<"right", 1>;
+    using BothBranch = ConstantBranch<"both", 1>;
+
+    struct DispatchStorageRecorderTag
+    {
+    };
+
+    void wire_dispatch_storage_recorder(
+        Wiring &w, const WiringPortRef &dispatch_output,
+        const WiringPortRef &dispatch_input,
+        std::vector<std::size_t> &stored_counts,
+        std::vector<std::uintptr_t> &active_addresses,
+        std::vector<bool> &uses_in_place_storage)
+    {
+        const auto *input_schema = TypeRegistry::instance().un_named_tsb(
+            {{"output", dispatch_output.schema}, {"input", dispatch_input.schema}});
+
+        NodeTypeMetaData meta;
+        meta.display_name = "dispatch_storage_recorder";
+        meta.input_schema = input_schema;
+        meta.node_kind    = NodeKind::Sink;
+        meta.valid_inputs = std::vector<std::size_t>{};
+
+        NodeCallbacks callbacks;
+        callbacks.evaluate = [&stored_counts, &active_addresses,
+                              &uses_in_place_storage](const NodeView &view, DateTime) {
+            auto graph = view.graph();
+            for (std::size_t i = 0; i < graph.node_count(); ++i)
+            {
+                auto node = graph.node_at(i);
+                if (!node.is<SwitchNodeView>()) { continue; }
+
+                auto switch_view = node.as<SwitchNodeView>();
+                stored_counts.push_back(switch_view.stored_graph_count());
+                active_addresses.push_back(reinterpret_cast<std::uintptr_t>(
+                    switch_view.active_graph_value().view().data()));
+                uses_in_place_storage.push_back(
+                    switch_view.child_graphs_use_in_place_storage());
+                return;
+            }
+            throw std::logic_error(
+                "dispatch_storage_recorder could not find the dispatch switch node");
+        };
+
+        std::vector<TSEndpointSchema> endpoints{
+            TSEndpointSchema::peered(dispatch_output.schema),
+            TSEndpointSchema::peered(dispatch_input.schema),
+        };
+        NodeBuilder builder = NodeBuilder::native(
+            std::move(meta), std::move(callbacks),
+            TSEndpointSchema::non_peered(input_schema, std::move(endpoints)));
+        const std::array<WiringPortRef, 2> inputs{dispatch_output, dispatch_input};
+        static_cast<void>(w.add_node(
+            std::type_index(typeid(DispatchStorageRecorderTag)),
+            std::move(builder), inputs, Value{}));
+    }
 
     struct CapturedDispatchContext
     {
@@ -663,4 +722,64 @@ TEST_CASE("dispatch_: C++ wiring rejects ambiguous multiple inheritance")
         (testing::eval_node<stdlib::dispatch_, TS<Animal>>(
             cases, testing::values<Value>(both))),
         Catch::Matchers::ContainsSubstring("Ambiguous dispatch"));
+}
+
+TEST_CASE("dispatch_: a later exact case dominates incomparable parent cases")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.left, fn<LeftBranch>()),
+        stdlib::dispatch_case(types.right, fn<RightBranch>()),
+        stdlib::dispatch_case(types.both, fn<BothBranch>()),
+    });
+
+    CHECK_OUTPUT(
+        (testing::eval_node<stdlib::dispatch_, TS<Animal>>(
+            cases, testing::values<Value>(both_value(types, 1)))),
+        string_values({"both"}));
+}
+
+TEST_CASE("dispatch_: alternating cases reuse the switch runtime's two fixed graph slots")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.dog, fn<Sound>()),
+        stdlib::dispatch_case(types.cat, fn<Sound>()),
+    });
+
+    std::vector<std::size_t> stored_counts;
+    std::vector<std::uintptr_t> active_addresses;
+    std::vector<bool> uses_in_place_storage;
+    Wiring w;
+    auto animal = wire<stdlib::replay_impl, TS<Animal>>(w, Str{"animal"});
+    auto dispatched = wire<stdlib::dispatch_>(w, cases, animal).as<TS<Str>>();
+    wire_dispatch_storage_recorder(
+        w, dispatched.erased(), animal.erased(), stored_counts,
+        active_addresses, uses_in_place_storage);
+
+    GraphBuilder graph = std::move(w).finish();
+    testing::set_replay_values(
+        graph.global_state(), "animal",
+        testing::values<Value>(dog_value(types, 1, "woof"),
+                               cat_value(types, 2),
+                               dog_value(types, 3, "bark")));
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph))
+        .start_time(MIN_ST)
+        .end_time(MIN_ST + TimeDelta{10});
+    auto executor = executor_builder.make_executor();
+    executor.view().run();
+
+    CHECK(stored_counts == std::vector<std::size_t>{1, 2, 2});
+    CHECK(uses_in_place_storage == std::vector<bool>{true, true, true});
+    REQUIRE(active_addresses.size() == 3);
+    CHECK(active_addresses[0] != active_addresses[1]);
+    CHECK(active_addresses[0] == active_addresses[2]);
 }

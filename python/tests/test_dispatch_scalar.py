@@ -263,6 +263,37 @@ def test_dispatch_reports_ambiguous_multiple_inheritance():
         eval_node(app, [Hybrid()])
 
 
+def test_dispatch_prefers_a_later_exact_multiple_inheritance_case():
+    class Animal(CompoundScalar): ...
+
+    class Left(Animal): ...
+
+    class Right(Animal): ...
+
+    class Hybrid(Left, Right): ...
+
+    @operator
+    def sound(animal: TS[Animal]) -> TS[str]: ...
+
+    @graph(overloads=sound)
+    def left_sound(animal: TS[Left]) -> TS[str]:
+        return "left"
+
+    @graph(overloads=sound)
+    def right_sound(animal: TS[Right]) -> TS[str]:
+        return "right"
+
+    @graph(overloads=sound)
+    def hybrid_sound(animal: TS[Hybrid]) -> TS[str]:
+        return "hybrid"
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[str]:
+        return dispatch_(sound, animal)
+
+    assert eval_node(app, [Hybrid()]) == ["hybrid"]
+
+
 def test_dispatch_on_restricts_dynamic_parameters():
     class Animal(CompoundScalar): ...
 

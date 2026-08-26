@@ -273,10 +273,15 @@ namespace hgraph::stdlib
      * @code{.py}
      * result = hg.dispatch_(price_operator, instrument, market)
      * @endcode
-        @note Retained memory is O(C²) for C cases because specificity is
-        precomputed. Per-tick selection is O(C·A·D) for A dispatch arguments
-        and maximum Bundle ancestry depth D, without allocation or registry
-        lookup. Registered Bundle descendants do not increase the plan size. */
+        @note The selector retains O(C·A) type pointers for C cases and A
+        dispatch arguments. Per-tick selection is O(C·A·H), where H is the
+        maximum cost of walking the fixed Bundle parent graph, without
+        allocation or registry lookup. The shared switch runtime reserves
+        exactly two child payload regions, each sized and aligned for the
+        largest branch (2·Bmax plus alignment); it never reserves one payload
+        per case. Compiled branch descriptions remain part of the immutable
+        graph definition. Registered Bundle descendants do not increase the
+        plan size. */
     struct dispatch_ : Operator<"dispatch_",
                                 Scalar<"cases", DispatchCases>,
                                 VarIn<"ts", TsVar<"TS">>,

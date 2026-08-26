@@ -1521,7 +1521,7 @@ Accepted native overloads
 ``dispatch_``
 -------------
 
-``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note Retained memory is O(C²) for C cases because specificity is precomputed. Per-tick selection is O(C·A·D) for A dispatch arguments and maximum Bundle ancestry depth D, without allocation or registry lookup. Registered Bundle descendants do not increase the plan size.
+``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note The selector retains O(C·A) type pointers for C cases and A dispatch arguments. Per-tick selection is O(C·A·H), where H is the maximum cost of walking the fixed Bundle parent graph, without allocation or registry lookup. The shared switch runtime reserves exactly two child payload regions, each sized and aligned for the largest branch (2·Bmax plus alignment); it never reserves one payload per case. Compiled branch descriptions remain part of the immutable graph definition. Registered Bundle descendants do not increase the plan size.
 
 Python entry point: ``dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs)`` (explicit helper).
 

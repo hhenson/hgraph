@@ -851,6 +851,16 @@ decorator whose body registers as the most-generic overload):
    branch (ordinary ``switch_`` semantics — a re-tick of the same concrete
    type does not re-emit).
 
+The native selector retains one flattened type-pointer tuple per registered
+case, or ``O(C*A)`` metadata for ``C`` cases and ``A`` dispatch arguments.  It
+does not retain the pairwise ``C*C`` specificity relation: selection finds a
+provisional greatest match and then verifies it against the other matches by
+walking immutable Bundle parent links.  The child payload follows the ordinary
+``switch_`` A/B protocol unchanged: exactly two in-place regions are reserved,
+both sized and aligned for the largest compiled branch.  The stopped previous
+child remains in one region while the newly selected child occupies the other;
+no child payload region is reserved per dispatch case.
+
 ``typing.Union[TS[A], TS[B]]`` overload parameters expand into two ordinary
 registry candidates and two enumerated switch keys. A CompoundScalar branch
 materializes the selected closed-union leaf through checked ``downcast_``

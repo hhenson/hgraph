@@ -1863,26 +1863,21 @@ namespace hgraph::stdlib
             static constexpr Int no_match  = Int{-1};
             static constexpr Int ambiguous = Int{-2};
 
-            std::vector<std::vector<const ValueTypeMetaData *>> case_types{};
-            std::vector<bool>                                  more_specific{};
-            std::vector<std::size_t>                           evaluation_order{};
-            bool                                               has_default{false};
-        };
+            std::vector<const ValueTypeMetaData *> case_types{};
+            std::size_t                            dispatch_arity{0};
+            bool                                   has_default{false};
 
-        [[nodiscard]] inline bool dispatch_case_more_specific(
-            const DispatchCase &candidate, const DispatchCase &other)
-        {
-            bool strict = false;
-            for (std::size_t i = 0; i < candidate.types.size(); ++i)
+            [[nodiscard]] std::size_t case_count() const noexcept
             {
-                if (!TypeRegistry::instance().bundle_is_a(candidate.types[i], other.types[i]))
-                {
-                    return false;
-                }
-                strict = strict || candidate.types[i] != other.types[i];
+                return dispatch_arity == 0 ? 0 : case_types.size() / dispatch_arity;
             }
-            return strict;
-        }
+
+            [[nodiscard]] std::span<const ValueTypeMetaData *const> types_for(
+                std::size_t candidate) const noexcept
+            {
+                return {case_types.data() + candidate * dispatch_arity, dispatch_arity};
+            }
+        };
 
         [[nodiscard]] inline const ValueTypeMetaData *dispatch_bundle_schema(
             const TSValueTypeMetaData *schema) noexcept
@@ -1912,6 +1907,19 @@ namespace hgraph::stdlib
                 if (dispatch_bundle_is_a(parent, base)) { return true; }
             }
             return false;
+        }
+
+        [[nodiscard]] inline bool dispatch_case_more_specific(
+            std::span<const ValueTypeMetaData *const> candidate,
+            std::span<const ValueTypeMetaData *const> other) noexcept
+        {
+            bool strict = false;
+            for (std::size_t i = 0; i < candidate.size(); ++i)
+            {
+                if (!dispatch_bundle_is_a(candidate[i], other[i])) { return false; }
+                strict = strict || candidate[i] != other[i];
+            }
+            return strict;
         }
 
         inline void present_dispatch_values(
@@ -1949,7 +1957,8 @@ namespace hgraph::stdlib
             }
 
             DispatchSelectionPlan plan;
-            plan.has_default = cases.default_branch.has_value();
+            plan.dispatch_arity = cases.dispatch_args.size();
+            plan.has_default    = cases.default_branch.has_value();
 
             std::vector<bool> selected_slots(slot_schemas.size(), false);
             for (std::size_t domain_index = 0;
@@ -1984,7 +1993,12 @@ namespace hgraph::stdlib
                 }
             }
 
-            plan.case_types.reserve(cases.cases.size());
+            if (cases.cases.size() >
+                std::numeric_limits<std::size_t>::max() / plan.dispatch_arity)
+            {
+                throw std::length_error("dispatch_: case type table is too large");
+            }
+            plan.case_types.reserve(cases.cases.size() * plan.dispatch_arity);
             for (const DispatchCase &entry : cases.cases)
             {
                 if (!entry.branch.valid())
@@ -2011,7 +2025,8 @@ namespace hgraph::stdlib
                         "dispatch_: case types must derive from their selected argument type");
                     }
                 }
-                plan.case_types.push_back(entry.types);
+                plan.case_types.insert(
+                    plan.case_types.end(), entry.types.begin(), entry.types.end());
             }
             if (cases.default_branch.has_value() && !cases.default_branch->valid())
             {
@@ -2019,64 +2034,6 @@ namespace hgraph::stdlib
                     "dispatch_: the default case must contain a wirable function");
             }
 
-            const std::size_t case_count = cases.cases.size();
-            plan.more_specific.resize(case_count * case_count, false);
-            for (std::size_t lhs = 0; lhs < case_count; ++lhs)
-            {
-                for (std::size_t rhs = 0; rhs < case_count; ++rhs)
-                {
-                    if (lhs != rhs)
-                    {
-                        plan.more_specific[lhs * case_count + rhs] =
-                            dispatch_case_more_specific(cases.cases[lhs], cases.cases[rhs]);
-                    }
-                }
-            }
-
-            // Evaluate cases in a topological order with every more-specific
-            // case before the cases it dominates. The tick path can then keep
-            // only the first matching maximal case and detect incomparable
-            // later matches in one allocation-free pass.
-            std::vector<std::size_t> indegree(case_count, 0);
-            for (std::size_t specific = 0; specific < case_count; ++specific)
-            {
-                for (std::size_t general = 0; general < case_count; ++general)
-                {
-                    if (plan.more_specific[specific * case_count + general])
-                    {
-                        ++indegree[general];
-                    }
-                }
-            }
-            plan.evaluation_order.reserve(case_count);
-            for (std::size_t candidate = 0; candidate < case_count; ++candidate)
-            {
-                if (indegree[candidate] == 0)
-                {
-                    plan.evaluation_order.push_back(candidate);
-                }
-            }
-            for (std::size_t cursor = 0;
-                 cursor < plan.evaluation_order.size(); ++cursor)
-            {
-                const std::size_t specific = plan.evaluation_order[cursor];
-                for (std::size_t general = 0; general < case_count; ++general)
-                {
-                    if (!plan.more_specific[specific * case_count + general])
-                    {
-                        continue;
-                    }
-                    if (--indegree[general] == 0)
-                    {
-                        plan.evaluation_order.push_back(general);
-                    }
-                }
-            }
-            if (plan.evaluation_order.size() != case_count)
-            {
-                throw std::logic_error(
-                    "dispatch_: case specificity relation contains a cycle");
-            }
             return plan;
         }
 
@@ -2124,9 +2081,9 @@ namespace hgraph::stdlib
                                                           DateTime evaluation_time) {
                 auto input = view.input(evaluation_time);
                 auto bundle = input.as_bundle();
-                const std::size_t case_count = plan.case_types.size();
+                const std::size_t case_count = plan.case_count();
                 const auto matches = [&](std::size_t candidate) {
-                    const auto &targets = plan.case_types[candidate];
+                    const auto targets = plan.types_for(candidate);
                     for (std::size_t i = 0; i < targets.size(); ++i)
                     {
                         const auto *actual = bundle[i].value().concrete().schema();
@@ -2139,19 +2096,34 @@ namespace hgraph::stdlib
                 };
 
                 std::size_t winner = case_count;
-                bool ambiguous = false;
-                for (const std::size_t candidate : plan.evaluation_order)
+                for (std::size_t candidate = 0; candidate < case_count; ++candidate)
                 {
                     if (!matches(candidate)) { continue; }
-                    if (winner == case_count)
+                    if (winner == case_count ||
+                        dispatch_case_more_specific(
+                            plan.types_for(candidate), plan.types_for(winner)))
                     {
                         winner = candidate;
-                        continue;
                     }
-                    if (!plan.more_specific[winner * case_count + candidate])
+                }
+
+                // The first pass finds the greatest matching case if one
+                // exists, regardless of registration order. Verify that it
+                // dominates every other match; otherwise the maxima are
+                // incomparable and dispatch is ambiguous. Recomputing these
+                // ancestry checks retains no C-by-C relation table.
+                bool ambiguous = false;
+                if (winner != case_count)
+                {
+                    for (std::size_t candidate = 0; candidate < case_count; ++candidate)
                     {
-                        ambiguous = true;
-                        break;
+                        if (candidate == winner || !matches(candidate)) { continue; }
+                        if (!dispatch_case_more_specific(
+                                plan.types_for(winner), plan.types_for(candidate)))
+                        {
+                            ambiguous = true;
+                            break;
+                        }
                     }
                 }
 
