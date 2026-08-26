@@ -287,9 +287,17 @@ Pool backing and accounting
 ---------------------------
 
 Allocations are backed by RFC 0013's per-type ``StableLeafPool`` from the
-outset.  The pool already keys on an exact ``ValueTypeRef``, already recovers
-the concrete type from a payload address, and already implements retain,
-release, and slot reuse over a packed 31-bit count in a ``LeafSlotHeader``.
+outset, bound as :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>`
+specifies: the pool is owned by the root graph — on the graph itself or on its
+``GlobalState``, which at run time is global only to that graph — or by a
+single node, and the builder that constructs a shared value is handed the
+pool's view explicitly.  There is no ambient selection to depend on, and a
+node-owned pool — which `Producer-owned pools: a considered extension`_ needs —
+is expressible because ownership and binding are separable.
+
+The pool already keys on an exact ``ValueTypeRef``, already recovers the
+concrete type from a payload address, and already implements retain, release,
+and slot reuse over a packed 31-bit count in a ``LeafSlotHeader``.
 Because ``Shared<T>`` never mutates, ``StableLeafPool::writable`` is never
 called and its sticky ``unshareable`` bit is never set — the pool behaves as a
 plain reference-counted arena.
@@ -514,6 +522,8 @@ References
 * ``include/hgraph/runtime/executor.h`` —
   ``EngineControlView::add_after_evaluation_notification``, the root
   cycle-boundary hook proposed for batched slot handback.
+* :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>` — pool ownership
+  and binding, on which the allocation path here depends.
 * ``src/hgraph/runtime/push_source_node.cpp`` —
   ``push_value_schema_acceptable``, the sender-schema enforcement point, and
   ``make_burst``, the graph-thread sharing point.
