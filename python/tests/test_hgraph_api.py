@@ -230,12 +230,62 @@ def test_wire_does_not_promote_positional_types_generically():
     check(seen["output_type"] is None, f"positional type became output_type: {seen}")
 
 
-def test_const_positional_output_type_compatibility():
+def test_const_explicit_output_type_specialization():
     @graph
     def source() -> TS[int]:
-        return hg.const(5, TS[int])
+        return hg.const[TS[int]](5)
 
-    check(eval_node(source) == [5], "const(value, TS[int])")
+    check(eval_node(source) == [5], "const[TS[int]](value)")
+
+
+def test_documented_positional_type_carriers_select_output_types():
+    from frozendict import frozendict
+    from hgraph.test import use_wiring
+
+    seen = []
+
+    class FakeWiring:
+        def wire(self, name, args, kwargs, output_type=None):
+            seen.append((name, args, kwargs, output_type))
+            return None
+
+    with use_wiring(FakeWiring()):
+        hg.const(frozendict({"x": 1}), TSD[str, TS[int]])
+        hg.nothing(TS[int])
+        hg.replay("prices", TSD[str, TS[float]], "recording")
+
+    check(seen[0][0] == "const" and len(seen[0][1]) == 1,
+          f"const positional type was retained: {seen[0]}")
+    check(seen[0][3] == TSD[str, TS[int]].handle,
+          f"const positional type was not selected: {seen[0]}")
+    check(seen[1][0] == "nothing" and len(seen[1][1]) == 0,
+          f"nothing positional type was retained: {seen[1]}")
+    check(seen[1][3] == TS[int].handle,
+          f"nothing positional type was not selected: {seen[1]}")
+    check(seen[2][0] == "replay" and seen[2][1] == ("prices", "recording"),
+          f"replay positional arguments were not normalized: {seen[2]}")
+    check(seen[2][3] == TSD[str, TS[float]].handle,
+          f"replay positional type was not selected: {seen[2]}")
+
+
+def test_operator_does_not_promote_positional_types_generically():
+    from hgraph.test import use_wiring
+
+    seen = {}
+
+    class FakeWiring:
+        def wire(self, name, args, kwargs, output_type=None):
+            seen["name"] = name
+            seen["args"] = args
+            seen["output_type"] = output_type
+            return None
+
+    with use_wiring(FakeWiring()):
+        hg.log_("type {}", TS[int])
+
+    check(seen["name"] == "log_", f"unexpected operator: {seen}")
+    check(len(seen["args"]) == 2, f"positional type was stripped: {seen}")
+    check(seen["output_type"] is None, f"positional type became output_type: {seen}")
 
 
 def test_eval_node_scalar_inputs_follow_ts_annotations():
@@ -995,7 +1045,7 @@ def test_services_from_python():
     try:
         @hg.service_impl(interfaces=doubler)
         def too_few_impl() -> TSD[int, TS[int]]:
-            return hg.nothing(TSD[int, TS[int]])
+            return hg.nothing[TSD[int, TS[int]]]()
         check(False, "expected a shape validation error")
     except TypeError:
         pass

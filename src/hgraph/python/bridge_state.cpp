@@ -286,7 +286,8 @@ struct PythonBundleBindingEntry {
     nb::gil_scoped_acquire gil;
     const Py_hash_t result = PyObject_Hash(stored.object);
     if (result == -1) {
-      throw nb::python_error();
+      PyErr_Clear();
+      return std::hash<const void *>{}(stored.object);
     }
     return static_cast<std::size_t>(result);
   }
@@ -306,7 +307,22 @@ struct PythonBundleBindingEntry {
     if (result < 0) {
       throw nb::python_error();
     }
-    return result == 1;
+    if (result == 0) {
+      return false;
+    }
+    // If semantic equality succeeds but Python hashing fails, ``hash`` uses
+    // the object's address. Preserve equal-values-have-equal-hashes by using
+    // identity equality for those distinct objects. The equality call stays
+    // first so Python comparison errors retain their public behavior.
+    if (PyObject_Hash(left.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    if (PyObject_Hash(right.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    return true;
   }
 
   static std::string to_string(const void *, const void *memory) {
@@ -651,6 +667,16 @@ PyInferValueFn &py_infer_value_slot() {
 
 PyValueFromSchemaFn &py_value_from_schema_slot() {
   static PyValueFromSchemaFn slot = nullptr;
+  return slot;
+}
+
+PyJsonToPythonFn &py_json_to_python_slot() {
+  static PyJsonToPythonFn slot = nullptr;
+  return slot;
+}
+
+PyJsonFromPythonFn &py_json_from_python_slot() {
+  static PyJsonFromPythonFn slot = nullptr;
   return slot;
 }
 

@@ -2124,7 +2124,8 @@ struct PythonRetainedBindingEntry {
     nb::gil_scoped_acquire gil;
     const Py_hash_t result = PyObject_Hash(stored.object);
     if (result == -1) {
-      throw nb::python_error();
+      PyErr_Clear();
+      return std::hash<const void *>{}(stored.object);
     }
     return static_cast<std::size_t>(result);
   }
@@ -2144,7 +2145,21 @@ struct PythonRetainedBindingEntry {
     if (result < 0) {
       throw nb::python_error();
     }
-    return result == 1;
+    if (result == 0) {
+      return false;
+    }
+    // Only replace successful semantic equality after establishing that one
+    // side requires the address-hash fallback. Running equality first keeps
+    // Python ``__eq__`` exceptions observable at the bridge boundary.
+    if (PyObject_Hash(left.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    if (PyObject_Hash(right.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    return true;
   }
 
   static std::partial_ordering compare(const void *, const void *lhs,

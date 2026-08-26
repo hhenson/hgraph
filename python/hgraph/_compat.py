@@ -4,6 +4,8 @@ message so ported tests can skip precisely."""
 from dataclasses import dataclass
 from enum import Enum
 
+import _hgraph
+
 
 class CmpResult(Enum):
     LT = -1
@@ -355,8 +357,7 @@ def try_except(
     )
 
 
-class JSON(str):
-    """hgraph's JSON string newtype (a plain str scalar here)."""
+JSON = _hgraph.JSON
 
 
 class TimeSeriesReference:

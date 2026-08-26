@@ -27,10 +27,16 @@ namespace hgraph
         [[nodiscard]] bool scalar_allowed_by_constraints(const ScalarPattern &pattern,
                                                          const ValueTypeMetaData *concrete)
         {
-            if (pattern.constraints.empty()) { return true; }
-            return std::ranges::any_of(pattern.constraints, [concrete](const ValueTypeMetaData *constraint) {
-                return constraint != nullptr && constraint == concrete;
-            });
+            if (!pattern.constraints.empty() &&
+                !std::ranges::any_of(pattern.constraints, [concrete](const ValueTypeMetaData *constraint) {
+                    return constraint != nullptr && constraint == concrete;
+                }))
+            {
+                return false;
+            }
+            if (pattern.bound == nullptr) { return true; }
+            return concrete == pattern.bound ||
+                   TypeRegistry::instance().bundle_is_a(concrete, pattern.bound);
         }
 
         [[nodiscard]] bool ts_allowed_by_constraints(const TypePattern &pattern,
@@ -404,7 +410,10 @@ namespace hgraph
     {
         switch (pattern.kind)
         {
-            case ScalarPattern::Kind::Var: return pattern.constraints.empty() ? SCALAR_VAR_RANK : SCALAR_VAR_RANK / 2;
+            case ScalarPattern::Kind::Var:
+                return pattern.constraints.empty() && pattern.bound == nullptr
+                           ? SCALAR_VAR_RANK
+                           : SCALAR_VAR_RANK / 2;
             case ScalarPattern::Kind::Concrete: return 0;
             case ScalarPattern::Kind::UnknownTuple:
                 return 1 + (pattern.children.empty() ? 0 : scalar_pattern_rank(pattern.children[0]) / 2);

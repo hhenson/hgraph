@@ -5,8 +5,8 @@ import inspect
 from frozendict import frozendict
 
 from hgraph import (
-    AUTO_RESOLVE, DEFAULT, SCHEMA, CompoundScalar, Frame, GlobalState, TS, TSB, TSD, TSS,
-    WiringPort, combine, compute_node, const, dispatch, downcast_ref, emit, feedback, graph,
+    AUTO_RESOLVE, DEFAULT, MIN_DT, SCHEMA, TS_SCHEMA, CompoundScalar, Frame, GlobalState, TS, TSB, TSD, TSS,
+    combine, compute_node, const, convert, dispatch, downcast_ref, emit, feedback, graph,
     len_, map_, max_, nothing, null_sink, operator, reduce, service_adaptor, service_adaptor_impl,
     switch_,
 )
@@ -16,7 +16,6 @@ from hgraph._wiring._core import _current_wiring
 from hgraph._wiring._services import _materialize_pending_registrations
 
 from .catalogue import DataCatalogue, DataCatalogueEntry, DataSink
-from .subscribe import _options_port
 
 __all__ = (
     "DataCatalogSinkResult",
@@ -40,9 +39,12 @@ def find_data_catalogue_entries(
     dataset: TS[str], options: TS[object], schema: object,
     global_state: GlobalState = None,
 ) -> TSS[DataCatalogSinkResult]:
+    catalogue = DataCatalogue.instance(global_state)
+    if not catalogue.get_entries(schema, dataset.value, DataSink):
+        return frozenset()
     return frozenset(
         DataCatalogSinkResult(entry, resolved)
-        for entry, resolved in DataCatalogue.instance(global_state).matching_entries(
+        for entry, resolved in catalogue.matching_entries(
             schema, dataset.value, DataSink, options.value or {})
     )
 
@@ -92,6 +94,9 @@ def publish_adaptor_impl(
                 return call
 
             cases[catalogue_entry.store.sink_path] = make_case(sink_type)
+        if not cases:
+            null_sink(key)
+            return
         return switch_(entry.store.sink_path, cases, entry, opts, frame, key)
 
     map_(route_from, entry=dce, opts=options, frame=data)
@@ -133,6 +138,8 @@ def publish_adaptor_impl(
                 return call
 
             cases[catalogue_entry.store.sink_path] = make_case(sink_type)
+        if not cases:
+            return nothing[TSB[Stream[Data[datetime]]]]()
         return switch_(sink.sink_path, cases, sink, opts, frame, key)
 
     return map_(
@@ -161,62 +168,102 @@ def publish_sink_to_graph(
 ) -> TSB[Stream[Data[datetime]]]: ...
 
 
-class _Publish:
-    __name__ = "publish"
-
-    def __init__(self, schema=None):
-        self.schema = schema
-
-    def __getitem__(self, schema):
-        return _Publish(schema)
-
-    def __call__(self, dataset, data, __options__=None, **options):
-        if self.schema is None:
-            raise TypeError("publish requires a schema, for example publish[Row](...)")
-        dataset_port = dataset if isinstance(dataset, WiringPort) else const(dataset, tp=TS[str])
-        selections = find_data_catalogue_entries(
-            dataset_port, _options_port(__options__, options), self.schema)
-        schema = self.schema
-        adaptor = publish_adaptor[SCHEMA:schema]
-        _materialize_pending_registrations(
-            publish_adaptor, adaptor._resolution, _current_wiring())
-
-        @graph
-        def publish_mapped(
-            key: TS[DataCatalogSinkResult], frame: TS[Frame[schema]],
-        ) -> TSB[Stream[Data[datetime]]]:
-            path = "data-catalogue-publish"
-            rid = adaptor._client_request_id(path, frame)
-            adaptor.from_graph(
-                key.dce, key.options, frame, path=path,
-                __request_id__=rid)
-            return adaptor.to_graph(
-                path=path, __request_id__=rid, __no_ts_inputs__=True)
-
-        @graph
-        def publish_one(keys: TSS[DataCatalogSinkResult], frame: TS[Frame[schema]]) \
-                -> TSB[Stream[Data[datetime]]]:
-            key = emit(keys)
-            return adaptor(
-                key.dce, key.options, frame, path="data-catalogue-publish")
-
-        @graph
-        def publish_many(keys: TSS[DataCatalogSinkResult], frame: TS[Frame[schema]]) \
-                -> TSB[Stream[Data[datetime]]]:
-            responses = map_(publish_mapped, frame=frame, __keys__=keys)
-            return combine[TSB[Stream[Data[datetime]]]](
-                status=reduce(max_, responses.status),
-                status_msg=reduce(lambda lhs, rhs: lhs + rhs, responses.status_msg),
-                values=reduce(max_, responses.values),
-                timestamp=reduce(max_, responses.timestamp),
-            )
-
-        return switch_(
-            len_(selections), {1: publish_one, DEFAULT: publish_many},
-            selections, data)
+@operator
+def publish(
+    dataset: TS[str], data: TS[Frame[SCHEMA]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE, **options: TSB[TS_SCHEMA],
+) -> TSB[Stream[Data[datetime]]]:
+    ...
 
 
-publish = _Publish()
+@graph(overloads=publish)
+def _publish_frame(
+    dataset: TS[str], data: TS[Frame[SCHEMA]], options: TS[dict[str, object]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+) -> TSB[Stream[Data[datetime]]]:
+    selections = find_data_catalogue_entries(dataset, options, _schema)
+    adaptor = publish_adaptor[SCHEMA:_schema]
+    _materialize_pending_registrations(
+        publish_adaptor, adaptor._resolution, _current_wiring())
+
+    @graph
+    def publish_mapped(
+        key: TS[DataCatalogSinkResult], frame: TS[Frame[_schema]],
+    ) -> TSB[Stream[Data[datetime]]]:
+        path = "data-catalogue-publish"
+        rid = adaptor._client_request_id(path, frame)
+        adaptor.from_graph(
+            key.dce, key.options, frame, path=path,
+            __request_id__=rid)
+        return adaptor.to_graph(
+            path=path, __request_id__=rid, __no_ts_inputs__=True)
+
+    @graph
+    def publish_none(keys: TSS[DataCatalogSinkResult], frame: TS[Frame[_schema]]) \
+            -> TSB[Stream[Data[datetime]]]:
+        return combine[TSB[Stream[Data[datetime]]]](
+            status=StreamStatus.OK,
+            status_msg="",
+            values=_publish_noop(frame),
+            timestamp=MIN_DT,
+        )
+
+    @graph
+    def publish_one(keys: TSS[DataCatalogSinkResult], frame: TS[Frame[_schema]]) \
+            -> TSB[Stream[Data[datetime]]]:
+        key = emit(keys)
+        return adaptor(
+            key.dce, key.options, frame, path="data-catalogue-publish")
+
+    @graph
+    def publish_many(keys: TSS[DataCatalogSinkResult], frame: TS[Frame[_schema]]) \
+            -> TSB[Stream[Data[datetime]]]:
+        responses = map_(publish_mapped, frame=frame, __keys__=keys)
+        return combine[TSB[Stream[Data[datetime]]]](
+            status=reduce(max_, responses.status),
+            status_msg=reduce(lambda lhs, rhs: lhs + rhs, responses.status_msg),
+            values=reduce(max_, responses.values),
+            timestamp=reduce(max_, responses.timestamp),
+        )
+
+    return switch_(
+        len_(selections), {0: publish_none, 1: publish_one, DEFAULT: publish_many},
+        selections, data)
+
+
+@graph(overloads=publish)
+def _publish_frame_options(
+    dataset: TS[str], data: TS[Frame[SCHEMA]],
+    _schema: type[SCHEMA] = AUTO_RESOLVE, **options: TSB[TS_SCHEMA],
+) -> TSB[Stream[Data[datetime]]]:
+    return publish[SCHEMA:_schema](dataset, data, _pack_options(options))
+
+
+@graph(overloads=publish)
+def _publish_row_options(
+    dataset: TS[str], data: TS[SCHEMA],
+    _schema: type[SCHEMA] = AUTO_RESOLVE, **options: TSB[TS_SCHEMA],
+) -> TSB[Stream[Data[datetime]]]:
+    return publish[SCHEMA:_schema](
+        dataset,
+        convert[TS[Frame[_schema]]](data),
+        _pack_options(options),
+    )
+
+
+def _pack_options(options):
+    if not options:
+        return const({}, tp=TS[dict[str, object]])
+    boxed = {
+        name: convert[TS[object]](value)
+        for name, value in options.items()
+    }
+    return convert[TS[dict[str, object]]](combine(**boxed))
+
+
+@compute_node
+def _publish_noop(data: TS[Frame[SCHEMA]]) -> TS[datetime]:
+    return MIN_DT
 
 
 def _publisher_function(fn):

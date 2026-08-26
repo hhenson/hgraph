@@ -17,7 +17,7 @@ namespace hgraph
 
 namespace hgraph::stdlib::json_tree
 {
-    [[nodiscard]] const ValueTypeMetaData *json_meta();
+    [[nodiscard]] HGRAPH_EXPORT const ValueTypeMetaData *json_meta();
     [[nodiscard]] HGRAPH_EXPORT bool is_json_ts(const TSValueTypeMetaData *ts) noexcept;
     [[nodiscard]] bool equals(const ValueView &lhs, const ValueView &rhs);
     [[nodiscard]] std::partial_ordering compare(const ValueView &lhs, const ValueView &rhs);
@@ -53,14 +53,20 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value
-        ports. The JSON tree remains a C++ value; Python is authoring sugar. */
+    /** Build a dynamic JSON object from named ports or a JSON array from
+        positional ports. The JSON tree remains a C++ value; Python is
+        authoring sugar. */
     struct combine_json : Operator<"combine_json", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
     };
 
     /** Runtime node behind ``combine_json`` (internal). */
     struct json_object_ : Operator<"__json_object", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
+    {
+    };
+
+    /** Runtime node behind positional ``combine[TS[JSON]]`` (internal). */
+    struct json_array_ : Operator<"__json_array", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
     };
 

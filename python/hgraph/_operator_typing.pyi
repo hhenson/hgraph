@@ -73,7 +73,7 @@ class _abs__Operator(_Protocol):
 abs_: _abs__Operator
 
 class _add__Operator(_Protocol):
-    """Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs`` syntax wires this operator.
+    """Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, keyed-set insertion, and runtime-checked concatenation of dynamic JSON arrays. Python's ``lhs + rhs`` syntax wires this operator.
 
     Parameters
     ~~~~~~~~~~
@@ -96,7 +96,7 @@ class _add__Operator(_Protocol):
     Returns
     ~~~~~~~
 
-    The sum, with its schema selected from both operand schemas.
+    The sum, with its schema selected from both operand schemas. For ``TS[JSON]`` operands both values must be arrays at runtime.
 
     Python example
     ~~~~~~~~~~~~~~
@@ -938,7 +938,7 @@ class _const_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``value`` : scalar; ``SCALAR``
+    ``value`` : scalar; ``SCALAR``, ``py_object``
        Python value adapted to the selected time-series schema.
 
     ``delay`` : scalar; ``timedelta``
@@ -961,6 +961,8 @@ class _const_Operator(_Protocol):
 
     - ``const(value: SCALAR) -> OUT``
     - ``const(value: SCALAR, delay: timedelta) -> OUT``
+    - ``const(value: py_object) -> OUT``
+    - ``const(value: py_object, delay: timedelta) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

@@ -205,14 +205,15 @@ namespace hgraph::stdlib
      *
      * ``dispatch_args`` contains indexes into the flattened time-series call
      * arguments (positional arguments first, followed by named arguments in
-     * call order). It defaults to the first argument. All Bundle descendants
-     * must be registered before this value is wired so the selector can freeze
-     * an allocation-free lookup table for the graph.
+     * call order). It defaults to the first argument. The selector retains the
+     * cases and their specificity relation, so unrelated Bundle descendants do
+     * not increase the dispatch plan.
      */
     struct DispatchCases
     {
         std::vector<DispatchCase> cases{};
         std::vector<std::size_t>  dispatch_args{0};
+        std::vector<const ValueTypeMetaData *> declared_types{};
         std::optional<WiredFn>    default_branch{};
 
         [[nodiscard]] DispatchCases &&on(std::initializer_list<std::size_t> indexes) &&
@@ -224,6 +225,7 @@ namespace hgraph::stdlib
         [[nodiscard]] bool operator==(const DispatchCases &other) const
         {
             return cases == other.cases && dispatch_args == other.dispatch_args &&
+                   declared_types == other.declared_types &&
                    default_branch == other.default_branch;
         }
     };
@@ -271,7 +273,15 @@ namespace hgraph::stdlib
      * @code{.py}
      * result = hg.dispatch_(price_operator, instrument, market)
      * @endcode
-        @note Retained memory: the frozen selection table is O(∏ per-argument closed-union alternatives) — multiplicative per dispatch argument. */
+        @note The selector retains O(C·A) type pointers for C cases and A
+        dispatch arguments. Per-tick selection is O(C·A·H), where H is the
+        maximum cost of walking the fixed Bundle parent graph, without
+        allocation or registry lookup. The shared switch runtime reserves
+        exactly two child payload regions, each sized and aligned for the
+        largest branch (2·Bmax plus alignment); it never reserves one payload
+        per case. Compiled branch descriptions remain part of the immutable
+        graph definition. Registered Bundle descendants do not increase the
+        plan size. */
     struct dispatch_ : Operator<"dispatch_",
                                 Scalar<"cases", DispatchCases>,
                                 VarIn<"ts", TsVar<"TS">>,
@@ -549,6 +559,10 @@ struct std::hash<hgraph::stdlib::DispatchCases>
             combine(std::hash<hgraph::WiredFn>{}(entry.branch));
         }
         for (const std::size_t index : cases.dispatch_args) { combine(index); }
+        for (const auto *type : cases.declared_types)
+        {
+            combine(std::hash<const void *>{}(type));
+        }
         if (cases.default_branch.has_value())
         {
             combine(std::hash<hgraph::WiredFn>{}(*cases.default_branch));

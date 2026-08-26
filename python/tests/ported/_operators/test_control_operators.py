@@ -306,7 +306,7 @@ def test_race_tsd():
 
     @graph
     def g(tsd: TSD[int, TS[int]], ts: TS[int]) -> REF[TS[int]]:
-        refs = map_(make_ref, tsd, tsd, switch_(ts, {-1: lambda: const(-1), DEFAULT: lambda: nothing(TS[int])}))
+        refs = map_(make_ref, tsd, tsd, switch_(ts, {-1: lambda: const(-1), DEFAULT: lambda: nothing[TS[int]]()}))
         return reduce_tsd_with_race(tsd=refs)
 
     assert eval_node(g, [

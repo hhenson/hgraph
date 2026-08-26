@@ -184,10 +184,11 @@ the ``_hgraph`` bridge module (built from ``python/module.cpp``):
   (``op[tp]``) names the requested OUTPUT when the operator's candidates
   can be selected by it (``operator_output_is_selective``) and otherwise
   types the INPUT series (``to_json[tp]`` — every overload shares one
-  fixed output); a positional TYPE EXPRESSION argument
-  (``const(value, tp)`` / ``nothing(tp)``) always names the requested
-  output — the registry has no type-valued scalars, so a type in argument
-  position is a wiring directive, whatever the operator.
+  fixed output). The compatibility APIs which declare a positional type
+  carrier — ``const(value, tp)``, ``nothing(tp)``, and ``replay(key, tp)`` —
+  adapt that argument into requested-output selection before native dispatch.
+  Other operators retain type-valued positional arguments as ordinary scalar
+  values.
 - **Composition/evaluation**: ``@graph`` (nested graphs inline by calling),
   ``run_graph(fn, *args, start_time=, end_time=)`` returning
   ``[(time, value), ...]``, ``eval_node(fn, *vectors, __start_time__=,

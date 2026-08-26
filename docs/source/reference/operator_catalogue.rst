@@ -69,7 +69,7 @@ Accepted native overloads
 ``add_``
 --------
 
-Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs`` syntax wires this operator.
+Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, keyed-set insertion, and runtime-checked concatenation of dynamic JSON arrays. Python's ``lhs + rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
 
@@ -94,7 +94,7 @@ are fixed when the graph is built.
 Returns
 ~~~~~~~
 
-The sum, with its schema selected from both operand schemas.
+The sum, with its schema selected from both operand schemas. For ``TS[JSON]`` operands both values must be arrays at runtime.
 
 Python example
 ~~~~~~~~~~~~~~
@@ -876,13 +876,14 @@ Native grouping contracts:
 
 **Dynamic JSON values**
 
-Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value ports. The JSON tree remains a C++ value; Python is authoring sugar.
+Build a dynamic JSON object from named ports or a JSON array from positional ports. The JSON tree remains a C++ value; Python is authoring sugar.
 
 Native grouping contracts:
 
 .. code-block:: text
 
    (**kwargs: time-series) -> OUT
+   (*args: V) -> OUT
 
 **Mapping values**
 
@@ -1017,7 +1018,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : scalar; ``SCALAR``
+``value`` : scalar; ``SCALAR``, ``py_object``
    Python value adapted to the selected time-series schema.
 
 ``delay`` : scalar; ``timedelta``
@@ -1042,6 +1043,8 @@ Accepted native overloads
 
    const(value: SCALAR) -> OUT
    const(value: SCALAR, delay: timedelta) -> OUT
+   const(value: py_object) -> OUT
+   const(value: py_object, delay: timedelta) -> OUT
 
 .. _python-operator-contains_:
 
@@ -1518,7 +1521,7 @@ Accepted native overloads
 ``dispatch_``
 -------------
 
-``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note Retained memory: the frozen selection table is O(∏ per-argument closed-union alternatives) — multiplicative per dispatch argument.
+``dispatch_`` — select a child graph from the active concrete Bundle leaf types of one or more ``TS[Bundle]`` arguments. The small native selector feeds the existing ``switch_`` runtime; branch arguments are checked-downcast to their declared case types inside the child graph. @note The selector retains O(C·A) type pointers for C cases and A dispatch arguments. Per-tick selection is O(C·A·H), where H is the maximum cost of walking the fixed Bundle parent graph, without allocation or registry lookup. The shared switch runtime reserves exactly two child payload regions, each sized and aligned for the largest branch (2·Bmax plus alignment); it never reserves one payload per case. Compiled branch descriptions remain part of the immutable graph definition. Registered Bundle descendants do not increase the plan size.
 
 Python entry point: ``dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs)`` (explicit helper).
 

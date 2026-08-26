@@ -16,6 +16,7 @@ from hgraph import (
     Size,
     Series,
     emit,
+    if_then_else,
 )
 from hgraph.test import eval_node
 
@@ -141,6 +142,18 @@ def test_combine_tuple_nonuniform():
         return combine[TS[Tuple[int, str]]](a, b, __strict__=False)
 
     assert eval_node(g, [None, 1], "2") == [(None, "2"), (1, "2")]
+
+
+def test_combine_tuple_dereferences_each_structural_input():
+    @graph
+    def g(choose: TS[bool], lhs: TS[str], rhs: TS[str]) -> TS[Tuple[str, str]]:
+        selected = if_then_else(choose, lhs, rhs)
+        return combine[TS[Tuple[str, str]]](selected, selected)
+
+    assert eval_node(g, [True, False], ["left", "left"], ["right", "right"]) == [
+        ("left", "left"),
+        ("right", "right"),
+    ]
 
 
 def test_collect_scalar_to_tuple():

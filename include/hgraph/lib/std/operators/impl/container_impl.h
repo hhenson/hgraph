@@ -770,11 +770,21 @@ struct getattr_ts_bundle {
     return std::nullopt;
   }
 
-  static bool requires_(const ResolutionMap &, OperatorCallContext context) {
+  static bool requires_(const ResolutionMap &resolution,
+                        OperatorCallContext context) {
     const auto *bundle = bundle_meta(context);
     const Str *attr = context.scalar_as<Str>("attr");
-    return bundle != nullptr && attr != nullptr &&
-           field_index(bundle, *attr).has_value();
+    if (bundle == nullptr || attr == nullptr) {
+      return false;
+    }
+    const auto index = field_index(bundle, *attr);
+    if (!index.has_value()) {
+      return false;
+    }
+    const auto *requested = resolution.find_ts("__out__");
+    return requested == nullptr ||
+           (requested->kind == TSTypeKind::TS &&
+            requested->value_schema == bundle->fields[*index].type);
   }
 
   static void resolve_default_types(ResolutionMap &resolution,

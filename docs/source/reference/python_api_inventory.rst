@@ -311,7 +311,7 @@ whose curated signatures remain authoritative.
      - 3 native overloads; explicit helper
    * - :ref:`combine <python-operator-combine>`
      - ``6 overload groups``
-     - 17 native overloads across 6 groups; explicit helper
+     - 18 native overloads across 6 groups; explicit helper
    * - :ref:`compare <python-operator-compare>`
      - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None``
      - 1 native overload; lazy operator
@@ -319,8 +319,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`const <python-operator-const>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - :ref:`contains_ <python-operator-contains_>`
      - ``6 overloads``
      - 6 native overloads; lazy operator

@@ -655,6 +655,7 @@ def _compound_python_field_types(scalar):
 def _python_object_python_field_types(scalar):
     """Ordered Python annotations for a Python-owned structured scalar."""
     import dataclasses
+    import inspect
     import typing
 
     explicit = _PYTHON_OBJECT_REGISTRATIONS.get(scalar, ...)
@@ -667,10 +668,23 @@ def _python_object_python_field_types(scalar):
         resolved_annotations = {}
 
     if dataclasses.is_dataclass(scalar):
-        return {
-            field.name: resolved_annotations.get(field.name, field.type)
-            for field in dataclasses.fields(scalar)
-        }
+        result = {}
+        for field in scalar.__dataclass_fields__.values():
+            if field._field_type is dataclasses._FIELD_CLASSVAR:
+                continue
+            if field.metadata.get("hidden", False):
+                continue
+            annotation = resolved_annotations.get(field.name, field.type)
+            if isinstance(field.type, dataclasses.InitVar):
+                if not inspect.isdatadescriptor(field.default):
+                    continue
+                annotation = (
+                    annotation.type
+                    if isinstance(annotation, dataclasses.InitVar)
+                    else field.type.type
+                )
+            result[field.name] = annotation
+        return result
 
     result = {}
     for base in reversed(scalar.__mro__):
@@ -1028,7 +1042,17 @@ def _python_object_value_type(scalar, type_args=()):
     local_annotations = _locally_declared_annotations(scalar)
     fields = []
     has_self_recursion = False
-    for field_name, field_type in annotations.items():
+    ordered_fields = dict(inherited_fields)
+    ordered_fields.update({
+        field_name: field_type
+        for field_name, field_type in annotations.items()
+        if field_name not in ordered_fields
+    })
+    for field_name in ordered_fields:
+        if field_name not in annotations:
+            fields.append((field_name, inherited_fields[field_name]))
+            continue
+        field_type = annotations[field_name]
         field_type = _substitute_typevars(field_type, substitutions)
         if field_name in inherited_fields and field_name not in local_annotations:
             fields.append((field_name, inherited_fields[field_name]))
@@ -1492,9 +1516,25 @@ def _value_type(scalar):
             _value_type(constraint)
             for constraint in getattr(scalar, "__constraints__", ())
         ]
+        bound = getattr(scalar, "__bound__", None)
+        if isinstance(bound, _typing.ForwardRef):
+            bound = None
+        elif bound is not None:
+            try:
+                bound = _value_type(bound)
+            except _GenericType:
+                # Category bounds such as CompoundScalar are already encoded by
+                # their surrounding type expression. Concrete nominal bounds are
+                # carried into the native matcher here.
+                bound = None
         raise _GenericType(
-            pattern=_hgraph.scalar_pattern_var(_type_var_name(scalar), constraints)
-            if constraints else _hgraph.scalar_pattern_var(_type_var_name(scalar)))
+            pattern=(
+                _hgraph.scalar_pattern_var(_type_var_name(scalar), constraints)
+                if constraints else
+                _hgraph.scalar_pattern_var_bound(_type_var_name(scalar), bound)
+                if bound is not None else
+                _hgraph.scalar_pattern_var(_type_var_name(scalar))
+            ))
     # typing generics: tuple[X, ...] / tuple[A, B] / frozenset[X] / dict[K, V]
     import collections.abc as _abc
     import enum as _enum
@@ -1718,6 +1758,7 @@ class _TsExpr:
                 # hgraph parity: UNSUPPLIED dataclass fields take their
                 # defaults (supplied-but-invalid stays None in non-strict).
                 import dataclasses
+                import inspect
 
                 try:
                     dataclass_fields = dataclasses.fields(cs_class)
@@ -1725,7 +1766,8 @@ class _TsExpr:
                     dataclass_fields = ()
                 for field in dataclass_fields:
                     if (field.name not in call and field.default is not dataclasses.MISSING
-                            and field.default is not None):
+                            and field.default is not None
+                            and not inspect.isdatadescriptor(field.default)):
                         call[field.name] = field.default
                 if _is_python_object_class(cs_class):
                     unknown = tuple(name for name in call if name not in field_types)
@@ -1763,10 +1805,12 @@ class _TsExpr:
             return wire("combine_cs", structural, output_type=self)
 
         if getattr(self, "_json", False):
-            # combine[TS[JSON]](**kwargs): the erased combine_json operator
-            # (scalar kwargs const-lift at their inferred types).
-            lifted = {}
-            for name, value in kwargs.items():
+            # Named values build a JSON object; positional values build a
+            # JSON array. Both forms const-lift before native composition.
+            if ports and kwargs:
+                raise TypeError("combine[TS[JSON]] cannot mix positional and named values")
+
+            def lift_json_value(value, label):
                 unwrapped = _unwrap(value)
                 if not isinstance(unwrapped, _m.Port):
                     from ._wiring import _infer_ts_type
@@ -1776,10 +1820,19 @@ class _TsExpr:
                         tp = _infer_ts_type([tuple(value)])
                         value = tuple(value)
                     if tp is None:
-                        raise TypeError(f"combine_json: cannot infer a type for '{name}'")
+                        raise TypeError(f"combine_json: cannot infer a type for '{label}'")
                     value = wire("const", value, output_type=tp)
-                lifted[name] = value
-            return wire("combine_json", **lifted)
+                return value
+
+            if ports:
+                return wire(
+                    "combine_json",
+                    *(lift_json_value(value, index) for index, value in enumerate(ports)),
+                )
+            return wire(
+                "combine_json",
+                **{name: lift_json_value(value, name) for name, value in kwargs.items()},
+            )
         if kwargs and not ports and getattr(self.handle, "is_ts", False):
             # The GENERIC kwargs form for any remaining TS-valued target
             # (e.g. combine[TS[Frame[X]]](a=..., b=...)): pack a structural
@@ -1824,12 +1877,13 @@ class _TsExpr:
                 # combine[TSD](keys_ts, values_ts): the TS[tuple] zip kernel.
                 return wire("convert", *ports, output_type=self)
             if self.handle.is_ts_sequence:
-                # combine[TS[Tuple...]](a, b, ...): pack a structural TSB;
-                # the erased tuple-combine kernel fills the row.
-                fields = [(f"_{i}", _unwrap(p).ts_type) for i, p in enumerate(ports)]
-                tsb_type = _m.un_named_tsb_type(fields)
+                # combine[TS[Tuple...]](a, b, ...): pack a non-reference
+                # structural TSB. Each original child edge is retained, while
+                # its declared field shape is the value observed through any
+                # REF, matching legacy TSB.from_ts vararg packing.
+                raw_ports = [_unwrap(p) for p in ports]
                 structural = WiringPort(
-                    _m.tsb_port(tsb_type, {f"_{i}": _unwrap(p) for i, p in enumerate(ports)}))
+                    _m.bundle_port(raw_ports, [False] * len(raw_ports)))
                 if strict_cs is False:
                     return wire("combine", structural, __strict__=False, output_type=self)
                 return wire("combine", structural, output_type=self)
@@ -2058,7 +2112,9 @@ class _TSMeta(type):
         if scalar in (typing.Callable, _abc.Callable) or origin is _abc.Callable:
             return _TsExpr(_hgraph.ts(_hgraph.value_type("callable")), "TS[Callable]")
         try:
-            expr = _TsExpr(_hgraph.ts(_value_type(scalar)), f"TS[{getattr(scalar, '__name__', scalar)}]")
+            value_type = _value_type(scalar)
+            _VALUE_SCALAR_TYPES[value_type] = scalar
+            expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
             return _GenericTsExpr(f"TS[{scalar!r}]", pattern=_hgraph.type_pattern_ts(e.pattern))
         _TS_SCALAR_TYPES[expr.handle] = scalar
@@ -2432,13 +2488,18 @@ class TimeSeriesSchema:
 
 
 def _value_type_python_type(value_type):
-    python_type = _VALUE_SCALAR_TYPES.get(value_type)
-    if python_type is None:
-        python_type = _hgraph.python_type_for_value(value_type)
+    python_type = _resolution_value_type(value_type)
     if isinstance(python_type, _hgraph.ValueType):
         raise TypeError(
             f"native scalar schema {value_type!r} has no Python type binding")
     return python_type
+
+
+def _resolution_value_type(value_type):
+    """Prefer a declared Python scalar, preserving native-only schemas."""
+    python_type = _VALUE_SCALAR_TYPES.get(value_type)
+    return (python_type if python_type is not None
+            else _hgraph.python_type_for_value(value_type))
 
 
 def _time_series_full_value_type(ts_type):

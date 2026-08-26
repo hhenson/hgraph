@@ -139,6 +139,16 @@ def test_log_args(caplog):
     assert "Error output Test 1" in caplog.text
 
 
+def test_log_type_argument(caplog):
+    @graph
+    def main(tp: type[TS[int]]):
+        log_("Resolved type {}", tp, level=logging.ERROR)
+
+    with caplog.at_level(logging.ERROR, logger="hgraph"):
+        eval_node(main, tp=TS[int])
+    assert "Resolved type <" in caplog.text
+
+
 def test_log_no_args_or_kwargs(caplog):
     @graph
     def main():

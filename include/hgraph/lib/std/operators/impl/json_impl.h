@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_JSON_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_JSON_IMPL_H
 
+#include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/lib/std/operators/container.h>
@@ -193,7 +194,7 @@ namespace hgraph::stdlib
 
     namespace json_tree
     {
-        [[nodiscard]] ValueTypeRef json_value_binding();
+        [[nodiscard]] HGRAPH_EXPORT ValueTypeRef json_value_binding();
 
         class JsonValue
         {
@@ -208,7 +209,7 @@ namespace hgraph::stdlib
             [[nodiscard]] std::optional<Float>     as_float() const;
             [[nodiscard]] std::optional<Str>       as_str() const;
             [[nodiscard]] std::optional<Bool>      as_bool() const;
-            [[nodiscard]] Value                    materialize() const;
+            [[nodiscard]] HGRAPH_EXPORT Value      materialize() const;
             [[nodiscard]] std::string              encode() const;
             [[nodiscard]] std::size_t              hash() const noexcept;
 
@@ -260,16 +261,17 @@ namespace hgraph::stdlib
     namespace json_tree
     {
         [[nodiscard]] const ValueTypeMetaData *json_lazy_meta();
-        [[nodiscard]] const JsonValue         *try_lazy(const ValueView &value);
+        [[nodiscard]] HGRAPH_EXPORT const JsonValue *try_lazy(const ValueView &value);
         [[nodiscard]] Value                    lazy_value(JsonValue value);
 
         /** Box an inner value into a JSON node (empty inner = null). */
-        [[nodiscard]] Value box(Value inner);
+        [[nodiscard]] HGRAPH_EXPORT Value box(Value inner);
 
         /** Convert an arbitrary VALUE into a JSON node (recursive). */
         [[nodiscard]] Value     to_node(const ValueView &value);
-        [[nodiscard]] ValueView unbox(const ValueView &node);
-        void                    encode(const ValueView &node, std::string &out);
+        [[nodiscard]] HGRAPH_EXPORT ValueView unbox(const ValueView &node);
+        [[nodiscard]] Value     concatenate_arrays(const ValueView &lhs, const ValueView &rhs);
+        HGRAPH_EXPORT void      encode(const ValueView &node, std::string &out);
         void                    publish(const TSOutputView &out, Value &&node);
     }  // namespace json_tree
 
@@ -300,6 +302,31 @@ namespace hgraph::stdlib
                 entries.set_item_copy(names.at(index).data(), node.view().data());
             }
             json_tree::publish(static_cast<const TSOutputView &>(out), json_tree::box(entries.build()));
+        }
+    };
+
+    /** Runtime node behind positional ``combine[TS[JSON]]``. */
+    struct json_array_impl
+    {
+        static constexpr auto name = "__json_array";
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
+        {
+            resolve_json_output(resolution);
+        }
+
+        static void eval(In<"values", TsVar<"V">> values, Out<TsVar<"O">> out)
+        {
+            ListBuilder items{json_tree::json_value_binding()};
+            const auto count = values.base().schema()->field_count();
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                auto child = values.base().indexed_child_at(index);
+                if (!child.valid()) { continue; }
+                Value node = json_tree::to_node(child.value());
+                items.push_back_copy(node.view().data());
+            }
+            json_tree::publish(static_cast<const TSOutputView &>(out), json_tree::box(items.build()));
         }
     };
 
@@ -342,6 +369,71 @@ namespace hgraph::stdlib
             keys_arg.name         = "keys";
             std::array<WiringArg, 2> args{values_arg, keys_arg};
             return wire_operator(w, "__json_object", args).output.erased();
+        }
+    };
+
+    /** Positional combine_json(*args) composes an ordered structural bundle
+        onto the native JSON-array runtime node. */
+    struct combine_json_array_impl
+    {
+        static constexpr auto name = "combine_json_array";
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
+        {
+            resolve_json_output(resolution, "O", true);
+        }
+
+        static WiringPortRef compose(Wiring &w, VarIn<"args", TsVar<"V">> args)
+        {
+            if (args.empty())
+            {
+                throw std::invalid_argument("positional combine[TS[JSON]] requires at least one value");
+            }
+
+            auto &registry = TypeRegistry::instance();
+            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+            std::vector<WiringPortRef> children;
+            fields.reserve(args.size());
+            children.reserve(args.size());
+            for (std::size_t index = 0; index < args.size(); ++index)
+            {
+                fields.emplace_back(std::to_string(index), args[index].schema);
+                children.push_back(args[index]);
+            }
+            WiringPortRef packed =
+                WiringPortRef::structural_source(registry.un_named_tsb(fields), std::move(children));
+
+            WiringArg values_arg;
+            values_arg.kind = WiringArg::Kind::TimeSeries;
+            values_arg.port = packed;
+            values_arg.name = "values";
+            std::array<WiringArg, 1> node_args{values_arg};
+            return wire_operator(w, "__json_array", node_args).output.erased();
+        }
+    };
+
+    /** ``TS[JSON] + TS[JSON]`` is runtime-checked JSON array concatenation. */
+    struct add_json_arrays_impl
+    {
+        static constexpr auto name = "add_json_arrays";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
+        {
+            return json_tree::is_json_ts(resolution.find_ts("L")) &&
+                   json_tree::is_json_ts(resolution.find_ts("R"));
+        }
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
+        {
+            resolve_json_output(resolution);
+        }
+
+        static void eval(In<"lhs", TsVar<"L">> lhs, In<"rhs", TsVar<"R">> rhs,
+                         Out<TsVar<"O">> out)
+        {
+            json_tree::publish(
+                static_cast<const TSOutputView &>(out),
+                json_tree::concatenate_arrays(lhs.base().value(), rhs.base().value()));
         }
     };
 

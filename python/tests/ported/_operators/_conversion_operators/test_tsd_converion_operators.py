@@ -40,6 +40,14 @@ def test_convert_ts_to_tsd():
     assert eval_node(g, ["a", "b"], [1, 2]) == [{"a": 1}, {"b": 2, "a": REMOVE}]
 
 
+def test_convert_scalar_value_to_tsd():
+    @graph
+    def g(key: TS[str]) -> TSD[str, TS[float]]:
+        return convert[TSD](key, 1.0)
+
+    assert eval_node(g, ["a", "b"]) == [{"a": 1.0}, {"b": 1.0, "a": REMOVE}]
+
+
 def test_convert_tsd_partial_key_constraint_rejects_wrong_key_type():
     @graph
     def g(a: TS[int], b: TS[int]) -> TSD[str, TS[int]]:

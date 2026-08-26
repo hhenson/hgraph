@@ -21,7 +21,8 @@ from ._core import (
 from ._graph import _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
 from ._node import _PyNode, _warn_deprecated
-from ._resolution import _apply_resolvers
+from ._resolution import (_apply_resolvers, _python_value_for_binding,
+                          _resolution_binding)
 
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
@@ -757,6 +758,10 @@ class _ServiceStub:
             return path
         suffix = f"[{self._specialization}]"
         return path if path.endswith(suffix) else f"{path}{suffix}"
+
+    def default_path(self):
+        """Return the default user path declared by this service interface."""
+        return self._default_path
 
     @property
     def implementation_arity(self):
@@ -1889,19 +1894,10 @@ def _bind_registered_impl(implementation, path, config):
         sentinel = args[0] if args else None
         if not isinstance(sentinel, _TypeVarSentinel):
             continue
-        name = _type_var_name(sentinel)
-        scalar = resolution.find_scalar(name)
-        if scalar is not None:
-            resolved_config[param.name] = _hgraph.python_type_for_value(scalar)
-            continue
-        ts_type = resolution.find_ts(name)
-        if ts_type is not None:
-            resolved_config[param.name] = _TsExpr(ts_type, f"resolved[{name}]")
-            continue
-        size = resolution.find_size(name)
-        if size is not None:
-            from ._graph import _ResolvedSize
-            resolved_config[param.name] = _ResolvedSize(size)
+        binding = _resolution_binding(resolution, sentinel)
+        if binding is not None:
+            resolved_config[param.name] = _python_value_for_binding(
+                sentinel, binding)
 
     cache_key = None
     if not registration_contexts:

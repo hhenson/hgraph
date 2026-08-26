@@ -317,6 +317,7 @@ function(hgraph_add_test_executable target_name)
         PRIVATE
             hgraph::core
             Catch2::Catch2WithMain
+            ${_hgraph_arrow_targets}
     )
     hgraph_enable_private_pch(${target_name})
 endfunction()

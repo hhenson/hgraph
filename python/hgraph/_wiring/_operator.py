@@ -61,6 +61,11 @@ class _Operator:
 
         return extract_signature(self.fn, WiringNodeType.OPERATOR)
 
+    @property
+    def overloads(self):
+        """Decorated implementations registered on this operator."""
+        return tuple(implementation for implementation, _ in self._overloads)
+
     def __call__(self, *args, **kwargs):
         deprecated = getattr(self, "_deprecated", False)
         if deprecated:
@@ -242,20 +247,10 @@ def _overload_wire_trampoline(impl):
                 type_arguments = typing.get_args(parameter.annotation)
                 if not type_arguments:
                     continue
-                variable_name = _type_var_name(type_arguments[0])
-                resolved = resolution_scope.find_scalar(variable_name)
-                if resolved is not None:
-                    values[index] = _hgraph.python_type_for_value(resolved)
-                    continue
-                resolved = resolution_scope.find_ts(variable_name)
-                if resolved is not None:
-                    from .._types import _TsExpr
-                    values[index] = _TsExpr(resolved, f"resolved[{variable_name}]")
-                    continue
-                resolved = resolution_scope.find_size(variable_name)
-                if resolved is not None:
-                    from ._graph import _ResolvedSize
-                    values[index] = _ResolvedSize(resolved)
+                variable = type_arguments[0]
+                binding = _resolution_binding(resolution_scope, variable)
+                if binding is not None:
+                    values[index] = _python_value_for_binding(variable, binding)
             call_kwargs = {
                 key: wrap(value) for key, value in kwargs.items()
                 if has_keyword_collector or key in accepted_keywords
@@ -688,7 +683,9 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
             classes = key if isinstance(key, tuple) else (key,)
             entries.append((tuple(_value_type(cls) for cls in classes), _as_wired(branch)))
         erased = _hgraph.dispatch_cases(
-            entries, [port_names.index(name) for name in names]
+            entries,
+            [port_names.index(name) for name in names],
+            declared_types=[_value_type(dispatch_params[name]) for name in names],
         )
         return wire("dispatch_", erased, output_type=__output_type, **port_kwargs)
 

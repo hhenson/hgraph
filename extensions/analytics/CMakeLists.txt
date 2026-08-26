@@ -47,7 +47,7 @@ if(NOT TARGET Boost::math)
     unset(_hgraph_analytics_build_testing)
 endif()
 
-if(HGRAPH_ANALYTICS_BUILD_PYTHON)
+if(HGRAPH_ANALYTICS_BUILD_PYTHON AND PROJECT_IS_TOP_LEVEL)
     get_target_property(_hgraph_analytics_core_links hgraph::options INTERFACE_LINK_LIBRARIES)
     if("Python::Python" IN_LIST _hgraph_analytics_core_links)
         message(FATAL_ERROR
@@ -108,11 +108,21 @@ if(BUILD_TESTING)
 endif()
 
 if(HGRAPH_ANALYTICS_BUILD_PYTHON)
-    if(NOT COMMAND hgraph_add_python_module OR NOT TARGET hgraph::nanobind)
+    if(COMMAND hgraph_add_python_module AND TARGET hgraph::nanobind)
+        hgraph_add_python_module(_hgraph_analytics STABLE_ABI NOMINSIZE src/python_module.cpp)
+    elseif(NOT PROJECT_IS_TOP_LEVEL AND COMMAND nanobind_add_module)
+        if(HGRAPH_BUILD_SHARED)
+            set(_hgraph_analytics_nanobind_linkage NB_SHARED)
+        else()
+            set(_hgraph_analytics_nanobind_linkage NB_STATIC)
+        endif()
+        nanobind_add_module(_hgraph_analytics STABLE_ABI NOMINSIZE
+            ${_hgraph_analytics_nanobind_linkage} src/python_module.cpp)
+        unset(_hgraph_analytics_nanobind_linkage)
+    else()
         message(FATAL_ERROR
             "HGRAPH_ANALYTICS_BUILD_PYTHON requires a Python-enabled installed hgraph SDK")
     endif()
-    hgraph_add_python_module(_hgraph_analytics STABLE_ABI NOMINSIZE src/python_module.cpp)
     target_link_libraries(_hgraph_analytics PRIVATE hgraph::analytics)
     install(TARGETS _hgraph_analytics
         COMPONENT Python

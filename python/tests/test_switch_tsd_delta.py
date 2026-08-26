@@ -49,7 +49,7 @@ def test_switch_flip_to_const_branch_publishes_sampled_delta():
     def probe(roll: TS[bool], current: TSD[str, TS[float]]) -> TS[str]:
         out = switch_(
             roll,
-            {True: lambda current: const(frozendict({"next": 20.0}), TSD[str, TS[float]]),
+            {True: lambda current: const[TSD[str, TS[float]]](frozendict({"next": 20.0})),
              False: lambda current: current},
             current,
         )
@@ -124,7 +124,7 @@ def test_switch_flip_tsb_materialized_branch_delta():
 
     @graph
     def branch_true(current: TSB[_Pos], prices: TSD[str, TS[float]]) -> TSB[_Pos]:
-        units = const(frozendict({"next": 1.0}), TSD[str, TS[float]])
+        units = const[TSD[str, TS[float]]](frozendict({"next": 1.0}))
         return combine[TSB[_Pos]](
             units=units,
             unit_values=map_(lambda unit, price: price, units, prices))
@@ -162,7 +162,7 @@ def test_issue_38_nested_tsd_update_through_switch_feedback():
         current: TSB[_FeedbackPosition],
         prices: TSD[str, TS[float]],
     ) -> TSB[_FeedbackPosition]:
-        units = const(frozendict({"next": 1.0}), TSD[str, TS[float]])
+        units = const[TSD[str, TS[float]]](frozendict({"next": 1.0}))
         return combine[TSB[_FeedbackPosition]](
             units=units,
             unit_values=map_(lambda unit, price: price, units, prices),
@@ -176,8 +176,8 @@ def test_issue_38_nested_tsd_update_through_switch_feedback():
     ) -> TS[float]:
         position_feedback = feedback(TSB[_FeedbackPosition])
         initial_position = combine[TSB[_FeedbackPosition]](
-            units=const(frozendict({"old": 0.5, "next": 0.5}), TSD[str, TS[float]]),
-            unit_values=const(frozendict({"old": 10.0, "next": 10.0}), TSD[str, TS[float]]),
+            units=const[TSD[str, TS[float]]](frozendict({"old": 0.5, "next": 0.5})),
+            unit_values=const[TSD[str, TS[float]]](frozendict({"old": 10.0, "next": 10.0})),
         )
         position = dedup(default(lag(position_feedback(), 1, trigger), initial_position))
         output = switch_(
@@ -223,8 +223,8 @@ def test_issue_40_feedback_preserves_no_key_map_after_if_then_else_rebind():
     ) -> TS[float]:
         state_feedback = feedback(TSB[_RebasedFeedbackState])
         initial_state = combine[TSB[_RebasedFeedbackState]](
-            unit_values=const(frozendict(), TSD[str, TS[float]]),
-            target_units=const(frozendict(), TSD[str, TS[float]]),
+            unit_values=const[TSD[str, TS[float]]](frozendict()),
+            target_units=const[TSD[str, TS[float]]](frozendict()),
         )
         state = default(
             lag(state_feedback(), 1, trigger),

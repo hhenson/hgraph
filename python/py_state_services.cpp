@@ -1364,7 +1364,7 @@ namespace hgraph::python_bridge
         .def("__arrow_c_array__",
              [](const PySeriesArray &self, nb::handle) { return self.arrow_c_array(); },
              nb::arg("requested_schema") = nb::none());
-    install_value_conversion_hooks();   // bind module-owned conversion onto the type-erased ops
+    install_value_conversion_hooks(m);   // bind module-owned conversion onto the type-erased ops
     // Wiring-time scalar values as one list-of-Any (part of node identity).
     m.def("any_list", [](nb::list values) {
         auto &registry = TypeRegistry::instance();

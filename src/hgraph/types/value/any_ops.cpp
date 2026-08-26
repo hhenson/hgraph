@@ -103,7 +103,49 @@ namespace hgraph
             }
             else { boxed = std::move(inferred); }
         }
+
+        nb::object json_any_to_python(const void *, const void *memory)
+        {
+            const Value &inner = *static_cast<const Value *>(memory);
+            if (const auto slot = python_bridge::py_json_to_python_slot())
+            {
+                return slot(inner);
+            }
+            return any_to_python(nullptr, memory);
+        }
+
+        void json_any_from_python(const void *, const ValueTypeRef &, void *memory,
+                                  nb::handle source)
+        {
+            const auto slot = python_bridge::py_json_from_python_slot();
+            if (slot == nullptr)
+            {
+                any_from_python(nullptr, ValueTypeRef{}, memory, source);
+                return;
+            }
+
+            Value outer = slot(source);
+            if (outer.schema() != TypeRegistry::instance().json())
+            {
+                throw nb::type_error("native JSON conversion returned the wrong schema");
+            }
+            const ValueView inner = outer.as_any().get();
+            *static_cast<Value *>(memory) = inner.valid() ? Value{inner} : Value{};
+        }
 #endif
+
+        const ValueOps &json_any_ops() noexcept
+        {
+            static const ValueOps ops = [] {
+                ValueOps result = any_ops();
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                result.to_python_impl = &json_any_to_python;
+                result.from_python_impl = &json_any_from_python;
+#endif
+                return result;
+            }();
+            return ops;
+        }
     }  // namespace
 
     const ValueOps &any_ops() noexcept
@@ -135,6 +177,7 @@ namespace hgraph
 
     ValueTypeRef any_type(const ValueTypeMetaData &meta)
     {
-        return intern_value_type(meta, MemoryUtils::plan_for<Value>(), any_ops());
+        const ValueOps &ops = &meta == TypeRegistry::instance().json() ? json_any_ops() : any_ops();
+        return intern_value_type(meta, MemoryUtils::plan_for<Value>(), ops);
     }
 }  // namespace hgraph

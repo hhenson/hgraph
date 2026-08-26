@@ -1047,6 +1047,9 @@ namespace hgraph::python_bridge
         }
         return PyScalarPattern{ScalarPattern::var(name, std::move(metas))};
     });
+    m.def("scalar_pattern_var_bound", [](const std::string &name, PyValueType bound) {
+        return PyScalarPattern{ScalarPattern::var(name, {}, bound.meta)};
+    });
     m.def("scalar_pattern_value", [](PyValueType value) {
         return PyScalarPattern{ScalarPattern::concrete(value.meta)};
     });
@@ -1300,7 +1303,17 @@ namespace hgraph::python_bridge
             }
             else
             {
-                throw nb::type_error("type target resolution inputs must be Port or TsType objects");
+                Value value = py_to_value(input);
+                const auto *scalar = value.schema();
+                if (scalar == nullptr)
+                {
+                    throw nb::type_error(
+                        "type target resolution input has no concrete scalar schema");
+                }
+                // Target inference happens before operator resolution. Model
+                // the generic auto-const rule here without wiring a node; the
+                // selected overload materializes the scalar exactly once.
+                schemas.push_back(TypeRegistry::instance().ts(scalar));
             }
         }
         return schemas;

@@ -34,7 +34,7 @@ def test_cascaded_switch_in_map_ticking_into_take():
             inner_gate,
             {
                 True: lambda v: v,
-                False: lambda v: nothing(TSD[str, TS[float]]),
+                False: lambda v: nothing[TSD[str, TS[float]]](),
             },
             plus_one,
         )

@@ -57,7 +57,7 @@ def test_valid_1():
 def test_tsd_validity():
     @graph
     def g() -> TS[bool]:
-        tsd = const({1: 1}, TSD[int, TS[int]], delay=MIN_TD*1)
+        tsd = const[TSD[int, TS[int]]]({1: 1}, delay=MIN_TD*1)
         return valid(tsd)
 
     assert eval_node(g) == [False, True]
@@ -66,7 +66,7 @@ def test_tsd_validity():
 def test_tsd_validity_rebind():
     @graph
     def g(ts: TS[bool]) -> TS[bool]:
-        tsd = if_(ts, const({1: 1}, TSD[int, TS[int]], delay=MIN_TD*1)).true
+        tsd = if_(ts, const[TSD[int, TS[int]]]({1: 1}, delay=MIN_TD*1)).true
         return valid(tsd)
 
     assert eval_node(g, [True, None, False, True]) == [False, True, None, None]

@@ -53,8 +53,9 @@ namespace hgraph::stdlib
 {
     /** Add two time-series values using the overload selected for their schemas.
         Supports numeric promotion, string concatenation, temporal arithmetic,
-        collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs``
-        syntax wires this operator.
+        collection broadcasting, keyed-set insertion, and runtime-checked
+        concatenation of dynamic JSON arrays. Python's ``lhs + rhs`` syntax
+        wires this operator.
         @param lhs Left-hand value. A tick triggers a new result once the overload's
                    validity requirements are met.
         @param rhs Right-hand value; compatible plain values are lifted to constants.
@@ -62,7 +63,8 @@ namespace hgraph::stdlib
                           overloads may forward the valid operand when the other is absent.
         @param month_end_policy Policy used when adding a calendar period to a date
                                 whose day does not exist in the target month.
-        @return The sum, with its schema selected from both operand schemas.
+        @return The sum, with its schema selected from both operand schemas. For
+                ``TS[JSON]`` operands both values must be arrays at runtime.
         @par Python example
         @code{.py}
         total = lhs + rhs  # equivalent to hg.add_(lhs, rhs)

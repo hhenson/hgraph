@@ -23,17 +23,46 @@ request_id = operator_function("request_id")
 
 rolling_window = operator_function("window")
 def _requires_python_descriptor(mapping, attr):
-    """Select the Python fallback only for non-storage attributes.
+    """Select the Python fallback for non-storage or retyped attributes.
 
     Stored CompoundScalar fields are native Bundle projections. A descriptor
     such as hg_oap's ExprClass fields is evaluated on the reconstructed Python
-    object because it has no C++ storage field to project.
+    object because it has no C++ storage field to project. An explicitly
+    requested output type that differs from the declared field type also reads
+    the Python object, preserving the legacy pre-inflation accessor behavior.
     """
     value_type = mapping[COMPOUND_SCALAR]
-    return attr not in {name for name, _ in value_type.fields}
+    field_type = dict(value_type.fields).get(attr)
+    return field_type is None or field_type != mapping[SCALAR]
 
 
-@compute_node(overloads="getattr_", requires=_requires_python_descriptor)
+def _python_descriptor_type(mapping, attr):
+    import dataclasses
+    import inspect
+    import typing
+
+    from ._types import _value_type_python_type
+
+    scalar_type = _value_type_python_type(mapping[COMPOUND_SCALAR])
+    annotation = typing.get_type_hints(scalar_type).get(attr)
+    if isinstance(annotation, dataclasses.InitVar):
+        return annotation.type
+    if annotation is not None:
+        return annotation
+
+    descriptor = inspect.getattr_static(scalar_type, attr, None)
+    if isinstance(descriptor, property) and descriptor.fget is not None:
+        return typing.get_type_hints(descriptor.fget).get("return", object)
+    raise AttributeError(
+        f"{scalar_type.__module__}.{scalar_type.__qualname__} has no typed "
+        f"attribute '{attr}'")
+
+
+@compute_node(
+    overloads="getattr_",
+    requires=_requires_python_descriptor,
+    resolvers={SCALAR: _python_descriptor_type},
+)
 def _getattr_compound_descriptor(
         ts: TS[COMPOUND_SCALAR], attr: str,
         default_value: TS[SCALAR] = None) -> TS[SCALAR]:

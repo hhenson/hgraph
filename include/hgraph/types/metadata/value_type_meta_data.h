@@ -26,8 +26,9 @@ namespace hgraph
      * Mutable registration-time ancestry for a named Bundle schema.
      *
      * The metadata object itself has a stable address for the process lifetime.
-     * Parent/child vectors may grow as additional bundle classes are registered;
-     * graph compilation copies the visible closure into an immutable realization.
+     * Parent links are fixed when this schema is registered. The child vector
+     * may grow as additional bundle classes are registered; graph compilation
+     * copies the visible closure into an immutable realization.
      */
     struct BundleHierarchyMetaData
     {

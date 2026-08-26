@@ -26,6 +26,7 @@ from hgraph import (
     graph,
     operator,
     register_python_object_type,
+    sink_node,
     to_json_builder,
 )
 from hgraph._types import _value_type
@@ -83,6 +84,85 @@ def test_python_owned_assignment_is_lenient_until_a_field_is_extracted():
     assert eval_node(identity, [value])[0] is value
     with pytest.raises(Exception, match="int"):
         eval_node(number, [value])
+
+
+def test_explicit_accessor_type_can_read_a_pre_inflation_field_value():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    @graph
+    def spec_symbol(series: TS[Series]) -> TS[str]:
+        return getattr_[SCALAR:str](series, "spec")
+
+    assert eval_node(spec_symbol, [Series(spec="ICE_H")]) == ["ICE_H"]
+
+
+def test_const_map_retains_pre_inflation_python_owned_values():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class DerivedSpec(Spec):
+        venue: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    @dataclass(frozen=True, kw_only=True)
+    class SeriesMixin:
+        months_ahead: int
+
+    @dataclass(frozen=True, kw_only=True)
+    class DerivedSeries(SeriesMixin, Series):
+        spec: DerivedSpec
+
+    _value_type(DerivedSeries)
+    value = DerivedSeries(spec="ICE_H", months_ahead=12)
+
+    captured = []
+
+    @sink_node
+    def capture(items: TSD[str, TS[Series]]):
+        captured.append(items.value)
+
+    @graph
+    def app():
+        capture(const[TSD[str, TS[Series]]]({"item": value}))
+
+    eval_node(app)
+    assert captured == [{"item": value}]
+
+
+def test_nested_const_map_retains_pre_inflation_python_owned_values():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    value = Series(spec="ICE_H")
+    captured = []
+
+    @sink_node
+    def capture(items: TSD[str, TSD[str, TS[Series]]]):
+        captured.append(items.value)
+
+    @graph
+    def app():
+        capture(const[TSD[str, TSD[str, TS[Series]]]](
+            {"outer": {"item": value}}))
+
+    eval_node(app)
+    assert captured == [{"outer": {"item": value}}]
 
 
 def test_explicit_registration_supports_annotated_application_classes():
@@ -201,6 +281,22 @@ def test_parameterized_dataclass_inheritance_preserves_the_active_child():
     assert fields(TS[Base[int]]) == {"value": int}
     assert eval_node(
         app, [IntegerValue(value=1, label="one")]) == [True]
+
+
+def test_python_owned_property_access_resolves_its_return_type():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        @property
+        def doubled(self) -> int:
+            return self.number * 2
+
+    @graph
+    def app(value: TS[Value]) -> TS[int]:
+        return value.doubled
+
+    assert eval_node(app, [Value(3)]) == [6]
 
 
 def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
@@ -491,6 +587,41 @@ def test_python_equality_hashing_and_deduplication_are_preserved():
         TSD[Unhashable, TS[int]]
 
 
+def test_const_map_uses_identity_when_a_python_owned_value_hash_fails():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        def __hash__(self):
+            raise RuntimeError("value hash must not be required")
+
+    value = Value(7)
+
+    @graph
+    def app() -> TSD[str, TS[Value]]:
+        return const[TSD[str, TS[Value]]]({"item": value})
+
+    assert eval_node(app) == [{"item": value}]
+
+
+def test_python_owned_hash_failure_uses_identity_equality_too():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        def __hash__(self):
+            raise RuntimeError("value hash must not be required")
+
+    first = Value(7)
+    equal_but_distinct = Value(7)
+
+    assert eval_node(
+        drop_dups,
+        [first, first, equal_but_distinct],
+        resolution_dict={"ts": TS[Value]},
+    ) == [first, None, equal_but_distinct]
+
+
 def test_python_equality_exceptions_cross_the_bridge():
     @dataclass(frozen=True, eq=False)
     class Explosive:
@@ -710,6 +841,31 @@ def test_mutually_recursive_python_owned_classes_are_schema_only_recursion():
     assert eval_node(nested_value, [source]) == [3]
 
 
+def test_indirect_recursive_union_realization_is_entry_order_independent():
+    @dataclass(frozen=True)
+    class Instrument:
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Specification:
+        underlying: Instrument
+
+    @dataclass(frozen=True)
+    class Series:
+        specification: Specification
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        series: Series
+
+    @compute_node
+    def underlying_identifier(value: TS[Series]) -> TS[int]:
+        return value.value.specification.underlying.identifier
+
+    value = Series(Specification(Instrument(7)))
+    assert eval_node(underlying_identifier, [value]) == [7]
+
+
 def test_in_place_mutation_does_not_create_a_new_value_tick():
     @dataclass
     class Mutable:
@@ -767,3 +923,55 @@ def test_multiple_inheritance_dispatch_reports_ambiguity():
 
     with pytest.raises(RuntimeError, match="Ambiguous dispatch"):
         eval_node(app, [Hybrid(value=1, left=2, right=3, hybrid=4)])
+
+
+def test_descriptor_backed_initvar_remains_a_field_through_multiple_inheritance():
+    class Doubled:
+        def __get__(self, instance, owner=None):
+            return self if instance is None else instance.number * 2
+
+        def __set__(self, instance, value):
+            pass
+
+    doubled_descriptor = Doubled()
+
+    @dataclass(frozen=True, kw_only=True)
+    class StoredBase:
+        doubled: int
+
+    @dataclass(frozen=True, kw_only=True)
+    class ExpressionMixin:
+        number: int
+        doubled: InitVar[int] = doubled_descriptor
+
+    @dataclass(frozen=True, kw_only=True)
+    class Value(ExpressionMixin, StoredBase):
+        pass
+
+    assert fields(Value) == {"number": int, "doubled": int}
+    assert tuple(name for name, _ in _value_type(Value).fields) == (
+        "number", "doubled")
+    assert Value(number=3).doubled == 6
+
+
+def test_python_owned_combine_does_not_lift_descriptor_defaults():
+    class Doubled:
+        def __get__(self, instance, owner=None):
+            return self if instance is None else instance.number * 2
+
+        def __set__(self, instance, value):
+            if value is not self:
+                raise AttributeError("doubled is computed")
+
+    doubled = Doubled()
+
+    @dataclass(frozen=True, kw_only=True)
+    class Value:
+        number: int
+        result: int = doubled
+
+    @graph
+    def app(number: TS[int]) -> TS[Value]:
+        return combine[TS[Value]](number=number)
+
+    assert eval_node(app, [3]) == [Value(number=3)]

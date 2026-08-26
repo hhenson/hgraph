@@ -22,6 +22,7 @@ from hgraph import (
     graph,
     if_then_else,
     map_,
+    null_sink,
     partition,
     rekey,
     service_adaptor,
@@ -30,7 +31,13 @@ from hgraph import (
     unpartition,
     valid,
 )
-from hgraph.adaptors.data_catalogue import DataEnvironment, DataSource
+from hgraph.adaptors.data_catalogue import (
+    DataCatalogueEntry,
+    DataEnvironment,
+    DataSource,
+    subscriber_impl_from_graph,
+    subscriber_impl_to_graph,
+)
 from hgraph.adaptors.data_catalogue.data_scopes import Scope
 from hgraph.reflection import fields
 from hgraph.stream import (
@@ -74,6 +81,29 @@ def sql_adaptor_batch(
     _schema: type[SCHEMA] = DEFAULT[SCHEMA],
 ) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
     ...
+
+
+@subscriber_impl_from_graph
+def subscribe_batch_sql_from_graph(
+    dce: DataCatalogueEntry,
+    ds: TS[BatchSqlDataSource],
+    options: TS[dict[str, object]],
+    request_id: TS[int],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+):
+    null_sink(request_id)
+
+
+@subscriber_impl_to_graph
+def subscribe_batch_sql_to_graph(
+    dce: DataCatalogueEntry,
+    ds: TS[BatchSqlDataSource],
+    options: TS[dict[str, object]],
+    request_id: TS[int],
+    _schema: type[SCHEMA] = AUTO_RESOLVE,
+) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
+    return sql_adaptor_batch[_schema](
+        ds, dce.scope, options, path=dce.store.source_path)
 
 
 @service_adaptor_impl(interfaces=sql_adaptor_batch)

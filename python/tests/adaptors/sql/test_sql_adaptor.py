@@ -8,7 +8,7 @@ from frozendict import frozendict
 import hgraph as hg
 from hgraph.adaptors.data_catalogue import (
     DataCatalogue, DataCatalogueEntry, DataEnvironment, DataEnvironmentEntry,
-    Scope,
+    Scope, subscribe, subscribe_adaptor_impl,
 )
 from hgraph.adaptors.data_catalogue.publish import publish, publish_adaptor_impl
 from hgraph.adaptors.sql import (
@@ -45,6 +45,16 @@ class _Row(hg.CompoundScalar):
 class _BatchRow(hg.CompoundScalar):
     symbol: str
     value: int
+
+
+class _SymbolSequenceScope(Scope):
+    def in_scope(self, value):
+        return isinstance(value, str)
+
+    def adjust(self, value):
+        if isinstance(value, str):
+            return value
+        return ", ".join(f"'{item}'" for item in value)
 
 
 def _end_time(seconds=30):
@@ -291,15 +301,6 @@ def test_sql_batch_adaptor_coalesces_and_filters_requests(tmp_path):
         connection.executemany(
             "insert into rows values (?, ?)", [("A", 1), ("B", 2)])
 
-    class _SymbolSequenceScope(Scope):
-        def in_scope(self, value):
-            return isinstance(value, str)
-
-        def adjust(self, value):
-            if isinstance(value, str):
-                return value
-            return ", ".join(f"'{item}'" for item in value)
-
     source = BatchSqlDataSource(
         source_path="database",
         name="rows",
@@ -334,6 +335,58 @@ def test_sql_batch_adaptor_coalesces_and_filters_requests(tmp_path):
 
     with hg.GlobalContext(hg.GlobalState()):
         with _environment(database):
+            hg.run_graph(
+                app, run_mode=hg.EvaluationMode.REAL_TIME,
+                end_time=_end_time())
+
+    assert captured == {
+        "A": [{"symbol": "A", "value": 1}],
+        "B": [{"symbol": "B", "value": 2}],
+    }
+
+
+def test_catalogue_subscribe_routes_batch_sql_source(tmp_path):
+    database = tmp_path / "catalogue-batch.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("create table rows (symbol text, value integer)")
+        connection.executemany(
+            "insert into rows values (?, ?)", [("A", 1), ("B", 2)])
+
+    source = BatchSqlDataSource(
+        source_path="database",
+        name="rows",
+        query="select symbol, value from rows where symbol in ({symbol})",
+        filters={"symbol": "symbol = '{0}'"},
+    )
+    scope = frozendict({"symbol": _SymbolSequenceScope()})
+    captured = {}
+
+    @hg.sink_node
+    def capture(
+        name: str,
+        response: hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame[_BatchRow]]]],
+        engine: hg.EvaluationEngineApi = None,
+    ):
+        if response.status.value is StreamStatus.OK:
+            captured[name] = response["values"].value.to_pylist()
+            if len(captured) == 2:
+                engine.request_engine_stop()
+
+    @hg.graph
+    def app():
+        hg.register_adaptor("data-catalogue", subscribe_adaptor_impl)
+        hg.register_adaptor(
+            "database", sql_adaptor_batch_impl,
+            batch_period=timedelta(milliseconds=10))
+        hg.register_adaptor(
+            f"sqlite:///{database}", sql_read_adaptor_raw_impl)
+        capture("A", subscribe[_BatchRow]("rows", symbol="A"))
+        capture("B", subscribe[_BatchRow]("rows", symbol="B"))
+
+    with hg.GlobalContext(hg.GlobalState()):
+        with DataCatalogue(), _environment(database):
+            DataCatalogueEntry[BatchSqlDataSource](
+                _BatchRow, "rows", scope, source)
             hg.run_graph(
                 app, run_mode=hg.EvaluationMode.REAL_TIME,
                 end_time=_end_time())

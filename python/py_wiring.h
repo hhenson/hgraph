@@ -246,6 +246,15 @@ namespace hgraph::python_bridge
                         return std::optional<Value>{py_to_delta(args[0], output_type->meta)};
                     });
                 }
+                if (!target_const.has_value())
+                {
+                    // Legacy const retained its scalar as a Python object and
+                    // yielded it into the resolved output. Keep that path for
+                    // values whose target-directed conversion is necessarily
+                    // deferred (for example pre-inflation CompoundScalar
+                    // fields consumed through a retyped accessor).
+                    target_const = Value{PyObj{nb::borrow<nb::object>(args[0])}};
+                }
             }
             std::vector<WiringArg> wiring_args;
             if (target_const.has_value())

@@ -56,6 +56,8 @@ def test_dispatch_decorator():
     def make_sound(pet: TS[Pet], count: TS[int]) -> TS[str]:
         return pet_sound(pet, count)
 
+    assert pet_sound_dog in pet_sound.overloads
+    assert pet_sound_cat in pet_sound.overloads
     assert eval_node(
         make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3]
     ) == [None, "woof", None, "meow", "unknown 2", "unknown 3"]
@@ -261,6 +263,37 @@ def test_dispatch_reports_ambiguous_multiple_inheritance():
         eval_node(app, [Hybrid()])
 
 
+def test_dispatch_prefers_a_later_exact_multiple_inheritance_case():
+    class Animal(CompoundScalar): ...
+
+    class Left(Animal): ...
+
+    class Right(Animal): ...
+
+    class Hybrid(Left, Right): ...
+
+    @operator
+    def sound(animal: TS[Animal]) -> TS[str]: ...
+
+    @graph(overloads=sound)
+    def left_sound(animal: TS[Left]) -> TS[str]:
+        return "left"
+
+    @graph(overloads=sound)
+    def right_sound(animal: TS[Right]) -> TS[str]:
+        return "right"
+
+    @graph(overloads=sound)
+    def hybrid_sound(animal: TS[Hybrid]) -> TS[str]:
+        return "hybrid"
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[str]:
+        return dispatch_(sound, animal)
+
+    assert eval_node(app, [Hybrid()]) == ["hybrid"]
+
+
 def test_dispatch_on_restricts_dynamic_parameters():
     class Animal(CompoundScalar): ...
 
@@ -320,7 +353,7 @@ def test_compound_scalar_dispatch_propagates_specialized_output_to_overload():
 
     @graph(overloads=value)
     def dog_value(animal: TS[Dog], tp: Type[OUT] = AUTO_RESOLVE) -> OUT:
-        return const(7, tp)
+        return const[tp](7)
 
     @graph
     def app(animal: TS[Animal]) -> TS[int]:
@@ -347,6 +380,103 @@ def test_compound_scalar_dispatch_can_be_a_switch_branch():
         return switch_(enabled, {True: sound, False: sound}, animal)
 
     assert eval_node(app, [True], [Dog()]) == ["woof"]
+
+
+def test_compound_scalar_dispatch_accepts_statically_narrower_input():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    @dispatch
+    def sound(animal: TS[Animal]) -> TS[str]:
+        return "default"
+
+    @graph(overloads=sound)
+    def dog_sound(animal: TS[Dog]) -> TS[str]:
+        return "woof"
+
+    @graph
+    def app(animal: TS[Dog]) -> TS[str]:
+        return sound(animal)
+
+    assert eval_node(app, [Dog()]) == ["woof"]
+
+
+def test_dispatch_preserves_python_structured_parent_through_multiple_inheritance():
+    @dataclass(frozen=True)
+    class Animal:
+        name: str
+
+    @dataclass(frozen=True)
+    class Tagged:
+        tag: int
+
+    @dataclass(frozen=True)
+    class Dog(Tagged, Animal):
+        pass
+
+    @dispatch
+    def sound(animal: TS[Animal]) -> TS[str]:
+        return "default"
+
+    @graph(overloads=sound)
+    def dog_sound(animal: TS[Dog]) -> TS[str]:
+        return "woof"
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[str]:
+        return sound(animal)
+
+    assert eval_node(app, [Dog(name="Fido", tag=1)]) == ["woof"]
+
+
+def test_compound_scalar_multi_dispatch_does_not_expand_descendant_product():
+    class Animal(CompoundScalar): ...
+
+    class Food(CompoundScalar): ...
+
+    class SelectedAnimal(Animal): ...
+
+    class SelectedFood(Food): ...
+
+    animals = tuple(
+        type(
+            f"DispatchScaleAnimal{i}",
+            (Animal,),
+            {"__module__": __name__},
+        )
+        for i in range(256)
+    )
+    foods = tuple(
+        type(
+            f"DispatchScaleFood{i}",
+            (Food,),
+            {"__module__": __name__},
+        )
+        for i in range(256)
+    )
+
+    @dispatch
+    def choose(animal: TS[Animal], food: TS[Food]) -> TS[str]:
+        return "base"
+
+    @graph(overloads=choose)
+    def choose_animal(animal: TS[SelectedAnimal], food: TS[Food]) -> TS[str]:
+        return "animal"
+
+    @graph(overloads=choose)
+    def choose_both(animal: TS[SelectedAnimal], food: TS[SelectedFood]) -> TS[str]:
+        return "both"
+
+    @graph
+    def app(animal: TS[Animal], food: TS[Food]) -> TS[str]:
+        return choose(animal, food)
+
+    assert eval_node(
+        app,
+        [animals[-1](), SelectedAnimal(), SelectedAnimal()],
+        [foods[-1](), foods[-1](), SelectedFood()],
+    ) == ["base", "animal", "both"]
 
 
 def test_compound_scalar_downcast_rejects_the_wrong_active_leaf():
