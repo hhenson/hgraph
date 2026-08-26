@@ -17,6 +17,9 @@ Make the value pool an **explicitly owned and explicitly bound** object.
   the owner differs.
 * **Bound.**  An operation that allocates reaches its pool through its own ops
   context, or through the builder it was handed.  Never through ambient state.
+  The root graph **binds** its pool into the realization's pooled entries when
+  it is constructed and unbinds when it is destroyed; the allocating op reads a
+  pointer, and asks nothing about which thread is asking.
 * **Confined or synchronised by construction.**  A pool fixes its concurrency
   policy when it is created: ``GraphConfined`` takes no lock anywhere;
   ``Synchronised`` takes one on acquire and on batched return, and never on the
@@ -200,27 +203,43 @@ and it is why ``Shared<T>`` needs no ambient channel: immutability means copy is
 a retain and destroy is a release, both through the slot header, so explicit
 construction is the *only* allocating operation it has.
 
-**Implicit — the ops context carries the pool.**  Pooled polymorphic compound
-scalars allocate inside generic value ops, whose only per-instance channel is
-the ``context`` pointer.  Today the realized ``PolymorphicValueType`` for a
-pooled union is stored in a map owned by the ``TypeRealizationSnapshot``
-(``type_realization.cpp:779``) and shared by every graph using that snapshot,
-so its context cannot name a pool — which is the reason the ambient channel
-exists at all.
+**Implicit — the ops context reaches a binding the graph installed.**  Pooled
+polymorphic compound scalars allocate inside generic value ops, whose only
+per-instance channel is the ``context`` pointer.  The realized
+``PolymorphicValueType`` for a pooled union is stored in a map owned by the
+``TypeRealizationSnapshot`` (``type_realization.cpp:779``) and shared by every
+graph using that snapshot, so its context cannot itself *be* a pool — which is
+the reason the ambient channel exists at all.
 
-This RFC moves those realized types from **snapshot-owned to root-graph-owned**.
-The snapshot keeps what it is for — the closed-union alternatives and their
-identity, captured at wiring and immutable thereafter — and the root graph
-keeps the realized pooled types built against its own pool.  The ops context
-then names the pool directly, allocation is a context read instead of a
-thread-local access, and the binding is established once, where the Builder
-already binds Schema to a concrete Plan and Ops.
+The realization therefore owns one **pool binding cell** at a stable address,
+and every pooled entry it creates holds a pointer to that cell.  The root
+graph's pool owner **binds** itself into the cell when it is constructed and
+unbinds when it is destroyed — the same object owns the pool and the binding,
+so there is no state to leave behind on an unwind.  An allocating op reads the
+cell through its context: one load, established once per run, at the place the
+Builder already binds Schema to a concrete Plan and Ops.
+
+The binding is exclusive, and this is the invariant the design rests on:
+
+   A realization snapshot has at most one live root graph.
+
+Binding a second one is refused with a diagnostic rather than silently
+overwriting.  Nothing in the tree violates it — a snapshot is captured per
+builder (``graph.cpp:2170``) and a nested graph deliberately reuses its root's
+(``graph_wiring.cpp:2539``, ``:2746``) — and it is strictly tighter than what
+the thread-local permitted, which was two root graphs sharing a snapshot on two
+threads without either of them knowing.
+
+The cost is stated plainly: the cell is mutable state on a build-time artifact,
+written once per run.  It is not thread-scoped, not process-scoped, and never
+consulted through a lookup.
 
 Three consequences, all of them wanted:
 
-* **"No pool" becomes unrepresentable rather than a throw.**  The realized
-  pooled type does not exist without the pool it was realized against, so
-  ``unavailable_storage()`` has no reachable caller.
+* **"No pool" fails where it is caused, not where it is noticed.**  An unbound
+  cell means no graph is running, which is a programming error at the call
+  site; the diagnostic names the schema and the missing binding instead of
+  reporting that some ambient scope was never installed.
 * **Wiring-time values are inline by construction.**  A value built outside a
   graph has no pool and realizes inline.  The distinction already exists in the
   API — ``graph_type_for`` is documented as realizing "storage owned by a
@@ -233,9 +252,27 @@ Three consequences, all of them wanted:
   two root graphs on two threads carry two realizations of two pools, and would
   remain correct on one thread.
 
-Nested graphs inherit the root's realized pooled types exactly as they inherit
-its storage view today (``graph.cpp:576-581``).  A builder used to construct two
-root graphs realizes twice — see `Unresolved questions`_.
+Nested graphs inherit the root's binding by construction: they share its
+realization, so they share its cell and never bind one of their own.  A builder
+used to construct two root graphs in sequence binds, unbinds, and binds again.
+
+Why not per-instance realized types
+-----------------------------------
+
+The obvious alternative — give each root graph its own realized pooled types so
+the context *is* the pool — was tried against the build path and rejected on
+evidence.
+
+Compiled graph types are canonicalised **process-wide** by builder equivalence
+(``graph_runtime_registry().make_types``, ``graph.cpp:1329``) and cached on the
+builder (``:2211``).  Node types embed their realized value types, so a
+per-instance realization produces per-instance node types, which miss the
+canonical entry every time.  Each run would then add a permanent entry to a
+process-wide registry that has no eviction — a leak proportional to runs, paid
+by exactly the workloads that build many small graphs.
+
+Recompiling the graph type per run would also discard the canonicalisation that
+makes those workloads cheap, to solve a problem one pointer already solves.
 
 What is removed
 ---------------
@@ -331,10 +368,9 @@ Alternatives considered
 Unresolved questions
 --------------------
 
-1. Whether a ``GraphBuilder`` used to construct two root graphs should realize
-   pooled types twice (recommended: yes — realization is cheap, and sharing
-   would reintroduce an indirection whose target depends on which graph is
-   running) or share them through an indirection.
+1. Whether the exclusive-binding invariant should be enforced only in debug
+   builds.  It is proposed as an unconditional check: it costs one comparison
+   at graph construction, and the failure it prevents is a silent data race.
 2. Whether ``Synchronised`` pools belong in this RFC at all.  The object and its
    policy are defined here; its only user is RFC 0028's producer-owned pools,
    which that RFC defers pending measurement.  Defining it here and leaving it
@@ -357,6 +393,9 @@ Acceptance criteria
   channel cannot quietly return.
 * A test constructs two root graphs on two threads and proves each allocates
   into its own pool, and the same test passes with both graphs on one thread.
+* Binding a second live root graph to one realization is refused with a
+  diagnostic; binding, unbinding, and rebinding in sequence works, including
+  after a failed graph construction unwinds.
 * A node-local pool and its graph's pool are live simultaneously, and values
   allocated from each release to the correct owner.
 * A ``Synchronised`` pool acquires off-thread, batches its returns through an
