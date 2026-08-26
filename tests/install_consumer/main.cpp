@@ -34,6 +34,7 @@
 #include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/types/value/visitor.h>
 
 #include <arrow/api.h>
@@ -46,6 +47,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -149,6 +151,22 @@ namespace
 
         check_capacity(*ts_int, make_push_source_queue_policy(*ts_int, 1));
         check_capacity(*ts_tuple, make_push_source_burst_policy(*ts_tuple, 1));
+    }
+
+    void check_value_hash_contract()
+    {
+        using namespace hgraph;
+
+        Value stored{Int{42}};
+        Value lookup{Int{42}};
+        auto lookup_view = lookup.view();
+        std::unordered_set<Value, ValueHash, ValueEqual> values;
+        values.insert(stored);
+        if (!values.contains(lookup_view))
+        {
+            throw std::runtime_error(
+                "installed ValueHash/ValueEqual cannot perform borrowed lookup");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -562,6 +580,7 @@ int main()
 
     check_probe_backend_round_trip();
     check_push_source_queue_contract();
+    check_value_hash_contract();
     hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;

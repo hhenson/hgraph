@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_output/base_view.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/scope.h>
@@ -54,24 +55,11 @@ namespace hgraph
             bool                        seen{false};
         };
 
-        struct ValueKeyHash
-        {
-            [[nodiscard]] std::size_t operator()(const Value &value) const { return value.view().hash(); }
-        };
-
-        struct ValueKeyEq
-        {
-            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const
-            {
-                return lhs.view().equals(rhs.view());
-            }
-        };
-
         /** One race per FIELD (hgraph's reduce_tsd_of_bundles_with_race);
             a non-bundle OUT is the single-field degenerate case. */
         struct RaceFieldState
         {
-            ankerl::unordered_dense::map<Value, RaceTsdEntry, ValueKeyHash, ValueKeyEq> entries{};
+            ankerl::unordered_dense::map<Value, RaceTsdEntry, ValueHash, ValueEqual> entries{};
             Value winner{};
         };
 

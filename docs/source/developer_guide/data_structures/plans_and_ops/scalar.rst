@@ -113,6 +113,12 @@ Owning Value
   ``std::partial_ordering`` to match the type-erased ``<=>``-style
   contract. ``Value`` itself only carries the minimum behaviour needed
   to live in a container.
+- ``ValueHash`` / ``ValueEqual`` (``value_hash.h``) — the public transparent
+  container functors for owning ``Value`` keys and allocation-free borrowed
+  ``ValueView`` lookup. Payload-free values hash to zero; equality still uses
+  ``ValueView::equals`` so typed-null schema identity is preserved. Concrete
+  runtime, standard-library, and extension code should use this pair rather
+  than defining private value-key policies.
 - ``clone()`` and construction from ``ValueView`` — copy the represented
   type and payload, preserving typed-null state when the view carries
   a type record without a live payload.

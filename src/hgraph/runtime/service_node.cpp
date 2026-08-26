@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_output/base_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
 #include <hgraph/types/time_series/ts_output/set_view.h>
+#include <hgraph/types/value/value_hash.h>
 
 #include <ankerl/unordered_dense.h>
 
@@ -41,27 +42,6 @@ namespace hgraph
         constexpr std::string_view request_input_source_storage_field{"request_input_source"};
         constexpr std::string_view request_input_capture_storage_field{"request_input_capture"};
 
-        struct ValueKeyHash
-        {
-            using is_transparent = void;
-
-            [[nodiscard]] std::size_t operator()(const Value &value) const
-            {
-                return value.has_value() ? value.hash() : 0;
-            }
-        };
-
-        struct ValueKeyEqual
-        {
-            using is_transparent = void;
-
-            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const
-            {
-                if (lhs.has_value() != rhs.has_value()) { return false; }
-                return !lhs.has_value() || lhs.equals(rhs);
-            }
-        };
-
         struct SubscriptionKeyChange
         {
             Value    key{};
@@ -71,7 +51,7 @@ namespace hgraph
 
         struct SubscriptionKeySourceStorage
         {
-            ankerl::unordered_dense::map<Value, std::size_t, ValueKeyHash, ValueKeyEqual> counts{};
+            ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> counts{};
             std::vector<SubscriptionKeyChange>                                            pending{};
         };
 

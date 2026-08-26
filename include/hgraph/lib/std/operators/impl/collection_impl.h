@@ -27,6 +27,7 @@
 #include <hgraph/types/lift.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/value/value_hash.h>
 
 #include <ankerl/unordered_dense.h>
 
@@ -69,23 +70,6 @@ namespace hgraph::stdlib
 
     namespace collection_impl_detail
     {
-        struct ValueKeyHash
-        {
-            [[nodiscard]] std::size_t operator()(const Value &value) const
-            {
-                return value.has_value() ? value.hash() : 0;
-            }
-        };
-
-        struct ValueKeyEqual
-        {
-            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const
-            {
-                if (lhs.has_value() != rhs.has_value()) { return false; }
-                return !lhs.has_value() || lhs.equals(rhs);
-            }
-        };
-
         inline void apply_tss_delta(TSSOutputView &out, const std::vector<Value> &removed,
                                     const std::vector<Value> &added)
         {
@@ -1047,7 +1031,7 @@ namespace hgraph::stdlib
             return slot != TS_DATA_NO_CHILD_ID && tsd.slot_modified(slot) && tsd.at_slot(slot).valid();
         }
 
-        using FlippedPreviousIndex = ankerl::unordered_dense::map<Value, Value, ValueKeyHash, ValueKeyEqual>;
+        using FlippedPreviousIndex = ankerl::unordered_dense::map<Value, Value, ValueHash, ValueEqual>;
 
         inline FlippedPreviousIndex build_flipped_previous_index(const TSDOutputView &out)
         {
@@ -1451,7 +1435,7 @@ namespace hgraph::stdlib
 
                 // The desired pivot: inner key -> {outer key -> leaf ref}.
                 using Members = std::vector<std::pair<Value, Value>>;
-                ankerl::unordered_dense::map<Value, Members, ValueKeyHash, ValueKeyEqual> desired;
+                ankerl::unordered_dense::map<Value, Members, ValueHash, ValueEqual> desired;
                 const TSDInputView &source = ts;
                 for (auto &&[outer_key, child] : source.items())
                 {
@@ -1677,7 +1661,7 @@ namespace hgraph::stdlib
                 const auto     evaluation_time = out_dict.evaluation_time();
                 const TSDInputView &dict = ts;
 
-                ankerl::unordered_dense::map<Value, std::vector<Value>, ValueKeyHash, ValueKeyEqual> groups;
+                ankerl::unordered_dense::map<Value, std::vector<Value>, ValueHash, ValueEqual> groups;
                 for (auto &&[key, child] : dict.items())
                 {
                     if (child.valid()) { groups[Value{child.value()}].emplace_back(key); }
