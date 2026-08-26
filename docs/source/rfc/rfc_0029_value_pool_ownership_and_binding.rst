@@ -224,7 +224,13 @@ The binding is exclusive, and this is the invariant the design rests on:
    A realization snapshot has at most one live root graph.
 
 Binding a second one is refused with a diagnostic rather than silently
-overwriting.  Nothing in the tree violates it — a snapshot is captured per
+overwriting.  Admission is **claimed atomically**, because a cached realization
+can have two root graphs constructed against it concurrently: a check-then-set
+would let both through and tear the two-word view, so the refusal the design
+depends on would not hold exactly when it matters.  The claim is taken once per
+root graph construction and released once at teardown — never on the per-tick
+path, which reads the bound view plainly and only from the graph holding the
+claim.  Nothing in the tree violates it — a snapshot is captured per
 builder (``graph.cpp:2170``) and a nested graph deliberately reuses its root's
 (``graph_wiring.cpp:2539``, ``:2746``) — and it is strictly tighter than what
 the thread-local permitted, which was two root graphs sharing a snapshot on two
@@ -453,6 +459,8 @@ Acceptance criteria
 * Binding a second live root graph to one realization is refused with a
   diagnostic; binding, unbinding, and rebinding in sequence works, including
   after a failed graph construction unwinds.
+* Concurrent admission of two root graphs to one realization admits exactly
+  one, under TSAN as well as ordinary builds.
 * A node-local pool and its graph's pool are live simultaneously, and values
   allocated from each release to the correct owner.
 * A ``Synchronised`` pool acquires off-thread, batches its returns through an
