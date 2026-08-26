@@ -10,6 +10,7 @@
 #include <hgraph/types/value/value.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <thread>
@@ -683,6 +684,125 @@ TEST_CASE("graph realization keeps narrow polymorphic Bundles inline") {
   REQUIRE(inspection.representation == GraphValueRepresentation::InlineUnion);
   REQUIRE(inspection.maximum_leaf_size - inspection.minimum_leaf_size <= 32);
   REQUIRE(inspection.graph_size > sizeof(void *));
+}
+
+namespace {
+struct AdmissionRace {
+  std::size_t admitted{0};
+  std::size_t refused{0};
+  std::size_t owners{0};
+};
+
+/** Race `contenders` pool owners into one binding; report who got in. */
+[[nodiscard]] AdmissionRace
+race_admission(hgraph::CompoundScalarStorageBinding &binding,
+               std::size_t contenders) {
+  using namespace hgraph;
+  std::vector<CompoundScalarStorage> pools;
+  pools.reserve(contenders);
+  for (std::size_t index = 0; index < contenders; ++index) {
+    pools.push_back(CompoundScalarStorage::make_default());
+  }
+
+  std::atomic<std::size_t> ready{0};
+  std::atomic<bool> go{false};
+  std::atomic<std::size_t> admitted{0};
+  std::atomic<std::size_t> refused{0};
+  std::vector<std::thread> threads;
+  threads.reserve(contenders);
+  for (std::size_t index = 0; index < contenders; ++index) {
+    threads.emplace_back([&, index] {
+      ready.fetch_add(1, std::memory_order_release);
+      while (!go.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      try {
+        pools[index].bind(binding);
+        admitted.fetch_add(1, std::memory_order_relaxed);
+      } catch (const std::logic_error &) {
+        refused.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+  }
+  while (ready.load(std::memory_order_acquire) < contenders) {
+    std::this_thread::yield();
+  }
+  go.store(true, std::memory_order_release);
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  AdmissionRace result{admitted.load(), refused.load(), 0};
+  if (binding.bound()) {
+    // A torn write matches no contender's storage entire.
+    const auto bound = binding.storage();
+    for (auto &pool : pools) {
+      if (pool.view().same_storage(bound)) {
+        ++result.owners;
+      }
+    }
+  }
+  return result;
+}
+} // namespace
+
+TEST_CASE("a realization admits exactly one root graph pool concurrently") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  // Registering here moves the bundle-hierarchy generation on, so the cached
+  // snapshot this captures is this test's own and its binding starts free.
+  registry.bundle("tests.realization.admission", "Base", {{"id", integer}}, {},
+                  true);
+  const auto snapshot = TypeRealizationSnapshot::capture(
+      registry,
+      TypeRealizationOptions{
+          .polymorphic_compound_storage =
+              PolymorphicCompoundStoragePolicy::Pooled,
+      });
+  REQUIRE_FALSE(snapshot->pool_binding().bound());
+
+  // A cached realization is shared, so two root graphs can be constructed
+  // against it at once.  Exactly one may claim its pooled value types.
+  constexpr std::size_t contenders = 8;
+  {
+    const auto race = race_admission(snapshot->pool_binding(), contenders);
+    CHECK(race.admitted == 1);
+    CHECK(race.refused == contenders - 1);
+    CHECK(race.owners == 1);
+  }
+
+  // The claim is released with its owner, and the next graph may take it.
+  CHECK_FALSE(snapshot->pool_binding().bound());
+  CompoundScalarStorage successor = CompoundScalarStorage::make_default();
+  REQUIRE_NOTHROW(successor.bind(snapshot->pool_binding()));
+  CHECK(snapshot->pool_binding().storage().same_storage(successor.view()));
+}
+
+TEST_CASE("concurrent binding admission never admits twice") {
+  using namespace hgraph;
+  // One race is a weak probe: a check-then-set admission passes it most of the
+  // time.  Repeating over a fresh binding each round makes a non-atomic
+  // admission fail reliably rather than occasionally.
+  constexpr std::size_t rounds = 48;
+  constexpr std::size_t contenders = 8;
+  std::size_t double_admissions = 0;
+  std::size_t torn_views = 0;
+  for (std::size_t round = 0; round < rounds; ++round) {
+    CompoundScalarStorageBinding binding{};
+    const auto race = race_admission(binding, contenders);
+    if (race.admitted != 1) {
+      ++double_admissions;
+    }
+    if (race.owners != 1) {
+      ++torn_views;
+    }
+    CHECK(race.admitted + race.refused == contenders);
+  }
+  CHECK(double_admissions == 0);
+  CHECK(torn_views == 0);
 }
 
 TEST_CASE("abstract Bundle without a concrete alternative cannot be realized") {
