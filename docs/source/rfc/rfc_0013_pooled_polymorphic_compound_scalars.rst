@@ -62,9 +62,9 @@ An opted-in root graph's erased storage plan contains one compound-scalar
 storage owner; its nested-graph plan contains a borrowed view of that owner.
 These are conditional named plan fields, not fixed runtime-header members.
 The concrete pool registry is allocated lazily on the first pooled value.  A
-graph which does not opt in has neither field, constructs no pool facade, and
-does not establish a compound-storage scope around graph lifecycle or
-evaluation.  A graph-local pooled handle never crosses to another root graph
+graph which does not opt in has neither field and constructs no pool facade.
+(The compound-storage scope this originally described is gone; see
+:doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>`.)  A graph-local pooled handle never crosses to another root graph
 without materialisation.  Consequently intrusive reference counts are
 non-atomic: allocation, retain, release, and mutation occur on the graph's own
 evaluation thread.
@@ -198,7 +198,9 @@ Acceptance criteria
 -------------------
 
 * Disabled graph plans contain no pool owner/view field and execute the
-  ordinary lifecycle/evaluation ops without a compound-storage scope.
+  ordinary lifecycle/evaluation ops.  (Originally: "without a compound-storage
+  scope" — under :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>` no
+  graph establishes one.)
 * Eligible opted-in holders are one pointer and existing payload pointers
   remain stable across leaf-pool growth.
 * Separate leaf records never share a pool, and each slot uses only its exact

@@ -324,10 +324,15 @@ What is removed
 * the ``thread_local`` at ``stable_leaf_compound_scalar_storage.cpp:417``;
 * ``active_compound_scalar_storage()`` and ``CompoundScalarStorageScope``,
   including their declarations in ``compound_scalar_storage.h``;
-* the eight scope installations in ``graph.cpp`` listed under `Motivation`_,
-  and the four in the native tests (``test_ts_input.cpp:2268``,
-  ``test_type_registry.cpp:572``/``:591``, ``test_value_builder.cpp:302``,
-  ``type_erasure_perf.cpp:661``), which become explicit pool arguments; and
+* the eight scope installations in ``graph.cpp`` listed under `Motivation`_ —
+  three of which were ``pooled_start_impl``, ``pooled_stop_impl``, and
+  ``pooled_evaluate_impl``, wrappers that existed only to install a scope and
+  so charged a thread-local write and restore to **every graph cycle**; pooled
+  graphs now run the same lifecycle functions as every other graph;
+* the five scope installations in the native tests
+  (``test_ts_input.cpp``, ``test_type_registry.cpp`` ×2,
+  ``test_value_builder.cpp``, ``type_erasure_perf.cpp``), which bind to a
+  realization instead; and
 * the ambient availability condition: an allocating op now fails against its
   own binding, with a diagnostic saying no root graph is bound, rather than
   reporting that some scope was never installed.
@@ -366,6 +371,12 @@ renames above.  No extension in this repository references either type, so the
 migration is internal; it is nevertheless an ABI change requiring a rebuild of
 downstream native extensions, and the installed-SDK consumer fixture must build
 against the renamed header.
+
+One exported function changes shape rather than name:
+``retain_or_copy_pooled_compound_scalar`` takes the pool it is retaining *into*
+as its first argument.  Its ambient form could only ask which thread was
+calling; a payload from another pool is materialised into the target it was
+given.
 
 Python exposure is one reserved ``GlobalState`` key holding an opaque handle.
 It is not part of the public Python surface and is erased before run-end copy
