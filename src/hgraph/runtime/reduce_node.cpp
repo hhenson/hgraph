@@ -4,6 +4,7 @@
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/value/impl/graph_local_value.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
 #include "reduce_output_binding.h"
@@ -35,37 +36,6 @@ namespace hgraph
         {
             GraphValue     graph{};
             TSOutputHandle output{};
-        };
-
-        struct ValueKeyHash
-        {
-            using is_transparent = void;
-            [[nodiscard]] std::size_t operator()(const Value &value) const
-            {
-                return value.has_value() ? value.hash() : 0;
-            }
-            [[nodiscard]] std::size_t operator()(const ValueView &value) const noexcept
-            {
-                return value.valid() ? value.hash() : 0;
-            }
-        };
-
-        struct ValueKeyEqual
-        {
-            using is_transparent = void;
-            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const
-            {
-                if (lhs.has_value() != rhs.has_value()) { return false; }
-                return !lhs.has_value() || lhs.equals(rhs);
-            }
-            [[nodiscard]] bool operator()(const Value &lhs, const ValueView &rhs) const noexcept
-            {
-                return lhs.has_value() == rhs.valid() && (!lhs.has_value() || lhs.equals(rhs));
-            }
-            [[nodiscard]] bool operator()(const ValueView &lhs, const Value &rhs) const noexcept
-            {
-                return (*this)(rhs, lhs);
-            }
         };
 
         struct ReduceNodeStorage
@@ -130,7 +100,7 @@ namespace hgraph
             std::vector<std::size_t> dense_to_source_slot{};
             /** TSL dense leaf -> effective child source, detecting same-slot re-points. */
             std::vector<TSOutputHandle> dense_to_source_handle{};
-            ankerl::unordered_dense::map<Value, std::size_t, ValueKeyHash, ValueKeyEqual> key_to_leaf{};
+            ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> key_to_leaf{};
 
             /** Power-of-two tree width (monotonic; 0 until the first key). */
             std::size_t leaf_capacity{0};

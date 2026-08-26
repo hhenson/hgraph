@@ -9,6 +9,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_hash.h>
 
 #include <algorithm>
 #include <compare>
@@ -100,41 +101,13 @@ inline std::ostream &operator<<(std::ostream &stream,
       })};
 }
 
-struct OwnedValueHash {
-  using is_transparent = void;
-
-  [[nodiscard]] std::size_t operator()(const Value &value) const {
-    return value.hash();
-  }
-
-  [[nodiscard]] std::size_t operator()(const ValueView &value) const {
-    return value.hash();
-  }
-};
-
-struct OwnedValueEqual {
-  using is_transparent = void;
-
-  [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const {
-    return lhs.equals(rhs.view());
-  }
-
-  [[nodiscard]] bool operator()(const Value &lhs, const ValueView &rhs) const {
-    return lhs.equals(rhs);
-  }
-
-  [[nodiscard]] bool operator()(const ValueView &lhs, const Value &rhs) const {
-    return rhs.equals(lhs);
-  }
-};
-
 struct KafkaTransportEmitState {
   ValueTypeRef event_binding{};
   std::deque<Value> pending{};
   // Per-evaluation output-occupancy scratch. It is cleared before dequeueing
   // and never retains transport work; keeping its allocation avoids rebuilding
   // the hash table on every engine cycle until outputs expose this directly.
-  std::unordered_set<Value, OwnedValueHash, OwnedValueEqual> occupied_keys{};
+  std::unordered_set<Value, ValueHash, ValueEqual> occupied_keys{};
   bool recovery_blocked{};
 };
 

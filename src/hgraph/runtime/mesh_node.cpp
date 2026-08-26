@@ -7,6 +7,7 @@
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/value/impl/graph_local_value.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/scope.h>
 
@@ -34,33 +35,8 @@ constexpr std::string_view mesh_storage_field_name{"mesh"};
 constexpr std::string_view mesh_subscribe_storage_field_name{"mesh_subscribe"};
 constexpr std::string_view mesh_key_set_storage_field_name{"mesh_key_set"};
 
-struct ValueKeyHash {
-  using is_transparent = void;
-  [[nodiscard]] std::size_t operator()(const Value &v) const noexcept {
-    return v.hash();
-  }
-  [[nodiscard]] std::size_t operator()(const ValueView &v) const noexcept {
-    return v.hash();
-  }
-};
-
-struct ValueKeyEqual {
-  using is_transparent = void;
-  [[nodiscard]] bool operator()(const Value &a, const Value &b) const noexcept {
-    return a.equals(b);
-  }
-  [[nodiscard]] bool operator()(const Value &a,
-                                const ValueView &b) const noexcept {
-    return a.equals(b);
-  }
-  [[nodiscard]] bool operator()(const ValueView &a,
-                                const Value &b) const noexcept {
-    return b.equals(a);
-  }
-};
-
 using ValueSet =
-    ankerl::unordered_dense::set<Value, ValueKeyHash, ValueKeyEqual>;
+    ankerl::unordered_dense::set<Value, ValueHash, ValueEqual>;
 
 struct MeshNodeStorage;
 
@@ -154,7 +130,7 @@ struct MeshNodeStorage final : SlotObserver {
   std::vector<TSOutputHandle> outer_sources{};
   bool refresh_all_bindings{false};
   // depends_on -> set of keys that depend on it (reverse edges).
-  ankerl::unordered_dense::map<Value, ValueSet, ValueKeyHash, ValueKeyEqual>
+  ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
       dependents{};
 
   std::vector<Value>

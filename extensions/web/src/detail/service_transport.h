@@ -14,6 +14,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -436,34 +437,6 @@ struct WebTransportBindingsHandle {
   }
 };
 
-struct OwnedValueHash {
-  using is_transparent = void;
-
-  [[nodiscard]] std::size_t operator()(const Value &value) const {
-    return value.hash();
-  }
-
-  [[nodiscard]] std::size_t operator()(const ValueView &value) const {
-    return value.hash();
-  }
-};
-
-struct OwnedValueEqual {
-  using is_transparent = void;
-
-  [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const {
-    return lhs.equals(rhs.view());
-  }
-
-  [[nodiscard]] bool operator()(const Value &lhs, const ValueView &rhs) const {
-    return lhs.equals(rhs);
-  }
-
-  [[nodiscard]] bool operator()(const ValueView &lhs, const Value &rhs) const {
-    return rhs.equals(lhs);
-  }
-};
-
 /** Wiring-fixed value bindings used by the one graph-side grouping primitive.
  * The node performs only O(B) transient classification. Standard collect,
  * map_, and emit nodes own all state used to unroll same-key collisions. */
@@ -661,7 +634,7 @@ struct GroupTransportBatchNode {
                    State<WebKeyedBatchBindings> bindings,
                    Out<TS<KeyedWebTransportBatches<Key>>> out) {
     using EventsByKey = std::unordered_map<Value, std::vector<std::size_t>,
-                                           OwnedValueHash, OwnedValueEqual>;
+                                           ValueHash, ValueEqual>;
     EventsByKey grouped;
     const auto events = transport.base().value().as_list();
     grouped.reserve(events.size());

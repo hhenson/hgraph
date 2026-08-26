@@ -16,6 +16,7 @@
 #include <hgraph/types/type_resolution.h>
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/types/value/value_ops.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -24,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace
@@ -306,6 +308,59 @@ TEST_CASE("ValueOps: unsupported scalar operations do not use object bytes as fa
     Value value{NoValueOpsScalar{1}};
     REQUIRE_THROWS_AS(value.hash(), std::logic_error);
     REQUIRE_THROWS_AS(ValueView{}.hash(), std::logic_error);
+}
+
+TEST_CASE("ValueHash and ValueEqual support owning keys and borrowed lookups")
+{
+    using namespace hgraph;
+
+    Value stored{Int{42}};
+    Value equal_value{Int{42}};
+    Value different_value{Int{7}};
+    auto equal_view = equal_value.view();
+    auto different_view = different_value.view();
+
+    std::unordered_set<Value, ValueHash, ValueEqual> values;
+    values.insert(stored);
+
+    CHECK(values.contains(equal_value));
+    CHECK(values.contains(equal_view));
+    CHECK_FALSE(values.contains(different_value));
+    CHECK_FALSE(values.contains(different_view));
+    CHECK(ValueHash{}(stored) == ValueHash{}(equal_view));
+    CHECK(ValueEqual{}(stored, equal_view));
+    CHECK(ValueEqual{}(equal_view, stored));
+    CHECK(ValueEqual{}(stored.view(), equal_view));
+}
+
+TEST_CASE("ValueHash and ValueEqual preserve empty value schema identity")
+{
+    using namespace hgraph;
+
+    Value unbound_a{};
+    Value unbound_b{};
+    Value int_null{*scalar_descriptor<Int>::value_meta()};
+    Value another_int_null{*scalar_descriptor<Int>::value_meta()};
+    Value str_null{*scalar_descriptor<Str>::value_meta()};
+    auto int_null_view = another_int_null.view();
+
+    const ValueHash hash;
+    const ValueEqual equal;
+    CHECK(hash(unbound_a) == 0);
+    CHECK(hash(int_null) == 0);
+    CHECK(hash(int_null_view) == 0);
+    CHECK(equal(unbound_a, unbound_b));
+    CHECK(equal(int_null, another_int_null));
+    CHECK(equal(int_null, int_null_view));
+    CHECK_FALSE(equal(unbound_a, int_null));
+    CHECK_FALSE(equal(int_null, str_null));
+
+    std::unordered_set<Value, ValueHash, ValueEqual> values;
+    values.insert(unbound_a);
+    values.insert(int_null);
+    values.insert(str_null);
+    CHECK(values.size() == 3);
+    CHECK(values.contains(int_null_view));
 }
 
 TEST_CASE("TypeRegistry::register_scalar pairs the schema with a binding")
