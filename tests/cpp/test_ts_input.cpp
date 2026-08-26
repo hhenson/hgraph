@@ -2265,7 +2265,7 @@ TEST_CASE("forwarding TSData projections preserve target bindings across realiza
 
     CompoundScalarStorage pools = CompoundScalarStorage::make_default();
     TypeRealizationScope pooled_scope{pooled_realization.get()};
-    CompoundScalarStorageScope pool_scope{pools.view()};
+    pools.bind(pooled_realization->pool_binding());
 
     Value concrete{ValuePlanFactory::instance().type_for(leaf)};
     auto concrete_fields = concrete.as_bundle().begin_mutation();

@@ -299,7 +299,7 @@ TEST_CASE("list builders dispatch target transfer through the external owning bi
         TypeRegistry::instance(), options);
     TypeRealizationScope realization_scope{realization.get()};
     CompoundScalarStorage pools = CompoundScalarStorage::make_default();
-    CompoundScalarStorageScope pool_scope{pools.view()};
+    pools.bind(realization->pool_binding());
 
     auto       &registry = TypeRegistry::instance();
     const auto *list_schema = registry.list(schemas.event);
