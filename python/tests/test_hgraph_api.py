@@ -238,6 +238,36 @@ def test_const_explicit_output_type_specialization():
     check(eval_node(source) == [5], "const[TS[int]](value)")
 
 
+def test_documented_positional_type_carriers_select_output_types():
+    from frozendict import frozendict
+    from hgraph.test import use_wiring
+
+    seen = []
+
+    class FakeWiring:
+        def wire(self, name, args, kwargs, output_type=None):
+            seen.append((name, args, kwargs, output_type))
+            return None
+
+    with use_wiring(FakeWiring()):
+        hg.const(frozendict({"x": 1}), TSD[str, TS[int]])
+        hg.nothing(TS[int])
+        hg.replay("prices", TSD[str, TS[float]], "recording")
+
+    check(seen[0][0] == "const" and len(seen[0][1]) == 1,
+          f"const positional type was retained: {seen[0]}")
+    check(seen[0][3] == TSD[str, TS[int]].handle,
+          f"const positional type was not selected: {seen[0]}")
+    check(seen[1][0] == "nothing" and len(seen[1][1]) == 0,
+          f"nothing positional type was retained: {seen[1]}")
+    check(seen[1][3] == TS[int].handle,
+          f"nothing positional type was not selected: {seen[1]}")
+    check(seen[2][0] == "replay" and seen[2][1] == ("prices", "recording"),
+          f"replay positional arguments were not normalized: {seen[2]}")
+    check(seen[2][3] == TSD[str, TS[float]].handle,
+          f"replay positional type was not selected: {seen[2]}")
+
+
 def test_operator_does_not_promote_positional_types_generically():
     from hgraph.test import use_wiring
 

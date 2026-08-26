@@ -696,14 +696,10 @@ struct OutputReaders {
 
 [[nodiscard]] bool
 supports_output_value_storage(const TSValueTypeMetaData *schema) noexcept {
-  if (schema == nullptr) {
-    return false;
+  while (schema != nullptr && schema->kind == TSTypeKind::TSD) {
+    schema = schema->element_ts();
   }
-  if (schema->kind == TSTypeKind::TS) {
-    return true;
-  }
-  return schema->kind == TSTypeKind::TSD && schema->element_ts() != nullptr &&
-         schema->element_ts()->kind == TSTypeKind::TS;
+  return schema != nullptr && schema->kind == TSTypeKind::TS;
 }
 
 void collect_output_reader(

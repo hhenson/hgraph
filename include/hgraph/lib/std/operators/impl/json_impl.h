@@ -194,7 +194,7 @@ namespace hgraph::stdlib
 
     namespace json_tree
     {
-        [[nodiscard]] ValueTypeRef json_value_binding();
+        [[nodiscard]] HGRAPH_EXPORT ValueTypeRef json_value_binding();
 
         class JsonValue
         {
@@ -209,7 +209,7 @@ namespace hgraph::stdlib
             [[nodiscard]] std::optional<Float>     as_float() const;
             [[nodiscard]] std::optional<Str>       as_str() const;
             [[nodiscard]] std::optional<Bool>      as_bool() const;
-            [[nodiscard]] Value                    materialize() const;
+            [[nodiscard]] HGRAPH_EXPORT Value      materialize() const;
             [[nodiscard]] std::string              encode() const;
             [[nodiscard]] std::size_t              hash() const noexcept;
 
@@ -261,17 +261,17 @@ namespace hgraph::stdlib
     namespace json_tree
     {
         [[nodiscard]] const ValueTypeMetaData *json_lazy_meta();
-        [[nodiscard]] const JsonValue         *try_lazy(const ValueView &value);
+        [[nodiscard]] HGRAPH_EXPORT const JsonValue *try_lazy(const ValueView &value);
         [[nodiscard]] Value                    lazy_value(JsonValue value);
 
         /** Box an inner value into a JSON node (empty inner = null). */
-        [[nodiscard]] Value box(Value inner);
+        [[nodiscard]] HGRAPH_EXPORT Value box(Value inner);
 
         /** Convert an arbitrary VALUE into a JSON node (recursive). */
         [[nodiscard]] Value     to_node(const ValueView &value);
-        [[nodiscard]] ValueView unbox(const ValueView &node);
+        [[nodiscard]] HGRAPH_EXPORT ValueView unbox(const ValueView &node);
         [[nodiscard]] Value     concatenate_arrays(const ValueView &lhs, const ValueView &rhs);
-        void                    encode(const ValueView &node, std::string &out);
+        HGRAPH_EXPORT void      encode(const ValueView &node, std::string &out);
         void                    publish(const TSOutputView &out, Value &&node);
     }  // namespace json_tree
 

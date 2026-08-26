@@ -1865,6 +1865,7 @@ namespace hgraph::stdlib
 
             std::vector<std::vector<const ValueTypeMetaData *>> case_types{};
             std::vector<bool>                                  more_specific{};
+            std::vector<std::size_t>                           evaluation_order{};
             bool                                               has_default{false};
         };
 
@@ -1890,6 +1891,27 @@ namespace hgraph::stdlib
             return value_schema != nullptr && value_schema->kind == TSTypeKind::TS
                        ? value_schema->value_schema
                        : nullptr;
+        }
+
+        /** Allocation-free ancestry check for the dispatch hot path. Named
+            Bundle parent links are fixed when the schema is registered; only
+            descendant lists grow as later types are registered. */
+        [[nodiscard]] inline bool dispatch_bundle_is_a(
+            const ValueTypeMetaData *candidate,
+            const ValueTypeMetaData *base) noexcept
+        {
+            if (candidate == base) { return candidate != nullptr; }
+            if (candidate == nullptr || base == nullptr ||
+                !candidate->is_named_bundle() || !base->is_named_bundle() ||
+                candidate->bundle_hierarchy == nullptr)
+            {
+                return false;
+            }
+            for (const auto *parent : candidate->bundle_hierarchy->parents)
+            {
+                if (dispatch_bundle_is_a(parent, base)) { return true; }
+            }
+            return false;
         }
 
         inline void present_dispatch_values(
@@ -2010,6 +2032,51 @@ namespace hgraph::stdlib
                     }
                 }
             }
+
+            // Evaluate cases in a topological order with every more-specific
+            // case before the cases it dominates. The tick path can then keep
+            // only the first matching maximal case and detect incomparable
+            // later matches in one allocation-free pass.
+            std::vector<std::size_t> indegree(case_count, 0);
+            for (std::size_t specific = 0; specific < case_count; ++specific)
+            {
+                for (std::size_t general = 0; general < case_count; ++general)
+                {
+                    if (plan.more_specific[specific * case_count + general])
+                    {
+                        ++indegree[general];
+                    }
+                }
+            }
+            plan.evaluation_order.reserve(case_count);
+            for (std::size_t candidate = 0; candidate < case_count; ++candidate)
+            {
+                if (indegree[candidate] == 0)
+                {
+                    plan.evaluation_order.push_back(candidate);
+                }
+            }
+            for (std::size_t cursor = 0;
+                 cursor < plan.evaluation_order.size(); ++cursor)
+            {
+                const std::size_t specific = plan.evaluation_order[cursor];
+                for (std::size_t general = 0; general < case_count; ++general)
+                {
+                    if (!plan.more_specific[specific * case_count + general])
+                    {
+                        continue;
+                    }
+                    if (--indegree[general] == 0)
+                    {
+                        plan.evaluation_order.push_back(general);
+                    }
+                }
+            }
+            if (plan.evaluation_order.size() != case_count)
+            {
+                throw std::logic_error(
+                    "dispatch_: case specificity relation contains a cycle");
+            }
             return plan;
         }
 
@@ -2063,7 +2130,7 @@ namespace hgraph::stdlib
                     for (std::size_t i = 0; i < targets.size(); ++i)
                     {
                         const auto *actual = bundle[i].value().concrete().schema();
-                        if (!TypeRegistry::instance().bundle_is_a(actual, targets[i]))
+                        if (!dispatch_bundle_is_a(actual, targets[i]))
                         {
                             return false;
                         }
@@ -2072,37 +2139,30 @@ namespace hgraph::stdlib
                 };
 
                 std::size_t winner = case_count;
-                std::size_t winner_count = 0;
-                bool any_match = false;
-                for (std::size_t candidate = 0; candidate < case_count; ++candidate)
+                bool ambiguous = false;
+                for (const std::size_t candidate : plan.evaluation_order)
                 {
                     if (!matches(candidate)) { continue; }
-                    any_match = true;
-                    bool dominates = true;
-                    for (std::size_t other = 0; other < case_count; ++other)
-                    {
-                        if (candidate != other && matches(other) &&
-                            !plan.more_specific[candidate * case_count + other])
-                        {
-                            dominates = false;
-                            break;
-                        }
-                    }
-                    if (dominates)
+                    if (winner == case_count)
                     {
                         winner = candidate;
-                        ++winner_count;
+                        continue;
+                    }
+                    if (!plan.more_specific[winner * case_count + candidate])
+                    {
+                        ambiguous = true;
+                        break;
                     }
                 }
 
                 Int selected = DispatchSelectionPlan::no_match;
-                if (winner_count == 1)
-                {
-                    selected = static_cast<Int>(winner);
-                }
-                else if (any_match)
+                if (ambiguous)
                 {
                     selected = DispatchSelectionPlan::ambiguous;
+                }
+                else if (winner != case_count)
+                {
+                    selected = static_cast<Int>(winner);
                 }
                 if (selected == DispatchSelectionPlan::ambiguous)
                 {

@@ -273,9 +273,10 @@ namespace hgraph::stdlib
      * @code{.py}
      * result = hg.dispatch_(price_operator, instrument, market)
      * @endcode
-        @note Retained memory is quadratic in the number of cases for the
-        precomputed specificity relation. Registered Bundle descendants do
-        not increase the plan size. */
+        @note Retained memory is O(C²) for C cases because specificity is
+        precomputed. Per-tick selection is O(C·A·D) for A dispatch arguments
+        and maximum Bundle ancestry depth D, without allocation or registry
+        lookup. Registered Bundle descendants do not increase the plan size. */
     struct dispatch_ : Operator<"dispatch_",
                                 Scalar<"cases", DispatchCases>,
                                 VarIn<"ts", TsVar<"TS">>,

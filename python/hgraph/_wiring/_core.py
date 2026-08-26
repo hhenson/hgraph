@@ -463,6 +463,15 @@ class _OperatorFunction:
             from ._state import _ensure_backend_extension
 
             _ensure_backend_extension(kwargs["model"])
+        # hgraph parity: a trailing ``None`` argument means "use the
+        # parameter's default" (upstream defaults optional scalars to None).
+        while args and args[-1] is None:
+            args = args[:-1]
+        # These three compatibility APIs declare a positional type carrier.
+        # Normalize it before the record/replay adapter inspects positional
+        # arguments so replay(key, tp, recordable_id) presents the adapter
+        # with the native (key, recordable_id) call shape.
+        args, kwargs = self._normalise_type_arguments(args, kwargs)
         if self.__name__ in ("record", "replay") and _record_replay_wiring_adapter is not None:
             # release/0.5's data-frame override registry is translated at the
             # Python wiring boundary into native scalar options. The adapter is
@@ -480,10 +489,6 @@ class _OperatorFunction:
             result_type = inspect.signature(args[0], eval_str=True).return_annotation
             if result_type is not inspect.Signature.empty:
                 kwargs["output_type"] = TS[result_type]
-        # hgraph parity: a trailing ``None`` argument means "use the
-        # parameter's default" (upstream defaults optional scalars to None).
-        while args and args[-1] is None:
-            args = args[:-1]
         if (self.__name__ == "const" and args
                 and "tp" not in kwargs and "output_type" not in kwargs):
             from .._compat import CompoundScalar
@@ -562,6 +567,24 @@ class _OperatorFunction:
             self.__name__, output_type=output_type, sizes=sizes or None,
             ts_hint=ts_hints or None, resolutions=resolutions or None,
             signature=self.__signature__)
+
+    def _normalise_type_arguments(self, args, kwargs):
+        """Move documented positional type carriers into output selection.
+
+        Type expressions are ordinary scalar values for some operators, so
+        this compatibility adaptation is deliberately name- and position-
+        specific rather than scanning every operator call.
+        """
+        if "tp" in kwargs or "output_type" in kwargs:
+            return args, kwargs
+        type_index = {"const": 1, "nothing": 0, "replay": 1}.get(
+            self.__name__)
+        if (type_index is None or type_index >= len(args)
+                or not isinstance(args[type_index], _TsExpr)):
+            return args, kwargs
+        kwargs = dict(kwargs)
+        kwargs["output_type"] = args[type_index]
+        return (*args[:type_index], *args[type_index + 1:]), kwargs
 
     def __repr__(self):
         return f"<operator {self.__name__}>"

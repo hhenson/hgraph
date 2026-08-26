@@ -307,7 +307,22 @@ struct PythonBundleBindingEntry {
     if (result < 0) {
       throw nb::python_error();
     }
-    return result == 1;
+    if (result == 0) {
+      return false;
+    }
+    // If semantic equality succeeds but Python hashing fails, ``hash`` uses
+    // the object's address. Preserve equal-values-have-equal-hashes by using
+    // identity equality for those distinct objects. The equality call stays
+    // first so Python comparison errors retain their public behavior.
+    if (PyObject_Hash(left.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    if (PyObject_Hash(right.object) == -1) {
+      PyErr_Clear();
+      return false;
+    }
+    return true;
   }
 
   static std::string to_string(const void *, const void *memory) {

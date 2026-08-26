@@ -84,6 +84,22 @@ namespace
         static void eval(In<"in", TS<Int>> in) { static_cast<void>(in); }
     };
 
+    using NestedKeyedValue = TSD<Str, TSD<Str, TS<Int>>>;
+
+    struct NestedPythonValueSource
+    {
+        static constexpr auto name = "nested_python_value_source";
+        static constexpr bool uses_python_values = true;
+        static void eval(Out<NestedKeyedValue> out) { static_cast<void>(out); }
+    };
+
+    struct NestedPythonValueSink
+    {
+        static constexpr auto name = "nested_python_value_sink";
+        static constexpr bool uses_python_values = true;
+        static void eval(In<"in", NestedKeyedValue> in) { static_cast<void>(in); }
+    };
+
     struct PythonOnlyStorageGraph
     {
         static void compose(Wiring &w)
@@ -97,6 +113,14 @@ namespace
         static void compose(Wiring &w)
         {
             wire<PythonValueSink>(w, wire<ConstantSource>(w));
+        }
+    };
+
+    struct NestedPythonOnlyStorageGraph
+    {
+        static void compose(Wiring &w)
+        {
+            wire<NestedPythonValueSink>(w, wire<NestedPythonValueSource>(w));
         }
     };
 
@@ -1155,6 +1179,14 @@ TEST_CASE("graph wiring: Python output storage is selected from complete readers
         REQUIRE(graph.node_count() == 2);
         CHECK(graph.nodes()[0].output_value_storage() ==
               ValueStorageVariant::NativeWithPythonCache);
+    }
+
+    SECTION("nested keyed Python output storage reaches the atomic leaf")
+    {
+        const GraphBuilder graph = build_graph<NestedPythonOnlyStorageGraph>();
+        REQUIRE(graph.node_count() == 2);
+        CHECK(graph.nodes()[0].output_value_storage() ==
+              ValueStorageVariant::PythonOnly);
     }
 
     SECTION("one native reader prevents Python-only storage")

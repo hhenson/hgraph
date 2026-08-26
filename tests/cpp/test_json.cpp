@@ -10,6 +10,7 @@
 #include <hgraph/types/temporal.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <chrono>
 #include <string>
@@ -474,6 +475,46 @@ namespace
             return wire<stdlib::json_encode, TS<Str>>(w, combined).as<TS<Str>>();
         }
     };
+
+    struct CombineJsonArrayGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "combine_json_array_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> number,
+                                     Port<TS<Str>> text)
+        {
+            auto combined = wire<stdlib::combine_json>(w, number, text);
+            return wire<stdlib::json_encode, TS<Str>>(w, combined).as<TS<Str>>();
+        }
+    };
+
+    struct JsonArrayAddGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "json_array_add_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> encoded,
+                                     Port<TS<Int>> item)
+        {
+            auto lhs = wire<stdlib::json_decode>(w, encoded);
+            auto rhs = wire<stdlib::combine_json>(w, item);
+            auto sum = wire<stdlib::add_>(w, lhs, rhs);
+            return wire<stdlib::json_encode, TS<Str>>(w, sum).as<TS<Str>>();
+        }
+    };
+
+    struct InvalidJsonArrayAddGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "invalid_json_array_add_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> lhs_text,
+                                     Port<TS<Str>> rhs_text)
+        {
+            auto lhs = wire<stdlib::json_decode>(w, lhs_text);
+            auto rhs = wire<stdlib::json_decode>(w, rhs_text);
+            auto sum = wire<stdlib::add_>(w, lhs, rhs);
+            return wire<stdlib::json_encode, TS<Str>>(w, sum).as<TS<Str>>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("json operators: to_json serializes per tick")
@@ -551,6 +592,46 @@ TEST_CASE("dynamic json operators: combine serializes the value behind a referen
                  values<Str>(Str{"{\"v\": 8}"}));
     CHECK_OUTPUT(eval_node<CombineJsonReferenceGraph>(values<Bool>(false), values<Int>(8), values<Int>(-6)),
                  values<Str>(Str{"{\"v\": -6}"}));
+}
+
+TEST_CASE("dynamic json operators: positional combine builds an array")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<CombineJsonArrayGraph>(values<Int>(1), values<Str>(Str{"text"})),
+        values<Str>(Str{"[1, \"text\"]"}));
+}
+
+TEST_CASE("dynamic json operators: add concatenates lazy and eager arrays")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<JsonArrayAddGraph>(
+            values<Str>(Str{"[1, {\"a\": 2}]"}), values<Int>(3)),
+        values<Str>(Str{"[1, {\"a\": 2}, 3]"}));
+}
+
+TEST_CASE("dynamic json operators: add rejects non-array operands")
+{
+    stdlib::register_standard_operators();
+
+    SECTION("left operand")
+    {
+        REQUIRE_THROWS_WITH(
+            eval_node<InvalidJsonArrayAddGraph>(
+                values<Str>(Str{"{\"a\": 1}"}), values<Str>(Str{"[]"})),
+            Catch::Matchers::ContainsSubstring(
+                "JSON array concatenation requires array operands; left operand"));
+    }
+
+    SECTION("right operand")
+    {
+        REQUIRE_THROWS_WITH(
+            eval_node<InvalidJsonArrayAddGraph>(
+                values<Str>(Str{"[]"}), values<Str>(Str{"{\"a\": 1}"})),
+            Catch::Matchers::ContainsSubstring(
+                "JSON array concatenation requires array operands; right operand"));
+    }
 }
 
 TEST_CASE("dynamic json operators: equality is independent of lazy or eager storage")

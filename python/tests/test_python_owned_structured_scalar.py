@@ -140,6 +140,31 @@ def test_const_map_retains_pre_inflation_python_owned_values():
     assert captured == [{"item": value}]
 
 
+def test_nested_const_map_retains_pre_inflation_python_owned_values():
+    @dataclass(frozen=True)
+    class Spec:
+        name: str
+
+    @dataclass(frozen=True)
+    class Series:
+        spec: Spec
+
+    value = Series(spec="ICE_H")
+    captured = []
+
+    @sink_node
+    def capture(items: TSD[str, TSD[str, TS[Series]]]):
+        captured.append(items.value)
+
+    @graph
+    def app():
+        capture(const[TSD[str, TSD[str, TS[Series]]]](
+            {"outer": {"item": value}}))
+
+    eval_node(app)
+    assert captured == [{"outer": {"item": value}}]
+
+
 def test_explicit_registration_supports_annotated_application_classes():
     @register_python_object_type
     class LegacyQuote:
@@ -577,6 +602,24 @@ def test_const_map_uses_identity_when_a_python_owned_value_hash_fails():
         return const[TSD[str, TS[Value]]]({"item": value})
 
     assert eval_node(app) == [{"item": value}]
+
+
+def test_python_owned_hash_failure_uses_identity_equality_too():
+    @dataclass(frozen=True)
+    class Value:
+        number: int
+
+        def __hash__(self):
+            raise RuntimeError("value hash must not be required")
+
+    first = Value(7)
+    equal_but_distinct = Value(7)
+
+    assert eval_node(
+        drop_dups,
+        [first, first, equal_but_distinct],
+        resolution_dict={"ts": TS[Value]},
+    ) == [first, None, equal_but_distinct]
 
 
 def test_python_equality_exceptions_cross_the_bridge():
