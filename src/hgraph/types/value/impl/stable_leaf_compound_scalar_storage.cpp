@@ -531,11 +531,15 @@ void CompoundScalarStorage::reset() noexcept {
 }
 
 bool CompoundScalarStorageBinding::bound() const noexcept {
-  return storage_.available();
+  return admission_.load(std::memory_order_acquire) == Admission::Bound;
 }
 
 CompoundScalarStorageView CompoundScalarStorageBinding::storage() const {
-  if (!storage_.available()) {
+  // Acquiring here is what makes the view safe to read: it pairs with the
+  // release in bind(), so the published view is whole for any reader that
+  // gets this far.  A binding mid-claim reads as unbound rather than as a
+  // usable half-state.
+  if (admission_.load(std::memory_order_acquire) != Admission::Bound) {
     throw std::logic_error(
         "pooled value storage has no bound root graph; a pooled value cannot "
         "be constructed outside the graph that owns its pool");
@@ -549,17 +553,19 @@ void CompoundScalarStorageBinding::bind(CompoundScalarStorageView storage) {
         "cannot bind unavailable compound scalar storage");
   }
   // Claim before writing: the loser of a concurrent admission never reaches
-  // the view, so the winner is the only writer and the graph that owns it is
-  // the only reader.
-  bool unclaimed = false;
-  if (!claimed_.compare_exchange_strong(unclaimed, true,
-                                        std::memory_order_acq_rel,
-                                        std::memory_order_acquire)) {
+  // the view, so the winner is the only writer.  Between the claim and the
+  // release below the binding reads as unbound, which is what stops a reader
+  // seeing a view that is not there yet.
+  Admission expected = Admission::Free;
+  if (!admission_.compare_exchange_strong(expected, Admission::Claiming,
+                                          std::memory_order_acq_rel,
+                                          std::memory_order_acquire)) {
     throw std::logic_error(
         "a type realization already has a live root graph; its pooled value "
         "types cannot serve a second one");
   }
   storage_ = storage;
+  admission_.store(Admission::Bound, std::memory_order_release);
 }
 
 void CompoundScalarStorageBinding::rebind(
@@ -568,10 +574,11 @@ void CompoundScalarStorageBinding::rebind(
 }
 
 void CompoundScalarStorageBinding::unbind() noexcept {
-  // Clear the view before releasing the claim so the next graph to win it
-  // cannot observe the departing graph's storage.
+  // Withdraw first, so the view is cleared while the binding already reads as
+  // unbound, then free the claim for the next graph.
+  admission_.store(Admission::Claiming, std::memory_order_release);
   storage_ = {};
-  claimed_.store(false, std::memory_order_release);
+  admission_.store(Admission::Free, std::memory_order_release);
 }
 
 

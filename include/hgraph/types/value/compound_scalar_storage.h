@@ -133,14 +133,24 @@ public:
 
 private:
   /**
-   * Admission is claimed atomically: a realization cached by ``(generation,
-   * options)`` is shared, so two root graphs can be constructed against it
-   * concurrently and a check-then-set would let both through and tear the
-   * two-word view.  The claim is taken once per root graph construction and
-   * released once at its teardown — never on the per-tick path, which reads
-   * ``storage_`` plainly and only from the graph that won the claim.
+   * Admission state, and the publication protocol for ``storage_``.
+   *
+   * A realization cached by ``(generation, options)`` is shared, so two root
+   * graphs can be constructed against it concurrently.  ``Claiming`` is the
+   * winner's exclusive window: it has admission but has not yet published its
+   * view, so no reader may treat the binding as usable.  ``bind`` writes
+   * ``storage_`` and then releases ``Bound``; every read acquires it first, so
+   * a thread that observes ``Bound`` also observes the whole two-word view and
+   * never a half-written one.
+   *
+   * The claim is an RMW exactly once per root graph construction and once at
+   * teardown.  Reads on the allocation path are an acquire **load** of one
+   * byte, which replaces the view test that was there before it — no
+   * read-modify-write and no contention on the per-tick path.
    */
-  std::atomic<bool> claimed_{false};
+  enum class Admission : std::uint8_t { Free, Claiming, Bound };
+
+  std::atomic<Admission> admission_{Admission::Free};
   CompoundScalarStorageView storage_{};
 };
 
