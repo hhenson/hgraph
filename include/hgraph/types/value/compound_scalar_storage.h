@@ -5,6 +5,7 @@
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/value/value_type_ref.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -131,6 +132,15 @@ public:
   void unbind() noexcept;
 
 private:
+  /**
+   * Admission is claimed atomically: a realization cached by ``(generation,
+   * options)`` is shared, so two root graphs can be constructed against it
+   * concurrently and a check-then-set would let both through and tear the
+   * two-word view.  The claim is taken once per root graph construction and
+   * released once at its teardown — never on the per-tick path, which reads
+   * ``storage_`` plainly and only from the graph that won the claim.
+   */
+  std::atomic<bool> claimed_{false};
   CompoundScalarStorageView storage_{};
 };
 

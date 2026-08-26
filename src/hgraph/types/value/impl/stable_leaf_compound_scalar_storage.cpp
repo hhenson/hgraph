@@ -548,7 +548,13 @@ void CompoundScalarStorageBinding::bind(CompoundScalarStorageView storage) {
     throw std::invalid_argument(
         "cannot bind unavailable compound scalar storage");
   }
-  if (storage_.available()) {
+  // Claim before writing: the loser of a concurrent admission never reaches
+  // the view, so the winner is the only writer and the graph that owns it is
+  // the only reader.
+  bool unclaimed = false;
+  if (!claimed_.compare_exchange_strong(unclaimed, true,
+                                        std::memory_order_acq_rel,
+                                        std::memory_order_acquire)) {
     throw std::logic_error(
         "a type realization already has a live root graph; its pooled value "
         "types cannot serve a second one");
@@ -561,7 +567,12 @@ void CompoundScalarStorageBinding::rebind(
   storage_ = storage;
 }
 
-void CompoundScalarStorageBinding::unbind() noexcept { storage_ = {}; }
+void CompoundScalarStorageBinding::unbind() noexcept {
+  // Clear the view before releasing the claim so the next graph to win it
+  // cannot observe the departing graph's storage.
+  storage_ = {};
+  claimed_.store(false, std::memory_order_release);
+}
 
 
 ValueTypeRef pooled_compound_scalar_leaf_type(const void *payload) noexcept {
