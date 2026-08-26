@@ -779,10 +779,11 @@ struct TypeRealizationSnapshot::Impl {
       graph_inline_union_types{};
   mutable std::unordered_map<const ValueTypeMetaData *, PolymorphicValueType>
       graph_pooled_union_types{};
-  // Stable address handed to every pooled entry realized here; the root graph
-  // that runs this realization binds its pool into it.
-  std::unique_ptr<CompoundScalarStorageBinding> pool_binding{
-      std::make_unique<CompoundScalarStorageBinding>()};
+  // Handed by address to every pooled entry realized here; the root graph that
+  // runs this realization binds its pool into it.  An Impl is made once with
+  // make_shared and is never copied or moved, so this member's address is
+  // stable for the realization's whole life without further indirection.
+  CompoundScalarStorageBinding pool_binding{};
   enum class RealizationKind : std::uint8_t {
     ExternalExact,
     ExternalUnion,
@@ -1196,7 +1197,7 @@ struct TypeRealizationSnapshot::Impl {
     ValueTypeRef result{};
     if (use_pool) {
       auto created = detail::make_pooled_polymorphic_value_type(
-          schema, pool_binding.get(), std::move(alternatives)
+          schema, &pool_binding, std::move(alternatives)
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
           detail::PolymorphicPythonSourceResolver{
@@ -1377,7 +1378,7 @@ TypeRealizationOptions TypeRealizationSnapshot::options() const noexcept {
 
 CompoundScalarStorageBinding &
 TypeRealizationSnapshot::pool_binding() const noexcept {
-  return *impl_->pool_binding;
+  return impl_->pool_binding;
 }
 
 bool TypeRealizationSnapshot::pooled_compound_storage_enabled() const noexcept {
