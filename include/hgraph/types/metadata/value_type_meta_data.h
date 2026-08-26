@@ -132,6 +132,8 @@ namespace hgraph
         Owned = 1u << 11,
         /** A list schema that represents one dimension of a shaped numerical array. */
         ShapedArray = 1u << 12,
+        /** Immutable one-pointer handle into the process-wide shared-value arena. */
+        Shared = 1u << 13,
     };
 
     /** Bitwise OR over ``ValueTypeFlags``. */
@@ -266,7 +268,7 @@ namespace hgraph
         [[nodiscard]] constexpr bool is_un_named_bundle() const noexcept
         {
             return try_value_kind() == ValueTypeKind::Bundle && wrapped_un_named == nullptr &&
-                   !has(ValueTypeFlags::Owned);
+                   !has(ValueTypeFlags::Owned) && !has(ValueTypeFlags::Shared);
         }
 
         [[nodiscard]] constexpr std::string_view bundle_namespace() const noexcept
@@ -353,6 +355,8 @@ namespace hgraph
 
         [[nodiscard]] constexpr bool is_enum() const noexcept { return has(ValueTypeFlags::Enum); }
         [[nodiscard]] constexpr bool is_owned() const noexcept { return has(ValueTypeFlags::Owned); }
+        [[nodiscard]] constexpr bool is_shared() const noexcept { return has(ValueTypeFlags::Shared); }
+        [[nodiscard]] constexpr bool is_indirect() const noexcept { return is_owned() || is_shared(); }
         [[nodiscard]] constexpr bool is_shaped_array() const noexcept
         {
             return try_value_kind() == ValueTypeKind::List && has(ValueTypeFlags::ShapedArray);

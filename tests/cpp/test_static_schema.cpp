@@ -60,6 +60,13 @@ TEST_CASE("static_schema: scalar_descriptor maps value containers to registry sc
     REQUIRE(owned_point->element_type ==
             scalar_descriptor<Bundle<"OwnedPoint", Field<"value", Int>>>::value_meta());
 
+    using SharedPoint = Shared<Bundle<"SharedPoint", Field<"value", Int>>>;
+    const auto *shared_point = scalar_descriptor<SharedPoint>::value_meta();
+    REQUIRE(shared_point->is_shared());
+    REQUIRE_FALSE(shared_point->is_un_named_bundle());
+    REQUIRE(shared_point->element_type ==
+            scalar_descriptor<Bundle<"SharedPoint", Field<"value", Int>>>::value_meta());
+
     REQUIRE_FALSE(scalar_descriptor<Map<Str, ScalarVar<"V">>>::is_concrete());
     REQUIRE(scalar_descriptor<Map<Str, ScalarVar<"V">>>::value_meta() == nullptr);
 }

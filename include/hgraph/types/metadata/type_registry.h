@@ -142,6 +142,8 @@ namespace hgraph
             const std::vector<std::pair<std::string, const ValueTypeMetaData *>> &fields);
         /** Bundle-shaped, one-pointer owner for an on-demand pointee value. */
         const ValueTypeMetaData *owned(const ValueTypeMetaData *target);
+        /** Immutable one-pointer handle into the process-wide shared-value arena. */
+        const ValueTypeMetaData *shared(const ValueTypeMetaData *target);
         /**
          * Define a self-recursive named Bundle. A null field type denotes an
          * ``Owned<Self>`` edge; all other fields are ordinary value schemas.
@@ -684,6 +686,7 @@ namespace hgraph
         InternTable<TupleKey, ValueTypeMetaData, TupleKeyHash> tuple_cache_;
         InternTable<BundleKey, ValueTypeMetaData, BundleKeyHash> bundle_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> owned_cache_;
+        InternTable<const ValueTypeMetaData *, ValueTypeMetaData> shared_cache_;
         InternTable<NamedBundleKey, ValueTypeMetaData, NamedBundleKeyHash> named_bundle_cache_;
         std::vector<std::unique_ptr<ValueTypeMetaData>> recursive_bundle_storage_;
         InternTable<std::string, ValueTypeMetaData> named_enum_cache_;

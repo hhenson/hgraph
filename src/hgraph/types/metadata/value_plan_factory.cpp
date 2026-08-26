@@ -12,6 +12,7 @@
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/util/scope.h>
 
@@ -279,6 +280,65 @@ void owned_move_assign(void *dst, void *src, const void *) {
   set_owned_allocation(dst, owned_allocation(src));
   set_owned_allocation(src, nullptr);
   destroy_owned_allocation(previous);
+}
+
+using SharedValueAllocation = value_impl::SharedValueAllocation;
+
+[[nodiscard]] const SharedValueAllocation *
+shared_allocation(const void *memory) noexcept {
+  return memory != nullptr ? *static_cast<SharedValueAllocation *const *>(memory)
+                           : nullptr;
+}
+
+[[nodiscard]] SharedValueAllocation *
+shared_allocation(void *memory) noexcept {
+  return memory != nullptr ? *static_cast<SharedValueAllocation **>(memory)
+                           : nullptr;
+}
+
+void set_shared_allocation(void *memory,
+                           SharedValueAllocation *allocation) noexcept {
+  *static_cast<SharedValueAllocation **>(memory) = allocation;
+}
+
+void shared_default_construct(void *memory, const void *) {
+  set_shared_allocation(memory, nullptr);
+}
+
+void shared_destroy(void *memory, const void *) noexcept {
+  auto *allocation = shared_allocation(memory);
+  set_shared_allocation(memory, nullptr);
+  value_impl::release_shared_value(allocation);
+}
+
+void shared_copy_construct(void *dst, const void *src, const void *) {
+  auto *allocation = const_cast<SharedValueAllocation *>(shared_allocation(src));
+  value_impl::retain_shared_value(allocation);
+  set_shared_allocation(dst, allocation);
+}
+
+void shared_move_construct(void *dst, void *src, const void *) {
+  set_shared_allocation(dst, shared_allocation(src));
+  set_shared_allocation(src, nullptr);
+}
+
+void shared_copy_assign(void *dst, const void *src, const void *) {
+  auto *replacement =
+      const_cast<SharedValueAllocation *>(shared_allocation(src));
+  value_impl::retain_shared_value(replacement);
+  auto *previous = shared_allocation(dst);
+  set_shared_allocation(dst, replacement);
+  value_impl::release_shared_value(previous);
+}
+
+void shared_move_assign(void *dst, void *src, const void *) {
+  if (dst == src) {
+    return;
+  }
+  auto *previous = shared_allocation(dst);
+  set_shared_allocation(dst, shared_allocation(src));
+  set_shared_allocation(src, nullptr);
+  value_impl::release_shared_value(previous);
 }
 
 [[nodiscard]] std::size_t combine_hash(std::size_t seed,
@@ -1522,6 +1582,393 @@ struct OwnedValueEntry {
   }
 };
 
+struct SharedValueEntry {
+  const ValueTypeMetaData *schema{nullptr};
+  MemoryUtils::StoragePlan plan{};
+  IndexedValueOps ops{};
+  ValueTypeRef binding{};
+
+  explicit SharedValueEntry(const ValueTypeMetaData &shared_schema)
+      : schema{&shared_schema} {
+    if (!shared_schema.is_shared() || shared_schema.element_type == nullptr) {
+      throw std::logic_error(
+          "Shared value entry requires a Shared target schema");
+    }
+
+    plan.layout = MemoryUtils::StorageLayout{
+        .size = sizeof(SharedValueAllocation *),
+        .alignment = alignof(SharedValueAllocation *),
+    };
+    plan.lifecycle = MemoryUtils::LifecycleOps{
+        .construct = &shared_default_construct,
+        .destroy = &shared_destroy,
+        .copy_construct = &shared_copy_construct,
+        .move_construct = &shared_move_construct,
+        .copy_assign = &shared_copy_assign,
+        .move_assign = &shared_move_assign,
+    };
+    plan.lifecycle_context = this;
+    plan.trivially_destructible = false;
+    plan.trivially_copyable = false;
+    plan.trivially_move_constructible = false;
+
+    ops.kind = ValueOpsKind::Indexed;
+    ops.context = this;
+    ops.allows_mutation = false;
+    ops.hash_impl = shared_schema.is_hashable() ? &hash : nullptr;
+    ops.equals_impl = shared_schema.is_equatable() ? &equals : nullptr;
+    ops.compare_impl = shared_schema.is_comparable() ? &compare : nullptr;
+    ops.to_string_impl = &to_string;
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+    ops.to_python_impl = &to_python;
+    ops.from_python_impl = &from_python;
+#endif
+    ops.accepts_source_impl = &accepts_source;
+    ops.copy_assign_from_impl = &copy_assign_from;
+    ops.move_assign_from_impl = &move_assign_from;
+    ops.concrete_type_impl = &concrete_type;
+    ops.concrete_memory_impl = &concrete_memory;
+    // No mutable/writable projection and no mutable indexed operations are
+    // published. ValueView::concrete consequently returns a read-only view.
+    ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
+    ops.size = &indexed_size;
+    ops.element_at = &element_at;
+    ops.element_binding = &element_binding;
+    ops.make_range = &make_range;
+
+    binding = intern_value_type(shared_schema, plan, ops);
+  }
+
+  [[nodiscard]] static const SharedValueEntry &
+  entry(const void *context) noexcept {
+    return *static_cast<const SharedValueEntry *>(context);
+  }
+
+  [[nodiscard]] static ValueTypeRef target_type(const SharedValueEntry &self) {
+    if (const auto *snapshot = active_type_realization(); snapshot != nullptr) {
+      return snapshot->type_for(self.schema->element_type);
+    }
+    return ValuePlanFactory::instance().type_for(self.schema->element_type);
+  }
+
+  [[nodiscard]] static ValueTypeRef
+  allocation_type(const SharedValueAllocation *allocation) noexcept {
+    return allocation != nullptr ? value_impl::shared_value_type(*allocation)
+                                 : ValueTypeRef{};
+  }
+
+  [[nodiscard]] static const void *
+  payload(const SharedValueAllocation *allocation) noexcept {
+    return allocation != nullptr
+               ? value_impl::shared_value_memory(*allocation)
+               : nullptr;
+  }
+
+  [[nodiscard]] static const IndexedValueOps &indexed_ops(ValueTypeRef target) {
+    const auto *indexed =
+        checked_value_ops<IndexedValueOps>(target, "Shared target");
+    if (indexed->size == nullptr || indexed->element_at == nullptr ||
+        indexed->element_binding == nullptr) {
+      throw std::logic_error(
+          "Shared target does not provide indexed Bundle operations");
+    }
+    return *indexed;
+  }
+
+  template <typename Construct>
+  [[nodiscard]] static SharedValueAllocation *
+  construct_allocation(ValueTypeRef target, Construct &&construct) {
+    auto *allocation = value_impl::acquire_shared_value(target);
+    bool payload_constructed = false;
+    auto cleanup = make_scope_exit([&]() noexcept {
+      if (payload_constructed) {
+        target.destroy_at(
+            value_impl::mutable_unpublished_shared_value_memory(*allocation));
+      }
+      value_impl::abandon_shared_value(allocation);
+    });
+    void *memory =
+        value_impl::mutable_unpublished_shared_value_memory(*allocation);
+    target.default_construct_at(memory);
+    payload_constructed = true;
+    std::forward<Construct>(construct)(memory);
+    value_impl::publish_shared_value(allocation);
+    cleanup.release();
+    return allocation;
+  }
+
+  [[nodiscard]] static std::pair<ValueTypeRef, const void *>
+  projected(const SharedValueAllocation &allocation) noexcept {
+    return fallback_on_exception(
+        std::pair<ValueTypeRef, const void *>{}, [&]() {
+          const auto type = value_impl::shared_value_type(allocation);
+          const auto *memory = value_impl::shared_value_memory(allocation);
+          return std::pair{type.ops_ref().concrete_type(type, memory),
+                           type.ops_ref().concrete_memory(memory)};
+        });
+  }
+
+  [[nodiscard]] static std::size_t hash(const void *, const void *memory) {
+    const auto *allocation = shared_allocation(memory);
+    if (allocation == nullptr) {
+      return 0x5368617265644e75ULL;
+    }
+    const auto type = allocation_type(allocation);
+    return type.ops_ref().hash(payload(allocation));
+  }
+
+  [[nodiscard]] static bool equals(const void *, const void *lhs,
+                                   const void *rhs) noexcept {
+    const auto *left = shared_allocation(lhs);
+    const auto *right = shared_allocation(rhs);
+    if (left == nullptr || right == nullptr) {
+      return left == right;
+    }
+    if (left == right) {
+      return true;
+    }
+    const auto [left_type, left_memory] = projected(*left);
+    const auto [right_type, right_memory] = projected(*right);
+    return left_type && left_type == right_type &&
+           left_type.ops_ref().equals(left_memory, right_memory);
+  }
+
+  [[nodiscard]] static std::partial_ordering
+  compare(const void *, const void *lhs, const void *rhs) noexcept {
+    const auto *left = shared_allocation(lhs);
+    const auto *right = shared_allocation(rhs);
+    if (left == nullptr || right == nullptr) {
+      if (left == right) {
+        return std::partial_ordering::equivalent;
+      }
+      return left == nullptr ? std::partial_ordering::less
+                             : std::partial_ordering::greater;
+    }
+    if (left == right) {
+      return std::partial_ordering::equivalent;
+    }
+    const auto [left_type, left_memory] = projected(*left);
+    const auto [right_type, right_memory] = projected(*right);
+    if (!left_type || left_type != right_type) {
+      return std::partial_ordering::unordered;
+    }
+    return left_type.ops_ref().compare(left_memory, right_memory);
+  }
+
+  [[nodiscard]] static std::string to_string(const void *,
+                                             const void *memory) {
+    const auto *allocation = shared_allocation(memory);
+    if (allocation == nullptr) {
+      return "None";
+    }
+    const auto type = allocation_type(allocation);
+    return type.ops_ref().to_string(payload(allocation));
+  }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+  [[nodiscard]] static nb::object to_python(const void *, const void *memory) {
+    const auto *allocation = shared_allocation(memory);
+    if (allocation == nullptr) {
+      return nb::none();
+    }
+    const auto type = allocation_type(allocation);
+    return type.ops_ref().to_python(payload(allocation));
+  }
+
+  static void from_python(const void *context, const ValueTypeRef &,
+                          void *memory, nb::handle source) {
+    if (source.is_none()) {
+      auto *previous = shared_allocation(memory);
+      set_shared_allocation(memory, nullptr);
+      value_impl::release_shared_value(previous);
+      return;
+    }
+
+    const auto desired = target_type(entry(context));
+    auto *replacement = construct_allocation(desired, [&](void *payload) {
+      desired.ops_ref().from_python(desired, payload, source);
+    });
+    auto *previous = shared_allocation(memory);
+    set_shared_allocation(memory, replacement);
+    value_impl::release_shared_value(previous);
+  }
+#endif
+
+  [[nodiscard]] static std::size_t indexed_size(const void *context,
+                                                const void *memory) noexcept {
+    return fallback_on_exception(std::size_t{0}, [&]() {
+      const auto *allocation = shared_allocation(memory);
+      const auto type = allocation != nullptr ? allocation_type(allocation)
+                                              : target_type(entry(context));
+      const auto &indexed = indexed_ops(type);
+      return indexed.size(indexed.context,
+                          allocation != nullptr ? payload(allocation) : nullptr);
+    });
+  }
+
+  [[nodiscard]] static const void *element_at(const void *, const void *memory,
+                                              std::size_t index) {
+    const auto *allocation = shared_allocation(memory);
+    if (allocation == nullptr) {
+      return nullptr;
+    }
+    const auto type = allocation_type(allocation);
+    const auto &indexed = indexed_ops(type);
+    return indexed.element_at(indexed.context, payload(allocation), index);
+  }
+
+  [[nodiscard]] static ValueTypeRef
+  element_binding(const void *context, const void *memory,
+                  std::size_t index) noexcept {
+    return fallback_on_exception(ValueTypeRef{}, [&]() {
+      const auto *allocation = shared_allocation(memory);
+      const auto type = allocation != nullptr ? allocation_type(allocation)
+                                              : target_type(entry(context));
+      const auto &indexed = indexed_ops(type);
+      return indexed.element_binding(
+          indexed.context,
+          allocation != nullptr ? payload(allocation) : nullptr, index);
+    });
+  }
+
+  [[nodiscard]] static ValueView
+  range_projector(const void *context, const void *memory, std::size_t index) {
+    return ValueView{element_binding(context, memory, index),
+                     element_at(context, memory, index)};
+  }
+
+  [[nodiscard]] static Range<ValueView> make_range(const void *context,
+                                                   const void *memory) {
+    return Range<ValueView>{
+        .context = context,
+        .memory = memory,
+        .limit = indexed_size(context, memory),
+        .predicate = nullptr,
+        .projector = &range_projector,
+    };
+  }
+
+  [[nodiscard]] static bool accepts_source(const void *context,
+                                           ValueTypeRef binding,
+                                           ValueTypeRef source) noexcept {
+    return fallback_on_exception(false, [&]() {
+      const auto &self = entry(context);
+      if (source == binding) {
+        return true;
+      }
+      if (source.schema() != nullptr && source.schema()->is_shared()) {
+        return TypeRegistry::instance().bundle_is_a(source.schema()->element_type,
+                                                    self.schema->element_type);
+      }
+      const auto target = target_type(self);
+      return target.ops_ref().accepts_source(target, source) ||
+             TypeRegistry::instance().bundle_is_a(source.schema(),
+                                                  self.schema->element_type);
+    });
+  }
+
+  [[nodiscard]] static ValueTypeRef
+  destination_type(const SharedValueEntry &self, ValueTypeRef source) {
+    const auto target = target_type(self);
+    if (target.ops_ref().accepts_source(target, source)) {
+      return target;
+    }
+    if (TypeRegistry::instance().bundle_is_a(source.schema(),
+                                             self.schema->element_type)) {
+      return source;
+    }
+    throw std::invalid_argument(
+        "Shared value received an incompatible source type");
+  }
+
+  static bool assign_shared_source(const SharedValueEntry &self, void *dst,
+                                   ValueTypeRef source, const void *src,
+                                   bool move) {
+    if (source.schema() == nullptr || !source.schema()->is_shared()) {
+      return false;
+    }
+    auto *replacement =
+        const_cast<SharedValueAllocation *>(shared_allocation(src));
+    if (replacement != nullptr &&
+        !TypeRegistry::instance().bundle_is_a(
+            allocation_type(replacement).schema(), self.schema->element_type)) {
+      throw std::invalid_argument(
+          "Shared value received an incompatible concrete source type");
+    }
+    if (!move) {
+      value_impl::retain_shared_value(replacement);
+    }
+    auto *previous = shared_allocation(dst);
+    set_shared_allocation(dst, replacement);
+    if (move) {
+      set_shared_allocation(const_cast<void *>(src), nullptr);
+    }
+    value_impl::release_shared_value(previous);
+    return true;
+  }
+
+  static void copy_assign_from(const void *context, ValueTypeRef binding,
+                               void *dst, ValueTypeRef source,
+                               const void *src) {
+    if (source == binding) {
+      shared_copy_assign(dst, src, context);
+      return;
+    }
+    const auto &self = entry(context);
+    if (assign_shared_source(self, dst, source, src, false)) {
+      return;
+    }
+
+    const auto target = destination_type(self, source);
+    auto *replacement = construct_allocation(target, [&](void *payload) {
+      target.ops_ref().copy_assign_from(target, payload, source, src);
+    });
+    auto *previous = shared_allocation(dst);
+    set_shared_allocation(dst, replacement);
+    value_impl::release_shared_value(previous);
+  }
+
+  static void move_assign_from(const void *context, ValueTypeRef binding,
+                               void *dst, ValueTypeRef source, void *src) {
+    if (source == binding) {
+      shared_move_assign(dst, src, context);
+      return;
+    }
+    const auto &self = entry(context);
+    if (assign_shared_source(self, dst, source, src, true)) {
+      return;
+    }
+
+    const auto target = destination_type(self, source);
+    auto *replacement = construct_allocation(target, [&](void *payload) {
+      target.ops_ref().move_assign_from(target, payload, source, src);
+    });
+    auto *previous = shared_allocation(dst);
+    set_shared_allocation(dst, replacement);
+    value_impl::release_shared_value(previous);
+  }
+
+  [[nodiscard]] static ValueTypeRef concrete_type(const void *,
+                                                  ValueTypeRef binding,
+                                                  const void *memory) noexcept {
+    const auto *allocation = shared_allocation(memory);
+    return allocation != nullptr ? projected(*allocation).first : binding;
+  }
+
+  [[nodiscard]] static const void *
+  concrete_memory(const void *, const void *memory) noexcept {
+    const auto *allocation = shared_allocation(memory);
+    return allocation != nullptr ? projected(*allocation).second : memory;
+  }
+
+  [[nodiscard]] static DynamicStorageMetrics
+  dynamic_storage_metrics(const void *, const void *) noexcept {
+    // Shared storage has one process-wide accounting owner. Charging every
+    // handle would multiply the same slot by its reference count.
+    return {};
+  }
+};
+
 struct CompositeIndexedOpsEntry {
   CompositeIndexedContext context{};
   IndexedValueOps ops{};
@@ -1706,12 +2153,27 @@ owned_value_cache() noexcept {
   return cache;
 }
 
+[[nodiscard]] InternTable<const ValueTypeMetaData *,
+                          std::unique_ptr<SharedValueEntry>> &
+shared_value_cache() noexcept {
+  static InternTable<const ValueTypeMetaData *,
+                     std::unique_ptr<SharedValueEntry>>
+      cache;
+  return cache;
+}
+
 [[nodiscard]] const OwnedValueEntry &
 owned_value_entry(const ValueTypeMetaData &schema) {
   // intern_serialized: the entry ctor interns a TypeRecord pointing at
   // itself, so a racing loser must never be constructed and destroyed.
   return *owned_value_cache().intern_serialized(
       &schema, [&] { return std::make_unique<OwnedValueEntry>(schema); });
+}
+
+[[nodiscard]] const SharedValueEntry &
+shared_value_entry(const ValueTypeMetaData &schema) {
+  return *shared_value_cache().intern_serialized(
+      &schema, [&] { return std::make_unique<SharedValueEntry>(schema); });
 }
 
 struct RealizedCompositeKey {
@@ -1820,6 +2282,7 @@ void clear_structured_indexed_ops() noexcept {
   composite_indexed_ops_cache().clear();
   array_indexed_ops_cache().clear();
   owned_value_cache().clear();
+  shared_value_cache().clear();
   realized_composite_cache().clear();
 }
 
@@ -2519,9 +2982,9 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
   if (schema == nullptr ||
       (schema->value_kind() != ValueTypeKind::Tuple &&
        schema->value_kind() != ValueTypeKind::Bundle) ||
-      schema->is_owned()) {
+      schema->is_indirect()) {
     throw std::invalid_argument("realized_composite_type_for requires a "
-                                "non-Owned Tuple or Bundle schema");
+                                "direct Tuple or Bundle schema");
   }
   if (field_bindings.size() != schema->field_count) {
     throw std::invalid_argument(
@@ -2587,6 +3050,12 @@ const MemoryUtils::StoragePlan *
 ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
   if (schema->is_owned()) {
     const auto *plan = &owned_value_entry(*schema).plan;
+    std::lock_guard lock(mutex_);
+    const auto [it, _] = cache_.emplace(schema, plan);
+    return it->second;
+  }
+  if (schema->is_shared()) {
+    const auto *plan = &shared_value_entry(*schema).plan;
     std::lock_guard lock(mutex_);
     const auto [it, _] = cache_.emplace(schema, plan);
     return it->second;
@@ -2703,6 +3172,13 @@ ValueTypeRef
 ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
   if (schema->is_owned()) {
     const auto type = owned_value_entry(*schema).binding;
+    std::lock_guard lock(mutex_);
+    const auto [it, _] = type_cache_.emplace(schema, type);
+    cache_.try_emplace(schema, type.plan());
+    return it->second;
+  }
+  if (schema->is_shared()) {
+    const auto type = shared_value_entry(*schema).binding;
     std::lock_guard lock(mutex_);
     const auto [it, _] = type_cache_.emplace(schema, type);
     cache_.try_emplace(schema, type.plan());

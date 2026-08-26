@@ -167,6 +167,24 @@ storage; their bridge registration resolves the class graph before publishing
 the concrete bindings. A recursive native ``CompoundScalar`` still requires
 the ``Owned[T]`` representation described above.
 
+Shared Bundle values
+--------------------
+
+``Shared[T]`` is an immutable one-pointer representation for a direct Bundle
+target. Its first materialisation copies or moves a complete ``T`` into the
+process-wide stable-slot arena. Copies of the wrapper atomically retain that
+slot; the final release destroys the payload and returns the slot to an
+ABA-safe lock-free free list. Published payloads expose read-only concrete and
+indexed views, so assignment replaces the handle rather than mutating a shared
+object.
+
+C++ code can request the schema with ``TypeRegistry::shared(target)`` or use
+the static ``Shared<T>`` marker. ``shared_value_pool_metrics()`` is the single
+accounting surface for arena capacity and live values; individual handles do
+not each report the shared payload. See :doc:`RFC 0028
+</rfc/rfc_0028_shared_value_representation>` for allocator, threading, and
+memory-bound details.
+
 ``List``
     Ordered sequence of one element type. May be ``fixed_size`` or dynamic.
     A dynamic list is **immutable** (built once) by default; a list schema

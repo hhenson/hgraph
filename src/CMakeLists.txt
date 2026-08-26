@@ -85,6 +85,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/compact_container_ops.cpp
     hgraph/types/value/impl/stable_leaf_compound_scalar_storage.cpp
     hgraph/types/value/impl/pooled_polymorphic_value_type.cpp
+    hgraph/types/value/shared_value_pool.cpp
     hgraph/types/value/json_codec.cpp
     hgraph/types/value/table_codec.cpp
     hgraph/types/value/value_view.cpp

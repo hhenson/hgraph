@@ -112,6 +112,12 @@ runtime — they exist purely to drive the descriptor traits.
     self-recursive nominal Bundle because a directly recursive C++ marker
     alias cannot be completed in one template declaration.
 
+``Shared<T>``
+    Immutable value-layer indirection for a direct Bundle target. Its runtime
+    schema is ``TypeRegistry::shared(T)`` and its inline storage is one pointer
+    to an atomically reference-counted arena slot. Copies retain the same stable payload;
+    mutable projection is unavailable.
+
 ``TSB<Name, Fields...>`` / ``UnNamedTSB<Fields...>``
     Time-series compound. Same named/un-named split as ``Bundle``.
 

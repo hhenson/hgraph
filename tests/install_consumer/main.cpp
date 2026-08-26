@@ -32,6 +32,7 @@
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/polymorphic_value_type.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_hash.h>
@@ -396,6 +397,7 @@ int main()
     }
 
     using ConsumerScalar = Bundle<"consumer::Scalar", Field<"number", Int>, Field<"label", Str>>;
+    using SharedConsumerScalar = Shared<ConsumerScalar>;
     using ConsumerBundle = TSBFromScalar<ConsumerScalar>;
     static_assert(
         std::is_same_v<ConsumerBundle,
@@ -403,6 +405,40 @@ int main()
 
     auto &registry = TypeRegistry::instance();
     registry.register_scalar<std::int32_t>("int32");
+
+    const auto *consumer_scalar_schema = scalar_descriptor<ConsumerScalar>::value_meta();
+    const auto *shared_consumer_schema = scalar_descriptor<SharedConsumerScalar>::value_meta();
+    if (!shared_consumer_schema->is_shared() ||
+        shared_consumer_schema->element_type != consumer_scalar_schema)
+    {
+        throw std::runtime_error("installed Shared<T> descriptor is unusable");
+    }
+    const auto live_shared_values = shared_value_pool_metrics().live_values;
+    {
+        const auto consumer_scalar_type =
+            ValuePlanFactory::instance().type_for(consumer_scalar_schema);
+        const auto shared_consumer_type =
+            ValuePlanFactory::instance().type_for(shared_consumer_schema);
+        Value source{consumer_scalar_type};
+        auto fields = source.as_bundle().begin_mutation();
+        fields["number"].set(Int{17});
+        fields["label"].set(Str{"shared"});
+
+        Value shared{shared_consumer_type, source.view()};
+        Value retained = shared;
+        if (shared_consumer_type.checked_plan().layout.size != sizeof(void *) ||
+            shared.view().can_begin_mutation() ||
+            retained.view().concrete().data() != shared.view().concrete().data() ||
+            retained.as_bundle()["number"].checked_as<Int>() != 17 ||
+            shared_value_pool_metrics().live_values != live_shared_values + 1)
+        {
+            throw std::runtime_error("installed Shared<T> value contract is unusable");
+        }
+    }
+    if (shared_value_pool_metrics().live_values != live_shared_values)
+    {
+        throw std::runtime_error("installed Shared<T> final release did not recycle its slot");
+    }
 
     const RuntimeRegistrySnapshot runtime_registries = runtime_registry_snapshot();
     if (runtime_registries.type_records == 0)

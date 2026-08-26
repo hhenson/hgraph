@@ -794,6 +794,9 @@ namespace hgraph::python_bridge
         .def_prop_ro("is_comparable", [](const PyValueType &self) {
             return self.meta != nullptr && self.meta->is_comparable();
         })
+        .def_prop_ro("is_shared", [](const PyValueType &self) {
+            return self.meta != nullptr && self.meta->is_shared();
+        })
         .def_prop_ro("fields", [](const PyValueType &self) {
             nb::list result;
             if (self.meta == nullptr) { return result; }
@@ -873,6 +876,9 @@ namespace hgraph::python_bridge
     });
     m.def("owned_vt", [](PyValueType target) {
         return PyValueType{TypeRegistry::instance().owned(target.meta)};
+    });
+    m.def("shared_vt", [](PyValueType target) {
+        return PyValueType{TypeRegistry::instance().shared(target.meta)};
     });
     m.def("tuple_vt", [](PyValueType e) {
         // A homogeneous variadic tuple (python's tuple[X, ...]).
