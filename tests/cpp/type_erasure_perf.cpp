@@ -658,7 +658,7 @@ int main()
 
         CompoundScalarStorage pools = CompoundScalarStorage::make_default();
         TypeRealizationScope realization_scope{realization.get()};
-        CompoundScalarStorageScope storage_scope{pools.view()};
+        pools.bind(realization->pool_binding());
         Value::storage_type external_source{*external.record()};
         Value::storage_type pooled_source{*pooled.record()};
         external.ops_ref().copy_assign_from(external, external_source.data(), small_value.binding(),

@@ -452,9 +452,11 @@ from a larger externally owned value without fabricating a non-owning
 Pooling is an explicit graph-level realisation policy.  An opted-in root
 graph's named storage plan contains a two-word compound-scalar owner, and its
 nested plan contains the two-word borrowed view.  Disabled plans contain
-neither field and select lifecycle/evaluation ops which do not establish a
-compound-storage scope.  The owner allocates its concrete per-leaf registry
-only when a pooled value is first constructed.  Ordinary root/nested graphs
+neither field.  The owner binds itself into its realisation's pool binding for
+its own lifetime (:doc:`RFC 0029 </rfc/rfc_0029_value_pool_ownership_and_binding>`),
+so lifecycle and evaluation ops are the same functions in both cases and no
+scope is established around them.  The owner allocates its concrete per-leaf
+registry only when a pooled value is first constructed.  Ordinary root/nested graphs
 point into their owner. Slot-placed nested graphs have no owner and point into
 graph/slot memory, whose stop/delete and destructor/erase protocol remains the
 lifetime authority.  ``GraphValue`` remains five words on 64-bit builds;
@@ -462,7 +464,9 @@ lifetime authority.  ``GraphValue`` remains five words on 64-bit builds;
 words.
 
 Representation selection is also type-erased. ``PolymorphicValueType`` is a
-two-word, move-only passive-ops owner held by the realisation snapshot.  Its
+two-word, move-only passive-ops owner held by the realisation snapshot; a
+pooled strategy also holds a pointer to that snapshot's pool binding, which is
+how an allocating op reaches the pool of the root graph it is running in.  Its
 default and moved-from states bind a canonical no-op table.  The concrete
 pooled-union strategy and its Python source resolver remain under the
 implementation boundary; semantic realisation code asks only for the facade's

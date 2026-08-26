@@ -414,7 +414,6 @@ const CompoundScalarStorageOps &stable_ops() noexcept {
   return ops;
 }
 
-thread_local CompoundScalarStorageView active_storage{};
 } // namespace
 
 CompoundScalarStorageView::CompoundScalarStorageView() noexcept
@@ -470,10 +469,29 @@ CompoundScalarStorage::CompoundScalarStorage(
 
 CompoundScalarStorage::~CompoundScalarStorage() { reset(); }
 
+void CompoundScalarStorage::bind(CompoundScalarStorageBinding &binding) {
+  if (binding_ == &binding) {
+    return;
+  }
+  if (binding_ != nullptr) {
+    throw std::logic_error(
+        "compound scalar storage is already bound to a realization");
+  }
+  binding.bind(view());
+  binding_ = &binding;
+}
+
 CompoundScalarStorage::CompoundScalarStorage(
     CompoundScalarStorage &&other) noexcept
     : context_(std::exchange(other.context_, nullptr)),
-      ops_(std::exchange(other.ops_, &nop_ops())) {}
+      ops_(std::exchange(other.ops_, &nop_ops())),
+      binding_(std::exchange(other.binding_, nullptr)) {
+  // A view addresses this owner's context slot, so a move must re-point the
+  // binding at the new address rather than leave it addressing the corpse.
+  if (binding_ != nullptr) {
+    binding_->rebind(view());
+  }
+}
 
 CompoundScalarStorage &
 CompoundScalarStorage::operator=(CompoundScalarStorage &&other) noexcept {
@@ -481,6 +499,10 @@ CompoundScalarStorage::operator=(CompoundScalarStorage &&other) noexcept {
     reset();
     context_ = std::exchange(other.context_, nullptr);
     ops_ = std::exchange(other.ops_, &nop_ops());
+    binding_ = std::exchange(other.binding_, nullptr);
+    if (binding_ != nullptr) {
+      binding_->rebind(view());
+    }
   }
   return *this;
 }
@@ -500,37 +522,80 @@ CompoundScalarStorageView CompoundScalarStorage::view() const noexcept {
 }
 
 void CompoundScalarStorage::reset() noexcept {
+  if (auto *binding = std::exchange(binding_, nullptr); binding != nullptr) {
+    binding->unbind();
+  }
   ops_->destroy_impl(&context_);
   context_ = nullptr;
   ops_ = &nop_ops();
 }
 
-CompoundScalarStorageScope::CompoundScalarStorageScope(
-    CompoundScalarStorageView storage) noexcept
-    : previous_(active_storage) {
-  active_storage = storage;
+bool CompoundScalarStorageBinding::bound() const noexcept {
+  return admission_.load(std::memory_order_acquire) == Admission::Bound;
 }
 
-CompoundScalarStorageScope::~CompoundScalarStorageScope() noexcept {
-  active_storage = previous_;
+CompoundScalarStorageView CompoundScalarStorageBinding::storage() const {
+  // Acquiring here is what makes the view safe to read: it pairs with the
+  // release in bind(), so the published view is whole for any reader that
+  // gets this far.  A binding mid-claim reads as unbound rather than as a
+  // usable half-state.
+  if (admission_.load(std::memory_order_acquire) != Admission::Bound) {
+    throw std::logic_error(
+        "pooled value storage has no bound root graph; a pooled value cannot "
+        "be constructed outside the graph that owns its pool");
+  }
+  return storage_;
 }
 
-CompoundScalarStorageView active_compound_scalar_storage() noexcept {
-  return active_storage;
+void CompoundScalarStorageBinding::bind(CompoundScalarStorageView storage) {
+  if (!storage.available()) {
+    throw std::invalid_argument(
+        "cannot bind unavailable compound scalar storage");
+  }
+  // Claim before writing: the loser of a concurrent admission never reaches
+  // the view, so the winner is the only writer.  Between the claim and the
+  // release below the binding reads as unbound, which is what stops a reader
+  // seeing a view that is not there yet.
+  Admission expected = Admission::Free;
+  if (!admission_.compare_exchange_strong(expected, Admission::Claiming,
+                                          std::memory_order_acq_rel,
+                                          std::memory_order_acquire)) {
+    throw std::logic_error(
+        "a type realization already has a live root graph; its pooled value "
+        "types cannot serve a second one");
+  }
+  storage_ = storage;
+  admission_.store(Admission::Bound, std::memory_order_release);
 }
+
+void CompoundScalarStorageBinding::rebind(
+    CompoundScalarStorageView storage) noexcept {
+  storage_ = storage;
+}
+
+void CompoundScalarStorageBinding::unbind() noexcept {
+  // Withdraw first, so the view is cleared while the binding already reads as
+  // unbound, then free the claim for the next graph.
+  admission_.store(Admission::Claiming, std::memory_order_release);
+  storage_ = {};
+  admission_.store(Admission::Free, std::memory_order_release);
+}
+
 
 ValueTypeRef pooled_compound_scalar_leaf_type(const void *payload) noexcept {
   return payload != nullptr ? header_for(payload).owner->leaf()
                             : ValueTypeRef{};
 }
 
-void *retain_or_copy_pooled_compound_scalar(const void *payload) {
+void *retain_or_copy_pooled_compound_scalar(CompoundScalarStorageView target,
+                                            const void *payload) {
   if (payload == nullptr)
     throw std::invalid_argument("cannot retain a null pooled compound scalar");
-  const auto active = active_compound_scalar_storage();
-  if (!active.owns(payload)) {
+  if (!target.owns(payload)) {
+    // A payload from another graph's pool is materialised into this one; a
+    // slot is only ever shared within the pool that owns it.
     const auto leaf = pooled_compound_scalar_leaf_type(payload);
-    return active.copy_value(leaf, leaf, payload);
+    return target.copy_value(leaf, leaf, payload);
   }
   return header_for(payload).owner->retain_or_copy(payload);
 }

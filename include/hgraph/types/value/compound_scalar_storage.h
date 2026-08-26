@@ -5,11 +5,14 @@
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/value/value_type_ref.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
 namespace hgraph {
+class CompoundScalarStorageBinding;
+
 /** Cold-path, data-only summary of one root graph's polymorphic leaf pools. */
 struct CompoundScalarStorageInspection {
   std::size_t leaf_pool_count{0};
@@ -82,6 +85,14 @@ public:
   [[nodiscard]] CompoundScalarStorageView view() noexcept;
   [[nodiscard]] CompoundScalarStorageView view() const noexcept;
 
+  /**
+   * Bind this owner into ``binding`` for the rest of its life; the binding is
+   * released when this owner is destroyed, and follows it when it is moved.
+   * One object therefore owns both the pool and its binding, so an unwound
+   * graph construction cannot leave a binding behind.
+   */
+  void bind(CompoundScalarStorageBinding &binding);
+
 private:
   CompoundScalarStorage(void *context,
                         const CompoundScalarStorageOps *ops) noexcept;
@@ -89,24 +100,59 @@ private:
 
   void *context_{nullptr};
   const CompoundScalarStorageOps *ops_{nullptr};
+  CompoundScalarStorageBinding *binding_{nullptr};
 };
 
-/** Thread-local graph-lifetime selection used by pooled value plans. */
-class HGRAPH_EXPORT CompoundScalarStorageScope {
+/**
+ * Stable-address cell through which a realization's pooled value types reach
+ * the pool of the root graph bound to them (RFC 0029).
+ *
+ * One cell belongs to a ``TypeRealizationSnapshot``; every pooled value type it
+ * realizes holds a pointer to that cell.  A root graph's pool owner binds
+ * itself for its own lifetime, so an allocating op reads a pointer rather than
+ * asking which thread is asking.
+ *
+ * The binding is **exclusive**: a realization has at most one live root graph.
+ * Binding a second is refused rather than silently overwriting the first.
+ */
+class HGRAPH_EXPORT CompoundScalarStorageBinding {
 public:
-  explicit CompoundScalarStorageScope(
-      CompoundScalarStorageView storage) noexcept;
-  CompoundScalarStorageScope(const CompoundScalarStorageScope &) = delete;
-  CompoundScalarStorageScope &
-  operator=(const CompoundScalarStorageScope &) = delete;
-  ~CompoundScalarStorageScope() noexcept;
+  CompoundScalarStorageBinding() noexcept = default;
+  CompoundScalarStorageBinding(const CompoundScalarStorageBinding &) = delete;
+  CompoundScalarStorageBinding &
+  operator=(const CompoundScalarStorageBinding &) = delete;
+
+  [[nodiscard]] bool bound() const noexcept;
+  /** The bound storage; throws when no root graph is bound. */
+  [[nodiscard]] CompoundScalarStorageView storage() const;
+
+  void bind(CompoundScalarStorageView storage);
+  /** Re-point an existing binding after its owner moved. */
+  void rebind(CompoundScalarStorageView storage) noexcept;
+  void unbind() noexcept;
 
 private:
-  CompoundScalarStorageView previous_{};
-};
+  /**
+   * Admission state, and the publication protocol for ``storage_``.
+   *
+   * A realization cached by ``(generation, options)`` is shared, so two root
+   * graphs can be constructed against it concurrently.  ``Claiming`` is the
+   * winner's exclusive window: it has admission but has not yet published its
+   * view, so no reader may treat the binding as usable.  ``bind`` writes
+   * ``storage_`` and then releases ``Bound``; every read acquires it first, so
+   * a thread that observes ``Bound`` also observes the whole two-word view and
+   * never a half-written one.
+   *
+   * The claim is an RMW exactly once per root graph construction and once at
+   * teardown.  Reads on the allocation path are an acquire **load** of one
+   * byte, which replaces the view test that was there before it — no
+   * read-modify-write and no contention on the per-tick path.
+   */
+  enum class Admission : std::uint8_t { Free, Claiming, Bound };
 
-[[nodiscard]] HGRAPH_EXPORT CompoundScalarStorageView
-active_compound_scalar_storage() noexcept;
+  std::atomic<Admission> admission_{Admission::Free};
+  CompoundScalarStorageView storage_{};
+};
 
 /**
  * Operations on a one-word pooled holder.  ``payload`` is the stable
@@ -115,7 +161,8 @@ active_compound_scalar_storage() noexcept;
 [[nodiscard]] HGRAPH_EXPORT ValueTypeRef
 pooled_compound_scalar_leaf_type(const void *payload) noexcept;
 [[nodiscard]] HGRAPH_EXPORT void *
-retain_or_copy_pooled_compound_scalar(const void *payload);
+retain_or_copy_pooled_compound_scalar(CompoundScalarStorageView target,
+                                      const void *payload);
 HGRAPH_EXPORT void release_pooled_compound_scalar(void *payload) noexcept;
 [[nodiscard]] HGRAPH_EXPORT void *
 writable_pooled_compound_scalar(void *payload);

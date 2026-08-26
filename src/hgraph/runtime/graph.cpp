@@ -563,13 +563,23 @@ void construct_graph_storage(GraphTypeRef type, const GraphBuilder &builder,
   header_constructed = true;
   std::forward<InitHeader>(init_header)(graph_header<Header>(context, memory));
 
-  CompoundScalarStorageView compound_storage{};
   if (graph_has_compound_scalar_storage(context)) {
     if constexpr (std::is_same_v<Header, RootGraphRuntimeStorage>) {
       auto &owner = graph_compound_scalar_storage<CompoundScalarStorage>(
           context, memory);
       std::construct_at(&owner, CompoundScalarStorage::make_default());
-      compound_storage = owner.view();
+      compound_storage_constructed = true;
+      // RFC 0029: the pool binds itself into this graph's realization for the
+      // owner's lifetime, so every pooled value type it realized allocates
+      // here without consulting anything ambient.  The owner releases the
+      // binding when it is destroyed, including on an unwound construction.
+      const auto *realization =
+          graph_header<Header>(context, memory).type_realization;
+      if (realization == nullptr) {
+        throw std::logic_error(
+            "Pooled root graph requires its type realization snapshot");
+      }
+      owner.bind(realization->pool_binding());
     } else {
       if (!inherited_storage.available()) {
         throw std::logic_error(
@@ -578,27 +588,18 @@ void construct_graph_storage(GraphTypeRef type, const GraphBuilder &builder,
       auto &view = graph_compound_scalar_storage<CompoundScalarStorageView>(
           context, memory);
       std::construct_at(&view, inherited_storage);
-      compound_storage = view;
+      compound_storage_constructed = true;
     }
-    compound_storage_constructed = true;
   }
 
-  const auto construct_nodes_and_schedule = [&] {
-    for (std::size_t index = 0; index < context.layout.node_count; ++index) {
-      builder.nodes()[index].construct_node_storage(
-          graph_node_memory(context, memory, index), index);
-      ++constructed_nodes;
-    }
-    for (std::size_t index = 0; index < context.layout.node_count; ++index) {
-      std::construct_at(&graph_schedule(context, memory, index), MIN_DT);
-      ++constructed_schedule;
-    }
-  };
-  if (compound_storage.available()) {
-    CompoundScalarStorageScope storage_scope{compound_storage};
-    construct_nodes_and_schedule();
-  } else {
-    construct_nodes_and_schedule();
+  for (std::size_t index = 0; index < context.layout.node_count; ++index) {
+    builder.nodes()[index].construct_node_storage(
+        graph_node_memory(context, memory, index), index);
+    ++constructed_nodes;
+  }
+  for (std::size_t index = 0; index < context.layout.node_count; ++index) {
+    std::construct_at(&graph_schedule(context, memory, index), MIN_DT);
+    ++constructed_schedule;
   }
   graph_complete = true;
   bind_edges(context, memory, builder.edges());
@@ -1201,30 +1202,6 @@ bool evaluate_impl(const void *context, const GraphView &graph,
   return true;
 }
 
-template <typename Storage>
-void pooled_start_impl(const void *context, const GraphView &graph,
-                       DateTime start_time) {
-  CompoundScalarStorageScope storage_scope{
-      compound_scalar_storage_impl<Storage>(context, graph.data())};
-  start_impl<Storage>(context, graph, start_time);
-}
-
-template <typename Storage>
-void pooled_stop_impl(const void *context, const GraphView &graph,
-                      DateTime stop_time) {
-  CompoundScalarStorageScope storage_scope{
-      compound_scalar_storage_impl<Storage>(context, graph.data())};
-  stop_impl<Storage>(context, graph, stop_time);
-}
-
-template <typename Storage>
-bool pooled_evaluate_impl(const void *context, const GraphView &graph,
-                          DateTime evaluation_time) {
-  CompoundScalarStorageScope storage_scope{
-      compound_scalar_storage_impl<Storage>(context, graph.data())};
-  return evaluate_impl<Storage>(context, graph, evaluation_time);
-}
-
 struct GraphRuntimeRegistry {
   struct Entry {
     GraphTypeMetaData schema{};
@@ -1373,15 +1350,9 @@ struct GraphRuntimeRegistry {
         .context = context,
         .parent_kind = GraphParentKind::Root,
         .attach_nodes_impl = &attach_nodes_impl<RootGraphRuntimeStorage>,
-        .start_impl =
-            pooled_storage ? &pooled_start_impl<RootGraphRuntimeStorage>
-                           : &start_impl<RootGraphRuntimeStorage>,
-        .stop_impl =
-            pooled_storage ? &pooled_stop_impl<RootGraphRuntimeStorage>
-                           : &stop_impl<RootGraphRuntimeStorage>,
-        .evaluate_impl =
-            pooled_storage ? &pooled_evaluate_impl<RootGraphRuntimeStorage>
-                           : &evaluate_impl<RootGraphRuntimeStorage>,
+        .start_impl = &start_impl<RootGraphRuntimeStorage>,
+        .stop_impl = &stop_impl<RootGraphRuntimeStorage>,
+        .evaluate_impl = &evaluate_impl<RootGraphRuntimeStorage>,
         .schedule_node_impl = &schedule_node_impl<RootGraphRuntimeStorage>,
         .started_impl = &started_impl<RootGraphRuntimeStorage>,
         .starting_impl = &starting_impl<RootGraphRuntimeStorage>,
@@ -1419,15 +1390,9 @@ struct GraphRuntimeRegistry {
         .context = context,
         .parent_kind = GraphParentKind::Nested,
         .attach_nodes_impl = &attach_nodes_impl<NestedGraphRuntimeStorage>,
-        .start_impl =
-            pooled_storage ? &pooled_start_impl<NestedGraphRuntimeStorage>
-                           : &start_impl<NestedGraphRuntimeStorage>,
-        .stop_impl =
-            pooled_storage ? &pooled_stop_impl<NestedGraphRuntimeStorage>
-                           : &stop_impl<NestedGraphRuntimeStorage>,
-        .evaluate_impl =
-            pooled_storage ? &pooled_evaluate_impl<NestedGraphRuntimeStorage>
-                           : &evaluate_impl<NestedGraphRuntimeStorage>,
+        .start_impl = &start_impl<NestedGraphRuntimeStorage>,
+        .stop_impl = &stop_impl<NestedGraphRuntimeStorage>,
+        .evaluate_impl = &evaluate_impl<NestedGraphRuntimeStorage>,
         .schedule_node_impl = &nested_schedule_node_impl,
         .started_impl = &started_impl<NestedGraphRuntimeStorage>,
         .starting_impl = &starting_impl<NestedGraphRuntimeStorage>,
@@ -1897,13 +1862,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, ExecutorPtr root_executor) {
         });
   });
   pointer_ = type.writable(storage_.data());
-  const auto compound_storage = view().compound_scalar_storage();
-  if (compound_storage.available()) {
-    CompoundScalarStorageScope storage_scope{compound_storage};
-    attach_nodes();
-  } else {
-    attach_nodes();
-  }
+  attach_nodes();
 }
 
 GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node) {
@@ -1939,12 +1898,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node) {
         shared_storage);
   });
   pointer_ = type.writable(storage_.data());
-  if (shared_storage.available()) {
-    CompoundScalarStorageScope storage_scope{shared_storage};
-    attach_nodes();
-  } else {
-    attach_nodes();
-  }
+  attach_nodes();
 }
 
 GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node,
@@ -1993,12 +1947,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node,
   auto rollback =
       make_scope_exit([&]() noexcept { type.destroy_at(external_memory); });
   pointer_ = type.writable(external_memory);
-  if (shared_storage.available()) {
-    CompoundScalarStorageScope storage_scope{shared_storage};
-    attach_nodes();
-  } else {
-    attach_nodes();
-  }
+  attach_nodes();
   rollback.release();
 }
 
@@ -2018,21 +1967,10 @@ void GraphValue::reset() noexcept {
       }));
     }
   }
-  const auto pooled_storage = pointer_.has_value()
-                                  ? view().compound_scalar_storage()
-                                  : CompoundScalarStorageView{};
-  const auto destroy_storage = [&] {
-    if (uses_external_storage()) {
-      type().destroy_at(const_cast<void *>(pointer_.data()));
-    } else {
-      storage_.reset();
-    }
-  };
-  if (pooled_storage.available()) {
-    CompoundScalarStorageScope storage_scope{pooled_storage};
-    destroy_storage();
+  if (uses_external_storage()) {
+    type().destroy_at(const_cast<void *>(pointer_.data()));
   } else {
-    destroy_storage();
+    storage_.reset();
   }
   pointer_ = {};
 }

@@ -224,7 +224,23 @@ The binding is exclusive, and this is the invariant the design rests on:
    A realization snapshot has at most one live root graph.
 
 Binding a second one is refused with a diagnostic rather than silently
-overwriting.  Nothing in the tree violates it — a snapshot is captured per
+overwriting.  Admission is **claimed atomically**, because a cached realization
+can have two root graphs constructed against it concurrently: a check-then-set
+would let both through and tear the two-word view, so the refusal the design
+depends on would not hold exactly when it matters.
+
+Admission carries the view's publication protocol with it.  It has three
+states, and the middle one is the point: ``Claiming`` is the winner's window,
+where it holds admission but has not yet published its view, and throughout
+which the binding reads as **unbound**.  The winner writes the view and then
+releases ``Bound``; every read acquires it first, so a thread that observes
+``Bound`` observes the whole view and never a half-written one, and a binding
+mid-claim is never mistaken for a usable one.
+
+The claim is a read-modify-write exactly once per root graph construction and
+once at teardown.  The allocation path pays an acquire **load** of one byte,
+in place of the view test it would do anyway — no read-modify-write and no
+contention on the per-tick path.  Nothing in the tree violates it — a snapshot is captured per
 builder (``graph.cpp:2170``) and a nested graph deliberately reuses its root's
 (``graph_wiring.cpp:2539``, ``:2746``) — and it is strictly tighter than what
 the thread-local permitted, which was two root graphs sharing a snapshot on two
@@ -256,6 +272,50 @@ Nested graphs inherit the root's binding by construction: they share its
 realization, so they share its cell and never bind one of their own.  A builder
 used to construct two root graphs in sequence binds, unbinds, and binds again.
 
+Concurrency limit: one live pooled root graph per realization
+-------------------------------------------------------------
+
+Exclusivity has a consequence that must be stated rather than discovered.
+``TypeRealizationSnapshot::capture`` **caches** by ``(registry generation,
+options)`` and returns the same snapshot to every caller
+(``type_realization.cpp:1350-1368``).  Two pooled root graphs built at the same
+registry generation with the same options therefore share one realization, and
+so one binding cell: the second to construct is **refused**, with a diagnostic
+naming the conflict.
+
+What still works is most of what is done:
+
+* **Sequential runs** — bind, unbind on teardown, bind again.  A graph run
+  repeatedly from one builder is unaffected.
+* **Nested graphs** — they share their root's realization deliberately and
+  never bind one of their own.
+* **Every graph that has not opted into pooling** — no pool, no cell, no
+  binding, and no behaviour change of any kind.
+* **Concurrent engines whose realizations differ** — a different registry
+  generation or different options gives a different snapshot and a different
+  pool.
+
+What is refused is two *concurrently live* pooled root graphs sharing a
+realization.  RFC 0013 lists "multiple pure-C++ engines execute concurrently on
+separate threads without sharing pool state" as an acceptance criterion, and
+under the thread-local that case worked by giving each thread its own ambient
+slot.  This RFC narrows it for pooled graphs: the case is refused loudly
+instead of served.  That is a deliberate trade — the alternative designs below
+cost considerably more — and it is reversible without changing the binding
+contract.
+
+Two follow-ups would restore it, neither needed until a real use appears:
+
+* **Lease a realization per live pooled graph.**  Capture would hand out a
+  realization whose cell is free rather than a shared one.  The cost is one
+  graph-type compilation per concurrent pooled graph, plus lifetime work that
+  is not incidental: value types interned from a snapshot outlive it today, and
+  the process-wide graph type registry holds them, so realizations are
+  effectively immortal by design.
+* **Thread the pool through the allocating ops.**  Correct for any number of
+  concurrent graphs, and disproportionate: it changes the signature of the ops
+  vocabulary to serve three allocating entries.
+
 Why not per-instance realized types
 -----------------------------------
 
@@ -280,11 +340,18 @@ What is removed
 * the ``thread_local`` at ``stable_leaf_compound_scalar_storage.cpp:417``;
 * ``active_compound_scalar_storage()`` and ``CompoundScalarStorageScope``,
   including their declarations in ``compound_scalar_storage.h``;
-* the eight scope installations in ``graph.cpp`` listed under `Motivation`_,
-  and the four in the native tests (``test_ts_input.cpp:2268``,
-  ``test_type_registry.cpp:572``/``:591``, ``test_value_builder.cpp:302``,
-  ``type_erasure_perf.cpp:661``), which become explicit pool arguments; and
-* the allocating no-op entries and ``unavailable_storage()``.
+* the eight scope installations in ``graph.cpp`` listed under `Motivation`_ —
+  three of which were ``pooled_start_impl``, ``pooled_stop_impl``, and
+  ``pooled_evaluate_impl``, wrappers that existed only to install a scope and
+  so charged a thread-local write and restore to **every graph cycle**; pooled
+  graphs now run the same lifecycle functions as every other graph;
+* the five scope installations in the native tests
+  (``test_ts_input.cpp``, ``test_type_registry.cpp`` ×2,
+  ``test_value_builder.cpp``, ``type_erasure_perf.cpp``), which bind to a
+  realization instead; and
+* the ambient availability condition: an allocating op now fails against its
+  own binding, with a diagnostic saying no root graph is bound, rather than
+  reporting that some scope was never installed.
 
 Explicitly **not** removed, and out of scope here: the type-realization
 thread-locals ``active_snapshot`` and ``graph_value_realization``
@@ -320,6 +387,12 @@ renames above.  No extension in this repository references either type, so the
 migration is internal; it is nevertheless an ABI change requiring a rebuild of
 downstream native extensions, and the installed-SDK consumer fixture must build
 against the renamed header.
+
+One exported function changes shape rather than name:
+``retain_or_copy_pooled_compound_scalar`` takes the pool it is retaining *into*
+as its first argument.  Its ambient form could only ask which thread was
+calling; a payload from another pool is materialised into the target it was
+given.
 
 Python exposure is one reserved ``GlobalState`` key holding an opaque handle.
 It is not part of the public Python surface and is erased before run-end copy
@@ -391,11 +464,13 @@ Acceptance criteria
   state is reachable other than through a running graph or a node — enforced by
   a source-level check alongside the existing lock-counting enforcement, so the
   channel cannot quietly return.
-* A test constructs two root graphs on two threads and proves each allocates
-  into its own pool, and the same test passes with both graphs on one thread.
+* Two root graphs whose realizations differ allocate into their own pools, on
+  one thread and on two.
 * Binding a second live root graph to one realization is refused with a
   diagnostic; binding, unbinding, and rebinding in sequence works, including
   after a failed graph construction unwinds.
+* Concurrent admission of two root graphs to one realization admits exactly
+  one, under TSAN as well as ordinary builds.
 * A node-local pool and its graph's pool are live simultaneously, and values
   allocated from each release to the correct owner.
 * A ``Synchronised`` pool acquires off-thread, batches its returns through an
