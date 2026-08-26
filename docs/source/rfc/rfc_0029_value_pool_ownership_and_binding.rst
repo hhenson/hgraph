@@ -227,10 +227,20 @@ Binding a second one is refused with a diagnostic rather than silently
 overwriting.  Admission is **claimed atomically**, because a cached realization
 can have two root graphs constructed against it concurrently: a check-then-set
 would let both through and tear the two-word view, so the refusal the design
-depends on would not hold exactly when it matters.  The claim is taken once per
-root graph construction and released once at teardown — never on the per-tick
-path, which reads the bound view plainly and only from the graph holding the
-claim.  Nothing in the tree violates it — a snapshot is captured per
+depends on would not hold exactly when it matters.
+
+Admission carries the view's publication protocol with it.  It has three
+states, and the middle one is the point: ``Claiming`` is the winner's window,
+where it holds admission but has not yet published its view, and throughout
+which the binding reads as **unbound**.  The winner writes the view and then
+releases ``Bound``; every read acquires it first, so a thread that observes
+``Bound`` observes the whole view and never a half-written one, and a binding
+mid-claim is never mistaken for a usable one.
+
+The claim is a read-modify-write exactly once per root graph construction and
+once at teardown.  The allocation path pays an acquire **load** of one byte,
+in place of the view test it would do anyway — no read-modify-write and no
+contention on the per-tick path.  Nothing in the tree violates it — a snapshot is captured per
 builder (``graph.cpp:2170``) and a nested graph deliberately reuses its root's
 (``graph_wiring.cpp:2539``, ``:2746``) — and it is strictly tighter than what
 the thread-local permitted, which was two root graphs sharing a snapshot on two
