@@ -425,9 +425,10 @@ The primary operations are:
    mechanism converts live route keys to the implementation's
    ``TSS[WebRoute]``; the transport compiles the table and delivers each
    matched request on its route's stream. Distinct routes tick in the same
-   cycle; multiple pending requests on ONE route are delivered from the
-   standard FIFO push source one per engine cycle. A batched nested-TSD
-   delivery shape is the identified follow-up
+   cycle; a keyed ``collect`` followed by ``map_(emit, ...)`` retains multiple
+   pending requests on ONE route and delivers them in FIFO order one per
+   engine cycle. A batched nested-TSD
+   delivery shape remains the identified follow-up
    if pacing proves limiting on very hot routes.
 
 ``wire<HttpRespondService>(w, path, HttpRespondRequest)``
@@ -514,12 +515,16 @@ registry, and that holds no graph state.
   ``curl_multi_poll`` and woken by ``curl_multi_wakeup`` when the graph
   stages a submission.  WebSocket handles join the same loop; all
   ``curl_ws_send``/``curl_ws_recv`` calls happen on this thread.
-* **Graph transport**: one bounded standard FIFO push source carries the fully
+* **Graph transport**: one bounded standard burst push source carries the fully
   owned event envelopes for each independently ordered logical channel. A
   server has request, WS-ingress, response-delivery, WS-send-delivery, event,
   and statistics sources; a client has response, WS-ingress, send-delivery,
-  event, and statistics sources. Ordinary graph nodes project each source onto
-  its service output. FIFO is preserved within each channel, while independent
+  event, and statistics sources. A small stateless classifier groups keyed
+  bursts, then the standard ``collect``, ``map_``, and ``emit`` operators
+  project them onto the service outputs. Distinct keys pending in a burst
+  advance together; each mapped ``emit`` retains same-key collisions in FIFO
+  order for later ``MIN_TD`` cycles. Scalar event outputs use standard
+  ``emit`` directly, while statistics select the latest sample. Independent
   channels may advance in the same engine cycle and cannot head-of-line block
   one another. No public contract requires a total order across those service
   outputs.
@@ -532,13 +537,16 @@ registry, and that holds no graph state.
   capacity, so a successful domain admission cannot later fail because its
   core queue is full. Statistics allow
   one pending sample; additional periodic samples are self-superseding and are
-  refused until the graph dequeues it, after which the next sample reports the
+  refused until the graph receives it, after which the next sample reports the
   current state. Each active route or WebSocket client key also has a
   graph-owned lifetime generation. The external task stamps that generation on
   routed ingress, and the graph projection accepts it only while the same
   generation remains active. A queued event can therefore neither recreate a
-  removed output key nor cross a rapid remove/re-add boundary; the channel
-  queue remains the sole owner of event ordering and storage.
+  removed output key nor cross a rapid remove/re-add boundary. Domain record
+  and byte admission is released by a graph sink when the burst is taken from
+  the boundary queue. Any later same-key buffering belongs to standard graph
+  operators and is processing state, not transport admission or protocol
+  acknowledgement. The push source remains the sole cross-thread value queue.
 * No worker thread calls ``EvaluationEngineApi``, mutates a time series, or
   retains a borrowed graph value.  ``PushSourceSender`` is the only
   cross-thread runtime boundary; off-thread value construction runs under
@@ -551,11 +559,16 @@ Flow control and bounded memory
 -------------------------------
 
 Each standard push-source queue is bounded in records, and the web admission
-budget bounds its logical channel in records and bytes. At the configured high
+budget reserves its logical channel in records and bytes until the burst enters
+graph processing. At the configured high
 watermark (default 80%) the transport stops issuing socket reads — HTTP/1.1
 backpressure propagates naturally through TCP; the client pauses transfers
 with ``curl_easy_pause``; the future h2 session withholds window updates —
 and resumes below the low watermark (default 50%).
+These limits bound transport admission and reservation memory, not work that
+has already entered the graph.  A mapped ``emit`` queue is ordinary graph
+processing state; its size therefore follows the arrival-rate/processing-rate
+relationship rather than the transport byte budget.
 
 Server ingress admission is reservation-based, so payload memory outside
 the standard queue is bounded by the same domain limits. An HTTP
@@ -632,10 +645,13 @@ Ordering and time
   ``Date`` headers and payload timestamps are metadata.
 * Multiple requests pending on one route are delivered on consecutive
   ``MIN_TD`` cycles in arrival order.
-* FIFO ordering is scoped to one logical channel. HTTP ingress, WebSocket
-  ingress, delivery reports, diagnostics, and statistics are independent
-  service outputs: they may tick in the same cycle and a backlog in one does
-  not delay another.
+* Distinct route, WebSocket, or delivery-report keys pending in one channel
+  burst are distributed in the same keyed tick. Same-key arrival order remains
+  FIFO. Diagnostics are scalar and unroll one per cycle; statistics are
+  current-state samples and the latest sample in a burst wins.
+* HTTP ingress, WebSocket ingress, delivery reports, diagnostics, and
+  statistics are independent service outputs: they may tick in the same cycle
+  and a backlog in one does not delay another.
 * Route/key removal invalidates all ingress already queued for that subscription
   lifetime. Re-adding an equal key creates a new lifetime; old HTTP requests,
   server WebSocket events/frames, and client WebSocket events/frames are not
@@ -1014,12 +1030,13 @@ A per-request adaptor-duplex endpoint per route
    routes dynamic data instead of requiring a new wiring-time route
    enumeration mechanism.
 
-One standard push source per logical channel
+One standard burst push source per logical channel
    Selected. RFC 0027 removes the private value queues and wake-only nodes; it
    does not require unrelated service outputs to share one FIFO. HTTP ingress,
    WebSocket ingress, delivery reports, diagnostics, and statistics have no
-   public cross-channel ordering contract, so separate standard sources retain
-   FIFO where it is meaningful and avoid head-of-line blocking across domains.
+   public cross-channel ordering contract, so separate burst sources retain
+   per-key or scalar FIFO where it is meaningful, distribute distinct keyed
+   work, and avoid head-of-line blocking across domains.
    The sources share one graph-scoped runtime and admission budget and require
    no private queue or drain node.
 
@@ -1126,9 +1143,9 @@ Implementation plan
 7. Land HTTP/2 server activation (``nghttp2_session.cpp``) in a v1.x
    release behind the already-shipped seam.
 8. Migrate server, client, and fake transports to RFC 0027: one standard
-   bounded push source per independently ordered channel, graph projection and
-   command sink nodes, no private ``Value`` queue, and a separate real-time
-   wiring path.
+   bounded burst push source per independently ordered channel, graph
+   projection and command sink nodes, no private cross-thread ``Value`` queue,
+   and a separate real-time wiring path.
 
 Implementation status
 ---------------------
@@ -1142,10 +1159,12 @@ surface, and ``hgraph_web.compat`` — which now serves the released
 sealed seam per the activation plan above.
 
 The RFC 0027 web migration is also implemented: the former private per-channel
-value deques, wake-only push sources, and drain nodes are removed. One standard
-bounded push source per logical channel now owns asynchronous value storage and
-executor notification; web retains only data-free byte/reservation accounting
-and protocol policy.
+value deques, wake-only push sources, projection schedules, and drain nodes are
+removed. One standard bounded burst push source per logical channel now owns
+asynchronous cross-thread value storage and executor notification; web retains
+only byte/reservation accounting until graph handoff. Standard ``collect`` and
+mapped ``emit`` composition distributes public TSD keys without conflating
+same-key collisions.
 Live and callback-driven fake implementations reject simulation wiring.
 
 References

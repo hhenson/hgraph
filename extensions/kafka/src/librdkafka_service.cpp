@@ -47,13 +47,13 @@ namespace hgraph::kafka::detail {
 namespace {
 [[nodiscard]] Value
 subscription_envelope(const KafkaTransportBindings &bindings, Value key,
-                      std::optional<Value> record,
-                      std::optional<Value> cursor, KafkaSubscriptionState state,
+                      std::optional<Value> record, std::optional<Value> cursor,
+                      KafkaSubscriptionState state,
                       std::optional<DateTime> evaluation_time,
                       Bool recovery = false) {
   return subscription_transport_event(bindings, std::move(key),
-                                      std::move(record), std::move(cursor), state,
-                                      evaluation_time, recovery);
+                                      std::move(record), std::move(cursor),
+                                      state, evaluation_time, recovery);
 }
 
 [[nodiscard]] Value delivery_envelope(const KafkaTransportBindings &bindings,
@@ -669,12 +669,10 @@ class KafkaRuntime : public std::enable_shared_from_this<KafkaRuntime> {
 public:
   using Output = std::function<bool(Value)>;
 
-  KafkaRuntime(RuntimeConfig config, Str path,
-               KafkaTransportBindings bindings, Output output,
-               DateTime graph_start_time, bool simulation)
+  KafkaRuntime(RuntimeConfig config, Str path, KafkaTransportBindings bindings,
+               Output output, DateTime graph_start_time, bool simulation)
       : config_{std::move(config)}, path_{std::move(path)},
-        bindings_{std::move(bindings)},
-        output_{std::move(output)},
+        bindings_{std::move(bindings)}, output_{std::move(output)},
         graph_start_ms_{std::chrono::duration_cast<std::chrono::milliseconds>(
                             graph_start_time.time_since_epoch())
                             .count()},
@@ -867,18 +865,18 @@ public:
   emit_subscription(Value key, std::optional<Value> record,
                     std::optional<Value> cursor, KafkaSubscriptionState state,
                     std::optional<DateTime> evaluation_time = std::nullopt) {
-    return output_(subscription_envelope(
-        bindings_, std::move(key), std::move(record), std::move(cursor), state,
-        evaluation_time));
+    return output_(subscription_envelope(bindings_, std::move(key),
+                                         std::move(record), std::move(cursor),
+                                         state, evaluation_time));
   }
 
   bool emit_recovery_subscription(Value key, std::optional<Value> record,
                                   std::optional<Value> cursor,
                                   KafkaSubscriptionState state,
                                   std::optional<DateTime> evaluation_time) {
-    return output_(subscription_envelope(
-        bindings_, std::move(key), std::move(record), std::move(cursor), state,
-        evaluation_time, !simulation_));
+    return output_(subscription_envelope(bindings_, std::move(key),
+                                         std::move(record), std::move(cursor),
+                                         state, evaluation_time, !simulation_));
   }
 
   void begin_record_time_recovery(std::size_t participants) {
@@ -954,17 +952,17 @@ public:
       Value key, KafkaSubscriptionState state,
       std::optional<DateTime> evaluation_time = std::nullopt) noexcept {
     try {
-      static_cast<void>(output_(subscription_envelope(
-          bindings_, std::move(key), std::nullopt, std::nullopt, state,
-          evaluation_time)));
+      static_cast<void>(
+          output_(subscription_envelope(bindings_, std::move(key), std::nullopt,
+                                        std::nullopt, state, evaluation_time)));
     } catch (...) {
     }
   }
 
   bool emit_delivery(Int request_id, Value report) noexcept {
     try {
-      return output_(delivery_envelope(bindings_, request_id,
-                                       std::move(report)));
+      return output_(
+          delivery_envelope(bindings_, request_id, std::move(report)));
     } catch (...) {
       return false;
     }
@@ -2774,7 +2772,7 @@ struct KafkaGraphDeliveryCommitSink {
 
 struct KafkaRealtimeTransportTag {};
 
-[[nodiscard]] Port<TS<detail::KafkaTransportEvent>>
+[[nodiscard]] Port<TS<detail::KafkaTransportEventBatch>>
 wire_realtime_transport(Wiring &w, detail::RuntimeConfigHandle config, Str path,
                         detail::KafkaRuntimeHandle runtime,
                         detail::KafkaTransportBindingsHandle bindings) {
@@ -2914,8 +2912,7 @@ struct KafkaServiceImpl {
             wire<KafkaSimulationReplayNode>(w, ready, runtime_config,
                                             path.value(), runtime, queue)
                 .template as<TS<detail::KafkaTransportEventBatch>>();
-        return detail::wire_simulation_service_outputs(
-            w, replay, transport_bindings);
+        return detail::wire_service_outputs(w, replay, transport_bindings);
       }
       auto source = wire_realtime_transport(w, runtime_config, path.value(),
                                             runtime, transport_bindings);

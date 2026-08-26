@@ -1238,6 +1238,77 @@ TEST_CASE("real-time push source moves external polymorphic keys into graph pool
     CHECK_FALSE(second.contains(large_key.view()));
 }
 
+TEST_CASE("burst push source realizes polymorphic elements with the graph strategy")
+{
+    using namespace hgraph;
+
+    const auto schemas = push_polymorphic_schemas();
+    auto      &registry = TypeRegistry::instance();
+    const auto *tuple = registry.list(schemas.base, 0, true);
+    const auto *ts_tuple = registry.ts(tuple);
+    const auto *input_schema = hgraph::testing::single_input_schema(*ts_tuple);
+    const Value small = make_push_union(
+        schemas, make_push_leaf(schemas.small, Int{1}));
+    const Value large = make_push_union(
+        schemas, make_push_leaf(schemas.large, Int{2}, "large"));
+    std::vector<Int> observed;
+
+    PushSourceNodeExtension extension;
+    extension.on_start = [small, large](PushSourceSender sender,
+                                         const NodeView &, DateTime)
+    {
+        REQUIRE(sender.send_blocking(small));
+        REQUIRE(sender.send_blocking(large));
+    };
+
+    GraphBuilder graph_builder;
+    set_pooled_compound_scalar_storage(graph_builder.global_state());
+    graph_builder.type_realization(schemas.realization);
+    TypeRealizationScope realization_scope{schemas.realization.get()};
+    graph_builder.add_node(make_push_source_node_with_view(
+        *ts_tuple, make_push_source_burst_policy(*ts_tuple),
+        std::move(extension)));
+
+    NodeTypeMetaData sink_schema;
+    sink_schema.display_name = "testing_collecting_polymorphic_burst_sink";
+    sink_schema.input_schema = input_schema;
+    sink_schema.node_kind = NodeKind::Sink;
+    NodeCallbacks sink_callbacks;
+    sink_callbacks.evaluate = [&observed](const NodeView &view,
+                                           DateTime evaluation_time)
+    {
+        auto root = view.input(evaluation_time);
+        auto bundle = root.as_bundle();
+        const auto values = bundle[0].value().as_list();
+        for (std::size_t index = 0; index < values.size(); ++index)
+        {
+            observed.push_back(values[index].as_bundle()[0].checked_as<Int>());
+        }
+        view.graph().executor().request_stop();
+    };
+    graph_builder.add_node(NodeBuilder::native(
+        std::move(sink_schema), std::move(sink_callbacks),
+        hgraph::testing::single_input_endpoint(*input_schema, *ts_tuple)));
+    graph_builder.add_edge(GraphEdge{
+        .source_node = make_graph_edge_source(0),
+        .source_path = {},
+        .target_node = 1,
+        .target_path = {0},
+    });
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + TimeDelta{1'000'000});
+    auto executor = executor_builder.make_executor();
+    executor.view().run();
+
+    const std::vector<Int> expected{Int{1}, Int{2}};
+    CHECK(observed == expected);
+}
+
 TEST_CASE("real-time conflating push source emits only the latest pending value")
 {
     using namespace hgraph;

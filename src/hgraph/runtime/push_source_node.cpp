@@ -1,6 +1,7 @@
 #include <hgraph/runtime/push_source_node.h>
 
 #include <hgraph/runtime/executor.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value_builder.h>
@@ -107,7 +108,7 @@ namespace hgraph
                 if (burst_output_schema != nullptr)
                 {
                     burst_element_binding =
-                        ValuePlanFactory::instance().type_for(context.sender_schema);
+                        value_type_for_active_realization(context.sender_schema);
                     burst_value_binding = compact_list_type(
                         burst_element_binding, *burst_output_schema->value_schema);
                 }

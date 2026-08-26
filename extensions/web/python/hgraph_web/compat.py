@@ -134,6 +134,7 @@ from hgraph import (
     from_graph,
     graph,
     map_,
+    make_tsd,
     merge,
     register_adaptor,
     to_graph,
@@ -580,23 +581,19 @@ def _native_response(response: HttpResponse) -> WebHttpResponse:
     )
 
 
-# One node, not one per method plus a merge: the released request union is a
-# polymorphic bundle, and merging is expressed as a fixed list of its inputs,
-# which that union cannot be an element of.
+# Convert after route and method streams have been keyed. The released request
+# union is a polymorphic bundle, while its request id is the stable scalar key
+# that lets independent burst arrivals coexist in one graph cycle.
 @compute_node(valid=())
 def _to_compat_requests(
-    get: TS[WebHttpServerRequest],
-    post: TS[WebHttpServerRequest],
-    put: TS[WebHttpServerRequest],
-    delete: TS[WebHttpServerRequest],
+    served: TSD[int, TS[WebHttpServerRequest]],
     url: str,
     captures: int,
 ) -> TSD[int, TS[HttpRequest]]:
-    requests = {}
-    for served in (get, post, put, delete):
-        if served.modified:
-            value = served.value
-            requests[value.request_id] = _compat_request(value, url, captures)
+    requests = {
+        request_id: _compat_request(request.value, url, captures)
+        for request_id, request in served.modified_items()
+    }
     return requests or None
 
 
@@ -799,19 +796,27 @@ def _keyed_bundle_field_types(annotation) -> dict[str, _TsExpr] | None:
     }
 
 
-def _serve(route: _CompatRoute, method: HttpMethod, path: str, upgrade: bool = False):
-    """One request stream for a method across every pattern of ``route``.
-
-    The transport delivers one request per engine cycle across all routes, and
-    a path matches at most one of a route's patterns, so merging their streams
-    cannot lose a request.
-    """
-
-    served = [
+def _serve_streams(
+    route: _CompatRoute, method: HttpMethod, path: str, upgrade: bool = False
+):
+    del upgrade
+    return [
         web_serve(WebRoute(method, pattern), path=path)["request"]
         for pattern in route.patterns
     ]
-    return served[0] if len(served) == 1 else merge(*served)
+
+
+def _serve(route: _CompatRoute, method: HttpMethod, path: str, upgrade: bool = False):
+    """One keyed request stream for a method across every route pattern.
+
+    Burst ingress may deliver several distinct routes in one engine cycle.
+    Keying each route stream by the transport request id before merging keeps
+    those independent requests visible to the compatibility graph.
+    """
+
+    served = _serve_streams(route, method, path, upgrade)
+    keyed = [make_tsd(_server_request_id(request), request) for request in served]
+    return keyed[0] if len(keyed) == 1 else merge(*keyed, disjoint=True)
 
 
 def _serve_requests(url: str, route: _CompatRoute, path: str):
@@ -819,11 +824,13 @@ def _serve_requests(url: str, route: _CompatRoute, path: str):
 
     streams = [_serve(route, method, path) for method in _HANDLED_METHODS]
     for method in _REJECTED_METHODS:
-        request = _serve(route, method, path)
-        web_respond(
-            _server_request_id(request), _method_not_allowed(request), path=path
-        )
-    return _to_compat_requests(*streams, url=url, captures=route.captures)
+        for request in _serve_streams(route, method, path):
+            web_respond(
+                _server_request_id(request), _method_not_allowed(request), path=path
+            )
+    return _to_compat_requests(
+        merge(*streams, disjoint=True), url=url, captures=route.captures
+    )
 
 
 def _wire_responses(responses, path: str) -> None:

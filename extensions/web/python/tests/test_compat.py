@@ -245,6 +245,40 @@ def test_a_keyed_batch_handler_receives_and_answers_by_request_id(free_tcp_port)
     assert received[0].body == "payload"
 
 
+def test_distinct_route_requests_in_one_cycle_remain_keyed():
+    """Burst delivery must not collapse requests matched by separate patterns."""
+
+    bare = web.HttpServerRequest(
+        request_id=101,
+        connection_id=1,
+        stream_id=1,
+        request=web.HttpRequest(web.HttpMethod.GET, path="/rest"),
+        peer=web.WebPeer(),
+    )
+    captured = web.HttpServerRequest(
+        request_id=202,
+        connection_id=2,
+        stream_id=3,
+        request=web.HttpRequest(
+            web.HttpMethod.GET,
+            path="/rest/item",
+            path_params=(web.WebParam("arg0", "item"),),
+        ),
+        peer=web.WebPeer(),
+    )
+
+    [requests] = hg.eval_node(
+        compat._to_compat_requests,
+        [{101: bare, 202: captured}],
+        url="/rest/?(.*)",
+        captures=1,
+    )
+
+    assert set(requests) == {101, 202}
+    assert requests[101].url_parsed_args == ("",)
+    assert requests[202].url_parsed_args == ("item",)
+
+
 def test_a_keyed_auxiliary_output_stays_observable(free_tcp_port):
     audits = []
 

@@ -61,10 +61,14 @@ root push sources, and the graph reaches the sockets only through sink
 nodes — evaluation itself stays single-threaded, with the bounded boundary
 queues (and their short handoff locks) as the only cross-thread
 touchpoints.  Each independently ordered service-output channel has its own
-FIFO push source: HTTP ingress cannot sit behind a WebSocket, delivery-report,
-diagnostic, or statistics backlog.  FIFO is guaranteed within a channel; no
-total order is invented across channels, and active channels may tick in the
-same engine cycle.  A request
+burst push source: HTTP ingress cannot sit behind a WebSocket, delivery-report,
+diagnostic, or statistics backlog.  Distinct route, connection, or request-id
+keys pending in one burst tick together; repeated values for one key retain
+FIFO order over consecutive ``MIN_TD`` cycles.  The keyed paths use standard
+``collect`` plus mapped ``emit`` graph composition; scalar diagnostic streams
+use standard ``emit`` directly, while statistics use the latest sample.  No total
+order is invented across channels, and active channels may tick in the same
+engine cycle.  A request
 that a same-cycle handler can answer dispatches its response in that same
 engine cycle; there is no per-request feedback cycle.
 
@@ -386,9 +390,12 @@ Flow control and memory bounds
 Every boundary queue is bounded in **records and bytes**, and the byte
 accounting is real: a request's admission is *reserved* against
 ``ingress_byte_limit`` before its body is even read off the socket, so a
-flood cannot make the graph retain more than you configured — the excess
-stays in the kernel (HTTP/1.1 and WebSocket via paused reads, HTTP/2 via
-withheld per-stream flow-control window).  At the configured watermarks
+flood cannot make the transport boundary retain more than you configured —
+the excess stays in the kernel (HTTP/1.1 and WebSocket via paused reads,
+HTTP/2 via withheld per-stream flow-control window).  Capacity is released
+when a burst enters graph processing; any later mapped ``emit`` backlog is
+ordinary graph state and is not charged to the transport budget.  At the
+configured watermarks
 (``watermark_high_pct`` / ``watermark_low_pct``) socket reads pause and
 resume; at the hard limit the ``inbound_overflow`` policy applies:
 

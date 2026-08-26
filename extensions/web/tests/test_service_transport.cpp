@@ -115,8 +115,13 @@ void test_watermarks_follow_graph_dequeue_accounting() {
   // standard push-source output. Capacity therefore means queued work, not
   // protocol completion or acknowledgement.
   budget->release(0, 400, false);
+  require(budget->payload_pending(0) == 1,
+          "one graph dequeue released more than one admitted record");
   require(transitions == std::vector<bool>{true, false},
           "low watermark did not resume after graph dequeue");
+  budget->release(0, 400, false);
+  require(budget->payload_pending(0) == 0,
+          "graph dequeue accounting did not return to zero");
   budget->stop();
 }
 
