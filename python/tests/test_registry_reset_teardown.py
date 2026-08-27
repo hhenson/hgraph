@@ -6,6 +6,7 @@ through a plan the reset freed. Linux segfaults; macOS's allocator keeps the
 pages mapped and the same UB passes silently, so this test is only meaningful
 as a subprocess exit-code assertion -- an in-process check cannot observe it.
 """
+import os
 import subprocess
 import sys
 import textwrap
@@ -26,7 +27,14 @@ RESET_THEN_EXIT = textwrap.dedent(
 
 
 def _run(source):
-    return subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+    # Hand the child this process's sys.path so it exercises the hgraph under
+    # test rather than whatever happens to be installed in the interpreter's
+    # site-packages -- otherwise a stale installed extension turns a crash
+    # assertion into an unrelated ImportError.
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+    return subprocess.run(
+        [sys.executable, "-c", source], capture_output=True, text=True, env=env
+    )
 
 
 def test_reset_then_ordinary_exit_does_not_crash():
