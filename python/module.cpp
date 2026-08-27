@@ -166,7 +166,20 @@ NB_MODULE(_hgraph, m)
     // stdout sinks cache the raw OS handle at construction, so tests that
     // redirect fds per-test (pytest capfd) must reset before logging.
     m.def("reset_logger", [] { hgraph::log::reset_logger(); });
-    m.def("reset_registries", [] {
+    // Python-side caches that hold nanobind-wrapped natives must be dropped
+    // BEFORE the native teardown below, for the same reason the C++ teardown
+    // is ordered: a wrapper outliving the plan its destructor dispatches
+    // through is a dangling call, and the final GC at interpreter exit is
+    // where it lands (issue #505).  A cache that cannot be reached from here
+    // registers a hook instead of growing a second teardown sequence.
+    m.attr("_reset_hooks") = nb::list();
+    m.def("register_reset_hook", [m](nb::callable hook) {
+        nb::cast<nb::list>(m.attr("_reset_hooks")).append(hook);
+    });
+    m.def("reset_registries", [m] {
+        for (auto hook : nb::cast<nb::list>(m.attr("_reset_hooks"))) {
+            nb::cast<nb::callable>(hook)();
+        }
         python_bridge::enum_class_registry().clear();   // meta pointers are re-interned
         python_bridge::enum_type_registry().clear();
         python_bridge::enum_to_python_registry().clear();

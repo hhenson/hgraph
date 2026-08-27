@@ -6,6 +6,26 @@ import _hgraph
 from ._sentinels import REMOVE, Removed, _SetDelta
 
 _global_state_local = threading.local()
+
+
+def _clear_thread_local_state():
+    """Drop this thread's cached GlobalState before a registry reset.
+
+    ``GlobalState.instance()`` caches a native-backed store on the
+    thread-local. A reset frees the plans that store's destructor dispatches
+    through, so the wrapper has to die while they are still alive -- otherwise
+    it is collected at interpreter exit and calls through freed memory, which
+    is a segfault on Linux and silent UB on macOS (issue #505).
+
+    Registered as a reset hook rather than left to self-invalidate on next
+    access: a script that resets and exits never makes that access, and the
+    stale wrapper is exactly what teardown then collects.
+    """
+    for attribute in list(vars(_global_state_local)):
+        delattr(_global_state_local, attribute)
+
+
+_hgraph.register_reset_hook(_clear_thread_local_state)
 _GLOBAL_MISSING = object()
 _GRAPH_LOGGER_KEY = "__hgraph_graph_logger__"
 _GRAPH_LOGGER_FORMATTER_KEY = "__hgraph_graph_logger_formatter__"
