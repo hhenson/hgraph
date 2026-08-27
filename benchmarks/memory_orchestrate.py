@@ -182,15 +182,17 @@ def run_one(mode: str, profile: str, measurement: str, interval_ms: float,
                 "error": f"timeout after {timeout}s"}
     for line in proc.stdout.splitlines():
         if line.startswith("@@RESULT@@"):
-            return json.loads(line[len("@@RESULT@@"):])
-    return {
+            return performance.sanitize_public_artifact(
+                json.loads(line[len("@@RESULT@@"):])
+            )
+    return performance.sanitize_public_artifact({
         "profile": profile,
         "ok": False,
         "error": (
             f"no result line (exit {proc.returncode})\n"
             f"stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}"
         ),
-    }
+    })
 
 
 def aggregate_samples(samples: list[dict]) -> dict:
@@ -625,7 +627,9 @@ def main() -> int:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
     raw_path = RESULTS_DIR / f"memory-raw-{stamp}.json"
     report_path = RESULTS_DIR / f"memory-matrix-{stamp}.md"
-    raw_path.write_text(json.dumps(payload, indent=2) + "\n")
+    raw_path.write_text(
+        json.dumps(performance.sanitize_public_artifact(payload), indent=2) + "\n"
+    )
     report = render(results, inspector, args.samples,
                     args.sampling_interval_ms, metadata, inspector_mode)
     report_path.write_text(report)

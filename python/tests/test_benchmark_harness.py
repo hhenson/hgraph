@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import subprocess
 
 
 _ORCHESTRATE_PATH = (
@@ -26,6 +27,57 @@ def _sample(seconds, rss=10.0):
         "cycles": 100,
         "max_rss_mb": rss,
     }
+
+
+def test_first_line_accepts_compiler_banner_from_failed_stderr(monkeypatch):
+    banner = "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256"
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=2, stdout="", stderr=banner + "\n"
+        ),
+    )
+
+    assert orchestrate._first_line(["cl", "--version"]) == banner
+
+
+def test_first_line_reports_unknown_when_command_has_no_output(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr=""
+        ),
+    )
+
+    assert orchestrate._first_line(["missing", "--version"]) == "unknown"
+
+
+def test_public_benchmark_artifacts_redact_developer_local_paths(
+    monkeypatch, tmp_path
+):
+    repo = tmp_path / "checkout"
+    home = tmp_path / "developer"
+    monkeypatch.setattr(orchestrate, "REPO_ROOT", repo)
+    monkeypatch.setenv("HOME", str(home))
+
+    sanitized = orchestrate.sanitize_public_artifact({
+        "native_module": str(repo / ".venv" / "_hgraph.so"),
+        "error": f"failed in {home / 'private' / 'source.cpp'}",
+        "samples": [{"native_module": "/opt/hgraph/_hgraph.so"}],
+    })
+
+    assert sanitized["native_module"] == "<repo>/.venv/_hgraph.so"
+    assert sanitized["error"] == "failed in <home>/private/source.cpp"
+    assert sanitized["samples"][0]["native_module"] == "_hgraph.so"
+
+    monkeypatch.setattr(
+        orchestrate, "REPO_ROOT", orchestrate.PureWindowsPath(r"C:\checkout")
+    )
+    assert orchestrate._portable_native_module(
+        r"C:\checkout\benchmarks\_hgraph.pyd"
+    ) == "<repo>/benchmarks/_hgraph.pyd"
 
 
 def test_benchmark_samples_use_median_and_report_spread():
