@@ -21,7 +21,7 @@ namespace hgraph
     {
         Peered,
         NonPeered,
-        Owned,
+        Local,
     };
 
     /**
@@ -31,8 +31,14 @@ namespace hgraph
      * endpoint annotation records how runtime endpoint state is constructed for
      * each level of that schema: a non-peered collection prefix or a peered
      * terminal. Once traversal reaches a peered node, that entire subtree is
-     * associated with one output peering. An owned terminal uses ordinary local
-     * TSData storage for the whole remaining subtree.
+     * associated with one output peering. A ``Local`` terminal instead holds
+     * its own TSData storage for the whole remaining subtree.
+     *
+     * ``Local`` answers "who owns the time-series STATE" — this endpoint, or
+     * the output it is peered with. It is unrelated to ``ValueTypeFlags::Owned``,
+     * which answers "how are a scalar's BYTES laid out"; the two are chosen by
+     * different factories from different inputs, and a peered endpoint over a
+     * carried value is an ordinary combination.
      */
     class HGRAPH_EXPORT TSEndpointSchema
     {
@@ -42,8 +48,8 @@ namespace hgraph
         /** Peered terminal for ``schema``; no child annotation is needed. */
         [[nodiscard]] static TSEndpointSchema peered(const TSValueTypeMetaData *schema);
 
-        /** Owned terminal for ``schema``; ordinary TSData storage is used. */
-        [[nodiscard]] static TSEndpointSchema owned(const TSValueTypeMetaData *schema);
+        /** Local terminal for ``schema``; it holds its own TSData storage. */
+        [[nodiscard]] static TSEndpointSchema local(const TSValueTypeMetaData *schema);
 
         /**
          * Non-peered TSB, fixed-size TSL, or dynamic TSD prefix with explicit child
@@ -84,7 +90,7 @@ namespace hgraph
         [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
         [[nodiscard]] bool is_peered() const noexcept;
         [[nodiscard]] bool is_non_peered() const noexcept;
-        [[nodiscard]] bool is_owned() const noexcept;
+        [[nodiscard]] bool is_local() const noexcept;
 
         [[nodiscard]] std::size_t child_count() const noexcept;
         [[nodiscard]] const TSEndpointSchema &child(std::size_t index) const;

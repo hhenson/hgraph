@@ -236,7 +236,7 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
         const auto data = factory.data_type_for(schema);
         const auto output = factory.output_type_for(schema);
         TSInput owned{TSInputBuilderFactory::checked_builder_for(
-            *schema, TSEndpointSchema::owned(schema))};
+            *schema, TSEndpointSchema::local(schema))};
         const auto input = owned.type_ref();
         const auto &plan = data.checked_plan();
 

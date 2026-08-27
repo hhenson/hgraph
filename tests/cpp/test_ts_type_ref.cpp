@@ -149,7 +149,7 @@ TEST_CASE("scalar time-series role records are canonical, exact, and thread stab
 
     const auto data = factory.data_type_for(schema);
     const auto output = factory.output_type_for(schema);
-    const auto input_builder = TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::owned(schema));
+    const auto input_builder = TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::local(schema));
     TSInput input{input_builder};
     const auto input_type = input.type_ref();
 
@@ -215,7 +215,7 @@ TEST_CASE("scalar role references validate AnyPtr boundaries and enforce role mu
     }
     REQUIRE(data.view().value().checked_as<std::int32_t>() == 42);
 
-    TSInput owned{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::owned(schema))};
+    TSInput owned{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::local(schema))};
     REQUIRE(owned.type_ref().record() != nullptr);
     REQUIRE_THROWS_AS(owned.view(nullptr, MIN_ST).data_view().begin_mutation(MIN_ST), std::logic_error);
 }
@@ -353,8 +353,8 @@ TEST_CASE("mixed fixed output topology preserves Output roles through forwarding
     const auto endpoint = TSEndpointSchema::non_peered(
         root,
         {TSEndpointSchema::non_peered(
-             inner, {TSEndpointSchema::owned(ts), TSEndpointSchema::peered(ts)}),
-         TSEndpointSchema::owned(ts)});
+             inner, {TSEndpointSchema::local(ts), TSEndpointSchema::peered(ts)}),
+         TSEndpointSchema::local(ts)});
 
     TSOutput output{endpoint};
     auto root_view = output.view(MIN_ST);
@@ -413,7 +413,7 @@ TEST_CASE("composed fixed input ownership remains local across copy move rebind 
                 nested,
                 {
                     TSEndpointSchema::non_peered_list(list, TSEndpointSchema::peered(ts)),
-                    TSEndpointSchema::owned(ts),
+                    TSEndpointSchema::local(ts),
                 }),
         });
     const auto &builder = TSInputBuilderFactory::checked_builder_for(*root, endpoint);
@@ -644,7 +644,7 @@ TEST_CASE("fixed ownership traversal has the same local boundary for Data Input 
     verify(data.view(), TypeRole::Data);
 
     TSInput input{TSInputBuilderFactory::checked_builder_for(
-        *root_schema, TSEndpointSchema::owned(root_schema))};
+        *root_schema, TSEndpointSchema::local(root_schema))};
     verify(input.view().data_view().borrowed_ref(), TypeRole::Input);
 
     TSOutput output{root_schema};
@@ -702,7 +702,7 @@ TEST_CASE("fixed input records describe owned target composite and embedded topo
     const auto *list = registry.tsl(ts, 2);
     const auto *root = registry.tsb("FixedInputRoles", {{"owned", ts}, {"target", ts}, {"items", list}});
 
-    TSInput owned{TSInputBuilderFactory::checked_builder_for(*root, TSEndpointSchema::owned(root))};
+    TSInput owned{TSInputBuilderFactory::checked_builder_for(*root, TSEndpointSchema::local(root))};
     REQUIRE(owned.type_ref().schema() == root);
     REQUIRE(std::string{owned.type_ref().record()->implementation_name()} == "ts.fixed.input.owned");
 
@@ -712,8 +712,8 @@ TEST_CASE("fixed input records describe owned target composite and embedded topo
 
     const auto composite_schema = TSEndpointSchema::non_peered(
         root,
-        {TSEndpointSchema::owned(ts), TSEndpointSchema::peered(ts),
-         TSEndpointSchema::non_peered_list(list, TSEndpointSchema::owned(ts))});
+        {TSEndpointSchema::local(ts), TSEndpointSchema::peered(ts),
+         TSEndpointSchema::non_peered_list(list, TSEndpointSchema::local(ts))});
     TSInput composite{TSInputBuilderFactory::checked_builder_for(*root, composite_schema)};
     const auto root_type = composite.type_ref();
     REQUIRE(root_type.schema() == root);
@@ -781,7 +781,7 @@ TEST_CASE("keyed and reference role records preserve root input and projection t
              std::tuple{tsd, "ts.tsd.input.owned", "ts.tsd.input.target"},
              std::tuple{ref, "ts.ref.input.owned", "ts.ref.input.target"}})
     {
-        TSInput owned{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::owned(schema))};
+        TSInput owned{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::local(schema))};
         TSInput target{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
         REQUIRE(label(owned.type_ref()) == owned_label);
         REQUIRE(label(target.type_ref()) == target_label);
@@ -817,7 +817,7 @@ TEST_CASE("TSB strategies publish debugger fields through inspection operations"
         "InspectionOpsBundle", {{"left", ts}, {"right", ts}});
 
     TSInput owned{TSInputBuilderFactory::checked_builder_for(
-        *bundle, TSEndpointSchema::owned(bundle))};
+        *bundle, TSEndpointSchema::local(bundle))};
     TSInput composite{TSInputBuilderFactory::checked_builder_for(
         *bundle,
         TSEndpointSchema::non_peered(
@@ -994,7 +994,7 @@ TEST_CASE("dynamic TSL and TSW role records are canonical distinct and exactly l
         const auto data = factory.data_type_for(item.schema);
         const auto output = factory.output_type_for(item.schema);
         TSInput owned{TSInputBuilderFactory::checked_builder_for(
-            *item.schema, TSEndpointSchema::owned(item.schema))};
+            *item.schema, TSEndpointSchema::local(item.schema))};
         TSInput target{TSInputBuilderFactory::checked_builder_for(
             *item.schema, TSEndpointSchema::peered(item.schema))};
 
@@ -1039,7 +1039,7 @@ TEST_CASE("dynamic TSL and TSW records preserve roles through fixed parents")
 
     TSData data{TSDataPlanFactory::instance().data_type_for(root)};
     TSOutput output{root};
-    TSInput input{TSInputBuilderFactory::checked_builder_for(*root, TSEndpointSchema::owned(root))};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root, TSEndpointSchema::local(root))};
 
     struct ParentCase
     {
@@ -1623,7 +1623,7 @@ TEST_CASE("dynamic TSL and TSW role contexts reset and reseed without stale reco
             TSData data{factory.data_type_for(schema)};
             TSOutput output{schema};
             TSInput owned{TSInputBuilderFactory::checked_builder_for(
-                *schema, TSEndpointSchema::owned(schema))};
+                *schema, TSEndpointSchema::local(schema))};
             TSInput target{TSInputBuilderFactory::checked_builder_for(
                 *schema, TSEndpointSchema::peered(schema))};
             labels.emplace_back(data.type_ref().record()->implementation_name());
@@ -1661,7 +1661,7 @@ TEST_CASE("fixed role caches reset after owners are destroyed and reseed cleanly
         old_schema = registry.tsb("FixedResetBundle", {{"items", list}, {"target", ts}});
         const auto endpoint = TSEndpointSchema::non_peered(
             old_schema,
-            {TSEndpointSchema::non_peered_list(list, TSEndpointSchema::owned(ts)),
+            {TSEndpointSchema::non_peered_list(list, TSEndpointSchema::local(ts)),
              TSEndpointSchema::peered(ts)});
 
         TSData data{TSDataPlanFactory::instance().data_type_for(old_schema)};
@@ -1689,7 +1689,7 @@ TEST_CASE("fixed role caches reset after owners are destroyed and reseed cleanly
     const auto *schema = registry.tsb("FixedResetBundle", {{"items", list}, {"target", ts}});
     const auto endpoint = TSEndpointSchema::non_peered(
         schema,
-        {TSEndpointSchema::non_peered_list(list, TSEndpointSchema::owned(ts)),
+        {TSEndpointSchema::non_peered_list(list, TSEndpointSchema::local(ts)),
          TSEndpointSchema::peered(ts)});
     TSData data{TSDataPlanFactory::instance().data_type_for(schema)};
     TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, endpoint)};

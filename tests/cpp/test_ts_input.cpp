@@ -168,15 +168,15 @@ TEST_CASE("TSInput storage caching excludes endpoint trees with owned payloads")
          TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
     const auto owned_leaf = TSEndpointSchema::non_peered(
         root,
-        {TSEndpointSchema::owned(ts),
+        {TSEndpointSchema::local(ts),
          TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
     const auto owned_subtree = TSEndpointSchema::non_peered(
         root,
-        {TSEndpointSchema::peered(ts), TSEndpointSchema::owned(inner)});
+        {TSEndpointSchema::peered(ts), TSEndpointSchema::local(inner)});
 
     REQUIRE(input_storage_type_is_realization_invariant(TSEndpointSchema::peered(root)));
     REQUIRE(input_storage_type_is_realization_invariant(all_peered));
-    REQUIRE_FALSE(input_storage_type_is_realization_invariant(TSEndpointSchema::owned(root)));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(TSEndpointSchema::local(root)));
     REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_leaf));
     REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_subtree));
 }
@@ -297,7 +297,7 @@ TEST_CASE("cached TSInput builders resolve owned polymorphic storage in each gra
     registry.bundle(
         "tests.ts_input_cache.realization", "First", {{"id", integer}, {"value", integer}}, {base});
     const auto *polymorphic = registry.ts(base);
-    const auto endpoint = TSEndpointSchema::owned(polymorphic);
+    const auto endpoint = TSEndpointSchema::local(polymorphic);
 
     const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
     const TSInputBuilder *builder = nullptr;
@@ -343,7 +343,7 @@ TEST_CASE("cached composite TSInput builders re-realize owned polymorphic leaves
     const auto *root = registry.tsb(
         "TSInputCacheCompositeRoot", {{"owned", polymorphic}, {"peered", scalar}});
     const auto endpoint = TSEndpointSchema::non_peered(
-        root, {TSEndpointSchema::owned(polymorphic), TSEndpointSchema::peered(scalar)});
+        root, {TSEndpointSchema::local(polymorphic), TSEndpointSchema::peered(scalar)});
     const auto owned_binding = [](TSInput &input) {
         auto root_view = input.view();
         auto bundle = root_view.as_bundle();
@@ -387,7 +387,7 @@ TEST_CASE("cached owned TSS inputs re-realize polymorphic keys")
     const auto *base = registry.bundle("tests.ts_input_cache.tss", "Base", {{"id", integer}}, {}, true);
     registry.bundle("tests.ts_input_cache.tss", "First", {{"id", integer}, {"value", integer}}, {base});
     const auto *schema = registry.tss(base);
-    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto endpoint = TSEndpointSchema::local(schema);
     const auto key_binding = [](TSInput &input)
     {
         auto root = input.view();
@@ -437,7 +437,7 @@ TEST_CASE("cached owned TSD inputs re-realize polymorphic keys and values")
     registry.bundle("tests.ts_input_cache.tsd_key", "First", {{"id", integer}, {"value", integer}}, {key_base});
     registry.bundle("tests.ts_input_cache.tsd_value", "First", {{"id", integer}, {"value", integer}}, {value_base});
     const auto *schema = registry.tsd(key_base, registry.ts(value_base));
-    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto endpoint = TSEndpointSchema::local(schema);
     const auto bindings = [](TSInput &input)
     {
         auto root = input.view();
@@ -501,7 +501,7 @@ TEST_CASE("cached composite TSD inputs re-realize polymorphic keys and owned "
                     {value_base});
     const auto *element = registry.ts(value_base);
     const auto *schema = registry.tsd(key_base, element);
-    const auto endpoint = TSEndpointSchema::non_peered_dict(schema, TSEndpointSchema::owned(element));
+    const auto endpoint = TSEndpointSchema::non_peered_dict(schema, TSEndpointSchema::local(element));
     const auto bindings = [](TSInput &input)
     {
         auto root = input.view();
@@ -557,7 +557,7 @@ TEST_CASE("cached owned dynamic TSL inputs re-realize polymorphic elements")
     const auto *base = registry.bundle("tests.ts_input_cache.dynamic_tsl", "Base", {{"id", integer}}, {}, true);
     registry.bundle("tests.ts_input_cache.dynamic_tsl", "First", {{"id", integer}, {"value", integer}}, {base});
     const auto *schema = registry.tsl(registry.ts(base));
-    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto endpoint = TSEndpointSchema::local(schema);
     const auto element_binding = [](TSInput &input)
     {
         auto root = input.view();
@@ -608,7 +608,7 @@ TEST_CASE("cached owned TSW inputs re-realize polymorphic elements")
     const auto *base = registry.bundle("tests.ts_input_cache.tsw", "Base", {{"id", integer}}, {}, true);
     registry.bundle("tests.ts_input_cache.tsw", "First", {{"id", integer}, {"value", integer}}, {base});
     const auto *schema = registry.tsw(base, 3, 1);
-    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto endpoint = TSEndpointSchema::local(schema);
     const auto element_binding = [](TSInput &input)
     {
         auto root = input.view();
@@ -668,7 +668,7 @@ TEST_CASE("cached wholly owned fixed inputs re-realize nested keyed and dynamic 
     const auto *dict = registry.tsd(key_base, registry.ts(dict_base));
     const auto *list = registry.tsl(registry.ts(list_base));
     const auto *root = registry.tsb("TSInputCacheNestedOwnedRoot", {{"dict", dict}, {"list", list}});
-    const auto endpoint = TSEndpointSchema::owned(root);
+    const auto endpoint = TSEndpointSchema::local(root);
     const auto bindings = [](TSInput &input)
     {
         auto root_view = input.view();
@@ -1332,7 +1332,7 @@ TEST_CASE("TSInput projected owned children use their nonzero child storage offs
         "TSInputOwnedChildOffsets", {{"first", ts_int}, {"second", ts_int}, {"third", ts_int}});
     const auto annotation = TSEndpointSchema::non_peered(
         root,
-        {TSEndpointSchema::owned(ts_int), TSEndpointSchema::owned(ts_int), TSEndpointSchema::owned(ts_int)});
+        {TSEndpointSchema::local(ts_int), TSEndpointSchema::local(ts_int), TSEndpointSchema::local(ts_int)});
 
     Value snapshot;
     Value clone;
@@ -2454,7 +2454,7 @@ TEST_CASE("TSW ranges use stable ops contexts across data and endpoint roles")
     REQUIRE(range_size(output_window.value_times()) == 3);
 
     TSInput owned{TSInputBuilderFactory::checked_builder_for(
-        *schema, TSEndpointSchema::owned(schema))};
+        *schema, TSEndpointSchema::local(schema))};
     auto owned_root = owned.view(nullptr, t3);
     auto owned_window = owned_root.as_window();
     auto owned_data = owned_window.data_view();

@@ -155,10 +155,10 @@ namespace hgraph
         return TSEndpointSchema{TSEndpointRole::Peered, schema, {}};
     }
 
-    TSEndpointSchema TSEndpointSchema::owned(const TSValueTypeMetaData *schema)
+    TSEndpointSchema TSEndpointSchema::local(const TSValueTypeMetaData *schema)
     {
         validate_schema(schema, "TSEndpointSchema::owned requires a schema");
-        return TSEndpointSchema{TSEndpointRole::Owned, schema, {}};
+        return TSEndpointSchema{TSEndpointRole::Local, schema, {}};
     }
 
     TSEndpointSchema TSEndpointSchema::non_peered(
@@ -228,9 +228,9 @@ namespace hgraph
         return role_ == TSEndpointRole::NonPeered && schema_ != nullptr;
     }
 
-    bool TSEndpointSchema::is_owned() const noexcept
+    bool TSEndpointSchema::is_local() const noexcept
     {
-        return role_ == TSEndpointRole::Owned && schema_ != nullptr;
+        return role_ == TSEndpointRole::Local && schema_ != nullptr;
     }
 
     std::size_t TSEndpointSchema::child_count() const noexcept

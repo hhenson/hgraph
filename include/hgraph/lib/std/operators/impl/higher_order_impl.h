@@ -1101,7 +1101,7 @@ namespace hgraph::stdlib
             }
             if (depth == source_path.size())
             {
-                return peered_terminal ? TSEndpointSchema::peered(schema) : TSEndpointSchema::owned(schema);
+                return peered_terminal ? TSEndpointSchema::peered(schema) : TSEndpointSchema::local(schema);
             }
 
             const auto selected = source_path[depth];
@@ -1119,7 +1119,7 @@ namespace hgraph::stdlib
                 children.push_back(index == selected
                                        ? switch_branch_output_endpoint_schema_for(
                                              child_schema, source_path, peered_terminal, depth + 1)
-                                       : TSEndpointSchema::owned(child_schema));
+                                       : TSEndpointSchema::local(child_schema));
             }
             return TSEndpointSchema::non_peered(schema, std::move(children));
         }
@@ -2607,7 +2607,7 @@ namespace hgraph::stdlib
             element. A terminal with endpoint topology of its own, including
             the synthetic REF used for composed fixed structures, stays owned
             by the child and the element forwards to it. Only an ordinary
-            owned terminal with the exact public schema is re-homed so it can
+            local terminal with the exact public schema is re-homed so it can
             write directly into the container element. */
         [[nodiscard]] inline MapOutputBindingMode configure_mapped_child_terminal(
             NodeBuilder &terminal,
