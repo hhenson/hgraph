@@ -1,7 +1,7 @@
 RFC 0028: Shared Value Representation
 =====================================
 
-:Status: Accepted (core and Kafka migration complete; web migration pending)
+:Status: Accepted (core, Kafka, and web migrations complete)
 :Author: Howard Henson
 :Created: 2026-08-24
 :Updated: 2026-08-27
@@ -293,10 +293,17 @@ The core implementation includes:
 Kafka subscription ingress now retains its record field as
 ``Shared<KafkaRecord>`` in the private cross-thread transport envelope.  The
 public service remains ``TS<KafkaRecord>`` and materialises one concrete copy
-at graph publication, so native and Python clients see no schema change.  Web
-transport remains a separately measurable follow-up.  The representation
-contract does not require every struct to become shared; sites opt in where
-retention data justifies it.
+at graph publication, so native and Python clients see no schema change.
+
+Web ingress retains the six private request, response, WebSocket, delivery,
+and event envelopes as ``Shared<T>`` values.  One envelope allocation now
+survives burst delivery, keyed grouping, standard ``collect``/``emit`` state,
+and graph publication.  Projection nodes checked-downcast the immutable
+envelope and keep the public HTTP, WebSocket, delivery, and event time-series
+schemas unchanged.  Small, self-superseding statistics remain inline because
+they do not have the same retained-copy fan-out.  The representation contract
+does not require every struct to become shared; sites opt in where retention
+data justifies it.
 
 Kafka transport evidence
 ------------------------
@@ -350,6 +357,93 @@ records with a 64 KiB payload was:
 This is the deterministic native retention segment, not broker/network
 latency.  Full Kafka service tests continue to cover real and mock broker
 ordering, recovery, lifecycle, and public C++/Python value behavior.
+
+Web transport evidence
+----------------------
+
+``hgraph_web_transport_perf`` retains the former plain transport schema as an
+A/B control and exercises server-request event construction, burst storage,
+graph-side retained copies, and the public ``HttpServerRequest`` projection.
+Latency and allocation measurements cover 20,000 requests.  Retained memory
+holds 64 requests concurrently so the process-wide arena reservation is
+reported at a representative bounded-ingress occupancy instead of being
+attributed entirely to one handle.
+
+Run from a Release ``cpp`` preset build with:
+
+.. code-block:: console
+
+   ./cmake-build-cpp/extensions/web/tests/hgraph_web_transport_perf
+   HGRAPH_WEB_TRANSPORT_PERF_PAYLOAD_BYTES=256 \
+     ./cmake-build-cpp/extensions/web/tests/hgraph_web_transport_perf
+
+On the same Apple M4 Max host, the median of three runs with a 256-byte body
+was:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 14 14 14 20 20
+
+   * - Envelope
+     - p50 ns
+     - p99 ns
+     - allocations / request
+     - allocated bytes / request
+     - tracked retained bytes
+   * - Plain control
+     - 4,166
+     - 5,334
+     - 18
+     - 38,640
+     - 214,016
+   * - Shared envelope
+     - 1,458
+     - 1,917
+     - 14
+     - 4,880
+     - 177,424
+   * - Change
+     - -65.0%
+     - -64.1%
+     - -22.2%
+     - -87.4%
+     - -17.1%
+
+With a 64 KiB body the median was:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 14 14 14 20 20
+
+   * - Envelope
+     - p50 ns
+     - p99 ns
+     - allocations / request
+     - allocated bytes / request
+     - tracked retained bytes
+   * - Plain control
+     - 10,583
+     - 13,625
+     - 18
+     - 430,320
+     - 12,747,776
+   * - Shared envelope
+     - 3,542
+     - 4,833
+     - 14
+     - 135,440
+     - 8,533,264
+   * - Change
+     - -66.5%
+     - -64.5%
+     - -22.2%
+     - -68.5%
+     - -33.1%
+
+These results isolate the deterministic value-retention segment rather than
+socket or protocol latency.  The web service, live HTTP/WebSocket loopback,
+and Python suites continue to cover ordering, backpressure, lifecycle, and
+the unchanged public value shapes.
 
 Acceptance criteria
 -------------------

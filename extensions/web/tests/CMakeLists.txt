@@ -27,6 +27,28 @@ add_executable(hgraph_web_h2_loopback_tests
 add_executable(hgraph_web_h2spec_server
     h2spec_server.cpp
 )
+add_executable(hgraph_web_transport_perf
+    transport_perf.cpp
+)
+target_compile_features(hgraph_web_transport_perf PRIVATE cxx_std_23)
+target_link_libraries(hgraph_web_transport_perf PRIVATE hgraph::web)
+target_include_directories(hgraph_web_transport_perf
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+if(MSVC)
+    target_compile_options(hgraph_web_transport_perf PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(hgraph_web_transport_perf PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # This benchmark replaces global new/delete to count allocations. GCC can
+    # pair an inlined replacement new with the replacement delete and report
+    # a spurious mismatched-new-delete warning.
+    target_compile_options(hgraph_web_transport_perf PRIVATE -Wno-mismatched-new-delete)
+endif()
+if(HGRAPH_ENABLE_TSAN AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(hgraph_web_h2spec_server PRIVATE -Wno-error=tsan)
+    target_compile_options(hgraph_web_transport_perf PRIVATE -Wno-error=tsan)
+endif()
 target_compile_features(hgraph_web_h2spec_server PRIVATE cxx_std_23)
 target_link_libraries(hgraph_web_h2spec_server PRIVATE hgraph::web)
 # The loopback oracle is an independent Beast synchronous client, so this
@@ -62,6 +84,10 @@ foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    if(HGRAPH_ENABLE_TSAN AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${target} PRIVATE -Wno-error=tsan)
     endif()
 
     add_test(NAME ${target} COMMAND ${target})

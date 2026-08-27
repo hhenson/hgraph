@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Retain the private request, response, WebSocket, delivery, and event
+  transport envelopes as immutable `Shared<T>` allocations across the
+  push-source and graph-buffering path. Public web service schemas remain
+  unchanged and receive one concrete projection at publication.
+- Keep server timer handles immutable during shutdown so graph teardown cannot
+  race an Asio timer callback copying the same handle.
 - Initial extension skeleton (RFC 0024).
 - Service tier: one standard bounded burst push source per independently
   ordered logical channel, avoiding cross-channel head-of-line blocking while

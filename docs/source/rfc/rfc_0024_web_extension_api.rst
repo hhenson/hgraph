@@ -528,6 +528,11 @@ registry, and that holds no graph state.
   channels may advance in the same engine cycle and cannot head-of-line block
   one another. No public contract requires a total order across those service
   outputs.
+  The private request, response, WebSocket, delivery, and event payload
+  envelopes use ``Shared<T>`` so burst delivery and graph-side buffering retain
+  one immutable allocation.  Projection nodes checked-downcast the envelope
+  and copy once into the unchanged public service value.  Fixed-size,
+  self-superseding statistics remain inline.
   The graph-to-runtime direction consists of purpose-specific sink nodes for
   route/key deltas, responses, calls, and WebSocket sends. A graph-scoped
   admission budget retains the web-specific per-channel byte limits,

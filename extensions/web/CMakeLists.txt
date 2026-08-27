@@ -275,6 +275,13 @@ if(MSVC)
 else()
     target_compile_options(hgraph_web PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+if(HGRAPH_ENABLE_TSAN AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Boost.Asio uses atomic_thread_fence for its fenced block. GCC warns that
+    # TSan cannot model that standalone fence; keep the diagnostic visible but
+    # do not let warnings-as-errors prevent the sanitizer runtime from running.
+    target_compile_options(hgraph_web PRIVATE -Wno-error=tsan)
+endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # GCC's -Wmaybe-uninitialized fires falsely on the std::optional-held
     # scalar tuple the static-node machinery instantiates for the server
