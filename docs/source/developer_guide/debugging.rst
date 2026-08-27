@@ -173,11 +173,12 @@ Linux Python/ASan debugging from macOS
 --------------------------------------
 
 Some lifetime failures only reproduce when the Python bridge is loaded into a
-Linux process. The project's preferred Linux system is the native host exposed
-through the ``hg-linux`` SSH alias. Use it whenever it is available. It
-exercises the Linux/GCC build on separate hardware without modifying the macOS
-toolchain. An Ubuntu 24.04 OrbStack machine named ``ubuntu`` is the fallback
-when ``hg-linux`` cannot be reached.
+Linux process. Prefer a privately configured native Linux SSH target when one
+is available. It exercises the Linux/GCC build on separate hardware without
+modifying the macOS toolchain. Developer-local connection details belong in
+user-level tooling configuration, not this repository. An Ubuntu 24.04
+OrbStack machine named ``ubuntu`` is the fallback when the remote target cannot
+be reached.
 
 Keep the build directory and virtual environment on the Linux filesystem, not
 in a macOS-shared source tree. The examples use ``/tmp`` for both.
@@ -185,23 +186,24 @@ in a macOS-shared source tree. The examples use ``/tmp`` for both.
 Prepare the Linux host
 ~~~~~~~~~~~~~~~~~~~~~~
 
-First check the preferred host:
+Set the target to an alias from your local SSH configuration, then check it:
 
 .. code-block:: bash
 
-   ssh -o BatchMode=yes -o ConnectTimeout=10 hg-linux true
+   export HGRAPH_LINUX_SSH_TARGET=linux-builder
+   ssh -o BatchMode=yes -o ConnectTimeout=10 "$HGRAPH_LINUX_SSH_TARGET" true
 
 When it is available, copy the current checkout, including uncommitted source
 changes, into a disposable directory on that host and open a shell there:
 
 .. code-block:: bash
 
-   remote_root="$(ssh hg-linux 'mktemp -d /tmp/hgraph-linux.XXXXXX')"
+   remote_root="$(ssh "$HGRAPH_LINUX_SSH_TARGET" 'mktemp -d /tmp/hgraph-linux.XXXXXX')"
    rsync -a \
        --exclude .git --exclude .venv --exclude '.parity' \
        --exclude 'cmake-build-*' --exclude '._*' --exclude '.DS_Store' \
-       ./ "hg-linux:${remote_root}/repo/"
-   ssh -t hg-linux "cd '${remote_root}/repo' && exec bash"
+       ./ "${HGRAPH_LINUX_SSH_TARGET}:${remote_root}/repo/"
+   ssh -t "$HGRAPH_LINUX_SSH_TARGET" "cd '${remote_root}/repo' && exec bash"
    export REPO="$PWD"
 
 The copy intentionally excludes ``.venv``. Before running the native
@@ -216,10 +218,10 @@ acceptance preset, recreate that repository-local environment because
 This bootstrap is required even when a separate disposable environment is
 created below for Python bridge or sanitizer testing.
 
-If ``hg-linux`` is unavailable, use the OrbStack VM instead. Install a current
-GCC plus Python development support there when needed. Replace the example
-checkout path below with the macOS path to the checkout; OrbStack mounts that
-path at the same location in the guest:
+If the remote target is unavailable, use the OrbStack VM instead. Install a
+current GCC plus Python development support there when needed. Replace the
+example checkout path below with the macOS path to the checkout; OrbStack
+mounts that path at the same location in the guest:
 
 .. code-block:: bash
 

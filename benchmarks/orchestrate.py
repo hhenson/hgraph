@@ -33,7 +33,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 BENCH_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BENCH_DIR.parent
@@ -112,6 +112,48 @@ BASELINE_INPUTS = (
 )
 
 
+def _sanitize_local_paths(value: str) -> str:
+    """Replace developer-local roots while preserving useful diagnostics."""
+    replacements = (
+        (str(REPO_ROOT), "<repo>"),
+        (str(Path.home()), "<home>"),
+    )
+    sanitized = value
+    for root, marker in replacements:
+        if len(root) <= 1:
+            continue
+        variants = {root, root.replace("\\", "/"), root.replace("/", "\\")}
+        for variant in sorted(variants, key=len, reverse=True):
+            sanitized = sanitized.replace(variant, marker)
+    return sanitized
+
+
+def _portable_native_module(value: str) -> str:
+    sanitized = _sanitize_local_paths(value).replace("\\", "/")
+    if sanitized.startswith(("<repo>/", "<home>/")) or not sanitized:
+        return sanitized
+    path = PureWindowsPath(value) if "\\" in value else PurePosixPath(value)
+    return path.name if path.is_absolute() else sanitized
+
+
+def sanitize_public_artifact(value, field: str | None = None):
+    """Remove private filesystem roots from cache and result payloads."""
+    if isinstance(value, dict):
+        return {
+            key: sanitize_public_artifact(item, key)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [sanitize_public_artifact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitize_public_artifact(item) for item in value)
+    if isinstance(value, str):
+        if field == "native_module":
+            return _portable_native_module(value)
+        return _sanitize_local_paths(value)
+    return value
+
+
 def upstream_python() -> Path:
     return UPSTREAM_VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
@@ -164,11 +206,15 @@ def benchmark_pack_fingerprint() -> str:
 
 def _first_line(command: list[str]) -> str:
     try:
-        output = subprocess.run(
-            command, check=True, capture_output=True, text=True, cwd=REPO_ROOT,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+        completed = subprocess.run(
+            command, check=False, capture_output=True, text=True, cwd=REPO_ROOT,
+        )
+    except OSError:
         return "unknown"
+    # MSVC prints its banner to stderr and returns an error for ``cl
+    # --version`` after identifying itself. Preserve that useful first line
+    # while still treating a command with no diagnostic output as unknown.
+    output = completed.stdout.strip() or completed.stderr.strip()
     return output.splitlines()[0] if output else "unknown"
 
 
@@ -361,7 +407,7 @@ def load_baseline_cache(path: Path, identity: dict) -> dict:
     if payload.get("identity") != identity:
         return {}
     results = payload.get("results")
-    return results if isinstance(results, dict) else {}
+    return sanitize_public_artifact(results) if isinstance(results, dict) else {}
 
 
 def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
@@ -370,7 +416,7 @@ def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
         "identity": identity,
         "results": results,
     }
-    path.write_text(json.dumps(payload, indent=2) + "\n")
+    path.write_text(json.dumps(sanitize_public_artifact(payload), indent=2) + "\n")
 
 
 def cached_baseline_result(
@@ -464,12 +510,14 @@ def run_one(
         )
         for line in proc.stdout.splitlines():
             if line.startswith("@@RESULT@@"):
-                return json.loads(line[len("@@RESULT@@"):])
-        return {
+                return sanitize_public_artifact(
+                    json.loads(line[len("@@RESULT@@"):])
+                )
+        return sanitize_public_artifact({
             "scenario": scenario, "ok": False,
             "error": f"no result line (exit {proc.returncode})\n"
                      f"stdout: {proc.stdout[-1500:]}\nstderr: {proc.stderr[-1500:]}",
-        }
+        })
     except subprocess.TimeoutExpired:
         return {"scenario": scenario, "ok": False, "error": f"timeout after {timeout}s"}
 
@@ -837,7 +885,9 @@ def main() -> int:
         )
         print(f"[baseline] updated {args.baseline_cache}")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
-    (RESULTS_DIR / f"raw-{stamp}.json").write_text(json.dumps(results, indent=2))
+    (RESULTS_DIR / f"raw-{stamp}.json").write_text(
+        json.dumps(sanitize_public_artifact(results), indent=2)
+    )
     report = render(results, cycle_scale, size_scale, args.samples, metadata)
     report_path = RESULTS_DIR / f"matrix-{stamp}.md"
     report_path.write_text(report)
