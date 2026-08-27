@@ -516,7 +516,7 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
     meta.output_endpoint_schema = spec.output_forwards_to_child_terminal
                                       ? forwarding_output_endpoint_schema(
                                             meta.output_schema)
-                                      : TSEndpointSchema::owned(
+                                      : TSEndpointSchema::local(
                                             meta.output_schema);
   }
 

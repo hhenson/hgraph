@@ -33,7 +33,7 @@ namespace hgraph::detail
     {
         if (endpoint.empty()) { return false; }
         if (endpoint.is_peered()) { return true; }
-        if (endpoint.is_owned()) { return false; }
+        if (endpoint.is_local()) { return false; }
         for (const auto &child : endpoint.children())
         {
             if (!input_storage_type_is_realization_invariant(child)) { return false; }

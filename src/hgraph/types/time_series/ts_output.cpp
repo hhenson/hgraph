@@ -256,7 +256,7 @@ TSData TSOutput::checked_data_for(const TSEndpointSchema &endpoint_schema) {
         "TSOutput requires a non-empty output endpoint schema");
   }
   if (const auto *schema = endpoint_schema.schema();
-      endpoint_schema.is_owned()) {
+      endpoint_schema.is_local()) {
     return checked_data_for(schema);
   }
   const auto type = detail::output_data_storage_type_for(endpoint_schema);

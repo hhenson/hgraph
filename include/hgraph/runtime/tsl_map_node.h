@@ -23,7 +23,7 @@ namespace hgraph
         /** Entry-owned ``TS<int64>`` used when the child accepts ``ndx``. */
         const TSValueTypeMetaData *index_output_schema{nullptr};
         /** Whether the child terminal writes into the list element or the
-            element preserves and forwards to a child-owned terminal. */
+            element preserves and forwards to a child-local terminal. */
         MapOutputBindingMode output_binding_mode{
             MapOutputBindingMode::ChildTerminalWritesElement};
     };

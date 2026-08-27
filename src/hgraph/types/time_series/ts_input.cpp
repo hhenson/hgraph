@@ -84,30 +84,30 @@ namespace hgraph
                 const bool scalar = schema->kind == TSTypeKind::TS || schema->kind == TSTypeKind::SIGNAL ||
                                     schema->kind == TSTypeKind::REF;
                 const bool direct_peered = endpoint_schema.is_peered();
-                const bool owned_scalar = scalar && endpoint_schema.is_owned();
-                const bool owned_fixed = (schema->kind == TSTypeKind::TSB ||
+                const bool local_scalar = scalar && endpoint_schema.is_local();
+                const bool local_fixed = (schema->kind == TSTypeKind::TSB ||
                                           (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0)) &&
-                                         endpoint_schema.is_owned();
-                const bool owned_keyed = (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD) &&
-                                         endpoint_schema.is_owned();
-                const bool owned_dynamic = ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
+                                         endpoint_schema.is_local();
+                const bool local_keyed = (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD) &&
+                                         endpoint_schema.is_local();
+                const bool local_dynamic = ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
                                             schema->kind == TSTypeKind::TSW) &&
-                                           endpoint_schema.is_owned();
+                                           endpoint_schema.is_local();
                 const bool structural_root =
                     (schema->kind == TSTypeKind::TSB ||
                      schema->kind == TSTypeKind::TSD ||
                      (schema->kind == TSTypeKind::TSL &&
                       schema->fixed_size() == 0)) &&
                     endpoint_schema.is_non_peered();
-                if (!direct_peered && !owned_scalar && !owned_fixed && !owned_keyed && !owned_dynamic &&
+                if (!direct_peered && !local_scalar && !local_fixed && !local_keyed && !local_dynamic &&
                     !structural_root)
                 {
                     throw std::invalid_argument(
-                        "TSInput root must be peered, owned, or a supported non-peered composite");
+                        "TSInput root must be peered, local, or a supported non-peered composite");
                 }
             }
 
-            if (endpoint_schema.is_owned()) { return; }
+            if (endpoint_schema.is_local()) { return; }
             if (endpoint_schema.is_peered()) { return; }
             if (schema->kind == TSTypeKind::TSD)
             {
@@ -524,7 +524,7 @@ namespace hgraph
             {
                 throw std::logic_error("TSInput owned dynamic element schema is not resolved");
             }
-            const auto endpoint = TSEndpointSchema::owned(element_schema);
+            const auto endpoint = TSEndpointSchema::local(element_schema);
             const auto &plan = input_storage_plan(endpoint);
             return input_storage_type_for(endpoint, plan, 0, true, storage_role);
         }
@@ -635,7 +635,7 @@ namespace hgraph
                 }
                 return detail::target_link_storage_plan_for(schema->kind);
             }
-            if (endpoint_schema.is_owned())
+            if (endpoint_schema.is_local())
             {
                 const auto *schema = endpoint_schema.schema();
                 if (schema == nullptr)
@@ -2040,7 +2040,7 @@ namespace hgraph
                                       target_link_ops_for(endpoint_schema, root_plan, storage_offset),
                                       implementation_label);
             }
-            if (endpoint_schema.is_owned())
+            if (endpoint_schema.is_local())
             {
                 const auto &local_plan = input_storage_plan(endpoint_schema);
                 const bool root_record = storage_offset == 0 && &root_plan == &local_plan;
@@ -2156,7 +2156,7 @@ namespace hgraph
                     .regular_value_binding = regular_value_binding_for(child_schema.schema()),
                     .data_offset = child_offset,
                     .target_link = child_schema.is_peered(),
-                    .direct_child_memory = child_schema.is_owned(),
+                    .direct_child_memory = child_schema.is_local(),
                     .local_storage = child_type.plan() != &root_plan,
                 });
                 if (context->schema->kind == TSTypeKind::TSB)
@@ -2358,7 +2358,7 @@ namespace hgraph
                 throw std::invalid_argument("scalar input type requires a peered or owned TS/SIGNAL endpoint");
             }
 
-            if (endpoint_schema.is_owned())
+            if (endpoint_schema.is_local())
             {
                 const auto &root_plan = input_storage_plan(endpoint_schema);
                 return TSInputTypeRef::checked(input_storage_type_for(
@@ -2464,7 +2464,7 @@ namespace hgraph
                 return intern_ts_type(*schema, role, root_plan, ops, label);
             }
 
-            if (endpoint_schema.is_owned())
+            if (endpoint_schema.is_local())
             {
                 const auto &local_plan = input_storage_plan(endpoint_schema);
                 if (dynamic_list)
@@ -2933,25 +2933,25 @@ namespace hgraph
         const bool scalar = schema != nullptr && (schema->kind == TSTypeKind::TS || schema->kind == TSTypeKind::SIGNAL ||
                                                   schema->kind == TSTypeKind::REF);
         const bool direct_peered = schema != nullptr && plan.endpoint_schema().is_peered();
-        const bool owned_scalar = scalar && plan.endpoint_schema().is_owned();
-        const bool owned_fixed = schema != nullptr &&
+        const bool local_scalar = scalar && plan.endpoint_schema().is_local();
+        const bool local_fixed = schema != nullptr &&
                                  (schema->kind == TSTypeKind::TSB ||
                                   (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0)) &&
-                                 plan.endpoint_schema().is_owned();
-        const bool owned_keyed = schema != nullptr &&
+                                 plan.endpoint_schema().is_local();
+        const bool local_keyed = schema != nullptr &&
                                  (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD) &&
-                                 plan.endpoint_schema().is_owned();
-        const bool owned_dynamic = schema != nullptr &&
+                                 plan.endpoint_schema().is_local();
+        const bool local_dynamic = schema != nullptr &&
                                    ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
                                     schema->kind == TSTypeKind::TSW) &&
-                                   plan.endpoint_schema().is_owned();
+                                   plan.endpoint_schema().is_local();
         const bool structural_root = schema != nullptr &&
                                      (schema->kind == TSTypeKind::TSB ||
                                       schema->kind == TSTypeKind::TSD ||
                                       (schema->kind == TSTypeKind::TSL &&
                                        schema->fixed_size() == 0)) &&
                                      plan.endpoint_schema().is_non_peered();
-        if (!direct_peered && !owned_scalar && !owned_fixed && !owned_keyed && !owned_dynamic && !structural_root)
+        if (!direct_peered && !local_scalar && !local_fixed && !local_keyed && !local_dynamic && !structural_root)
         {
             return nullptr;
         }
@@ -2971,7 +2971,7 @@ namespace hgraph
     {
         if (const auto *builder = builder_for(plan); builder != nullptr) { return *builder; }
         throw std::invalid_argument(
-            "TSInputBuilderFactory requires a peered, owned, or supported non-peered composite root");
+            "TSInputBuilderFactory requires a peered, local, or supported non-peered composite root");
     }
 
     void TSInputBuilderFactory::reset() noexcept

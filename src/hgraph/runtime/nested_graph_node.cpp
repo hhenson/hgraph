@@ -162,7 +162,7 @@ namespace hgraph
                 const auto *child_schema = nested_output_child_schema(*schema, index);
                 children.push_back(index == selected
                                        ? nested_output_endpoint_schema_for(child_schema, target_path, depth + 1)
-                                       : TSEndpointSchema::owned(child_schema));
+                                       : TSEndpointSchema::local(child_schema));
             }
             return TSEndpointSchema::non_peered(schema, std::move(children));
         }
