@@ -89,7 +89,9 @@ def test_public_benchmark_artifacts_redact_developer_local_paths(
     repo = tmp_path / "checkout"
     home = tmp_path / "developer"
     monkeypatch.setattr(orchestrate, "REPO_ROOT", repo)
-    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(
+        orchestrate.Path, "home", classmethod(lambda _cls: home)
+    )
 
     sanitized = orchestrate.sanitize_public_artifact({
         "native_module": str(repo / ".venv" / "_hgraph.so"),
@@ -98,7 +100,9 @@ def test_public_benchmark_artifacts_redact_developer_local_paths(
     })
 
     assert sanitized["native_module"] == "<repo>/.venv/_hgraph.so"
-    assert sanitized["error"] == "failed in <home>/private/source.cpp"
+    assert sanitized["error"].replace("\\", "/") == (
+        "failed in <home>/private/source.cpp"
+    )
     assert sanitized["samples"][0]["native_module"] == "_hgraph.so"
 
     monkeypatch.setattr(
