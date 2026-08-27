@@ -977,7 +977,9 @@ The native hot path must avoid Python and minimise copies:
 * librdkafka payloads are copied or retained exactly once into an owned
   cross-thread record according to the chosen safe lifetime strategy;
 * the standard burst push-source queue retains transport envelopes by move;
-* graph-thread publication moves into the native time-series value;
+* the private transport envelope retains ``Shared<KafkaRecord>`` handles
+  across graph-thread hand-offs, then copies the concrete record once into the
+  public ``TS<KafkaRecord>`` value;
 * codecs run after transport unless a native codec explicitly opts into safe
   off-thread decoding; and
 * delivery callbacks use their opaque token to avoid record lookup by content.
