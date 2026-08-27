@@ -2336,6 +2336,288 @@ def _compound_scalar_downcast(hg, recipe):
     return eval_node(parity_graph, events)
 
 
+_POLYMORPHIC_FIELD_POSITIONS = (
+    "nested_field",
+    "top_level_cast",
+    "tsd_value",
+    "tsb_field",
+    "plain_field",
+)
+
+
+def _validate_polymorphic_field_projection(recipe):
+    if set(recipe.parameters) != {"position"}:
+        raise RecipeError(
+            "polymorphic_field_projection requires only the position parameter"
+        )
+    if recipe.parameters["position"] not in _POLYMORPHIC_FIELD_POSITIONS:
+        raise RecipeError(
+            "polymorphic_field_projection position must be one of "
+            + ", ".join(_POLYMORPHIC_FIELD_POSITIONS)
+        )
+    for tick in recipe.inputs["series"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {"symbol", "underlying"}:
+            raise RecipeError(
+                "polymorphic_field_projection ticks require symbol and underlying"
+            )
+        if not isinstance(tick["symbol"], str) or not tick["symbol"]:
+            raise RecipeError(
+                "polymorphic_field_projection symbol must be a non-empty string"
+            )
+        if not isinstance(tick["underlying"], str) or not tick["underlying"]:
+            raise RecipeError(
+                "polymorphic_field_projection underlying must be a non-empty string"
+            )
+
+
+def _polymorphic_field_projection(hg, recipe):
+    """A CompoundScalar field whose DECLARED type is itself a polymorphic base.
+
+    The declared type of ``DerivedSeries.underlying`` is ``Series``, which has a
+    descendant, so the field carries the polymorphic (one-pointer) representation
+    rather than a flat ``Series``.  Reading that field and passing it to a node
+    declared on the base is the shape reported in issue #556.  ``position`` walks
+    the same value through the other places a base-declared value can appear, so
+    a failure is attributable to the position rather than to the hierarchy.
+    """
+    from dataclasses import dataclass
+
+    from hgraph.test import eval_node
+
+    @dataclass(frozen=True)
+    class Series(hg.CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class DerivedSeries(Series):
+        underlying: Series
+
+    @dataclass(frozen=True)
+    class PlainInner(hg.CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class HasPlainField(hg.CompoundScalar):
+        symbol: str
+        inner: PlainInner
+
+    @hg.compute_node
+    def read_base(series: hg.TS[Series]) -> hg.TS[str]:
+        return series.value.symbol
+
+    @hg.compute_node
+    def read_plain(series: hg.TS[PlainInner]) -> hg.TS[str]:
+        return series.value.symbol
+
+    position = recipe.parameters["position"]
+    ticks = decoded_inputs(hg, recipe)["series"]
+
+    if position == "plain_field":
+        # Control: identical projection whose field type has no descendant.
+        values = [
+            None if tick is None
+            else HasPlainField(
+                symbol=tick["symbol"],
+                inner=PlainInner(symbol=tick["underlying"]),
+            )
+            for tick in ticks
+        ]
+
+        @hg.graph
+        def parity_graph(series: hg.TS[HasPlainField]) -> hg.TS[str]:
+            return read_plain(series.inner)
+
+        return eval_node(parity_graph, values)
+
+    values = [
+        None if tick is None
+        else DerivedSeries(
+            symbol=tick["symbol"],
+            underlying=Series(symbol=tick["underlying"]),
+        )
+        for tick in ticks
+    ]
+
+    if position == "nested_field":
+        @hg.graph
+        def parity_graph(series: hg.TS[DerivedSeries]) -> hg.TS[str]:
+            return read_base(series.underlying)
+
+        return eval_node(parity_graph, values)
+
+    if position == "top_level_cast":
+        @hg.graph
+        def parity_graph(series: hg.TS[DerivedSeries]) -> hg.TS[str]:
+            return read_base(series)
+
+        return eval_node(parity_graph, values)
+
+    if position == "tsd_value":
+        @hg.graph
+        def parity_graph(series: hg.TSD[str, hg.TS[Series]]) -> hg.TS[str]:
+            return read_base(series["only"])
+
+        return eval_node(
+            parity_graph,
+            [None if value is None else {"only": value} for value in values],
+        )
+
+    class Leg(hg.TimeSeriesSchema):
+        leg: hg.TS[Series]
+
+    @hg.graph
+    def parity_graph(series: hg.TSB[Leg]) -> hg.TS[str]:
+        return read_base(series.leg)
+
+    return eval_node(
+        parity_graph,
+        [None if value is None else {"leg": value} for value in values],
+    )
+
+
+_POLYMORPHIC_KEY_OPERATIONS = (
+    "passthrough",
+    "map_compute",
+    "map_nested_graph",
+    "feedback",
+    "key_set_size",
+    "non_peered_map",
+)
+
+
+def _validate_polymorphic_tsd_key(recipe):
+    if set(recipe.parameters) != {"operation"}:
+        raise RecipeError(
+            "polymorphic_tsd_key requires only the operation parameter"
+        )
+    if recipe.parameters["operation"] not in _POLYMORPHIC_KEY_OPERATIONS:
+        raise RecipeError(
+            "polymorphic_tsd_key operation must be one of "
+            + ", ".join(_POLYMORPHIC_KEY_OPERATIONS)
+        )
+    for tick in recipe.inputs["entries"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, list) or not tick:
+            raise RecipeError(
+                "polymorphic_tsd_key ticks must be a non-empty list of entries"
+            )
+        for entry in tick:
+            if not isinstance(entry, dict) or set(entry) != {
+                "name", "tenor", "value"
+            }:
+                raise RecipeError(
+                    "polymorphic_tsd_key entries require name, tenor, and value"
+                )
+            if not isinstance(entry["name"], str) or not entry["name"]:
+                raise RecipeError(
+                    "polymorphic_tsd_key name must be a non-empty string"
+                )
+            if entry["tenor"] is not None and not isinstance(entry["tenor"], str):
+                raise RecipeError(
+                    "polymorphic_tsd_key tenor must be a string or null"
+                )
+            if not isinstance(entry["value"], int) or isinstance(
+                entry["value"], bool
+            ):
+                raise RecipeError("polymorphic_tsd_key value must be an integer")
+
+
+def _polymorphic_tsd_key(hg, recipe):
+    """A TSD KEYED by a polymorphic CompoundScalar.
+
+    Issue #521 reported std::bad_alloc when polymorphic CompoundScalar keys
+    reached TSD proxy and target-link adaptors.  Every generated tick mixes
+    base and descendant keys in one dictionary, so key identity, hashing, and
+    the keyed projections are exercised on the polymorphic representation
+    rather than on the ``str``/``int`` keys the rest of the catalogue uses.
+    """
+    from dataclasses import dataclass
+
+    from hgraph.test import eval_node
+
+    @dataclass(frozen=True)
+    class Key(hg.CompoundScalar):
+        name: str
+
+    @dataclass(frozen=True)
+    class TenorKey(Key):
+        tenor: str
+
+    @hg.compute_node
+    def double(value: hg.TS[int]) -> hg.TS[int]:
+        return value.value * 2
+
+    @hg.graph
+    def double_graph(value: hg.TS[int]) -> hg.TS[int]:
+        return double(value)
+
+    def build_key(entry):
+        if entry["tenor"] is None:
+            return Key(name=entry["name"])
+        return TenorKey(name=entry["name"], tenor=entry["tenor"])
+
+    ticks = [
+        None if tick is None
+        else {build_key(entry): entry["value"] for entry in tick}
+        for tick in decoded_inputs(hg, recipe)["entries"]
+    ]
+
+    operation = recipe.parameters["operation"]
+
+    if operation == "key_set_size":
+        @hg.graph
+        def parity_graph(entries: hg.TSD[Key, hg.TS[int]]) -> hg.TS[int]:
+            return hg.len_(entries.key_set)
+
+        return eval_node(parity_graph, ticks)
+
+    if operation == "feedback":
+        @hg.graph
+        def parity_graph(
+            entries: hg.TSD[Key, hg.TS[int]],
+        ) -> hg.TSD[Key, hg.TS[int]]:
+            delayed = hg.feedback(hg.TSD[Key, hg.TS[int]])
+            delayed(hg.map_(double, entries))
+            return delayed()
+
+        return eval_node(parity_graph, ticks)
+
+    if operation == "passthrough":
+        @hg.graph
+        def parity_graph(
+            entries: hg.TSD[Key, hg.TS[int]],
+        ) -> hg.TSD[Key, hg.TS[int]]:
+            return entries
+
+        return eval_node(parity_graph, ticks)
+
+    if operation == "non_peered_map":
+        # Issue #521 named target-link adaptors alongside the TSD proxy, and a
+        # structural TSL child is how this catalogue reaches a REF-transparent,
+        # non-peered source.  The keys crossing that link are the polymorphic
+        # ones.
+        @hg.graph
+        def parity_graph(
+            entries: hg.TSD[Key, hg.TS[int]],
+        ) -> hg.TSD[Key, hg.TS[int]]:
+            return hg.map_(double, _via_non_peered_ref(hg, entries))
+
+        return eval_node(parity_graph, ticks)
+
+    inner = double if operation == "map_compute" else double_graph
+
+    @hg.graph
+    def parity_graph(
+        entries: hg.TSD[Key, hg.TS[int]],
+    ) -> hg.TSD[Key, hg.TS[int]]:
+        return hg.map_(inner, entries)
+
+    return eval_node(parity_graph, ticks)
+
+
 def _validate_enum_literal_selection(recipe):
     if set(recipe.parameters) != {"kind"}:
         raise RecipeError("enum_literal_selection requires only the kind parameter")
@@ -2903,6 +3185,36 @@ CATALOG = {
         operators=("downcast_",),
         execute=_compound_scalar_downcast,
     ),
+    "polymorphic_field_projection": TemplateSpec(
+        name="polymorphic_field_projection",
+        required_inputs=("series",),
+        features=(
+            "boundary:python-owned",
+            "shape:TS",
+            "type:CompoundScalar",
+            "type:polymorphic",
+            "type:base-declared-field",
+            "topology:projection",
+        ),
+        operators=(),
+        execute=_polymorphic_field_projection,
+    ),
+    "polymorphic_tsd_key": TemplateSpec(
+        name="polymorphic_tsd_key",
+        required_inputs=("entries",),
+        features=(
+            "boundary:python-owned",
+            "shape:TSD",
+            "type:CompoundScalar",
+            "type:polymorphic",
+            "type:polymorphic-key",
+            "lifecycle:keyed",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=("map_", "len_", "feedback"),
+        execute=_polymorphic_tsd_key,
+    ),
     "enum_literal_selection": TemplateSpec(
         name="enum_literal_selection",
         required_inputs=("condition",),
@@ -3068,6 +3380,10 @@ def validate_recipe(recipe):
         _validate_data_frame_recording(recipe)
     elif recipe.template == "compound_scalar_downcast":
         _validate_compound_scalar_downcast(recipe)
+    elif recipe.template == "polymorphic_field_projection":
+        _validate_polymorphic_field_projection(recipe)
+    elif recipe.template == "polymorphic_tsd_key":
+        _validate_polymorphic_tsd_key(recipe)
     elif recipe.template == "enum_literal_selection":
         _validate_enum_literal_selection(recipe)
     elif recipe.template == "legacy_compound_scalar_json":

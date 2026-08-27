@@ -10,7 +10,8 @@ import hashlib
 import json
 from typing import Any
 
-from .catalog import CATALOG, validate_recipe
+from .catalog import (CATALOG, _POLYMORPHIC_KEY_OPERATIONS,
+                      validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
 
 
@@ -931,6 +932,79 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         }
 
     @st.composite
+    def polymorphic_tsd_key(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        operation = draw(st.sampled_from(_POLYMORPHIC_KEY_OPERATIONS))
+        names = ("front", "back", "spot")
+        tenors = (None, "M1", "M2")
+
+        def entry(index):
+            return {
+                "name": draw(st.sampled_from(names)),
+                "tenor": draw(st.sampled_from(tenors)),
+                "value": draw(st.integers(min_value=-8, max_value=8)),
+            }
+
+        # Seed with a base key and a descendant key so every recipe mixes the
+        # two representations in one dictionary from the first cycle.
+        ticks = [[
+            {"name": "front", "tenor": None, "value": draw(
+                st.integers(min_value=-8, max_value=8))},
+            {"name": "front", "tenor": "M1", "value": draw(
+                st.integers(min_value=-8, max_value=8))},
+        ]]
+        for index in range(1, count):
+            if draw(st.booleans()):
+                ticks.append(None)
+                continue
+            size = draw(st.integers(min_value=1, max_value=3))
+            ticks.append([entry(index) for _ in range(size)])
+        return {
+            "template": "polymorphic_tsd_key",
+            "inputs": {"entries": ticks},
+            "parameters": {"operation": operation},
+            "features": [
+                *CATALOG["polymorphic_tsd_key"].features,
+                f"key-operation:{operation}",
+                "type:transitive-subclass",
+            ],
+        }
+
+    @st.composite
+    def polymorphic_field_projection(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        position = draw(st.sampled_from((
+            "nested_field",
+            "nested_field",
+            "top_level_cast",
+            "tsd_value",
+            "tsb_field",
+            "plain_field",
+        )))
+        symbols = ("BOM", "SPOT", "FRONT", "BACK")
+        ticks = []
+        for index in range(count):
+            if index and draw(st.booleans()):
+                ticks.append(None)
+                continue
+            ticks.append({
+                "symbol": draw(st.sampled_from(symbols)),
+                "underlying": draw(st.sampled_from(symbols)),
+            })
+        if all(tick is None for tick in ticks):
+            ticks[0] = {"symbol": symbols[0], "underlying": symbols[1]}
+        return {
+            "template": "polymorphic_field_projection",
+            "inputs": {"series": ticks},
+            "parameters": {"position": position},
+            "features": [
+                *CATALOG["polymorphic_field_projection"].features,
+                f"field-position:{position}",
+                "type:transitive-subclass",
+            ],
+        }
+
+    @st.composite
     def polymorphic_event_map(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         operation = draw(st.sampled_from((
@@ -1132,6 +1206,10 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("polymorphic_event_flow", polymorphic_event_flow),
         ("polymorphic_event_map", polymorphic_event_map),
         ("polymorphic_event_map", polymorphic_event_map),
+        ("polymorphic_field_projection", polymorphic_field_projection),
+        ("polymorphic_field_projection", polymorphic_field_projection),
+        ("polymorphic_tsd_key", polymorphic_tsd_key),
+        ("polymorphic_tsd_key", polymorphic_tsd_key),
         ("structural_map_projection", structural_map_projection),
         ("structural_map_projection", structural_map_projection),
         ("arrow_typed_projection", arrow_typed_projection),
