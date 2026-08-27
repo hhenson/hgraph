@@ -18,7 +18,7 @@ from hgraph import (
 )
 
 from . import _hgraph_persistence
-from hgraph._wiring._state import _active_global_state
+from hgraph._wiring._state import _active_global_state, _global_state_scope
 
 __all__ = (
     "WriteMode",
@@ -117,6 +117,7 @@ class DataFrameStorage(ABC):
 
     def __init__(self):
         self._previous = self._MISSING
+        self._state_scope = None
 
     @classmethod
     def instance(cls, global_state=None):
@@ -169,11 +170,26 @@ class DataFrameStorage(ABC):
             return False
 
     def __enter__(self):
-        self.set_as_instance()
+        # This block publishes the storage into the GlobalState for the wiring
+        # inside it to find, so it needs a state to publish into: open one for
+        # the block when the caller has not, and close it in __exit__.
+        self._state_scope = _global_state_scope()
+        self._state_scope.__enter__()
+        try:
+            self.set_as_instance()
+        except BaseException:
+            self._state_scope.__exit__(None, None, None)
+            self._state_scope = None
+            raise
         return self
 
     def __exit__(self, *_):
-        self.release_as_instance()
+        try:
+            self.release_as_instance()
+        finally:
+            scope, self._state_scope = getattr(self, "_state_scope", None), None
+            if scope is not None:
+                scope.__exit__(None, None, None)
         return False
 
     @abstractmethod
