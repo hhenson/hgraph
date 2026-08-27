@@ -34,7 +34,8 @@ Two runs of the *identical* macOS binary, same idle host, five samples each:
 The harness's 5% win/loss band is therefore close to the 90th percentile of
 pure noise. **No single-scenario claim inside that band is meaningful**, and
 the aggregate geometric mean is only trustworthy beyond roughly 1.5%. Every
-per-scenario finding below was required to reproduce on at least two hosts.
+per-scenario finding below was required to reproduce on at least two hosts,
+and is reported with all three shown.
 
 ## 1. Build parity: published wheel vs local build
 
@@ -82,18 +83,24 @@ and 34 on macOS and Linux.
 **Across all three hosts, no scenario is slower.** 32 of 78 are faster
 everywhere. Direction therefore has to be read per platform, not pooled.
 
-### Improvements that reproduce on both hosts
+### Improvements that reproduce on all three hosts
 
-| workload | macOS | Linux |
-|---|---:|---:|
-| Set add/remove deltas (`tss_add_remove_std`) | 6.33x | 5.68x |
-| Buffered stream lag/gate (`audit_stream_buffered_std`) | 4.84x | 4.67x |
-| Regex match_/replace (`audit_string_match_std`) | 1.44x | 9.80x |
-| Scalar-collection convert and collect (`audit_convert_collect_std`) | 1.63x | 1.67x |
-| Bundle partial field updates (`type_tsb_partial_fields_std`) | 1.49x | 1.36x |
-| race over if_-routed references (`audit_ref_race_std`) | 1.44x | 1.34x |
-| Map and reduce, Python map child (`tsd_dense_py`) | 1.34x | 1.36x |
-| Request/reply service, Python (`service_request_reply_py`) | 1.30x | 1.26x |
+32 of 78 scenarios are faster everywhere. The largest:
+
+| workload | macOS | Linux | Windows |
+|---|---:|---:|---:|
+| Buffered stream lag/gate (`audit_stream_buffered_std`) | 4.84x | 4.67x | 17.10x |
+| Set add/remove deltas (`tss_add_remove_std`) | 6.33x | 5.68x | 4.30x |
+| Regex match_/replace (`audit_string_match_std`) | 1.44x | 9.80x | 2.16x |
+| Bundle partial field updates (`type_tsb_partial_fields_std`) | 1.49x | 1.36x | 2.11x |
+| Scalar-collection convert and collect (`audit_convert_collect_std`) | 1.63x | 1.67x | 1.91x |
+| race over if_-routed references (`audit_ref_race_std`) | 1.44x | 1.34x | 1.84x |
+| Map and reduce, Python map child (`tsd_dense_py`) | 1.34x | 1.36x | 1.76x |
+| Request/reply service, Python (`service_request_reply_py`) | 1.30x | 1.26x | 1.67x |
+
+The per-workload magnitudes vary widely by host — regex is 1.44x on macOS and
+9.80x on Linux, the buffered stream 4.84x and 17.10x — so treat the direction
+as the finding and the size as host-specific.
 
 ### The construction regression is POSIX-only
 
