@@ -7,7 +7,8 @@ from frozendict import frozendict
 from hgraph import CompoundScalar, GlobalState
 
 from .data_scopes import Scope
-from hgraph._wiring._state import _active_global_state, _global_state_scope
+from hgraph._wiring._state import (_active_global_state, _global_state_scope,
+                                   _published_in_global_state)
 
 __all__ = (
     "DataSource",
@@ -46,7 +47,7 @@ class DataCatalogueEntry(CompoundScalar, Generic[DATA_STORE]):
             DataCatalogue.instance().add_entry(self)
 
 
-class DataCatalogue:
+class DataCatalogue(_published_in_global_state):
     _STATE_KEY = ":adaptors:data_catalogue:catalogue"
     _MISSING = object()
 
@@ -63,28 +64,6 @@ class DataCatalogue:
             catalogue = cls()
             state[cls._STATE_KEY] = catalogue
         return catalogue
-
-    def __enter__(self):
-        # Publishes itself into the GlobalState for the wiring inside the block
-        # to find, so it opens a state when the caller has not and closes it in
-        # __exit__ -- the state must not outlive the `with` that needed it.
-        self._state_scope = _global_state_scope()
-        state = self._state_scope.__enter__()
-        self._previous = state.get(self._STATE_KEY, self._MISSING)
-        state[self._STATE_KEY] = self
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        state = _active_global_state()
-        if self._previous is self._MISSING:
-            state.pop(self._STATE_KEY, None)
-        else:
-            state[self._STATE_KEY] = self._previous
-        self._previous = self._MISSING
-        scope, self._state_scope = getattr(self, "_state_scope", None), None
-        if scope is not None:
-            scope.__exit__(exc_type, exc_value, traceback)
-        return False
 
     def add_entry(self, entry: DataCatalogueEntry):
         dataset_key = (entry.dataset, type(entry.store))
@@ -157,7 +136,7 @@ class DataEnvironmentEntry:
     environment_path: str
 
 
-class DataEnvironment:
+class DataEnvironment(_published_in_global_state):
     _STATE_KEY = ":adaptors:data_catalogue:environment"
     _MISSING = object()
 
@@ -179,28 +158,6 @@ class DataEnvironment:
     @classmethod
     def clear_current(cls):
         _active_global_state().pop(cls._STATE_KEY, None)
-
-    def __enter__(self):
-        # Publishes itself into the GlobalState for the wiring inside the block
-        # to find, so it opens a state when the caller has not and closes it in
-        # __exit__ -- the state must not outlive the `with` that needed it.
-        self._state_scope = _global_state_scope()
-        state = self._state_scope.__enter__()
-        self._previous = state.get(self._STATE_KEY, self._MISSING)
-        state[self._STATE_KEY] = self
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        state = _active_global_state()
-        if self._previous is self._MISSING:
-            state.pop(self._STATE_KEY, None)
-        else:
-            state[self._STATE_KEY] = self._previous
-        self._previous = self._MISSING
-        scope, self._state_scope = getattr(self, "_state_scope", None), None
-        if scope is not None:
-            scope.__exit__(exc_type, exc_value, traceback)
-        return False
 
     def add_entry(self, entry: DataEnvironmentEntry):
         self.environment[entry.source_path] = entry
