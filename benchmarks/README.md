@@ -90,7 +90,8 @@ installed hgraph versions, Python/platform/architecture, CPU model, benchmark
 scenario-pack fingerprint, scale factors, and sample count. A changed hgraph
 version or scenario pack therefore reruns the baseline automatically; normal
 candidate iterations reuse the 0.8.1 cells. Use `--refresh-baseline` for a deliberate rerun, or
-`--baseline-cache PATH` to keep a separate controlled baseline. Cache files are
+`--baseline-cache benchmarks/results/NAME.json` to keep a separate controlled
+baseline. Cache paths are restricted to `benchmarks/results/`. Cache files are
 local measurement artifacts and are ignored by Git.
 
 Each timing sample runs in a fresh subprocess. The orchestrator rotates mode

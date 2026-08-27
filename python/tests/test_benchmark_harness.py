@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 _ORCHESTRATE_PATH = (
     Path(__file__).parents[2] / "benchmarks" / "orchestrate.py"
@@ -39,7 +41,34 @@ def test_first_line_accepts_compiler_banner_from_failed_stderr(monkeypatch):
         ),
     )
 
-    assert orchestrate._first_line(["cl", "--version"]) == banner
+    assert orchestrate._compiler_version(["cl", "--version"]) == banner
+
+
+def test_compiler_version_rejects_launcher_failure_before_msvc(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="sccache: server unavailable\n"
+        ),
+    )
+
+    assert orchestrate._compiler_version(
+        ["sccache", "cl", "--version"]
+    ) == "unknown"
+
+
+def test_first_line_rejects_diagnostics_from_failed_commands(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="fatal: not a repository\n"
+        ),
+    )
+
+    assert orchestrate._first_line(["git", "rev-parse", "HEAD"]) == "unknown"
+    assert orchestrate._compiler_version(["c++", "--version"]) == "unknown"
 
 
 def test_first_line_reports_unknown_when_command_has_no_output(monkeypatch):
@@ -140,7 +169,10 @@ def test_default_benchmark_report_compares_fixed_release_with_current_source():
     assert "`upstream-py`" not in report
 
 
-def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
+def test_upstream_baseline_cache_reuses_only_matching_successes(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(orchestrate, "RESULTS_DIR", tmp_path)
     cache_path = tmp_path / "nested" / "baseline.json"
     identity = {"schema": 1, "upstream_hgraph": "1.2.3"}
     measured = orchestrate.aggregate_samples(
@@ -165,6 +197,22 @@ def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
     assert orchestrate.cached_baseline_result(
         loaded, "missing", "upstream-cpp"
     ) is None
+
+
+def test_baseline_cache_path_cannot_escape_results_directory(
+    monkeypatch, tmp_path
+):
+    results_dir = tmp_path / "results"
+    monkeypatch.setattr(orchestrate, "RESULTS_DIR", results_dir)
+
+    inside = results_dir / "controlled" / "baseline.json"
+    orchestrate.save_baseline_cache(inside, {"schema": 1}, {})
+    assert inside.exists()
+
+    with pytest.raises(ValueError, match="must be inside"):
+        orchestrate.save_baseline_cache(
+            tmp_path / "outside.json", {"schema": 1}, {}
+        )
 
 
 def test_baseline_identity_is_fixed_to_both_released_lines():
