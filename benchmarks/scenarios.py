@@ -5,7 +5,7 @@ run on:
   1. Python-first hgraph 0.5.41 runtime        (pip install hgraph==0.5.41)
   2. Python-first hgraph 0.5.41 C++ runtime    (HGRAPH_USE_CPP=true)
   3. C++-first hgraph                          (this repository's package)
-  4. Published C++-first hgraph 0.8.1 release
+  4. Published C++-first hgraph 0.8.19 release
 
 Two flavours per scenario family:
   *_std — mostly-graph, standard operators (python nodes only where a tick
@@ -1413,7 +1413,7 @@ def service_adaptor_py(cycle_scale: float, size_scale: float):
 #
 # One scenario per operator family the audit rewrote (start-resolved
 # bindings, generation-checked caches, State::modify, recordable counters,
-# REF view publication, cached regexes). Baselined against the pinned 0.8.1
+# REF view publication, cached regexes). Baselined against the pinned 0.8.19
 # wheel like every other cell; the 0.5 lines never had these exact shapes,
 # so the scenarios are CPP-first only.
 # ---------------------------------------------------------------------------

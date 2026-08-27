@@ -179,9 +179,11 @@ Windows; 69 performance scenarios use five fresh-process samples, and 59
 memory profiles use three fresh-process samples plus native structural
 inspection. The measured implementation is the exact published hgraph 0.8.1
 wheel for each platform, compared with released hgraph 0.5.41 in Python and
-legacy C++ modes. Future optimisation and release reports compare back to this
-fixed 0.8.1 record; the 0.5.41 modes are rerun only when deliberately
-reconstructing the historical release baseline. The record preserves
+legacy C++ modes. That record is the historical 0.8.1 release cut. On
+2026-08-27 the harness pin moved forward to the published hgraph 0.8.19
+wheel, so current optimisation and release reports compare against 0.8.19;
+the 0.5.41 modes are rerun only when deliberately comparing the released
+lines. The record preserves
 improvements, boundary-specific regressions, and independently rerun
 infrastructure failures rather than treating benchmarks as a release
 pass/fail gate.

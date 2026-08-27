@@ -3,7 +3,7 @@ C++-first candidate and renders the performance matrix.
 
 Modes:
   upstream-cpp  same package with HGRAPH_USE_CPP=true (the old C++ runtime)
-  release       published C++-first hgraph 0.8.1 release
+  release       published C++-first hgraph 0.8.19 release
   hg-cpp        this repository's package, from the CURRENT interpreter's env
   upstream-py   optional pinned hgraph 0.5 Python runtime reference
 
@@ -11,7 +11,7 @@ Usage (from the repo root, inside the repo's env):
   uv run python benchmarks/orchestrate.py                 # C++ comparison
   uv run python benchmarks/orchestrate.py --scale 0.1     # quick pass
   uv run python benchmarks/orchestrate.py --mode upstream-py  # on demand
-  uv run python benchmarks/orchestrate.py --mode release      # fixed 0.8.1
+  uv run python benchmarks/orchestrate.py --mode release      # fixed 0.8.19
   uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
   uv run python benchmarks/orchestrate.py --setup-only    # just build venvs
 
@@ -49,7 +49,7 @@ ENVIRONMENT_KEY = (
 UPSTREAM_VENV = BENCH_DIR / f".venv-upstream-{ENVIRONMENT_KEY}"
 HG_CPP_VENV = BENCH_DIR / f".venv-hg-cpp-{ENVIRONMENT_KEY}"
 REFERENCE_HGRAPH_VERSION = "0.5.41"
-FIXED_RELEASE_HGRAPH_VERSION = "0.8.1"
+FIXED_RELEASE_HGRAPH_VERSION = "0.8.19"
 UPSTREAM_ARTIFACT_FILE = UPSTREAM_VENV / ".artifact-sha256"
 RELEASE_VENV = BENCH_DIR / (
     f".venv-release-{FIXED_RELEASE_HGRAPH_VERSION}-{ENVIRONMENT_KEY}"
@@ -74,19 +74,19 @@ REFERENCE_ARTIFACTS = {
 }
 FIXED_RELEASE_ARTIFACTS = {
     ("darwin", "arm64"): {
-        "filename": "hgraph-0.8.1-cp312-abi3-macosx_15_0_arm64.whl",
-        "url": "https://files.pythonhosted.org/packages/7c/79/c0a5d044fe9f824fc588552b26b63a3d9693cfb0b5276d8ad51c75e73bde/hgraph-0.8.1-cp312-abi3-macosx_15_0_arm64.whl",
-        "sha256": "daab5629e766d26bcfa2dee0d06e27de5567485825d512edaf75e74787ad708c",
+        "filename": "hgraph-0.8.19-cp312-abi3-macosx_15_0_arm64.whl",
+        "url": "https://files.pythonhosted.org/packages/65/40/7b795751040baacf773d72e0910524a1b9079064d9d6108ec193e36006e0/hgraph-0.8.19-cp312-abi3-macosx_15_0_arm64.whl",
+        "sha256": "e7c4f19920a45ce9da0d4e4c479af2fd258e4f55b0f2de0215e5b105548629d1",
     },
     ("linux", "x86_64"): {
-        "filename": "hgraph-0.8.1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
-        "url": "https://files.pythonhosted.org/packages/ca/65/a16e00ecf13021e9cd44fd95560fb6f9c41b04a45b33cc02ad944b89699f/hgraph-0.8.1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
-        "sha256": "c584116405c6b454220758764d3f3ad39055d2a3b43c4bd4b044fd70365025f0",
+        "filename": "hgraph-0.8.19-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "url": "https://files.pythonhosted.org/packages/2b/db/d67d52280c3b090843401c7e0815a7a1aefb15eb3bfda4f734df7fa0d232/hgraph-0.8.19-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "3c58610039211b0a9965727c4a940da64664188d20ebad6711a02bc700670637",
     },
     ("win32", "x86_64"): {
-        "filename": "hgraph-0.8.1-cp312-abi3-win_amd64.whl",
-        "url": "https://files.pythonhosted.org/packages/7c/b7/2c5792d118dd1c23318e81fa6ff203b804c64cce4c5737c2a0ddc578832e/hgraph-0.8.1-cp312-abi3-win_amd64.whl",
-        "sha256": "7d30ce7b27e3add5869eeda795cbd8ce21830218258533cd8a1a963b711adcd8",
+        "filename": "hgraph-0.8.19-cp312-abi3-win_amd64.whl",
+        "url": "https://files.pythonhosted.org/packages/1d/24/007d221a370178ebd82bfe23dccbcd350eda437595037a88581b34a49fa6/hgraph-0.8.19-cp312-abi3-win_amd64.whl",
+        "sha256": "b072b49300aa2bb744372da81e070be13846b8a5ccb03cbbb0be2c2108ffb377",
     },
 }
 RESULTS_DIR = BENCH_DIR / "results"
@@ -777,7 +777,7 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact report group name")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="restrict to mode(s); default fixed 0.8.1 and current source")
+                        help="restrict to mode(s); default fixed 0.8.19 and current source")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
     parser.add_argument("--baseline-cache", type=result_path_argument,

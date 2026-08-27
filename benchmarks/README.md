@@ -1,16 +1,23 @@
 # Comparative benchmark pack
 
-The default performance comparison covers the fixed published hgraph 0.8.1
+The default performance comparison covers the fixed published hgraph 0.8.19
 release and the C++-first candidate built from current source. The Python-first
 hgraph 0.5.41 Python and legacy-C++ runtimes remain available for reconstructing
 the initial release baseline. Historical mode names are retained so existing
 result files remain readable:
 
+The fixed release pin moved from 0.8.1 to 0.8.19 on 2026-08-27. Result files
+written before that date name 0.8.1 in their headers and remain valid records
+of that comparison; they are not directly comparable with 0.8.19 cells. The
+committed 0.8.1-versus-0.5.41 release baseline in
+`results/baseline-summary-20260809.md` is a historical artifact and is not
+reproducible with the current pin.
+
 | mode | implementation |
 |---|---|
 | `upstream-py` | pinned `hgraph==0.5.41`, Python runtime |
 | `upstream-cpp` | the same package with `HGRAPH_USE_CPP=true` (the old C++ runtime) |
-| `release` | pinned published `hgraph==0.8.1` wheel; the fixed forward baseline |
+| `release` | pinned published `hgraph==0.8.19` wheel; the fixed forward baseline |
 | `hg-cpp` | an optimized C++-first `hgraph` wheel built from current source |
 
 Comparative scenarios are written **once**, in standard Python hgraph syntax
@@ -29,7 +36,7 @@ membership, explicit key sets, reducer implementation shapes, and multi-path
 services.
 
 Dynamic TSL is a C++-first feature with no valid 0.5 comparison. Its
-diagnostic workload is therefore restricted to 0.8.1 and current source and
+diagnostic workload is therefore restricted to 0.8.19 and current source and
 appears in a separate, explicitly non-comparative report section. Low-level native timings,
 allocation counts, and additional dynamic TSL/TSW operations remain in the
 `type_erasure_perf` C++ benchmark.
@@ -41,7 +48,7 @@ overhead out of the Python node boundary in every mode.
 
 ```sh
 # from the repo root, in the C++-first hgraph environment:
-uv run python benchmarks/orchestrate.py                 # 0.8.1 vs current source
+uv run python benchmarks/orchestrate.py                 # 0.8.19 vs current source
 uv run python benchmarks/orchestrate.py --scale 0.1     # quick legacy shorthand
 uv run python benchmarks/orchestrate.py \
   --suite core --suite diagnostic                       # all workloads
@@ -65,8 +72,8 @@ override suite/group selection.
 
 The first run for each Python/platform/architecture combination creates
 `benchmarks/.venv-upstream-X.Y-PLATFORM-ARCH` (installs `hgraph==0.5.41`) and
-`benchmarks/.venv-release-0.8.1-X.Y-PLATFORM-ARCH` (installs the published
-`hgraph==0.8.1` wheel). Current-source comparisons additionally create
+`benchmarks/.venv-release-0.8.19-X.Y-PLATFORM-ARCH` (installs the published
+`hgraph==0.8.19` wheel). Current-source comparisons additionally create
 `benchmarks/.venv-hg-cpp-X.Y-PLATFORM-ARCH`. This prevents a repository shared
 between macOS and a Linux VM from reusing an incompatible virtual environment.
 The two released environments use platform-specific wheel URLs and SHA-256
@@ -89,7 +96,7 @@ Successful fixed-release timings are cached in a platform-specific
 installed hgraph versions, Python/platform/architecture, CPU model, benchmark
 scenario-pack fingerprint, scale factors, and sample count. A changed hgraph
 version or scenario pack therefore reruns the baseline automatically; normal
-candidate iterations reuse the 0.8.1 cells. Use `--refresh-baseline` for a deliberate rerun, or
+candidate iterations reuse the 0.8.19 cells. Use `--refresh-baseline` for a deliberate rerun, or
 `--baseline-cache benchmarks/results/NAME.json` to keep a separate controlled
 baseline. Cache paths are restricted to `benchmarks/results/`. Cache files are
 local measurement artifacts and are ignored by Git.
@@ -127,10 +134,10 @@ key churn, monotonic growth, repeated graph lifecycles in a long-lived process,
 nested graphs, mesh, and services.
 
 ```sh
-# fixed hgraph 0.8.1 and current source, plus the current structural pass
+# fixed hgraph 0.8.19 and current source, plus the current structural pass
 uv run python benchmarks/memory_orchestrate.py
 
-# reconstruct the initial 0.8.1-versus-0.5.41 release baseline
+# compare the released lines: 0.8.19 against 0.5.41
 uv run python benchmarks/memory_orchestrate.py \
   --mode upstream-py --mode upstream-cpp --mode release
 
@@ -173,9 +180,9 @@ capacity, and the largest dynamic owners. This pass is kept separate because
 the collector owns one record per observed graph/node and would otherwise
 inflate RSS.
 
-The default matrix reports peak and retained memory for the fixed 0.8.1 release
+The default matrix reports peak and retained memory for the fixed 0.8.19 release
 and current source. When the 0.5 modes are selected to reconstruct the initial
-baseline, it reports explicit 0.8.1/Python and 0.8.1/legacy-C++ peak-memory
+baseline, it reports explicit 0.8.19/Python and 0.8.19/legacy-C++ peak-memory
 ratios. Any mode can be selected independently with ``--mode``.
 
 Successful fixed-release measurements are cached in the platform-specific

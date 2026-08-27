@@ -167,8 +167,13 @@ def test_default_benchmark_report_compares_fixed_release_with_current_source():
     )
 
     assert orchestrate.DEFAULT_MODES == ("release", "hg-cpp")
-    assert "| workload | cycles | hgraph 0.8.1 | current source |" in report
-    assert "speed-up vs hgraph 0.8.1" in report
+    assert (
+        "| workload | cycles | hgraph "
+        f"{orchestrate.FIXED_RELEASE_HGRAPH_VERSION} | current source |"
+    ) in report
+    assert (
+        f"speed-up vs hgraph {orchestrate.FIXED_RELEASE_HGRAPH_VERSION}"
+    ) in report
     assert "1.000s +/- 0.000s (x2.0)" in report
     assert "`upstream-py`" not in report
 
@@ -223,9 +228,9 @@ def test_baseline_identity_is_fixed_to_both_released_lines():
     identity = orchestrate.baseline_identity(1.0, 1.0, 5, ["release"])
 
     assert identity["hgraph_versions"] == {
-        "upstream-py": "0.5.41",
-        "upstream-cpp": "0.5.41",
-        "release": "0.8.1",
+        "upstream-py": orchestrate.REFERENCE_HGRAPH_VERSION,
+        "upstream-cpp": orchestrate.REFERENCE_HGRAPH_VERSION,
+        "release": orchestrate.FIXED_RELEASE_HGRAPH_VERSION,
     }
     assert identity["fixed_release_artifact"] == (
         orchestrate.fixed_release_artifact()["sha256"]
@@ -245,7 +250,9 @@ def test_fixed_release_invocation_records_exact_artifact(monkeypatch):
     _, environment = orchestrate.mode_invocation("release")
 
     assert environment == {
-        "HGRAPH_BENCHMARK_FIXED_RELEASE": "0.8.1",
+        "HGRAPH_BENCHMARK_FIXED_RELEASE": (
+            orchestrate.FIXED_RELEASE_HGRAPH_VERSION
+        ),
         "HGRAPH_BENCHMARK_FIXED_RELEASE_SHA256": "abc123",
     }
 
@@ -343,13 +350,15 @@ def test_fixed_release_environment_installs_published_0_8_1(
         orchestrate,
         "fixed_release_artifact",
         lambda: {
-            "filename": "hgraph-0.8.1.whl",
-            "url": "https://example.test/hgraph-0.8.1.whl",
+            "filename": "hgraph-0.8.19.whl",
+            "url": "https://example.test/hgraph-0.8.19.whl",
             "sha256": "abc123",
         },
     )
     monkeypatch.setattr(
-        orchestrate, "installed_hgraph_version", lambda _python: "0.8.1"
+        orchestrate,
+        "installed_hgraph_version",
+        lambda _python: orchestrate.FIXED_RELEASE_HGRAPH_VERSION,
     )
     monkeypatch.setattr(
         orchestrate.subprocess,
@@ -361,7 +370,7 @@ def test_fixed_release_environment_installs_published_0_8_1(
     orchestrate.ensure_release_venv()
 
     assert calls[-1][-2:] == [
-        "--reinstall", "https://example.test/hgraph-0.8.1.whl#sha256=abc123"
+        "--reinstall", "https://example.test/hgraph-0.8.19.whl#sha256=abc123"
     ]
     assert str(orchestrate.release_python()) in calls[-1]
     assert orchestrate.RELEASE_ARTIFACT_FILE.read_text().strip() == "abc123"
