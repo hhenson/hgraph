@@ -37,6 +37,55 @@ _PYTHON_OBJECT_CLASSES = []
 _TSB_SCHEMA_CLASSES = {}
 _TS_SCALAR_TYPES = {}
 _VALUE_SCALAR_TYPES = {}
+_OPAQUE_TYPE_CACHE = {}
+
+
+def _opaque_value_type(annotation):
+    """Return the nominal Any-storage schema for a Python-only annotation."""
+    if annotation is object:
+        return _hgraph.value_type("object")
+
+    cache_key = (_hgraph._registry_generation(), annotation)
+    cached = _OPAQUE_TYPE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    parents = []
+    import typing
+
+    origin = typing.get_origin(annotation)
+    arguments = typing.get_args(annotation)
+    if origin is type and len(arguments) == 1 and isinstance(arguments[0], type):
+        argument = arguments[0]
+        if argument is object:
+            parents.append(_hgraph.value_type("object"))
+        else:
+            rebuild = getattr(annotation, "copy_with", None)
+            parents.extend(
+                _opaque_value_type(
+                    rebuild((parent,)) if rebuild is not None else type[parent]
+                )
+                for parent in argument.__bases__
+            )
+    elif isinstance(annotation, type):
+        for base in annotation.__bases__:
+            if base is object or base in _SCALAR_NAMES:
+                parent = _hgraph.value_type("object")
+            else:
+                native = _hgraph.native_scalar_value_type(base)
+                parent = (_hgraph.value_type("object") if native is not None
+                          else _opaque_value_type(base))
+            if parent not in parents:
+                parents.append(parent)
+    if not parents:
+        parents.append(_hgraph.value_type("object"))
+
+    module = getattr(annotation, "__module__", "typing")
+    qualname = getattr(annotation, "__qualname__", repr(annotation))
+    name = f"python::{module}.{qualname}@{id(annotation):x}"
+    value_type = _hgraph.opaque_python_vt(annotation, name, parents)
+    _OPAQUE_TYPE_CACHE[cache_key] = value_type
+    return value_type
 
 
 def register_native_scalar_type(python_type, native_value_type):
@@ -1629,7 +1678,7 @@ def _value_type(scalar):
             # B] and type[A]) are opaque Python values. Their type arguments
             # remain Python-side validation/documentation and do not invent a
             # second native schema family.
-            return _hgraph.value_type("object")
+            return _opaque_value_type(origin)
         raise TypeError(f"unsupported generic scalar type for hgraph: {scalar!r}")
     if scalar is typing.Tuple:
         raise _GenericType(repr(scalar), _hgraph.scalar_pattern_unknown_tuple())
@@ -1688,7 +1737,7 @@ def _value_type(scalar):
     if name is None and isinstance(scalar, type):
         # Any python class is a first-class scalar (hgraph parity): it maps
         # onto the "object" value kind; type checking stays python-side.
-        name = "object"
+        return _opaque_value_type(scalar)
     if name is None:
         raise TypeError(f"unsupported scalar type for hgraph: {scalar!r}")
     return _hgraph.value_type(name)

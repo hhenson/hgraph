@@ -1756,8 +1756,8 @@ namespace hgraph
             // says nothing about whether it derives from the declared input.
             const auto *produced = value_schema_without_storage(output->value_schema);
             const auto *expected = value_schema_without_storage(input->value_schema);
-            return produced != nullptr && expected != nullptr && expected->is_named_bundle() &&
-                   produced->is_named_bundle() && registry.bundle_is_a(produced, expected);
+            return produced != nullptr && expected != nullptr &&
+                   registry.value_is_a(produced, expected);
         }
 
         template <typename OutSchema>

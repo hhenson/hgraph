@@ -23,11 +23,11 @@ namespace hgraph
     struct ValueTypeMetaData;
 
     /**
-     * Mutable registration-time ancestry for a named Bundle schema.
+     * Mutable registration-time ancestry for a nominal value schema.
      *
      * The metadata object itself has a stable address for the process lifetime.
      * Parent links are fixed when this schema is registered. The child vector
-     * may grow as additional bundle classes are registered; graph compilation
+     * may grow as additional derived schemas are registered; graph compilation
      * copies the visible closure into an immutable realization.
      */
     struct BundleHierarchyMetaData
@@ -238,7 +238,7 @@ namespace hgraph
          * shared by every bundle that has its field list).
          */
         const ValueTypeMetaData *wrapped_un_named{nullptr};
-        /** Qualified identity and ancestry for named bundles; null for structural bundles and other kinds. */
+        /** Qualified identity and ancestry for named Bundles and opaque Python values. */
         BundleHierarchyMetaData *bundle_hierarchy{nullptr};
 
         /** Checked value-family kind. */
@@ -263,6 +263,11 @@ namespace hgraph
         [[nodiscard]] constexpr bool is_named_bundle() const noexcept
         {
             return try_value_kind() == ValueTypeKind::Bundle && wrapped_un_named != nullptr;
+        }
+        /** True for a nominal Python annotation stored through the Any value representation. */
+        [[nodiscard]] constexpr bool is_opaque_python() const noexcept
+        {
+            return try_value_kind() == ValueTypeKind::Any && bundle_hierarchy != nullptr;
         }
         /** True when this metadata is a structural (un-named) bundle. */
         [[nodiscard]] constexpr bool is_un_named_bundle() const noexcept

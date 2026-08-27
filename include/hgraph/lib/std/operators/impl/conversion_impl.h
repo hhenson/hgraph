@@ -322,7 +322,7 @@ namespace hgraph::stdlib
         }
     };
 
-    /** Convert a concrete Bundle leaf to one of its registered base unions.
+    /** Convert a concrete nominal value to one of its registered base types.
 
         The output's graph-scoped realization owns the closed-union storage;
         copying the concrete input value selects the corresponding leaf. */
@@ -338,8 +338,7 @@ namespace hgraph::stdlib
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
                    in != nullptr && out->value_schema != nullptr &&
-                   in->is_named_bundle() && out->value_schema->is_named_bundle() &&
-                   TypeRegistry::instance().bundle_is_a(in, out->value_schema);
+                   TypeRegistry::instance().value_is_a(in, out->value_schema);
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)

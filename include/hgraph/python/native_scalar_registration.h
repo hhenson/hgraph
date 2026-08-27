@@ -33,6 +33,19 @@ namespace hgraph::python_bridge
     [[nodiscard]] HGRAPH_EXPORT nanobind::object
     python_type_for_native_scalar(const ValueTypeMetaData *native_value_type);
 
+    /** Associate an arbitrary Python annotation with a nominal Any-kind schema. */
+    HGRAPH_EXPORT void register_python_opaque_type(
+        nanobind::handle python_type,
+        const ValueTypeMetaData *value_type);
+
+    /** Return the nominal opaque schema registered for this exact annotation. */
+    [[nodiscard]] HGRAPH_EXPORT const ValueTypeMetaData *
+    opaque_type_for_python(nanobind::handle python_type);
+
+    /** Return the Python annotation associated with a nominal opaque schema. */
+    [[nodiscard]] HGRAPH_EXPORT nanobind::object
+    python_type_for_opaque(const ValueTypeMetaData *value_type);
+
     /**
      * Return the registered native scalar schema for a Python value.
      *
@@ -44,6 +57,7 @@ namespace hgraph::python_bridge
 
     /** Test-only lifecycle hook used when the complete hgraph registry resets. */
     HGRAPH_EXPORT void clear_native_scalar_types() noexcept;
+    HGRAPH_EXPORT void clear_python_opaque_types() noexcept;
 
     /**
      * Register ``T`` through its ``scalar_descriptor`` and associate it with

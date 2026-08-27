@@ -157,7 +157,7 @@ namespace hgraph
                 return 0;
             }
 
-            const auto distance = registry.bundle_inheritance_distance(
+            const auto distance = registry.value_inheritance_distance(
                 actual->value_schema, expected->value_schema);
             return distance.has_value() ? static_cast<int>(*distance) : 0;
         }

@@ -248,6 +248,17 @@ namespace hgraph
                                            const std::vector<std::pair<std::string, long long>> &members);
         /** Lookup-only: the enum registered under ``name`` (nullptr otherwise). */
         [[nodiscard]] const ValueTypeMetaData *named_enum(std::string_view name) const;
+        /** Intern a nominal Python annotation over the Any storage representation. */
+        const ValueTypeMetaData *opaque_python(
+            std::string_view name,
+            const std::vector<const ValueTypeMetaData *> &parents = {});
+        /** True when candidate is base or derives from it in any nominal hierarchy. */
+        [[nodiscard]] bool value_is_a(const ValueTypeMetaData *candidate,
+                                      const ValueTypeMetaData *base) const;
+        /** Shortest nominal inheritance distance, including opaque Python values. */
+        [[nodiscard]] std::optional<std::size_t> value_inheritance_distance(
+            const ValueTypeMetaData *candidate,
+            const ValueTypeMetaData *base) const;
         /**
          * Intern a list value-schema. Pass ``fixed_size > 0`` for a static
          * list. ``variadic_tuple`` flags the metadata as a variadic-tuple
@@ -690,6 +701,7 @@ namespace hgraph
         InternTable<NamedBundleKey, ValueTypeMetaData, NamedBundleKeyHash> named_bundle_cache_;
         std::vector<std::unique_ptr<ValueTypeMetaData>> recursive_bundle_storage_;
         InternTable<std::string, ValueTypeMetaData> named_enum_cache_;
+        InternTable<std::string, ValueTypeMetaData> opaque_python_cache_;
         InternTable<ListKey, ValueTypeMetaData, ListKeyHash> list_cache_;
         InternTable<SizedKey, ValueTypeMetaData, SizedKeyHash> array_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> set_cache_;
