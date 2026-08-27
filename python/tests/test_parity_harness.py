@@ -400,12 +400,18 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     # not manufacture an unrelated REF merely to satisfy this metric.  Keep
     # the original reference-transparency requirement over the catalogue
     # families for which REF/non-peered input projection is the target.
+    # polymorphic_field_projection joins them: its target is where a
+    # base-declared field is READ, and routing that field through a TSL child
+    # would test the projection rather than the binding.  polymorphic_tsd_key
+    # is NOT excluded — issue #521 named target-link adaptors, so the
+    # non-peered path is on-target there and it carries the features.
     reference_candidate_templates = {
         recipe.template for recipe in recipes
         if recipe.template not in {
             "polymorphic_event_flow",
             "polymorphic_event_map",
             "arrow_typed_projection",
+            "polymorphic_field_projection",
         }
     }
     reference_templates = {
