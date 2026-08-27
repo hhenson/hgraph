@@ -34,28 +34,31 @@ def test_frame_store_read_presents_naive_utc_timestamps():
     from hgraph import graph
     from hgraph.test import eval_node
 
-    hg.set_record_replay_config(hg.DATA_FRAME)
-    try:
-        @hg.component
-        def snap(x: TS[int]) -> TS[int]:
-            return x + x
+    # One state spans the whole test: it configures record/replay and then
+    # reads recordings back between runs, so both must see the same state.
+    with hg.GlobalState():
+        hg.set_record_replay_config(hg.DATA_FRAME)
+        try:
+            @hg.component
+            def snap(x: TS[int]) -> TS[int]:
+                return x + x
 
-        @graph
-        def recording(x: TS[int]) -> TS[int]:
-            with hg.record_replay_scope(hg.RecordReplayEnum.RECORD):
-                return snap(x)
+            @graph
+            def recording(x: TS[int]) -> TS[int]:
+                with hg.record_replay_scope(hg.RecordReplayEnum.RECORD):
+                    return snap(x)
 
-        eval_node(recording, [1, 2, 3])
-        table = hg.frame_store_read("snap.__out__")
-        assert isinstance(table, pa.Table)
-        for field in table.schema:
-            if pa.types.is_timestamp(field.type):
-                assert field.type.tz is None, field
-        first = table.to_pylist()[0]["__date_time__"]
-        assert isinstance(first, datetime) and first.tzinfo is None
-        assert b"hgraph.temporal.version" not in (table.schema.metadata or {})
-    finally:
-        hg.set_record_replay_config(hg.IN_MEMORY)
+            eval_node(recording, [1, 2, 3])
+            table = hg.frame_store_read("snap.__out__")
+            assert isinstance(table, pa.Table)
+            for field in table.schema:
+                if pa.types.is_timestamp(field.type):
+                    assert field.type.tz is None, field
+            first = table.to_pylist()[0]["__date_time__"]
+            assert isinstance(first, datetime) and first.tzinfo is None
+            assert b"hgraph.temporal.version" not in (table.schema.metadata or {})
+        finally:
+            hg.set_record_replay_config(hg.IN_MEMORY)
 
 
 
