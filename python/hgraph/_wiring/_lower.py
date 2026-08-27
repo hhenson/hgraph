@@ -10,6 +10,7 @@ from ._graph import _GraphFn, _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
 from ._node import _PyNode, _is_time_series_annotation
 from ._runner import _make_evaluation_trace
+from ._state import _global_state_scope
 from ._state import GlobalState, _active_global_state
 
 
@@ -74,17 +75,20 @@ def lower(fn, /, date_col="date", as_of_col="as_of", no_as_of_support=True):
 
         wired = _wrap_graph_fn(
             fn, input_names=input_names, scalar_bindings=scalar_bindings)
-        result = _hgraph._lower(
-            _active_global_state()._impl,
-            wired,
-            input_frames,
-            date_column=date_col,
-            as_of_column=as_of_col,
-            no_as_of_support=no_as_of_support,
-            start_time=__start_time__,
-            end_time=__end_time__,
-            trace=_make_evaluation_trace(__trace__),
-        )
+        # lower() wires and runs a graph, so like the other runner entry points
+        # it opens a state for the run and closes it afterwards.
+        with _global_state_scope() as state:
+            result = _hgraph._lower(
+                state._impl,
+                wired,
+                input_frames,
+                date_column=date_col,
+                as_of_column=as_of_col,
+                no_as_of_support=no_as_of_support,
+                start_time=__start_time__,
+                end_time=__end_time__,
+                trace=_make_evaluation_trace(__trace__),
+            )
         if result is None or not return_polars:
             return result
         import polars as pl
