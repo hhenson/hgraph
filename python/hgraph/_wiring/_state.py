@@ -281,6 +281,56 @@ class _global_state_scope:
         return False
 
 
+class _published_in_global_state:
+    """Mixin for a ``with`` block that publishes itself into the GlobalState.
+
+    Four adaptor stores share one protocol, and it is fiddly enough in the
+    corners -- restoring a shadowed entry, closing only a scope this block
+    opened, holding both on the error path -- that four copies of it is four
+    places for those corners to drift apart.
+
+    A subclass supplies ``_STATE_KEY`` and may override ``_publish`` /
+    ``_unpublish`` when it has more to do than store itself under that key.
+    """
+
+    _MISSING = object()
+
+    def _publish(self, state):
+        state[self._STATE_KEY] = self
+
+    def _unpublish(self, state):
+        if self._previous is self._MISSING:
+            state.pop(self._STATE_KEY, None)
+        else:
+            state[self._STATE_KEY] = self._previous
+
+    def __enter__(self):
+        # The block publishes into the GlobalState for the wiring inside it to
+        # find, so it needs a state to publish into: open one when the caller
+        # has not, and close it in __exit__ -- the state must not outlive the
+        # `with` that needed it.
+        self._state_scope = _global_state_scope()
+        state = self._state_scope.__enter__()
+        try:
+            self._previous = state.get(self._STATE_KEY, self._MISSING)
+            self._publish(state)
+        except BaseException:
+            self._state_scope.__exit__(None, None, None)
+            self._state_scope = None
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            self._unpublish(_active_global_state())
+            self._previous = self._MISSING
+        finally:
+            scope, self._state_scope = getattr(self, "_state_scope", None), None
+            if scope is not None:
+                scope.__exit__(exc_type, exc_value, traceback)
+        return False
+
+
 def _enter_runtime():
     if getattr(_global_state_local, "runtime_active", False):
         raise RuntimeError("a runtime GlobalState is already active on this thread")
