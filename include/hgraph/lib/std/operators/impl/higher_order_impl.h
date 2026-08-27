@@ -2249,6 +2249,17 @@ namespace hgraph::stdlib
 
             WiringPortRef branch_output = branch.wire(
                 child, {branch_ports.data(), branch_ports.size()});
+            if (const auto *declared = branch.output_schema(); declared != nullptr)
+            {
+                if (!graph_wiring_detail::input_accepts_output_schema(
+                        declared, branch_output.schema))
+                {
+                    throw std::invalid_argument(
+                        "dispatch_: branch output is incompatible with its declared schema");
+                }
+                branch_output = graph_wiring_detail::adapt_source_for_input(
+                    child, declared, std::move(branch_output));
+            }
             CompiledSubGraph compiled = std::move(child).finish_subgraph(
                 branch_output, std::move(boundary_schemas));
             const std::size_t declared_arity = bound_slots.ordered.size();
