@@ -3063,6 +3063,18 @@ ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
     return it->second;
   }
 
+  // Every storage category needs its own plan: the layout is one pointer and
+  // the lifecycle ops differ per category.  Falling through to the value_kind
+  // switch below would synthesise a FLAT plan for a one-pointer carrier -- a
+  // silently wrong layout rather than an error -- so an unhandled category
+  // stops here.  Unreachable while Owned and Shared are the only two.
+  if (schema->is_indirect()) {
+    throw std::logic_error(
+        "ValuePlanFactory: unhandled storage category for schema '" +
+        std::string{schema->name()} +
+        "'; a new storage category needs its own plan entry");
+  }
+
   const MemoryUtils::StoragePlan *plan = nullptr;
 
   switch (schema->value_kind()) {
@@ -3185,6 +3197,14 @@ ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
     const auto [it, _] = type_cache_.emplace(schema, type);
     cache_.try_emplace(schema, type.plan());
     return it->second;
+  }
+  // See synthesise(): an unhandled storage category must not fall through to
+  // the value_kind switch and be given a flat binding.
+  if (schema->is_indirect()) {
+    throw std::logic_error(
+        "ValuePlanFactory: unhandled storage category for schema '" +
+        std::string{schema->name()} +
+        "'; a new storage category needs its own plan entry");
   }
 
   ValueTypeRef type{};
