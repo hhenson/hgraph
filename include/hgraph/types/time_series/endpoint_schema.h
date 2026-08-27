@@ -103,6 +103,28 @@ namespace hgraph
     /** Structural equality for canonical or equivalent time-series schemas. */
     [[nodiscard]] HGRAPH_EXPORT bool time_series_schema_equivalent(
         const TSValueTypeMetaData *lhs, const TSValueTypeMetaData *rhs) noexcept;
+
+    /**
+     * A value schema with its STORAGE CATEGORY removed, for type comparison.
+     *
+     * ``Owned<>`` and ``Shared<>`` are hints to the layout factory and to
+     * memory management: the first says a field is held behind one owner
+     * pointer (its declared type's closed union contains the leaf that embeds
+     * it, so a flat layout would recurse), the second that an allocation is
+     * reference counted. Neither says anything about type identity, so **type
+     * resolution ignores them everywhere** — the same transparency REF already
+     * has when schemas are compared.
+     *
+     * They differ from REF in one way that matters: a storage category is not
+     * an *alternative*. There is nothing to bind, present, or choose between,
+     * because the two schemas are the same type. Comparison normalises through
+     * the category and the question never arises.
+     *
+     * Stripping loops, so a category stacked over another reduces to the type
+     * underneath. Returns ``schema`` unchanged when it carries no category.
+     */
+    [[nodiscard]] HGRAPH_EXPORT const ValueTypeMetaData *value_schema_without_storage(
+        const ValueTypeMetaData *schema) noexcept;
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_TIME_SERIES_ENDPOINT_SCHEMA_H

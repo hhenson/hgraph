@@ -162,6 +162,169 @@ def test_tsd_base_key_accepts_a_derived_key_port():
     assert eval_node(lookup, [{key: 7}], [key]) == [7]
 
 
+def test_base_declared_field_binds_to_a_node_declared_on_that_base():
+    """A field whose declared type is itself a polymorphic base (issue #556).
+
+    ``Derived.underlying`` is declared as ``Base``, and ``Base`` has a
+    descendant, so the field carries the one-pointer ``Owned<>`` representation
+    rather than a flat ``Base``.  Projecting it must still satisfy a parameter
+    declared on ``Base`` -- the carrier presents its target's read contract.
+    """
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Derived(Base):
+        underlying: Base
+
+    @compute_node
+    def read_symbol(series: TS[Base]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(series: TS[Derived]) -> TS[str]:
+        return read_symbol(series.underlying)
+
+    assert eval_node(app, [Derived("BOM", Base("MONTHLY"))]) == ["MONTHLY"]
+
+
+def test_base_declared_field_binds_from_every_position():
+    """The same value reaching the same parameter by the other routes.
+
+    These bound before issue #556 was fixed, and they are what made the
+    failure attributable to the field projection rather than to the hierarchy.
+    """
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Derived(Base):
+        underlying: Base
+
+    @compute_node
+    def read_symbol(series: TS[Base]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def top_level(series: TS[Derived]) -> TS[str]:
+        return read_symbol(series)
+
+    @graph
+    def from_tsd(series: TSD[str, TS[Base]]) -> TS[str]:
+        return read_symbol(series["only"])
+
+    class Leg(TimeSeriesSchema):
+        leg: TS[Base]
+
+    @graph
+    def from_tsb(series: TSB[Leg]) -> TS[str]:
+        return read_symbol(series.leg)
+
+    value = Derived("BOM", Base("MONTHLY"))
+    assert eval_node(top_level, [value]) == ["BOM"]
+    assert eval_node(from_tsd, [{"only": value}]) == ["BOM"]
+    assert eval_node(from_tsb, [{"leg": value}]) == ["BOM"]
+
+
+def test_base_declared_field_of_a_polymorphic_descendant_binds():
+    """The carrier of a DESCENDANT also satisfies a base-declared parameter.
+
+    ``Holder.leg`` is declared as ``Middle``, which is itself polymorphic, so
+    the projection carries ``Owned<Middle>`` while the reader is declared on
+    ``Base``.
+    """
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Middle(Base):
+        tenor: str
+
+    @dataclass(frozen=True)
+    class Leaf(Middle):
+        depth: int
+
+    @dataclass(frozen=True)
+    class Holder(CompoundScalar):
+        leg: Middle
+
+    @compute_node
+    def read_symbol(series: TS[Base]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(holder: TS[Holder]) -> TS[str]:
+        return read_symbol(holder.leg)
+
+    assert eval_node(app, [Holder(Leaf("BOM", "M1", 2))]) == ["BOM"]
+
+
+def test_recursive_descendant_field_binds_to_a_base_parameter():
+    """A field whose declared type is its own ancestor.
+
+    ``Leaf.leg`` is declared as ``Middle``, which is itself polymorphic, so the
+    projection carries ``Owned[Middle]`` while the reader is declared on
+    ``Base``.  Accepting it needs the carrier to be unwrapped and then measured
+    against the hierarchy, not compared with the annotation alone.
+    """
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Middle(Base):
+        tenor: str
+
+    @dataclass(frozen=True)
+    class Leaf(Middle):
+        leg: Middle
+
+    @compute_node
+    def read_symbol(series: TS[Base]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(leaf: TS[Leaf]) -> TS[str]:
+        return read_symbol(leaf.leg)
+
+    value = Leaf("BOM", "M1", Middle("MONTHLY", "M2"))
+    assert eval_node(app, [value]) == ["MONTHLY"]
+
+
+def test_unrelated_compound_scalar_field_is_still_refused():
+    """The widening is to the annotation's own carrier, not to any carrier."""
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Derived(Base):
+        underlying: Base
+
+    @dataclass(frozen=True)
+    class Unrelated(CompoundScalar):
+        symbol: str
+
+    @compute_node
+    def read_unrelated(series: TS[Unrelated]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(series: TS[Derived]) -> TS[str]:
+        return read_unrelated(series.underlying)
+
+    with pytest.raises(Exception):
+        eval_node(app, [Derived("BOM", Base("MONTHLY"))])
+
+
 def test_frozen_generic_compound_scalar_plain_argument_preserves_specialization():
     value_type = TypeVar("value_type")
 

@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
@@ -236,6 +238,64 @@ TEST_CASE("TypeRegistry records invariant Bundle specializations") {
                                     {{"value", integer}}, {}, false, "__type__",
                                     {text}),
                     std::invalid_argument);
+}
+
+TEST_CASE("a storage category takes no part in type resolution") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *text = registry.value_type("str");
+  REQUIRE(text != nullptr);
+
+  // Base has a descendant, so a field declared as Base is held behind an owner
+  // pointer: its closed union contains the leaf that embeds it and a flat
+  // layout would recurse (issue #556).
+  const auto *base = registry.bundle("tests.storage_category", "StorageBase",
+                                     {{"symbol", text}}, {}, true);
+  const auto *middle =
+      registry.bundle("tests.storage_category", "StorageMiddle",
+                      {{"symbol", text}, {"tenor", text}}, {base});
+  const auto *unrelated = registry.bundle(
+      "tests.storage_category", "StorageUnrelated", {{"symbol", text}}, {});
+
+  const auto *owned_base = registry.owned(base);
+  const auto *owned_middle = registry.owned(middle);
+  const auto *shared_base = registry.shared(base);
+  REQUIRE(owned_base != nullptr);
+  REQUIRE(shared_base != nullptr);
+  REQUIRE(owned_base->is_indirect());
+  REQUIRE(shared_base->is_indirect());
+
+  // Both categories are stripped, and stripping is idempotent on a plain type.
+  CHECK(value_schema_without_storage(owned_base) == base);
+  CHECK(value_schema_without_storage(shared_base) == base);
+  CHECK(value_schema_without_storage(base) == base);
+  CHECK(value_schema_without_storage(nullptr) == nullptr);
+
+  const auto *ts_base = registry.ts(base);
+  const auto *ts_middle = registry.ts(middle);
+  const auto *ts_unrelated = registry.ts(unrelated);
+  const auto *ts_owned_base = registry.ts(owned_base);
+  const auto *ts_owned_middle = registry.ts(owned_middle);
+  const auto *ts_shared_base = registry.ts(shared_base);
+
+  // Comparison is blind to the category: these ARE the same type, so there is
+  // nothing for an alternative to bind or present.
+  CHECK(time_series_schema_equivalent(ts_base, ts_owned_base));
+  CHECK(time_series_schema_equivalent(ts_owned_base, ts_base));
+  CHECK(time_series_schema_equivalent(ts_base, ts_shared_base));
+  CHECK(time_series_schema_equivalent(ts_owned_base, ts_shared_base));
+  // ... and still tells genuinely different types apart.
+  CHECK_FALSE(time_series_schema_equivalent(ts_base, ts_unrelated));
+  CHECK_FALSE(time_series_schema_equivalent(ts_base, ts_middle));
+
+  using hgraph::graph_wiring_detail::input_accepts_output_schema;
+
+  // The subtype question is asked of the types, not of the categories.
+  CHECK(input_accepts_output_schema(ts_base, ts_owned_middle));
+  CHECK(input_accepts_output_schema(ts_base, ts_middle));
+  CHECK(input_accepts_output_schema(ts_base, ts_shared_base));
+  CHECK_FALSE(input_accepts_output_schema(ts_middle, ts_owned_base));
+  CHECK_FALSE(input_accepts_output_schema(ts_unrelated, ts_owned_base));
 }
 
 TEST_CASE(

@@ -1745,11 +1745,19 @@ namespace hgraph
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
             if (time_series_schema_equivalent(input, output)) { return true; }
-            return input != nullptr && output != nullptr && input->kind == TSTypeKind::TS &&
-                   output->kind == TSTypeKind::TS && input->value_schema != nullptr &&
-                   output->value_schema != nullptr && input->value_schema->is_named_bundle() &&
-                   output->value_schema->is_named_bundle() &&
-                   registry.bundle_is_a(output->value_schema, input->value_schema);
+            if (input == nullptr || output == nullptr || input->kind != TSTypeKind::TS ||
+                output->kind != TSTypeKind::TS)
+            {
+                return false;
+            }
+            // The subtype question is asked of the types, not of the storage
+            // categories they are held behind: a field declared as a
+            // polymorphic descendant arrives behind an owner pointer, and that
+            // says nothing about whether it derives from the declared input.
+            const auto *produced = value_schema_without_storage(output->value_schema);
+            const auto *expected = value_schema_without_storage(input->value_schema);
+            return produced != nullptr && expected != nullptr && expected->is_named_bundle() &&
+                   produced->is_named_bundle() && registry.bundle_is_a(produced, expected);
         }
 
         template <typename OutSchema>
