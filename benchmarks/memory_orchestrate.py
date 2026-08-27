@@ -477,7 +477,8 @@ def main() -> int:
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--sampling-interval-ms", type=float, default=5.0)
     parser.add_argument("--timeout", type=int, default=600)
-    parser.add_argument("--baseline-cache", type=Path, default=BASELINE_CACHE)
+    parser.add_argument("--baseline-cache", type=performance.result_path_argument,
+                        default=BASELINE_CACHE)
     parser.add_argument("--refresh-baseline", action="store_true")
     parser.add_argument("--skip-validation", action="store_true")
     parser.add_argument("--skip-inspector", action="store_true")

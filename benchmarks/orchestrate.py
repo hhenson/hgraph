@@ -204,18 +204,31 @@ def benchmark_pack_fingerprint() -> str:
     return digest.hexdigest()
 
 
-def _first_line(command: list[str]) -> str:
+def _first_line(
+    command: list[str], *, accept_nonzero_stderr: bool = False
+) -> str:
     try:
         completed = subprocess.run(
             command, check=False, capture_output=True, text=True, cwd=REPO_ROOT,
         )
     except OSError:
         return "unknown"
-    # MSVC prints its banner to stderr and returns an error for ``cl
-    # --version`` after identifying itself. Preserve that useful first line
-    # while still treating a command with no diagnostic output as unknown.
-    output = completed.stdout.strip() or completed.stderr.strip()
+    if completed.returncode != 0:
+        if not accept_nonzero_stderr:
+            return "unknown"
+        output = completed.stderr.strip()
+    else:
+        output = completed.stdout.strip() or completed.stderr.strip()
     return output.splitlines()[0] if output else "unknown"
+
+
+def _compiler_version(command: list[str]) -> str:
+    # MSVC identifies itself on stderr and returns 2 for ``cl --version``.
+    is_msvc = any(
+        PureWindowsPath(part).name.lower() in {"cl", "cl.exe"}
+        for part in command[:-1]
+    )
+    return _first_line(command, accept_nonzero_stderr=is_msvc)
 
 
 def _cpu_model() -> str:
@@ -250,7 +263,7 @@ def benchmark_metadata() -> dict[str, str]:
         "revision": revision,
         "source_fingerprint": hg_cpp_source_fingerprint(),
         "build_type": "Release",
-        "compiler": _first_line([*compiler, "--version"]),
+        "compiler": _compiler_version([*compiler, "--version"]),
         "python": platform.python_version(),
         "cpu": _cpu_model(),
     }
@@ -399,7 +412,28 @@ def baseline_identity(
     }
 
 
+def _validated_result_path(path: Path) -> Path:
+    """Resolve a benchmark artifact path confined beneath ``RESULTS_DIR``."""
+    resolved = path.expanduser().resolve()
+    results_root = RESULTS_DIR.resolve()
+    try:
+        resolved.relative_to(results_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"benchmark result path must be inside {results_root}: {path}"
+        ) from exc
+    return resolved
+
+
+def result_path_argument(value: str) -> Path:
+    try:
+        return _validated_result_path(Path(value))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def load_baseline_cache(path: Path, identity: dict) -> dict:
+    path = _validated_result_path(path)
     try:
         payload = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
@@ -411,6 +445,7 @@ def load_baseline_cache(path: Path, identity: dict) -> dict:
 
 
 def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
+    path = _validated_result_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "identity": identity,
@@ -734,7 +769,8 @@ def main() -> int:
                         help="restrict to mode(s); default fixed 0.8.1 and current source")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
-    parser.add_argument("--baseline-cache", type=Path, default=BASELINE_CACHE,
+    parser.add_argument("--baseline-cache", type=result_path_argument,
+                        default=BASELINE_CACHE,
                         help="fixed-release timing cache (default: platform-specific)")
     parser.add_argument("--refresh-baseline", action="store_true",
                         help="rerun selected fixed-release modes and refresh their cache")
