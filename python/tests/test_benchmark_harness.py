@@ -44,6 +44,20 @@ def test_first_line_accepts_compiler_banner_from_failed_stderr(monkeypatch):
     assert orchestrate._compiler_version(["cl", "--version"]) == banner
 
 
+def test_compiler_version_rejects_launcher_failure_before_msvc(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="sccache: server unavailable\n"
+        ),
+    )
+
+    assert orchestrate._compiler_version(
+        ["sccache", "cl", "--version"]
+    ) == "unknown"
+
+
 def test_first_line_rejects_diagnostics_from_failed_commands(monkeypatch):
     monkeypatch.setattr(
         orchestrate.subprocess,

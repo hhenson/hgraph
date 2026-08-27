@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shlex
 import statistics
 import subprocess
@@ -205,7 +206,7 @@ def benchmark_pack_fingerprint() -> str:
 
 
 def _first_line(
-    command: list[str], *, accept_nonzero_stderr: bool = False
+    command: list[str], *, nonzero_stderr_pattern: re.Pattern[str] | None = None
 ) -> str:
     try:
         completed = subprocess.run(
@@ -214,12 +215,16 @@ def _first_line(
     except OSError:
         return "unknown"
     if completed.returncode != 0:
-        if not accept_nonzero_stderr:
-            return "unknown"
         output = completed.stderr.strip()
     else:
         output = completed.stdout.strip() or completed.stderr.strip()
-    return output.splitlines()[0] if output else "unknown"
+    first_line = output.splitlines()[0] if output else "unknown"
+    if completed.returncode != 0 and (
+        nonzero_stderr_pattern is None
+        or nonzero_stderr_pattern.fullmatch(first_line) is None
+    ):
+        return "unknown"
+    return first_line
 
 
 def _compiler_version(command: list[str]) -> str:
@@ -228,7 +233,13 @@ def _compiler_version(command: list[str]) -> str:
         PureWindowsPath(part).name.lower() in {"cl", "cl.exe"}
         for part in command[:-1]
     )
-    return _first_line(command, accept_nonzero_stderr=is_msvc)
+    msvc_banner = re.compile(
+        r"Microsoft \(R\) C/C\+\+ Optimizing Compiler Version "
+        r"\d+(?:\.\d+)+(?: for .+)?"
+    )
+    return _first_line(
+        command, nonzero_stderr_pattern=msvc_banner if is_msvc else None
+    )
 
 
 def _cpu_model() -> str:
