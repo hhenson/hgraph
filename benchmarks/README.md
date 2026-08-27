@@ -82,7 +82,13 @@ artifact identities.
 The latter contains a Release wheel built from the current source and is rebuilt
 whenever native, binding, or packaged Python source changes. The raw result
 records both the source fingerprint and a sanitized loaded-native-module path
-so a result cannot be mistaken for a stale editable build. Paths within the
+so a result cannot be mistaken for a stale editable build. The recorded
+compiler is read from the built extension itself where the object format
+carries it (ELF ``.comment``), falling back to probing ``CXX``/``c++``:
+those aliases can name a different toolchain than CMake selected, and a
+misreported compiler makes a build difference look like a code change.
+The ``+dirty`` suffix ignores ``benchmarks/results/``, so a campaign's own
+matrices do not mark the next run in the same checkout as dirty. Paths within the
 checkout use the portable ``<repo>/...`` form; external module locations are
 reduced to their filename. Committed artifacts retain platform, CPU, compiler,
 and package identities for reproducibility but exclude hostnames, machine login

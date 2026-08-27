@@ -257,6 +257,53 @@ def _cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+def _built_extension_producer() -> str:
+    """Compiler recorded inside the extension we actually built.
+
+    ``CXX``/``c++`` names the compiler this process would pick, not the one
+    CMake used for the candidate wheel: on a host where the unversioned
+    aliases point at one GCC while a newer one is installed, the two
+    disagree, and a matrix that reports the wrong toolchain invites a build
+    difference to be read as a code change. ELF records its producer, so
+    prefer that when the platform and toolchain expose it.
+    """
+    if sys.platform != "linux":
+        return ""
+    modules = sorted(HG_CPP_VENV.glob("lib/python*/site-packages/_hgraph*.so"))
+    if not modules:
+        return ""
+    try:
+        output = subprocess.run(
+            ["readelf", "-p", ".comment", str(modules[0])],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+    for line in output.splitlines():
+        if "GCC" in line or "clang" in line:
+            return line.split("]", 1)[-1].strip()
+    return ""
+
+
+def _dirty_paths(status: str) -> list[str]:
+    """Working-tree entries that make the recorded revision inexact.
+
+    The campaign writes matrices and raw samples into ``benchmarks/results``,
+    so a second run in the same checkout would otherwise stamp itself
+    ``+dirty`` because of the first run's own output. Results are outputs of a
+    measurement, never inputs to the build the measurement identifies.
+    """
+    paths = []
+    for line in status.splitlines():
+        path = line[3:].strip().strip('"')
+        if " -> " in path:                       # a rename: the new name wins
+            path = path.split(" -> ", 1)[1]
+        if not path or path.startswith("benchmarks/results/"):
+            continue
+        paths.append(path)
+    return paths
+
+
 def benchmark_metadata() -> dict[str, str]:
     revision = _first_line(["git", "rev-parse", "--short=12", "HEAD"])
     try:
@@ -266,7 +313,7 @@ def benchmark_metadata() -> dict[str, str]:
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         status = "unknown"
-    if status.strip():
+    if _dirty_paths(status):
         revision += "+dirty"
 
     compiler = shlex.split(os.environ.get("CXX", "c++"))
@@ -274,7 +321,10 @@ def benchmark_metadata() -> dict[str, str]:
         "revision": revision,
         "source_fingerprint": hg_cpp_source_fingerprint(),
         "build_type": "Release",
-        "compiler": _compiler_version([*compiler, "--version"]),
+        "compiler": (
+            _built_extension_producer()
+            or _compiler_version([*compiler, "--version"])
+        ),
         "python": platform.python_version(),
         "cpu": _cpu_model(),
     }

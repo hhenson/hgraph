@@ -403,3 +403,51 @@ def test_cpp_first_only_report_section_does_not_claim_a_0_5_comparison():
     assert "not a cross-implementation comparison" in section
     assert "| workload | cycles | current source |" in section
     assert "upstream-py" not in section
+
+
+def test_results_output_does_not_make_a_rerun_look_dirty():
+    """The campaign's own matrices must not dirty the next run's revision."""
+    status = (
+        "?? benchmarks/results/matrix-20260827-184532.md\n"
+        "?? benchmarks/results/raw-20260827-184532.json\n"
+        " D benchmarks/results/memory-baseline-20260809-linux.json\n"
+    )
+
+    assert orchestrate._dirty_paths(status) == []
+
+
+def test_real_source_edits_still_mark_the_revision_dirty():
+    status = (
+        "?? benchmarks/results/raw-20260827-184532.json\n"
+        " M src/hgraph/runtime/graph.cpp\n"
+        'R  python/hgraph/_old.py -> python/hgraph/_new.py\n'
+    )
+
+    assert orchestrate._dirty_paths(status) == [
+        "src/hgraph/runtime/graph.cpp",
+        "python/hgraph/_new.py",
+    ]
+
+
+def test_compiler_prefers_the_toolchain_that_built_the_extension(monkeypatch):
+    """A stale ``c++`` alias must not be reported as the build compiler."""
+    monkeypatch.setattr(
+        orchestrate, "_built_extension_producer",
+        lambda: "GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    )
+    monkeypatch.setattr(
+        orchestrate, "_compiler_version", lambda _command: "c++ 14.3.0"
+    )
+
+    assert orchestrate.benchmark_metadata()["compiler"] == (
+        "GCC: (Ubuntu 15.2.0-16ubuntu1) 15.2.0"
+    )
+
+
+def test_compiler_falls_back_to_the_probe_when_unreadable(monkeypatch):
+    monkeypatch.setattr(orchestrate, "_built_extension_producer", lambda: "")
+    monkeypatch.setattr(
+        orchestrate, "_compiler_version", lambda _command: "c++ 14.3.0"
+    )
+
+    assert orchestrate.benchmark_metadata()["compiler"] == "c++ 14.3.0"
