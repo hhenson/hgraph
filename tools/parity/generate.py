@@ -959,15 +959,22 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 continue
             size = draw(st.integers(min_value=1, max_value=3))
             ticks.append([entry(index) for _ in range(size)])
+        features = [
+            *CATALOG["polymorphic_tsd_key"].features,
+            f"key-operation:{operation}",
+            "type:transitive-subclass",
+        ]
+        if operation == "non_peered_map":
+            # Only this operation reaches _via_non_peered_ref.  Tagging the
+            # template unconditionally would let passthrough and feedback
+            # recipes count as non-peered coverage and mask the absence of the
+            # one operation that exercises the target-link path.
+            features += ["reference:REF", "binding:non-peered"]
         return {
             "template": "polymorphic_tsd_key",
             "inputs": {"entries": ticks},
             "parameters": {"operation": operation},
-            "features": [
-                *CATALOG["polymorphic_tsd_key"].features,
-                f"key-operation:{operation}",
-                "type:transitive-subclass",
-            ],
+            "features": features,
         }
 
     @st.composite

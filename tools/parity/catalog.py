@@ -3209,8 +3209,6 @@ CATALOG = {
             "type:polymorphic",
             "type:polymorphic-key",
             "lifecycle:keyed",
-            "reference:REF",
-            "binding:non-peered",
         ),
         operators=("map_", "len_", "feedback"),
         execute=_polymorphic_tsd_key,
