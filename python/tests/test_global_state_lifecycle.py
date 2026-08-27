@@ -62,3 +62,24 @@ def test_a_failed_wiring_still_removes_the_scope():
     assert not _thread_local_has_state(), (
         "the guard must close on the error path too"
     )
+
+
+def test_a_failed_runner_setup_still_removes_the_scope():
+    """The guard opens before the run's own try, so setup must be guarded too.
+
+    ``graph_logger.setLevel`` rejects a bad level, and that happens after the
+    scope is entered. Leaking it there would hand the next run a contaminated
+    state -- the very thing this change removes.
+    """
+    from hgraph._wiring._runner import GraphConfiguration, evaluate_graph
+
+    @hg.graph
+    def g(ts: TS[int]) -> TS[int]:
+        return ts
+
+    assert not _thread_local_has_state()
+    with pytest.raises(Exception):
+        evaluate_graph(g, GraphConfiguration(default_log_level=object()), [1])
+    assert not _thread_local_has_state(), (
+        "a failure during runner setup must still close the scope"
+    )

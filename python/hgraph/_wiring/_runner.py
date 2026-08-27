@@ -280,16 +280,23 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     # outlive the run that needed it (see _global_state_scope).
     _gs_scope = _global_state_scope()
     state = _gs_scope.__enter__()
-    missing = object()
-    previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
-    previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
-    previous_start_time = state.get("__start_time__", missing)
-    state[_GRAPH_LOGGER_KEY] = config.graph_logger
-    if config.logger_formatter is None:
-        state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
-    else:
-        state[_GRAPH_LOGGER_FORMATTER_KEY] = config.logger_formatter
-    config.graph_logger.setLevel(config.default_log_level)
+    # Setup between here and the try below can raise -- config.graph_logger
+    # .setLevel() rejects a bad level, for one -- and the scope must not be
+    # left open when it does, or the next run inherits a contaminated state.
+    try:
+        missing = object()
+        previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
+        previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
+        previous_start_time = state.get("__start_time__", missing)
+        state[_GRAPH_LOGGER_KEY] = config.graph_logger
+        if config.logger_formatter is None:
+            state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
+        else:
+            state[_GRAPH_LOGGER_FORMATTER_KEY] = config.logger_formatter
+        config.graph_logger.setLevel(config.default_log_level)
+    except BaseException:
+        _gs_scope.__exit__(None, None, None)
+        raise
     w = None
     wiring_pushed = False
     wiring_lock_held = False

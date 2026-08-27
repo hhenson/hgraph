@@ -38,6 +38,7 @@ if _sys.platform == "win32":
 from enum import Enum
 
 from . import _hgraph_persistence
+from hgraph._wiring._state import _active_global_state
 
 __all__ = (
     "FRAME_BACKEND",
@@ -94,7 +95,7 @@ _hgraph_persistence._register_recording_option_enums(RecordAsOf, RecordRemoves)
 def _state(global_state=None):
     from hgraph import GlobalState
 
-    state = global_state if global_state is not None else GlobalState.instance()
+    state = global_state if global_state is not None else _active_global_state()
     return state._impl
 
 

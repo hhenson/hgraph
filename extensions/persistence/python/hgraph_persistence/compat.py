@@ -18,6 +18,7 @@ from hgraph import (
 )
 
 from . import _hgraph_persistence
+from hgraph._wiring._state import _active_global_state
 
 __all__ = (
     "WriteMode",
@@ -42,7 +43,7 @@ _STORAGE_KEY = ":data_frame:__storage__"
 
 
 def set_data_frame_record_path(path):
-    GlobalState.instance()[_PATH_KEY] = Path(path)
+    _active_global_state()[_PATH_KEY] = Path(path)
 
 
 class _OverrideState:
@@ -61,7 +62,7 @@ class _OverrideState:
 
 
 def _overrides(state=None):
-    state = state or GlobalState.instance()
+    state = state or _active_global_state()
     value = state.get(_OVERRIDES_KEY)
     if value is None:
         value = _OverrideState()
@@ -119,11 +120,11 @@ class DataFrameStorage(ABC):
 
     @classmethod
     def instance(cls, global_state=None):
-        state = global_state if global_state is not None else GlobalState.instance()
+        state = global_state if global_state is not None else _active_global_state()
         return state.get(_STORAGE_KEY)
 
     def set_as_instance(self):
-        state = GlobalState.instance()
+        state = _active_global_state()
         self._previous = state.get(_STORAGE_KEY, self._MISSING)
         self._date_key = get_table_schema_date_key(state._impl)
         self._as_of_key = get_table_schema_as_of_key(state._impl)
@@ -131,7 +132,7 @@ class DataFrameStorage(ABC):
         _hgraph_persistence._set_python_frame_store(state._impl, self)
 
     def release_as_instance(self):
-        state = GlobalState.instance()
+        state = _active_global_state()
         _hgraph_persistence._restore_python_frame_store(state._impl)
         if self._previous is self._MISSING:
             state.pop(_STORAGE_KEY, None)
@@ -347,7 +348,7 @@ def _legacy_record_replay_kwargs(name, args, kwargs):
 
     if not GlobalState.has_instance():
         return kwargs
-    state = GlobalState.instance()
+    state = _active_global_state()
     if state.get("__record_replay_model__") != DATA_FRAME:
         return kwargs
     if DataFrameStorage.instance(state) is None:
