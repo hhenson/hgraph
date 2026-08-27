@@ -370,6 +370,10 @@ def _service_type_variables(signature):
         if isinstance(annotation, (_TypeVarSentinel, typing.TypeVar)):
             found.setdefault(_type_var_name(annotation), annotation)
             return
+        if isinstance(annotation, _GenericTsExpr):
+            for variable in annotation.variables:
+                visit(variable)
+            return
         for argument in typing.get_args(annotation):
             visit(argument)
 

@@ -2116,7 +2116,11 @@ class _TSMeta(type):
             _VALUE_SCALAR_TYPES[value_type] = scalar
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
-            return _GenericTsExpr(f"TS[{scalar!r}]", pattern=_hgraph.type_pattern_ts(e.pattern))
+            return _GenericTsExpr(
+                f"TS[{scalar!r}]",
+                pattern=_hgraph.type_pattern_ts(e.pattern),
+                variables=_type_variables_of(scalar),
+            )
         _TS_SCALAR_TYPES[expr.handle] = scalar
         from ._compat import CompoundScalar as _CS
 
@@ -2164,7 +2168,11 @@ class _TSSMeta(type):
                     f"TSS element type {scalar!r} must be hashable and equatable")
             return _TsExpr(_hgraph.tss(value_type), f"TSS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType:
-            return _GenericTsExpr(f"TSS[{scalar!r}]", pattern=_hgraph.type_pattern_tss(_scalar_pattern(scalar)))
+            return _GenericTsExpr(
+                f"TSS[{scalar!r}]",
+                pattern=_hgraph.type_pattern_tss(_scalar_pattern(scalar)),
+                variables=_type_variables_of(scalar),
+            )
 
 
 class TSS(metaclass=_TSSMeta):
@@ -2200,6 +2208,7 @@ class _TSDMeta(type):
             return _GenericTsExpr(
                 f"TSD[{key!r}, {value!r}]",
                 pattern=_hgraph.type_pattern_tsd(_scalar_pattern(key), _type_pattern(value)),
+                variables=_type_variables_of((key, value)),
             )
 
 
@@ -2294,14 +2303,20 @@ class _TSWMeta(type):
                 element = _hgraph.scalar_pattern_value(_value_type(value))
             except _GenericType as e:
                 element = e.pattern
-            return _GenericTsExpr(label, pattern=_hgraph.type_pattern_tsw(element))
+            return _GenericTsExpr(
+                label,
+                pattern=_hgraph.type_pattern_tsw(element),
+                variables=_type_variables_of(items),
+            )
         try:
             value_type = _value_type(value)
         except _GenericType as e:
             period = int(sizes[0]) if sizes and isinstance(sizes[0], int) else 0
             pattern = (_hgraph.type_pattern_tsw(e.pattern, period)
                        if period > 0 else _hgraph.type_pattern_tsw(e.pattern))
-            return _GenericTsExpr(label, pattern=pattern)
+            return _GenericTsExpr(
+                label, pattern=pattern, variables=_type_variables_of(items)
+            )
         if any(isinstance(size, datetime.timedelta) for size in sizes):
             return _TsExpr(_hgraph.tsw_duration(value_type, *sizes), label)
         return _TsExpr(_hgraph.tsw(value_type, *(sizes or (0,))), label)
@@ -2357,6 +2372,7 @@ class _TSLMeta(type):
             return _GenericTsExpr(
                 f"TSL[{element!r}, {size!r}]",
                 pattern=_hgraph.type_pattern_tsl(_type_pattern(element), _size_pattern(size)),
+                variables=_type_variables_of((element, size)),
             )
 
 
@@ -2546,7 +2562,10 @@ class _TSBMeta(type):
     def __getitem__(cls, schema):
         if isinstance(schema, (_TypeVarSentinel, _typing.TypeVar)):
             return _GenericTsExpr(
-                f"TSB[{schema!r}]", pattern=_hgraph.type_pattern_tsb(_type_var_name(schema)))
+                f"TSB[{schema!r}]",
+                pattern=_hgraph.type_pattern_tsb(_type_var_name(schema)),
+                variables=(schema,),
+            )
         # hgraph's INLINE schema: TSB["lhs": TS[int], "rhs": TS[int]] - an
         # un-named structural bundle with the given fields.
         if isinstance(schema, slice):
@@ -2706,7 +2725,9 @@ class _TSBMeta(type):
         if generic:
             return _GenericTsExpr(
                 f"TSB[{origin.__name__}]",
-                pattern=_hgraph.type_pattern_tsb_fields(field_names, field_patterns))
+                pattern=_hgraph.type_pattern_tsb_fields(field_names, field_patterns),
+                variables=_type_variables_of(schema),
+            )
 
         # The registry's TSB namespace is GLOBAL; python classes are scoped
         # (tests re-define same-named local schemas freely). Qualify with the
@@ -2925,19 +2946,69 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
     return fn
 
 
+def _type_variables_of(annotation):
+    """Return the original Python generic variables retained by an annotation.
+
+    Native ``TypePattern`` objects preserve variable names and matching rules,
+    but service specialization also needs the Python objects for scalar versus
+    time-series classification and for their constraints.
+    """
+    found = {}
+
+    def visit(value):
+        if isinstance(value, (_TypeVarSentinel, _typing.TypeVar)):
+            found.setdefault(_type_var_name(value), value)
+            return
+        if isinstance(value, _GenericTsExpr):
+            for variable in value.variables:
+                visit(variable)
+            return
+        if isinstance(value, _ContextExpr):
+            visit(value.ts)
+            return
+        if isinstance(value, _ArrayType):
+            visit(value.element)
+            visit(value.dimensions)
+            return
+        if isinstance(value, _SeriesType):
+            visit(value.element)
+            return
+        if isinstance(value, _FrameType):
+            visit(value.schema)
+            visit(value.metadata)
+            return
+        if isinstance(value, (tuple, list, set, frozenset)):
+            for item in value:
+                visit(item)
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                visit(key)
+                visit(item)
+            return
+        for argument in _typing.get_args(value):
+            visit(argument)
+        for parameter in getattr(value, "__parameters__", ()):
+            visit(parameter)
+
+    visit(annotation)
+    return tuple(found.values())
+
+
 class _GenericTsExpr:
     """A generic (unresolved) time-series annotation: TS[SCALAR] etc.
     Treated like an absent annotation - types resolve from wired ports or
     sample values. ``is_ref``/``inner`` carry REF[TYPEVAR] structure so
     generic py nodes can resolve from actual arguments."""
 
-    __slots__ = ("label", "is_ref", "inner", "pattern")
+    __slots__ = ("label", "is_ref", "inner", "pattern", "variables")
 
-    def __init__(self, label, is_ref=False, inner=None, pattern=None):
+    def __init__(self, label, is_ref=False, inner=None, pattern=None, variables=()):
         self.label = label
         self.is_ref = is_ref
         self.inner = inner
         self.pattern = pattern
+        self.variables = tuple(variables)
 
     def __repr__(self):
         return self.label
@@ -3163,7 +3234,13 @@ class _REFMeta(type):
                 _hgraph.type_pattern_var(_type_var_name(item))
                 if isinstance(item, _TypeVarSentinel) else _type_pattern(item)
             )
-            return _GenericTsExpr(f"REF[{item!r}]", is_ref=True, inner=item, pattern=pattern)
+            return _GenericTsExpr(
+                f"REF[{item!r}]",
+                is_ref=True,
+                inner=item,
+                pattern=pattern,
+                variables=_type_variables_of(item),
+            )
         expr = _TsExpr(_m.ref_ts(_resolve(item)), f"REF[{item!r}]")
         expr.is_ref = True
         return expr
