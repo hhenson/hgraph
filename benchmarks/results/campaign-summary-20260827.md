@@ -72,10 +72,15 @@ compiler. Incremental-RSS ratios must not be compared across toolchains.
 |---|---:|---|---:|
 | macOS | **1.111x** | 38 / 36 / 5 | 1.030x |
 | Linux | **1.136x** | 34 / 39 / 5 | 1.116x |
+| Windows | **1.463x** | 76 / 2 / 1 | 1.035x |
 
-0.8.19 is roughly 11–14% faster than 0.8.1 across the pack, for about 3–12%
-more incremental resident memory. Of 78 scenarios comparable on both hosts,
-exactly one disagreed in direction, so the timing signal is solid.
+0.8.19 is faster than 0.8.1 on every host, for about 3–12% more incremental
+resident memory. Windows gained far more than the POSIX hosts because its
+0.8.1 baseline was much slower: 76 of 79 scenarios improved there, against 38
+and 34 on macOS and Linux.
+
+**Across all three hosts, no scenario is slower.** 32 of 78 are faster
+everywhere. Direction therefore has to be read per platform, not pooled.
 
 ### Improvements that reproduce on both hosts
 
@@ -90,19 +95,26 @@ exactly one disagreed in direction, so the timing signal is solid.
 | Map and reduce, Python map child (`tsd_dense_py`) | 1.34x | 1.36x |
 | Request/reply service, Python (`service_request_reply_py`) | 1.30x | 1.26x |
 
-### Regressions that reproduce on both hosts
+### The construction regression is POSIX-only
 
-| workload | macOS | Linux |
-|---|---:|---:|
-| Wide/deep graph — Python nodes (`construct_py`) | **0.88x** | **0.88x** |
-| Wide/deep graph — native operators (`construct_std`) | **0.93x** | **0.92x** |
-| Equality/dedup — Python-owned (`python_owned_dedup_python`) | **0.90x** | **0.92x** |
+| workload | macOS | Linux | Windows |
+|---|---:|---:|---:|
+| Wide/deep graph — Python nodes (`construct_py`) | **0.88x** | **0.88x** | 1.26x |
+| Wide/deep graph — native operators (`construct_std`) | **0.93x** | **0.92x** | 1.30x |
+| Equality/dedup — Python-owned (`python_owned_dedup_python`) | **0.90x** | **0.92x** | 1.41x |
 
-Graph **construction** is the one coherent regression in the 0.8.x line: both
-construction scenarios are 7–12% slower on both hosts, while steady-state
-execution improved sharply. The trade is favourable for long-running graphs
-and unfavourable for workloads that build many short-lived graphs. This is
-the finding most worth acting on.
+Two independent POSIX hosts agree closely that graph construction became 7–12%
+slower between 0.8.1 and 0.8.19, and the two construction scenarios plus the
+Python-owned dedup path move together — a coherent group, not scattered cells.
+Windows contradicts it outright, improving 26–41% on the same three workloads.
+
+The Windows result does not refute the POSIX one; its 0.8.1 baseline was much
+slower everywhere, so platform-wide gains swamp a construction cost that may
+still be present. What the third host does establish is that **nothing in this
+release regressed universally**, and that the construction finding must be
+described as macOS-and-Linux behaviour rather than a property of the release.
+Confirming it needs a POSIX-side profile of graph construction, not more
+benchmark runs.
 
 ### Memory, and what not to conclude from it
 
@@ -165,17 +177,20 @@ Two further provenance gaps are recorded but not fixed:
 | `performance-20260827-macos-repeat.md` | second macOS run; the noise floor above |
 | `performance-20260827-linux-gcc15.md` | the GCC 15 build, kept as toolchain evidence |
 | `performance-20260827-linux-repeat.md` | second GCC 14 run |
-| `performance-081-20260827-{macos,linux}.{md,json}` | published 0.8.1, for release over release |
+| `performance-081-20260827-{macos,linux,windows}.{md,json}` | published 0.8.1, for release over release |
 | `memory-20260827-{macos,linux,windows}.{md,json}` | build parity, memory |
 | `memory-20260827-linux-gcc15.md` | GCC 15 memory, the 0.526x column |
-| `memory-081-20260827-{macos,linux}.{md,json}` | published 0.8.1, memory |
+| `memory-081-20260827-{macos,linux,windows}.{md,json}` | published 0.8.1, memory |
 
 ## Open items
 
 1. The `construct_std` / `construct_py` construction regression, 7–12% on
-   both hosts, is unexplained and is real code, not build noise.
+   macOS and Linux but absent on Windows, is unexplained. It is real code
+   rather than build noise — both sides are published wheels — but it is
+   platform-specific, so profile construction on a POSIX host rather than
+   treating it as a release-wide property.
 2. The two Linux SIGSEGVs are unreproduced and remain outstanding; they
    occurred in release code (current source is the 0.8.19 tag).
-3. No Windows release-over-release pass was taken; the box was rebuilding the
-   `web` extension. macOS and Linux agree closely, so a third host is
-   confirmation rather than a gap.
+3. Windows gained 1.463x from 0.8.1 to 0.8.19 against 1.11–1.14x on the POSIX
+   hosts. That gap is itself worth understanding: it implies 0.8.1 carried
+   Windows-specific costs that this line removed.
