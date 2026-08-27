@@ -95,6 +95,17 @@ namespace hgraph
         }
     }  // namespace
 
+    const ValueTypeMetaData *value_schema_without_storage(const ValueTypeMetaData *schema) noexcept
+    {
+        // A loop, not one unwrap: a storage category may sit over another, and
+        // every layer is invisible to the type system.
+        while (schema != nullptr && schema->is_indirect() && schema->element_type != nullptr)
+        {
+            schema = schema->element_type;
+        }
+        return schema;
+    }
+
     bool time_series_schema_equivalent(const TSValueTypeMetaData *lhs,
                                        const TSValueTypeMetaData *rhs) noexcept
     {
@@ -107,7 +118,9 @@ namespace hgraph
             case TSTypeKind::TSS:
             case TSTypeKind::TSW:
             case TSTypeKind::SIGNAL:
-                return lhs->value_type == rhs->value_type && lhs->period() == rhs->period() &&
+                return value_schema_without_storage(lhs->value_type) ==
+                           value_schema_without_storage(rhs->value_type) &&
+                       lhs->period() == rhs->period() &&
                        lhs->min_period() == rhs->min_period() &&
                        lhs->time_range() == rhs->time_range() &&
                        lhs->min_time_range() == rhs->min_time_range();

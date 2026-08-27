@@ -1,5 +1,7 @@
 #include <hgraph/types/type_pattern.h>
 
+#include <hgraph/types/time_series/endpoint_schema.h>
+
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/endpoint_schema.h>  // time_series_schema_equivalent
@@ -98,6 +100,10 @@ namespace hgraph
 
     bool scalar_pattern_match(const ScalarPattern &pattern, const ValueTypeMetaData *concrete, ResolutionMap &map)
     {
+        // The storage category takes no part in type resolution, so it is
+        // stripped before anything is compared or bound: a variable binds the
+        // type, never the category it happens to be stored behind.
+        concrete = value_schema_without_storage(concrete);
         if (concrete == nullptr) { return false; }
         switch (pattern.kind)
         {
