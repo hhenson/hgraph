@@ -16,7 +16,8 @@ from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
 from ._graph import _GraphFn
 from ._node import _PyNode
 from ._sentinels import _simplify_delta
-from ._state import (GlobalState, _GRAPH_LOGGER_FORMATTER_KEY,
+from ._state import (GlobalState, _global_state_scope,
+                     _GRAPH_LOGGER_FORMATTER_KEY,
                      _GRAPH_LOGGER_KEY, utc_now)
 
 class EvaluationMode:
@@ -275,7 +276,10 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     profiler = _make_evaluation_profiler(config.profile)
     from .._types import _finalize_compound_scalar_types
     _finalize_compound_scalar_types()
-    state = GlobalState.instance()
+    # Opened before wiring, closed in the finally below: the state must not
+    # outlive the run that needed it (see _global_state_scope).
+    _gs_scope = _global_state_scope()
+    state = _gs_scope.__enter__()
     missing = object()
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
     previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
@@ -369,6 +373,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             state.pop("__start_time__", None)
         else:
             state["__start_time__"] = previous_start_time
+        _gs_scope.__exit__(None, None, None)
     if profiler is not None:
         _log_evaluation_profile(config.graph_logger, profiler.snapshot())
     if out is None:
@@ -664,7 +669,16 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     trace = _make_evaluation_trace(__trace__)
     from .._types import _finalize_compound_scalar_types
     _finalize_compound_scalar_types()
-    w = _hgraph.Wiring(GlobalState.instance()._impl, realtime)
+    # The scope guard opens BEFORE wiring so the state cannot outlive it: it
+    # defers to a caller's `with GlobalState():` when one is active, and
+    # otherwise opens one for exactly this run and closes it in the finally.
+    _gs_scope = _global_state_scope()
+    _global_state = _gs_scope.__enter__()
+    try:
+        w = _hgraph.Wiring(_global_state._impl, realtime)
+    except BaseException:
+        _gs_scope.__exit__(None, None, None)
+        raise
     _wiring_stack.append(w)
     try:
         w.configure_wiring_observers(__trace_wiring__, ())
@@ -781,7 +795,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         # Python-readable mirror of the run start (the C++ run bounds have no
         # wiring-time getter): start-time-aware wiring — the DATA_FRAME
         # replay overloads' upstream `_api.start_time` filter — reads this.
-        GlobalState.instance()["__start_time__"] = (
+        _global_state["__start_time__"] = (
             __start_time__ if __start_time__ is not None else _hgraph.MIN_ST)
         out = fn(*ports, **scalars)
         # Replay values convert AFTER wiring: hgraph surfaces wiring errors
@@ -823,6 +837,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             print(line)
         w._release_seed_context()
         _wiring_stack.pop()
+        _gs_scope.__exit__(None, None, None)
     if __elide__:
         # hgraph parity: elide keeps only the ticked cycles, in order (the
         # recording was made SPARSE, so this is just the list).

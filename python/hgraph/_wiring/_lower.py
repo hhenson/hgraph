@@ -10,7 +10,7 @@ from ._graph import _GraphFn, _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
 from ._node import _PyNode, _is_time_series_annotation
 from ._runner import _make_evaluation_trace
-from ._state import GlobalState
+from ._state import GlobalState, _active_global_state
 
 
 def lower(fn, /, date_col="date", as_of_col="as_of", no_as_of_support=True):
@@ -75,7 +75,7 @@ def lower(fn, /, date_col="date", as_of_col="as_of", no_as_of_support=True):
         wired = _wrap_graph_fn(
             fn, input_names=input_names, scalar_bindings=scalar_bindings)
         result = _hgraph._lower(
-            GlobalState.instance()._impl,
+            _active_global_state()._impl,
             wired,
             input_frames,
             date_column=date_col,

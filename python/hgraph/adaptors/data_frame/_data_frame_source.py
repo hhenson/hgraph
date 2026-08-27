@@ -6,6 +6,7 @@ from typing import Iterator, TypeVar
 import pyarrow as pa
 
 from hgraph import GlobalState
+from hgraph._wiring._state import _active_global_state, _global_state_scope
 
 __all__ = (
     "DataFrameSource",
@@ -62,10 +63,11 @@ class DataStore:
     def __init__(self):
         self._data_frame_sources = {}
         self._previous = self._MISSING
+        self._state_scope = None
 
     @classmethod
     def instance(cls) -> "DataStore":
-        state = GlobalState.instance()
+        state = _active_global_state()
         store = state.get(cls._STATE_KEY)
         if store is None:
             store = cls()
@@ -87,18 +89,26 @@ class DataStore:
         return source
 
     def __enter__(self):
-        state = GlobalState.instance()
+        # This block publishes the store into the GlobalState for the wiring
+        # inside it to find, so it needs a state to publish into.  Open one for
+        # the block when the caller has not, and close it in __exit__ -- the
+        # state must not outlive the `with` that needed it.
+        self._state_scope = _global_state_scope()
+        state = self._state_scope.__enter__()
         self._previous = state.get(self._STATE_KEY, self._MISSING)
         state[self._STATE_KEY] = self
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
+        state = _active_global_state()
         if self._previous is self._MISSING:
             state.pop(self._STATE_KEY, None)
         else:
             state[self._STATE_KEY] = self._previous
         self._previous = self._MISSING
+        scope, self._state_scope = self._state_scope, None
+        if scope is not None:
+            scope.__exit__(exc_type, exc_value, traceback)
         return False
 
 
@@ -129,7 +139,7 @@ class DataConnectionStore:
 
     @classmethod
     def instance(cls) -> "DataConnectionStore":
-        state = GlobalState.instance()
+        state = _active_global_state()
         store = state.get(cls._STATE_KEY)
         if store is None:
             store = cls()
@@ -149,18 +159,26 @@ class DataConnectionStore:
         self._connections[name] = connection
 
     def __enter__(self):
-        state = GlobalState.instance()
+        # This block publishes the store into the GlobalState for the wiring
+        # inside it to find, so it needs a state to publish into.  Open one for
+        # the block when the caller has not, and close it in __exit__ -- the
+        # state must not outlive the `with` that needed it.
+        self._state_scope = _global_state_scope()
+        state = self._state_scope.__enter__()
         self._previous = state.get(self._STATE_KEY, self._MISSING)
         state[self._STATE_KEY] = self
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
+        state = _active_global_state()
         if self._previous is self._MISSING:
             state.pop(self._STATE_KEY, None)
         else:
             state[self._STATE_KEY] = self._previous
         self._previous = self._MISSING
+        scope, self._state_scope = self._state_scope, None
+        if scope is not None:
+            scope.__exit__(exc_type, exc_value, traceback)
         return False
 
 

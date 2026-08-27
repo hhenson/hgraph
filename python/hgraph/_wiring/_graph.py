@@ -17,7 +17,7 @@ from ._node import (_PyNode, _is_time_series_annotation,
 from ._operator import _register_overload, _run_requires
 from ._resolution import (_apply_resolvers, _python_value_for_binding,
                           _resolution_binding)
-from ._state import GlobalState, _GRAPH_LOGGER_KEY
+from ._state import GlobalState, _GRAPH_LOGGER_KEY, _active_global_state
 
 
 _GRAPH_INJECTABLES = frozenset((GlobalState, LOGGER))
@@ -537,9 +537,9 @@ class _GraphFn:
                     raise TypeError(
                         f"{self.__name__}: injectable '{param.name}' cannot be supplied")
                 if param.annotation is GlobalState:
-                    bound.arguments[param.name] = GlobalState.instance()
+                    bound.arguments[param.name] = _active_global_state()
                 else:
-                    logger = GlobalState.instance().get(_GRAPH_LOGGER_KEY)
+                    logger = _active_global_state().get(_GRAPH_LOGGER_KEY)
                     bound.arguments[param.name] = (
                         logger if logger is not None else logging.getLogger("hgraph"))
             value = bound.arguments.get(param.name)

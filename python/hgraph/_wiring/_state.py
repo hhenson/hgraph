@@ -6,6 +6,32 @@ import _hgraph
 from ._sentinels import REMOVE, Removed, _SetDelta
 
 _global_state_local = threading.local()
+
+
+def _active_global_state():
+    """The GlobalState selected by the innermost active scope.
+
+    The thread-local exists ONLY between ``GlobalContext.__enter__`` and its
+    paired ``__exit__``.  Nothing else may create it: an accessor that
+    lazily installed one made its own side effect the lifecycle, so the state
+    outlived every wiring that used it and was still there at interpreter exit
+    (issue #505).
+    """
+    if getattr(_global_state_local, "runtime_active", False):
+        raise RuntimeError(
+            "the GlobalState is wiring-only during graph execution; "
+            "declare a GlobalState injectable on the graph or node instead"
+        )
+    state = getattr(_global_state_local, "state", None)
+    if state is None:
+        raise RuntimeError(
+            "no active GlobalState. Declare it as an injectable on the graph "
+            "or node that needs it -- `def my_graph(..., state: GlobalState = None)` "
+            "-- which binds the state the runtime is actually using. "
+            "`with GlobalState():` selects a seed around wiring and is a "
+            "compatibility surface that is removed in 1.0."
+        )
+    return state
 _GLOBAL_MISSING = object()
 _GRAPH_LOGGER_KEY = "__hgraph_graph_logger__"
 _GRAPH_LOGGER_FORMATTER_KEY = "__hgraph_graph_logger_formatter__"
@@ -32,7 +58,7 @@ def get_recorded_value(key="out", recordable_id=None):
     plain-key form is this runtime's cycle-aligned harness recording (bare
     values, no timestamps); record with ``recordable_id=`` for the
     timestamped shape."""
-    state = GlobalState.instance()
+    state = _active_global_state()
     if recordable_id is not None:
         return state[f":memory:{recordable_id}.{key}"]
     default_key = f":memory:nodes.record.{key}"
@@ -43,20 +69,20 @@ def get_recorded_value(key="out", recordable_id=None):
 
 def set_recorder_api(recorder):
     """Store the process-specific recorder API in the active graph state."""
-    GlobalState.instance()[_RECORDER_API_KEY] = recorder
+    _active_global_state()[_RECORDER_API_KEY] = recorder
 
 
 def get_recorder_api():
     """Return the recorder API selected for the active graph state."""
-    return GlobalState.instance()[_RECORDER_API_KEY]
+    return _active_global_state()[_RECORDER_API_KEY]
 
 
 def set_recording_label(label):
-    GlobalState.instance()[_RECORDER_LABEL_KEY] = label
+    _active_global_state()[_RECORDER_LABEL_KEY] = label
 
 
 def get_recording_label():
-    return GlobalState.instance()[_RECORDER_LABEL_KEY]
+    return _active_global_state()[_RECORDER_LABEL_KEY]
 
 
 def _friendly_recording_delta(delta):
@@ -99,7 +125,7 @@ class GlobalState:
 
     Use ``GlobalContext`` (or this object as a context manager) to select the
     state while wiring and running a graph. Inside a node callback, declare a
-    ``GlobalState`` injectable instead of calling ``GlobalState.instance()``.
+    ``GlobalState`` injectable instead of calling ``_active_global_state()``.
     """
 
     def __init__(self, **kwargs):
@@ -167,16 +193,12 @@ class GlobalState:
 
     @staticmethod
     def instance():
-        if getattr(_global_state_local, "runtime_active", False):
-            raise RuntimeError(
-                "GlobalState.instance() is wiring-only during graph execution; "
-                "declare a GlobalState injectable on the graph or node instead"
-            )
-        state = getattr(_global_state_local, "state", None)
-        if state is None:
-            state = GlobalState()
-            _global_state_local.state = state
-        return state
+        """The active GlobalState. **Compatibility surface, removed in 1.0.**
+
+        hgraph's own code must not call this -- it takes the state from the
+        active scope (``_active_global_state``) or from a declared injectable.
+        """
+        return _active_global_state()
 
     def __enter__(self):
         if self._compat_context is not None:
@@ -196,7 +218,12 @@ class GlobalContext:
     """
 
     def __init__(self, state=None):
-        self.state = state if state is not None else GlobalState.instance()
+        # NOT _active_global_state(): a context with no explicit state selects a
+        # NEW one.  Reading the ambient here would prime the thread-local before
+        # __enter__ samples _previous, so __exit__ would take the restore branch
+        # and leave the state behind -- the context could never clean up after
+        # itself, which is how the thread-local came to outlive wiring.
+        self.state = state if state is not None else GlobalState()
         if not isinstance(self.state, GlobalState):
             raise TypeError("GlobalContext state must be a GlobalState")
         self._previous = None
@@ -220,6 +247,37 @@ class GlobalContext:
                 _global_state_local.state = self._previous
             self._previous = None
             self._entered = False
+        return False
+
+
+class _global_state_scope:
+    """Scope guard: guarantee a GlobalState for the duration of a block.
+
+    Entering selects the caller's state when a scope is already active, and
+    otherwise opens one for exactly this block and closes it afterwards -- so
+    the thread-local never outlives what needed it.
+
+    A caller who wants the state to survive (to read recordings back, say)
+    holds the scope themselves with ``with GlobalState():``; this guard then
+    defers to it and leaves it alone.  Used by the runner around wiring, and
+    by the adaptor stores whose ``with`` blocks publish themselves into the
+    state for the wiring inside them to find.
+    """
+
+    __slots__ = ("_context",)
+
+    def __enter__(self):
+        if getattr(_global_state_local, "state", None) is not None:
+            self._context = None          # a caller's scope is already active
+        else:
+            self._context = GlobalContext()
+            self._context.__enter__()
+        return _active_global_state()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        context, self._context = self._context, None
+        if context is not None:
+            context.__exit__(exc_type, exc_value, traceback)
         return False
 
 
@@ -300,11 +358,11 @@ def set_record_replay_config(model):
         # native store unless a user-owned python compat store is active).
         import hgraph_persistence
 
-        hgraph_persistence.start_recording_session(GlobalState.instance())
-    _hgraph._set_record_replay_config(GlobalState.instance()._impl, backend)
+        hgraph_persistence.start_recording_session(_active_global_state())
+    _hgraph._set_record_replay_config(_active_global_state()._impl, backend)
     # python-readable mirror (backend-gated python overloads read it in their
     # requires= predicates; the C++ config has no python getter)
-    GlobalState.instance()["__record_replay_model__"] = backend
+    _active_global_state()["__record_replay_model__"] = backend
 
 
 def set_pooled_compound_scalar_storage(enabled=True):
@@ -314,32 +372,32 @@ def set_pooled_compound_scalar_storage(enabled=True):
     default and does not alter graphs wired from another ``GlobalState``.
     """
     _hgraph._set_pooled_compound_scalar_storage(
-        GlobalState.instance()._impl, bool(enabled))
+        _active_global_state()._impl, bool(enabled))
 
 
 def set_as_of(dt):
     value = dt
-    _hgraph._set_as_of(GlobalState.instance()._impl, value)
+    _hgraph._set_as_of(_active_global_state()._impl, value)
     # python-readable mirror (the data-frame record/replay model reads it
     # at wiring/replay time; the C++ config has no python getter)
-    GlobalState.instance()["__as_of__"] = value
+    _active_global_state()["__as_of__"] = value
 
 
 def set_time_zone_provider():
     """Install the configured immutable C++ TZDB provider for this graph seed."""
-    _hgraph._set_time_zone_provider(GlobalState.instance()._impl)
+    _hgraph._set_time_zone_provider(_active_global_state()._impl)
 
 
 def set_table_schema_date_key(key):
-    _hgraph._set_table_schema_date_key(GlobalState.instance()._impl, key)
+    _hgraph._set_table_schema_date_key(_active_global_state()._impl, key)
 
 
 def set_table_schema_as_of_key(key):
-    _hgraph._set_table_schema_as_of_key(GlobalState.instance()._impl, key)
+    _hgraph._set_table_schema_as_of_key(_active_global_state()._impl, key)
 
 
 def evaluate_const(name, args=(), kwargs=None, output_type=None):
-    return _hgraph._evaluate_const(GlobalState.instance()._impl, name, args, kwargs or {}, output_type)
+    return _hgraph._evaluate_const(_active_global_state()._impl, name, args, kwargs or {}, output_type)
 
 class _RecordReplayModes:
     NONE = _hgraph.MODE_NONE
@@ -390,4 +448,4 @@ def set_record_replay_model(model):
 
 def comparison_summary(fq_key):
     """(compared, mismatches) from a Compare run's ``fq.__compare__``."""
-    return _hgraph._comparison_summary(GlobalState.instance()._impl, fq_key)
+    return _hgraph._comparison_summary(_active_global_state()._impl, fq_key)
