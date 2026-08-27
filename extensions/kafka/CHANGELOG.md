@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Retain consumed records as one immutable `Shared<KafkaRecord>` allocation
+  through the private cross-thread transport pipeline. The public
+  `TS<KafkaRecord>` service and Python value remain unchanged and receive one
+  concrete projection at graph publication.
 - Rebuild manual/independent assignments as a new recovery generation after a
   broker disconnect, allowing live consumers to resume from committed offsets
   and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.

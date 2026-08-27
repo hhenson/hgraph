@@ -53,7 +53,7 @@ using KafkaTransportEvent =
     Bundle<"hgraph.kafka.internal::KafkaTransportEvent",
            Field<"kind", KafkaTransportEventKind>,
            Field<"subscription_key", KafkaSubscriptionKey>,
-           Field<"record", KafkaRecord>, Field<"cursor", KafkaCursor>,
+           Field<"record", Shared<KafkaRecord>>, Field<"cursor", KafkaCursor>,
            Field<"state", KafkaSubscriptionState>,
            Field<"evaluation_time", DateTime>, Field<"removed", Bool>,
            Field<"recovery", Bool>, Field<"request_id", Int>,
@@ -409,7 +409,10 @@ struct SubscriptionProjectionNode {
     const auto fields = event.base().value().as_bundle();
     const auto record = fields.at("record");
     if (record.data() != nullptr) {
-      out.template field<"record">().apply(record);
+      // The transport retains the immutable record through Shared<T>, while
+      // the public Kafka service deliberately remains TS<KafkaRecord>. Project
+      // the read-only concrete payload for the one public-output copy.
+      out.template field<"record">().apply(record.concrete());
     }
     const auto cursor = fields.at("cursor");
     if (cursor.data() != nullptr) {

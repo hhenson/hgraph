@@ -9,6 +9,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/util/scope.h>
 
 #include "../src/detail/service_transport.h"
@@ -68,6 +69,44 @@ void test_transport_sender_handles_graph_teardown() {
   // inert as soon as the graph closes the push source.
   require(!sender.send_blocking(Value{Int{1}}),
           "a Kafka transport sender accepted work after graph teardown");
+}
+
+void test_subscription_transport_retains_one_shared_record() {
+  const auto bindings = kafka::detail::make_transport_bindings();
+  const auto live_before = shared_value_pool_metrics().live_values;
+  Value key = make_subscription_key(
+      {Str{"shared-records"}}, Str{"shared-records"}, Str{"earliest"},
+      Str{"unbounded"}, KafkaCommitMode::Explicit, Str{"shared-records"});
+  Value record = make_record(Str{"shared-records"}, Int{1}, Int{42},
+                             Bytes{std::string(8'192, 'x')});
+  Value event = kafka::detail::subscription_transport_event(
+      *bindings.value, std::move(key), std::move(record), std::nullopt,
+      KafkaSubscriptionState::Live);
+
+  const auto retained_record = event.view().as_bundle().at("record");
+  require(retained_record.schema()->is_shared(),
+          "Kafka transport record did not use Shared<KafkaRecord>");
+  const void *stable = retained_record.concrete().data();
+  require(stable != nullptr, "Kafka transport record has no shared payload");
+  require(shared_value_pool_metrics().live_values == live_before + 1,
+          "Kafka transport materialised more than one shared record");
+
+  Value copied_event = event.clone();
+  const auto copied_record = copied_event.view().as_bundle().at("record");
+  require(copied_record.concrete().data() == stable,
+          "Kafka transport copy did not retain the shared record slot");
+  require(shared_value_pool_metrics().live_values == live_before + 1,
+          "Kafka transport copy duplicated the shared record payload");
+
+  const auto plain_record_binding = ValuePlanFactory::instance().type_for(
+      scalar_descriptor<KafkaRecord>::value_meta());
+  Value public_record{plain_record_binding, copied_record.concrete()};
+  require(public_record.view().as_bundle().at("offset").checked_as<Int>() ==
+              Int{42},
+          "Kafka public record projection changed its value semantics");
+  require(public_record.schema() ==
+              scalar_descriptor<KafkaRecord>::value_meta(),
+          "Kafka shared transport representation escaped the public schema");
 }
 
 Value delivery_burst(
@@ -2931,6 +2970,7 @@ int main() {
   try {
     hgraph::stdlib::register_standard_operators();
     test_transport_sender_handles_graph_teardown();
+    test_subscription_transport_retains_one_shared_record();
     test_delivery_burst_unrolls_repeated_request_ids();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();

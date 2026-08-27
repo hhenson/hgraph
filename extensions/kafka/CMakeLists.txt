@@ -82,6 +82,49 @@ if(NOT TARGET RdKafka::rdkafka AND NOT TARGET rdkafka)
     )
     FetchContent_MakeAvailable(librdkafka)
 
+    if(HGRAPH_ENABLE_TSAN)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            # glibc's C11 thrd_create/mtx_* entry points are not intercepted by
+            # ThreadSanitizer.  librdkafka worker threads created through that
+            # backend therefore enter instrumented code without TSan thread
+            # state and crash inside the sanitizer allocator.  Select its
+            # pthread-backed implementation after feature detection has
+            # generated config.h; pthread lifecycle and synchronization are
+            # visible to TSan.
+            set(_hgraph_kafka_rdkafka_config
+                "${librdkafka_BINARY_DIR}/generated/config.h")
+            file(READ "${_hgraph_kafka_rdkafka_config}"
+                _hgraph_kafka_rdkafka_config_contents)
+            if(_hgraph_kafka_rdkafka_config_contents MATCHES
+                    "#define WITH_C11THREADS 1")
+                string(REPLACE
+                    "#define WITH_C11THREADS 1"
+                    "#define WITH_C11THREADS 0"
+                    _hgraph_kafka_rdkafka_config_contents
+                    "${_hgraph_kafka_rdkafka_config_contents}")
+                file(WRITE "${_hgraph_kafka_rdkafka_config}"
+                    "${_hgraph_kafka_rdkafka_config_contents}")
+            elseif(NOT _hgraph_kafka_rdkafka_config_contents MATCHES
+                    "#define WITH_C11THREADS 0")
+                message(FATAL_ERROR
+                    "The pinned librdkafka config no longer declares "
+                    "WITH_C11THREADS; update the TSan compatibility setup")
+            endif()
+            set(WITH_C11THREADS OFF CACHE INTERNAL
+                "Use librdkafka's pthread-backed thread primitives under TSan"
+                FORCE)
+        endif()
+
+        # Instrument the fetched dependency as well as hgraph.  In addition to
+        # checking its accesses, this prevents interceptor-only reports from
+        # librdkafka allocation helpers whose surrounding atomic operations
+        # would otherwise be invisible to TSan.
+        target_compile_options(rdkafka PRIVATE
+            -fsanitize=thread
+            -fno-omit-frame-pointer
+        )
+    endif()
+
     if(MSVC AND OPENSSL_USE_STATIC_LIBS)
         # librdkafka's Windows TLS source embeds default-library directives for
         # the OpenSSL import libraries.  Ignore those names when CMake selected

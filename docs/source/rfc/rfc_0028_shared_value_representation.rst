@@ -1,10 +1,10 @@
 RFC 0028: Shared Value Representation
 =====================================
 
-:Status: Accepted (core implementation complete; adaptor migration pending)
+:Status: Accepted (core and Kafka migration complete; web migration pending)
 :Author: Howard Henson
 :Created: 2026-08-24
-:Updated: 2026-08-26
+:Updated: 2026-08-27
 :Target: C++ value storage, cross-thread retention, adaptor ingress paths
 
 Summary
@@ -290,10 +290,66 @@ The core implementation includes:
 * native tests for immutability, stable reuse, cross-schema class reuse,
   concurrent retain/release, allocator contention, JSON, and Python exposure.
 
-Migration of Kafka/web transport fields and before/after adaptor benchmarks is
-deliberately a subsequent, separately measurable change.  The representation
+Kafka subscription ingress now retains its record field as
+``Shared<KafkaRecord>`` in the private cross-thread transport envelope.  The
+public service remains ``TS<KafkaRecord>`` and materialises one concrete copy
+at graph publication, so native and Python clients see no schema change.  Web
+transport remains a separately measurable follow-up.  The representation
 contract does not require every struct to become shared; sites opt in where
 retention data justifies it.
+
+Kafka transport evidence
+------------------------
+
+``hgraph_kafka_transport_perf`` preserves the former plain-record envelope as
+an A/B control and exercises the production retention segment: envelope
+construction, burst push output, emit pending state, keyed transport child,
+and the public record projection.  It reports allocation count and bytes for
+the complete segment, p50/p99 segment latency, and the peak tracked retained
+state.  The retained figure includes the shared arena slab reservation rather
+than hiding it behind per-handle zero accounting.
+
+Run from a Release ``cpp`` preset build with:
+
+.. code-block:: console
+
+   ./cmake-build-cpp/extensions/kafka/tests/hgraph_kafka_transport_perf
+
+On an Apple M4 Max running macOS 26.6.2, the median of three runs of 20,000
+records with a 64 KiB payload was:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 14 14 14 20 20
+
+   * - Envelope
+     - p50 ns
+     - p99 ns
+     - allocations / record
+     - allocated bytes / record
+     - tracked retained bytes
+   * - Plain control
+     - 9,041
+     - 11,583
+     - 31
+     - 409,224
+     - 197,912
+   * - Shared record
+     - 4,708
+     - 6,084
+     - 23
+     - 144,632
+     - 151,088
+   * - Change
+     - -47.9%
+     - -47.5%
+     - -25.8%
+     - -64.7%
+     - -23.7%
+
+This is the deterministic native retention segment, not broker/network
+latency.  Full Kafka service tests continue to cover real and mock broker
+ordering, recovery, lifecycle, and public C++/Python value behavior.
 
 Acceptance criteria
 -------------------
