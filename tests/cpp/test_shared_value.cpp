@@ -167,6 +167,55 @@ TEST_CASE("Shared values preserve transparent JSON representation",
   CHECK_FALSE(decoded.view().can_begin_mutation());
 }
 
+TEST_CASE("Shared arena supports zero-sized Bundle payloads",
+          "[shared-value][json]") {
+  using namespace hgraph;
+
+  auto &registry = TypeRegistry::instance();
+  const auto *plain_schema = registry.bundle("tests::SharedEmpty", {});
+  const auto *shared_schema = registry.shared(plain_schema);
+  const auto plain_type = ValuePlanFactory::instance().type_for(plain_schema);
+  const auto shared_type = ValuePlanFactory::instance().type_for(shared_schema);
+
+  REQUIRE(plain_type.checked_plan().layout.size == 0);
+  Value source{plain_type};
+  Value shared{shared_type, source.view()};
+  const void *stable = shared.view().concrete().data();
+
+  REQUIRE(stable != nullptr);
+  CHECK(shared.as_bundle().size() == 0);
+  CHECK(to_json_string(shared.view()) == to_json_string(source.view()));
+
+  Value retained = shared;
+  CHECK(retained.view().concrete().data() == stable);
+  CHECK(shared_value_pool_metrics().live_values == 1);
+}
+
+TEST_CASE("Null Shared sources retain their declared type constraint",
+          "[shared-value]") {
+  using namespace hgraph;
+
+  auto &registry = TypeRegistry::instance();
+  const auto *destination_schema =
+      registry.bundle("tests::SharedNullDestination",
+                      {{"id", scalar_descriptor<Int>::value_meta()}});
+  const auto *source_schema =
+      registry.bundle("tests::SharedNullSource",
+                      {{"text", scalar_descriptor<Str>::value_meta()}});
+  const auto destination_type = ValuePlanFactory::instance().type_for(
+      registry.shared(destination_schema));
+  const auto source_type =
+      ValuePlanFactory::instance().type_for(registry.shared(source_schema));
+  Value null_source{source_type};
+
+  REQUIRE(null_source.has_value());
+  REQUIRE(null_source.to_string() == "None");
+  CHECK_FALSE(
+      destination_type.ops_ref().accepts_source(destination_type, source_type));
+  CHECK_THROWS_AS(Value(destination_type, null_source.view()),
+                  std::invalid_argument);
+}
+
 TEST_CASE("Shared schema accepts direct Bundle targets only",
           "[shared-value]") {
   using namespace hgraph;

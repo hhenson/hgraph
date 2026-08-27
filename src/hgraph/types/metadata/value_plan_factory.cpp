@@ -1889,11 +1889,13 @@ struct SharedValueEntry {
     }
     auto *replacement =
         const_cast<SharedValueAllocation *>(shared_allocation(src));
-    if (replacement != nullptr &&
-        !TypeRegistry::instance().bundle_is_a(
-            allocation_type(replacement).schema(), self.schema->element_type)) {
+    const auto *source_bundle = replacement != nullptr
+                                    ? allocation_type(replacement).schema()
+                                    : source.schema()->element_type;
+    if (!TypeRegistry::instance().bundle_is_a(source_bundle,
+                                              self.schema->element_type)) {
       throw std::invalid_argument(
-          "Shared value received an incompatible concrete source type");
+          "Shared value received an incompatible source type");
     }
     if (!move) {
       value_impl::retain_shared_value(replacement);

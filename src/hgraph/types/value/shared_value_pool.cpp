@@ -196,14 +196,17 @@ public:
 
   [[nodiscard]] SharedSizeClassPool &
   pool_for(const MemoryUtils::StorageLayout &layout) {
-    if (layout.size == 0 || layout.alignment == 0 ||
-        !std::has_single_bit(layout.alignment)) {
+    if (layout.alignment == 0 || !std::has_single_bit(layout.alignment)) {
       throw std::invalid_argument(
-          "Shared<T> requires a non-empty power-of-two-aligned payload plan");
+          "Shared<T> requires a power-of-two-aligned payload plan");
     }
 
+    // Empty composites have a valid zero-byte plan. Give them an addressable
+    // payload location by sharing the minimum arena class; their concrete plan
+    // remains zero-sized and its lifecycle still performs no field work.
+    const std::size_t normalized_size = std::max(layout.size, std::size_t{1});
     const std::size_t size_exponent =
-        layout.size <= 1 ? 0 : std::bit_width(layout.size - 1U);
+        normalized_size <= 1 ? 0 : std::bit_width(normalized_size - 1U);
     const std::size_t alignment_exponent = std::countr_zero(layout.alignment);
     if (size_exponent >= CLASS_BITS || alignment_exponent >= CLASS_BITS) {
       throw std::length_error(

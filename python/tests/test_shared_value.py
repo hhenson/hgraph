@@ -13,6 +13,11 @@ class SharedQuote(CompoundScalar):
     price: float
 
 
+@dataclass(frozen=True)
+class SharedTag(CompoundScalar):
+    pass
+
+
 def test_shared_value_type_is_transparent_to_python_conversion_and_json():
     target = _value_type(SharedQuote)
     shared = _hgraph.shared_vt(target)
@@ -28,6 +33,17 @@ def test_shared_value_type_is_transparent_to_python_conversion_and_json():
     assert _hgraph.value_from_json(shared, encoded) == value
 
 
+def test_shared_value_type_supports_empty_bundle_payloads():
+    target = _value_type(SharedTag)
+    shared = _hgraph.shared_vt(target)
+
+    target_encoded = _hgraph.value_to_json(target, SharedTag())
+    encoded = _hgraph.value_to_json(shared, SharedTag())
+    assert encoded == target_encoded
+    assert _hgraph.value_from_json(shared, encoded) == SharedTag()
+
+
 def test_shared_value_type_rejects_non_bundle_targets():
+    int_type = _hgraph.value_type("int")
     with pytest.raises(ValueError, match="direct Bundle"):
-        _hgraph.shared_vt(_hgraph.value_type("int"))
+        _hgraph.shared_vt(int_type)

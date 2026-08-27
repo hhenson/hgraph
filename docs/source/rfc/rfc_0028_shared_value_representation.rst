@@ -224,10 +224,12 @@ where ``H`` is the sum of high-water slot capacity across used size classes,
 most 64 slots in the baseline implementation).  It is independent of dispatch
 case-pair count and is never ``O(C^2)``.
 
-Power-of-two class rounding consumes less than twice the requested payload
-size, excluding the fixed slot header.  During a switch, the old and new value
-sets coexist exactly while strong references to both exist; no retired-case
-matrix is retained.  This gives the desired two-live-layout pattern naturally.
+Power-of-two class rounding consumes less than twice the requested non-empty
+payload size, excluding the fixed slot header.  A valid zero-sized Bundle plan
+uses the minimum one-byte class so that its immutable value still has a stable,
+addressable payload location.  During a switch, the old and new value sets
+coexist exactly while strong references to both exist; no retired-case matrix
+is retained.  This gives the desired two-live-layout pattern naturally.
 
 The baseline retains empty slabs until registry reset/process exit.  Thus a
 large historical spike remains in the arena's high-water capacity; strict
