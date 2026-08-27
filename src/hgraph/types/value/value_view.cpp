@@ -38,7 +38,7 @@ namespace hgraph
             if (lhs == nullptr || rhs == nullptr) { return false; }
             // Owned[T] borrows Bundle-shaped indexed operations, but is an
             // indirection schema rather than T's structural twin.
-            if (lhs->is_owned() || rhs->is_owned()) { return false; }
+            if (lhs->is_indirect() || rhs->is_indirect()) { return false; }
 
             // A named bundle is structurally compatible with its anonymous
             // twin, but two different named bundles retain nominal identity.

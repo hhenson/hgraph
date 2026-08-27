@@ -106,6 +106,34 @@ namespace hgraph
                 });
         }
 
+        /**
+         * Materialise ``source`` into a possibly different owning
+         * representation. This is the construction path for wrappers such as
+         * Shared<T>: the destination ops validate the source schema and build
+         * the complete immutable payload before publishing its handle.
+         */
+        Value(const ValueTypeRef &binding, const ValueView &source)
+        {
+            const auto owning_type = value_owning_type(binding);
+            if (!owning_type || !source.binding())
+            {
+                throw std::invalid_argument(
+                    "Value(binding, view): destination and source must be bound");
+            }
+            storage_ = storage_type::owning_constructed(
+                *owning_type.record(), [&](void *dst) {
+                    owning_type.default_construct_at(dst);
+                    auto destroy = make_scope_exit(
+                        [&]() noexcept { owning_type.destroy_at(dst); });
+                    if (source.has_value())
+                    {
+                        owning_type.ops_ref().copy_assign_from(
+                            owning_type, dst, source.binding(), source.data());
+                    }
+                    destroy.release();
+                });
+        }
+
         /** Copy or bind-null construct from a non-owning view. */
         explicit Value(const ValueView &view)
         {

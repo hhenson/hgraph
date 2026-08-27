@@ -1738,16 +1738,13 @@ namespace hgraph
             return builder.build();
         }
 
-        Value read_owned(const JsonConverter &self, Reader &reader)
+        Value read_indirect(const JsonConverter &self, Reader &reader)
         {
             Value result{self.binding};
             if (reader.consume_keyword("null")) { return result; }
 
             Value pointee = read_realized(*self.children[0], reader);
-            auto destination = result.begin_mutation();
-            self.binding.ops_ref().copy_assign_from(
-                self.binding, destination.mutable_data(), pointee.binding(), pointee.view().data());
-            return result;
+            return Value{self.binding, pointee.view()};
         }
 
         [[nodiscard]] ValueTypeRef realized_read_binding(const JsonConverter &converter)
@@ -1926,11 +1923,11 @@ namespace hgraph
             g_converters.emplace(meta, std::move(converter));
             auto unwind = UnwindCleanupGuard([&] { g_converters.erase(meta); });
 
-            if (meta->is_owned())
+            if (meta->is_indirect())
             {
                 raw->children.push_back(converter_for_locked(meta->element_type));
                 raw->write_ = &write_owned;
-                raw->read_ = &read_owned;
+                raw->read_ = &read_indirect;
                 unwind.release();
                 return raw;
             }

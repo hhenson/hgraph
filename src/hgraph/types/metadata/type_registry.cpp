@@ -643,6 +643,7 @@ namespace hgraph
         tuple_cache_.clear();
         bundle_cache_.clear();
         owned_cache_.clear();
+        shared_cache_.clear();
         named_bundle_cache_.clear();
         named_enum_cache_.clear();
         clear_enum_ops();
@@ -886,6 +887,36 @@ namespace hgraph
             ValueTypeMetaData result(
                 ValueTypeKind::Bundle, flags,
                 store_name_interned("Owned[" + std::string{target->name()} + "]"));
+            result.element_type = target;
+            result.fields = target->fields;
+            result.field_count = target->field_count;
+            return result;
+        });
+        return &meta;
+    }
+
+    const ValueTypeMetaData *TypeRegistry::shared(const ValueTypeMetaData *target)
+    {
+        const std::lock_guard lock(mutex_);
+        if (target == nullptr)
+        {
+            throw std::invalid_argument("shared requires a target value schema");
+        }
+        if (target->try_value_kind() != ValueTypeKind::Bundle || target->is_indirect())
+        {
+            throw std::invalid_argument(
+                "shared requires a direct Bundle target value schema");
+        }
+        const ValueTypeMetaData &meta = shared_cache_.intern(target, [&]() {
+            ValueTypeFlags flags = target->flags | ValueTypeFlags::Shared;
+            flags = flags & ~(ValueTypeFlags::TriviallyConstructible |
+                              ValueTypeFlags::TriviallyDestructible |
+                              ValueTypeFlags::TriviallyCopyable |
+                              ValueTypeFlags::BufferCompatible |
+                              ValueTypeFlags::Mutable);
+            ValueTypeMetaData result(
+                ValueTypeKind::Bundle, flags,
+                store_name_interned("Shared[" + std::string{target->name()} + "]"));
             result.element_type = target;
             result.fields = target->fields;
             result.field_count = target->field_count;

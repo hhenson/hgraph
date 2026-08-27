@@ -127,7 +127,7 @@ namespace hgraph
             if (!valid()) { return ValueView{}; }
             const auto declared = binding();
             const auto concrete_type = declared.ops_ref().concrete_type(declared, data());
-            if (writable_payload())
+            if (writable_payload() && declared.ops_ref().can_begin_mutation())
             {
                 return ValueView{concrete_type,
                                  declared.ops_ref().writable_concrete_memory(

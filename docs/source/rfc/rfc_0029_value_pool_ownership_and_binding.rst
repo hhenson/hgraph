@@ -1,36 +1,36 @@
 RFC 0029: Value Pool Ownership and Binding
 ==========================================
 
-:Status: Proposed
+:Status: Accepted (graph binding implemented; synchronised node pools deferred)
 :Author: Howard Henson
 :Created: 2026-08-25
-:Target: C++ value storage, type realization, graph runtime
+:Updated: 2026-08-26
+:Target: mutable polymorphic value storage, type realization, graph runtime
 
 Summary
 -------
 
-Make the value pool an **explicitly owned and explicitly bound** object.
+Make the graph-confined mutable polymorphic value pool an **explicitly owned
+and explicitly bound** object.
 
-* **Owned.**  A pool belongs either to the root graph — carried on its
-  ``GlobalState`` under a reserved key — or to a single node, held in that
-  node's local state.  Both are the same object with the same ops table; only
-  the owner differs.
+* **Owned.**  The implemented pool belongs to the root graph.  A node-owned
+  synchronised pool remains a compatible future extension, not part of the
+  baseline implementation.
 * **Bound.**  An operation that allocates reaches its pool through its own ops
   context, or through the builder it was handed.  Never through ambient state.
   The root graph **binds** its pool into the realization's pooled entries when
   it is constructed and unbinds when it is destroyed; the allocating op reads a
   pointer, and asks nothing about which thread is asking.
-* **Confined or synchronised by construction.**  A pool fixes its concurrency
-  policy when it is created: ``GraphConfined`` takes no lock anywhere;
-  ``Synchronised`` takes one on acquire and on batched return, and never on the
-  graph's per-tick path.
+* **Graph-confined.**  The implemented pool is reached only from its graph's
+  evaluation thread and takes no lock on allocation or return.
 
 The thread-local selection channel — ``active_compound_scalar_storage()``,
 ``CompoundScalarStorageScope``, and the eight scopes ``graph.cpp`` installs
 around construction, lifecycle, and evaluation — is removed.
 
-The rule is absolute, and it is the point of the change: **no pool state is
-thread-scoped or process-scoped.**  Pool state lives on the running graph —
+The rule for this mutable representation is absolute, and it is the point of
+the change: **no mutable polymorphic pool state is thread-scoped or
+process-scoped.**  Pool state lives on the running graph —
 on the root graph's storage or on its ``GlobalState``, which at run time is
 global only to that graph — or on a node, and nowhere else.  Tying the pool to
 the root graph is what makes that possible: a running graph is already the
@@ -41,8 +41,12 @@ This RFC supersedes the storage-selection mechanism of :doc:`RFC 0013
 <rfc_0013_pooled_polymorphic_compound_scalars>`.  Everything else RFC 0013
 specifies — per-leaf pools, stable slots, the ``LeafSlotHeader``, non-atomic
 counts, and the accounting rule — is unchanged and depended upon here.
-:doc:`RFC 0028 <rfc_0028_shared_value_representation>` depends on this RFC for
-the pool it allocates from.
+
+:doc:`RFC 0028 <rfc_0028_shared_value_representation>` no longer allocates from
+this pool.  Its immutable atomic handles use a separate process-wide size-class
+arena.  That is not an exception to this RFC's mutable graph-ownership rule; it
+is a different representation with different lifetime and concurrency
+semantics.
 
 Motivation
 ----------
@@ -87,12 +91,9 @@ of a pooled value pays it, to answer a question — which pool — that the grap
 already knows statically.
 
 **There can only ever be one pool in effect.**  The channel holds one view per
-thread, so a node cannot own a pool that is live at the same time as its
-graph's.  RFC 0028's producer-owned pools need precisely that: a pool owned by
-one push node, written by its producer threads, whose slots return to it in a
-batch at a cycle boundary, while the graph's own pool continues to serve every
-other node.  The ambient channel cannot express two pools, and widening it to a
-stack would make the invisibility worse rather than better.
+thread, so a future node-local mutable pool could not be live at the same time
+as its graph's.  The ambient channel cannot express two pools, and widening it
+to a stack would make the invisibility worse rather than better.
 
 Ownership boundary
 ------------------
@@ -102,6 +103,11 @@ authoring surface changes, no Python type changes, and no schema spelling
 changes.  ``GlobalState`` gains one reserved key whose value is an opaque
 handle; Python sees a handle it cannot usefully interpret and is not expected
 to.
+
+This ownership boundary covers the mutable pooled representation selected by a
+``TypeRealizationSnapshot``.  It does not cover ``Shared<T>``.  A shared value
+is an explicit immutable schema representation and is managed by the global
+arena in RFC 0028; it never reads this RFC's binding cell.
 
 Nothing about the pooled *representation* changes.  A pooled holder is still
 one pointer to a stable slot whose ``LeafSlotHeader`` names its owning pool
@@ -195,13 +201,11 @@ An allocating operation must be handed its pool.  There are exactly two ways it
 can be, and which applies is decided by whether the allocation site is named in
 source.
 
-**Explicit — the builder carries the pool.**  All new code, including
-``Shared<T>``, allocates through a builder that takes a ``ValuePoolView``.
-Nothing ambient is involved, and a node-local pool is expressed by handing the
-node's own view to the builder it calls.  This is the whole node-local story,
-and it is why ``Shared<T>`` needs no ambient channel: immutability means copy is
-a retain and destroy is a release, both through the slot header, so explicit
-construction is the *only* allocating operation it has.
+**Explicit — the builder carries the pool.**  New code which deliberately
+constructs this graph-local mutable representation uses a builder carrying the
+pool view.  Nothing ambient is involved, and a future node-local pool would be
+expressed by handing that node's view to its builder.  ``Shared<T>`` instead
+allocates from RFC 0028's global arena and is outside this binding protocol.
 
 **Implicit — the ops context reaches a binding the graph installed.**  Pooled
 polymorphic compound scalars allocate inside generic value ops, whose only
@@ -403,9 +407,7 @@ Performance and memory
 
 Allocation loses a thread-local access and gains a read of a pointer already in
 the ops context, so the per-tick path is strictly cheaper or identical; retain,
-release, and destroy are untouched.  ``GraphConfined`` pools take no lock, and
-the graph's per-tick path takes no lock even when a ``Synchronised`` pool is in
-use.
+release, and destroy are untouched.  The graph-confined pool takes no lock.
 
 Build time grows by one realization of the pooled types per root graph instead
 of one per snapshot — bounded by the number of pooled schemas in the graph, and
@@ -420,10 +422,12 @@ Alternatives considered
   source its view from the GlobalState-carried pool.  Much smaller, and it does
   move ownership where it belongs — but the invisibility, the runtime
   availability condition, and the one-pool-per-thread limit all survive, and the
-  third of those is what blocks RFC 0028.
+  third of those prevents a future node-local mutable pool.
 * **A process-wide static instead of a thread-local.**  Rejected: it removes
   the word ``thread_local`` and breaks RFC 0013's criterion that engines run
-  concurrently on separate threads without sharing pool state.
+  concurrently on separate threads without sharing mutable pool state.  This
+  does not reject RFC 0028's immutable atomic arena; that representation is
+  explicitly safe to share between engines.
 * **Plumb an evaluation context through every value op.**  Rejected as
   disproportionate: it changes the signature of the entire ops vocabulary to
   serve three allocating entries.
@@ -444,10 +448,10 @@ Unresolved questions
 1. Whether the exclusive-binding invariant should be enforced only in debug
    builds.  It is proposed as an unconditional check: it costs one comparison
    at graph construction, and the failure it prevents is a silent data race.
-2. Whether ``Synchronised`` pools belong in this RFC at all.  The object and its
-   policy are defined here; its only user is RFC 0028's producer-owned pools,
-   which that RFC defers pending measurement.  Defining it here and leaving it
-   unused until measured is deliberate, but it could equally move.
+2. Whether a future node-owned mutable pool should use one mutex with batched
+   return or the lock-free arena technique from RFC 0028.  It should be added
+   only with a concrete mutable producer use and measurements; it is not part
+   of the implemented baseline.
 3. Whether a wiring-time value of a pooled schema should realize inline
    silently, or whether an explicit request for pooled storage outside a graph
    should be an error.
@@ -471,10 +475,9 @@ Acceptance criteria
   after a failed graph construction unwinds.
 * Concurrent admission of two root graphs to one realization admits exactly
   one, under TSAN as well as ordinary builds.
-* A node-local pool and its graph's pool are live simultaneously, and values
-  allocated from each release to the correct owner.
-* A ``Synchronised`` pool acquires off-thread, batches its returns through an
-  after-evaluation notification, and is clean under ASAN and UBSAN.
+* If the deferred node-local pool is implemented, it and its graph's pool are
+  live simultaneously and values allocated from each release to the correct
+  owner, with ASAN and TSan coverage.
 * Pool lock acquisitions observed on the graph's per-tick path are zero,
   counted and asserted in the manner of
   ``RuntimeRegistrySnapshot.type_system_lock_acquisitions``.
@@ -494,7 +497,14 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-None.  This RFC is ``Proposed`` and contains no implementation.
+The graph-bound baseline is implemented.  ``CompoundScalarStorageBinding``
+owns the three-state atomic admission/publication protocol; a root graph binds
+its storage during construction and the owner unbinds on destruction or
+unwind.  Pooled ops reach the storage through their realization context, and
+the former thread-local scope channel is absent.
+
+The proposed node-local ``Synchronised`` policy and batched return path are not
+implemented.  RFC 0028 no longer requires them.
 
 References
 ----------
@@ -519,5 +529,6 @@ References
   precedent for carrying a ``shared_ptr`` owner through a value.
 * :doc:`RFC 0013 <rfc_0013_pooled_polymorphic_compound_scalars>` — the pooling
   machinery, whose storage-selection mechanism this RFC supersedes.
-* :doc:`RFC 0028 <rfc_0028_shared_value_representation>` — the first consumer of
-  explicit pool binding and of node-owned pools.
+* :doc:`RFC 0028 <rfc_0028_shared_value_representation>` — the separate
+  process-wide immutable shared arena and the reason this RFC is explicitly
+  limited to mutable graph-confined pools.

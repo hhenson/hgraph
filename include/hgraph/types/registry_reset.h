@@ -39,15 +39,17 @@ namespace hgraph
      *    schemas, their owned Values retain common type records, native-zone
      *    bindings borrow ``ZoneId`` handles, and stale handles must be
      *    invalidated between tests.
-     * 2. ``TypeRecordRegistry`` — records borrow plan and ops contexts from the
+     * 2. The process-wide immutable shared-value arena — slots borrow concrete
+     *    value records and must be withdrawn while those records are live.
+     * 3. ``TypeRecordRegistry`` — records borrow plan and ops contexts from the
      *    time-series and value factories below. Cached record handles are
      *    trivially cleared later and are never dereferenced during reset.
-     * 3. ``TSInputBuilderFactory`` / ``TSDataPlanFactory`` — clear the endpoint
+     * 4. ``TSInputBuilderFactory`` / ``TSDataPlanFactory`` — clear the endpoint
      *    and TSData ops contexts after the records that pointed into them.
-     * 4. ``ValuePlanFactory`` — plans borrow schema pointers (and the later
+     * 5. ``ValuePlanFactory`` — plans borrow schema pointers (and the later
      *    clears release MemoryUtils synthesised composite/array plans).
-     * 5. Compact, mutable-container, and synthesised plan registries.
-     * 6. ``TypeRegistry`` — last, because it owns the schemas everyone above
+     * 6. Compact, mutable-container, and synthesised plan registries.
+     * 7. ``TypeRegistry`` — last, because it owns the schemas everyone above
      *    borrows; its reset re-seeds the standard scalar/TS vocabulary.
      */
     HGRAPH_EXPORT void reset_all_registries() noexcept;

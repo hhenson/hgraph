@@ -912,7 +912,7 @@ struct TypeRealizationSnapshot::Impl {
         enter_realization(schema, RealizationKind::ExternalExact);
 
     auto &factory = ValuePlanFactory::instance();
-    if (!schema->is_owned() && schema->value_kind() == ValueTypeKind::List) {
+    if (!schema->is_indirect() && schema->value_kind() == ValueTypeKind::List) {
       const auto element = type_for_locked(schema->element_type);
       if (element != factory.type_for(schema->element_type)) {
         if (schema->fixed_size != 0) {
@@ -928,7 +928,7 @@ struct TypeRealizationSnapshot::Impl {
     }
 
     const auto canonical = factory.type_for(schema);
-    if (schema->is_owned()) {
+    if (schema->is_indirect()) {
       exact_types.emplace(schema, canonical);
       return canonical;
     }
@@ -1066,7 +1066,7 @@ struct TypeRealizationSnapshot::Impl {
     auto &factory = ValuePlanFactory::instance();
     const auto canonical = factory.type_for(schema);
     const auto external = exact_type_for_locked(schema);
-    if (schema->is_owned()) {
+    if (schema->is_indirect()) {
       graph_exact_types.emplace(schema, canonical);
       return canonical;
     }

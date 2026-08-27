@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/value/compact_storage.h>
 #include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value_ops.h>
 #include <hgraph/types/value/value_conversion.h>
 
@@ -52,6 +53,10 @@ namespace hgraph
         // Records borrow plan/ops contexts from the endpoint and TSData
         // factories. Their cached handles are trivial and are not dereferenced
         // while those factories are subsequently cleared.
+        // Shared slots borrow concrete TypeRecords and their plans/ops. No
+        // handles may survive this test-only reset, so withdraw the arena
+        // before the records it names.
+        value_impl::reset_shared_value_pool();
         TypeRecordRegistry::instance().reset();
         clear_type_realization_snapshots();
         clear_executor_runtime_types();

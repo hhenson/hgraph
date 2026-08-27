@@ -186,6 +186,13 @@ namespace hgraph
         using value_type = TValue;
     };
 
+    /** Immutable one-pointer handle into the process-wide shared-value arena. */
+    template <typename TValue>
+    struct Shared
+    {
+        using value_type = TValue;
+    };
+
     /** Type-erased scalar value. Storage is the native ``Any`` box, whose
         contained ``Value`` retains its concrete schema and ownership. */
     struct AnyValue
@@ -602,6 +609,27 @@ namespace hgraph
             if constexpr (is_concrete())
             {
                 return TypeRegistry::instance().owned(scalar_descriptor<TValue>::value_meta());
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+    };
+
+    template <typename TValue>
+    struct scalar_descriptor<Shared<TValue>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept
+        {
+            return scalar_descriptor<TValue>::is_concrete();
+        }
+
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            if constexpr (is_concrete())
+            {
+                return TypeRegistry::instance().shared(scalar_descriptor<TValue>::value_meta());
             }
             else
             {
