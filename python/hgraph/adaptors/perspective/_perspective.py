@@ -27,6 +27,7 @@ import tornado.web
 
 from hgraph import GlobalState, STATE, TS, sink_node
 from hgraph.adaptors.tornado._tornado_web import BaseHandler, TornadoWeb
+from hgraph._wiring._state import _active_global_state
 
 __all__ = (
     "PerspectiveTablesManager",
@@ -166,14 +167,14 @@ class PerspectiveTablesManager:
 
     @classmethod
     def set_current(cls, self, global_state: GlobalState = None):
-        state = global_state if global_state is not None else GlobalState.instance()
+        state = global_state if global_state is not None else _active_global_state()
         if state.get(cls._STATE_KEY) is not None:
             raise ValueError("a PerspectiveTablesManager is already configured")
         state[cls._STATE_KEY] = self
 
     @classmethod
     def current(cls, global_state: GlobalState = None):
-        state = global_state if global_state is not None else GlobalState.instance()
+        state = global_state if global_state is not None else _active_global_state()
         manager = state.get(cls._STATE_KEY)
         if manager is None:
             manager = cls()

@@ -13,6 +13,7 @@ from typing import get_args, get_origin
 import _hgraph
 
 from ._types import _resolve
+from hgraph._wiring._state import _active_global_state
 
 
 class ToTableMode(Enum):
@@ -66,7 +67,7 @@ def _config_keys(global_state=None):
     from ._wiring import GlobalState
 
     if GlobalState.has_instance():
-        return _hgraph._table_schema_keys(GlobalState.instance()._impl)
+        return _hgraph._table_schema_keys(_active_global_state()._impl)
     return "__date_time__", "__as_of__"
 
 

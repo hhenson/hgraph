@@ -37,12 +37,15 @@ def _uncached(module_name, *names):
 
 @pytest.mark.parametrize("name", ["frame_store_contains", "frame_store_read"])
 def test_core_frame_store_helpers_warn(name):
-    with pytest.warns(DeprecationWarning, match=rf"hgraph\.{name}.*removed in {REMOVAL}"):
-        try:
-            getattr(hg, name)("some/key")
-        except ModuleNotFoundError as error:
-            # Core-only install: the warning precedes the pointed install error.
-            assert error.name == "hgraph_persistence"
+    # These read "the active graph's frame store", so they need a state to read
+    # from; without a scope there is no active graph and asking is meaningless.
+    with hg.GlobalState():
+        with pytest.warns(DeprecationWarning, match=rf"hgraph\.{name}.*removed in {REMOVAL}"):
+            try:
+                getattr(hg, name)("some/key")
+            except ModuleNotFoundError as error:
+                # Core-only install: the warning precedes the pointed install error.
+                assert error.name == "hgraph_persistence"
 
 
 @pytest.mark.parametrize(

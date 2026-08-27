@@ -13,6 +13,7 @@ import _hgraph
 from .._operator_signature import PublicTypePatternFormatter
 from .._types import _TsExpr
 from ._sentinels import _REDUCE_ZERO
+from ._state import _active_global_state
 
 _wiring_stack = []
 _wiring_lock = threading.RLock()
@@ -72,7 +73,7 @@ def _durable_backend_selected(kwargs):
         try:
             from ._state import GlobalState
 
-            model = GlobalState.instance().get("__record_replay_model__")
+            model = _active_global_state().get("__record_replay_model__")
         except Exception:  # no active global state — nothing was selected
             return False
     if model is None:

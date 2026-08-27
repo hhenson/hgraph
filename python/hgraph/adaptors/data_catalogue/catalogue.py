@@ -7,6 +7,7 @@ from frozendict import frozendict
 from hgraph import CompoundScalar, GlobalState
 
 from .data_scopes import Scope
+from hgraph._wiring._state import _active_global_state, _global_state_scope
 
 __all__ = (
     "DataSource",
@@ -56,7 +57,7 @@ class DataCatalogue:
 
     @classmethod
     def instance(cls, global_state=None):
-        state = global_state if global_state is not None else GlobalState.instance()
+        state = global_state if global_state is not None else _active_global_state()
         catalogue = state.get(cls._STATE_KEY)
         if catalogue is None:
             catalogue = cls()
@@ -64,18 +65,25 @@ class DataCatalogue:
         return catalogue
 
     def __enter__(self):
-        state = GlobalState.instance()
+        # Publishes itself into the GlobalState for the wiring inside the block
+        # to find, so it opens a state when the caller has not and closes it in
+        # __exit__ -- the state must not outlive the `with` that needed it.
+        self._state_scope = _global_state_scope()
+        state = self._state_scope.__enter__()
         self._previous = state.get(self._STATE_KEY, self._MISSING)
         state[self._STATE_KEY] = self
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
+        state = _active_global_state()
         if self._previous is self._MISSING:
             state.pop(self._STATE_KEY, None)
         else:
             state[self._STATE_KEY] = self._previous
         self._previous = self._MISSING
+        scope, self._state_scope = getattr(self, "_state_scope", None), None
+        if scope is not None:
+            scope.__exit__(exc_type, exc_value, traceback)
         return False
 
     def add_entry(self, entry: DataCatalogueEntry):
@@ -159,32 +167,39 @@ class DataEnvironment:
 
     @classmethod
     def current(cls):
-        return GlobalState.instance().get(cls._STATE_KEY)
+        return _active_global_state().get(cls._STATE_KEY)
 
     @classmethod
     def set_current(cls, environment):
-        state = GlobalState.instance()
+        state = _active_global_state()
         if cls._STATE_KEY in state:
             raise ValueError("current data environment is already set")
         state[cls._STATE_KEY] = environment
 
     @classmethod
     def clear_current(cls):
-        GlobalState.instance().pop(cls._STATE_KEY, None)
+        _active_global_state().pop(cls._STATE_KEY, None)
 
     def __enter__(self):
-        state = GlobalState.instance()
+        # Publishes itself into the GlobalState for the wiring inside the block
+        # to find, so it opens a state when the caller has not and closes it in
+        # __exit__ -- the state must not outlive the `with` that needed it.
+        self._state_scope = _global_state_scope()
+        state = self._state_scope.__enter__()
         self._previous = state.get(self._STATE_KEY, self._MISSING)
         state[self._STATE_KEY] = self
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
+        state = _active_global_state()
         if self._previous is self._MISSING:
             state.pop(self._STATE_KEY, None)
         else:
             state[self._STATE_KEY] = self._previous
         self._previous = self._MISSING
+        scope, self._state_scope = getattr(self, "_state_scope", None), None
+        if scope is not None:
+            scope.__exit__(exc_type, exc_value, traceback)
         return False
 
     def add_entry(self, entry: DataEnvironmentEntry):
