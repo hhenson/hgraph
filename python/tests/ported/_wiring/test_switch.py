@@ -311,6 +311,41 @@ def test_switch_carries_tss_of_compound_scalars():
     assert eval_node(switch_test, [{item}]) == [item]
 
 
+def test_switch_unifies_covariant_graph_outputs_at_the_declared_base_type():
+    from dataclasses import dataclass
+
+    from hgraph import CompoundScalar
+
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar, abstract=True):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        expiry: int
+
+    @dataclass(frozen=True)
+    class Option(Instrument):
+        strike: float
+
+    @graph
+    def future() -> TS[Instrument]:
+        return combine[TS[Future]](symbol="FUT", expiry=202612)
+
+    @graph
+    def option() -> TS[Instrument]:
+        return combine[TS[Option]](symbol="OPT", strike=42.0)
+
+    @graph
+    def app(key: TS[str]) -> TS[Instrument]:
+        return switch_(key, {"future": future, "option": option})
+
+    assert eval_node(app, ["future", "option"]) == [
+        Future(symbol="FUT", expiry=202612),
+        Option(symbol="OPT", strike=42.0),
+    ]
+
+
 def test_switch_carries_tss_of_nested_catalogue_shaped_scalars():
     from dataclasses import dataclass
 

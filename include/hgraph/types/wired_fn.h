@@ -292,6 +292,17 @@ namespace hgraph
                 WiringPortRef out = wire(child, boundary_shapes);
                 if (out.schema != nullptr)
                 {
+                    if (const auto *declared = output_schema(); declared != nullptr)
+                    {
+                        if (!graph_wiring_detail::input_accepts_output_schema(
+                                declared, out.schema))
+                        {
+                            throw std::invalid_argument(
+                                "WiredFn::compile output is incompatible with its declared schema");
+                        }
+                        out = graph_wiring_detail::adapt_source_for_input(
+                            child, declared, std::move(out));
+                    }
                     return std::move(child).finish_subgraph(
                         out, std::move(schemas));
                 }
