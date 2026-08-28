@@ -745,7 +745,8 @@ struct getattr_enum {
 
 /** getattr_(TS[CompoundScalar], attr): the named FIELD of the bundle
     value (hgraph's getattr_cs; CS IS a Bundle value - the C++-first
-    ruling). An UNSET field does not tick. */
+    ruling). Ticks whenever the input ticks, including when the field
+    value repeats; an UNSET field does not tick. */
 struct getattr_ts_bundle {
   static constexpr auto name = "getattr_ts_bundle";
 
@@ -820,10 +821,11 @@ struct getattr_ts_bundle {
       if (!field.valid()) {
         return;
       } // UNSET fields do not tick
-      if (erased.data_view().has_current_value() &&
-          erased.value().equals(field)) {
-        return;
-      }
+      // A projection ticks whenever its parent ticks. TS[CompoundScalar] is
+      // one value stream, not a bundle of independently ticking fields, so an
+      // unchanged field still republishes when the enclosing value updates --
+      // suppressing it here dropped the second tick whenever a sibling field
+      // was the only thing that changed (issues #570-#604).
       auto mutation =
           erased.data_view().begin_mutation(erased.evaluation_time());
       static_cast<void>(mutation.copy_value_from(field));
@@ -1035,10 +1037,7 @@ struct getattr_ts_bundle_default {
       }
       auto field = fields.at(index);
       const auto publish = [&](const ValueView &chosen) {
-        if (erased.data_view().has_current_value() &&
-            erased.value().equals(chosen)) {
-          return;
-        }
+        // Ticks with the parent, as in getattr_ts_bundle above.
         auto mutation =
             erased.data_view().begin_mutation(erased.evaluation_time());
         static_cast<void>(mutation.copy_value_from(chosen));
