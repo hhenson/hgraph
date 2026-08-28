@@ -182,7 +182,8 @@ def test_current_source_registry_growth_is_reported_separately_from_live_memory(
     assert "42.0 +/- 0.0 | 10.0 +/- 0.0 | 10.0 +/- 0.0" in report
 
 
-def test_memory_baseline_cache_requires_exact_identity(tmp_path):
+def test_memory_baseline_cache_requires_exact_identity(monkeypatch, tmp_path):
+    monkeypatch.setattr(memory.performance, "RESULTS_DIR", tmp_path)
     path = tmp_path / "baseline.json"
     identity = {"schema": 1, "memory_pack": "abc"}
     measured = memory.aggregate_samples([_sample(10.0, 2.0)] * 3)

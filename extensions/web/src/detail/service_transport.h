@@ -641,7 +641,7 @@ struct GroupTransportBatchNode {
     for (std::size_t index = 0; index != events.size(); ++index) {
       const auto event = events.at(index);
       const auto envelope =
-          event.as_bundle().at(PayloadField.sv()).as_bundle();
+          event.as_bundle().at(PayloadField.sv()).concrete().as_bundle();
       const auto key = envelope.at(KeyField.sv());
       auto entry = grouped.find(key);
       if (entry == grouped.end()) {
@@ -718,7 +718,7 @@ struct ServerRequestProjectionNode {
       return;
     }
     const auto envelope =
-        event.base().value().as_bundle().at("request").as_bundle();
+        event.base().value().as_bundle().at("request").concrete().as_bundle();
     const auto event_generation = envelope.at("generation");
     if (event_generation.data() == nullptr ||
         event_generation.checked_as<DateTime>() != generation.value()) {
@@ -756,7 +756,12 @@ struct ServerWsProjectionNode {
       return;
     }
     const auto envelope =
-        event.base().value().as_bundle().at("server_ws").as_bundle();
+        event.base()
+            .value()
+            .as_bundle()
+            .at("server_ws")
+            .concrete()
+            .as_bundle();
     const auto event_generation = envelope.at("generation");
     if (event_generation.data() == nullptr ||
         event_generation.checked_as<DateTime>() != generation.value()) {
@@ -796,6 +801,7 @@ struct DeliveryProjectionNode {
                   .value()
                   .as_bundle()
                   .at("delivery")
+                  .concrete()
                   .as_bundle()
                   .at("report"));
   }
@@ -820,7 +826,7 @@ struct EventProjectionNode {
   static void eval(In<"event", TS<WebTransportEvent>> event,
                    EngineControlView engine, Out<TS<WebEvent>> out) {
     const auto envelope =
-        event.base().value().as_bundle().at("event").as_bundle();
+        event.base().value().as_bundle().at("event").concrete().as_bundle();
     out.apply(envelope.at("event"));
     if (envelope.at("stop_graph").checked_as<Bool>()) {
       engine.request_stop();
@@ -850,7 +856,12 @@ struct ClientResponseProjectionNode {
   static void eval(In<"event", TS<WebTransportEvent>> event,
                    Out<HttpCallResult> out) {
     const auto envelope =
-        event.base().value().as_bundle().at("response").as_bundle();
+        event.base()
+            .value()
+            .as_bundle()
+            .at("response")
+            .concrete()
+            .as_bundle();
     const auto response = envelope.at("response");
     if (response.data() != nullptr) {
       out.template field<"response">().apply(response);
@@ -886,7 +897,12 @@ struct ClientWsProjectionNode {
       return;
     }
     const auto envelope =
-        event.base().value().as_bundle().at("client_ws").as_bundle();
+        event.base()
+            .value()
+            .as_bundle()
+            .at("client_ws")
+            .concrete()
+            .as_bundle();
     const auto event_generation = envelope.at("generation");
     if (event_generation.data() == nullptr ||
         event_generation.checked_as<DateTime>() != generation.value()) {

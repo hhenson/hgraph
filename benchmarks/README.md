@@ -74,11 +74,15 @@ digests pinned in `orchestrate.py`; their reports and raw samples record those
 artifact identities.
 The latter contains a Release wheel built from the current source and is rebuilt
 whenever native, binding, or packaged Python source changes. The raw result
-records both the source fingerprint and loaded native-module path so a result
-cannot be mistaken for a stale editable build. All modes use the same
-interpreter version. Delete the upstream directory to refresh its published
-package. Results (markdown matrix + raw JSON) are written to
-`benchmarks/results/`.
+records both the source fingerprint and a sanitized loaded-native-module path
+so a result cannot be mistaken for a stale editable build. Paths within the
+checkout use the portable ``<repo>/...`` form; external module locations are
+reduced to their filename. Committed artifacts retain platform, CPU, compiler,
+and package identities for reproducibility but exclude hostnames, machine login
+names, addresses, credentials, and absolute home or workspace
+paths. All modes use the same interpreter version. Delete the upstream
+directory to refresh its published package. Results (markdown matrix + raw
+JSON) are written to `benchmarks/results/`.
 
 Successful fixed-release timings are cached in a platform-specific
 `benchmarks/results/baseline-*.json` file. The cache identity includes the
@@ -86,7 +90,8 @@ installed hgraph versions, Python/platform/architecture, CPU model, benchmark
 scenario-pack fingerprint, scale factors, and sample count. A changed hgraph
 version or scenario pack therefore reruns the baseline automatically; normal
 candidate iterations reuse the 0.8.1 cells. Use `--refresh-baseline` for a deliberate rerun, or
-`--baseline-cache PATH` to keep a separate controlled baseline. Cache files are
+`--baseline-cache benchmarks/results/NAME.json` to keep a separate controlled
+baseline. Cache paths are restricted to `benchmarks/results/`. Cache files are
 local measurement artifacts and are ignored by Git.
 
 Each timing sample runs in a fresh subprocess. The orchestrator rotates mode

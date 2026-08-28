@@ -9,6 +9,7 @@
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <array>
@@ -47,6 +48,70 @@ using TestBudget = AdmissionBudget<1>;
   return BundleBuilder{ValuePlanFactory::instance().type_for(
                            scalar_descriptor<WebEventEnvelope>::value_meta())}
       .build();
+}
+
+template <typename Envelope> [[nodiscard]] Value empty_envelope() {
+  return BundleBuilder{ValuePlanFactory::instance().type_for(
+                           scalar_descriptor<Envelope>::value_meta())}
+      .build();
+}
+
+void test_transport_payloads_retain_one_shared_envelope() {
+  const auto bindings = hgraph::web::detail::make_transport_bindings();
+  const auto live_before = shared_value_pool_metrics().live_values;
+
+  const auto check = [&](WebTransportEventKind kind, std::string_view field,
+                         Value payload, const ValueTypeMetaData *schema) {
+    Value event = hgraph::web::detail::transport_event(
+        *bindings.value, kind, field, std::move(payload), 0, 128, false);
+    const auto retained = event.view().as_bundle().at(field);
+    require(retained.schema()->is_shared(),
+            "a web transport payload envelope was not shared");
+    require(retained.concrete().schema() == schema,
+            "a web transport shared envelope changed its concrete schema");
+    const void *stable = retained.concrete().data();
+    require(stable != nullptr, "a web transport shared envelope was empty");
+    require(shared_value_pool_metrics().live_values == live_before + 1,
+            "web transport materialised more than one shared envelope");
+
+    Value copied_event = event.clone();
+    const auto copied = copied_event.view().as_bundle().at(field);
+    require(copied.concrete().data() == stable,
+            "a web transport copy did not retain the shared envelope slot");
+    require(shared_value_pool_metrics().live_values == live_before + 1,
+            "a web transport copy duplicated the shared envelope payload");
+  };
+
+  check(WebTransportEventKind::ServerRequest, "request",
+        empty_envelope<hgraph::web::detail::WebRequestEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WebRequestEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared request envelope outlived its transport values");
+  check(WebTransportEventKind::ServerWsIngress, "server_ws",
+        empty_envelope<hgraph::web::detail::WsIngressEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WsIngressEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared server WS envelope outlived its transport values");
+  check(WebTransportEventKind::ClientWsIngress, "client_ws",
+        empty_envelope<hgraph::web::detail::WsClientEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WsClientEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared client WS envelope outlived its transport values");
+  check(WebTransportEventKind::ClientResponse, "response",
+        empty_envelope<hgraph::web::detail::WebResponseEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WebResponseEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared response envelope outlived its transport values");
+  check(WebTransportEventKind::ClientSendDelivery, "delivery",
+        empty_envelope<hgraph::web::detail::WebDeliveryEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WebDeliveryEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared delivery envelope outlived its transport values");
+  check(WebTransportEventKind::ClientEvent, "event",
+        empty_envelope<hgraph::web::detail::WebEventEnvelope>(),
+        scalar_descriptor<hgraph::web::detail::WebEventEnvelope>::value_meta());
+  require(shared_value_pool_metrics().live_values == live_before,
+          "the shared event envelope outlived its transport values");
 }
 
 void test_late_reserved_completion_is_rejected_not_thrown() {
@@ -131,6 +196,7 @@ int main() {
   try {
     register_web_types();
     hgraph::web::detail::register_internal_types();
+    test_transport_payloads_retain_one_shared_envelope();
     test_late_reserved_completion_is_rejected_not_thrown();
     test_reservation_calls_after_stop_are_inert();
     test_stopped_sender_refusal_rolls_back_admission();

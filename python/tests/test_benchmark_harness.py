@@ -2,6 +2,9 @@
 
 import importlib.util
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
 _ORCHESTRATE_PATH = (
@@ -26,6 +29,88 @@ def _sample(seconds, rss=10.0):
         "cycles": 100,
         "max_rss_mb": rss,
     }
+
+
+def test_first_line_accepts_compiler_banner_from_failed_stderr(monkeypatch):
+    banner = "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256"
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=2, stdout="", stderr=banner + "\n"
+        ),
+    )
+
+    assert orchestrate._compiler_version(["cl", "--version"]) == banner
+
+
+def test_compiler_version_rejects_launcher_failure_before_msvc(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="sccache: server unavailable\n"
+        ),
+    )
+
+    assert orchestrate._compiler_version(
+        ["sccache", "cl", "--version"]
+    ) == "unknown"
+
+
+def test_first_line_rejects_diagnostics_from_failed_commands(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="fatal: not a repository\n"
+        ),
+    )
+
+    assert orchestrate._first_line(["git", "rev-parse", "HEAD"]) == "unknown"
+    assert orchestrate._compiler_version(["c++", "--version"]) == "unknown"
+
+
+def test_first_line_reports_unknown_when_command_has_no_output(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr=""
+        ),
+    )
+
+    assert orchestrate._first_line(["missing", "--version"]) == "unknown"
+
+
+def test_public_benchmark_artifacts_redact_developer_local_paths(
+    monkeypatch, tmp_path
+):
+    repo = tmp_path / "checkout"
+    home = tmp_path / "developer"
+    monkeypatch.setattr(orchestrate, "REPO_ROOT", repo)
+    monkeypatch.setattr(
+        orchestrate.Path, "home", classmethod(lambda _cls: home)
+    )
+
+    sanitized = orchestrate.sanitize_public_artifact({
+        "native_module": str(repo / ".venv" / "_hgraph.so"),
+        "error": f"failed in {home / 'private' / 'source.cpp'}",
+        "samples": [{"native_module": "/opt/hgraph/_hgraph.so"}],
+    })
+
+    assert sanitized["native_module"] == "<repo>/.venv/_hgraph.so"
+    assert sanitized["error"].replace("\\", "/") == (
+        "failed in <home>/private/source.cpp"
+    )
+    assert sanitized["samples"][0]["native_module"] == "_hgraph.so"
+
+    monkeypatch.setattr(
+        orchestrate, "REPO_ROOT", orchestrate.PureWindowsPath(r"C:\checkout")
+    )
+    assert orchestrate._portable_native_module(
+        r"C:\checkout\benchmarks\_hgraph.pyd"
+    ) == "<repo>/benchmarks/_hgraph.pyd"
 
 
 def test_benchmark_samples_use_median_and_report_spread():
@@ -88,7 +173,10 @@ def test_default_benchmark_report_compares_fixed_release_with_current_source():
     assert "`upstream-py`" not in report
 
 
-def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
+def test_upstream_baseline_cache_reuses_only_matching_successes(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(orchestrate, "RESULTS_DIR", tmp_path)
     cache_path = tmp_path / "nested" / "baseline.json"
     identity = {"schema": 1, "upstream_hgraph": "1.2.3"}
     measured = orchestrate.aggregate_samples(
@@ -113,6 +201,22 @@ def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
     assert orchestrate.cached_baseline_result(
         loaded, "missing", "upstream-cpp"
     ) is None
+
+
+def test_baseline_cache_path_cannot_escape_results_directory(
+    monkeypatch, tmp_path
+):
+    results_dir = tmp_path / "results"
+    monkeypatch.setattr(orchestrate, "RESULTS_DIR", results_dir)
+
+    inside = results_dir / "controlled" / "baseline.json"
+    orchestrate.save_baseline_cache(inside, {"schema": 1}, {})
+    assert inside.exists()
+
+    with pytest.raises(ValueError, match="must be inside"):
+        orchestrate.save_baseline_cache(
+            tmp_path / "outside.json", {"schema": 1}, {}
+        )
 
 
 def test_baseline_identity_is_fixed_to_both_released_lines():

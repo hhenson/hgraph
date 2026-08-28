@@ -1978,8 +1978,13 @@ void WebServerRuntime::stop() noexcept {
       // still running.  Their wait handlers capture this runtime; stopping
       // the io_context first would strand those handlers and form the cycle
       // runtime -> listener -> io_context -> handler -> runtime.
-      auto sweep_timer = std::exchange(sweep_timer_, {});
-      auto stats_timer = std::exchange(stats_timer_, {});
+      // Keep the member handles immutable after start. Timer callbacks run
+      // on the Asio strand and may copy these handles while graph teardown is
+      // cancelling them; exchanging the members here would race those reads.
+      // The callbacks release their runtime captures after cancellation, so
+      // retaining the member handles until destruction does not form a cycle.
+      auto sweep_timer = sweep_timer_;
+      auto stats_timer = stats_timer_;
       const auto cancel_timer = [](const auto &timer) {
         if (timer) {
           asio::post(timer->get_executor(), [timer] {
@@ -2037,8 +2042,12 @@ void WebServerRuntime::stop() noexcept {
                               config_->shutdown_drain_timeout;
         while (std::chrono::steady_clock::now() < deadline &&
                (listener_->open_connections() != 0 ||
-                (sweep_timer && sweep_timer.use_count() > 1) ||
-                (stats_timer && stats_timer.use_count() > 1))) {
+                // One reference is retained by the runtime and one by this
+                // stop frame. Any additional reference belongs to a posted
+                // cancellation or wait handler that must drain before the IO
+                // pool is stopped.
+                (sweep_timer && sweep_timer.use_count() > 2) ||
+                (stats_timer && stats_timer.use_count() > 2))) {
           std::this_thread::sleep_for(std::chrono::milliseconds{10});
         }
         listener_->stop_io();

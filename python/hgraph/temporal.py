@@ -13,11 +13,11 @@ from typing import Any
 
 import _hgraph
 
-from ._wiring._state import GlobalState
+from ._wiring._state import GlobalState, _active_global_state
 
 
 def _active_state_handle(global_state=None):
-    state = global_state if global_state is not None else GlobalState.instance()
+    state = global_state if global_state is not None else _active_global_state()
     return state._impl if isinstance(state, GlobalState) else state
 
 

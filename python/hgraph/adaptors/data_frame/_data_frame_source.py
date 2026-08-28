@@ -6,6 +6,8 @@ from typing import Iterator, TypeVar
 import pyarrow as pa
 
 from hgraph import GlobalState
+from hgraph._wiring._state import (_active_global_state, _global_state_scope,
+                                   _published_in_global_state)
 
 __all__ = (
     "DataFrameSource",
@@ -53,7 +55,7 @@ class DataFrameSource(ABC):
 DATA_FRAME_SOURCE = TypeVar("DATA_FRAME_SOURCE", bound=DataFrameSource)
 
 
-class DataStore:
+class DataStore(_published_in_global_state):
     """Data-source instances held in the Python seed/result GlobalState."""
 
     _STATE_KEY = ":adaptors:data_frame:sources"
@@ -62,10 +64,11 @@ class DataStore:
     def __init__(self):
         self._data_frame_sources = {}
         self._previous = self._MISSING
+        self._state_scope = None
 
     @classmethod
     def instance(cls) -> "DataStore":
-        state = GlobalState.instance()
+        state = _active_global_state()
         store = state.get(cls._STATE_KEY)
         if store is None:
             store = cls()
@@ -86,21 +89,6 @@ class DataStore:
             self._data_frame_sources[dfs] = source
         return source
 
-    def __enter__(self):
-        state = GlobalState.instance()
-        self._previous = state.get(self._STATE_KEY, self._MISSING)
-        state[self._STATE_KEY] = self
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
-        if self._previous is self._MISSING:
-            state.pop(self._STATE_KEY, None)
-        else:
-            state[self._STATE_KEY] = self._previous
-        self._previous = self._MISSING
-        return False
-
 
 class ArrowDataFrameSource(DataFrameSource):
     def __init__(self, frame):
@@ -119,7 +107,7 @@ class PolarsDataFrameSource(ArrowDataFrameSource):
         super().__init__(df)
 
 
-class DataConnectionStore:
+class DataConnectionStore(_published_in_global_state):
     _STATE_KEY = ":adaptors:data_frame:connections"
     _MISSING = object()
 
@@ -129,7 +117,7 @@ class DataConnectionStore:
 
     @classmethod
     def instance(cls) -> "DataConnectionStore":
-        state = GlobalState.instance()
+        state = _active_global_state()
         store = state.get(cls._STATE_KEY)
         if store is None:
             store = cls()
@@ -147,21 +135,6 @@ class DataConnectionStore:
 
     def set_connection(self, name: str, connection):
         self._connections[name] = connection
-
-    def __enter__(self):
-        state = GlobalState.instance()
-        self._previous = state.get(self._STATE_KEY, self._MISSING)
-        state[self._STATE_KEY] = self
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        state = GlobalState.instance()
-        if self._previous is self._MISSING:
-            state.pop(self._STATE_KEY, None)
-        else:
-            state[self._STATE_KEY] = self._previous
-        self._previous = self._MISSING
-        return False
 
 
 class SqlDataFrameSource(DataFrameSource):

@@ -587,7 +587,7 @@ starting commit ``ed0d40dce8edfbd8e6d0740f2f1261b7a853a9ff``.
 
 .. code-block:: console
 
-   cmake -S /Users/hhenson/CLionProjects/hg_cpp \
+   cmake -S . \
      -B /tmp/hg_cpp-te-m0-linux-v2 -GNinja \
      -DCMAKE_BUILD_TYPE=Release \
      -DCMAKE_PREFIX_PATH=/tmp/hg_cpp-te-m0-deps \

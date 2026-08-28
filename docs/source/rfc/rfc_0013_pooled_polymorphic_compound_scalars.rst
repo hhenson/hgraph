@@ -214,7 +214,7 @@ Acceptance criteria
   dynamic memory.  A median hot-path regression greater than 5%, when outside
   measurement noise, blocks the pooled strategy.
 * The complete native and Python 3.14 suites, installed-SDK consumer, and
-  ``hg-linux`` ASan validation pass.
+  independent Linux-host ASan validation pass.
 
 Implementation status
 ---------------------
@@ -223,12 +223,12 @@ The C++ runtime, public contracts, Python bridge adaptation, inspection,
 documentation, and regression coverage are implemented.  The final acceptance
 evidence is:
 
-* all 1,438 native tests pass from fresh builds on macOS and ``hg-linux`` with
-  GCC 14 warnings treated as errors;
+* all 1,438 native tests pass from fresh builds on macOS and an independent
+  Linux host with GCC 14 warnings treated as errors;
 * the stable-ABI wheel, built with Python 3.12 and installed into fresh Python
   3.14 environments, passes 1,886 tests with 11 skips on macOS and Linux;
 * all native tests and the complete non-WIP Python suite pass under AddressSanitizer
-  on ``hg-linux``;
+  on the independent Linux validation host;
 * the installed-SDK consumer builds and executes against the new public storage
   and representation contracts;
 * all 56 differential recipes validate, and the keyed map/reduce and mesh
