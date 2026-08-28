@@ -104,18 +104,34 @@ and the size as host-specific.
 
 ### Graph construction regressed on POSIX only
 
-| Workload | macOS | Linux | Windows |
-|---|---:|---:|---:|
-| Wide/deep graph — Python nodes (`construct_py`) | **0.88x** | **0.88x** | 1.26x |
-| Wide/deep graph — native operators (`construct_std`) | **0.93x** | **0.92x** | 1.30x |
-| Equality/dedup — Python-owned (`python_owned_dedup_python`) | **0.90x** | **0.92x** | 1.41x |
+| Workload | macOS | Linux | Win new | Win old (i9) |
+|---|---:|---:|---:|---:|
+| Wide/deep graph — Python nodes (`construct_py`) | **0.88x** | **0.88x** | 1.26x | 0.98x |
+| Wide/deep graph — native operators (`construct_std`) | **0.93x** | **0.92x** | 1.30x | 1.01x |
+| Equality/dedup — Python-owned (`python_owned_dedup_python`) | **0.90x** | **0.92x** | 1.41x | 1.03x |
 
 Two independent POSIX hosts agree closely that graph construction became 7–12%
 slower, and the three affected workloads move together — a coherent group, not
-scattered cells. Windows improves 26–41% on the same three, so its slower
-0.8.1 baseline may simply be masking the same cost. Describe this as
-macOS-and-Linux behaviour, not a property of the release; settling it needs a
-POSIX-side profile of construction rather than more benchmark runs.
+scattered cells.
+
+The old Windows box settles what the new one could not. It is the slowest
+machine here, so if a construction cost were being masked by platform-wide
+gains it should surface there; instead all three workloads are flat
+(0.98x/1.01x/1.03x). **The masking hypothesis is falsified: the regression is
+genuinely POSIX-specific**, and the new Windows box's 26–41% gain on these
+three is that machine's own affinity for 0.8.19, not the absence of a cost.
+
+Settling the POSIX side needs a profile of graph construction on macOS or
+Linux, not more benchmark runs.
+
+### Nothing regresses broadly
+
+Across the four host configurations — macOS, Linux, and both Windows boxes —
+**no scenario regresses by more than 5% on three or more of them.** The old
+Windows box has three of its own (`tsd_capacity_growth_std` 0.80x,
+`tsd_sparse_source_std` 0.83x, `tsd_sparse_large_capacity_std` 0.84x), but only
+the sparse-source one overlaps with any other host, and the same workloads
+improve 1.16–1.22x on the new Windows box. Treat them as host-specific.
 
 ### Memory
 
