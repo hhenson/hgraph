@@ -236,6 +236,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_collection_nodes.cpp
     test_const_eval.cpp
     test_data_frame_operators.cpp
+    test_cs_field_projection.cpp
     test_dispatch.cpp
     test_engine_control.cpp
     test_lower.cpp
