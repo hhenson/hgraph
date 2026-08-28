@@ -99,11 +99,6 @@ class _Operator:
                     ),
                     None,
                 )
-            elif len(self._type_variables) > 1:
-                raise WiringError(
-                    f"operator '{self.__name__}' cannot infer which type "
-                    "variable to bind; use TYPEVAR: concrete"
-                )
             if target is not None:
                 item = slice(target, item)
         return self._delegate[item]

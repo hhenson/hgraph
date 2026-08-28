@@ -2121,7 +2121,8 @@ def _resolve_registered_implementation(implementation, resolution_dict, operatio
 
 class _PendingServiceRegistration:
     __slots__ = (
-        "wiring_identity", "path", "implementation", "config", "owners", "registrar")
+        "wiring_identity", "path", "implementation", "config", "owners", "registrar",
+        "identity")
 
     def __init__(self, wiring, path, implementation, config, owners, registrar):
         self.wiring_identity = wiring.identity()
@@ -2130,6 +2131,7 @@ class _PendingServiceRegistration:
         self.config = config
         self.owners = owners
         self.registrar = registrar
+        self.identity = id(self)
 
 
 def _implementation_for_stub(implementation, concrete_stub):
@@ -2267,13 +2269,14 @@ def _materialize_pending_registrations(
     for pending in tuple(owner._pending_registrations):
         if pending.wiring_identity != wiring_identity:
             continue
-        registered = (wiring_identity, pending.path, resolution)
+        registered = (wiring_identity, pending.path, resolution, pending.identity)
         if all(
                 any(
                     registered_identity == wiring_identity
                     and path == pending.path
                     and existing.bindings == resolution.bindings
-                    for registered_identity, path, existing
+                    and registration_identity == pending.identity
+                    for registered_identity, path, existing, registration_identity
                     in stub._registered_resolutions)
                 for stub in pending.owners):
             continue
@@ -2285,7 +2288,8 @@ def _materialize_pending_registrations(
                     registered_identity == wiring_identity
                     and path == pending.path
                     and existing.bindings == resolution.bindings
-                    for registered_identity, path, existing
+                    and registration_identity == pending.identity
+                    for registered_identity, path, existing, registration_identity
                     in stub._registered_resolutions):
                 stub._registered_resolutions.append(registered)
                 newly_registered.append(stub)
@@ -2310,7 +2314,7 @@ def _registered_service_resolution(owner, wiring, path, requested):
     wiring_identity = root_wiring.identity()
     requested_bindings = requested.bindings
     candidates = []
-    for registered_identity, registered_path, resolution in owner._registered_resolutions:
+    for registered_identity, registered_path, resolution, _ in owner._registered_resolutions:
         if registered_identity != wiring_identity or registered_path != path:
             continue
         bindings = resolution.bindings

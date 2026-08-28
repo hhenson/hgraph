@@ -127,6 +127,23 @@ def test_opaque_python_values_round_trip_without_wrapping():
     assert result[0] is value
 
 
+def test_const_infers_opaque_identity_without_overriding_native_scalars():
+    value = OpaqueDerived()
+
+    @graph
+    def opaque_value() -> TS[OpaqueDerived]:
+        return const(value)
+
+    @graph
+    def native_int() -> TS[int]:
+        return const(2)
+
+    opaque_result = eval_node(opaque_value)
+    assert opaque_result == [value]
+    assert opaque_result[0] is value
+    assert eval_node(native_int) == [2]
+
+
 def test_object_remains_the_common_opaque_python_top_type():
     @graph
     def accept_object(value: TS[object]) -> TS[object]:

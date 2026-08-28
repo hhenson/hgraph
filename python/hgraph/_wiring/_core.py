@@ -493,7 +493,7 @@ class _OperatorFunction:
         if (self.__name__ == "const" and args
                 and "tp" not in kwargs and "output_type" not in kwargs):
             from .._compat import CompoundScalar
-            from .._types import TS
+            from .._types import TS, _GenericType, _value_type
 
             if isinstance(args[0], CompoundScalar):
                 # Schema-free C++ value inference intentionally treats an
@@ -501,6 +501,15 @@ class _OperatorFunction:
                 # Python class is its nominal Bundle schema, so retain that
                 # information at the Python boundary before wiring const.
                 kwargs["output_type"] = TS[type(args[0])]
+            else:
+                # Ensure an arbitrary Python class has a nominal registration
+                # before native schema-free inference sees the value. Native
+                # inference still owns precedence for containers, callables,
+                # Arrow values, and every other concrete representation.
+                try:
+                    _value_type(type(args[0]))
+                except _GenericType:
+                    pass
         if self._output_type is not None and "tp" not in kwargs and "output_type" not in kwargs:
             kwargs["output_type"] = self._output_type
         if self._sizes is not None:

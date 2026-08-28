@@ -471,10 +471,15 @@ namespace hgraph
                         scalar_matches = arg.scalar_meta == param.scalar.meta;
                         if (!scalar_matches)
                         {
-                            scalar_matches =
-                                operator_dispatch_detail::coerce_scalar_value_to_meta(arg.scalar_value, param.scalar.meta)
-                                    .has_value();
-                            if (scalar_matches) { ++rank_adjustment; }
+                            scalar_matches = operator_dispatch_detail::coerce_scalar_value_to_meta(
+                                                 arg.scalar_value, param.scalar.meta)
+                                                 .has_value();
+                            if (scalar_matches)
+                            {
+                                const auto distance = TypeRegistry::instance().value_inheritance_distance(
+                                    arg.scalar_meta, param.scalar.meta);
+                                rank_adjustment += static_cast<int>(distance.value_or(1));
+                            }
                         }
                     }
                     else

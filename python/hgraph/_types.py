@@ -40,6 +40,44 @@ _VALUE_SCALAR_TYPES = {}
 _OPAQUE_TYPE_CACHE = {}
 
 
+def _opaque_parameterized_parents(annotation, argument):
+    if argument is object:
+        return [_hgraph.value_type("object")]
+    rebuild = getattr(annotation, "copy_with", None)
+    return [
+        _opaque_value_type(
+            rebuild((parent,)) if rebuild is not None else type[parent]
+        )
+        for parent in argument.__bases__
+    ]
+
+
+def _opaque_class_parent(base):
+    if base is object or base in _SCALAR_NAMES:
+        return _hgraph.value_type("object")
+    native = _hgraph.native_scalar_value_type(base)
+    return (_hgraph.value_type("object") if native is not None
+            else _opaque_value_type(base))
+
+
+def _opaque_type_parents(annotation):
+    import typing
+
+    origin = typing.get_origin(annotation)
+    arguments = typing.get_args(annotation)
+    if origin is type and len(arguments) == 1 and isinstance(arguments[0], type):
+        return _opaque_parameterized_parents(annotation, arguments[0])
+    if not isinstance(annotation, type):
+        return [_hgraph.value_type("object")]
+
+    parents = []
+    for base in annotation.__bases__:
+        parent = _opaque_class_parent(base)
+        if parent not in parents:
+            parents.append(parent)
+    return parents or [_hgraph.value_type("object")]
+
+
 def _opaque_value_type(annotation):
     """Return the nominal Any-storage schema for a Python-only annotation."""
     if annotation is object:
@@ -50,40 +88,11 @@ def _opaque_value_type(annotation):
     if cached is not None:
         return cached
 
-    parents = []
-    import typing
-
-    origin = typing.get_origin(annotation)
-    arguments = typing.get_args(annotation)
-    if origin is type and len(arguments) == 1 and isinstance(arguments[0], type):
-        argument = arguments[0]
-        if argument is object:
-            parents.append(_hgraph.value_type("object"))
-        else:
-            rebuild = getattr(annotation, "copy_with", None)
-            parents.extend(
-                _opaque_value_type(
-                    rebuild((parent,)) if rebuild is not None else type[parent]
-                )
-                for parent in argument.__bases__
-            )
-    elif isinstance(annotation, type):
-        for base in annotation.__bases__:
-            if base is object or base in _SCALAR_NAMES:
-                parent = _hgraph.value_type("object")
-            else:
-                native = _hgraph.native_scalar_value_type(base)
-                parent = (_hgraph.value_type("object") if native is not None
-                          else _opaque_value_type(base))
-            if parent not in parents:
-                parents.append(parent)
-    if not parents:
-        parents.append(_hgraph.value_type("object"))
-
     module = getattr(annotation, "__module__", "typing")
     qualname = getattr(annotation, "__qualname__", repr(annotation))
     name = f"python::{module}.{qualname}@{id(annotation):x}"
-    value_type = _hgraph.opaque_python_vt(annotation, name, parents)
+    value_type = _hgraph.opaque_python_vt(
+        annotation, name, _opaque_type_parents(annotation))
     _OPAQUE_TYPE_CACHE[cache_key] = value_type
     return value_type
 
@@ -1703,6 +1712,11 @@ def _value_type(scalar):
             scalar.__name__,
             _hgraph.scalar_pattern_map(_hgraph.scalar_pattern_var("K"), _hgraph.scalar_pattern_var("V")),
         )
+    if scalar is type:
+        # A bare ``type`` accepts every Python class object. Parameterized
+        # ``type[T]`` annotations still lower to their shared nominal origin
+        # through the generic branch above.
+        name = "object"
     if name is None and isinstance(scalar, type):
         from ._compat import CompoundScalar
 
@@ -2995,6 +3009,24 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
     return fn
 
 
+def _type_variable_children(value):
+    if isinstance(value, _GenericTsExpr):
+        return value.variables
+    if isinstance(value, _ContextExpr):
+        return (value.ts,)
+    if isinstance(value, _ArrayType):
+        return (value.element, value.dimensions)
+    if isinstance(value, _SeriesType):
+        return (value.element,)
+    if isinstance(value, _FrameType):
+        return (value.schema, value.metadata)
+    if isinstance(value, dict):
+        return tuple(value.keys()) + tuple(value.values())
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return value
+    return (*_typing.get_args(value), *getattr(value, "__parameters__", ()))
+
+
 def _type_variables_of(annotation):
     """Return the original Python generic variables retained by an annotation.
 
@@ -3008,37 +3040,8 @@ def _type_variables_of(annotation):
         if isinstance(value, (_TypeVarSentinel, _typing.TypeVar)):
             found.setdefault(_type_var_name(value), value)
             return
-        if isinstance(value, _GenericTsExpr):
-            for variable in value.variables:
-                visit(variable)
-            return
-        if isinstance(value, _ContextExpr):
-            visit(value.ts)
-            return
-        if isinstance(value, _ArrayType):
-            visit(value.element)
-            visit(value.dimensions)
-            return
-        if isinstance(value, _SeriesType):
-            visit(value.element)
-            return
-        if isinstance(value, _FrameType):
-            visit(value.schema)
-            visit(value.metadata)
-            return
-        if isinstance(value, (tuple, list, set, frozenset)):
-            for item in value:
-                visit(item)
-            return
-        if isinstance(value, dict):
-            for key, item in value.items():
-                visit(key)
-                visit(item)
-            return
-        for argument in _typing.get_args(value):
-            visit(argument)
-        for parameter in getattr(value, "__parameters__", ()):
-            visit(parameter)
+        for child in _type_variable_children(value):
+            visit(child)
 
     visit(annotation)
     return tuple(found.values())

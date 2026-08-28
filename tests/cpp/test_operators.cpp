@@ -494,6 +494,71 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.bundle_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and conversion")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *object = registry.any();
+    const auto *animal = registry.opaque_python("tests.operator.opaque.Animal", {object});
+    const auto *dog = registry.opaque_python("tests.operator.opaque.Dog", {animal});
+    const auto *puppy = registry.opaque_python("tests.operator.opaque.Puppy", {dog});
+
+    const auto register_candidate = [&](const ValueTypeMetaData *schema, std::string label) {
+        OperatorImpl impl;
+        impl.name = "opaque_nominal_overload";
+        impl.label = std::move(label);
+        impl.params.push_back(ParamPattern{
+            .kind = ParamPattern::Kind::Input,
+            .name = "value",
+            .ts = TypePattern::concrete(registry.ts(schema)),
+        });
+        impl.rank = operator_dispatch_detail::operator_rank(impl.params);
+        OperatorRegistry::instance().register_overload(std::move(impl));
+    };
+    register_candidate(object, "object");
+    register_candidate(animal, "animal");
+    register_candidate(dog, "dog");
+
+    std::array<WiringArg, 1> args{ts_arg(registry.ts(puppy))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "opaque_nominal_overload", std::span<const WiringArg>{args}, false);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "dog");
+
+    stdlib::register_conversion_operators();
+    Wiring wiring{WiringKind::SubGraph};
+    const auto source = WiringPortRef::boundary_source(0, {}, registry.ts(puppy));
+    const auto adapted = graph_wiring_detail::adapt_source_for_input(
+        wiring, registry.ts(animal), source);
+    CHECK(adapted.schema == registry.ts(animal));
+    CHECK(adapted.is_peered_source());
+
+    const auto upcast = OperatorRegistry::instance().resolve(
+        "convert", std::span<const WiringArg>{args}, true, registry.ts(animal));
+    REQUIRE(upcast.impl != nullptr);
+    CHECK(upcast.impl->label.find("convert_bundle_upcast") != std::string::npos);
+
+    std::array<WiringArg, 1> base_args{ts_arg(registry.ts(animal))};
+    const auto downcast = OperatorRegistry::instance().resolve(
+        "convert", std::span<const WiringArg>{base_args}, true, registry.ts(dog));
+    REQUIRE(downcast.impl != nullptr);
+    CHECK(downcast.impl->label.find("convert_opaque_downcast") != std::string::npos);
+
+    Value puppy_value{ValuePlanFactory::instance().type_for(puppy)};
+    puppy_value.as_any().begin_mutation().set(Value{Int{7}});
+    const auto coerced = operator_dispatch_detail::coerce_scalar_value_to_meta(
+        puppy_value, animal);
+    REQUIRE(coerced.has_value());
+    CHECK(coerced->schema() == animal);
+    REQUIRE(coerced->as_any().get().valid());
+    CHECK(coerced->as_any().get().checked_as<Int>() == 7);
+
+    const auto *unrelated = registry.opaque_python(
+        "tests.operator.opaque.Unrelated", {object});
+    CHECK_FALSE(operator_dispatch_detail::coerce_scalar_value_to_meta(
+                    puppy_value, unrelated)
+                    .has_value());
+}
+
 TEST_CASE("operators: an unregistered operator name raises")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

@@ -336,6 +336,32 @@ TEST_CASE(
                     std::invalid_argument);
 }
 
+TEST_CASE("TypeRegistry gives opaque Any-storage values nominal inheritance") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+
+  const auto *object = registry.any();
+  const auto *animal = registry.opaque_python("tests.opaque.Animal", {object});
+  const auto *dog = registry.opaque_python("tests.opaque.Dog", {animal});
+  const auto *puppy = registry.opaque_python("tests.opaque.Puppy", {dog});
+  const auto *instrument = registry.opaque_python(
+      "tests.opaque.Instrument", {object});
+
+  REQUIRE(animal->is_opaque_python());
+  REQUIRE(dog->is_opaque_python());
+  CHECK(registry.opaque_python("tests.opaque.Dog", {animal}) == dog);
+  CHECK(registry.value_is_a(puppy, dog));
+  CHECK(registry.value_is_a(puppy, animal));
+  CHECK(registry.value_is_a(puppy, object));
+  CHECK_FALSE(registry.value_is_a(animal, dog));
+  CHECK_FALSE(registry.value_is_a(puppy, instrument));
+  CHECK(registry.value_inheritance_distance(puppy, dog) == 1);
+  CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
+  REQUIRE_THROWS_AS(
+      registry.opaque_python("tests.opaque.Invalid", {registry.value_type("int")}),
+      std::invalid_argument);
+}
+
 TEST_CASE("self-recursive Bundles store one inline owner pointer and allocate "
           "on demand") {
   using namespace hgraph;
