@@ -237,6 +237,13 @@ void clear_branch_output(const NodeView &view, const SwitchNodeContext &context,
   if (context.spec.output_forwards_to_child_terminal) {
     auto output =
         walk_ts_path(view.output(evaluation_time), binding.target_path);
+    if (output.schema() != nullptr &&
+        output.schema()->kind == TSTypeKind::REF) {
+      // A REF switch owns the reference token that preserves the selected
+      // terminal. The terminal itself retains responsibility for its
+      // forwarding lifecycle.
+      return;
+    }
     static_cast<void>(clear_forwarding_output_tree(std::move(output)));
     return;
   }
@@ -513,11 +520,13 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
        spec.default_branch->graph_builder.requires_phase_runner());
   meta.node_kind = NodeKind::Nested;
   if (meta.output_schema != nullptr) {
-    meta.output_endpoint_schema = spec.output_forwards_to_child_terminal
-                                      ? forwarding_output_endpoint_schema(
-                                            meta.output_schema)
-                                      : TSEndpointSchema::local(
-                                            meta.output_schema);
+    const bool forwards_output =
+        spec.output_forwards_to_child_terminal &&
+        meta.output_schema->kind != TSTypeKind::REF;
+    meta.output_endpoint_schema =
+        forwards_output
+            ? forwarding_output_endpoint_schema(meta.output_schema)
+            : TSEndpointSchema::local(meta.output_schema);
   }
 
   NodeTypeDescriptor descriptor;
