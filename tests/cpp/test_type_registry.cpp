@@ -7,8 +7,8 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/memory_utils.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/json_codec.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value.h>
 
 #include <array>
@@ -605,8 +605,8 @@ TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
                     std::invalid_argument);
 }
 
-TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
-          "pool ownership") {
+TEST_CASE("graph realization stores wide polymorphic Bundles in the shared "
+          "arena") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();
   const auto *integer = registry.value_type("int");
@@ -654,9 +654,8 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
   canonical_fields["id"].set(Int{7});
   canonical_fields["a"].set(Str{"original"});
 
-  CompoundScalarStorage pools = CompoundScalarStorage::make_default();
   TypeRealizationScope realization_scope{snapshot.get()};
-  pools.bind(snapshot->pool_binding());
+  const auto baseline_metrics = shared_value_pool_metrics();
 
   Value escaped;
   {
@@ -669,26 +668,19 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
     const void *const first_payload =
         graph.ops_ref().concrete_memory(first.data());
     REQUIRE(first_payload == graph.ops_ref().concrete_memory(second.data()));
-    REQUIRE(pools.view().owns(first_payload));
+    REQUIRE(shared_value_pool_metrics().live_values ==
+            baseline_metrics.live_values + 1);
     REQUIRE(graph.ops_ref().concrete_type(graph, first.data()).schema() ==
             large);
-
-    // RFC 0029: a realization's pooled types serve exactly one live root
-    // graph, so a second pool cannot claim them while this one is bound.
-    CompoundScalarStorage other_root = CompoundScalarStorage::make_default();
-    REQUIRE_THROWS_AS(other_root.bind(snapshot->pool_binding()),
-                      std::logic_error);
-    REQUIRE(other_root.view().inspect().live_slot_count == 0);
-    REQUIRE(pools.view().owns(first_payload));
 
     std::vector<Value::storage_type> replicated_keys;
     replicated_keys.reserve(1024);
     for (std::size_t index = 0; index < 1024; ++index) {
       replicated_keys.emplace_back(first);
     }
-    const auto replicated_metrics = pools.view().metrics();
+    const auto replicated_metrics = shared_value_pool_metrics();
     const auto pooled_bytes =
-        replicated_metrics.reserved_bytes +
+        replicated_metrics.reserved_bytes - baseline_metrics.reserved_bytes +
         replicated_keys.size() * graph.checked_plan().layout.size;
     const auto flat_bytes =
         replicated_keys.size() * external.checked_plan().layout.size;
@@ -722,6 +714,13 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
                 .concrete()
                 .as_bundle()["a"]
                 .checked_as<Str>() == "original");
+    Value::storage_type detached_copy{second};
+    REQUIRE(graph.ops_ref().concrete_memory(detached_copy.data()) !=
+            graph.ops_ref().concrete_memory(second.data()));
+    REQUIRE(ValueView{graph, detached_copy.data()}
+                .concrete()
+                .as_bundle()["a"]
+                .checked_as<Str>() == "detached");
 
     std::vector<Value::storage_type> values;
     values.reserve(128);
@@ -732,7 +731,8 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
                                        canonical_large.view().data());
     }
     REQUIRE(graph.ops_ref().concrete_memory(first.data()) == first_payload);
-    REQUIRE(pools.view().inspect().slot_capacity >= 128);
+    REQUIRE(shared_value_pool_metrics().live_values >=
+            baseline_metrics.live_values + values.size() + 3);
 
     escaped = Value{ValueView{graph, second.data()}};
     REQUIRE(escaped.binding() == external);
@@ -741,9 +741,9 @@ TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
   REQUIRE(escaped.view().concrete().schema() == large);
   REQUIRE(escaped.view().concrete().as_bundle()["a"].checked_as<Str>() ==
           "detached");
-  const auto after_release = pools.view().inspect();
-  REQUIRE(after_release.leaf_pool_count == 2);
-  REQUIRE(after_release.live_slot_count == 0);
+  const auto after_release = shared_value_pool_metrics();
+  REQUIRE(after_release.size_classes >= 2);
+  REQUIRE(after_release.live_values == baseline_metrics.live_values);
   REQUIRE(small != nullptr);
 }
 
@@ -772,123 +772,64 @@ TEST_CASE("graph realization keeps narrow polymorphic Bundles inline") {
   REQUIRE(inspection.graph_size > sizeof(void *));
 }
 
-namespace {
-struct AdmissionRace {
-  std::size_t admitted{0};
-  std::size_t refused{0};
-  std::size_t owners{0};
-};
-
-/** Race `contenders` pool owners into one binding; report who got in. */
-[[nodiscard]] AdmissionRace
-race_admission(hgraph::CompoundScalarStorageBinding &binding,
-               std::size_t contenders) {
-  using namespace hgraph;
-  std::vector<CompoundScalarStorage> pools;
-  pools.reserve(contenders);
-  for (std::size_t index = 0; index < contenders; ++index) {
-    pools.push_back(CompoundScalarStorage::make_default());
-  }
-
-  std::atomic<std::size_t> ready{0};
-  std::atomic<bool> go{false};
-  std::atomic<std::size_t> admitted{0};
-  std::atomic<std::size_t> refused{0};
-  std::vector<std::thread> threads;
-  threads.reserve(contenders);
-  for (std::size_t index = 0; index < contenders; ++index) {
-    threads.emplace_back([&, index] {
-      ready.fetch_add(1, std::memory_order_release);
-      while (!go.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
-      }
-      try {
-        pools[index].bind(binding);
-        admitted.fetch_add(1, std::memory_order_relaxed);
-      } catch (const std::logic_error &) {
-        refused.fetch_add(1, std::memory_order_relaxed);
-      }
-    });
-  }
-  while (ready.load(std::memory_order_acquire) < contenders) {
-    std::this_thread::yield();
-  }
-  go.store(true, std::memory_order_release);
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  AdmissionRace result{admitted.load(), refused.load(), 0};
-  if (binding.bound()) {
-    // A torn write matches no contender's storage entire.
-    const auto bound = binding.storage();
-    for (auto &pool : pools) {
-      if (pool.view().same_storage(bound)) {
-        ++result.owners;
-      }
-    }
-  }
-  return result;
-}
-} // namespace
-
-TEST_CASE("a realization admits exactly one root graph pool concurrently") {
+TEST_CASE("one polymorphic realization shares values across threads") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();
   const auto *integer = registry.value_type("int");
+  const auto *text = registry.value_type("str");
   REQUIRE(integer != nullptr);
+  REQUIRE(text != nullptr);
 
-  // Registering here moves the bundle-hierarchy generation on, so the cached
-  // snapshot this captures is this test's own and its binding starts free.
-  registry.bundle("tests.realization.admission", "Base", {{"id", integer}}, {},
-                  true);
+  const auto *base = registry.bundle(
+      "tests.realization.concurrent_shared", "Base", {{"id", integer}}, {},
+      true);
+  registry.bundle("tests.realization.concurrent_shared", "Small",
+                  {{"id", integer}}, {base});
+  const auto *large = registry.bundle(
+      "tests.realization.concurrent_shared", "Large",
+      {{"id", integer}, {"a", text}, {"b", text}, {"c", text}}, {base});
   const auto snapshot = TypeRealizationSnapshot::capture(
       registry,
       TypeRealizationOptions{
           .polymorphic_compound_storage =
               PolymorphicCompoundStoragePolicy::Pooled,
       });
-  REQUIRE_FALSE(snapshot->pool_binding().bound());
+  const auto graph = snapshot->graph_type_for(base);
+  REQUIRE(snapshot->inspect(base).representation ==
+          GraphValueRepresentation::PooledUnion);
 
-  // A cached realization is shared, so two root graphs can be constructed
-  // against it at once.  Exactly one may claim its pooled value types.
+  Value concrete{ValuePlanFactory::instance().type_for(large)};
+  concrete.as_bundle().begin_mutation()["id"].set(Int{7});
+  Value::storage_type source{*graph.record()};
+  graph.ops_ref().copy_assign_from(graph, source.data(), concrete.binding(),
+                                   concrete.view().data());
+  const void *const stable = graph.ops_ref().concrete_memory(source.data());
+
   constexpr std::size_t contenders = 8;
-  {
-    const auto race = race_admission(snapshot->pool_binding(), contenders);
-    CHECK(race.admitted == 1);
-    CHECK(race.refused == contenders - 1);
-    CHECK(race.owners == 1);
+  std::atomic<std::size_t> ready{0};
+  std::atomic<bool> release{false};
+  std::array<const void *, contenders> observed{};
+  std::array<std::thread, contenders> threads;
+  for (std::size_t index = 0; index < contenders; ++index) {
+    threads[index] = std::thread([&, index] {
+      Value::storage_type retained{source};
+      observed[index] = graph.ops_ref().concrete_memory(retained.data());
+      ready.fetch_add(1, std::memory_order_release);
+      while (!release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+    });
   }
-
-  // The claim is released with its owner, and the next graph may take it.
-  CHECK_FALSE(snapshot->pool_binding().bound());
-  CompoundScalarStorage successor = CompoundScalarStorage::make_default();
-  REQUIRE_NOTHROW(successor.bind(snapshot->pool_binding()));
-  CHECK(snapshot->pool_binding().storage().same_storage(successor.view()));
-}
-
-TEST_CASE("concurrent binding admission never admits twice") {
-  using namespace hgraph;
-  // One race is a weak probe: a check-then-set admission passes it most of the
-  // time.  Repeating over a fresh binding each round makes a non-atomic
-  // admission fail reliably rather than occasionally.
-  constexpr std::size_t rounds = 48;
-  constexpr std::size_t contenders = 8;
-  std::size_t double_admissions = 0;
-  std::size_t torn_views = 0;
-  for (std::size_t round = 0; round < rounds; ++round) {
-    CompoundScalarStorageBinding binding{};
-    const auto race = race_admission(binding, contenders);
-    if (race.admitted != 1) {
-      ++double_admissions;
-    }
-    if (race.owners != 1) {
-      ++torn_views;
-    }
-    CHECK(race.admitted + race.refused == contenders);
+  while (ready.load(std::memory_order_acquire) != contenders) {
+    std::this_thread::yield();
   }
-  CHECK(double_admissions == 0);
-  CHECK(torn_views == 0);
+  for (const auto *payload : observed) {
+    CHECK(payload == stable);
+  }
+  release.store(true, std::memory_order_release);
+  for (auto &thread : threads) {
+    thread.join();
+  }
 }
 
 TEST_CASE("abstract Bundle without a concrete alternative cannot be realized") {

@@ -416,10 +416,11 @@ def set_record_replay_config(model):
 
 
 def set_pooled_compound_scalar_storage(enabled=True):
-    """Select pooled storage for eligible polymorphic compound scalars.
+    """Select shared-arena storage for eligible polymorphic compound scalars.
 
     The option is captured when the current graph is wired. It is disabled by
-    default and does not alter graphs wired from another ``GlobalState``.
+    default and does not alter graphs wired from another ``GlobalState``. The
+    arena is process-wide; no storage owner or cache is added to the root graph.
     """
     _hgraph._set_pooled_compound_scalar_storage(
         _active_global_state()._impl, bool(enabled))

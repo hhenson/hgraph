@@ -46,7 +46,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 7);
+    static_assert(GRAPH_OPS_ABI_VERSION == 8);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
@@ -140,7 +140,7 @@ TEST_CASE("polymorphic value type owner keeps a canonical no-op state")
     CHECK_FALSE(original.binding());
 }
 
-TEST_CASE("compound scalar pools are absent from graphs unless selected")
+TEST_CASE("polymorphic shared storage adds no graph-owned cache field")
 {
     using namespace hgraph;
 
@@ -156,44 +156,17 @@ TEST_CASE("compound scalar pools are absent from graphs unless selected")
     set_pooled_compound_scalar_storage(pooled_builder.global_state());
     const auto pooled_root = pooled_builder.root_type();
     const auto pooled_nested = pooled_builder.nested_type();
-    const auto *root_storage = pooled_root.checked_plan().find_component(
-        "compound_scalar_storage");
-    const auto *nested_storage = pooled_nested.checked_plan().find_component(
-        "compound_scalar_storage");
-    REQUIRE(root_storage != nullptr);
-    REQUIRE(nested_storage != nullptr);
-    REQUIRE(root_storage->plan->layout.size ==
-            MemoryUtils::plan_for<CompoundScalarStorage>().layout.size);
-    REQUIRE(root_storage->plan->layout.alignment ==
-            MemoryUtils::plan_for<CompoundScalarStorage>().layout.alignment);
-    REQUIRE(nested_storage->plan->layout.size ==
-            MemoryUtils::plan_for<CompoundScalarStorageView>().layout.size);
-    REQUIRE(nested_storage->plan->layout.alignment ==
-            MemoryUtils::plan_for<CompoundScalarStorageView>().layout.alignment);
-    REQUIRE(pooled_root.checked_plan().layout.size >
+    REQUIRE(pooled_root.checked_plan().find_component(
+                "compound_scalar_storage") == nullptr);
+    REQUIRE(pooled_nested.checked_plan().find_component(
+                "compound_scalar_storage") == nullptr);
+    REQUIRE(pooled_root.checked_plan().layout.size ==
             inline_root.checked_plan().layout.size);
-    REQUIRE(pooled_nested.checked_plan().layout.size >
+    REQUIRE(pooled_nested.checked_plan().layout.size ==
             inline_nested.checked_plan().layout.size);
     REQUIRE(pooled_root != inline_root);
     REQUIRE(pooled_nested != inline_nested);
 
-    GraphExecutorBuilder inline_executor_builder;
-    inline_executor_builder.graph_builder(std::move(inline_builder));
-    GraphExecutorValue inline_executor =
-        inline_executor_builder.make_executor();
-    REQUIRE_FALSE(inline_executor.view()
-                      .graph()
-                      .compound_scalar_storage()
-                      .available());
-
-    GraphExecutorBuilder pooled_executor_builder;
-    pooled_executor_builder.graph_builder(std::move(pooled_builder));
-    GraphExecutorValue pooled_executor =
-        pooled_executor_builder.make_executor();
-    REQUIRE(pooled_executor.view()
-                .graph()
-                .compound_scalar_storage()
-                .available());
 }
 
 TEST_CASE("compiled child graphs inherit pooled realization without owning state")
@@ -211,7 +184,7 @@ TEST_CASE("compiled child graphs inherit pooled realization without owning state
                 ->pooled_compound_storage_enabled());
     REQUIRE(compiled.graph_builder.nested_type()
                 .checked_plan()
-                .find_component("compound_scalar_storage") != nullptr);
+                .find_component("compound_scalar_storage") == nullptr);
     REQUIRE(type_realization_options(compiled.graph_builder.global_state())
                 .polymorphic_compound_storage ==
             PolymorphicCompoundStoragePolicy::Inline);

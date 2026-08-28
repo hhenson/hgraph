@@ -13,7 +13,6 @@
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/visitor.h>
 
@@ -656,9 +655,7 @@ int main()
         small_builder.set("id", Value{Int{41}});
         const Value small_value = small_builder.build();
 
-        CompoundScalarStorage pools = CompoundScalarStorage::make_default();
         TypeRealizationScope realization_scope{realization.get()};
-        pools.bind(realization->pool_binding());
         Value::storage_type external_source{*external.record()};
         Value::storage_type pooled_source{*pooled.record()};
         external.ops_ref().copy_assign_from(external, external_source.data(), small_value.binding(),

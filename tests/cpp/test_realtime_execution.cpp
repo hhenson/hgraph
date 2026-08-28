@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -1146,7 +1147,7 @@ TEST_CASE("real-time push source applies queued collection deltas in order")
     CHECK_FALSE(second.contains(Value{Str{"b"}}.view()));
 }
 
-TEST_CASE("real-time push source moves external polymorphic keys into graph pools")
+TEST_CASE("real-time push source moves external polymorphic keys into the shared arena")
 {
     using namespace hgraph;
 
@@ -1220,9 +1221,9 @@ TEST_CASE("real-time push source moves external polymorphic keys into graph pool
         sender.send_blocking(update_delta);
         runner.join();
 
-        const auto pools = view.graph().compound_scalar_storage().inspect();
-        REQUIRE(pools.leaf_pool_count >= 2);
-        REQUIRE(pools.live_slot_count > 0);
+        const auto pools = shared_value_pool_metrics();
+        REQUIRE(pools.size_classes >= 2);
+        REQUIRE(pools.live_values > 0);
     }
 
     REQUIRE(observed_values.size() == 2);

@@ -30,7 +30,6 @@
 #include <hgraph/types/type_resolution.h>
 #include <hgraph/types/utils/stable_slot_store.h>
 #include <hgraph/types/value/any_ops.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value.h>
@@ -323,12 +322,10 @@ int main()
     static_assert(NODE_OPS_ABI_VERSION == 5);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 7);
+    static_assert(GRAPH_OPS_ABI_VERSION == 8);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
     // ABI 12: keyed and window TSData projections return binding and memory together.
     static_assert(TS_DATA_OPS_ABI_VERSION == 12);
-    static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
-    static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
@@ -344,15 +341,6 @@ int main()
     // The erased frame-store contract moved to hgraph-persistence
     // (RFC 0025 checkpoint 4); its installed consumer covers it.
 
-    CompoundScalarStorage compound_storage = CompoundScalarStorage::make_default();
-    const auto            compound_view = compound_storage.view();
-    const auto            compound_inspection = compound_view.inspect();
-    if (!compound_view.available() || compound_inspection.leaf_pool_count != 0 ||
-        compound_inspection.live_slot_count != 0 || compound_inspection.slot_capacity != 0)
-    {
-        throw std::runtime_error("installed compound-scalar storage contract is unusable");
-    }
-
     PolymorphicValueType empty_polymorphic_type;
     if (empty_polymorphic_type.binding())
     {
@@ -367,10 +355,12 @@ int main()
     }
     GraphBuilder pooled_graph;
     set_pooled_compound_scalar_storage(pooled_graph.global_state());
-    if (pooled_graph.root_type().checked_plan().find_component("compound_scalar_storage") ==
-        nullptr)
+    if (!pooled_graph.type_realization()->pooled_compound_storage_enabled() ||
+        pooled_graph.root_type().checked_plan().find_component("compound_scalar_storage") !=
+            nullptr)
     {
-        throw std::runtime_error("installed pooled graph configuration was not realized");
+        throw std::runtime_error(
+            "installed pooled graph configuration retained root-owned storage");
     }
 
     StableSlotStore<StableSlotStateModel::ConstructedAndLive> stable_slots{

@@ -1,7 +1,7 @@
 #include "pooled_polymorphic_value_type.h"
 
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/container_ops.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/scope.h>
@@ -25,10 +25,11 @@ const PolymorphicValueTypeOps &nop_ops() noexcept {
   return ops;
 }
 
-/** Pointer-sized graph-local closed union backed by root-graph pools. */
+using SharedValueAllocation = value_impl::SharedValueAllocation;
+
+/** Pointer-sized closed union backed by the process-wide shared-value arena. */
 struct PooledUnionEntry {
   const ValueTypeMetaData *declared{nullptr};
-  const CompoundScalarStorageBinding *pool_binding{nullptr};
   std::vector<ValueTypeRef> alternatives{};
   std::unordered_map<const TypeRecord *, ValueTypeRef> alternatives_by_record{};
   std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>
@@ -42,15 +43,13 @@ struct PooledUnionEntry {
   ValueTypeRef binding{};
 
   PooledUnionEntry(const ValueTypeMetaData *schema,
-                   const CompoundScalarStorageBinding *pool,
                    std::vector<ValueTypeRef> realized_alternatives
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                    ,
                    detail::PolymorphicPythonSourceResolver source_resolver
 #endif
                    )
-      : declared(schema), pool_binding(pool),
-        alternatives(std::move(realized_alternatives))
+      : declared(schema), alternatives(std::move(realized_alternatives))
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         ,
         python_source(source_resolver)
@@ -133,19 +132,30 @@ struct PooledUnionEntry {
     return *static_cast<const PooledUnionEntry *>(context);
   }
 
-  [[nodiscard]] static void *stored_payload(const void *memory) noexcept {
-    return memory != nullptr ? *static_cast<void *const *>(memory) : nullptr;
+  [[nodiscard]] static SharedValueAllocation *
+  stored_allocation(const void *memory) noexcept {
+    return memory != nullptr
+               ? *static_cast<SharedValueAllocation *const *>(memory)
+               : nullptr;
   }
 
-  static void set_stored_payload(void *memory, void *payload) noexcept {
-    *static_cast<void **>(memory) = payload;
+  static void set_stored_allocation(
+      void *memory, SharedValueAllocation *allocation) noexcept {
+    *static_cast<SharedValueAllocation **>(memory) = allocation;
+  }
+
+  [[nodiscard]] static const void *
+  payload(const SharedValueAllocation *allocation) noexcept {
+    return allocation != nullptr
+               ? value_impl::shared_value_memory(*allocation)
+               : nullptr;
   }
 
   [[nodiscard]] ValueTypeRef active_type(const void *memory) const noexcept {
-    const auto payload = stored_payload(memory);
-    if (payload == nullptr)
+    const auto *allocation = stored_allocation(memory);
+    if (allocation == nullptr)
       return {};
-    const auto leaf = pooled_compound_scalar_leaf_type(payload);
+    const auto leaf = value_impl::shared_value_type(*allocation);
     const auto found = alternatives_by_record.find(leaf.record());
     return found != alternatives_by_record.end() ? found->second
                                                  : ValueTypeRef{};
@@ -158,53 +168,89 @@ struct PooledUnionEntry {
                                                  : ValueTypeRef{};
   }
 
-  /** The pool of the root graph bound to this realization (RFC 0029). */
-  [[nodiscard]] CompoundScalarStorageView storage() const {
-    if (pool_binding == nullptr) {
+  template <typename Construct>
+  [[nodiscard]] static SharedValueAllocation *
+  construct_allocation(ValueTypeRef target, Construct &&construct) {
+    auto *allocation = value_impl::acquire_shared_value(target);
+    bool payload_constructed = false;
+    auto cleanup = make_scope_exit([&]() noexcept {
+      if (payload_constructed) {
+        target.destroy_at(
+            value_impl::mutable_unpublished_shared_value_memory(*allocation));
+      }
+      value_impl::abandon_shared_value(allocation);
+    });
+    void *memory =
+        value_impl::mutable_unpublished_shared_value_memory(*allocation);
+    target.default_construct_at(memory);
+    payload_constructed = true;
+    std::forward<Construct>(construct)(memory);
+    value_impl::publish_shared_value(allocation);
+    cleanup.release();
+    return allocation;
+  }
+
+  [[nodiscard]] static SharedValueAllocation *
+  make_default(ValueTypeRef target) {
+    return construct_allocation(target, [](void *) {});
+  }
+
+  [[nodiscard]] static SharedValueAllocation *
+  make_copy(ValueTypeRef target, ValueTypeRef source,
+            const void *source_memory) {
+    return construct_allocation(target, [&](void *memory) {
+      target.ops_ref().copy_assign_from(target, memory, source, source_memory);
+    });
+  }
+
+  [[nodiscard]] static SharedValueAllocation *
+  make_move(ValueTypeRef target, ValueTypeRef source, void *source_memory) {
+    return construct_allocation(target, [&](void *memory) {
+      target.ops_ref().move_assign_from(target, memory, source, source_memory);
+    });
+  }
+
+  [[nodiscard]] SharedValueAllocation *
+  retain_or_copy(SharedValueAllocation *allocation) const {
+    if (allocation == nullptr) {
       throw std::logic_error(
-          "pooled closed Bundle was realized without a pool binding");
+          "pooled closed Bundle source has an invalid active type");
     }
-    return pool_binding->storage();
+    if (value_impl::try_retain_shareable_shared_value(allocation)) {
+      return allocation;
+    }
+    const auto type = value_impl::shared_value_type(*allocation);
+    const auto target = alternative_for_schema(type.schema());
+    if (!target) {
+      throw std::invalid_argument(
+          "pooled closed Bundle source is outside this graph snapshot");
+    }
+    return make_copy(target, type, payload(allocation));
   }
 
-  [[nodiscard]] void *make_copy(ValueTypeRef target, ValueTypeRef source,
-                                const void *source_memory) const {
-    return storage().copy_value(target, source, source_memory);
-  }
-
-  [[nodiscard]] void *make_move(ValueTypeRef target, ValueTypeRef source,
-                                void *source_memory) const {
-    return storage().move_value(target, source, source_memory);
-  }
-
-  static void replace_payload(void *memory, void *replacement) noexcept {
-    void *previous = stored_payload(memory);
-    set_stored_payload(memory, replacement);
-    release_pooled_compound_scalar(previous);
+  static void replace_allocation(
+      void *memory, SharedValueAllocation *replacement) noexcept {
+    auto *previous = stored_allocation(memory);
+    set_stored_allocation(memory, replacement);
+    value_impl::release_shared_value(previous);
   }
 
   static void default_construct(void *memory, const void *context) {
     const auto &self = entry(context);
-    set_stored_payload(memory, nullptr);
-    set_stored_payload(memory,
-                       self.storage().default_value(self.default_type));
+    set_stored_allocation(memory, nullptr);
+    set_stored_allocation(memory, make_default(self.default_type));
   }
 
   static void destroy(void *memory, const void *) noexcept {
-    void *payload = stored_payload(memory);
-    set_stored_payload(memory, nullptr);
-    release_pooled_compound_scalar(payload);
+    auto *allocation = stored_allocation(memory);
+    set_stored_allocation(memory, nullptr);
+    value_impl::release_shared_value(allocation);
   }
 
   static void copy_construct(void *dst, const void *src, const void *context) {
-    const auto payload = stored_payload(src);
-    if (payload == nullptr) {
-      throw std::logic_error(
-          "pooled closed Bundle source has an invalid active type");
-    }
-    set_stored_payload(dst, nullptr);
-    set_stored_payload(dst, retain_or_copy_pooled_compound_scalar(
-                                entry(context).storage(), payload));
+    auto *allocation = stored_allocation(src);
+    set_stored_allocation(dst, nullptr);
+    set_stored_allocation(dst, entry(context).retain_or_copy(allocation));
   }
 
   static void move_construct(void *dst, void *src, const void *context) {
@@ -214,13 +260,8 @@ struct PooledUnionEntry {
   }
 
   static void copy_assign(void *dst, const void *src, const void *context) {
-    const auto payload = stored_payload(src);
-    if (payload == nullptr) {
-      throw std::logic_error(
-          "pooled closed Bundle source has an invalid active type");
-    }
-    replace_payload(dst, retain_or_copy_pooled_compound_scalar(
-                             entry(context).storage(), payload));
+    replace_allocation(
+        dst, entry(context).retain_or_copy(stored_allocation(src)));
   }
 
   static void move_assign(void *dst, void *src, const void *context) {
@@ -231,7 +272,7 @@ struct PooledUnionEntry {
   [[nodiscard]] std::pair<ValueTypeRef, const void *>
   copy_source(ValueTypeRef source, const void *src) const {
     if (source == binding)
-      return {active_type(src), stored_payload(src)};
+      return {active_type(src), payload(stored_allocation(src))};
     if (source.schema() == declared) {
       const auto concrete = source.ops_ref().concrete_type(source, src);
       return {concrete, source.ops_ref().concrete_memory(src)};
@@ -242,7 +283,8 @@ struct PooledUnionEntry {
   [[nodiscard]] std::pair<ValueTypeRef, void *> move_source(ValueTypeRef source,
                                                             void *src) const {
     if (source == binding)
-      return {active_type(src), stored_payload(src)};
+      return {active_type(src),
+              const_cast<void *>(payload(stored_allocation(src)))};
     if (source.schema() == declared) {
       const auto concrete = source.ops_ref().concrete_type(source, src);
       return {concrete, source.ops_ref().writable_concrete_memory(src)};
@@ -271,7 +313,7 @@ struct PooledUnionEntry {
       throw std::invalid_argument(
           "pooled closed Bundle source is outside this graph snapshot");
     }
-    replace_payload(dst, self.make_copy(target, actual_type, actual_memory));
+    replace_allocation(dst, make_copy(target, actual_type, actual_memory));
   }
 
   static void move_assign_from(const void *context, ValueTypeRef, void *dst,
@@ -287,7 +329,7 @@ struct PooledUnionEntry {
       throw std::invalid_argument(
           "pooled closed Bundle source is outside this graph snapshot");
     }
-    replace_payload(dst, self.make_move(target, actual_type, actual_memory));
+    replace_allocation(dst, make_move(target, actual_type, actual_memory));
   }
 
   static ValueTypeRef concrete_type(const void *context, ValueTypeRef,
@@ -297,22 +339,37 @@ struct PooledUnionEntry {
 
   static const void *concrete_memory(const void *,
                                      const void *memory) noexcept {
-    return stored_payload(memory);
+    return payload(stored_allocation(memory));
   }
 
   static void *mutable_concrete_memory(const void *, void *memory) noexcept {
-    return stored_payload(memory);
+    return const_cast<void *>(payload(stored_allocation(memory)));
   }
 
-  static void *writable_concrete_memory(const void *, void *memory) {
-    void *payload = writable_pooled_compound_scalar(stored_payload(memory));
-    set_stored_payload(memory, payload);
-    return payload;
+  static void *writable_concrete_memory(const void *context, void *memory) {
+    const auto &self = entry(context);
+    auto *allocation = stored_allocation(memory);
+    if (value_impl::make_shared_value_unshareable(allocation)) {
+      return value_impl::unshareable_shared_value_memory(*allocation);
+    }
+    const auto active = self.active_type(memory);
+    if (!active || allocation == nullptr) {
+      throw std::logic_error(
+          "pooled closed Bundle has an invalid active type");
+    }
+    auto *replacement = make_copy(active, active, payload(allocation));
+    if (!value_impl::make_shared_value_unshareable(replacement)) {
+      value_impl::release_shared_value(replacement);
+      throw std::logic_error(
+          "new pooled closed Bundle allocation is not uniquely owned");
+    }
+    replace_allocation(memory, replacement);
+    return value_impl::unshareable_shared_value_memory(*replacement);
   }
 
   [[nodiscard]] static DynamicStorageMetrics
   dynamic_storage_metrics(const void *, const void *) noexcept {
-    // The root graph reports the pool once, not once per holder.
+    // The process-wide shared-value arena reports storage once globally.
     return {};
   }
 
@@ -343,7 +400,7 @@ struct PooledUnionEntry {
     if (!active) {
       throw std::logic_error("pooled closed Bundle has an invalid active type");
     }
-    return active.ops_ref().hash(stored_payload(memory));
+    return active.ops_ref().hash(payload(stored_allocation(memory)));
   }
 
   static bool equals(const void *context, const void *lhs,
@@ -353,8 +410,8 @@ struct PooledUnionEntry {
       const auto lhs_type = self.active_type(lhs);
       const auto rhs_type = self.active_type(rhs);
       return lhs_type && lhs_type == rhs_type &&
-             lhs_type.ops_ref().equals(stored_payload(lhs),
-                                       stored_payload(rhs));
+             lhs_type.ops_ref().equals(payload(stored_allocation(lhs)),
+                                       payload(stored_allocation(rhs)));
     });
   }
 
@@ -367,8 +424,8 @@ struct PooledUnionEntry {
       if (!lhs_type || lhs_type != rhs_type) {
         return std::partial_ordering::unordered;
       }
-      return lhs_type.ops_ref().compare(stored_payload(lhs),
-                                        stored_payload(rhs));
+      return lhs_type.ops_ref().compare(payload(stored_allocation(lhs)),
+                                        payload(stored_allocation(rhs)));
     });
   }
 
@@ -378,7 +435,7 @@ struct PooledUnionEntry {
     if (!active)
       return "<invalid pooled closed Bundle>";
     return std::string{active.schema()->name()} +
-           active.ops_ref().to_string(stored_payload(memory));
+           active.ops_ref().to_string(payload(stored_allocation(memory)));
   }
 
   static std::size_t indexed_size(const void *context,
@@ -387,7 +444,8 @@ struct PooledUnionEntry {
     const auto *actual_ops = try_active_ops(self, memory);
     return actual_ops != nullptr && actual_ops->size != nullptr
                ? actual_ops->size(actual_ops->context,
-                                  memory != nullptr ? stored_payload(memory)
+                                  memory != nullptr
+                                      ? payload(stored_allocation(memory))
                                                     : nullptr)
                : 0;
   }
@@ -395,8 +453,8 @@ struct PooledUnionEntry {
   static const void *element_at(const void *context, const void *memory,
                                 std::size_t index) {
     const auto &actual_ops = active_ops(entry(context), memory);
-    return actual_ops.element_at(actual_ops.context, stored_payload(memory),
-                                 index);
+    return actual_ops.element_at(
+        actual_ops.context, payload(stored_allocation(memory)), index);
   }
 
   static ValueTypeRef element_binding(const void *context, const void *memory,
@@ -406,7 +464,9 @@ struct PooledUnionEntry {
     return actual_ops != nullptr && actual_ops->element_binding != nullptr
                ? actual_ops->element_binding(
                      actual_ops->context,
-                     memory != nullptr ? stored_payload(memory) : nullptr,
+                     memory != nullptr
+                         ? payload(stored_allocation(memory))
+                         : nullptr,
                      index)
                : ValueTypeRef{};
   }
@@ -465,7 +525,7 @@ struct PooledUnionEntry {
     if (!active) {
       throw std::logic_error("pooled closed Bundle has an invalid active type");
     }
-    return active.ops_ref().to_python(stored_payload(memory));
+    return active.ops_ref().to_python(payload(stored_allocation(memory)));
   }
 
   static void from_python(const void *context, const ValueTypeRef &,
@@ -478,12 +538,10 @@ struct PooledUnionEntry {
       throw std::invalid_argument(
           "Python value is outside this graph's pooled Bundle snapshot");
     }
-    void *replacement = self.storage().default_value(target);
-    auto release = make_scope_exit(
-        [&]() noexcept { release_pooled_compound_scalar(replacement); });
-    target.ops_ref().from_python(target, replacement, source);
-    replace_payload(memory, replacement);
-    release.release();
+    auto *replacement = construct_allocation(target, [&](void *payload) {
+      target.ops_ref().from_python(target, payload, source);
+    });
+    replace_allocation(memory, replacement);
   }
 #endif
 };
@@ -541,15 +599,13 @@ void PolymorphicValueType::reset() noexcept {
 namespace detail {
 PolymorphicValueType
 make_pooled_polymorphic_value_type(const ValueTypeMetaData *schema,
-                                   const CompoundScalarStorageBinding *pool_binding,
                                    std::vector<ValueTypeRef> alternatives
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                                    ,
                                    PolymorphicPythonSourceResolver python_source
 #endif
 ) {
-  auto *entry = new PooledUnionEntry{schema, pool_binding,
-                                     std::move(alternatives)
+  auto *entry = new PooledUnionEntry{schema, std::move(alternatives)
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                                                  ,
                                      python_source

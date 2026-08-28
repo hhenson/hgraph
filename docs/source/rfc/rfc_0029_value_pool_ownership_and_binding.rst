@@ -1,14 +1,22 @@
 RFC 0029: Value Pool Ownership and Binding
 ==========================================
 
-:Status: Accepted (graph binding implemented; synchronised node pools deferred)
+:Status: Superseded by RFC 0028's shared-arena polymorphic storage
 :Author: Howard Henson
 :Created: 2026-08-25
-:Updated: 2026-08-26
+:Updated: 2026-08-28
 :Target: mutable polymorphic value storage, type realization, graph runtime
 
 Summary
 -------
+
+.. note::
+
+   This RFC records the former graph-owned implementation. RFC 0028 now
+   allocates eligible polymorphic values from the process-wide shared-value
+   arena with atomic retain/release and COW mutation. The root graph owner,
+   nested borrowed view, realization binding, and exclusive one-live-root
+   admission rule described below have been removed.
 
 Make the graph-confined mutable polymorphic value pool an **explicitly owned
 and explicitly bound** object.
@@ -497,14 +505,11 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-The graph-bound baseline is implemented.  ``CompoundScalarStorageBinding``
-owns the three-state atomic admission/publication protocol; a root graph binds
-its storage during construction and the owner unbinds on destruction or
-unwind.  Pooled ops reach the storage through their realization context, and
-the former thread-local scope channel is absent.
-
-The proposed node-local ``Synchronised`` policy and batched return path are not
-implemented.  RFC 0028 no longer requires them.
+The graph-bound baseline was implemented and later removed. RFC 0028's global
+arena now owns the slots; polymorphic operations reach it directly, atomically
+retain shareable allocations, and make writable allocations permanently
+unshareable. The proposed node-local ``Synchronised`` policy and batched return
+path were never implemented and are no longer required.
 
 References
 ----------
