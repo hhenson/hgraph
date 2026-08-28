@@ -1772,6 +1772,17 @@ namespace hgraph
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
             if (time_series_schema_equivalent(input, output)) { return true; }
+            if (input_schema->kind == TSTypeKind::TSD &&
+                output_schema->kind == TSTypeKind::TSD &&
+                input_schema->key_type() == output_schema->key_type())
+            {
+                const auto *input_element = input_schema->element_ts();
+                const auto *output_element = output_schema->element_ts();
+                return input_element != nullptr && output_element != nullptr &&
+                       input_element->kind == TSTypeKind::TS &&
+                       output_element->kind == TSTypeKind::TS &&
+                       input_accepts_output_schema(input_element, output_element);
+            }
             if (input == nullptr || output == nullptr || input->kind != TSTypeKind::TS ||
                 output->kind != TSTypeKind::TS)
             {

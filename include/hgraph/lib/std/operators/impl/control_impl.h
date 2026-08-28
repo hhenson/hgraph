@@ -240,7 +240,12 @@ namespace hgraph::stdlib
             if (ts.empty()) { throw std::invalid_argument("merge requires at least one input"); }
             auto &registry = TypeRegistry::instance();
             const auto *element = registry.dereference(ts[0].schema);
-            std::vector<WiringPortRef> children{ts.begin(), ts.end()};
+            std::vector<WiringPortRef> children;
+            children.reserve(ts.size());
+            for (const WiringPortRef &child : ts)
+            {
+                children.push_back(graph_wiring_detail::adapt_source_for_input(w, element, child));
+            }
             WiringPortRef packed =
                 WiringPortRef::structural_source(registry.tsl(element, ts.size()), std::move(children));
             std::array<WiringArg, 1> args{};

@@ -996,7 +996,16 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
       output->value_schema != nullptr &&
       TypeRegistry::instance().value_is_a(output->value_schema,
                                           input->value_schema);
-  if (nominal_upcast && !time_series_schema_equivalent(input, output)) {
+  const bool keyed_nominal_upcast =
+      input_schema->kind == TSTypeKind::TSD && source.schema != nullptr &&
+      source.schema->kind == TSTypeKind::TSD &&
+      input_schema->key_type() == source.schema->key_type() &&
+      input_schema->element_ts()->kind == TSTypeKind::TS &&
+      source.schema->element_ts()->kind == TSTypeKind::TS &&
+      input_accepts_output_schema(input_schema->element_ts(),
+                                  source.schema->element_ts());
+  if ((nominal_upcast || keyed_nominal_upcast) &&
+      !time_series_schema_equivalent(input, output)) {
     WiringArg arg;
     arg.kind = WiringArg::Kind::TimeSeries;
     arg.port = std::move(source);
