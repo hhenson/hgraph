@@ -678,6 +678,27 @@ def test_indirect_recursive_closed_hierarchy_realizes_from_leaf():
     assert eval_node(symbol, [future]) == ["FUT"]
 
 
+def test_owned_ancestry_field_binds_to_its_declared_python_type():
+    @dataclass(frozen=True)
+    class ContractSeries:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class DerivedSeries(ContractSeries):
+        underlying: ContractSeries
+
+    @compute_node
+    def read_symbol(series: TS[ContractSeries]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(series: TS[DerivedSeries]) -> TS[str]:
+        return read_symbol(series.underlying)
+
+    underlying = ContractSeries("MONTHLY")
+    assert eval_node(app, [DerivedSeries("BOM", underlying)]) == ["MONTHLY"]
+
+
 def test_time_series_schema_can_be_lifted_from_python_owned_dataclass():
     @dataclass(frozen=True)
     class Quote:
