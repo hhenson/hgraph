@@ -2,7 +2,6 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_builder.h>
@@ -298,8 +297,6 @@ TEST_CASE("list builders dispatch target transfer through the external owning bi
     const auto realization = TypeRealizationSnapshot::capture(
         TypeRegistry::instance(), options);
     TypeRealizationScope realization_scope{realization.get()};
-    CompoundScalarStorage pools = CompoundScalarStorage::make_default();
-    pools.bind(realization->pool_binding());
 
     auto       &registry = TypeRegistry::instance();
     const auto *list_schema = registry.list(schemas.event);

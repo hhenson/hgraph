@@ -8,7 +8,6 @@
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
 #include <hgraph/types/time_series/ts_input/target_link_structural_state.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -2263,9 +2262,7 @@ TEST_CASE("forwarding TSData projections preserve target bindings across realiza
     const auto pooled_realization = TypeRealizationSnapshot::capture(registry, pooled_options);
     REQUIRE(inline_realization->type_for(base) != pooled_realization->graph_type_for(base));
 
-    CompoundScalarStorage pools = CompoundScalarStorage::make_default();
     TypeRealizationScope pooled_scope{pooled_realization.get()};
-    pools.bind(pooled_realization->pool_binding());
 
     Value concrete{ValuePlanFactory::instance().type_for(leaf)};
     auto concrete_fields = concrete.as_bundle().begin_mutation();

@@ -16,6 +16,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/specialized_views.h>
 
@@ -543,14 +544,11 @@ TEST_CASE("wide polymorphic values preserve public graph behaviour across keyed 
         auto view = executor.view();
         view.run();
 
-        const auto pools = view.graph().compound_scalar_storage().inspect();
-        REQUIRE(pools.leaf_pool_count >= 2);
-        REQUIRE(pools.live_slot_count > 0);
-        REQUIRE(pools.slot_capacity >= pools.live_slot_count);
-        const auto metrics =
-            view.graph().compound_scalar_storage().metrics();
-        REQUIRE(metrics.live_bytes > 0);
-        REQUIRE(metrics.reserved_bytes >= metrics.live_bytes);
+        const auto metrics = shared_value_pool_metrics();
+        REQUIRE(metrics.size_classes >= 2);
+        REQUIRE(metrics.live_values > 0);
+        REQUIRE(metrics.capacity >= metrics.live_values);
+        REQUIRE(metrics.reserved_bytes > 0);
 
         const auto state = view.graph().global_state();
         recorded_scalar =

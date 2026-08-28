@@ -3,7 +3,6 @@
 
 #include <hgraph/config.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
-#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/polymorphic_value_type.h>
 
 #include <vector>
@@ -24,7 +23,6 @@ struct PolymorphicPythonSourceResolver {
 
 [[nodiscard]] PolymorphicValueType
 make_pooled_polymorphic_value_type(const ValueTypeMetaData *schema,
-                                   const CompoundScalarStorageBinding *pool_binding,
                                    std::vector<ValueTypeRef> alternatives
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                                    ,

@@ -1,20 +1,19 @@
 RFC 0013: Per-Leaf Pools for Polymorphic Compound Scalars
 =========================================================
 
-:Status: Accepted
+:Status: Superseded in storage ownership by RFC 0028
 :Author: Howard Henson
 :Created: 2026-08-03
 :Target: C++ value storage, graph runtime, and Python compatibility
 
 .. note::
 
-   The **storage-selection mechanism** described here — a thread-local
-   compound-storage scope established around graph lifecycle and evaluation —
-   is superseded by :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>`,
-   which binds a pool through the realized ops context and the builder instead.
-   Everything else in this RFC — per-leaf pools, stable slots, the
-   ``LeafSlotHeader``, non-atomic counts, and the accounting rule — stands
-   unchanged and is depended upon there.
+   The one-pointer selection policy and COW value behavior remain current, but
+   the storage implementation is superseded by :doc:`RFC 0028
+   <rfc_0028_shared_value_representation>`. Eligible polymorphic values now use
+   the process-wide shared-value arena with atomic strong state. The graph-local
+   per-leaf registry, ``LeafSlotHeader``, non-atomic counts, root owner, and
+   nested borrowed view described below are historical.
 
 Summary
 -------

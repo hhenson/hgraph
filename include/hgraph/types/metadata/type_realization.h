@@ -11,7 +11,6 @@
 
 namespace hgraph
 {
-    class CompoundScalarStorageBinding;
     class GlobalStateView;
     class TypeRegistry;
 
@@ -75,13 +74,6 @@ namespace hgraph
 
         [[nodiscard]] std::uint64_t generation() const noexcept;
         [[nodiscard]] TypeRealizationOptions options() const noexcept;
-        /**
-         * The cell through which this realization's pooled value types reach
-         * their pool.  A root graph's pool owner binds itself here for its
-         * lifetime; the binding is exclusive, so a realization serves at most
-         * one live root graph (RFC 0029).
-         */
-        [[nodiscard]] CompoundScalarStorageBinding &pool_binding() const noexcept;
         [[nodiscard]] bool pooled_compound_storage_enabled() const noexcept;
         [[nodiscard]] bool is_polymorphic(const ValueTypeMetaData *schema) const noexcept;
         [[nodiscard]] std::vector<const ValueTypeMetaData *>

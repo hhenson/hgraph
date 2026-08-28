@@ -153,8 +153,8 @@ storage plan is exactly one owner pointer, independent of ``T``. ``None`` or
 an unset field leaves that pointer null. Mutable access, Python conversion, or
 JSON decoding allocates the pointee on demand; copy operations deep-copy it.
 The allocated block retains the pointee's ``TypeRecord`` before its aligned
-payload, so a graph-scoped polymorphic pointee is destroyed correctly even
-after the thread-local realization scope has ended.
+payload, so a realized polymorphic pointee is destroyed correctly even after
+the thread-local realization scope has ended.
 
 C++ code can request an owner with ``TypeRegistry::owned(target)``. A
 self-recursive nominal schema is declared atomically with

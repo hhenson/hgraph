@@ -1411,8 +1411,9 @@ Opt-in polymorphic compound-scalar pooling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Polymorphic compound scalars use the existing inline closed-union layout by
-default.  A graph which replicates many keys or values from a wide hierarchy
-can opt into per-leaf stable pools through its wiring-time ``GlobalState``:
+default. A graph which replicates many keys or values from a wide hierarchy can
+opt into one-pointer storage in the process-wide shared-value arena through its
+wiring-time ``GlobalState``:
 
 .. code-block:: cpp
 
@@ -1427,8 +1428,9 @@ The context must remain active until wiring finishes so scalar and time-series
 bindings, the immutable realisation snapshot, and the erased graph layout all
 capture the same policy.  Disable it explicitly with
 ``set_pooled_compound_scalar_storage(state.view(), false)``.  A disabled graph
-has no pool owner/view field in its planned storage and pays no pool lifecycle
-or per-tick scope cost.
+keeps inline unions. An enabled graph also has no pool owner/view field in its
+planned storage: arena ownership is process-wide, and graph construction and
+evaluation perform no pool binding or per-tick scope work.
 
 The Python surface selects the same C++ policy:
 
@@ -1439,8 +1441,10 @@ The Python surface selects the same C++ policy:
        set_pooled_compound_scalar_storage()
        run_graph(my_graph)
 
-Off-thread push values remain self-contained and move into graph-local pools
-only after reaching the graph evaluation thread.
+Off-thread push values remain self-contained until converted to the selected
+realized binding. Once converted, compatible graph and thread boundaries can
+retain the same arena allocation atomically. Writable projections remain
+copy-on-write and cannot acquire later aliases.
 
 
 What's planned

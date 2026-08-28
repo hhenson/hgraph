@@ -1,24 +1,26 @@
 RFC 0028: Shared Value Representation
 =====================================
 
-:Status: Accepted (core, Kafka, and web migrations complete)
+:Status: Accepted (core, polymorphic storage, Kafka, and web migrations complete)
 :Author: Howard Henson
 :Created: 2026-08-24
-:Updated: 2026-08-27
-:Target: C++ value storage, cross-thread retention, adaptor ingress paths
+:Updated: 2026-08-28
+:Target: C++ value storage, polymorphic realization, cross-thread retention, adaptor ingress paths
 
 Summary
 -------
 
-Add ``Shared<T>``, an immutable one-pointer value representation backed by a
-process-wide stable-slot arena.  Copying a handle atomically retains the slot,
-moving steals the pointer, and destruction atomically releases it.  The final
-release destroys the payload and returns its slot to an ABA-safe lock-free free
-list.
+Add a process-wide stable-slot arena for one-pointer shared values. ``Shared<T>``
+uses it as an immutable representation: copying a handle atomically retains the
+slot, moving steals the pointer, and destruction atomically releases it. The
+eligible pointer-sized polymorphic representation uses the same arena with
+copy-on-write mutation. The final release destroys either payload and returns
+its slot to an ABA-safe lock-free free list.
 
 The design has two deliberately separate reference systems:
 
-* a **strong value count**, which represents live ``Shared<T>`` handles; and
+* a **strong value state**, whose low bits count live handles and whose high
+  bit permanently marks a writable polymorphic allocation unshareable; and
 * an **allocator reference count**, used only by the free-list algorithm while
   a thread may still inspect a free node's next pointer.
 
@@ -29,11 +31,11 @@ still names it.  ABA protection remains necessary inside the allocator because
 a free-list reader is not a value owner; it is supplied by the independent
 allocator reference count.
 
-The arena is global to the hgraph runtime rather than to a graph.  A shared
+The arena is global to the hgraph runtime rather than to a graph. A shared
 value can therefore cross graph, executor, and producer-thread boundaries
 without rebinding, and a stable allocation can be reused by any compatible
-structured value.  This is intentionally different from the graph-bound,
-mutable polymorphic pool in :doc:`RFC 0029
+structured value. The arena now also replaces the graph-bound mutable
+polymorphic pool from :doc:`RFC 0029
 <rfc_0029_value_pool_ownership_and_binding>`.
 
 Motivation
@@ -50,11 +52,17 @@ from ``O(payload)`` to ``O(1)``.  One materialisation is still required when a
 plain value first becomes shared.  Subsequent holders name the same immutable
 payload.
 
-The original proposal put these allocations in a graph-owned pool with a
+The original ``Shared<T>`` proposal put these allocations in a graph-owned pool with a
 non-atomic count.  That made a handle unusable in a push sender and coupled its
 lifetime to one realization binding.  It also prevented independently running
 graphs from exchanging or retaining the same value.  The process-wide arena
 removes that coupling.
+
+The same coupling remained in the opt-in polymorphic representation: each root
+graph planned a pool owner, nested graphs cached a borrowed view, and a shared
+realization admitted only one live root graph. Reusing the atomic arena removes
+that graph storage and admission limit while retaining its one-pointer layout
+and COW mutation behavior.
 
 Public type contract
 --------------------
@@ -126,6 +134,36 @@ Immutability is enforced by the ops table, not by convention:
 Assignment replaces a handle and is still legal.  It is a lifecycle operation,
 not a mutation of the published payload.
 
+Polymorphic copy-on-write lifecycle
+-----------------------------------
+
+Eligible polymorphic closed unions retain their existing public behavior while
+using the same allocation header. Their holder is one
+``SharedValueAllocation *`` whose recorded ``TypeRecord`` identifies the active
+concrete leaf.
+
+Ordinary copies atomically retain a shareable allocation. A writable concrete
+or field projection must preserve the existing retained-view contract, so it
+first obtains exclusive storage:
+
+* a uniquely owned allocation atomically changes from strong state ``1`` to
+  ``unshareable | 1``;
+* a multiply owned allocation is copied into a new slot, which is then marked
+  unshareable; and
+* copying an unshareable allocation deep-copies it instead of retaining it.
+
+The unshareable bit is permanent for that allocation because the runtime does
+not track the lifetime of borrowed writable views. Consequently no later copy
+can alias storage after a writable view was published. Whole-value assignment
+still builds a replacement privately and swaps the handle before releasing the
+old value.
+
+This is an arena implementation strategy, not the public ``Shared<T>`` schema
+contract. ``Shared<T>`` never publishes mutable operations and therefore never
+marks its allocations unshareable. Polymorphic values continue to materialize
+into their external owning union when copied into a caller-owned ``Value``;
+only compatible realized holders retain the shared allocation.
+
 Global stable-slot arena
 ------------------------
 
@@ -138,7 +176,7 @@ same class.  A slot contains:
    struct SharedValueAllocation {
        atomic<uint32_t> free_list_refs;  // allocator only
        atomic<SharedValueAllocation *> free_list_next;
-       atomic<uint32_t> strong_refs;     // Shared<T> owners only
+       atomic<uint32_t> strong_refs;     // count + polymorphic unshareable bit
        SharedSizeClassPool *owner;
        const TypeRecord *record;         // active concrete payload
        // aligned payload follows
@@ -203,12 +241,15 @@ not payload publication, is being transferred.  Publishing a newly constructed
 payload is a release operation.  The final decrement is acquire-release so
 payload destruction happens after preceding owners have released it.
 
-The payload is immutable once published.  Concurrent const access is permitted
-when the target's own const operations are thread-safe.  As with an ordinary
-``Value`` crossing a producer boundary, a custom target remains responsible
-for the thread-safety of resources it embeds.  Python-owned payloads still
-obey the Python bridge's GIL and interpreter-lifetime rules; the arena does not
-turn an interpreter-owned object into an unrestricted native object.
+An allocation retained by ``Shared<T>`` is immutable once published. A
+polymorphic allocation becomes mutable only after its atomic state proves it
+has one owner and permanently prevents future retention. Concurrent const
+access is permitted when the target's own const operations are thread-safe.
+As with an ordinary ``Value`` crossing a producer boundary, a custom target
+remains responsible for the thread-safety of resources it embeds. Python-owned
+payloads still obey the Python bridge's GIL and interpreter-lifetime rules; the
+arena does not turn an interpreter-owned object into an unrestricted native
+object.
 
 Memory bound and accounting
 ---------------------------
@@ -237,10 +278,12 @@ large historical spike remains in the arena's high-water capacity; strict
 for slab retirement in addition to the free-list algorithm.  It is a possible
 future extension, not silently claimed here.
 
-Per-handle ``DynamicStorageMetrics`` reports zero for the shared payload so the
-same allocation is not counted once per holder.  ``shared_value_pool_metrics``
-is the single process-wide accounting owner and reports classes, slabs,
-capacity, live values, and reserved bytes.
+Per-handle ``DynamicStorageMetrics`` reports zero for arena payloads so the same
+allocation is not counted once per holder. ``shared_value_pool_metrics`` is
+the single process-wide accounting owner for both ``Shared<T>`` and
+polymorphic allocations and reports classes, slabs, capacity, live values, and
+reserved bytes. Graph diagnostics do not attribute process-wide slabs to an
+arbitrary root graph.
 
 Type and registry lifetime
 --------------------------
@@ -255,14 +298,17 @@ contract violation and terminates rather than becoming a dangling record.
 Relationship to RFC 0029
 ------------------------
 
-RFC 0029 continues to govern mutable, graph-confined polymorphic compound
-storage.  That representation needs an explicit realization binding because a
-mutable slot belongs to one graph and its accounting owner.
+This RFC now supersedes RFC 0029's graph-owned pool and realization binding.
+The process-wide arena supplies the same one-pointer polymorphic layout without
+putting an owner in root graph storage or a borrowed view in nested graph
+storage. A cached realization can serve any number of live root graphs, and a
+polymorphic handle may cross compatible graph and thread boundaries without
+rebinding.
 
-``Shared<T>`` does not use that pool or binding cell.  Its payload is immutable,
-its reference count is atomic, and its lifetime may span graphs, so binding it
-to a graph would be an artificial restriction.  The two facilities share the
-general stable-slot principle but not ownership, concurrency policy, or ops.
+RFC 0029 remains the historical record of the explicit-binding design and why
+ambient thread-local selection was rejected. Its ``CompoundScalarStorage``,
+``CompoundScalarStorageView``, and ``CompoundScalarStorageBinding`` contracts
+are removed.
 
 Compatibility and ABI
 ---------------------
@@ -270,6 +316,11 @@ Compatibility and ABI
 Schemas not using ``Shared<T>`` retain their existing plans and lifecycle.
 The new metadata bit is additive.  ``Shared<T>`` values serialize as ``T``;
 the wrapper is a local representation choice and does not add a wire envelope.
+
+The polymorphic opt-in and selection threshold remain source-compatible.
+Eligible graph holders are still one pointer and external serialization is
+unchanged. Removing the graph storage accessor and its ops-table entry bumps
+``GRAPH_OPS_ABI_VERSION`` to 8; native extensions must rebuild.
 
 The free-list implementation is private.  The installed public surface is the
 schema marker, registry entry point, normal ``Value`` materialisation
@@ -289,6 +340,12 @@ The core implementation includes:
 * canonical registry-reset ordering and process-wide metrics; and
 * native tests for immutability, stable reuse, cross-schema class reuse,
   concurrent retain/release, allocator contention, JSON, and Python exposure.
+
+Eligible polymorphic graph values now use the same arena. Their COW strategy
+adds the permanent unshareable state for writable projections, removes the
+root/nested graph pool fields and realization binding, and permits concurrent
+use of one cached realization. Native and Python graph behavior, push ingress,
+feedback, tables, and keyed operator tests cover the migrated representation.
 
 Kafka subscription ingress now retains its record field as
 ``Shared<KafkaRecord>`` in the private cross-thread transport envelope.  The
@@ -461,6 +518,9 @@ Acceptance criteria
 * Registry reset withdraws all shared slots before their TypeRecords.
 * Native, Python, JSON, and installed-SDK construction paths preserve target
   value semantics.
+* Eligible polymorphic holders use the arena without root graph storage or an
+  exclusive realization binding; writable projections remain COW-safe and one
+  realization serves concurrent graphs and threads.
 * Adaptor migrations report allocation count, retained bytes, and p50/p99
   latency before and after, and remain separate from the core facility change.
 
@@ -477,7 +537,7 @@ References
   <https://github.com/cameron314/concurrentqueue/blob/master/concurrentqueue.h>`_.
 * `Solving the ABA Problem for Lock-Free Free Lists
   <https://moodycamel.com/blog/2014/solving-the-aba-problem-for-lock-free-free-lists>`_.
-* :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>` — the separate
-  graph-bound mutable pool contract.
+* :doc:`RFC 0029 <rfc_0029_value_pool_ownership_and_binding>` — the superseded
+  graph-bound mutable pool contract and explicit-binding design record.
 * :doc:`RFC 0027 <rfc_0027_bounded_push_source_queues>` — the adaptor ingress
   path which motivated cheap immutable retention.

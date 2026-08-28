@@ -364,7 +364,7 @@ array, storage variant) to a concrete plan + ops pair:
      - per-entry ``IndexedValueOps``
      - ``value_plan_factory.cpp``
    * - polymorphic union (inline / pooled)
-     - tag + max payload, or one-word pooled handle
+     - tag + max payload, or one-word shared-arena COW handle
      - per-entry ``IndexedValueOps``
      - ``type_realization.cpp`` /
        ``pooled_polymorphic_value_type.cpp``

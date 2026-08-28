@@ -1691,13 +1691,6 @@ namespace hgraph
             NodeStorageMetrics result{};
             if (!graph.valid()) { return result; }
             result.static_bytes = graph.type().checked_plan().layout.size;
-            if (graph.is_root())
-            {
-                const DynamicStorageMetrics pooled =
-                    graph.compound_scalar_storage().metrics();
-                result.dynamic_live_bytes = pooled.live_bytes;
-                result.dynamic_reserved_bytes = pooled.reserved_bytes;
-            }
             return result;
         }
 

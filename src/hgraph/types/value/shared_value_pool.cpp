@@ -23,6 +23,8 @@ namespace hgraph {
 namespace value_impl {
 namespace {
 class SharedSizeClassPool;
+constexpr std::uint32_t unshareable_mask{std::uint32_t{1} << 31U};
+constexpr std::uint32_t strong_reference_count_mask{~unshareable_mask};
 }
 
 struct SharedValueAllocation {
@@ -304,28 +306,85 @@ void retain_shared_value(SharedValueAllocation *allocation) noexcept {
   if (allocation == nullptr) {
     return;
   }
-  auto refs = allocation->strong_refs.load(std::memory_order_relaxed);
-  while (refs != 0 && refs != std::numeric_limits<std::uint32_t>::max()) {
+  if (!try_retain_shareable_shared_value(allocation)) {
+    std::terminate();
+  }
+}
+
+bool try_retain_shareable_shared_value(
+    SharedValueAllocation *allocation) noexcept {
+  if (allocation == nullptr) {
+    return false;
+  }
+  auto state = allocation->strong_refs.load(std::memory_order_relaxed);
+  while ((state & unshareable_mask) == 0) {
+    const auto refs = state & strong_reference_count_mask;
+    if (refs == 0) {
+      return false;
+    }
+    if (refs == strong_reference_count_mask) {
+      std::terminate();
+    }
     if (allocation->strong_refs.compare_exchange_weak(
-            refs, refs + 1, std::memory_order_relaxed,
+            state, state + 1U, std::memory_order_relaxed,
             std::memory_order_relaxed)) {
-      return;
+      return true;
     }
   }
-  std::terminate();
+  return false;
+}
+
+bool make_shared_value_unshareable(
+    SharedValueAllocation *allocation) noexcept {
+  if (allocation == nullptr) {
+    return false;
+  }
+  auto state = allocation->strong_refs.load(std::memory_order_acquire);
+  for (;;) {
+    if (state == (unshareable_mask | 1U)) {
+      return true;
+    }
+    if (state != 1U) {
+      return false;
+    }
+    if (allocation->strong_refs.compare_exchange_weak(
+            state, unshareable_mask | 1U, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      return true;
+    }
+  }
+}
+
+void *unshareable_shared_value_memory(
+    SharedValueAllocation &allocation) noexcept {
+  if (allocation.strong_refs.load(std::memory_order_acquire) !=
+      (unshareable_mask | 1U)) {
+    std::terminate();
+  }
+  return allocation.owner->payload(allocation);
 }
 
 void release_shared_value(SharedValueAllocation *allocation) noexcept {
   if (allocation == nullptr) {
     return;
   }
-  const auto previous =
-      allocation->strong_refs.fetch_sub(1, std::memory_order_acq_rel);
-  if (previous == 0) {
-    std::terminate();
-  }
-  if (previous != 1) {
-    return;
+  auto state = allocation->strong_refs.load(std::memory_order_relaxed);
+  for (;;) {
+    const auto refs = state & strong_reference_count_mask;
+    if (refs == 0) {
+      std::terminate();
+    }
+    const auto replacement =
+        refs == 1U ? std::uint32_t{0}
+                   : (state & unshareable_mask) | (refs - 1U);
+    if (allocation->strong_refs.compare_exchange_weak(
+            state, replacement, std::memory_order_acq_rel,
+            std::memory_order_relaxed)) {
+      if (refs != 1U) {
+        return;
+      }
+      break;
+    }
   }
 
   const TypeRecord *record = allocation->record;
@@ -355,7 +414,8 @@ void *mutable_unpublished_shared_value_memory(
 
 std::uint32_t
 shared_value_use_count(const SharedValueAllocation &allocation) noexcept {
-  return allocation.strong_refs.load(std::memory_order_relaxed);
+  return allocation.strong_refs.load(std::memory_order_relaxed) &
+         strong_reference_count_mask;
 }
 
 void reset_shared_value_pool() noexcept { shared_value_arena().reset(); }

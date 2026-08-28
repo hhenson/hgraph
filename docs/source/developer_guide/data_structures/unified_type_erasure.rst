@@ -449,28 +449,24 @@ from a larger externally owned value without fabricating a non-owning
 ``Value``. Read-only views are rejected before dispatch.
 
 ``GraphValue`` stores a ``GraphPtr`` followed by an optional ``ErasedOwner``.
-Pooling is an explicit graph-level realisation policy.  An opted-in root
-graph's named storage plan contains a two-word compound-scalar owner, and its
-nested plan contains the two-word borrowed view.  Disabled plans contain
-neither field.  The owner binds itself into its realisation's pool binding for
-its own lifetime (:doc:`RFC 0029 </rfc/rfc_0029_value_pool_ownership_and_binding>`),
-so lifecycle and evaluation ops are the same functions in both cases and no
-scope is established around them.  The owner allocates its concrete per-leaf
-registry only when a pooled value is first constructed.  Ordinary root/nested graphs
-point into their owner. Slot-placed nested graphs have no owner and point into
-graph/slot memory, whose stop/delete and destructor/erase protocol remains the
-lifetime authority.  ``GraphValue`` remains five words on 64-bit builds;
-``ErasedOwner`` itself remains three words and all borrowed pointers remain two
-words.
+Pointer-sized polymorphic storage is an explicit graph-level realisation
+policy, but it adds no field to either root or nested graph plans. Eligible
+holders allocate from RFC 0028's process-wide shared-value arena, so graph
+construction, lifecycle, and evaluation perform no pool binding or scope work.
+Slot-placed nested graphs continue to point into graph/slot memory, whose
+stop/delete and destructor/erase protocol remains the lifetime authority.
+``GraphValue`` remains five words on 64-bit builds; ``ErasedOwner`` itself
+remains three words and all borrowed pointers remain two words.
 
 Representation selection is also type-erased. ``PolymorphicValueType`` is a
 two-word, move-only passive-ops owner held by the realisation snapshot; a
-pooled strategy also holds a pointer to that snapshot's pool binding, which is
-how an allocating op reaches the pool of the root graph it is running in.  Its
-default and moved-from states bind a canonical no-op table.  The concrete
-pooled-union strategy and its Python source resolver remain under the
-implementation boundary; semantic realisation code asks only for the facade's
-binding and does not name or branch on that strategy.
+pooled strategy reaches the process-wide arena directly and contains no graph
+or realization storage pointer. Its default and moved-from states bind a
+canonical no-op table. The concrete pooled-union strategy and its Python source
+resolver remain under the implementation boundary; semantic realisation code
+asks only for the facade's binding and does not name or branch on that
+strategy. Copies atomically retain shareable allocations; a writable projection
+makes a unique allocation permanently unshareable so later copies deep-copy.
 
 This makes the following invariants visible in the types:
 
