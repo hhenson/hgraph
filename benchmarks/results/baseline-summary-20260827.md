@@ -44,9 +44,39 @@ difference is in play.
 | Windows | **1.463x** | 76 / 2 / 1 | 1.035x |
 
 0.8.19 is faster on every host for roughly 3–12% more incremental resident
-memory. Windows gained most because its 0.8.1 baseline was much slower: 76 of
-79 scenarios improved there against 38 and 34 on the POSIX hosts. That gap is
-itself a result — 0.8.1 carried Windows-specific costs this line removed.
+memory.
+
+### The Windows gain is not a hardware artifact
+
+Both Windows columns were measured on the same new box 21 minutes apart —
+Windows 11 10.0.26200, 32-core AMD, Python 3.14.7, identical scenario pack,
+only the wheel differing — so hardware and OS are constant across that ratio
+and cannot produce it. The absolute geometric means show what actually moved:
+
+| Host | 0.8.1 geomean | 0.8.19 geomean | Self-ratio | vs macOS on 0.8.1 | vs macOS on 0.8.19 |
+|---|---:|---:|---:|---:|---:|
+| macOS | 0.0253s | 0.0228s | 1.113x | 1.00x | 1.00x |
+| Linux | 0.0436s | 0.0384s | 1.136x | 1.72x | 1.69x |
+| Windows | 0.0766s | 0.0522s | **1.466x** | **3.02x** | **2.29x** |
+
+Windows was disproportionately penalised on 0.8.1 — three times slower than
+macOS in absolute terms — and 0.8.19 closed part of that gap, to 2.29x. It
+remains the slowest host by a wide margin, so this is not Windows becoming
+fast; it is a Windows-specific cost that this line partly removed. Linux is the
+control: it holds at 1.72x → 1.69x relative to macOS, which is what a sound
+method should show for a platform with no such penalty.
+
+Two limits on that reading. Cross-host absolute times mix hardware, OS and
+toolchain, so the 2.29x is a statement about that machine, not about hgraph.
+And the old Windows box is gone, so nothing can test whether Windows 10 on the
+Intel part would have shown the same gain — the platform change and the
+hardware change cannot be separated from each other, only from the release.
+
+One measurement asymmetry, noted for honesty: the 0.8.19 figures come from a
+two-mode run and the 0.8.1 figures from a single-mode run, so the former did
+more total work per session. If that host throttles under sustained load the
+effect understates the 0.8.19 column, making the reported gain conservative
+rather than inflated. The same asymmetry applies on all three hosts.
 
 **No scenario is slower on all three hosts.** 32 of 78 are faster everywhere.
 Direction has to be read per platform rather than pooled.
