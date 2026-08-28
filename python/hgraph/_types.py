@@ -1528,6 +1528,11 @@ def _value_type(scalar):
     scalar = resolve_type_alias(scalar)
     if isinstance(scalar, _hgraph.ValueType):
         return scalar
+    if isinstance(scalar, _SharedType):
+        try:
+            return _hgraph.shared_vt(_value_type(scalar.element))
+        except _GenericType as error:
+            raise TypeError("Shared requires a concrete scalar type") from error
     if isinstance(scalar, type):
         native_value_type = _hgraph.native_scalar_value_type(scalar)
         if native_value_type is not None:
@@ -2176,7 +2181,10 @@ class _TSMeta(type):
             return _TsExpr(_hgraph.ts(_hgraph.value_type("callable")), "TS[Callable]")
         try:
             value_type = _value_type(scalar)
-            _VALUE_SCALAR_TYPES[value_type] = scalar
+            # Shared is a storage annotation. Python receives the concrete
+            # value class even though the TS handle retains its Shared schema.
+            python_scalar = scalar.element if isinstance(scalar, _SharedType) else scalar
+            _VALUE_SCALAR_TYPES[value_type] = python_scalar
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
             return _GenericTsExpr(
@@ -2184,7 +2192,7 @@ class _TSMeta(type):
                 pattern=_hgraph.type_pattern_ts(e.pattern),
                 variables=_type_variables_of(scalar),
             )
-        _TS_SCALAR_TYPES[expr.handle] = scalar
+        _TS_SCALAR_TYPES[expr.handle] = python_scalar
         from ._compat import CompoundScalar as _CS
 
         structured_origin = typing.get_origin(scalar) or scalar
@@ -3119,6 +3127,39 @@ class Array:
         if not items:
             raise TypeError("Array requires an element type")
         return _ArrayType(items[0], items[1:])
+
+
+class _SharedType:
+    """Resolved scalar storage annotation used by ``Shared[T]``."""
+
+    __slots__ = ("element",)
+
+    def __init__(self, element):
+        self.element = element
+
+    @property
+    def __args__(self):
+        return (self.element,)
+
+    def __repr__(self):
+        return f"Shared[{self.element!r}]"
+
+    def __eq__(self, other):
+        return isinstance(other, _SharedType) and self.element == other.element
+
+    def __hash__(self):
+        return hash((Shared, self.element))
+
+
+class Shared:
+    """Immutable native storage for a scalar value.
+
+    ``Shared[T]`` is visible in time-series schema metadata while conversion
+    remains transparent: Python readers and node callables receive ``T``.
+    """
+
+    def __class_getitem__(cls, item):
+        return _SharedType(item)
 
 
 def ts_schema(**kwargs):

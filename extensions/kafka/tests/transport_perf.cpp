@@ -225,7 +225,7 @@ struct Fixture {
         .shared_record = true,
     };
     public_record =
-        factory.type_for(scalar_descriptor<KafkaRecord>::value_meta());
+        factory.type_for(scalar_descriptor<Shared<KafkaRecord>>::value_meta());
     subscription_key = make_subscription_key(
         {Str{"benchmark-records"}}, Str{"benchmark-records"}, Str{"earliest"},
         Str{"unbounded"}, KafkaCommitMode::Explicit, Str{"benchmark-records"});
@@ -260,7 +260,7 @@ struct Fixture {
     const auto retained_record =
         keyed_child.view().as_bundle().at("record").concrete();
     Value public_output{public_record, retained_record};
-    const auto fields = public_output.view().as_bundle();
+    const auto fields = public_output.view().concrete().as_bundle();
     return static_cast<std::uint64_t>(
                fields.at("value").checked_as<Bytes>().data.size()) +
            static_cast<std::uint64_t>(fields.at("offset").checked_as<Int>());
@@ -283,9 +283,8 @@ struct Fixture {
                         keyed_child.view().as_bundle().at("record").concrete()};
 
     // At projection time the push output and keyed child remain live while
-    // the public TS<KafkaRecord> output is populated. This is the path's peak
-    // retained-record state: three payload copies before, one shared payload
-    // plus one public copy after.
+    // the public TS<Shared<KafkaRecord>> output retains the record. The shared
+    // variant keeps one payload allocation behind all three handles.
     DynamicStorageMetrics result{};
     for (const Value *holder :
          {&observed_batch, &keyed_child, &public_output}) {
@@ -294,9 +293,7 @@ struct Fixture {
     // Shared handles intentionally report zero for their payload. Add its one
     // logical owner here so retained bytes compare like-for-like without
     // multiplying the shared allocation by the number of handles.
-    if (variant.shared_record) {
-      result += record_payload;
-    }
+    result += record_payload;
     return result;
   }
 };

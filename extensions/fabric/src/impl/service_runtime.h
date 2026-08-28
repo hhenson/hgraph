@@ -181,7 +181,9 @@ class GraphNotificationBridge final
     GraphNotificationBridge &operator=(const GraphNotificationBridge &) = delete;
 
     [[nodiscard]] Notifier notifier() const;
-    [[nodiscard]] std::optional<DataRevisionInput> take_request();
+    /** Return one retained Shared<DataRevision> handle. Retries return another
+        handle to the same immutable allocation. */
+    [[nodiscard]] std::optional<Value> take_request();
     void complete(NotificationDeliveryInput delivery);
     [[nodiscard]] bool request_pending() const noexcept;
     [[nodiscard]] std::vector<std::pair<Str, Str>> diagnostics() const;
@@ -191,38 +193,30 @@ class GraphNotificationBridge final
     std::shared_ptr<Impl> impl_;
 };
 
-struct GraphNotificationBridgeHandle
+/** One execution-owned Fabric service resource. The immutable plan remains a
+    wiring scalar; mutable runtime and transport correlation state are created
+    by the lifecycle node for each GraphValue. */
+struct FabricServiceResource
 {
-    std::shared_ptr<GraphNotificationBridge> value{};
+    std::shared_ptr<FabricServiceRuntime> runtime{};
+    std::shared_ptr<GraphNotificationBridge> bridge{};
+};
 
-    friend bool operator==(const GraphNotificationBridgeHandle &, const GraphNotificationBridgeHandle &) noexcept = default;
-    friend std::strong_ordering operator<=>(const GraphNotificationBridgeHandle &lhs,
-                                            const GraphNotificationBridgeHandle &rhs) noexcept
+struct FabricServiceResourceHandle
+{
+    std::shared_ptr<FabricServiceResource> value{};
+
+    friend bool operator==(const FabricServiceResourceHandle &, const FabricServiceResourceHandle &) noexcept = default;
+    friend std::strong_ordering operator<=>(const FabricServiceResourceHandle &lhs,
+                                            const FabricServiceResourceHandle &rhs) noexcept
     {
         return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=> reinterpret_cast<std::uintptr_t>(rhs.value.get());
     }
 };
 
-inline std::ostream &operator<<(std::ostream &stream, const GraphNotificationBridgeHandle &value)
+inline std::ostream &operator<<(std::ostream &stream, const FabricServiceResourceHandle &value)
 {
-    return stream << "GraphNotificationBridgeHandle(" << value.value.get() << ')';
-}
-
-struct FabricServiceRuntimeHandle
-{
-    std::shared_ptr<FabricServiceRuntime> value{};
-
-    friend bool operator==(const FabricServiceRuntimeHandle &, const FabricServiceRuntimeHandle &) noexcept = default;
-    friend std::strong_ordering operator<=>(const FabricServiceRuntimeHandle &lhs,
-                                            const FabricServiceRuntimeHandle &rhs) noexcept
-    {
-        return reinterpret_cast<std::uintptr_t>(lhs.value.get()) <=> reinterpret_cast<std::uintptr_t>(rhs.value.get());
-    }
-};
-
-inline std::ostream &operator<<(std::ostream &stream, const FabricServiceRuntimeHandle &value)
-{
-    return stream << "FabricServiceRuntimeHandle(" << value.value.get() << ')';
+    return stream << "FabricServiceResourceHandle(" << value.value.get() << ')';
 }
 
 [[nodiscard]] Str subscription_key(Str data_id, SubscriptionMode mode, DateTime as_of);
@@ -231,9 +225,9 @@ inline std::ostream &operator<<(std::ostream &stream, const FabricServiceRuntime
 
 namespace std
 {
-template <> struct hash<hgraph::fabric::detail::FabricServiceRuntimeHandle>
+template <> struct hash<hgraph::fabric::detail::FabricServiceResourceHandle>
 {
-    size_t operator()(const hgraph::fabric::detail::FabricServiceRuntimeHandle &value) const noexcept
+    size_t operator()(const hgraph::fabric::detail::FabricServiceResourceHandle &value) const noexcept
     {
         return hash<const void *>{}(value.value.get());
     }
@@ -247,20 +241,13 @@ template <> struct hash<hgraph::fabric::detail::FabricServicePlanHandle>
     }
 };
 
-template <> struct hash<hgraph::fabric::detail::GraphNotificationBridgeHandle>
-{
-    size_t operator()(const hgraph::fabric::detail::GraphNotificationBridgeHandle &value) const noexcept
-    {
-        return hash<const void *>{}(value.value.get());
-    }
-};
 } // namespace std
 
 namespace hgraph::static_schema_detail
 {
-template <> struct scalar_name<fabric::detail::FabricServiceRuntimeHandle>
+template <> struct scalar_name<fabric::detail::FabricServiceResourceHandle>
 {
-    static constexpr std::string_view value{"hgraph.fabric.internal::ServiceRuntimeHandle"};
+    static constexpr std::string_view value{"hgraph.fabric.internal::ServiceResourceHandle"};
 };
 
 template <> struct scalar_name<fabric::detail::FabricServicePlanHandle>
@@ -268,10 +255,6 @@ template <> struct scalar_name<fabric::detail::FabricServicePlanHandle>
     static constexpr std::string_view value{"hgraph.fabric.internal::ServicePlanHandle"};
 };
 
-template <> struct scalar_name<fabric::detail::GraphNotificationBridgeHandle>
-{
-    static constexpr std::string_view value{"hgraph.fabric.internal::GraphNotificationBridgeHandle"};
-};
 } // namespace hgraph::static_schema_detail
 
 #endif // HGRAPH_FABRIC_IMPL_SERVICE_RUNTIME_H

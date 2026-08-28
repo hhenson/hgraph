@@ -8,6 +8,7 @@ from typing import Optional
 
 from hgraph import (
     CompoundScalar,
+    Shared,
     TS,
     TSB,
     TimeSeriesSchema,
@@ -420,7 +421,7 @@ class KafkaEvent(CompoundScalar, namespace=_NAMESPACE):
 
 
 class KafkaSubscriptionOutput(TimeSeriesSchema, namespace=_NAMESPACE):
-    record: TS[KafkaRecord]
+    record: TS[Shared[KafkaRecord]]
     cursor: TS[KafkaCursor]
     state: TS[KafkaSubscriptionState]
 

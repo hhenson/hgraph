@@ -289,7 +289,7 @@ is specified below):
        Field<"headers", HomogeneousTuple<KafkaHeader>>>;
 
    using KafkaSubscriptionOutput = TSB<"hgraph.kafka::KafkaSubscriptionOutput",
-       Field<"record", TS<KafkaRecord>>,
+       Field<"record", TS<Shared<KafkaRecord>>>,
        Field<"cursor", TS<KafkaCursor>>,
        Field<"state", TS<KafkaSubscriptionState>>>;
 
@@ -350,9 +350,13 @@ integer aliases will be selected to match Kafka's partition and offset widths.
    of record ticks.
 
 ``KafkaSubscriptionOutput``
-   A named time-series bundle containing ``record: TS[KafkaRecord]``,
+   A named time-series bundle containing
+   ``record: TS[Shared[KafkaRecord]]`` in C++,
    ``cursor: TS[KafkaCursor]``, and
    ``state: TS[KafkaSubscriptionState]``.  Record and cursor tick together.
+   ``Shared`` is an immutable storage strategy.  Python declares the exact
+   edge as ``TS[Shared[KafkaRecord]]``, while conversion remains transparent
+   and node callables receive ``KafkaRecord`` values.
    The explicit cursor field is required because assignment generation cannot
    be reconstructed safely from record metadata after processing.  Service-
    wide details remain on the event service instead of being copied into
@@ -365,8 +369,10 @@ integer aliases will be selected to match Kafka's partition and offset widths.
    service request schema, not a C++ struct containing time-series handles.
 
 The transport is byte-oriented.  Typed serialization is graph composition:
-an encoder maps ``TS<T>`` to ``TS[KafkaProduceRecord]`` and a decoder maps
-``TS[KafkaRecord]`` to ``TS<T>``.  A codec is not hidden in connection state.
+an encoder maps ``TS<T>`` to ``TS[KafkaProduceRecord]`` and a native decoder
+maps ``TS[Shared[KafkaRecord]]`` to ``TS<T>`` by borrowing the concrete record
+view.  Python decoders continue to receive the transparent ``KafkaRecord``
+value.  A codec is not hidden in connection state.
 C++ codecs may provide native nodes; a Python callable codec executes on the
 graph thread under the GIL and is never invoked by a Kafka worker thread.
 
@@ -977,9 +983,9 @@ The native hot path must avoid Python and minimise copies:
 * librdkafka payloads are copied or retained exactly once into an owned
   cross-thread record according to the chosen safe lifetime strategy;
 * the standard burst push-source queue retains transport envelopes by move;
-* the private transport envelope retains ``Shared<KafkaRecord>`` handles
-  across graph-thread hand-offs, then copies the concrete record once into the
-  public ``TS<KafkaRecord>`` value;
+* the transport envelope and public subscription edge retain
+  ``Shared<KafkaRecord>`` handles across graph-thread hand-offs, without a
+  concrete record copy at publication;
 * codecs run after transport unless a native codec explicitly opts into safe
   off-thread decoding; and
 * delivery callbacks use their opaque token to avoid record lookup by content.

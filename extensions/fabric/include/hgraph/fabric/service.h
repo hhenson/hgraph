@@ -100,7 +100,7 @@ struct FabricPublicationService
 struct FabricNoticeService
 {
     static constexpr std::string_view name{"fabric_notice"};
-    using request_schema = TS<DataRevision>;
+    using request_schema = TS<Shared<DataRevision>>;
 };
 
 /** One durable accepted revision awaiting graph-native transport. Requests
@@ -109,7 +109,7 @@ struct FabricNoticeService
 struct FabricNotificationRequestService
 {
     static constexpr std::string_view name{"fabric_notification_request"};
-    using output_schema = TS<DataRevision>;
+    using output_schema = TS<Shared<DataRevision>>;
 };
 
 struct FabricNotificationDeliveryService
@@ -153,13 +153,15 @@ HGRAPH_FABRIC_EXPORT void register_service(Wiring &wiring);
 HGRAPH_FABRIC_EXPORT void register_service(Wiring &wiring, service::ServicePath path, FabricNotificationMode mode);
 
 /** Feed a complete accepted revision into the registered service through
-    the ordinary request edge. */
-HGRAPH_FABRIC_EXPORT void submit_notice(Wiring &wiring, Port<TS<DataRevision>> notice, service::ServicePath path);
-HGRAPH_FABRIC_EXPORT void submit_notice(Wiring &wiring, Port<TS<DataRevision>> notice);
+    the ordinary request edge. The shared value remains immutable and may
+    cross adapter and service boundaries without materialisation. */
+HGRAPH_FABRIC_EXPORT void submit_notice(Wiring &wiring, Port<TS<Shared<DataRevision>>> notice,
+                                        service::ServicePath path);
+HGRAPH_FABRIC_EXPORT void submit_notice(Wiring &wiring, Port<TS<Shared<DataRevision>>> notice);
 
-[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<DataRevision>>
+[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Shared<DataRevision>>>
 notification_requests(Wiring &wiring, service::ServicePath path);
-[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<DataRevision>> notification_requests(Wiring &wiring);
+[[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Shared<DataRevision>>> notification_requests(Wiring &wiring);
 
 HGRAPH_FABRIC_EXPORT void submit_notification_delivery(Wiring &wiring, Port<FabricNotificationDelivery> delivery,
                                                        service::ServicePath path);

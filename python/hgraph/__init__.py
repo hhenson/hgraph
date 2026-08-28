@@ -12,7 +12,7 @@ import _hgraph
 from typing import TYPE_CHECKING
 
 from ._operator_groups import OPERATOR_OVERRIDE_NAMES as _OPERATOR_OVERRIDE_NAMES
-from ._types import Series
+from ._types import Series, Shared
 from ._types import resolve_type_alias
 from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, REQUIRED, SCALAR, SCALAR_1, SCALAR_2, TSW, KeyValue, AUTO_RESOLVE, with_signature,
                      KEYABLE_SCALAR, TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2, OUT, SIZE,
@@ -245,7 +245,7 @@ default_path = ""   # hgraph's default service path sentinel
 # described to type checkers by ``_operator_typing.pyi`` without forcing the
 # full public operator catalogue into wildcard imports.
 __all__ += [
-    "Array", "Series", "TSW", "REF", "CompoundScalar", "JSON", "KeyValue",
+    "Array", "Series", "Shared", "TSW", "REF", "CompoundScalar", "JSON", "KeyValue",
     "WindowSize", "AUTO_RESOLVE", "KEYABLE_SCALAR", "OUT", "SCALAR",
     "SCALAR_1", "SCALAR_2", "TIME_SERIES_TYPE", "TIME_SERIES_TYPE_1",
     "TIME_SERIES_TYPE_2", "K", "K_1", "V", "SCHEMA", "TS_SCHEMA", "SIZE",

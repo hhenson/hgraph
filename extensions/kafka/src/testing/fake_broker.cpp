@@ -3,6 +3,7 @@
 #include "detail/service_transport.h"
 
 #include <hgraph/types/static_node.h>
+#include <hgraph/util/scope.h>
 
 #include <chrono>
 #include <compare>
@@ -44,7 +45,6 @@ public:
   void start();
   void stop() noexcept;
   void subscriptions(Value delta);
-  void remove_subscription(Value key);
   void publish(Int request_id, Str topic, Value record);
   void commit(Value cursor);
 
@@ -55,33 +55,8 @@ private:
   bool attached_{false};
 };
 
-class FakeRuntimeResource {
-public:
-  void install(std::shared_ptr<FakeRuntime> runtime) {
-    std::lock_guard lock{mutex_};
-    if (runtime_) {
-      throw std::logic_error("Kafka fake runtime was installed twice");
-    }
-    runtime_ = std::move(runtime);
-  }
-
-  [[nodiscard]] std::shared_ptr<FakeRuntime> get() const {
-    std::lock_guard lock{mutex_};
-    return runtime_;
-  }
-
-  [[nodiscard]] std::shared_ptr<FakeRuntime> take() noexcept {
-    std::lock_guard lock{mutex_};
-    return std::exchange(runtime_, {});
-  }
-
-private:
-  mutable std::mutex mutex_{};
-  std::shared_ptr<FakeRuntime> runtime_{};
-};
-
 struct FakeRuntimeHandle {
-  std::shared_ptr<FakeRuntimeResource> value{};
+  std::shared_ptr<FakeRuntime> value{};
 
   friend bool operator==(const FakeRuntimeHandle &,
                          const FakeRuntimeHandle &) noexcept = default;
@@ -365,12 +340,6 @@ void detail::FakeRuntime::subscriptions(Value delta) {
   FakeRuntimeAccess::subscriptions(*broker_, std::move(delta));
 }
 
-void detail::FakeRuntime::remove_subscription(Value key) {
-  static_cast<void>(sender_.send_blocking(
-      ::hgraph::kafka::detail::subscription_removed_transport_event(
-          *bindings_.value, std::move(key))));
-}
-
 void detail::FakeRuntime::publish(Int request_id, Str topic, Value record) {
   FakeRuntimeAccess::publish(*broker_, request_id, std::move(topic),
                              std::move(record));
@@ -382,12 +351,38 @@ void detail::FakeRuntime::commit(Value cursor) {
 
 namespace {
 [[nodiscard]] std::shared_ptr<detail::FakeRuntime>
-fake_runtime(Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
-  auto value = runtime.value().value->get();
-  if (!value) {
+fake_runtime(GlobalStateView global_state,
+             Scalar<"runtime_key", Str> runtime_key) {
+  const auto stored = global_state.get(runtime_key.value());
+  if (!stored.valid()) {
     throw std::logic_error("Kafka fake command evaluated before runtime start");
   }
-  return value;
+  auto runtime = stored.checked_as<detail::FakeRuntimeHandle>().value;
+  if (!runtime) {
+    throw std::logic_error("Kafka fake runtime resource is not configured");
+  }
+  return runtime;
+}
+
+void install_fake_runtime(GlobalStateView global_state,
+                          std::string_view runtime_key,
+                          std::shared_ptr<detail::FakeRuntime> runtime) {
+  if (global_state.contains(runtime_key)) {
+    throw std::logic_error("Kafka fake runtime was installed twice");
+  }
+  global_state.set(runtime_key,
+                   Value{detail::FakeRuntimeHandle{std::move(runtime)}});
+}
+
+[[nodiscard]] std::shared_ptr<detail::FakeRuntime>
+take_fake_runtime(GlobalStateView global_state, std::string_view runtime_key) {
+  const auto stored = global_state.get(runtime_key);
+  if (!stored.valid()) {
+    return {};
+  }
+  auto runtime = stored.checked_as<detail::FakeRuntimeHandle>().value;
+  static_cast<void>(global_state.erase(runtime_key));
+  return runtime;
 }
 
 struct FakeTransportTag {};
@@ -395,19 +390,21 @@ struct FakeTransportTag {};
 [[nodiscard]] Port<TS<::hgraph::kafka::detail::KafkaTransportEventBatch>>
 wire_fake_transport(
     Wiring &w, detail::FakeBrokerHandle broker,
-    detail::FakeRuntimeHandle runtime,
+    Str runtime_key,
     ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings) {
   return ::hgraph::kafka::detail::wire_transport_source<FakeTransportTag>(
       w,
-      [broker = std::move(broker), runtime,
-       bindings](PushSourceSender sender, const NodeView &, DateTime) {
+      [broker = std::move(broker), runtime_key,
+       bindings](PushSourceSender sender, const NodeView &node, DateTime) {
         auto task = std::make_shared<detail::FakeRuntime>(
             broker.value, std::move(sender), bindings);
         task->start();
-        runtime.value->install(task);
+        auto rollback = make_scope_exit<true>([&] { task->stop(); });
+        install_fake_runtime(node.global_state(), runtime_key, task);
+        rollback.release();
       },
-      [runtime](const NodeView &) {
-        if (auto task = runtime.value->take()) {
+      [runtime_key](const NodeView &node) {
+        if (auto task = take_fake_runtime(node.global_state(), runtime_key)) {
           task->stop();
         }
       });
@@ -415,20 +412,34 @@ wire_fake_transport(
 
 /** Fake graph-to-broker subscription boundary. It mirrors the production sink
  *  by forwarding only the TSS delta; cost is O(A + R) per modified tick. */
-struct FakeSubscriptionSink {
+struct FakeSubscriptionNode {
   static constexpr auto name = "kafka_fake_subscription_commands";
 
   static void
   eval(In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>
            subscriptions,
-       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+       GlobalStateView global_state,
+       Scalar<"runtime_key", Str> runtime_key,
+       Scalar<"bindings",
+              ::hgraph::kafka::detail::KafkaTransportBindingsHandle> bindings,
+       Out<TS<::hgraph::kafka::detail::KafkaTransportEventBatch>> commands) {
     if (!subscriptions.modified()) {
       return;
     }
-    auto task = fake_runtime(runtime);
+    auto task = fake_runtime(global_state, runtime_key);
     const auto &erased = static_cast<const TSSInputView &>(subscriptions);
+    ListBuilder builder{bindings.value().value->event};
+    bool removed{};
     for (const auto key : erased.removed()) {
-      task->remove_subscription(key.clone());
+      removed = true;
+      builder.push_back(
+          ::hgraph::kafka::detail::subscription_removed_transport_event(
+              *bindings.value().value, key.clone()));
+    }
+    if (removed) {
+      ListStorage storage = builder.build_storage();
+      Value batch{bindings.value().value->batch, &storage};
+      commands.apply(batch.view());
     }
     task->subscriptions(subscriptions.delta().clone());
   }
@@ -442,11 +453,12 @@ struct FakePublishSink {
   static void
   eval(In<"publish", TSD<Int, KafkaPublishRequest>, InputValidity::Unchecked>
            publish_requests,
-       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+       GlobalStateView global_state,
+       Scalar<"runtime_key", Str> runtime_key) {
     if (!publish_requests.modified()) {
       return;
     }
-    auto task = fake_runtime(runtime);
+    auto task = fake_runtime(global_state, runtime_key);
     for (const auto &[request_id_view, request] :
          publish_requests.modified_items()) {
       auto record = request.template field<"record">();
@@ -472,11 +484,12 @@ struct FakeCommitSink {
   static void
   eval(In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>
            commits,
-       Scalar<"runtime", detail::FakeRuntimeHandle> runtime) {
+       GlobalStateView global_state,
+       Scalar<"runtime_key", Str> runtime_key) {
     if (!commits.modified()) {
       return;
     }
-    auto task = fake_runtime(runtime);
+    auto task = fake_runtime(global_state, runtime_key);
     for (const auto &[request_id, cursor] : commits.modified_items()) {
       static_cast<void>(request_id);
       if (cursor.valid() && cursor.modified()) {
@@ -493,12 +506,13 @@ struct KafkaFakeServiceImpl {
                       Scalar<"broker", detail::FakeBrokerHandle> broker,
                       Scalar<"path", Str> path) {
     register_kafka_types();
+    static_cast<void>(
+        scalar_descriptor<detail::FakeRuntimeHandle>::value_meta());
     if (config.value().schema() !=
         scalar_descriptor<KafkaServiceConfig>::value_meta()) {
       throw std::invalid_argument(
           "Kafka service implementation requires KafkaServiceConfig");
     }
-
     const auto binding = service::path(path.value());
     auto subscription_keys =
         service::impl_input<KafkaSubscriptionService>(w, binding);
@@ -506,19 +520,22 @@ struct KafkaFakeServiceImpl {
         service::impl_input<KafkaPublishService>(w, binding);
     auto commit_requests = service::impl_input<KafkaCommitService>(w, binding);
 
-    detail::FakeRuntimeHandle runtime{
-        std::make_shared<detail::FakeRuntimeResource>()};
+    const Str runtime_key =
+        "__hgraph.kafka.testing.runtime/" + path.value();
     const auto transport_bindings =
         ::hgraph::kafka::detail::make_transport_bindings();
     auto transport =
-        wire_fake_transport(w, broker.value(), runtime, transport_bindings);
+        wire_fake_transport(w, broker.value(), runtime_key,
+                            transport_bindings);
+    auto commands = wire<FakeSubscriptionNode>(
+        w, subscription_keys, runtime_key, transport_bindings);
     auto outputs = ::hgraph::kafka::detail::wire_service_outputs(
-        w, transport, transport_bindings);
+        w, transport, commands, transport_bindings);
 
     static_cast<void>(
-        wire<FakeSubscriptionSink>(w, subscription_keys, runtime));
-    static_cast<void>(wire<FakePublishSink>(w, publish_requests, runtime));
-    static_cast<void>(wire<FakeCommitSink>(w, commit_requests, runtime));
+        wire<FakePublishSink>(w, publish_requests, runtime_key));
+    static_cast<void>(
+        wire<FakeCommitSink>(w, commit_requests, runtime_key));
 
     service::impl_output<KafkaSubscriptionService>(w, binding,
                                                    outputs.subscriptions);

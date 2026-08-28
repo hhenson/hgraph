@@ -318,7 +318,7 @@ struct LiveNoticeSource
     static constexpr bool schedule_on_start = true;
 
     static void eval(hg::GlobalStateView global_state, hg::NodeScheduler scheduler, hg::State<hg::Int> phase,
-                     hg::Out<hg::TS<hgf::DataRevision>> out)
+                     hg::Out<hg::TS<hg::Shared<hgf::DataRevision>>> out)
     {
         if (phase.get() == hg::Int{0})
         {
@@ -366,7 +366,8 @@ struct CountingNoticeSource
     static constexpr auto name = "hgraph.fabric.test.counting_notice";
     static constexpr bool schedule_on_start = true;
 
-    static void eval(hg::NodeScheduler scheduler, hg::State<hg::Int> phase, hg::Out<hg::TS<hgf::DataRevision>> out)
+    static void eval(hg::NodeScheduler scheduler, hg::State<hg::Int> phase,
+                     hg::Out<hg::TS<hg::Shared<hgf::DataRevision>>> out)
     {
         if (phase.get() == hg::Int{0})
         {
@@ -577,6 +578,37 @@ TEST_CASE("service lifecycle logs its path once at start and stop")
           std::string::npos);
 }
 
+TEST_CASE("reusable graph builders create independent Fabric runtime resources")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config = hgf::make_memory_fabric_config("tests/subscription/independent-runtime");
+    auto graph = hg::build_graph<SnapshotGraph>();
+    hgf::set_fabric_config(graph.global_state(), config);
+
+    hg::GraphExecutorBuilder builder;
+    builder.graph_builder(std::move(graph))
+        .start_time(BASE_TIME)
+        .end_time(BASE_TIME + hg::TimeDelta{2});
+    auto first = builder.make_executor();
+    auto second = builder.make_executor();
+    auto first_graph = first.view().graph();
+    auto second_graph = second.view().graph();
+
+    first_graph.start(BASE_TIME);
+    try
+    {
+        second_graph.start(BASE_TIME);
+    }
+    catch (...)
+    {
+        first_graph.stop(BASE_TIME);
+        throw;
+    }
+    second_graph.stop(BASE_TIME);
+    first_graph.stop(BASE_TIME);
+}
+
 TEST_CASE("snapshot applies its as-of bound through transitive ancestry")
 {
     hg::stdlib::register_standard_operators();
@@ -775,7 +807,7 @@ TEST_CASE("live gap recovery reads only missing metadata and the selected Frame"
     notice_io_counters.reset();
 }
 
-TEST_CASE("live admits cached dependency notices before durable fallback")
+TEST_CASE("live uses durable fallback for dependency notices received before they are observed")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
@@ -807,9 +839,9 @@ TEST_CASE("live admits cached dependency notices before durable fallback")
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 2);
-    CHECK(counters->object_gets == 0);
-    CHECK(counters->object_lists == 0);
-    CHECK(counters->frame_reads == 1);
+    CHECK(counters->object_gets == 4);
+    CHECK(counters->object_lists == 1);
+    CHECK(counters->frame_reads == 2);
     notice_specs.clear();
     notice_seed_config.reset();
     notice_io_counters.reset();
@@ -974,20 +1006,31 @@ TEST_CASE("stalled service queues and diagnostic paths enforce hard bounds")
         hgf::set_fabric_config(context.state().view(), config);
         runtime.start(context.state().view());
 
+        std::vector<hgf::detail::SubscriptionSpec> subscriptions;
+        subscriptions.reserve(hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION + 1U);
         std::vector<hgf::DataRevisionInput> revisions;
         revisions.reserve(hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION);
-        for (std::size_t index = 0; index < hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION; ++index)
+        for (std::size_t index = 0; index <= hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION; ++index)
         {
+            const hg::Str data_id = "notice-" + std::to_string(index);
+            subscriptions.push_back(hgf::detail::SubscriptionSpec{.key = data_id, .data_id = data_id});
+            if (index == hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION)
+            {
+                continue;
+            }
+            config.frames.write(
+                hgf::data_version_key(config.prefix, data_id, 1), frame(1));
             revisions.push_back(hgf::DataRevisionInput{
-                .data_id = "notice-" + std::to_string(index),
+                .data_id = data_id,
                 .revision = 1,
                 .output_version = 1,
                 .as_of = BASE_TIME,
             });
         }
-        CHECK_FALSE(runtime.live({}, std::move(revisions), BASE_TIME).has_value());
-        CHECK_THROWS_AS(runtime.live({}, {hgf::DataRevisionInput{
-                                              .data_id = "notice-overflow",
+        CHECK(runtime.live(subscriptions, std::move(revisions), BASE_TIME).has_value());
+        CHECK_THROWS_AS(runtime.live(subscriptions, {hgf::DataRevisionInput{
+                                              .data_id = "notice-" +
+                                                         std::to_string(hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION),
                                               .revision = 1,
                                               .output_version = 1,
                                               .as_of = BASE_TIME,
@@ -997,6 +1040,33 @@ TEST_CASE("stalled service queues and diagnostic paths enforce hard bounds")
         const auto values = runtime.diagnostics();
         const std::map<hg::Str, hg::Str> metrics{values.begin(), values.end()};
         CHECK(std::stoull(metrics.at("live.notices")) == hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION);
+    }
+
+    SECTION("inactive live notices")
+    {
+        auto config = hgf::make_memory_fabric_config("tests/subscription/inactive-live");
+        hgf::detail::FabricServicePlanHandle plan{
+            std::make_shared<hgf::detail::FabricServicePlan>()};
+        hgf::detail::FabricServiceRuntime runtime{std::move(plan)};
+        hg::GlobalContext context;
+        hgf::set_fabric_config(context.state().view(), config);
+        runtime.start(context.state().view());
+
+        std::vector<hgf::DataRevisionInput> revisions;
+        revisions.reserve(hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION + 1U);
+        for (std::size_t index = 0; index <= hgf::FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION; ++index)
+        {
+            revisions.push_back(hgf::DataRevisionInput{
+                .data_id = "unrelated-" + std::to_string(index),
+                .revision = 1,
+                .output_version = 1,
+                .as_of = BASE_TIME,
+            });
+        }
+        CHECK_FALSE(runtime.live({}, std::move(revisions), BASE_TIME).has_value());
+        const auto values = runtime.diagnostics();
+        const std::map<hg::Str, hg::Str> metrics{values.begin(), values.end()};
+        CHECK(metrics.at("live.notices") == "0");
     }
 
     SECTION("diagnostic paths")
@@ -1040,7 +1110,8 @@ TEST_CASE("graph notification bridge retries with stable revision correlation")
 
     auto first = bridge.take_request();
     REQUIRE(first.has_value());
-    CHECK(first->revision == 7);
+    CHECK(hgf::data_revision_input(first->view().concrete()).revision == 7);
+    const void *const retained_revision = first->view().concrete().data();
     bridge.complete(hgf::detail::NotificationDeliveryInput{
         .data_id = "prices",
         .revision = 7,
@@ -1052,6 +1123,7 @@ TEST_CASE("graph notification bridge retries with stable revision correlation")
     auto retry = bridge.take_request();
     REQUIRE(retry.has_value());
     CHECK(*retry == *first);
+    CHECK(retry->view().concrete().data() == retained_revision);
     bridge.complete(hgf::detail::NotificationDeliveryInput{
         .data_id = "prices",
         .revision = 7,

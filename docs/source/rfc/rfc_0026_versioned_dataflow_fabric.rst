@@ -984,12 +984,12 @@ the fabric binding.  The coordinator discards unrelated ids after key parsing
 and retains notices for root ids and the dynamically discovered transitive
 closure of their forests.
 
-A valid message whose revision is not contiguous with the cached head is held
+A valid relevant message whose revision is not contiguous with the cached head is held
 while the missing range is recovered from immutable storage with bounded
 backoff.  This is a targeted continuation of a Kafka wake-up, not a store-wide
-polling loop.  The queue remains conflated and bounded to one newest accepted
-revision per data id.  Only contiguous accepted history participates in cut
-resolution.
+polling loop.  The live-session cache remains conflated and bounded to one
+newest accepted revision per observed data id; unrelated topic traffic is not
+retained.  Only contiguous accepted history participates in cut resolution.
 
 Subscription and consistency
 ----------------------------
@@ -1482,8 +1482,9 @@ Fabric costs occur at explicit boundaries:
 * revision records are cached because they are immutable;
 * an output Frame is serialised only when it ticks;
 * an unchanged-output acknowledgement writes metadata only;
-* the root Kafka service queue conflates by data id before its push-source edge
-  schedules graph work; and
+* the root Kafka service uses its standard burst push-source queue, while the
+  Fabric live session admits and conflates only data ids in the observed
+  consistency forest; and
 * unchanged direct Frames are not read or ticked again.
 
 Resolver worst-case work is exponential in the number of conflicting candidate
@@ -1701,12 +1702,15 @@ diagnostics and performance evidence.
 The accepted implementation resolves the proposal's remaining ownership and
 lifecycle choices as follows:
 
-* One lazy root ``FabricServiceImpl`` singleton owns Fabric persistence,
+* One lazy root ``FabricServiceImpl`` graph owns Fabric persistence,
   publication state, revision and Frame caches, consistency sessions,
-  synchronous load request/reply, diagnostics and lifecycle.  Nested and root
-  clients use purpose-specific service interfaces to that same instance.
-* The optional Kafka adapter is a separate service singleton.  It owns broker
-  workers, bounded transport queues and the root real-time push source.  Its
+  synchronous load request/reply, diagnostics and lifecycle.  Each
+  ``GraphValue`` constructs its own mutable runtime resource from the immutable
+  wiring plan.  Nested and root clients use purpose-specific service
+  interfaces to that execution-local instance.
+* The optional Kafka adapter is a separate lazy service graph.  Each
+  ``GraphValue`` likewise owns its Kafka runtime and broker workers.  It uses
+  the RFC 0015 standard burst transport and root real-time push source.  Its
   drain node emits ordinary graph edges into Fabric; neither a broker callback
   nor Fabric runtime object addresses the graph directly.
 * V1 Frame loading is synchronous through the service-owned request/reply

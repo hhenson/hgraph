@@ -508,6 +508,7 @@ struct LiveSession
         config = configured;
         subscriptions = std::move(requested);
         core = subscriptions.empty() ? nullptr : std::make_unique<RuntimeCore>(config, roots_of(subscriptions));
+        notice_cache.clear();
         admitted.clear();
         startup = true;
     }
@@ -516,8 +517,20 @@ struct LiveSession
                                                         bool reconcile)
     {
         DeliveryBatch combined;
+        if (!core)
+        {
+            return std::nullopt;
+        }
         for (auto &revision : revisions)
         {
+            // A complete notice is an optimisation over durable recovery, not
+            // an authority. Retain it only once the active consistency forest
+            // identifies the data id as a root or dependency; unrelated topic
+            // traffic must not consume this session's bounded cache.
+            if (!core->observed.contains(revision.data_id))
+            {
+                continue;
+            }
             auto found = notice_cache.find(revision.data_id);
             if (found == notice_cache.end())
             {
@@ -538,10 +551,6 @@ struct LiveSession
             }
         }
 
-        if (!core)
-        {
-            return std::nullopt;
-        }
         if (startup || reconcile)
         {
             auto initial = core->batch(core->coordinator.resolve(now));

@@ -8,8 +8,10 @@ versions and contiguous lineage revisions.
 The current implementation provides the installed C++/Python operator and
 value contracts, canonical durable keys and metadata, run-scoped
 configuration, and broker-free memory notification. One lazy root
-`FabricServiceImpl` owns publication state, persistence access, live revision
-caches, replay/snapshot sessions, bounded queues and diagnostics. Client
+`FabricServiceImpl` graph creates an execution-local runtime for each
+`GraphValue`; that runtime owns publication state, persistence access, live
+revision caches, replay/snapshot sessions, bounded Fabric queues and
+diagnostics. Client
 `subscribe_data` and `publish_data` operators only communicate with that
 service through hgraph service edges.
 
@@ -27,18 +29,21 @@ The shared ingress coordinator supports all three wiring-time modes:
 * `Replay` walks durable as-of histories over the executor's half-open
   interval using ordinary node scheduling; and
 * `Live` loads a durable initial image, then advances only when a complete
-  revision arrives on the ordinary notice edge.
+  shared revision arrives on the ordinary notice edge.
 
 Complete live revision messages populate dependency indexes directly. Durable
 metadata is read for startup, reconnect reconciliation and explicit revision
 gaps; only a selected changed root causes its Frame to load. The live cache
-conflates by data id and is bounded.
+retains only ids in the observed consistency forest, conflates by data id and
+is bounded.
 
 The optional `hgraph::fabric_kafka` target supplies the production transport.
 It validates idempotent `acks=all` publication and non-dropping queue policies,
 subscribes independently to the complete configured topic, and carries the
-full accepted `DataRevision` keyed by canonical data id. The Kafka service owns
-the worker queue and root push sources. Its drain node emits ordinary graph
+full accepted `DataRevision` keyed by canonical data id. Decoded Kafka records
+and revisions cross their public C++ graph edges as immutable `Shared` values.
+The Kafka service creates execution-local runtime and worker resources. Its
+standard burst push source emits ordinary graph
 edges into Fabric; broker callbacks never access the graph or a Fabric output.
 `Recovering` and `Live` lifecycle edges gate the initial durable image and
 trigger durable-head reconciliation for each new live generation. Replay and
@@ -141,12 +146,16 @@ failures, and Kafka reconnect/rebalance events. Broker notices are hints:
 durable revision history remains authoritative and reconnect performs a
 durable-head reconciliation.
 
-All queues are bounded. Publication accepts at most 1,024 waiting requests per
-data id, each live session retains at most 4,096 conflated data ids, and the
-graph transport retains at most 1,024 correlated deliveries with at most eight
-retries. Diagnostic events retain at most 256 distinct paths; additional
-paths conflate into `diagnostics.capacity` with an occurrence count. Hitting a
-work queue bound is an explicit failure, never silent data loss.
+Fabric-owned queues are bounded. Publication accepts at most 1,024 waiting
+requests per data id, each live session retains at most 4,096 conflated
+observed data ids, and the graph transport retains at most 1,024 correlated
+deliveries with at most eight retries. Diagnostic events retain at most 256
+distinct paths; additional paths conflate into `diagnostics.capacity` with an
+occurrence count. Hitting a Fabric work-queue bound is an explicit failure,
+never silent data loss. Kafka real-time ingress deliberately uses RFC 0015's
+standard unbounded burst push-source queue to preserve non-dropping worker
+admission; finite recovery and producer staging retain their configured record
+bounds.
 
 V1 retention is intentionally unbounded: one complete Frame per output tick,
 plus one small revision and as-of entry for each accepted input/output tuple.

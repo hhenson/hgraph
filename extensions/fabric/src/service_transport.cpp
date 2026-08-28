@@ -3,6 +3,8 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include <hgraph/types/metadata/value_plan_factory.h>
+
 #include <deque>
 #include <map>
 #include <mutex>
@@ -20,7 +22,7 @@ struct GraphNotificationBridge::Impl
   };
 
   struct RequestState {
-    DataRevisionInput revision{};
+    Value revision{};
     NotificationDeliveryStatus status{NotificationDeliveryStatus::Pending};
     Str message{};
     std::size_t retries{};
@@ -40,24 +42,29 @@ struct GraphNotificationBridge::Impl
   std::size_t retried{};
   std::size_t failed{};
   std::size_t stale_reports{};
+  ValueTypeRef shared_revision_binding{
+      ValuePlanFactory::instance().type_for(
+          scalar_descriptor<Shared<DataRevision>>::value_meta())};
 
   [[nodiscard]] static NotificationSubscription subscribe(void *) { return {}; }
 
   [[nodiscard]] static NotificationDelivery
   publish(void *context, RevisionNotification notification) {
     auto &self = *static_cast<Impl *>(context);
-    DataRevisionInput revision =
-        data_revision_input(decode_revision(notification.revision).view());
-    if (revision.data_id != notification.data_id) {
+    Value revision = decode_revision(notification.revision);
+    const DataRevisionInput decoded = data_revision_input(revision.view());
+    if (decoded.data_id != notification.data_id) {
       throw std::invalid_argument(
           "fabric graph notification key does not match its revision payload");
     }
-    const Key key{revision.data_id, revision.revision};
+    const Key key{decoded.data_id, decoded.revision};
+    Value shared_revision{self.shared_revision_binding, revision.view()};
     {
       std::lock_guard lock{self.mutex};
       const auto existing = self.requests.find(key);
       if (existing != self.requests.end()) {
-        if (existing->second.revision != revision) {
+        if (!existing->second.revision.view().concrete().equals(
+                shared_revision.view().concrete())) {
           throw std::runtime_error(
               "fabric graph notification conflicts with an in-flight request");
         }
@@ -66,7 +73,7 @@ struct GraphNotificationBridge::Impl
           throw std::overflow_error("fabric graph notification queue is full");
         }
         self.requests.emplace(
-            key, RequestState{.revision = std::move(revision), .queued = true});
+            key, RequestState{.revision = std::move(shared_revision), .queued = true});
         self.outgoing.push_back(key);
       }
     }
@@ -99,7 +106,7 @@ struct GraphNotificationBridge::Impl
     return Notifier{shared_from_this(), ops};
   }
 
-  [[nodiscard]] std::optional<DataRevisionInput> take_request() {
+  [[nodiscard]] std::optional<Value> take_request() {
     std::lock_guard lock{mutex};
     while (!outgoing.empty()) {
       Key key = std::move(outgoing.front());
@@ -110,7 +117,7 @@ struct GraphNotificationBridge::Impl
       }
       found->second.queued = false;
       found->second.in_flight = true;
-      return found->second.revision;
+      return found->second.revision.clone();
     }
     return std::nullopt;
   }
@@ -161,7 +168,7 @@ GraphNotificationBridge::~GraphNotificationBridge() = default;
 
 Notifier GraphNotificationBridge::notifier() const { return impl_->notifier(); }
 
-std::optional<DataRevisionInput> GraphNotificationBridge::take_request() {
+std::optional<Value> GraphNotificationBridge::take_request() {
   return impl_->take_request();
 }
 

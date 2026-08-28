@@ -235,6 +235,8 @@ struct KafkaTransportEmitNode {
   static void
   eval(In<"transport", TS<KafkaTransportEventBatch>, InputValidity::Unchecked>
            transport,
+       In<"commands", TS<KafkaTransportEventBatch>, InputValidity::Unchecked>
+           commands,
        Scalar<"bindings", KafkaTransportBindingsHandle>,
        State<KafkaTransportEmitState> state, SingleShotScheduler scheduler,
        Out<KafkaTransportStreams> out) {
@@ -266,23 +268,26 @@ struct KafkaTransportEmitNode {
       return builder.build();
     };
 
-    if (transport.modified() && transport.valid()) {
-      const auto incoming = transport.base().value().as_list();
+    const auto ingest = [&](const auto &input) {
+      if (!input.modified() || !input.valid()) {
+        return;
+      }
+      const auto incoming = input.base().value().as_list();
       for (std::size_t index = 0; index != incoming.size(); ++index) {
         const auto value = incoming.at(index);
         const auto fields = value.as_bundle();
         const auto kind =
-            fields.at("kind").checked_as<KafkaTransportEventKind>();
+            fields.at("kind").template checked_as<KafkaTransportEventKind>();
         if (kind == KafkaTransportEventKind::RecoveryBarrier) {
           current.recovery_blocked = false;
           continue;
         }
-
         Value event = value.clone();
         auto event_time = evaluation_time(value);
         if (kind == KafkaTransportEventKind::Subscription) {
           const auto recovery = fields.at("recovery");
-          if (recovery.data() != nullptr && recovery.checked_as<Bool>()) {
+          if (recovery.data() != nullptr &&
+              recovery.template checked_as<Bool>()) {
             current.recovery_blocked = true;
           }
           // Untimed live values normally append in O(1). If timestamped work
@@ -333,7 +338,9 @@ struct KafkaTransportEmitNode {
             });
         current.pending.insert(position, std::move(event));
       }
-    }
+    };
+    ingest(commands);
+    ingest(transport);
 
     auto subscriptions = out.template field<"subscriptions">();
     std::optional<TSDDataMutationView> subscription_mutation;
@@ -409,10 +416,9 @@ struct SubscriptionProjectionNode {
     const auto fields = event.base().value().as_bundle();
     const auto record = fields.at("record");
     if (record.data() != nullptr) {
-      // The transport retains the immutable record through Shared<T>, while
-      // the public Kafka service deliberately remains TS<KafkaRecord>. Project
-      // the read-only concrete payload for the one public-output copy.
-      out.template field<"record">().apply(record.concrete());
+      // Shared<KafkaRecord> is the public immutable transport value, so this
+      // projection retains the allocation instead of materialising a copy.
+      out.template field<"record">().apply(record);
     }
     const auto cursor = fields.at("cursor");
     if (cursor.data() != nullptr) {
@@ -480,8 +486,9 @@ struct ServiceOutputs {
 
 [[nodiscard]] inline ServiceOutputs
 wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport,
+                     Port<TS<KafkaTransportEventBatch>> commands,
                      KafkaTransportBindingsHandle bindings) {
-  auto streams = wire<KafkaTransportEmitNode>(w, transport, bindings)
+  auto streams = wire<KafkaTransportEmitNode>(w, transport, commands, bindings)
                      .template as<KafkaTransportStreams>();
   auto subscriptions = wire<stdlib::getattr_,
                             TSD<KafkaSubscriptionKey, TS<KafkaTransportEvent>>>(

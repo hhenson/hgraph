@@ -329,7 +329,7 @@ struct CaptureActualBrokerRecords {
                        subscription) {
     auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
-      const auto fields = record.base().value().as_bundle();
+      const auto fields = record.base().value().concrete().as_bundle();
       const auto payload = fields.at("value").checked_as<hg::Bytes>();
       actual_broker_records.push_back(ActualBrokerRecord{
           .partition = fields.at("partition").checked_as<hg::Int>(),

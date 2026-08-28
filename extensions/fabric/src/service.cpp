@@ -26,8 +26,8 @@ namespace hgraph::fabric
 namespace
 {
 using detail::DeliveryBatch;
-using detail::FabricServiceRuntimeHandle;
-using detail::GraphNotificationBridgeHandle;
+using detail::FabricServiceResource;
+using detail::FabricServiceResourceHandle;
 using detail::NotificationDeliveryInput;
 using detail::PublicationRequestInput;
 using detail::SubscriptionSpec;
@@ -38,10 +38,25 @@ template <typename ValueSchema>
 using FabricServiceNodeResult =
     UnNamedTSB<Field<"value", ValueSchema>, Field<"diagnostics_changed", TS<Int>>>;
 
-void emit_diagnostic_change(Int before, const FabricServiceRuntimeHandle &runtime,
+[[nodiscard]] detail::FabricServiceRuntime &service_runtime(const FabricServiceResourceHandle &resource)
+{
+    if (!resource.value || !resource.value->runtime)
+    {
+        throw std::logic_error("fabric service resource is not configured");
+    }
+    return *resource.value->runtime;
+}
+
+[[nodiscard]] std::shared_ptr<detail::GraphNotificationBridge>
+notification_bridge(const FabricServiceResourceHandle &resource)
+{
+    return resource.value ? resource.value->bridge : nullptr;
+}
+
+void emit_diagnostic_change(Int before, const FabricServiceResourceHandle &resource,
                             const Out<TS<Int>> &diagnostics_changed)
 {
-    const Int after = runtime.value->diagnostic_revision();
+    const Int after = service_runtime(resource).diagnostic_revision();
     if (after != before)
     {
         diagnostics_changed.set(after);
@@ -114,7 +129,7 @@ template <typename Requests> void collect_revisions(const Requests &requests, st
         {
             continue;
         }
-        revisions.push_back(data_revision_input(revision.base().value()));
+        revisions.push_back(data_revision_input(revision.base().value().concrete()));
     }
 }
 
@@ -145,9 +160,10 @@ transport_control(const In<"controls", TSD<Int, FabricTransportControl>, InputVa
 }
 
 void apply_delivery_reports(const In<"deliveries", TSD<Int, FabricNotificationDelivery>, InputValidity::Unchecked> &deliveries,
-                            const GraphNotificationBridgeHandle &bridge)
+                            const FabricServiceResourceHandle &resource)
 {
-    if (!bridge.value || !deliveries.modified())
+    const auto bridge = notification_bridge(resource);
+    if (!bridge || !deliveries.modified())
     {
         return;
     }
@@ -167,7 +183,7 @@ void apply_delivery_reports(const In<"deliveries", TSD<Int, FabricNotificationDe
         {
             throw std::invalid_argument("fabric notification delivery is incomplete");
         }
-        bridge.value->complete(NotificationDeliveryInput{
+        bridge->complete(NotificationDeliveryInput{
             .data_id = data_id.value(),
             .revision = revision.value(),
             .delivered = delivered.value(),
@@ -181,24 +197,43 @@ struct FabricLifecycleNode
 {
     static constexpr auto name = "hgraph.fabric.service.lifecycle";
     static constexpr bool schedule_on_start = true;
-    using signature_args =
-        std::tuple<Scalar<"runtime", FabricServiceRuntimeHandle>, Scalar<"path", Str>, GlobalStateView, Out<TS<Bool>>>;
+    using signature_args = std::tuple<Scalar<"plan", detail::FabricServicePlanHandle>,
+                                      Scalar<"notification_mode", FabricNotificationMode>, Scalar<"path", Str>,
+                                      GlobalStateView, EngineControlView, State<FabricServiceResourceHandle>,
+                                      Out<TS<FabricServiceResourceHandle>>>;
 
-    static void start(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, Scalar<"path", Str> path,
-                      GlobalStateView global_state, LoggerView log)
+    static void start(Scalar<"plan", detail::FabricServicePlanHandle> plan,
+                      Scalar<"notification_mode", FabricNotificationMode> notification_mode,
+                      Scalar<"path", Str> path, GlobalStateView global_state, EngineControlView engine,
+                      State<FabricServiceResourceHandle> state, LoggerView log)
     {
-        runtime.value().value->start(global_state);
+        auto resource = std::make_shared<FabricServiceResource>();
+        std::optional<Notifier> notification_override;
+        if (notification_mode.value() == FabricNotificationMode::GraphTransport)
+        {
+            resource->bridge = std::make_shared<detail::GraphNotificationBridge>();
+            notification_override = resource->bridge->notifier();
+        }
+        resource->runtime =
+            std::make_shared<detail::FabricServiceRuntime>(plan.value(), std::move(notification_override));
+        resource->runtime->start(global_state);
+        resource->runtime->configure_replay_window(engine.start_time(), engine.end_time());
+        state.set(FabricServiceResourceHandle{std::move(resource)});
         log.info("hgraph.fabric service started path={}", path.value());
     }
 
-    static void eval(Out<TS<Bool>> ready)
+    static void eval(State<FabricServiceResourceHandle> state, Out<TS<FabricServiceResourceHandle>> resource)
     {
-        ready.set(true);
+        resource.set(state.ref());
     }
 
-    static void stop(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, Scalar<"path", Str> path, LoggerView log)
+    static void stop(State<FabricServiceResourceHandle> state, Scalar<"path", Str> path, LoggerView log)
     {
-        runtime.value().value->stop();
+        if (state.ref().value && state.ref().value->runtime)
+        {
+            state.ref().value->runtime->stop();
+        }
+        state.set(FabricServiceResourceHandle{});
         log.info("hgraph.fabric service stopped path={}", path.value());
     }
 };
@@ -208,18 +243,17 @@ struct FabricSnapshotNode
     static constexpr auto name = "hgraph.fabric.service.snapshot";
 
     static void eval(In<"keys", TSS<Str>, InputValidity::Unchecked> keys,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
         const auto &erased = static_cast<const TSSInputView &>(keys);
-        if (auto delivery = runtime.value().value->snapshot(subscriptions(erased, SubscriptionMode::Snapshot));
-            delivery.has_value())
+        if (auto delivery = runtime.snapshot(subscriptions(erased, SubscriptionMode::Snapshot)); delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
         }
@@ -234,16 +268,16 @@ struct FabricPlannedSnapshotNode
 {
     static constexpr auto name = "hgraph.fabric.service.snapshot.planned";
 
-    static void eval(In<"ready", TS<Bool>, InputValidity::Unchecked>,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
+    static void eval(In<"resource", TS<FabricServiceResourceHandle>> resource,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
-        if (auto delivery = runtime.value().value->planned_snapshot(); delivery.has_value())
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
+        if (auto delivery = runtime.planned_snapshot(); delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
         }
@@ -255,24 +289,18 @@ struct FabricReplayNode
 {
     static constexpr auto name = "hgraph.fabric.service.replay";
 
-    static void start(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, EngineControlView engine)
-    {
-        runtime.value().value->configure_replay_window(engine.start_time(), engine.end_time());
-    }
-
     static void eval(In<"keys", TSS<Str>, InputValidity::Unchecked> keys,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>, DateTime now, NodeScheduler scheduler,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource, DateTime now, NodeScheduler scheduler,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
         const auto &erased = static_cast<const TSSInputView &>(keys);
-        if (auto delivery =
-                runtime.value().value->replay(subscriptions(erased, SubscriptionMode::Replay), now, scheduler);
+        if (auto delivery = runtime.replay(subscriptions(erased, SubscriptionMode::Replay), now, scheduler);
             delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
@@ -288,21 +316,17 @@ struct FabricPlannedReplayNode
 {
     static constexpr auto name = "hgraph.fabric.service.replay.planned";
 
-    static void start(Scalar<"runtime", FabricServiceRuntimeHandle> runtime, EngineControlView engine)
-    {
-        runtime.value().value->configure_replay_window(engine.start_time(), engine.end_time());
-    }
-
-    static void eval(In<"ready", TS<Bool>, InputValidity::Unchecked>, DateTime now, NodeScheduler scheduler,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
+    static void eval(In<"resource", TS<FabricServiceResourceHandle>> resource, DateTime now,
+                     NodeScheduler scheduler,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
-        if (auto delivery = runtime.value().value->planned_replay(now, scheduler); delivery.has_value())
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
+        if (auto delivery = runtime.planned_replay(now, scheduler); delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
         }
@@ -315,18 +339,18 @@ struct FabricLiveNode
     static constexpr auto name = "hgraph.fabric.service.live";
 
     static void eval(In<"keys", TSS<Str>, InputValidity::Unchecked> keys,
-                     In<"notices", TSD<Int, TS<DataRevision>>, InputValidity::Unchecked> notices,
+                     In<"notices", TSD<Int, TS<Shared<DataRevision>>>, InputValidity::Unchecked> notices,
                      In<"controls", TSD<Int, FabricTransportControl>, InputValidity::Unchecked> controls,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>, DateTime now,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource, DateTime now,
                      Scalar<"notification_mode", FabricNotificationMode> notification_mode,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
         const auto control = transport_control(controls);
         if (notification_mode.value() == FabricNotificationMode::GraphTransport)
         {
@@ -343,9 +367,8 @@ struct FabricLiveNode
         std::vector<DataRevisionInput> revisions;
         collect_revisions(notices, revisions);
         const auto &erased = static_cast<const TSSInputView &>(keys);
-        if (auto delivery = runtime.value().value->live(subscriptions(erased, SubscriptionMode::Live),
-                                                        std::move(revisions), now,
-                                                        control.has_value() && control->reconcile);
+        if (auto delivery = runtime.live(subscriptions(erased, SubscriptionMode::Live), std::move(revisions), now,
+                                         control.has_value() && control->reconcile);
             delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
@@ -361,18 +384,18 @@ struct FabricPlannedLiveNode
 {
     static constexpr auto name = "hgraph.fabric.service.live.planned";
 
-    static void eval(In<"notices", TSD<Int, TS<DataRevision>>, InputValidity::Unchecked> notices,
+    static void eval(In<"notices", TSD<Int, TS<Shared<DataRevision>>>, InputValidity::Unchecked> notices,
                      In<"controls", TSD<Int, FabricTransportControl>, InputValidity::Unchecked> controls,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>, DateTime now,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource, DateTime now,
                      Scalar<"notification_mode", FabricNotificationMode> notification_mode,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
                      Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto out = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
         const auto control = transport_control(controls);
         if (notification_mode.value() == FabricNotificationMode::GraphTransport)
         {
@@ -388,8 +411,8 @@ struct FabricPlannedLiveNode
         }
         std::vector<DataRevisionInput> revisions;
         collect_revisions(notices, revisions);
-        if (auto delivery = runtime.value().value->planned_live(std::move(revisions), now,
-                                                                control.has_value() && control->reconcile);
+        if (auto delivery = runtime.planned_live(std::move(revisions), now,
+                                                 control.has_value() && control->reconcile);
             delivery.has_value())
         {
             apply_delivery(std::move(*delivery), out);
@@ -443,17 +466,17 @@ struct FabricPublicationNode
 
     static void eval(In<"requests", TSD<Int, FabricPublicationRequest>, InputValidity::Unchecked> requests,
                      In<"deliveries", TSD<Int, FabricNotificationDelivery>, InputValidity::Unchecked> deliveries,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>, NodeScheduler scheduler,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
-                     Scalar<"bridge", GraphNotificationBridgeHandle> bridge,
-                     Out<FabricServiceNodeResult<TS<DataRevision>>> result)
+                     In<"resource", TS<FabricServiceResourceHandle>> resource, NodeScheduler scheduler,
+                     Out<FabricServiceNodeResult<TS<Shared<DataRevision>>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
+        const auto bridge = notification_bridge(resource.value());
         auto notifications = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
-        apply_delivery_reports(deliveries, bridge.value());
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
+        apply_delivery_reports(deliveries, resource.value());
         if (requests.modified())
         {
             for (const auto &[request_id, request] : requests.modified_items())
@@ -463,21 +486,19 @@ struct FabricPublicationNode
                 {
                     continue;
                 }
-                runtime.value().value->publish(publication_request(request));
+                runtime.publish(publication_request(request));
             }
         }
 
-        static_cast<void>(runtime.value().value->advance_publications());
-        if (bridge.value().value)
+        static_cast<void>(runtime.advance_publications());
+        if (bridge)
         {
-            if (auto revision = bridge.value().value->take_request(); revision.has_value())
+            if (auto revision = bridge->take_request(); revision.has_value())
             {
-                Value value = make_data_revision(std::move(*revision));
-                notifications.apply(value.view());
+                notifications.apply(revision->view());
             }
         }
-        if (runtime.value().value->publication_work_pending() ||
-            (bridge.value().value && bridge.value().value->request_pending()))
+        if (runtime.publication_work_pending() || (bridge && bridge->request_pending()))
         {
             scheduler.schedule(MIN_TD);
         }
@@ -500,15 +521,15 @@ struct FabricLoadNode
     static constexpr auto name = "hgraph.fabric.service.load";
 
     static void eval(In<"requests", TSD<Int, FabricLoadRequest>, InputValidity::Unchecked> requests,
-                     In<"ready", TS<Bool>, InputValidity::Unchecked>,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource,
                      Out<FabricServiceNodeResult<TSD<Int, FabricLoadResponse>>> result)
     {
+        auto &runtime = service_runtime(resource.value());
         auto responses = result.template field<"value">();
         auto diagnostics_changed = result.template field<"diagnostics_changed">();
-        const Int before = runtime.value().value->diagnostic_revision();
+        const Int before = runtime.diagnostic_revision();
         UnwindCleanupGuard diagnostic_change{
-            [&] { emit_diagnostic_change(before, runtime.value(), diagnostics_changed); }};
+            [&] { emit_diagnostic_change(before, resource.value(), diagnostics_changed); }};
         if (!requests.modified())
         {
             diagnostic_change.complete();
@@ -527,7 +548,7 @@ struct FabricLoadNode
             {
                 continue;
             }
-            const auto loaded = runtime.value().value->load(requested_data_id.value(), requested_version.value());
+            const auto loaded = runtime.load(requested_data_id.value(), requested_version.value());
             if (!loaded.has_value())
             {
                 continue;
@@ -549,7 +570,8 @@ struct FabricDiagnosticsNode
         retained distinct event paths), with event paths bounded by
         ``FABRIC_DIAGNOSTIC_EVENT_LIMIT``. */
     static void eval(In<"events", TSD<Int, FabricTransportEvent>, InputValidity::Unchecked> events,
-                     In<"ready", TS<Bool>>, In<"publication_change", TS<Int>, InputValidity::Unchecked>,
+                     In<"resource", TS<FabricServiceResourceHandle>> resource,
+                     In<"publication_change", TS<Int>, InputValidity::Unchecked>,
                      In<"snapshot_change", TS<Int>, InputValidity::Unchecked>,
                      In<"planned_snapshot_change", TS<Int>, InputValidity::Unchecked>,
                      In<"replay_change", TS<Int>, InputValidity::Unchecked>,
@@ -557,10 +579,10 @@ struct FabricDiagnosticsNode
                      In<"live_change", TS<Int>, InputValidity::Unchecked>,
                      In<"planned_live_change", TS<Int>, InputValidity::Unchecked>,
                      In<"load_change", TS<Int>, InputValidity::Unchecked>,
-                     Scalar<"runtime", FabricServiceRuntimeHandle> runtime,
-                     Scalar<"bridge", GraphNotificationBridgeHandle> bridge,
                      Out<FabricDiagnostics> diagnostics)
     {
+        auto &runtime = service_runtime(resource.value());
+        const auto bridge = notification_bridge(resource.value());
         if (events.modified())
         {
             for (const auto &[request_id, event] : events.modified_items())
@@ -579,7 +601,7 @@ struct FabricDiagnosticsNode
                 {
                     throw std::invalid_argument("fabric transport event is incomplete");
                 }
-                runtime.value().value->observe_transport_event(TransportEventInput{
+                runtime.observe_transport_event(TransportEventInput{
                     .component = component.value(),
                     .category = category.value(),
                     .message = message.valid() ? message.value() : Str{},
@@ -590,15 +612,15 @@ struct FabricDiagnosticsNode
         }
         auto metrics = diagnostics.template field<"metrics">();
         auto mutation = metrics.begin_mutation(metrics.evaluation_time());
-        for (auto &[metric_name, value] : runtime.value().value->diagnostics())
+        for (auto &[metric_name, value] : runtime.diagnostics())
         {
             Value key{std::move(metric_name)};
             Value item{std::move(value)};
             mutation.set(key.view(), item.view());
         }
-        if (bridge.value().value)
+        if (bridge)
         {
-            for (auto &[metric_name, value] : bridge.value().value->diagnostics())
+            for (auto &[metric_name, value] : bridge->diagnostics())
             {
                 Value key{std::move(metric_name)};
                 Value item{std::move(value)};
@@ -608,7 +630,7 @@ struct FabricDiagnosticsNode
 
         auto diagnostic_events = diagnostics.template field<"events">();
         auto event_mutation = diagnostic_events.begin_mutation(diagnostic_events.evaluation_time());
-        for (auto &[path, event] : runtime.value().value->events())
+        for (auto &[path, event] : runtime.events())
         {
             BundleBuilder builder{ValuePlanFactory::instance().type_for(
                 scalar_descriptor<FabricDiagnosticEvent>::value_meta())};
@@ -644,27 +666,18 @@ struct FabricServiceImpl
         auto events = service::impl_input<FabricTransportEventService>(wiring, binding);
         auto loads = service::impl_input<FabricLoadService>(wiring, binding);
 
-        GraphNotificationBridgeHandle bridge{};
-        std::optional<Notifier> notification_override;
-        if (notification_mode.value() == FabricNotificationMode::GraphTransport)
-        {
-            bridge.value = std::make_shared<detail::GraphNotificationBridge>();
-            notification_override = bridge.value->notifier();
-        }
-        FabricServiceRuntimeHandle runtime{
-            std::make_shared<detail::FabricServiceRuntime>(plan.value(), std::move(notification_override))};
-        auto ready = wire<FabricLifecycleNode>(wiring, runtime, path.value());
+        auto resource = wire<FabricLifecycleNode>(wiring, plan.value(), notification_mode.value(), path.value());
         auto publication_result =
-            wire<FabricPublicationNode>(wiring, publications, deliveries, ready, runtime, bridge);
-        auto snapshot_result = wire<FabricSnapshotNode>(wiring, snapshot_keys, ready, runtime);
-        auto replay_result = wire<FabricReplayNode>(wiring, replay_keys, ready, runtime);
+            wire<FabricPublicationNode>(wiring, publications, deliveries, resource);
+        auto snapshot_result = wire<FabricSnapshotNode>(wiring, snapshot_keys, resource);
+        auto replay_result = wire<FabricReplayNode>(wiring, replay_keys, resource);
         auto live_result =
-            wire<FabricLiveNode>(wiring, live_keys, notices, controls, ready, notification_mode.value(), runtime);
-        auto planned_snapshot_result = wire<FabricPlannedSnapshotNode>(wiring, ready, runtime);
-        auto planned_replay_result = wire<FabricPlannedReplayNode>(wiring, ready, runtime);
+            wire<FabricLiveNode>(wiring, live_keys, notices, controls, resource, notification_mode.value());
+        auto planned_snapshot_result = wire<FabricPlannedSnapshotNode>(wiring, resource);
+        auto planned_replay_result = wire<FabricPlannedReplayNode>(wiring, resource);
         auto planned_live_result =
-            wire<FabricPlannedLiveNode>(wiring, notices, controls, ready, notification_mode.value(), runtime);
-        auto load_result = wire<FabricLoadNode>(wiring, loads, ready, runtime);
+            wire<FabricPlannedLiveNode>(wiring, notices, controls, resource, notification_mode.value());
+        auto load_result = wire<FabricLoadNode>(wiring, loads, resource);
 
         auto notification_requests = service_result_value(wiring, publication_result);
         auto snapshot = service_result_value(wiring, snapshot_result);
@@ -675,13 +688,13 @@ struct FabricServiceImpl
         auto planned_live = service_result_value(wiring, planned_live_result);
         auto loaded = service_result_value(wiring, load_result);
         auto diagnostic_values = wire<FabricDiagnosticsNode>(
-            wiring, events, ready, service_result_diagnostics(wiring, publication_result),
+            wiring, events, resource, service_result_diagnostics(wiring, publication_result),
             service_result_diagnostics(wiring, snapshot_result),
             service_result_diagnostics(wiring, planned_snapshot_result),
             service_result_diagnostics(wiring, replay_result),
             service_result_diagnostics(wiring, planned_replay_result),
             service_result_diagnostics(wiring, live_result), service_result_diagnostics(wiring, planned_live_result),
-            service_result_diagnostics(wiring, load_result), runtime, bridge);
+            service_result_diagnostics(wiring, load_result));
 
         service::impl_output<FabricLiveSubscriptionService>(wiring, binding,
                                                             live.template as<TSD<Str, FabricIngressSignal>>());
@@ -699,7 +712,7 @@ struct FabricServiceImpl
         service::impl_output<FabricDiagnosticsService>(wiring, binding,
                                                        diagnostic_values.template as<FabricDiagnostics>());
         service::impl_output<FabricNotificationRequestService>(wiring, binding,
-                                                               notification_requests.template as<TS<DataRevision>>());
+                                                               notification_requests.template as<TS<Shared<DataRevision>>>());
     }
 };
 } // namespace
@@ -726,22 +739,22 @@ void register_service(Wiring &wiring)
     register_service(wiring, service::path(DEFAULT_SERVICE_PATH));
 }
 
-void submit_notice(Wiring &wiring, Port<TS<DataRevision>> notice, service::ServicePath path)
+void submit_notice(Wiring &wiring, Port<TS<Shared<DataRevision>>> notice, service::ServicePath path)
 {
     wire<FabricNoticeService>(wiring, std::move(path), notice);
 }
 
-void submit_notice(Wiring &wiring, Port<TS<DataRevision>> notice)
+void submit_notice(Wiring &wiring, Port<TS<Shared<DataRevision>>> notice)
 {
     submit_notice(wiring, std::move(notice), service::path(DEFAULT_SERVICE_PATH));
 }
 
-Port<TS<DataRevision>> notification_requests(Wiring &wiring, service::ServicePath path)
+Port<TS<Shared<DataRevision>>> notification_requests(Wiring &wiring, service::ServicePath path)
 {
     return wire<FabricNotificationRequestService>(wiring, std::move(path));
 }
 
-Port<TS<DataRevision>> notification_requests(Wiring &wiring)
+Port<TS<Shared<DataRevision>>> notification_requests(Wiring &wiring)
 {
     return notification_requests(wiring, service::path(DEFAULT_SERVICE_PATH));
 }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep complete revisions in `Shared<DataRevision>` from Kafka decode through
+  Fabric notice admission and graph-transport retry; create mutable Fabric and
+  Kafka adapter resources per `GraphValue`, and retain only live notices known
+  to an active consistency forest.
 - Scaffold the RFC 0026 extension and its installed public C++/Python contracts.
 - Add canonical revision/reference metadata encoding and the memory notifier.
 - Add canonical durable keys and the resumable, acknowledgement-gated
