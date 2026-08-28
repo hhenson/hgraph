@@ -722,7 +722,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
    Value stream to accumulate.
 
 ``reset`` : time-series; ``TS[bool]``
@@ -759,7 +759,7 @@ Accepted native overloads
 
    collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
    collect(key: K, ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
-   collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ..., exclude: TIME_SERIES_TYPE_1 = ...) -> OUT
+   collect(ts: TSD[K, V], reset: TS[bool] = ..., exclude: TIME_SERIES_TYPE = ...) -> OUT
 
 .. _python-operator-combine:
 

@@ -2619,7 +2619,7 @@ namespace hgraph::stdlib
                    in == out;
         }
 
-        static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+        static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
                          In<"reset", TS<Bool>, InputValidity::Unchecked> reset,
                          In<"exclude", TsVar<"E">, InputValidity::Unchecked> exclude,
                          Out<TsVar<"__out__">> out)
