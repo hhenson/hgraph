@@ -15,6 +15,7 @@ from hgraph import (
     combine,
     compute_node,
     const,
+    convert,
     dispatch,
     dispatch_,
     downcast_,
@@ -521,6 +522,29 @@ def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax(
     assert eval_node(output_selected, samples) == samples
     assert tuple(inspect.signature(downcast_).parameters) == ("tp", "ts")
     assert tuple(inspect.signature(downcast_[TS[Dog]]).parameters) == ("ts",)
+
+
+def test_convert_retains_checked_compound_scalar_downcast_compatibility():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar):
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        sound: str
+
+    @dataclass(frozen=True)
+    class Cat(Animal):
+        lives: int
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[Dog]:
+        return convert[TS[Dog]](animal)
+
+    dog = Dog(identifier=1, sound="woof")
+    assert eval_node(app, [dog]) == [dog]
+    with pytest.raises(RuntimeError, match="active Bundle value does not match"):
+        eval_node(app, [Cat(identifier=2, lives=9)])
 
 
 def test_compound_scalar_reference_downcast_uses_the_native_reference_operator():
