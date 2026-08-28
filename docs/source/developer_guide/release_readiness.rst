@@ -179,9 +179,18 @@ Windows; 69 performance scenarios use five fresh-process samples, and 59
 memory profiles use three fresh-process samples plus native structural
 inspection. The measured implementation is the exact published hgraph 0.8.1
 wheel for each platform, compared with released hgraph 0.5.41 in Python and
-legacy C++ modes. Future optimisation and release reports compare back to this
-fixed 0.8.1 record; the 0.5.41 modes are rerun only when deliberately
-reconstructing the historical release baseline. The record preserves
+legacy C++ modes. That record is the historical 0.8.1 release cut.
+
+On 2026-08-27 the baseline moved forward to the published hgraph 0.8.19
+wheel, recorded in ``benchmarks/results/baseline-summary-20260827.md`` with
+per-platform matrices and raw samples beside it. That file is the current
+point of testing: optimisation and release reports compare against 0.8.19,
+and the 0.5.41 modes are rerun only when deliberately comparing the released
+lines. Both sides of its 0.8.1-to-0.8.19 delta were measured in one session
+on current hardware. The Windows host changed between the two records —
+Windows 10 on an Intel i9-9980HK in 20260809, Windows 11 on a 32-core AMD
+part in 20260827 — so Windows figures are not comparable across the two
+dates; macOS and Linux are the same machines. The record preserves
 improvements, boundary-specific regressions, and independently rerun
 infrastructure failures rather than treating benchmarks as a release
 pass/fail gate.

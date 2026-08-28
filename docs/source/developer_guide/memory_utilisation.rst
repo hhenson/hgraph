@@ -9,7 +9,7 @@ for graph memory. It is intended to direct optimisation work from reproducible
 evidence, not to establish a platform-independent byte limit. The associated
 campaign in ``benchmarks/memory_orchestrate.py`` produces:
 
-* comparative, fresh-process RSS/USS/PSS samples for the fixed published 0.8.1
+* comparative, fresh-process RSS/USS/PSS samples for the fixed published 0.8.19
   release and current source, with 0.5.41 Python and legacy-C++ reconstruction
   modes;
 * growth series for graph size, duration, cardinality, retained capacity, and
@@ -610,25 +610,27 @@ Baseline and comparison procedure
 Run the complete profile pack on an otherwise idle host from a clean main
 revision. Use the same build type, Python version, sample count, sampling
 interval, and CPU for comparisons. The default report compares current source
-with the exact published hgraph 0.8.1 wheel and adds current-source
-GraphDiagnostics data. To reconstruct the historical release baseline, select
+with the exact published hgraph 0.8.19 wheel and adds current-source
+GraphDiagnostics data. To compare the two released lines, select
 ``upstream-py``, ``upstream-cpp``, and ``release`` explicitly; that report
-includes both ``0.8.1/Python`` and ``0.8.1/legacy-C++`` peak-memory ratios.
-Values below one mean 0.8.1 used less incremental resident memory. Preserve the
+includes both ``0.8.19/Python`` and ``0.8.19/legacy-C++`` peak-memory ratios.
+Values below one mean the released C++-first line used less incremental
+resident memory. Preserve the
 raw JSON; the markdown matrix is a presentation view and intentionally rounds
 values.
 
 For optimisation work, first select the affected group and increase to five or
 more samples. Compare medians, median absolute deviation, and the complete
 scale series. Treat a change smaller than page/allocator granularity or within
-run-to-run spread as inconclusive. The committed 0.8.1-versus-0.5.41 record is
-the forward comparison baseline. Do not rerun the 0.5.41 modes for ordinary
-optimisation work. Reconstruct that historical comparison only when its
-profile pack, host, or sampling policy changes; the orchestrator pins both
-published wheel artifacts and enforces the identity in its cache.
+run-to-run spread as inconclusive. The fixed release pin moved from 0.8.1 to
+0.8.19 on 2026-08-27, so the forward comparison baseline is now the published
+0.8.19 wheel; the committed 0.8.1-versus-0.5.41 record below is retained as the
+historical release artifact and is not reproducible with the current pin. Do
+not rerun the 0.5.41 modes for ordinary optimisation work; the orchestrator
+pins both published wheel artifacts and enforces the identity in its cache.
 
 The first committed macOS and Linux reports are baseline artifacts rather than
 normative thresholds. Cross-platform absolute RSS is not directly comparable:
 different loaders, allocators, page sizes, Python builds, and shared-memory
 accounting dominate small graphs. Within each host, the useful signals are
-current-source/0.8.1 ratios and growth slopes across the profile series.
+current-source/0.8.19 ratios and growth slopes across the profile series.
