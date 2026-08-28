@@ -164,11 +164,15 @@ def benchmark_pack_fingerprint() -> str:
 
 def _first_line(command: list[str]) -> str:
     try:
-        output = subprocess.run(
-            command, check=True, capture_output=True, text=True, cwd=REPO_ROOT,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+        completed = subprocess.run(
+            command, check=False, capture_output=True, text=True, cwd=REPO_ROOT,
+        )
+    except OSError:
         return "unknown"
+    # MSVC prints its banner to stderr and returns an error for ``cl
+    # --version`` after identifying itself. Preserve that useful first line
+    # while still treating a command with no diagnostic output as unknown.
+    output = completed.stdout.strip() or completed.stderr.strip()
     return output.splitlines()[0] if output else "unknown"
 
 

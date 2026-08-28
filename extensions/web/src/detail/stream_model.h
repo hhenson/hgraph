@@ -7,12 +7,13 @@
 #include <string_view>
 
 namespace hgraph::web::detail {
-// Internal transport payloads. External tasks wrap these fully owned
-// values in WebTransportEvent streams; burst push sources deliver the
-// pending events to graph nodes for projection onto the public service
-// outputs. A set `removed` field is retained for compatibility
-// with persisted/test payloads, although graph-side key deltas now own
-// route and connection removal.
+// Internal transport payloads. External tasks wrap these fully owned values
+// in WebTransportEvent streams. Large immutable envelopes use Shared<T>, so
+// batching and retained graph copies share one stable allocation. Burst push
+// sources deliver the pending events to graph nodes for projection onto the
+// public service outputs. A set `removed` field is retained for compatibility
+// with persisted/test payloads, although graph-side key deltas now own route
+// and connection removal.
 
 using WebRequestEnvelope =
     Bundle<"hgraph.web.internal::WebRequestEnvelope", Field<"route", WebRoute>,
@@ -73,10 +74,13 @@ template <> struct scalar_name<web::detail::WebTransportEventKind> {
 namespace hgraph::web::detail {
 using WebTransportEvent = Bundle<
     "hgraph.web.internal::WebTransportEvent",
-    Field<"kind", WebTransportEventKind>, Field<"request", WebRequestEnvelope>,
-    Field<"server_ws", WsIngressEnvelope>, Field<"client_ws", WsClientEnvelope>,
-    Field<"response", WebResponseEnvelope>,
-    Field<"delivery", WebDeliveryEnvelope>, Field<"event", WebEventEnvelope>,
+    Field<"kind", WebTransportEventKind>,
+    Field<"request", Shared<WebRequestEnvelope>>,
+    Field<"server_ws", Shared<WsIngressEnvelope>>,
+    Field<"client_ws", Shared<WsClientEnvelope>>,
+    Field<"response", Shared<WebResponseEnvelope>>,
+    Field<"delivery", Shared<WebDeliveryEnvelope>>,
+    Field<"event", Shared<WebEventEnvelope>>,
     Field<"server_stats", WebServerStats>,
     Field<"client_stats", WebClientStats>, Field<"channel", Int>,
     Field<"retained_bytes", Int>, Field<"control", Bool>>;
