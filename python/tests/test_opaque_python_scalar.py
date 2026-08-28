@@ -44,11 +44,12 @@ def test_opaque_python_scalar_reflection_is_not_changed_by_later_annotations():
     assert resolved_type(_scalar_value_type(TS[object])) is object
 
 
-def test_parameterized_python_annotations_share_their_origin_identity():
-    assert TS[type[OpaqueBase]] == TS[type[OpaqueDerived]]
+def test_parameterized_python_type_annotations_use_object_runtime_schema():
+    assert TS[type[OpaqueBase]] == TS[object]
+    assert TS[type[OpaqueDerived]] == TS[object]
 
 
-def test_type_of_opaque_class_uses_its_origin_for_wiring():
+def test_parameterized_python_type_annotations_are_wiring_compatible():
     @graph
     def accept_base_type(value: TS[type[OpaqueBase]]) -> TS[type[OpaqueBase]]:
         return value

@@ -120,6 +120,38 @@ def test_type_cs():
     assert eval_node(g, [_TestCS(a=1)]) == [_TestCS]
 
 
+def test_type_comparison_with_class_literal():
+    # Registering a parameterized type annotation must not change subsequent
+    # schema-free inference for Python class literals.
+    assert TS[type[_TestCS]] == TS[object]
+
+    @graph
+    def g(ts: TS[int]) -> TS[bool]:
+        return type_(ts) == int
+
+    assert eval_node(g, [1, 2]) == [True, True]
+
+
+def test_polymorphic_compound_scalar_type_comparison():
+    @dataclass(frozen=True)
+    class Base(CompoundScalar, abstract=True):
+        value: int
+
+    @dataclass(frozen=True)
+    class First(Base):
+        pass
+
+    @dataclass(frozen=True)
+    class Second(Base):
+        pass
+
+    @graph
+    def g(ts: TS[Base]) -> TS[bool]:
+        return type_(ts) == First
+
+    assert eval_node(g, [First(1), Second(2)]) == [True, False]
+
+
 def test_getattr_type():
     @dataclass
     class Test(CompoundScalar):

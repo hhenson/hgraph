@@ -1701,11 +1701,18 @@ def _value_type(scalar):
                     repr(scalar),
                     _hgraph.scalar_pattern_map(_scalar_pattern(args[0]), _scalar_pattern(args[1])),
                 )
+        if origin is type:
+            # Python class objects are runtime values of the shared object
+            # schema. Keep type[T]'s argument in the Python annotation for
+            # scalar-carrier resolution, but do not register the metaclass
+            # itself as a nominal opaque value type: doing so makes later
+            # class-literal inference depend on annotation registration order.
+            return _hgraph.value_type("object")
         if isinstance(origin, type):
             # Parameterized application classes (for example Expression[A,
-            # B] and type[A]) are opaque Python values. Their type arguments
-            # remain Python-side validation/documentation and do not invent a
-            # second native schema family.
+            # B]) are opaque Python values. Their type arguments remain
+            # Python-side validation/documentation and do not invent a second
+            # native schema family.
             return _opaque_value_type(origin)
         raise TypeError(f"unsupported generic scalar type for hgraph: {scalar!r}")
     if scalar is typing.Tuple:
@@ -1732,9 +1739,8 @@ def _value_type(scalar):
             _hgraph.scalar_pattern_map(_hgraph.scalar_pattern_var("K"), _hgraph.scalar_pattern_var("V")),
         )
     if scalar is type:
-        # A bare ``type`` accepts every Python class object. Parameterized
-        # ``type[T]`` annotations still lower to their shared nominal origin
-        # through the generic branch above.
+        # A bare ``type`` accepts every Python class object, using the same
+        # runtime schema as parameterized ``type[T]`` annotations above.
         name = "object"
     if name is None and isinstance(scalar, type):
         from ._compat import CompoundScalar
