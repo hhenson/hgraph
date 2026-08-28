@@ -284,10 +284,10 @@ def test_catalogue_publish_routes_to_sql_write_adaptor(tmp_path):
         stop(publish[_Row]("rows", data()))
 
     with hg.GlobalContext(hg.GlobalState()):
-        with DataCatalogue(), _environment(database):
-            DataCatalogueEntry[SqlDataSink](
+        with DataCatalogue() as catalogue, _environment(database):
+            catalogue.add_entry(DataCatalogueEntry[SqlDataSink](
                 _Row, "rows", frozendict(),
-                SqlDataSink("database", "rows", mode=SQLWriteMode.OVERWRITE))
+                SqlDataSink("database", "rows", mode=SQLWriteMode.OVERWRITE)))
             hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
 
     with sqlite3.connect(database) as connection:
@@ -384,9 +384,9 @@ def test_catalogue_subscribe_routes_batch_sql_source(tmp_path):
         capture("B", subscribe[_BatchRow]("rows", symbol="B"))
 
     with hg.GlobalContext(hg.GlobalState()):
-        with DataCatalogue(), _environment(database):
-            DataCatalogueEntry[BatchSqlDataSource](
-                _BatchRow, "rows", scope, source)
+        with DataCatalogue() as catalogue, _environment(database):
+            catalogue.add_entry(DataCatalogueEntry[BatchSqlDataSource](
+                _BatchRow, "rows", scope, source))
             hg.run_graph(
                 app, run_mode=hg.EvaluationMode.REAL_TIME,
                 end_time=_end_time())
