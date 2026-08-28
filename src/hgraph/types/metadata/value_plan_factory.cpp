@@ -944,6 +944,82 @@ array_indexed_make_mutable_range(const void *context, void *memory) {
   };
 }
 
+[[nodiscard]] bool array_accepts_source(const void *context, ValueTypeRef,
+                                        ValueTypeRef source) noexcept {
+  const auto *state = static_cast<const ArrayIndexedContext *>(context);
+  return state != nullptr && source && source.schema() == state->schema;
+}
+
+template <bool Move>
+void array_assign_from(const void *context, void *dst, ValueTypeRef source,
+                       const void *src) {
+  const auto *state = static_cast<const ArrayIndexedContext *>(context);
+  const auto actual_type = source.ops_ref().concrete_type(source, src);
+  const auto *actual_memory = source.ops_ref().concrete_memory(src);
+  if (!actual_type || actual_type.schema() != state->schema ||
+      actual_memory == nullptr) {
+    throw std::invalid_argument(
+        "fixed List assignment requires the same concrete schema");
+  }
+  const auto *source_ops = checked_value_ops<IndexedValueOps>(
+      actual_type, "fixed List assignment source");
+  if (source_ops->element_at == nullptr ||
+      source_ops->element_binding == nullptr || source_ops->size == nullptr) {
+    throw std::invalid_argument(
+        "fixed List assignment source has no indexed element access");
+  }
+  const auto source_size =
+      source_ops->size(source_ops->context, actual_memory);
+  if ((!state->bounded && source_size != state->capacity) ||
+      (state->bounded && source_size > state->capacity)) {
+    throw std::invalid_argument(
+        "fixed List assignment source has an incompatible size");
+  }
+  if (state->bounded) {
+    array_indexed_resize(context, dst, source_size);
+  }
+
+  for (std::size_t index = 0; index < source_size; ++index) {
+    const auto *source_child =
+        source_ops->element_at(source_ops->context, actual_memory, index);
+    if (source_child == nullptr) {
+      throw std::invalid_argument(
+          "fixed List assignment source contains an unset element");
+    }
+    const auto source_binding = source_ops->element_binding(
+        source_ops->context, actual_memory, index);
+    const auto target_binding = state->element_binding;
+    auto *target_child = static_cast<std::byte *>(dst) + state->data_offset +
+                         index * state->stride;
+    if constexpr (Move) {
+      target_binding.ops_ref().move_assign_from(
+          target_binding, target_child, source_binding,
+          const_cast<void *>(source_child));
+    } else {
+      target_binding.ops_ref().copy_assign_from(
+          target_binding, target_child, source_binding, source_child);
+    }
+  }
+}
+
+void array_copy_assign_from(const void *context, ValueTypeRef binding,
+                            void *dst, ValueTypeRef source, const void *src) {
+  if (binding == source) {
+    binding.checked_plan().copy_assign(dst, src);
+    return;
+  }
+  array_assign_from<false>(context, dst, source, src);
+}
+
+void array_move_assign_from(const void *context, ValueTypeRef binding,
+                            void *dst, ValueTypeRef source, void *src) {
+  if (binding == source) {
+    binding.checked_plan().move_assign(dst, src);
+    return;
+  }
+  array_assign_from<true>(context, dst, source, src);
+}
+
 [[nodiscard]] std::size_t array_value_hash(const void *context,
                                            const void *memory) {
   const auto *state = static_cast<const ArrayIndexedContext *>(context);
@@ -2076,7 +2152,14 @@ struct ArrayIndexedOpsEntry {
   }
 
   ArrayIndexedOpsEntry(const ValueTypeMetaData &schema,
-                       const MemoryUtils::StoragePlan &plan) {
+                       const MemoryUtils::StoragePlan &plan)
+      : ArrayIndexedOpsEntry(
+            schema, plan,
+            ValuePlanFactory::instance().type_for(schema.element_type)) {}
+
+  ArrayIndexedOpsEntry(const ValueTypeMetaData &schema,
+                       const MemoryUtils::StoragePlan &plan,
+                       ValueTypeRef element_binding) {
     const MemoryUtils::StoragePlan *elements_plan = &plan;
     std::size_t size_offset = 0;
     std::size_t data_offset = 0;
@@ -2093,8 +2176,6 @@ struct ArrayIndexedOpsEntry {
           "ValuePlanFactory: array indexed ops require an array plan");
     }
 
-    const auto element_binding =
-        ValuePlanFactory::instance().type_for(schema.element_type);
     if (element_binding == nullptr) {
       throw std::logic_error(
           "ValuePlanFactory: fixed list element has no resolvable binding");
@@ -2128,6 +2209,9 @@ struct ArrayIndexedOpsEntry {
         &array_indexed_make_mutable_range,
     };
     ops.resize = bounded ? &array_indexed_resize : nullptr;
+    ops.accepts_source_impl = &array_accepts_source;
+    ops.copy_assign_from_impl = &array_copy_assign_from;
+    ops.move_assign_from_impl = &array_move_assign_from;
     ops.dynamic_storage_metrics_impl = &array_dynamic_storage_metrics;
   }
 };
@@ -2268,6 +2352,98 @@ struct RealizedCompositeCache {
   return cache;
 }
 
+struct RealizedFixedListKey {
+  const ValueTypeMetaData *schema{nullptr};
+  ValueTypeRef element{};
+  bool operator==(const RealizedFixedListKey &) const noexcept = default;
+};
+
+struct RealizedFixedListKeyHash {
+  [[nodiscard]] std::size_t
+  operator()(const RealizedFixedListKey &key) const noexcept {
+    return combine_hash(std::hash<const ValueTypeMetaData *>{}(key.schema),
+                        std::hash<ValueTypeRef>{}(key.element));
+  }
+};
+
+[[nodiscard]] const MemoryUtils::StoragePlan &
+realized_fixed_list_plan(const ValueTypeMetaData &schema,
+                         ValueTypeRef element) {
+  const auto &elements =
+      MemoryUtils::array_plan(element.checked_plan(), schema.fixed_size);
+  if (!schema.is_shaped_array()) {
+    return elements;
+  }
+  auto builder = MemoryUtils::tuple();
+  builder.reserve(2);
+  builder.add_plan(elements);
+  builder.add_type<std::size_t>();
+  return builder.build();
+}
+
+struct RealizedFixedListEntry {
+  const MemoryUtils::StoragePlan *plan{nullptr};
+  ArrayIndexedOpsEntry ops;
+  ValueTypeRef binding{};
+
+  RealizedFixedListEntry(const ValueTypeMetaData &schema, ValueTypeRef element)
+      : plan{&realized_fixed_list_plan(schema, element)},
+        ops{schema, *plan, element} {
+    if (schema.is_nullable()) {
+      binding = intern_value_type(schema, *plan, ops.ops);
+      return;
+    }
+    const auto *elements_plan = plan;
+    std::size_t size_offset = 0;
+    std::size_t data_offset = 0;
+    DebugDynamicFlags flags = DebugDynamicFlags::SizeIsConstant;
+    if (schema.is_shaped_array()) {
+      data_offset = plan->component(0).offset;
+      size_offset = plan->component(1).offset;
+      elements_plan = plan->component(0).plan;
+      flags = DebugDynamicFlags::None;
+    }
+    const auto &debug = intern_dynamic_debug_descriptor(
+        schema.header, *plan, DebugLayoutKind::Sequence, nullptr,
+        element.record(),
+        DebugDynamicLayout{
+            .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
+            .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
+            .kind = DebugDynamicKind::Contiguous,
+            .flags = flags,
+            .size_offset = size_offset,
+            .size_constant = schema.fixed_size,
+            .data_offset = data_offset,
+            .stride = elements_plan->array_stride(),
+        });
+    binding = intern_value_type(schema, *plan, ops.ops, &debug);
+  }
+};
+
+struct RealizedFixedListCache {
+  InternTable<RealizedFixedListKey, std::unique_ptr<RealizedFixedListEntry>,
+              RealizedFixedListKeyHash>
+      table{};
+
+  [[nodiscard]] ValueTypeRef get(const ValueTypeMetaData &schema,
+                                 ValueTypeRef element) {
+    RealizedFixedListKey key{&schema, element};
+    return table
+        .intern_serialized(
+            key, [&] {
+              return std::make_unique<RealizedFixedListEntry>(schema, element);
+            })
+        ->binding;
+  }
+
+  void clear() noexcept { table.clear(); }
+};
+
+[[nodiscard]] RealizedFixedListCache &realized_fixed_list_cache() noexcept {
+  static RealizedFixedListCache cache;
+  return cache;
+}
+
 [[nodiscard]] const IndexedValueOps &
 composite_indexed_ops(const ValueTypeMetaData &schema,
                       const MemoryUtils::StoragePlan &plan) {
@@ -2286,6 +2462,7 @@ void clear_structured_indexed_ops() noexcept {
   owned_value_cache().clear();
   shared_value_cache().clear();
   realized_composite_cache().clear();
+  realized_fixed_list_cache().clear();
 }
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -3006,6 +3183,20 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
     }
   }
   return realized_composite_cache().get(*schema, std::move(fields));
+}
+
+ValueTypeRef ValuePlanFactory::realized_fixed_list_type_for(
+    const ValueTypeMetaData *schema, ValueTypeRef element_binding) {
+  if (schema == nullptr || schema->value_kind() != ValueTypeKind::List ||
+      schema->fixed_size == 0) {
+    throw std::invalid_argument(
+        "realized_fixed_list_type_for requires a fixed List schema");
+  }
+  if (!element_binding || element_binding.schema() != schema->element_type) {
+    throw std::invalid_argument(
+        "realized_fixed_list_type_for received an incompatible element binding");
+  }
+  return realized_fixed_list_cache().get(*schema, element_binding);
 }
 
 ValueTypeRef ValuePlanFactory::projected_composite_type_for(
