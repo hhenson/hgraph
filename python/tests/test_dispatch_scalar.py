@@ -11,6 +11,7 @@ from hgraph import (
     CompoundScalar,
     TS,
     TSB,
+    TSD,
     TimeSeriesSchema,
     combine,
     compute_node,
@@ -21,7 +22,9 @@ from hgraph import (
     downcast_,
     downcast_ref,
     graph,
+    mesh_,
     operator,
+    pass_through,
     switch_,
 )
 from hgraph.test import eval_node
@@ -168,6 +171,92 @@ def test_dispatch_uses_declared_concrete_output_schema():
 
     assert eval_node(app, [Dog()]) == [{"sound": "woof"}]
     assert eval_node(projected, [Dog()]) == ["woof"]
+
+
+def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
+    class Request(CompoundScalar): ...
+
+    class ByName(Request): ...
+
+    class InstrumentKey(CompoundScalar): ...
+
+    class FutureKey(InstrumentKey): ...
+
+    class ExistingKey(InstrumentKey): ...
+
+    class PeerKey(InstrumentKey): ...
+
+    class Result(TimeSeriesSchema):
+        value: TS[str]
+
+    # The selected branch returns a value. The two unselected, but reachable,
+    # branches make the common output REF[TSB] and require preserving a live
+    # forwarding terminal respectively.
+    @dispatch
+    def by_key(
+        key: TS[InstrumentKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](value="unknown")
+
+    @graph(overloads=by_key)
+    def by_future(
+        key: TS[FutureKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](value="future")
+
+    @graph(overloads=by_key)
+    def by_existing(
+        key: TS[ExistingKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return repository["existing"]
+
+    @graph(overloads=by_key)
+    def by_peer(
+        key: TS[PeerKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return mesh_("nested-dispatch-repro")["existing"]
+
+    @dispatch
+    def resolve(
+        request: TS[Request], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](value="unsupported")
+
+    @graph(overloads=resolve)
+    def resolve_by_name(
+        request: TS[ByName], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return by_key(
+            const(FutureKey(), tp=TS[InstrumentKey]), repository
+        )
+
+    @graph
+    def resolve_item(
+        key: TS[str],
+        request: TS[Request],
+        repository: TSD[str, TSB[Result]],
+    ) -> TSB[Result]:
+        return resolve(request, repository)
+
+    @graph
+    def app(
+        requests: TSD[str, TS[Request]],
+        repository: TSD[str, TSB[Result]],
+    ) -> TSD[str, TSB[Result]]:
+        return mesh_(
+            resolve_item,
+            requests,
+            pass_through(repository),
+            __name__="nested-dispatch-repro",
+        )
+
+    assert eval_node(
+        app,
+        [{"item": ByName()}],
+        [{"existing": {"value": "existing"}}],
+    ) == [
+        {"item": {"value": "future"}}
+    ]
 
 
 def test_union_overload_is_registered_for_direct_operator_dispatch():
