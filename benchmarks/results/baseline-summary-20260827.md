@@ -41,42 +41,46 @@ difference is in play.
 |---|---:|---|---:|
 | macOS | **1.111x** | 38 / 36 / 5 | 1.030x |
 | Linux | **1.136x** | 34 / 39 / 5 | 1.116x |
-| Windows | **1.463x** | 76 / 2 / 1 | 1.035x |
+| Windows (new box) | **1.463x** | 76 / 2 / 1 | 1.035x |
+| Windows (old box, constant hardware) | **1.183x** | — | not measured |
 
 0.8.19 is faster on every host for roughly 3–12% more incremental resident
 memory.
 
-### The Windows gain is not a hardware artifact
+### Most of the Windows gain is the new hardware, not the release
 
-Both Windows columns were measured on the same new box 21 minutes apart —
-Windows 11 10.0.26200, 32-core AMD, Python 3.14.7, identical scenario pack,
-only the wheel differing — so hardware and OS are constant across that ratio
-and cannot produce it. The absolute geometric means show what actually moved:
+The 1.463x measured on the new Windows box is a same-host ratio — both wheels
+ran on it 21 minutes apart with the platform constant — so it is real for that
+machine. But it is *not* the release effect. The old Windows box
+(`hg-windows`, Windows 10, Intel i9-9980HK, the 20260809 hardware) was
+re-instated on 2026-08-28 and both published wheels were run on it too, same
+scenario pack, same Python 3.14.7:
 
-| Host | 0.8.1 geomean | 0.8.19 geomean | Self-ratio | vs macOS on 0.8.1 | vs macOS on 0.8.19 |
-|---|---:|---:|---:|---:|---:|
-| macOS | 0.0253s | 0.0228s | 1.113x | 1.00x | 1.00x |
-| Linux | 0.0436s | 0.0384s | 1.136x | 1.72x | 1.69x |
-| Windows | 0.0766s | 0.0522s | **1.466x** | **3.02x** | **2.29x** |
+| Windows host | 0.8.1 geomean | 0.8.19 geomean | Gain |
+|---|---:|---:|---:|
+| new — Windows 11, 32-core AMD | 0.0801s | 0.0547s | **1.463x** |
+| old — Windows 10, i9-9980HK | 0.1162s | 0.0983s | **1.183x** |
 
-Windows was disproportionately penalised on 0.8.1 — three times slower than
-macOS in absolute terms — and 0.8.19 closed part of that gap, to 2.29x. It
-remains the slowest host by a wide margin, so this is not Windows becoming
-fast; it is a Windows-specific cost that this line partly removed. Linux is the
-control: it holds at 1.72x → 1.69x relative to macOS, which is what a sound
-method should show for a platform with no such penalty.
+**On constant old hardware the release is worth 1.183x**, in line with macOS
+(1.111x) and Linux (1.136x). The extra gain on the new box comes from the
+platform change interacting with the release: the old box is 1.45x slower than
+the new on 0.8.1 but 1.80x slower on 0.8.19, so 0.8.19 exploits the newer
+machine better than 0.8.1 did.
 
-Two limits on that reading. Cross-host absolute times mix hardware, OS and
-toolchain, so the 2.29x is a statement about that machine, not about hgraph.
-And the old Windows box is gone, so nothing can test whether Windows 10 on the
-Intel part would have shown the same gain — the platform change and the
-hardware change cannot be separated from each other, only from the release.
+Quote **1.18x** as what 0.8.1 → 0.8.19 delivered on Windows. The 1.463x
+belongs to the machine upgrade plus the release together, and must not be
+reported as a property of the release.
 
-One measurement asymmetry, noted for honesty: the 0.8.19 figures come from a
-two-mode run and the 0.8.1 figures from a single-mode run, so the former did
-more total work per session. If that host throttles under sustained load the
-effect understates the 0.8.19 column, making the reported gain conservative
-rather than inflated. The same asymmetry applies on all three hosts.
+This also retires an earlier reading in this file, which took the new box's
+1.463x as evidence that 0.8.1 carried a large Windows-specific cost. The
+correct statement is narrower: Windows improved about as much as the POSIX
+hosts, and the new hardware is disproportionately good at running 0.8.19.
+
+One measurement asymmetry, noted for honesty: the new box's 0.8.19 figures come
+from a two-mode run and its 0.8.1 figures from a single-mode run, so the former
+did more work per session. If that host throttles under sustained load the
+effect understates the 0.8.19 column. The old-box pair has no such asymmetry —
+both are single-mode runs — which is another reason to prefer its 1.183x.
 
 **No scenario is slower on all three hosts.** 32 of 78 are faster everywhere.
 Direction has to be read per platform rather than pooled.
@@ -207,5 +211,6 @@ work.
 | `memory-baseline-20260827-{macos,linux,windows}.{md,json}` | the same for memory |
 | `performance-081-20260827-{macos,linux,windows}.{md,json}` | published 0.8.1, re-measured on current hardware for the delta |
 | `memory-081-20260827-{macos,linux,windows}.{md,json}` | the same for memory |
+| `performance-{081,0819}-20260828-windows-i9.{md,json}` | both wheels on the old Windows box, isolating the release from the hardware change |
 | `performance-baseline-20260827-{macos,linux}-repeat.md` | second runs; the noise floor above |
 | `performance-20260827-linux-gcc15-localbuild.md`, `memory-20260827-linux-gcc15-localbuild.md` | the GCC 15 local build, kept as toolchain evidence |
