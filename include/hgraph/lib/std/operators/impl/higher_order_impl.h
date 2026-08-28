@@ -3410,18 +3410,30 @@ namespace hgraph::stdlib
                     "mesh_(func)[k] used outside a mesh scope (no enclosing mesh is being wired)");
             }
 
+            const ValueTypeMetaData *key_type =
+                OperatorRegistry::instance().resolve_mesh_key_scope(name);
+            const TSValueTypeMetaData *key_schema =
+                key_type != nullptr ? TypeRegistry::instance().ts(key_type) : nullptr;
+            if (key_schema == nullptr ||
+                TypeRegistry::instance().dereference(key.schema) != key_schema)
+            {
+                throw std::invalid_argument(
+                    "mesh lookup key type does not match the enclosing mesh key type");
+            }
+            WiringPortRef item = graph_wiring_detail::value_consumer_source(key);
+
             // {item, value}: ``item`` is the requested key (wired); ``value`` starts at a
             // never-ticking ``nothing<OUT>`` placeholder and is rebound at runtime to
             // self[item] (forwards it and makes the node reactive to the sibling's ticks).
             std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields{
-                {"item", key.schema}, {"value", out_schema}};
+                {"item", item.schema}, {"value", out_schema}};
             const auto *input_schema = TypeRegistry::instance().un_named_tsb(fields);
 
             WiringNodeSchema node_schema;
             node_schema.input  = input_schema;
             node_schema.output = out_schema;
 
-            std::array<WiringPortRef, 2> inputs{key, value_placeholder};
+            std::array<WiringPortRef, 2> inputs{std::move(item), value_placeholder};
             return w.add_node(
                 std::type_index(typeid(mesh_subscribe_node_tag)), node_schema,
                 std::span<const WiringPortRef>{inputs.data(), inputs.size()}, Value{},

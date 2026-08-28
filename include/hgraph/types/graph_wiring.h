@@ -2111,12 +2111,11 @@ namespace hgraph
          * installs the same REF-transparent adaptation as a typed ``In<T>``.
          * Dereferencing is recursive for container schemas.
          *
-         * Do NOT call this from an operator implementation: whether a given
-         * argument wants the value or the reference is decided by its
-         * declaration, in ``operator_dispatch_detail::value_argument``, which
-         * is the sole caller. A consumer that dereferences by hand is deciding
-         * a question its declaration has already answered — that is how the
-         * rule came to be applied inconsistently in the first place.
+         * Ordinary operator implementations do not call this themselves:
+         * ``operator_dispatch_detail::value_argument`` applies it from the
+         * declared parameter contract. Framework wiring surfaces that bypass
+         * operator dispatch must apply it explicitly when their contract
+         * consumes a value rather than a reference.
          */
         [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
         {
