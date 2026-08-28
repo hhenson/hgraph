@@ -81,6 +81,16 @@ target_compile_definitions(hgraph_web_h2_loopback_tests PRIVATE
 target_link_libraries(hgraph_web_h2_loopback_tests
     PRIVATE OpenSSL::SSL OpenSSL::Crypto ${HGRAPH_WEB_BOOST_TARGETS})
 
+# A static hgraph_web propagates its private nghttp2 dependency as link-only;
+# a shared hgraph_web consumes it internally, so tests that call nghttp2
+# directly must add their own link-only dependency.
+if(HGRAPH_WEB_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    target_link_libraries(hgraph_web_h2_engine_tests
+        PRIVATE $<LINK_ONLY:${HGRAPH_WEB_NGHTTP2_TARGET}>)
+    target_link_libraries(hgraph_web_h2_loopback_tests
+        PRIVATE $<LINK_ONLY:${HGRAPH_WEB_NGHTTP2_TARGET}>)
+endif()
+
 foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_transport_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_h2_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_link_libraries(${target} PRIVATE hgraph::web)
