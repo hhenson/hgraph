@@ -41,13 +41,13 @@ difference is in play.
 |---|---:|---|---:|
 | macOS | **1.111x** | 38 / 36 / 5 | 1.030x |
 | Linux | **1.136x** | 34 / 39 / 5 | 1.116x |
-| Windows (new box) | **1.463x** | 76 / 2 / 1 | 1.035x |
-| Windows (old box, constant hardware) | **1.183x** | — | not measured |
+| Windows (Win11/AMD) | **1.463x** | 76 / 2 / 1 | 1.035x |
+| Windows (Win10/i9) | **1.183x** | — | not measured |
 
 0.8.19 is faster on every host for roughly 3–12% more incremental resident
 memory.
 
-### Most of the Windows gain is the new hardware, not the release
+### The Windows release effect is hardware-conditional
 
 The 1.463x measured on the new Windows box is a same-host ratio — both wheels
 ran on it 21 minutes apart with the platform constant — so it is real for that
@@ -61,20 +61,23 @@ scenario pack, same Python 3.14.7:
 | new — Windows 11, 32-core AMD | 0.0801s | 0.0547s | **1.463x** |
 | old — Windows 10, i9-9980HK | 0.1162s | 0.0983s | **1.183x** |
 
-**On constant old hardware the release is worth 1.183x**, in line with macOS
-(1.111x) and Linux (1.136x). The extra gain on the new box comes from the
-platform change interacting with the release: the old box is 1.45x slower than
-the new on 0.8.1 but 1.80x slower on 0.8.19, so 0.8.19 exploits the newer
+**Both are valid same-host measurements**, and neither contains a hardware
+upgrade: each compares two wheels on one unchanged machine. Together they show
+that **the release effect on Windows is hardware-conditional** -- 1.183x on the
+Win10/i9 box, 1.463x on the Win11/AMD box. Someone moving 0.8.1 to 0.8.19 on
+the newer machine really does get about 1.46x on this pack.
+
+Quote the figure with its host attached rather than collapsing the two. 1.183x
+is the conservative, older-hardware number and the one comparable to macOS
+(1.111x) and Linux (1.136x); 1.463x is what the newer hardware delivers. The
+interaction is visible in the cross-host ratios: the old box is 1.45x slower
+than the new on 0.8.1 but 1.80x slower on 0.8.19, so 0.8.19 exploits the newer
 machine better than 0.8.1 did.
 
-Quote **1.18x** as what 0.8.1 → 0.8.19 delivered on Windows. The 1.463x
-belongs to the machine upgrade plus the release together, and must not be
-reported as a property of the release.
-
-This also retires an earlier reading in this file, which took the new box's
-1.463x as evidence that 0.8.1 carried a large Windows-specific cost. The
-correct statement is narrower: Windows improved about as much as the POSIX
-hosts, and the new hardware is disproportionately good at running 0.8.19.
+This retires two earlier readings in this file: that the new box's 1.463x was
+evidence of a large Windows-specific cost in 0.8.1, and that it combined "the
+machine upgrade plus the release". Neither holds -- the ratio is
+hardware-conditional, not hardware-contaminated.
 
 One measurement asymmetry, noted for honesty: the new box's 0.8.19 figures come
 from a two-mode run and its 0.8.1 figures from a single-mode run, so the former

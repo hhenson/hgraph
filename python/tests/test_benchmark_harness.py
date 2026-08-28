@@ -451,3 +451,43 @@ def test_compiler_falls_back_to_the_probe_when_unreadable(monkeypatch):
     )
 
     assert orchestrate.benchmark_metadata()["compiler"] == "c++ 14.3.0"
+
+
+def test_compiler_is_not_taken_from_a_candidate_this_run_did_not_build(
+    monkeypatch, tmp_path
+):
+    """A release-only run must not inherit a stale candidate's toolchain.
+
+    The venv survives between runs, so a reconstruction that never builds the
+    candidate can still find an extension there -- from another commit, or
+    another compiler. Reporting it would attribute a binary this run never
+    executed to published-wheel measurements.
+    """
+    fingerprint_file = tmp_path / ".source-fingerprint"
+    fingerprint_file.write_text("fingerprint-of-some-older-build\n")
+    monkeypatch.setattr(orchestrate, "HG_CPP_FINGERPRINT_FILE", fingerprint_file)
+    monkeypatch.setattr(
+        orchestrate, "hg_cpp_source_fingerprint", lambda: "fingerprint-of-this-run"
+    )
+
+    assert orchestrate._built_extension_producer() == ""
+
+
+def test_memory_mode_help_tracks_the_pinned_release():
+    """`--help` must not name a version the harness no longer installs.
+
+    The memory campaign imports the pin from the performance orchestrator, so
+    a hand-written version in its help text goes stale the moment the pin
+    moves -- as it did, still advertising 0.8.1 after the move to 0.8.19.
+    """
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    completed = subprocess.run(
+        [sys.executable, str(orchestrate.BENCH_DIR / "memory_orchestrate.py"),
+         "--help"],
+        check=True, capture_output=True, text=True, timeout=300,
+    )
+
+    assert orchestrate.FIXED_RELEASE_HGRAPH_VERSION in completed.stdout
+    assert "0.8.1 and current source" not in completed.stdout

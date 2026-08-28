@@ -269,6 +269,17 @@ def _built_extension_producer() -> str:
     """
     if sys.platform != "linux":
         return ""
+    # Only speak for an extension built from the source this run identifies.
+    # A release-only or upstream-only run never builds the candidate, so the
+    # venv can still hold a wheel from another commit or toolchain; attributing
+    # its compiler to published-wheel measurements would be a lie about a
+    # binary the run never executed.
+    try:
+        built_fingerprint = HG_CPP_FINGERPRINT_FILE.read_text().strip()
+    except OSError:
+        return ""
+    if built_fingerprint != hg_cpp_source_fingerprint():
+        return ""
     modules = sorted(HG_CPP_VENV.glob("lib/python*/site-packages/_hgraph*.so"))
     if not modules:
         return ""

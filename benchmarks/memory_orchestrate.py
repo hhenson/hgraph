@@ -472,8 +472,10 @@ def main() -> int:
                         help="restrict to stable profile ID(s)")
     parser.add_argument("--group", action="append",
                         help="restrict to exact memory profile group")
-    parser.add_argument("--mode", action="append", choices=MODES,
-                        help="default: fixed hgraph 0.8.1 and current source")
+    parser.add_argument(
+        "--mode", action="append", choices=MODES,
+        help="default: fixed hgraph "
+             f"{performance.FIXED_RELEASE_HGRAPH_VERSION} and current source")
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--sampling-interval-ms", type=float, default=5.0)
     parser.add_argument("--timeout", type=int, default=600)
