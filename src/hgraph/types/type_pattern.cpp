@@ -37,8 +37,7 @@ namespace hgraph
                 return false;
             }
             if (pattern.bound == nullptr) { return true; }
-            return concrete == pattern.bound ||
-                   TypeRegistry::instance().bundle_is_a(concrete, pattern.bound);
+            return TypeRegistry::instance().value_is_a(concrete, pattern.bound);
         }
 
         [[nodiscard]] bool ts_allowed_by_constraints(const TypePattern &pattern,
@@ -84,12 +83,15 @@ namespace hgraph
             const ValueTypeMetaData *concrete,
             ResolutionMap &map)
         {
+            if (pattern.kind == ScalarPattern::Kind::Concrete)
+            {
+                return TypeRegistry::instance().value_is_a(concrete, pattern.meta);
+            }
             if (pattern.kind == ScalarPattern::Kind::Var)
             {
                 if (const auto *bound = map.find_scalar(pattern.name);
-                    bound != nullptr && bound->is_named_bundle() && concrete != nullptr &&
-                    concrete->is_named_bundle() &&
-                    TypeRegistry::instance().bundle_is_a(concrete, bound))
+                    bound != nullptr && concrete != nullptr &&
+                    TypeRegistry::instance().value_is_a(concrete, bound))
                 {
                     return true;
                 }

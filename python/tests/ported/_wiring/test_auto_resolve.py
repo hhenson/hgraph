@@ -1,13 +1,13 @@
 # Ported from release/0.5:hgraph_unit_tests/_wiring/test_auto_resolve.py
 from dataclasses import dataclass
-from typing import Callable, Type, TypeVar
+from typing import Callable, Generic, Type, TypeVar
 
 import pytest
 
 from hgraph import (
     AUTO_RESOLVE, DEFAULT, K, OUT, SCALAR, SCALAR_1, SIZE,
-    TIME_SERIES_TYPE, CompoundScalar, Size, TS, TSD, TSL, WiringError,
-    compute_node, graph, operator,
+    TIME_SERIES_TYPE, CompoundScalar, Size, TS, TSB, TSD, TSL,
+    TimeSeriesSchema, WiringError, compute_node, graph, operator,
 )
 from hgraph import const
 from hgraph.reflection import fields
@@ -95,6 +95,32 @@ def test_graph_subscript_prioritizes_default_type_carrier():
         return type_name[int](inferred=str)
 
     assert eval_node(app) == ["int"]
+
+
+def test_operator_subscript_binds_sole_scalar_type_variable_in_nested_output():
+    @dataclass(frozen=True)
+    class First:
+        value: int
+
+    @dataclass(frozen=True)
+    class Second:
+        value: str
+
+    value_type = TypeVar("LOADED_VALUE", First, Second)
+
+    class Result(TimeSeriesSchema, Generic[value_type]):
+        value: TS[value_type]
+
+    @operator
+    def load(
+        tp: type[value_type] = AUTO_RESOLVE,
+    ) -> TSD[str, TSB[Result[value_type]]]: ...
+
+    @graph(overloads=load)
+    def load_first() -> TSD[str, TSB[Result[value_type]]]:
+        return const[TSD[str, TSB[Result[First]]]]({})
+
+    assert eval_node(load[First]) == [{}]
 
 
 @pytest.mark.parametrize(

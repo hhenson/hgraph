@@ -115,7 +115,8 @@ _MISSING = object()
 
 def _is_object_vt(vt):
     try:
-        return vt == _hgraph.value_type("object")
+        return (vt == _hgraph.value_type("object") or
+                vt.is_opaque_python)
     except TypeError:
         return False
 

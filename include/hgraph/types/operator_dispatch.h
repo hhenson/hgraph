@@ -605,6 +605,22 @@ namespace hgraph
             if (target == nullptr) { return std::nullopt; }
             if (source.schema() == target) { return source; }
 
+            // Nominal Python scalars share the Any representation but retain
+            // distinct schemas for overload selection.  Rebox an inherited
+            // value at the declared base schema so Scalar<object>/Scalar<Base>
+            // parameters receive their ordinary Any payload without weakening
+            // nominal matching between unrelated Python classes.
+            if (target->value_kind() == ValueTypeKind::Any &&
+                TypeRegistry::instance().value_is_a(source.schema(), target))
+            {
+                Value coerced{ValuePlanFactory::instance().type_for(target)};
+                const ValueView contained = source.view().is_any()
+                                                ? source.as_any().get()
+                                                : source.view();
+                if (contained.valid()) { coerced.as_any().begin_mutation().set(contained); }
+                return coerced;
+            }
+
             if (target == scalar_descriptor<Bool>::value_meta()) { return coerce_standard_numeric_scalar<Bool>(source); }
             if (target == scalar_descriptor<std::int8_t>::value_meta())
             {

@@ -37,6 +37,64 @@ _PYTHON_OBJECT_CLASSES = []
 _TSB_SCHEMA_CLASSES = {}
 _TS_SCALAR_TYPES = {}
 _VALUE_SCALAR_TYPES = {}
+_OPAQUE_TYPE_CACHE = {}
+
+
+def _opaque_parameterized_parents(annotation, argument):
+    if argument is object:
+        return [_hgraph.value_type("object")]
+    rebuild = getattr(annotation, "copy_with", None)
+    return [
+        _opaque_value_type(
+            rebuild((parent,)) if rebuild is not None else type[parent]
+        )
+        for parent in argument.__bases__
+    ]
+
+
+def _opaque_class_parent(base):
+    if base is object or base in _SCALAR_NAMES:
+        return _hgraph.value_type("object")
+    native = _hgraph.native_scalar_value_type(base)
+    return (_hgraph.value_type("object") if native is not None
+            else _opaque_value_type(base))
+
+
+def _opaque_type_parents(annotation):
+    import typing
+
+    origin = typing.get_origin(annotation)
+    arguments = typing.get_args(annotation)
+    if origin is type and len(arguments) == 1 and isinstance(arguments[0], type):
+        return _opaque_parameterized_parents(annotation, arguments[0])
+    if not isinstance(annotation, type):
+        return [_hgraph.value_type("object")]
+
+    parents = []
+    for base in annotation.__bases__:
+        parent = _opaque_class_parent(base)
+        if parent not in parents:
+            parents.append(parent)
+    return parents or [_hgraph.value_type("object")]
+
+
+def _opaque_value_type(annotation):
+    """Return the nominal Any-storage schema for a Python-only annotation."""
+    if annotation is object:
+        return _hgraph.value_type("object")
+
+    cache_key = (_hgraph._registry_generation(), annotation)
+    cached = _OPAQUE_TYPE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    module = getattr(annotation, "__module__", "typing")
+    qualname = getattr(annotation, "__qualname__", repr(annotation))
+    name = f"python::{module}.{qualname}@{id(annotation):x}"
+    value_type = _hgraph.opaque_python_vt(
+        annotation, name, _opaque_type_parents(annotation))
+    _OPAQUE_TYPE_CACHE[cache_key] = value_type
+    return value_type
 
 
 def register_native_scalar_type(python_type, native_value_type):
@@ -1629,7 +1687,7 @@ def _value_type(scalar):
             # B] and type[A]) are opaque Python values. Their type arguments
             # remain Python-side validation/documentation and do not invent a
             # second native schema family.
-            return _hgraph.value_type("object")
+            return _opaque_value_type(origin)
         raise TypeError(f"unsupported generic scalar type for hgraph: {scalar!r}")
     if scalar is typing.Tuple:
         raise _GenericType(repr(scalar), _hgraph.scalar_pattern_unknown_tuple())
@@ -1654,6 +1712,11 @@ def _value_type(scalar):
             scalar.__name__,
             _hgraph.scalar_pattern_map(_hgraph.scalar_pattern_var("K"), _hgraph.scalar_pattern_var("V")),
         )
+    if scalar is type:
+        # A bare ``type`` accepts every Python class object. Parameterized
+        # ``type[T]`` annotations still lower to their shared nominal origin
+        # through the generic branch above.
+        name = "object"
     if name is None and isinstance(scalar, type):
         from ._compat import CompoundScalar
 
@@ -1688,7 +1751,7 @@ def _value_type(scalar):
     if name is None and isinstance(scalar, type):
         # Any python class is a first-class scalar (hgraph parity): it maps
         # onto the "object" value kind; type checking stays python-side.
-        name = "object"
+        return _opaque_value_type(scalar)
     if name is None:
         raise TypeError(f"unsupported scalar type for hgraph: {scalar!r}")
     return _hgraph.value_type(name)
@@ -2116,7 +2179,11 @@ class _TSMeta(type):
             _VALUE_SCALAR_TYPES[value_type] = scalar
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
-            return _GenericTsExpr(f"TS[{scalar!r}]", pattern=_hgraph.type_pattern_ts(e.pattern))
+            return _GenericTsExpr(
+                f"TS[{scalar!r}]",
+                pattern=_hgraph.type_pattern_ts(e.pattern),
+                variables=_type_variables_of(scalar),
+            )
         _TS_SCALAR_TYPES[expr.handle] = scalar
         from ._compat import CompoundScalar as _CS
 
@@ -2164,7 +2231,11 @@ class _TSSMeta(type):
                     f"TSS element type {scalar!r} must be hashable and equatable")
             return _TsExpr(_hgraph.tss(value_type), f"TSS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType:
-            return _GenericTsExpr(f"TSS[{scalar!r}]", pattern=_hgraph.type_pattern_tss(_scalar_pattern(scalar)))
+            return _GenericTsExpr(
+                f"TSS[{scalar!r}]",
+                pattern=_hgraph.type_pattern_tss(_scalar_pattern(scalar)),
+                variables=_type_variables_of(scalar),
+            )
 
 
 class TSS(metaclass=_TSSMeta):
@@ -2200,6 +2271,7 @@ class _TSDMeta(type):
             return _GenericTsExpr(
                 f"TSD[{key!r}, {value!r}]",
                 pattern=_hgraph.type_pattern_tsd(_scalar_pattern(key), _type_pattern(value)),
+                variables=_type_variables_of((key, value)),
             )
 
 
@@ -2294,14 +2366,20 @@ class _TSWMeta(type):
                 element = _hgraph.scalar_pattern_value(_value_type(value))
             except _GenericType as e:
                 element = e.pattern
-            return _GenericTsExpr(label, pattern=_hgraph.type_pattern_tsw(element))
+            return _GenericTsExpr(
+                label,
+                pattern=_hgraph.type_pattern_tsw(element),
+                variables=_type_variables_of(items),
+            )
         try:
             value_type = _value_type(value)
         except _GenericType as e:
             period = int(sizes[0]) if sizes and isinstance(sizes[0], int) else 0
             pattern = (_hgraph.type_pattern_tsw(e.pattern, period)
                        if period > 0 else _hgraph.type_pattern_tsw(e.pattern))
-            return _GenericTsExpr(label, pattern=pattern)
+            return _GenericTsExpr(
+                label, pattern=pattern, variables=_type_variables_of(items)
+            )
         if any(isinstance(size, datetime.timedelta) for size in sizes):
             return _TsExpr(_hgraph.tsw_duration(value_type, *sizes), label)
         return _TsExpr(_hgraph.tsw(value_type, *(sizes or (0,))), label)
@@ -2357,6 +2435,7 @@ class _TSLMeta(type):
             return _GenericTsExpr(
                 f"TSL[{element!r}, {size!r}]",
                 pattern=_hgraph.type_pattern_tsl(_type_pattern(element), _size_pattern(size)),
+                variables=_type_variables_of((element, size)),
             )
 
 
@@ -2546,7 +2625,10 @@ class _TSBMeta(type):
     def __getitem__(cls, schema):
         if isinstance(schema, (_TypeVarSentinel, _typing.TypeVar)):
             return _GenericTsExpr(
-                f"TSB[{schema!r}]", pattern=_hgraph.type_pattern_tsb(_type_var_name(schema)))
+                f"TSB[{schema!r}]",
+                pattern=_hgraph.type_pattern_tsb(_type_var_name(schema)),
+                variables=(schema,),
+            )
         # hgraph's INLINE schema: TSB["lhs": TS[int], "rhs": TS[int]] - an
         # un-named structural bundle with the given fields.
         if isinstance(schema, slice):
@@ -2706,7 +2788,9 @@ class _TSBMeta(type):
         if generic:
             return _GenericTsExpr(
                 f"TSB[{origin.__name__}]",
-                pattern=_hgraph.type_pattern_tsb_fields(field_names, field_patterns))
+                pattern=_hgraph.type_pattern_tsb_fields(field_names, field_patterns),
+                variables=_type_variables_of(schema),
+            )
 
         # The registry's TSB namespace is GLOBAL; python classes are scoped
         # (tests re-define same-named local schemas freely). Qualify with the
@@ -2925,19 +3009,58 @@ def with_signature(fn=None, *, annotations=None, args=None, kwargs=None, default
     return fn
 
 
+def _type_variable_children(value):
+    if isinstance(value, _GenericTsExpr):
+        return value.variables
+    if isinstance(value, _ContextExpr):
+        return (value.ts,)
+    if isinstance(value, _ArrayType):
+        return (value.element, value.dimensions)
+    if isinstance(value, _SeriesType):
+        return (value.element,)
+    if isinstance(value, _FrameType):
+        return (value.schema, value.metadata)
+    if isinstance(value, dict):
+        return tuple(value.keys()) + tuple(value.values())
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return value
+    return (*_typing.get_args(value), *getattr(value, "__parameters__", ()))
+
+
+def _type_variables_of(annotation):
+    """Return the original Python generic variables retained by an annotation.
+
+    Native ``TypePattern`` objects preserve variable names and matching rules,
+    but service specialization also needs the Python objects for scalar versus
+    time-series classification and for their constraints.
+    """
+    found = {}
+
+    def visit(value):
+        if isinstance(value, (_TypeVarSentinel, _typing.TypeVar)):
+            found.setdefault(_type_var_name(value), value)
+            return
+        for child in _type_variable_children(value):
+            visit(child)
+
+    visit(annotation)
+    return tuple(found.values())
+
+
 class _GenericTsExpr:
     """A generic (unresolved) time-series annotation: TS[SCALAR] etc.
     Treated like an absent annotation - types resolve from wired ports or
     sample values. ``is_ref``/``inner`` carry REF[TYPEVAR] structure so
     generic py nodes can resolve from actual arguments."""
 
-    __slots__ = ("label", "is_ref", "inner", "pattern")
+    __slots__ = ("label", "is_ref", "inner", "pattern", "variables")
 
-    def __init__(self, label, is_ref=False, inner=None, pattern=None):
+    def __init__(self, label, is_ref=False, inner=None, pattern=None, variables=()):
         self.label = label
         self.is_ref = is_ref
         self.inner = inner
         self.pattern = pattern
+        self.variables = tuple(variables)
 
     def __repr__(self):
         return self.label
@@ -3163,7 +3286,13 @@ class _REFMeta(type):
                 _hgraph.type_pattern_var(_type_var_name(item))
                 if isinstance(item, _TypeVarSentinel) else _type_pattern(item)
             )
-            return _GenericTsExpr(f"REF[{item!r}]", is_ref=True, inner=item, pattern=pattern)
+            return _GenericTsExpr(
+                f"REF[{item!r}]",
+                is_ref=True,
+                inner=item,
+                pattern=pattern,
+                variables=_type_variables_of(item),
+            )
         expr = _TsExpr(_m.ref_ts(_resolve(item)), f"REF[{item!r}]")
         expr.is_ref = True
         return expr

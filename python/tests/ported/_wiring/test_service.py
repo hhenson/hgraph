@@ -185,6 +185,36 @@ def test_single_service_type_variable_accepts_direct_specialization():
     assert specialized._resolution.bindings["SERVICE_OUTPUT"] == TS[int].handle
 
 
+def test_subscription_service_specializes_scalar_type_variable_in_tsb_return():
+    @dataclass(frozen=True)
+    class First:
+        value: int
+
+    @dataclass(frozen=True)
+    class Second:
+        value: str
+
+    @dataclass(frozen=True)
+    class Other:
+        value: float
+
+    value_type = TypeVar("SERVICE_VALUE", First, Second)
+
+    class Result(TimeSeriesSchema, Generic[value_type]):
+        value: TS[value_type]
+        error: TS[str]
+
+    @hg.subscription_service
+    def by_name(key: TS[str]) -> TSB[Result[value_type]]: ...
+
+    specialized = by_name[First]
+
+    assert specialized.descriptor is not None
+    assert "SERVICE_VALUE" in specialized._resolution.bindings
+    with pytest.raises(TypeError, match="SERVICE_VALUE must be one of First, Second"):
+        by_name[Other]
+
+
 def test_reference_service_specializes_a_schema_type_variable():
     class First(TimeSeriesSchema):
         value: TS[int]

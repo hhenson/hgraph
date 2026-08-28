@@ -988,17 +988,15 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
   auto &registry = TypeRegistry::instance();
   const auto *input = registry.dereference(input_schema);
   const auto *output = registry.dereference(source.schema);
-  const bool bundle_upcast =
+  const bool nominal_upcast =
       input_schema->kind == TSTypeKind::TS && source.schema != nullptr &&
       source.schema->kind == TSTypeKind::TS && input != nullptr &&
       output != nullptr && input->kind == TSTypeKind::TS &&
       output->kind == TSTypeKind::TS && input->value_schema != nullptr &&
       output->value_schema != nullptr &&
-      input->value_schema->is_named_bundle() &&
-      output->value_schema->is_named_bundle() &&
-      TypeRegistry::instance().bundle_is_a(output->value_schema,
-                                           input->value_schema);
-  if (bundle_upcast && !time_series_schema_equivalent(input, output)) {
+      TypeRegistry::instance().value_is_a(output->value_schema,
+                                          input->value_schema);
+  if (nominal_upcast && !time_series_schema_equivalent(input, output)) {
     WiringArg arg;
     arg.kind = WiringArg::Kind::TimeSeries;
     arg.port = std::move(source);

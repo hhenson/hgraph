@@ -17,6 +17,7 @@
 
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
+#include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/python/ts_data_conversion.h>
 
 namespace nb = nanobind;
@@ -1566,6 +1567,39 @@ struct type_py_node {
   }
 };
 
+/** Checked narrowing between nominal opaque Python schemas. */
+struct downcast_python_opaque_node {
+  static constexpr auto name = "downcast_python_opaque";
+  static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
+
+  static bool requires_(const ResolutionMap &resolution,
+                        OperatorCallContext context) {
+    using namespace hgraph::operator_type_resolution;
+    const auto *input = ts_value_schema_at(context, 0);
+    const auto *output = resolution.find_ts("O");
+    const auto *target = output != nullptr && output->kind == TSTypeKind::TS
+                             ? output->value_schema
+                             : nullptr;
+    return input != nullptr && target != nullptr &&
+           input->is_opaque_python() && target->is_opaque_python() &&
+           TypeRegistry::instance().value_is_a(target, input);
+  }
+
+  static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"O">> out) {
+    translate_python_error([&] {
+      const auto &erased = static_cast<const TSOutputView &>(out);
+      nb::object target = python_type_for_opaque(erased.schema()->value_schema);
+      nb::object value = ts.base().value_to_python();
+      if (target.is_none() || !nb::isinstance(value, target)) {
+        throw nb::type_error(
+            "downcast_: opaque Python value does not match the requested type");
+      }
+      apply_python_result(erased, value);
+    });
+  }
+};
+
 /** ``getattr_(TS[type], "name" | "__name__")`` — the type's __name__
     (upstream's getattr_type_name). */
 struct getattr_type_name_node {
@@ -1733,6 +1767,7 @@ void register_python_overloads() {
   register_overload<stdlib::const_, python_const_source>();
   register_overload<stdlib::const_, python_const_delayed>();
   register_overload<stdlib::type_, type_py_node>();
+  register_overload<stdlib::downcast_, downcast_python_opaque_node>();
   register_overload<stdlib::getattr_, getattr_type_name_node>();
 }
 } // namespace hgraph::python_bridge

@@ -320,17 +320,14 @@ namespace hgraph::python_bridge
             return *types;
         }
 
-        [[nodiscard]] Value box_any(Value value)
+        [[nodiscard]] Value box_python_object(
+            nb::handle object,
+            const ValueTypeMetaData *schema = TypeRegistry::instance().any())
         {
-            Value boxed{ValuePlanFactory::instance().type_for(
-                TypeRegistry::instance().any())};
-            boxed.as_any().begin_mutation().set(std::move(value));
+            Value boxed{ValuePlanFactory::instance().type_for(schema)};
+            boxed.as_any().begin_mutation().set(
+                Value{PyObj{nb::borrow<nb::object>(object)}});
             return boxed;
-        }
-
-        [[nodiscard]] Value box_python_object(nb::handle object)
-        {
-            return box_any(Value{PyObj{nb::borrow<nb::object>(object)}});
         }
 
         [[nodiscard]] std::size_t python_mro_distance(nb::handle source_class,
@@ -640,6 +637,11 @@ namespace hgraph::python_bridge
         {
             return py_container_to_value(object);
         }
+        if (const auto *opaque = python_bridge::opaque_type_for_python(
+                nb::handle(Py_TYPE(object.ptr()))))
+        {
+            return box_python_object(object, opaque);
+        }
         return box_python_object(object);
     }
 
@@ -842,7 +844,18 @@ namespace hgraph::python_bridge
             if (object.is_none()) { return boxed; }
             Value inferred = py_to_value(object);
             if (inferred.schema() == meta) { return inferred; }
-            boxed.as_any().begin_mutation().set(std::move(inferred));
+            if (inferred.view().is_any())
+            {
+                const ValueView contained = inferred.as_any().get();
+                if (contained.valid())
+                {
+                    boxed.as_any().begin_mutation().set(Value{contained});
+                }
+            }
+            else
+            {
+                boxed.as_any().begin_mutation().set(std::move(inferred));
+            }
             return boxed;
         }
 

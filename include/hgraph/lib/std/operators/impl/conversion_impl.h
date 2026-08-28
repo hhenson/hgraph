@@ -322,7 +322,7 @@ namespace hgraph::stdlib
         }
     };
 
-    /** Convert a concrete Bundle leaf to one of its registered base unions.
+    /** Convert a concrete nominal value to one of its registered base types.
 
         The output's graph-scoped realization owns the closed-union storage;
         copying the concrete input value selects the corresponding leaf. */
@@ -338,8 +338,36 @@ namespace hgraph::stdlib
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
                    in != nullptr && out->value_schema != nullptr &&
-                   in->is_named_bundle() && out->value_schema->is_named_bundle() &&
-                   TypeRegistry::instance().bundle_is_a(in, out->value_schema);
+                   TypeRegistry::instance().value_is_a(in, out->value_schema);
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)
+        {
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+            static_cast<void>(mutation.copy_value_from(ts.base().value()));
+        }
+    };
+
+    /** Narrow an Any-storage opaque value to a registered derived annotation.
+
+        Both schemas use the same Python-owned Any representation, so the
+        conversion preserves the retained object while restoring the narrower
+        nominal wiring contract. */
+    struct convert_opaque_downcast_impl
+    {
+        static constexpr auto name = "convert_opaque_downcast";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *out = output_schema(resolution);
+            const auto *input = time_series_schema_at(context, 0);
+            const auto *in = ts_value_schema_at(context, 0);
+            return out != nullptr && out->kind == TSTypeKind::TS &&
+                   input != nullptr && input->kind == TSTypeKind::TS &&
+                   in != nullptr && in->is_opaque_python() &&
+                   out->value_schema != nullptr && out->value_schema->is_opaque_python() &&
+                   TypeRegistry::instance().value_is_a(out->value_schema, in);
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)

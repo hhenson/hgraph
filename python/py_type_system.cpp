@@ -797,6 +797,9 @@ namespace hgraph::python_bridge
         .def_prop_ro("is_shared", [](const PyValueType &self) {
             return self.meta != nullptr && self.meta->is_shared();
         })
+        .def_prop_ro("is_opaque_python", [](const PyValueType &self) {
+            return self.meta != nullptr && self.meta->is_opaque_python();
+        })
         .def_prop_ro("fields", [](const PyValueType &self) {
             nb::list result;
             if (self.meta == nullptr) { return result; }
@@ -814,6 +817,24 @@ namespace hgraph::python_bridge
         if (meta == nullptr) { throw nb::value_error(("unknown value type: " + name).c_str()); }
         return PyValueType{meta};
     });
+    m.def("opaque_python_vt",
+          [](nb::handle annotation, const std::string &name, nb::list parent_types) {
+              if (const auto *existing =
+                      python_bridge::opaque_type_for_python(annotation))
+              {
+                  return PyValueType{existing};
+              }
+              std::vector<const ValueTypeMetaData *> parents;
+              parents.reserve(nb::len(parent_types));
+              for (nb::handle parent : parent_types)
+              {
+                  parents.push_back(nb::cast<PyValueType>(parent).meta);
+              }
+              const auto *meta =
+                  TypeRegistry::instance().opaque_python(name, parents);
+              python_bridge::register_python_opaque_type(annotation, meta);
+              return PyValueType{meta};
+          });
     m.def("register_native_scalar_type",
           [](nb::handle python_type, PyValueType native_value_type) {
               python_bridge::register_native_scalar_type(
@@ -826,6 +847,12 @@ namespace hgraph::python_bridge
     });
     m.def("python_type_for_value", [](PyValueType value) -> nb::object {
         if (value.meta == nullptr) { return nb::none(); }
+        if (value.meta == TypeRegistry::instance().any())
+        {
+            return nb::module_::import_("builtins").attr("object");
+        }
+        nb::object opaque = python_bridge::python_type_for_opaque(value.meta);
+        if (!opaque.is_none()) { return opaque; }
         nb::object native =
             python_bridge::python_type_for_native_scalar(value.meta);
         if (!native.is_none()) { return native; }

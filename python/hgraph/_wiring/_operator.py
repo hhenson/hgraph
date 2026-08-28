@@ -7,7 +7,8 @@ import inspect
 
 import _hgraph
 
-from .._types import (_ContextExpr, _TsExpr, _TypeVarSentinel, _type_var_name,
+from .._types import (_ContextExpr, _TsExpr, _TypeVarSentinel,
+                      _type_var_name, _type_variables_of,
                       wiring_signature_of as _wiring_signature_of)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
@@ -44,6 +45,16 @@ class _Operator:
         self.__name__ = fn.__name__
         self.__qualname__ = getattr(fn, "__qualname__", fn.__name__)
         self.__doc__ = fn.__doc__
+        self._wiring_signature, self._default_type_var = _wiring_signature_of(fn)
+        variables = {}
+        for parameter in self._wiring_signature.parameters.values():
+            for variable in _type_variables_of(
+                    (parameter.annotation, parameter.default)):
+                variables.setdefault(_type_var_name(variable), variable)
+        for variable in _type_variables_of(
+                self._wiring_signature.return_annotation):
+            variables.setdefault(_type_var_name(variable), variable)
+        self._type_variables = tuple(variables.values())
         # Present the DECLARED signature to introspection (upstream parity;
         # dispatch still accepts any call shape and resolves overloads).
         import inspect
@@ -76,6 +87,20 @@ class _Operator:
         return self._delegate(*args, **kwargs)
 
     def __getitem__(self, item):
+        if not isinstance(item, (slice, tuple)):
+            target = None
+            if len(self._type_variables) == 1:
+                target = self._type_variables[0]
+            elif self._default_type_var is not None:
+                target = next(
+                    (
+                        variable for variable in self._type_variables
+                        if _type_var_name(variable) == self._default_type_var
+                    ),
+                    None,
+                )
+            if target is not None:
+                item = slice(target, item)
         return self._delegate[item]
 
     def overload(self, implementation):

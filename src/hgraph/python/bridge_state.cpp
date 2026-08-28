@@ -97,6 +97,18 @@ NativeScalarRegistrations &native_scalar_registrations() {
   return *registrations;
 }
 
+struct PythonOpaqueRegistrations {
+  std::unordered_map<PyObject *,
+                     std::pair<nb::object, const ValueTypeMetaData *>>
+      by_python_type;
+  std::unordered_map<const ValueTypeMetaData *, nb::object> by_value_type;
+};
+
+PythonOpaqueRegistrations &python_opaque_registrations() {
+  static auto *registrations = new PythonOpaqueRegistrations{};
+  return *registrations;
+}
+
 struct PythonBundleValue {
   PyObject *object{nullptr};
   const ValueTypeMetaData *active_schema{nullptr};
@@ -905,6 +917,50 @@ python_type_for_native_scalar(const ValueTypeMetaData *native_value_type) {
              : nb::borrow<nb::object>(found->second);
 }
 
+void register_python_opaque_type(nb::handle python_type,
+                                 const ValueTypeMetaData *value_type) {
+  if (!python_type.is_valid()) {
+    throw nb::type_error("python_type must be a valid Python annotation");
+  }
+  if (value_type == nullptr || !value_type->is_opaque_python()) {
+    throw nb::type_error("value_type must be a nominal opaque Python schema");
+  }
+  auto &registrations = python_opaque_registrations();
+  const auto python_entry = registrations.by_python_type.find(python_type.ptr());
+  if (python_entry != registrations.by_python_type.end() &&
+      python_entry->second.second != value_type) {
+    throw std::invalid_argument(
+        "Python annotation is already registered to a different opaque schema");
+  }
+  const auto value_entry = registrations.by_value_type.find(value_type);
+  if (value_entry != registrations.by_value_type.end() &&
+      !value_entry->second.is(python_type)) {
+    throw std::invalid_argument(
+        "opaque schema is already registered to a different Python annotation");
+  }
+  if (python_entry != registrations.by_python_type.end()) { return; }
+
+  nb::object retained = nb::borrow<nb::object>(python_type);
+  registrations.by_python_type.emplace(
+      python_type.ptr(), std::pair{retained, value_type});
+  registrations.by_value_type.emplace(value_type, std::move(retained));
+}
+
+const ValueTypeMetaData *opaque_type_for_python(nb::handle python_type) {
+  const auto &registrations = python_opaque_registrations();
+  const auto found = registrations.by_python_type.find(python_type.ptr());
+  return found == registrations.by_python_type.end() ? nullptr
+                                                     : found->second.second;
+}
+
+nb::object python_type_for_opaque(const ValueTypeMetaData *value_type) {
+  const auto &registrations = python_opaque_registrations();
+  const auto found = registrations.by_value_type.find(value_type);
+  return found == registrations.by_value_type.end()
+             ? nb::none()
+             : nb::borrow<nb::object>(found->second);
+}
+
 const ValueTypeMetaData *native_scalar_type_for_value(nb::handle value) {
   if (!value.is_valid()) {
     return nullptr;
@@ -926,6 +982,12 @@ const ValueTypeMetaData *native_scalar_type_for_value(nb::handle value) {
 void clear_native_scalar_types() noexcept {
   auto &registrations = native_scalar_registrations();
   registrations.by_native_type.clear();
+  registrations.by_python_type.clear();
+}
+
+void clear_python_opaque_types() noexcept {
+  auto &registrations = python_opaque_registrations();
+  registrations.by_value_type.clear();
   registrations.by_python_type.clear();
 }
 } // namespace hgraph::python_bridge

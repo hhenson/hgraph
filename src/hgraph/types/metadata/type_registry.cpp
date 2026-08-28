@@ -369,6 +369,29 @@ namespace hgraph
         return false;
     }
 
+    bool TypeRegistry::value_is_a(const ValueTypeMetaData *candidate,
+                                  const ValueTypeMetaData *base) const
+    {
+        const std::lock_guard lock(mutex_);
+        if (candidate == base) { return candidate != nullptr; }
+        if (candidate == nullptr || base == nullptr) { return false; }
+        if (candidate->bundle_hierarchy == nullptr) { return false; }
+        std::vector<const ValueTypeMetaData *> pending{candidate};
+        std::unordered_map<const ValueTypeMetaData *, bool> seen;
+        while (!pending.empty())
+        {
+            const ValueTypeMetaData *current = pending.back();
+            pending.pop_back();
+            if (!seen.emplace(current, true).second || current->bundle_hierarchy == nullptr) { continue; }
+            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
+            {
+                if (parent == base) { return true; }
+                pending.push_back(parent);
+            }
+        }
+        return false;
+    }
+
     std::optional<std::size_t> TypeRegistry::bundle_inheritance_distance(
         const ValueTypeMetaData *candidate,
         const ValueTypeMetaData *base) const
@@ -379,6 +402,41 @@ namespace hgraph
             return std::nullopt;
         }
         if (candidate == base) { return 0; }
+
+        std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> pending{{candidate, 0}};
+        std::unordered_map<const ValueTypeMetaData *, std::size_t> best_distance{{candidate, 0}};
+        std::optional<std::size_t> result;
+        while (!pending.empty())
+        {
+            const auto [current, distance] = pending.back();
+            pending.pop_back();
+            if (result.has_value() && distance >= *result) { continue; }
+            if (current->bundle_hierarchy == nullptr) { continue; }
+            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
+            {
+                const std::size_t parent_distance = distance + 1;
+                if (parent == base)
+                {
+                    result = !result.has_value() ? parent_distance : std::min(*result, parent_distance);
+                    continue;
+                }
+                const auto [found, inserted] = best_distance.emplace(parent, parent_distance);
+                if (!inserted && found->second <= parent_distance) { continue; }
+                found->second = parent_distance;
+                pending.emplace_back(parent, parent_distance);
+            }
+        }
+        return result;
+    }
+
+    std::optional<std::size_t> TypeRegistry::value_inheritance_distance(
+        const ValueTypeMetaData *candidate,
+        const ValueTypeMetaData *base) const
+    {
+        const std::lock_guard lock(mutex_);
+        if (candidate == nullptr || base == nullptr) { return std::nullopt; }
+        if (candidate == base) { return 0; }
+        if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
 
         std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> pending{{candidate, 0}};
         std::unordered_map<const ValueTypeMetaData *, std::size_t> best_distance{{candidate, 0}};
@@ -646,6 +704,7 @@ namespace hgraph
         shared_cache_.clear();
         named_bundle_cache_.clear();
         named_enum_cache_.clear();
+        opaque_python_cache_.clear();
         clear_enum_ops();
         list_cache_.clear();
         array_cache_.clear();
@@ -1191,22 +1250,13 @@ namespace hgraph
                         "bundle '" + qualified_name + "' must preserve inherited field '" +
                         std::string{parent_field.name != nullptr ? parent_field.name : ""} + "'");
                 }
-                if (parent_field.type->is_named_bundle()){
-                    if (!bundle_is_a(child_field->second, parent_field.type))
-                    {
-                        throw std::invalid_argument(
-                            "bundle '" + qualified_name + "' field '" +
-                            std::string{parent_field.name != nullptr ? parent_field.name : ""} + "' "
-                            " of type '" + std::string{child_field->second->name()} + "' " +
-                            "must be covariant with parent type '" +
-                            std::string{parent_field.type->name()} + "'");
-                    }
-                } 
-                else if (child_field->second != parent_field.type)
+                if (!value_is_a(child_field->second, parent_field.type))
                 {
                     throw std::invalid_argument(
                         "bundle '" + qualified_name + "' field '" +
-                        std::string{parent_field.name != nullptr ? parent_field.name : ""} + "' must match parent type '" +
+                        std::string{parent_field.name != nullptr ? parent_field.name : ""} + "' "
+                        "of type '" + std::string{child_field->second->name()} + "' " +
+                        "must be covariant with parent type '" +
                         std::string{parent_field.type->name()} + "'");
                 }
             }
@@ -1536,6 +1586,56 @@ namespace hgraph
                                          ValueTypeFlags::Comparable,
                                      store_name_interned("Any"));
         });
+        return &meta;
+    }
+
+    const ValueTypeMetaData *TypeRegistry::opaque_python(
+        std::string_view name,
+        const std::vector<const ValueTypeMetaData *> &parents)
+    {
+        if (name.empty()) { throw std::invalid_argument("opaque Python type name must not be empty"); }
+        const std::lock_guard lock(mutex_);
+        for (const ValueTypeMetaData *parent : parents)
+        {
+            if (parent == nullptr ||
+                (parent != any() && !parent->is_opaque_python()))
+            {
+                throw std::invalid_argument(
+                    "opaque Python type parents must be object or opaque Python types");
+            }
+        }
+
+        const std::string key{name};
+        const ValueTypeMetaData &meta = opaque_python_cache_.intern(key, [&]() {
+            ValueTypeMetaData m(
+                ValueTypeKind::Any,
+                ValueTypeFlags::Hashable | ValueTypeFlags::Equatable |
+                    ValueTypeFlags::Comparable,
+                store_name_interned(name));
+            auto hierarchy = std::make_unique<BundleHierarchyMetaData>();
+            hierarchy->local_name = store_name_interned(name);
+            hierarchy->parents = parents;
+            hierarchy->generation = ++bundle_hierarchy_generation_;
+            m.bundle_hierarchy = hierarchy.get();
+            bundle_hierarchy_storage_.push_back(std::move(hierarchy));
+            return m;
+        });
+        if (meta.bundle_hierarchy == nullptr ||
+            meta.bundle_hierarchy->parents != parents)
+        {
+            throw std::invalid_argument(
+                "opaque Python type is already registered with different parents");
+        }
+        for (const ValueTypeMetaData *parent : parents)
+        {
+            if (parent->bundle_hierarchy == nullptr) { continue; }
+            auto &children = parent->bundle_hierarchy->children;
+            if (std::ranges::find(children, &meta) == children.end())
+            {
+                children.push_back(&meta);
+                parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
+            }
+        }
         return &meta;
     }
 

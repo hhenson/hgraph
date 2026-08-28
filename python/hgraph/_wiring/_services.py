@@ -370,6 +370,10 @@ def _service_type_variables(signature):
         if isinstance(annotation, (_TypeVarSentinel, typing.TypeVar)):
             found.setdefault(_type_var_name(annotation), annotation)
             return
+        if isinstance(annotation, _GenericTsExpr):
+            for variable in annotation.variables:
+                visit(variable)
+            return
         for argument in typing.get_args(annotation):
             visit(argument)
 
@@ -2117,16 +2121,17 @@ def _resolve_registered_implementation(implementation, resolution_dict, operatio
 
 class _PendingServiceRegistration:
     __slots__ = (
-        "wiring", "path", "implementation", "config", "owners", "registrar", "completed")
+        "wiring_identity", "path", "implementation", "config", "owners", "registrar",
+        "identity")
 
     def __init__(self, wiring, path, implementation, config, owners, registrar):
-        self.wiring = wiring
+        self.wiring_identity = wiring.identity()
         self.path = path
         self.implementation = implementation
         self.config = config
         self.owners = owners
         self.registrar = registrar
-        self.completed = False
+        self.identity = id(self)
 
 
 def _implementation_for_stub(implementation, concrete_stub):
@@ -2227,6 +2232,7 @@ def _queue_service_registration(path, implementation, config, owners=None,
     )
     wiring = _current_wiring()
     root_wiring = _wiring_stack[0] if _wiring_stack else wiring
+    wiring_identity = root_wiring.identity()
     pending = _PendingServiceRegistration(
         root_wiring, path, implementation, dict(config), participants,
         registrar or _register_resolved_service)
@@ -2234,10 +2240,23 @@ def _queue_service_registration(path, implementation, config, owners=None,
         stub._registered_resolutions[:] = [
             registered
             for registered in stub._registered_resolutions
-            if registered[0] is root_wiring
+            if registered[0] == wiring_identity
         ]
     for stub in triggers:
         stub._pending_registrations.append(pending)
+
+    def clear_registration():
+        for stub in participants:
+            stub._pending_registrations[:] = [
+                existing for existing in stub._pending_registrations
+                if existing.wiring_identity != wiring_identity
+            ]
+            stub._registered_resolutions[:] = [
+                registered for registered in stub._registered_resolutions
+                if registered[0] != wiring_identity
+            ]
+
+    root_wiring._retain_cleanup(clear_registration)
 
 
 def _materialize_pending_registrations(
@@ -2246,34 +2265,41 @@ def _materialize_pending_registrations(
     if resolution is None:
         return
     root_wiring = _wiring_stack[0] if _wiring_stack else wiring
+    wiring_identity = root_wiring.identity()
     for pending in tuple(owner._pending_registrations):
-        if pending.completed or pending.wiring is not root_wiring:
+        if pending.wiring_identity != wiring_identity:
+            continue
+        registered = (wiring_identity, pending.path, resolution, pending.identity)
+        if all(
+                any(
+                    registered_identity == wiring_identity
+                    and path == pending.path
+                    and existing.bindings == resolution.bindings
+                    and registration_identity == pending.identity
+                    for registered_identity, path, existing, registration_identity
+                    in stub._registered_resolutions)
+                for stub in pending.owners):
             continue
         resolved = _specialize_registered_implementation(
             pending.implementation, resolution, scalar_values)
-        pending.completed = True
-        registered = (pending.wiring, pending.path, resolution)
         newly_registered = []
         for stub in pending.owners:
             if not any(
-                    registered_wiring is pending.wiring
+                    registered_identity == wiring_identity
                     and path == pending.path
                     and existing.bindings == resolution.bindings
-                    for registered_wiring, path, existing
+                    and registration_identity == pending.identity
+                    for registered_identity, path, existing, registration_identity
                     in stub._registered_resolutions):
                 stub._registered_resolutions.append(registered)
                 newly_registered.append(stub)
         try:
             pending.registrar(
-                pending.path, resolved, pending.config, wiring=pending.wiring)
+                pending.path, resolved, pending.config, wiring=root_wiring)
         except Exception:
-            pending.completed = False
             for stub in newly_registered:
                 stub._registered_resolutions.remove(registered)
             raise
-        for stub in pending.owners:
-            if pending in stub._pending_registrations:
-                stub._pending_registrations.remove(pending)
 
 
 def _registered_service_resolution(owner, wiring, path, requested):
@@ -2285,10 +2311,11 @@ def _registered_service_resolution(owner, wiring, path, requested):
     implementation specialization selected by the first client.
     """
     root_wiring = _wiring_stack[0] if _wiring_stack else wiring
+    wiring_identity = root_wiring.identity()
     requested_bindings = requested.bindings
     candidates = []
-    for registered_wiring, registered_path, resolution in owner._registered_resolutions:
-        if registered_wiring is not root_wiring or registered_path != path:
+    for registered_identity, registered_path, resolution, _ in owner._registered_resolutions:
+        if registered_identity != wiring_identity or registered_path != path:
             continue
         bindings = resolution.bindings
         if all(
@@ -2310,8 +2337,10 @@ def _registered_service_resolution(owner, wiring, path, requested):
 def _expand_pending_resolution(
     owner, resolution, wiring, scalar_values=None,
 ):
+    root_wiring = _wiring_stack[0] if _wiring_stack else wiring
+    wiring_identity = root_wiring.identity()
     for pending in tuple(owner._pending_registrations):
-        if pending.completed or pending.wiring is not wiring:
+        if pending.wiring_identity != wiring_identity:
             continue
         for stub in pending.implementation.interfaces:
             if not isinstance(stub, _ServiceStub):
