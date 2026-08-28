@@ -80,7 +80,68 @@ if(NOT TARGET RdKafka::rdkafka AND NOT TARGET rdkafka)
         GIT_TAG v2.15.0
         GIT_SHALLOW TRUE
     )
-    FetchContent_MakeAvailable(librdkafka)
+    # The pinned release still declares compatibility with obsolete CMake
+    # versions. Suppress that dependency-owned deprecation only while its
+    # project is configured; hgraph-kafka deprecations remain visible.
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0)
+        set(_hgraph_kafka_had_policy_version_minimum FALSE)
+        if(DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+            set(_hgraph_kafka_had_policy_version_minimum TRUE)
+            set(_hgraph_kafka_saved_policy_version_minimum "${CMAKE_POLICY_VERSION_MINIMUM}")
+        endif()
+        if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM OR
+           CMAKE_POLICY_VERSION_MINIMUM VERSION_LESS 3.10)
+            set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
+        endif()
+        FetchContent_MakeAvailable(librdkafka)
+        if(_hgraph_kafka_had_policy_version_minimum)
+            set(CMAKE_POLICY_VERSION_MINIMUM "${_hgraph_kafka_saved_policy_version_minimum}")
+        else()
+            unset(CMAKE_POLICY_VERSION_MINIMUM)
+        endif()
+        unset(_hgraph_kafka_saved_policy_version_minimum)
+        unset(_hgraph_kafka_had_policy_version_minimum)
+    else()
+        set(_hgraph_kafka_had_cmake_warn_deprecated FALSE)
+        if(DEFINED CMAKE_WARN_DEPRECATED)
+            set(_hgraph_kafka_had_cmake_warn_deprecated TRUE)
+            set(_hgraph_kafka_saved_cmake_warn_deprecated "${CMAKE_WARN_DEPRECATED}")
+        endif()
+        set(CMAKE_WARN_DEPRECATED OFF)
+        FetchContent_MakeAvailable(librdkafka)
+        if(_hgraph_kafka_had_cmake_warn_deprecated)
+            set(CMAKE_WARN_DEPRECATED "${_hgraph_kafka_saved_cmake_warn_deprecated}")
+        else()
+            unset(CMAKE_WARN_DEPRECATED)
+        endif()
+        unset(_hgraph_kafka_saved_cmake_warn_deprecated)
+        unset(_hgraph_kafka_had_cmake_warn_deprecated)
+    endif()
+
+    if(MSVC)
+        # Pinned librdkafka 2.15 has two MSVC-only C diagnostics in its own
+        # sources: a va_list flow false positive and a Windows SSPI typedef
+        # mismatch. Keep third-party warnings out of hgraph /WX builds without
+        # weakening warning policy on hgraph targets.
+        target_compile_options(rdkafka PRIVATE /wd4133 /wd4700)
+    elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        # Pinned librdkafka 2.15 triggers Clang diagnostics in its telemetry,
+        # legacy OpenSSL engine, and platform-format code. Scope these to the
+        # fetched third-party target so hgraph keeps its normal warning policy.
+        target_compile_options(rdkafka PRIVATE
+            -Wno-deprecated-declarations
+            -Wno-format
+            -Wno-implicit-enum-enum-cast
+        )
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        # GCC diagnoses the same legacy OpenSSL engine calls plus const
+        # conversions in librdkafka's C compatibility surface. Both belong to
+        # the pinned dependency rather than hgraph targets.
+        target_compile_options(rdkafka PRIVATE
+            -Wno-deprecated-declarations
+            -Wno-discarded-qualifiers
+        )
+    endif()
 
     if(HGRAPH_ENABLE_TSAN)
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

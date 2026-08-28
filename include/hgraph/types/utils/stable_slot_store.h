@@ -438,9 +438,9 @@ namespace hgraph
         [[nodiscard]] StableSlotDebugView implementation_debug_view(const Implementation *typed,
                                                                     bool tagged) const noexcept
         {
-            const auto *base = reinterpret_cast<const std::byte *>(typed);
-            const auto offset_of = [base](const void *address) {
-                return static_cast<std::size_t>(static_cast<const std::byte *>(address) - base);
+            const auto *implementation_base = reinterpret_cast<const std::byte *>(typed);
+            const auto offset_of = [implementation_base](const void *address) {
+                return static_cast<std::size_t>(static_cast<const std::byte *>(address) - implementation_base);
             };
             return {
                 .implementation_pointer = &implementation_,

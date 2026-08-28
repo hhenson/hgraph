@@ -3,6 +3,7 @@
 #include <hgraph/persistence/frame_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/persistence/store_location.h>
+#include <hgraph/util/environment.h>
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
@@ -169,27 +170,26 @@ void check_backend_round_trip(const hgf::FabricConfig &writer,
 
 [[nodiscard]] hgps::S3Location s3_location(std::string prefix)
 {
-    const char *endpoint = std::getenv("HGRAPH_S3_TEST_ENDPOINT");
-    if (endpoint == nullptr)
+    const auto endpoint = hg::environment_variable("HGRAPH_S3_TEST_ENDPOINT");
+    if (!endpoint)
     {
         throw std::logic_error("missing HGRAPH_S3_TEST_ENDPOINT");
     }
     hgps::S3Location location;
-    location.bucket = std::getenv("HGRAPH_S3_TEST_BUCKET") != nullptr
-                          ? std::getenv("HGRAPH_S3_TEST_BUCKET")
-                          : "hgraph-test";
+    location.bucket =
+        hg::environment_variable("HGRAPH_S3_TEST_BUCKET").value_or("hgraph-test");
     location.prefix = std::move(prefix);
     location.region = "us-east-1";
-    location.endpoint_override = endpoint;
-    if (const char *key = std::getenv("AWS_ACCESS_KEY_ID"); key != nullptr)
+    location.endpoint_override = *endpoint;
+    if (const auto key = hg::environment_variable("AWS_ACCESS_KEY_ID"))
     {
-        const char *secret = std::getenv("AWS_SECRET_ACCESS_KEY");
-        if (secret == nullptr)
+        const auto secret = hg::environment_variable("AWS_SECRET_ACCESS_KEY");
+        if (!secret)
         {
             throw std::logic_error("missing AWS_SECRET_ACCESS_KEY");
         }
         location.credentials.source =
-            hgps::Credentials::Explicit{key, secret, {}};
+            hgps::Credentials::Explicit{*key, *secret, {}};
     }
     return location;
 }
@@ -212,7 +212,7 @@ TEST_CASE("Fabric behavior is identical over local Arrow IPC and Parquet")
 
 TEST_CASE("Fabric behavior is identical over S3 Arrow IPC and Parquet", "[.s3]")
 {
-    if (std::getenv("HGRAPH_S3_TEST_ENDPOINT") == nullptr)
+    if (!hg::environment_variable("HGRAPH_S3_TEST_ENDPOINT"))
     {
         SKIP("set HGRAPH_S3_TEST_ENDPOINT to run the Fabric S3 contract");
     }

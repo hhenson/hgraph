@@ -14,6 +14,7 @@
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/util/environment.h>
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
@@ -506,25 +507,25 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
 //     ./hgraph_persistence_tests "[s3]"
 TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3]")
 {
-    const char *endpoint = std::getenv("HGRAPH_S3_TEST_ENDPOINT");
-    if (endpoint == nullptr)
+    const auto endpoint = hgraph::environment_variable("HGRAPH_S3_TEST_ENDPOINT");
+    if (!endpoint)
     {
         SKIP("set HGRAPH_S3_TEST_ENDPOINT to run the S3 backend against a local "
              "endpoint");
     }
 
-    const char *bucket_name = std::getenv("HGRAPH_S3_TEST_BUCKET");
-    const char *key_id = std::getenv("AWS_ACCESS_KEY_ID");
-    const char *secret = std::getenv("AWS_SECRET_ACCESS_KEY");
+    const auto bucket_name = hgraph::environment_variable("HGRAPH_S3_TEST_BUCKET");
+    const auto key_id = hgraph::environment_variable("AWS_ACCESS_KEY_ID");
+    const auto secret = hgraph::environment_variable("AWS_SECRET_ACCESS_KEY");
 
     S3Location location;
-    location.bucket = bucket_name != nullptr ? bucket_name : "hgraph-test";
+    location.bucket = bucket_name.value_or("hgraph-test");
     location.prefix = "/frame-store/";
     location.region = "us-east-1";
-    location.endpoint_override = endpoint;
-    if (key_id != nullptr && secret != nullptr)
+    location.endpoint_override = *endpoint;
+    if (key_id && secret)
     {
-        location.credentials.source = Credentials::Explicit{key_id, secret, {}};
+        location.credentials.source = Credentials::Explicit{*key_id, *secret, {}};
     }
 
     const Frame expected = make_metadata_frame();

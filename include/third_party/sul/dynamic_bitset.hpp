@@ -8,6 +8,15 @@
 #ifndef SUL_DYNAMIC_BITSET_HPP
 #define SUL_DYNAMIC_BITSET_HPP
 
+#if defined(_MSC_VER)
+// MSVC reports C4702 in the constexpr first-set-bit fallback after the
+// compiler-specific intrinsic branches have returned. The fallback remains
+// required for unsupported block types, so suppress that false positive only
+// while compiling this bundled third-party header.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
+
 /**
  * @brief      @ref sul::dynamic_bitset version major.
  */
@@ -3355,6 +3364,10 @@ constexpr void swap(dynamic_bitset<Block, Allocator>& bitset1,
 
 #ifndef DYNAMIC_BITSET_NO_NAMESPACE
 } // namespace sul
+#endif
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
 #endif
 
 #endif //SUL_DYNAMIC_BITSET_HPP

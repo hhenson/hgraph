@@ -160,6 +160,19 @@ if(NOT HGRAPH_WEB_CURL_TARGET)
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(curl)
+    if(APPLE AND CMAKE_C_COMPILER_ID STREQUAL "AppleClang" AND
+       TARGET libcurl_static)
+        # curl 8.11.1 passes an intentionally zero-length transfer buffer that
+        # AppleClang 21 diagnoses as an uninitialized const pointer. Keep that
+        # dependency-owned warning out of otherwise clean hgraph builds.
+        target_compile_options(libcurl_static PRIVATE
+            -Wno-uninitialized-const-pointer)
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND TARGET libcurl_static)
+        # GCC 14 diagnoses const conversions in curl 8.11.1's C compatibility
+        # surface. Keep that pinned-dependency warning off hgraph build logs.
+        target_compile_options(libcurl_static PRIVATE
+            -Wno-discarded-qualifiers)
+    endif()
     # Adopt the concrete static target: the CURL::libcurl alias name may
     # already be taken by a sibling's system-curl import.
     if(TARGET libcurl_static)
@@ -204,6 +217,12 @@ if(NOT HGRAPH_WEB_BOOST_TARGETS)
     FetchContent_MakeAvailable(boost)
     if(NOT TARGET Boost::beast)
         message(FATAL_ERROR "Boost did not provide its Beast target")
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND TARGET boost_container)
+        # GCC 14 reports an unreachable size_t wraparound iteration in the
+        # pinned Boost.Container dlmalloc implementation after inlining.
+        target_compile_options(boost_container PRIVATE
+            -Wno-aggressive-loop-optimizations)
     endif()
     set(HGRAPH_WEB_BOOST_TARGETS Boost::beast Boost::asio Boost::system)
 endif()
@@ -268,9 +287,13 @@ set_target_properties(hgraph_web PROPERTIES
 if(MSVC)
     # The transport implementation includes Windows headers.  Keep their
     # min/max macros from rewriting standard-library calls in this target.
+    # Its Asio transport requires Windows 10 APIs; publish that build-tree
+    # target to sibling tests so Boost does not silently assume Windows 7.
     # Beast's template instantiation count in the server TU exceeds the
     # default COFF section limit, hence /bigobj.
     target_compile_definitions(hgraph_web PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(hgraph_web PUBLIC
+        $<BUILD_INTERFACE:_WIN32_WINNT=0x0A00>)
     target_compile_options(hgraph_web PRIVATE /W4 /permissive- /bigobj)
 else()
     target_compile_options(hgraph_web PRIVATE -Wall -Wextra -Wpedantic)

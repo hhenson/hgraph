@@ -4,6 +4,7 @@
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/util/environment.h>
 
 #include <atomic>
 #include <chrono>
@@ -230,9 +231,9 @@ namespace
 
     int env_int(const char *name, int fallback)
     {
-        const char *value = std::getenv(name);
-        if (value == nullptr) { return fallback; }
-        return std::max(1, std::atoi(value));
+        const auto value = hgraph::environment_variable(name);
+        if (!value) { return fallback; }
+        return std::max(1, std::atoi(value->c_str()));
     }
 }  // namespace
 

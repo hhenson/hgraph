@@ -196,6 +196,37 @@ namespace
     }
 }
 
+TEST_CASE("wiring observation preserves owned value and reference results")
+{
+    auto check_results = [](Wiring &wiring) {
+        std::string source{"owned"};
+        auto owned = wiring.observe(
+            WiringScopeEvent{.kind = WiringScopeKind::Node, .label = "owned"},
+            [&] { return source; });
+        source = "changed";
+        CHECK(owned == "owned");
+
+        Int referenced = 7;
+        Int &result = wiring.observe(
+            WiringScopeEvent{.kind = WiringScopeKind::Node, .label = "reference"},
+            [&]() -> Int & { return referenced; });
+        result = 11;
+        CHECK(referenced == 11);
+    };
+
+    Wiring plain;
+    check_results(plain);
+
+    RecordingWiringObserver observer;
+    Wiring                  observed;
+    observed.add_wiring_observer(&observer);
+    check_results(observed);
+    REQUIRE(observer.node_entries.size() == 2);
+    REQUIRE(observer.node_exits.size() == 2);
+    CHECK(observer.node_exits[0].error.empty());
+    CHECK(observer.node_exits[1].error.empty());
+}
+
 TEST_CASE("wiring observers expose stable graph, node, and overload records")
 {
     register_overload<observed_, ObservedString>();

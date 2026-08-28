@@ -19,6 +19,11 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl.hpp>
+#if defined(_WIN32)
+// Use nghttp2's portable signed-size alias instead of requiring the legacy
+// POSIX ssize_t name in the Windows SDK namespace.
+#define NGHTTP2_NO_SSIZE_T
+#endif
 #include <nghttp2/nghttp2.h>
 
 #include <array>

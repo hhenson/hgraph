@@ -2275,10 +2275,12 @@ namespace hgraph
                            }
                            else
                            {
-                               constexpr std::size_t slot =
-                                   canonical_input_slot<selector, CanonicalArgs>();
-                               if constexpr (!slot_covered_by_eval<slot, EvalArgs, CanonicalArgs>())
+                               if constexpr (!slot_covered_by_eval<
+                                                 canonical_input_slot<selector, CanonicalArgs>(),
+                                                 EvalArgs, CanonicalArgs>())
                                {
+                                   constexpr std::size_t slot =
+                                       canonical_input_slot<selector, CanonicalArgs>();
                                    auto view = frame.input_at(slot);
                                    if constexpr (selector::validity == InputValidity::Valid)
                                    {
@@ -3174,6 +3176,12 @@ namespace hgraph
                         view, evaluation_time, prepared_input_routes_for(view));
                 };
                 callbacks.input_validity_in_evaluate = true;
+#if defined(_MSC_VER)
+                // A deliberately throwing start hook makes the route-acquire
+                // success path unreachable in that specialization.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
                 callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
                     // The user hook runs with the slow path (routes not yet
                     // acquired); a throwing start leaves nothing behind.
@@ -3183,7 +3191,11 @@ namespace hgraph
                     }
                     acquire_prepared_input_routes<slot_count>(view, evaluation_time);
                 };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
                 callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
+                    static_cast<void>(evaluation_time);
                     auto clear_routes = UnwindCleanupGuard([&]() noexcept {
                         clear_prepared_input_routes<slot_count>(view);
                     });

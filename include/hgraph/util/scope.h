@@ -162,9 +162,7 @@ namespace hgraph {
         /** Run the cleanup now, allowing any failure to propagate. */
         void complete()
         {
-            if (!active_) { return; }
-            active_ = false;
-            fn_();
+            if (std::exchange(active_, false)) { fn_(); }
         }
 
         /** Disarm the guard; the cleanup will not run on destruction. */

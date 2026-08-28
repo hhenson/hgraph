@@ -256,6 +256,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_any_value.cpp
     test_bundle_builder.cpp
     test_compact_storage.cpp
+    test_environment.cpp
     test_intern_table.cpp
     test_memory_utils.cpp
     test_mutable_list.cpp

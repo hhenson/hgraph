@@ -822,24 +822,40 @@ private:
 // ---------------------------------------------------------------------------
 // Runtime
 
-// Lock-free published-snapshot access for io threads.  Apple's libc++ does
-// not provide std::atomic<std::shared_ptr>, and GCC deprecates the free
-// functions; the deprecation is suppressed here and nowhere else.
+// Lock-free published-snapshot access for io threads. Prefer the C++20
+// specialization where the standard library provides it. Older Apple libc++
+// releases expose only the free shared_ptr atomics, which remain the fallback.
+#if defined(__cpp_lib_atomic_shared_ptr) && __cpp_lib_atomic_shared_ptr >= 201711L
+using PublishedRoutes = std::atomic<std::shared_ptr<const CompiledRoutes>>;
+
+[[nodiscard]] inline std::shared_ptr<const CompiledRoutes>
+atomic_load_routes(const PublishedRoutes *slot) {
+  return slot->load(std::memory_order_acquire);
+}
+
+inline void atomic_store_routes(PublishedRoutes *slot,
+                                std::shared_ptr<const CompiledRoutes> value) {
+  slot->store(std::move(value), std::memory_order_release);
+}
+#else
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
+using PublishedRoutes = std::shared_ptr<const CompiledRoutes>;
+
 [[nodiscard]] inline std::shared_ptr<const CompiledRoutes>
-atomic_load_routes(const std::shared_ptr<const CompiledRoutes> *slot) {
+atomic_load_routes(const PublishedRoutes *slot) {
   return std::atomic_load(slot);
 }
 
-inline void atomic_store_routes(std::shared_ptr<const CompiledRoutes> *slot,
+inline void atomic_store_routes(PublishedRoutes *slot,
                                 std::shared_ptr<const CompiledRoutes> value) {
   std::atomic_store(slot, std::move(value));
 }
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
 #endif
 
 class ServerConnection;
@@ -991,7 +1007,7 @@ private:
   void arm_sweep_timer();
   void arm_stats_timer();
   void emit_stats_once();
-  void rebuild(std::shared_ptr<const CompiledRoutes> &slot,
+  void rebuild(PublishedRoutes &slot,
                std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>>
                    &master,
                std::vector<SubscriptionBinding> added,
@@ -1010,9 +1026,9 @@ private:
   // The wire-format ALPN preference list the select callback reads; owned
   // here so its address outlives every TLS handshake on this context.
   std::vector<unsigned char> alpn_wire_{};
-  std::shared_ptr<const CompiledRoutes> http_routes_{
+  PublishedRoutes http_routes_{
       std::make_shared<CompiledRoutes>()};
-  std::shared_ptr<const CompiledRoutes> ws_routes_{
+  PublishedRoutes ws_routes_{
       std::make_shared<CompiledRoutes>()};
   std::mutex routes_mutex_{};
   std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>>
@@ -2059,7 +2075,7 @@ void WebServerRuntime::stop() noexcept {
 }
 
 void WebServerRuntime::rebuild(
-    std::shared_ptr<const CompiledRoutes> &slot,
+    PublishedRoutes &slot,
     std::vector<std::tuple<HttpMethod, std::string, Value, DateTime>> &master,
     std::vector<SubscriptionBinding> added, std::vector<Value> removed) {
   std::lock_guard lock{routes_mutex_};

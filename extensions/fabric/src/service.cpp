@@ -590,17 +590,17 @@ struct FabricDiagnosticsNode
         }
         auto metrics = diagnostics.template field<"metrics">();
         auto mutation = metrics.begin_mutation(metrics.evaluation_time());
-        for (auto &[name, value] : runtime.value().value->diagnostics())
+        for (auto &[metric_name, value] : runtime.value().value->diagnostics())
         {
-            Value key{std::move(name)};
+            Value key{std::move(metric_name)};
             Value item{std::move(value)};
             mutation.set(key.view(), item.view());
         }
         if (bridge.value().value)
         {
-            for (auto &[name, value] : bridge.value().value->diagnostics())
+            for (auto &[metric_name, value] : bridge.value().value->diagnostics())
             {
-                Value key{std::move(name)};
+                Value key{std::move(metric_name)};
                 Value item{std::move(value)};
                 mutation.set(key.view(), item.view());
             }

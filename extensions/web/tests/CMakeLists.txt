@@ -67,14 +67,29 @@ target_include_directories(hgraph_web_transport_tests
 # client session, so it links the same nghttp2 the extension uses.
 target_include_directories(hgraph_web_h2_engine_tests
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
-target_link_libraries(hgraph_web_h2_engine_tests
-    PRIVATE ${HGRAPH_WEB_NGHTTP2_TARGET})
+target_include_directories(hgraph_web_h2_engine_tests SYSTEM PRIVATE
+    $<TARGET_PROPERTY:${HGRAPH_WEB_NGHTTP2_TARGET},INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_definitions(hgraph_web_h2_engine_tests PRIVATE
+    $<TARGET_PROPERTY:${HGRAPH_WEB_NGHTTP2_TARGET},INTERFACE_COMPILE_DEFINITIONS>)
 # The h2 loopback also carries a small independent nghttp2/TLS client for
 # rejection/window-restoration behavior that the public call shape cannot
 # express (an open stream plus DATA followed by request trailers).
+target_include_directories(hgraph_web_h2_loopback_tests SYSTEM PRIVATE
+    $<TARGET_PROPERTY:${HGRAPH_WEB_NGHTTP2_TARGET},INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_definitions(hgraph_web_h2_loopback_tests PRIVATE
+    $<TARGET_PROPERTY:${HGRAPH_WEB_NGHTTP2_TARGET},INTERFACE_COMPILE_DEFINITIONS>)
 target_link_libraries(hgraph_web_h2_loopback_tests
-    PRIVATE ${HGRAPH_WEB_NGHTTP2_TARGET} OpenSSL::SSL OpenSSL::Crypto
-            ${HGRAPH_WEB_BOOST_TARGETS})
+    PRIVATE OpenSSL::SSL OpenSSL::Crypto ${HGRAPH_WEB_BOOST_TARGETS})
+
+# A static hgraph_web propagates its private nghttp2 dependency as link-only;
+# a shared hgraph_web consumes it internally, so tests that call nghttp2
+# directly must add their own link-only dependency.
+if(HGRAPH_WEB_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    target_link_libraries(hgraph_web_h2_engine_tests
+        PRIVATE $<LINK_ONLY:${HGRAPH_WEB_NGHTTP2_TARGET}>)
+    target_link_libraries(hgraph_web_h2_loopback_tests
+        PRIVATE $<LINK_ONLY:${HGRAPH_WEB_NGHTTP2_TARGET}>)
+endif()
 
 foreach(target hgraph_web_tests hgraph_web_service_tests hgraph_web_route_table_tests hgraph_web_transport_tests hgraph_web_h2_engine_tests hgraph_web_loopback_tests hgraph_web_client_loopback_tests hgraph_web_h2_loopback_tests)
     target_compile_features(${target} PRIVATE cxx_std_23)
