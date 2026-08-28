@@ -1,6 +1,7 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
-#82, #148/#161/#162 (overlapping set deltas are rejected), and #149 (contains
-seeds False).
+#82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
+seeds False), and #570-#604 (a CompoundScalar field projection ticks with its
+parent).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -240,3 +241,98 @@ def test_keyed_child_response_survives_new_key_in_delivery_cycle(use_mesh):
     # higher-order worklist must still keep each due child.
     assert eval_node(g, [{"k1": 8}, None, {"k2": -2}], ["alpha", None, None]) == [
         {}, {"k1": 8}, {}, {"k2": -2}]
+
+
+def test_compound_scalar_field_projection_ticks_with_its_parent():
+    """Issues #570-#604: 35 minimized recipes, one defect.
+
+    ``getattr_`` over a ``TS[CompoundScalar]`` suppressed the tick whenever the
+    projected field repeated its previous value, so a parent update that only
+    changed a *sibling* field published nothing. ``TS[CompoundScalar]`` is one
+    value stream rather than a bundle of independently ticking fields, so the
+    projection follows its parent. Both the polymorphic field (declared type is
+    a base with descendants) and the plain control shape are pinned here; the
+    differential harness reported the same trace for every one of the 35 cases.
+    """
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Series(hg.CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class DerivedSeries(Series):
+        underlying: Series
+
+    @dataclass(frozen=True)
+    class PlainInner(hg.CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class HasPlainField(hg.CompoundScalar):
+        symbol: str
+        inner: PlainInner
+
+    @compute_node
+    def read_base(series: TS[Series]) -> TS[str]:
+        return series.value.symbol
+
+    @compute_node
+    def read_plain(series: TS[PlainInner]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def nested_field(series: TS[DerivedSeries]) -> TS[str]:
+        return read_base(series.underlying)
+
+    @graph
+    def plain_field(series: TS[HasPlainField]) -> TS[str]:
+        return read_plain(series.inner)
+
+    # The projected field repeats while a sibling changes: both ticks publish.
+    assert eval_node(nested_field, [
+        DerivedSeries(symbol="BACK", underlying=Series(symbol="BOM")),
+        DerivedSeries(symbol="BOM", underlying=Series(symbol="BOM")),
+    ]) == ["BOM", "BOM"]
+
+    assert eval_node(plain_field, [
+        HasPlainField(symbol="BACK", inner=PlainInner(symbol="BOM")),
+        HasPlainField(symbol="BOM", inner=PlainInner(symbol="BOM")),
+    ]) == ["BOM", "BOM"]
+
+    # A changing field was never affected; it stays correct.
+    assert eval_node(plain_field, [
+        HasPlainField(symbol="A", inner=PlainInner(symbol="X")),
+        HasPlainField(symbol="B", inner=PlainInner(symbol="Y")),
+    ]) == ["X", "Y"]
+
+    # A cycle where the parent does not tick still publishes nothing.
+    assert eval_node(plain_field, [
+        HasPlainField(symbol="A", inner=PlainInner(symbol="X")),
+        None,
+        HasPlainField(symbol="A", inner=PlainInner(symbol="X")),
+    ]) == ["X", None, "X"]
+
+
+def test_compound_scalar_field_projection_default_ticks_with_its_parent():
+    """The ``default`` arity of the same operator carries the same rule.
+
+    Not reported by the harness -- the generated recipes never take a default
+    -- but it shared the suppression, so it would have produced the identical
+    dropped tick for anyone who did.
+    """
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Quote(hg.CompoundScalar):
+        symbol: str
+        venue: str
+
+    @graph
+    def venue_or_default(quote: TS[Quote]) -> TS[str]:
+        return hg.getattr_(quote, "venue", "UNKNOWN")
+
+    assert eval_node(venue_or_default, [
+        Quote(symbol="A", venue="LSE"),
+        Quote(symbol="B", venue="LSE"),
+    ]) == ["LSE", "LSE"]
