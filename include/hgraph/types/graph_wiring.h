@@ -1153,37 +1153,64 @@ namespace hgraph
             return WiringObservationScope{*this, std::move(event)};
         }
 
+#if defined(_MSC_VER)
+        // Failure-observation tests instantiate this template with callbacks
+        // that deliberately never return. MSVC reports the ordinary success
+        // paths as C4702 during those specializations.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
         template <typename Fn>
         decltype(auto) observe(WiringScopeEvent event, Fn &&fn)
         {
-            if (!has_wiring_observers())
-            {
-                return std::invoke(std::forward<Fn>(fn));
-            }
+            using result_type = decltype(std::invoke(std::forward<Fn>(fn)));
 
-            WiringObservationScope scope{*this, std::move(event)};
-            return annotate_on_exception<std::exception>(
-                [&]() -> decltype(auto) {
-                if constexpr (std::is_void_v<std::invoke_result_t<Fn>>)
+            if constexpr (std::is_void_v<result_type>)
+            {
+                if (!has_wiring_observers())
                 {
                     std::invoke(std::forward<Fn>(fn));
-                    scope.complete();
                     return;
                 }
-                else
+
+                WiringObservationScope scope{*this, std::move(event)};
+                annotate_on_exception<std::exception>(
+                    [&] {
+                        std::invoke(std::forward<Fn>(fn));
+                        scope.complete();
+                    },
+                    [&](const std::exception &error) {
+                        static_cast<void>(fallback_on_exception(false, [&] {
+                            scope.fail(error.what());
+                            return true;
+                        }));
+                    });
+            }
+            else
+            {
+                if (!has_wiring_observers())
                 {
-                    decltype(auto) result = std::invoke(std::forward<Fn>(fn));
-                    scope.complete();
-                    return result;
+                    return std::invoke(std::forward<Fn>(fn));
                 }
-                },
-                [&](const std::exception &error) {
-                    static_cast<void>(fallback_on_exception(false, [&] {
-                        scope.fail(error.what());
-                        return true;
-                    }));
-                });
+
+                WiringObservationScope scope{*this, std::move(event)};
+                return annotate_on_exception<std::exception>(
+                    [&]() -> result_type {
+                        result_type result = std::invoke(std::forward<Fn>(fn));
+                        scope.complete();
+                        return std::forward<result_type>(result);
+                    },
+                    [&](const std::exception &error) {
+                        static_cast<void>(fallback_on_exception(false, [&] {
+                            scope.fail(error.what());
+                            return true;
+                        }));
+                    });
+            }
         }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
         /** Topologically sort + rank the wired nodes into a rank-ordered GraphBuilder. */
         [[nodiscard]] GraphBuilder finish() &&;
@@ -3494,6 +3521,13 @@ namespace hgraph
         auto   arg_tuple    = std::forward_as_tuple(std::forward<Args>(args)...);
         auto   default_args = call_args_detail::default_args_for<G>();
         call_args_detail::validate_call_args<params>("build_graph<G>", arg_tuple, default_args, "scalar parameter");
+#if defined(_MSC_VER)
+        // Graphs used to test wiring failures may have a compose body that
+        // unconditionally throws. The finish call remains the required success
+        // path for every normal graph specialization.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
         auto build = [&] {
             [&]<std::size_t... I>(std::index_sequence<I...>) {
                 G::compose(
@@ -3503,6 +3537,9 @@ namespace hgraph
             }(std::make_index_sequence<sig::param_count()>{});
             return std::move(w).finish();
         };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
         GraphBuilder graph_builder = [&] {
             if (!w.has_wiring_observers()) { return build(); }
             const std::string label = static_node_detail::diagnostic_name<G>();

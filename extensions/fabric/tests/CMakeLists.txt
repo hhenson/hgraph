@@ -27,7 +27,7 @@ target_compile_definitions(hgraph_fabric_tests PRIVATE
 
 add_test(NAME hgraph_fabric.tests COMMAND hgraph_fabric_tests)
 if(COMMAND hgraph_configure_test_runtime_paths)
-    hgraph_configure_test_runtime_paths(hgraph_fabric_tests)
+    hgraph_configure_test_runtime_paths(hgraph_fabric.tests)
 endif()
 
 if(TARGET hgraph::fabric_kafka)
@@ -37,7 +37,7 @@ if(TARGET hgraph::fabric_kafka)
     target_compile_features(hgraph_fabric_kafka_tests PRIVATE cxx_std_23)
     add_test(NAME hgraph_fabric.kafka_tests COMMAND hgraph_fabric_kafka_tests)
     if(COMMAND hgraph_configure_test_runtime_paths)
-        hgraph_configure_test_runtime_paths(hgraph_fabric_kafka_tests)
+        hgraph_configure_test_runtime_paths(hgraph_fabric.kafka_tests)
     endif()
 endif()
 

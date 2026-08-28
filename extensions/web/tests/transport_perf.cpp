@@ -3,6 +3,7 @@
 #include "detail/service_transport.h"
 
 #include <hgraph/types/value/shared_value_pool.h>
+#include <hgraph/util/environment.h>
 
 #include <algorithm>
 #include <atomic>
@@ -322,13 +323,14 @@ struct Fixture {
 };
 
 [[nodiscard]] std::size_t env_size(const char *name, std::size_t fallback) {
-  const char *value = std::getenv(name);
-  if (value == nullptr || *value == '\0') {
+  const auto value = hgraph::environment_variable(name);
+  if (!value || value->empty()) {
     return fallback;
   }
   char *end{};
-  const auto parsed = std::strtoull(value, &end, 10);
-  if (end == value || *end != '\0' || parsed == 0 ||
+  const char *begin = value->c_str();
+  const auto parsed = std::strtoull(begin, &end, 10);
+  if (end == begin || *end != '\0' || parsed == 0 ||
       parsed > std::numeric_limits<std::size_t>::max()) {
     throw std::invalid_argument(std::string{name} +
                                 " must be a positive integer");

@@ -10,6 +10,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/value/shared_value_pool.h>
+#include <hgraph/util/environment.h>
 #include <hgraph/util/scope.h>
 
 #include "../src/detail/service_transport.h"
@@ -1026,17 +1027,17 @@ struct ReverseCommitCursors {
   static constexpr auto name = "kafka_reverse_commit_cursors";
 
   static void
-  eval(In<"cursor", TS<KafkaCursor>, InputValidity::Unchecked> cursor,
+  eval(In<"cursor", TS<KafkaCursor>, InputValidity::Unchecked> input_cursor,
        NodeScheduler scheduler, State<Int> phase, EngineControlView engine,
        Out<TS<KafkaCursor>> out) {
-    if (cursor.valid() && cursor.modified()) {
+    if (input_cursor.valid() && input_cursor.modified()) {
       if (phase.get() == Int{0}) {
-        first_commit_cursor = cursor.base().value().clone();
+        first_commit_cursor = input_cursor.base().value().clone();
         phase.set(Int{1});
         return;
       }
       if (phase.get() == Int{1}) {
-        out.apply(cursor.base().value());
+        out.apply(input_cursor.base().value());
         phase.set(Int{2});
         scheduler.schedule(TimeDelta{100'000});
         return;
@@ -2862,19 +2863,20 @@ void test_multiple_simulation_subscriptions_replay_at_record_time() {
 }
 
 void test_real_broker_publish_subscribe_and_commit_round_trip() {
-  const char *bootstrap_value =
-      std::getenv("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
-  const char *topic_value = std::getenv("HGRAPH_KAFKA_INTEGRATION_TOPIC");
-  if (bootstrap_value == nullptr && topic_value == nullptr) {
+  const auto bootstrap_value =
+      hgraph::environment_variable("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
+  const auto topic_value =
+      hgraph::environment_variable("HGRAPH_KAFKA_INTEGRATION_TOPIC");
+  if (!bootstrap_value && !topic_value) {
     return;
   }
   require(
-      bootstrap_value != nullptr && topic_value != nullptr,
+      bootstrap_value.has_value() && topic_value.has_value(),
       "real Kafka integration requires both HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP "
       "and HGRAPH_KAFKA_INTEGRATION_TOPIC");
 
-  const Str bootstrap{bootstrap_value};
-  const Str topic{topic_value};
+  const Str bootstrap{*bootstrap_value};
+  const Str topic{*topic_value};
   const Str group = Str{"hgraph-kafka-integration-"} + topic;
   production_topic = topic;
   produced_record = make_produce_record(

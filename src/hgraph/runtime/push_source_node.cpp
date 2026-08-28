@@ -206,9 +206,9 @@ namespace hgraph
                 return result;
             }
 
-            [[nodiscard]] Value make_burst(std::deque<Value> values) const
+            [[nodiscard]] Value make_burst(std::deque<Value> burst_values) const
             {
-                if (values.empty())
+                if (burst_values.empty())
                 {
                     return {};
                 }
@@ -218,7 +218,7 @@ namespace hgraph
                 }
 
                 ListBuilder builder{burst_element_binding, *burst_value_binding.schema()};
-                for (Value &value : values)
+                for (Value &value : burst_values)
                 {
                     builder.push_back(std::move(value));
                 }

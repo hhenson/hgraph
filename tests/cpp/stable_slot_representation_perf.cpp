@@ -1,6 +1,7 @@
 #include "stable_slot_representation_prototype.h"
 
 #include <hgraph/types/utils/stable_slot_store.h>
+#include <hgraph/util/environment.h>
 
 #include <algorithm>
 #include <atomic>
@@ -67,14 +68,15 @@ static_assert(!std::is_trivially_destructible_v<PackedTracked9>);
 
 [[nodiscard]] std::size_t env_size(const char *name, std::size_t fallback,
                                    std::size_t minimum = 1) {
-  const char *value = std::getenv(name);
-  if (value == nullptr || *value == '\0') {
+  const auto value = hgraph::environment_variable(name);
+  if (!value || value->empty()) {
     return fallback;
   }
 
   char *end = nullptr;
-  const auto parsed = std::strtoull(value, &end, 10);
-  if (end == value || *end != '\0' ||
+  const char *begin = value->c_str();
+  const auto parsed = std::strtoull(begin, &end, 10);
+  if (end == begin || *end != '\0' ||
       parsed > std::numeric_limits<std::size_t>::max()) {
     throw std::invalid_argument(std::string{name} +
                                 " must be a non-negative integer");
@@ -82,9 +84,10 @@ static_assert(!std::is_trivially_destructible_v<PackedTracked9>);
   return std::max<std::size_t>(static_cast<std::size_t>(parsed), minimum);
 }
 
-[[nodiscard]] bool selected(std::string_view name) noexcept {
-  const char *filter = std::getenv("HGRAPH_STABLE_SLOT_PERF_FILTER");
-  return filter == nullptr || *filter == '\0' || name.contains(filter);
+[[nodiscard]] bool selected(std::string_view name) {
+  const auto filter =
+      hgraph::environment_variable("HGRAPH_STABLE_SLOT_PERF_FILTER");
+  return !filter || filter->empty() || name.contains(*filter);
 }
 
 template <typename T> [[nodiscard]] T median(std::vector<T> values) {

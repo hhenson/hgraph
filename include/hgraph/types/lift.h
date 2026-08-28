@@ -494,8 +494,8 @@ namespace hgraph
                 // acquire/clear lifecycle as static nodes.
                 if (input_schema != nullptr)
                 {
-                    const std::array fields{prepared_routes_storage_field<arity_v<F>>()};
-                    descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
+                    const std::array storage_fields{prepared_routes_storage_field<arity_v<F>>()};
+                    descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, storage_fields);
                     descriptor.callbacks.start = [](const NodeView &node, DateTime evaluation_time) {
                         acquire_prepared_input_routes<arity_v<F>>(node, evaluation_time);
                     };

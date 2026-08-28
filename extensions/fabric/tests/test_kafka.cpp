@@ -11,6 +11,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/util/environment.h>
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
@@ -625,27 +626,28 @@ TEST_CASE("manual Kafka assignment recovers after every broker disconnects") {
 
 TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
           "[.kafka-broker]") {
-  const char *bootstrap =
-      std::getenv("HGRAPH_FABRIC_KAFKA_INTEGRATION_BOOTSTRAP");
-  const char *topic = std::getenv("HGRAPH_FABRIC_KAFKA_INTEGRATION_TOPIC");
-  const char *control =
-      std::getenv("HGRAPH_FABRIC_KAFKA_INTEGRATION_CONTROL_DIR");
-  if (bootstrap == nullptr && topic == nullptr && control == nullptr) {
+  const auto bootstrap =
+      hg::environment_variable("HGRAPH_FABRIC_KAFKA_INTEGRATION_BOOTSTRAP");
+  const auto topic =
+      hg::environment_variable("HGRAPH_FABRIC_KAFKA_INTEGRATION_TOPIC");
+  const auto control =
+      hg::environment_variable("HGRAPH_FABRIC_KAFKA_INTEGRATION_CONTROL_DIR");
+  if (!bootstrap && !topic && !control) {
     SKIP("run through run_kafka_broker_conformance.py");
   }
-  REQUIRE(bootstrap != nullptr);
-  REQUIRE(topic != nullptr);
-  REQUIRE(control != nullptr);
+  REQUIRE(bootstrap.has_value());
+  REQUIRE(topic.has_value());
+  REQUIRE(control.has_value());
 
   hg::stdlib::register_standard_operators();
   hgf::register_fabric_operators();
   hgk::register_kafka_types();
 
-  actual_topic = topic;
-  actual_control_dir = control;
+  actual_topic = *topic;
+  actual_control_dir = *control;
   std::filesystem::create_directories(actual_control_dir);
   actual_kafka_config = hgk::service_config()
-                            .bootstrap_servers({bootstrap})
+                            .bootstrap_servers({*bootstrap})
                             .client_id("hgraph-fabric-broker-conformance")
                             .ingress_limit(8)
                             .outbound_limit(2)

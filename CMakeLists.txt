@@ -137,8 +137,13 @@ target_compile_features(hgraph_options INTERFACE cxx_std_23)
 target_include_directories(hgraph_options INTERFACE
     $<BUILD_INTERFACE:${HGRAPH_GENERATED_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/third_party>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+# Bundled headers are part of the SDK include path but are not hgraph warning
+# surfaces.  Mark just that subtree external so /W4 and -Wall remain strict for
+# every public hgraph header that includes it.
+target_include_directories(hgraph_options SYSTEM INTERFACE
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/third_party>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/third_party>
 )
 
@@ -281,7 +286,43 @@ if(_hgraph_selected_time_zone_backend STREQUAL "date")
             set(ENABLE_DATE_INSTALL ON CACHE BOOL
                 "Install date/tz with static hgraph SDKs" FORCE)
         endif()
-        FetchContent_MakeAvailable(date)
+        # The pinned release still declares compatibility with obsolete CMake
+        # versions. Suppress that dependency-owned deprecation only while its
+        # project is configured; hgraph deprecations remain visible.
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.0)
+            set(_hgraph_had_policy_version_minimum FALSE)
+            if(DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+                set(_hgraph_had_policy_version_minimum TRUE)
+                set(_hgraph_saved_policy_version_minimum "${CMAKE_POLICY_VERSION_MINIMUM}")
+            endif()
+            if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM OR
+               CMAKE_POLICY_VERSION_MINIMUM VERSION_LESS 3.10)
+                set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
+            endif()
+            FetchContent_MakeAvailable(date)
+            if(_hgraph_had_policy_version_minimum)
+                set(CMAKE_POLICY_VERSION_MINIMUM "${_hgraph_saved_policy_version_minimum}")
+            else()
+                unset(CMAKE_POLICY_VERSION_MINIMUM)
+            endif()
+            unset(_hgraph_saved_policy_version_minimum)
+            unset(_hgraph_had_policy_version_minimum)
+        else()
+            set(_hgraph_had_cmake_warn_deprecated FALSE)
+            if(DEFINED CMAKE_WARN_DEPRECATED)
+                set(_hgraph_had_cmake_warn_deprecated TRUE)
+                set(_hgraph_saved_cmake_warn_deprecated "${CMAKE_WARN_DEPRECATED}")
+            endif()
+            set(CMAKE_WARN_DEPRECATED OFF)
+            FetchContent_MakeAvailable(date)
+            if(_hgraph_had_cmake_warn_deprecated)
+                set(CMAKE_WARN_DEPRECATED "${_hgraph_saved_cmake_warn_deprecated}")
+            else()
+                unset(CMAKE_WARN_DEPRECATED)
+            endif()
+            unset(_hgraph_saved_cmake_warn_deprecated)
+            unset(_hgraph_had_cmake_warn_deprecated)
+        endif()
         set(_hgraph_date_fetched ON)
     endif()
     if(HGRAPH_BUILD_SHARED)
@@ -847,15 +888,15 @@ set(_hgraph_config_dependencies "find_dependency(Threads)\n")
 if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
     list(APPEND _hgraph_config_dependencies
         "find_dependency(fmt 11 CONFIG)\n"
-        "find_dependency(Arrow CONFIG)\n"
+        "find_dependency(Arrow CONFIG QUIET)\n"
         # Some packagers (Conan's Arrow) define the compute/acero targets
         # from the single Arrow config; only find the split packages when
         # the targets are still missing, mirroring the build-side guard.
         "if(NOT TARGET ArrowCompute::arrow_compute_shared AND NOT TARGET ArrowCompute::arrow_compute_static)\n"
-        "  find_dependency(ArrowCompute CONFIG)\n"
+        "  find_dependency(ArrowCompute CONFIG QUIET)\n"
         "endif()\n"
         "if(NOT TARGET ArrowAcero::arrow_acero_shared AND NOT TARGET ArrowAcero::arrow_acero_static)\n"
-        "  find_dependency(ArrowAcero CONFIG)\n"
+        "  find_dependency(ArrowAcero CONFIG QUIET)\n"
         "endif()\n"
         "find_dependency(spdlog 1.15 CONFIG)\n"
         # Static consumers link these implementation dependencies. The

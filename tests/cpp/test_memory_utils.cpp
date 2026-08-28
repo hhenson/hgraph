@@ -471,11 +471,20 @@ TEST_CASE("memory utils supports custom inline policies and aligned heap ownersh
     REQUIRE(over_aligned_handle.stores_heap());
     REQUIRE(reinterpret_cast<std::uintptr_t>(over_aligned_handle.data()) % alignof(OverAlignedValue) == 0u);
 
+#if defined(_MSC_VER)
+    // The test deliberately requests an over-aligned inline buffer. Padding
+    // in this one owner specialization is the contract under test.
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#endif
     using OverAlignedInlinePolicy =
         MemoryUtils::InlineStoragePolicy<sizeof(OverAlignedValue), alignof(OverAlignedValue)>;
     REQUIRE(over_aligned_plan.template stores_inline<OverAlignedInlinePolicy>());
 
     MemoryUtils::ErasedOwner<OverAlignedInlinePolicy> over_aligned_inline(over_aligned_plan);
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
     REQUIRE(over_aligned_inline.stores_inline());
     REQUIRE(reinterpret_cast<std::uintptr_t>(over_aligned_inline.data()) % alignof(OverAlignedValue) == 0u);
 }

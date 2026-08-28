@@ -16,6 +16,7 @@
 #include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/visitor.h>
+#include <hgraph/util/environment.h>
 
 #include <algorithm>
 #include <atomic>
@@ -120,15 +121,16 @@ namespace
 
     [[nodiscard]] std::size_t env_size(const char *name, std::size_t fallback, std::size_t minimum = 1)
     {
-        const char *value = std::getenv(name);
-        if (value == nullptr)
+        const auto value = hgraph::environment_variable(name);
+        if (!value)
         {
             return fallback;
         }
 
         char *end = nullptr;
-        const auto parsed = std::strtoull(value, &end, 10);
-        if (end == value || *end != '\0' || parsed > std::numeric_limits<std::size_t>::max())
+        const char *begin = value->c_str();
+        const auto parsed = std::strtoull(begin, &end, 10);
+        if (end == begin || *end != '\0' || parsed > std::numeric_limits<std::size_t>::max())
         {
             throw std::invalid_argument(std::string{name} + " must be a positive integer");
         }
@@ -163,22 +165,20 @@ namespace
         return median(std::move(deviations));
     }
 
-    [[nodiscard]] bool benchmark_selected(std::string_view name) noexcept
+    [[nodiscard]] bool benchmark_selected(std::string_view name)
     {
-        const char *filter = std::getenv("HGRAPH_TYPE_ERASURE_PERF_FILTER");
-        return filter == nullptr || *filter == '\0' || name.contains(filter);
+        const auto filter = hgraph::environment_variable("HGRAPH_TYPE_ERASURE_PERF_FILTER");
+        return !filter || filter->empty() || name.contains(*filter);
     }
 
     [[nodiscard]] bool env_enabled(const char *name)
     {
-        const char *value = std::getenv(name);
-        if (value == nullptr || *value == '\0' || std::string_view{value} == "0" ||
-            std::string_view{value} == "false" || std::string_view{value} == "off")
+        const auto value = hgraph::environment_variable(name);
+        if (!value || value->empty() || *value == "0" || *value == "false" || *value == "off")
         {
             return false;
         }
-        if (std::string_view{value} == "1" || std::string_view{value} == "true" ||
-            std::string_view{value} == "on")
+        if (*value == "1" || *value == "true" || *value == "on")
         {
             return true;
         }
@@ -584,8 +584,8 @@ int main()
     const std::size_t samples = env_size("HGRAPH_TYPE_ERASURE_PERF_SAMPLES", 7, 7);
     const std::size_t warmup = env_size("HGRAPH_TYPE_ERASURE_PERF_WARMUP", 64, 0);
 
-    const char *filter = std::getenv("HGRAPH_TYPE_ERASURE_PERF_FILTER");
-    const char *host_label = std::getenv("HGRAPH_TYPE_ERASURE_PERF_HOST");
+    const auto filter = hgraph::environment_variable("HGRAPH_TYPE_ERASURE_PERF_FILTER");
+    const auto host_label = hgraph::environment_variable("HGRAPH_TYPE_ERASURE_PERF_HOST");
 #if defined(__apple_build_version__)
     constexpr std::string_view compiler_family{"appleclang"};
 #elif defined(__clang__)
@@ -606,8 +606,8 @@ int main()
 #endif
     std::cout << std::fixed << std::setprecision(3) << "type_erasure_perf format=2 samples=" << samples
               << " warmup_iterations=" << warmup << " filter="
-              << (filter == nullptr || *filter == '\0' ? "all" : filter) << " host="
-              << (host_label == nullptr || *host_label == '\0' ? "unspecified" : host_label)
+              << (!filter || filter->empty() ? "all" : *filter) << " host="
+              << (!host_label || host_label->empty() ? "unspecified" : *host_label)
               << " pooled_compound_scalars=" << (pooled_compound_scalars ? "on" : "off")
               << " compiler=" << compiler_family
 #if defined(__clang__)
@@ -1276,21 +1276,21 @@ int main()
     std::uint64_t nested_checksum = 0;
     for (std::size_t index = 0; index < nested_graph.node_count(); ++index)
     {
-        auto node = nested_graph.node_at(index);
-        if (node.is<MapNodeView>())
+        auto nested_node = nested_graph.node_at(index);
+        if (nested_node.is<MapNodeView>())
         {
             nested_node_indices.push_back(index);
-            nested_checksum += node.as<MapNodeView>().active_count();
+            nested_checksum += nested_node.as<MapNodeView>().active_count();
         }
-        else if (node.is<MeshNodeView>())
+        else if (nested_node.is<MeshNodeView>())
         {
             nested_node_indices.push_back(index);
-            nested_checksum += node.as<MeshNodeView>().active_count();
+            nested_checksum += nested_node.as<MeshNodeView>().active_count();
         }
-        else if (node.is<ReduceNodeView>())
+        else if (nested_node.is<ReduceNodeView>())
         {
             nested_node_indices.push_back(index);
-            nested_checksum += node.as<ReduceNodeView>().combiner_count();
+            nested_checksum += nested_node.as<ReduceNodeView>().combiner_count();
         }
     }
     if (nested_node_indices.size() != 3 || nested_checksum == 0)

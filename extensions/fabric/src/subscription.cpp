@@ -403,11 +403,11 @@ struct ReplaySession
 
         const std::string category = as_of_key_prefix(config.prefix, data_id);
         const std::string prefix = category + "/";
-        std::optional<std::string> cursor;
+        std::optional<std::string> page_cursor;
         for (;;)
         {
             const auto page = config.objects.list(
-                prefix, cursor.has_value() ? std::optional<std::string_view>{*cursor} : std::nullopt, 1000);
+                prefix, page_cursor.has_value() ? std::optional<std::string_view>{*page_cursor} : std::nullopt, 1000);
             for (const auto &object : page.objects)
             {
                 if (!object.key.starts_with(prefix))
@@ -421,7 +421,7 @@ struct ReplaySession
             {
                 break;
             }
-            cursor = page.next_start_after;
+            page_cursor = page.next_start_after;
         }
         return entry->second;
     }
