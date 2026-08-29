@@ -3,7 +3,18 @@ from typing import Tuple
 
 import pytest
 
-from hgraph import CompoundScalar, graph, TS, SCALAR, eq_, getattr_, type_, str_
+from hgraph import (
+    CompoundScalar,
+    SCALAR,
+    TS,
+    combine,
+    downcast_ref,
+    eq_,
+    getattr_,
+    graph,
+    str_,
+    type_,
+)
 from hgraph.test import eval_node
 
 @dataclass
@@ -108,6 +119,27 @@ def test_getattr_computed_descriptor_on_closed_union_leaf():
         return getattr_[SCALAR: int](ts, "doubled")
 
     assert eval_node(g, [ComputedLeaf(3), ComputedLeaf(5)]) == [6, 10]
+
+
+def test_combine_compound_scalar_dereferences_reference_fields():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar, abstract=True):
+        name: str
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        pass
+
+    @dataclass(frozen=True)
+    class Kennel(CompoundScalar):
+        dog: Dog
+
+    @graph
+    def g(animal: TS[Animal]) -> TS[Kennel]:
+        return combine[TS[Kennel]](dog=downcast_ref(Dog, animal))
+
+    dog = Dog("Fido")
+    assert eval_node(g, [dog]) == [Kennel(dog)]
 
 
 def test_getattr_cs_default():

@@ -1884,6 +1884,11 @@ class _TsExpr:
                     if tp is None:
                         raise TypeError(f"combine_cs: cannot infer a type for '{name}'")
                     value = wire("const", value, output_type=tp)
+                elif unwrapped.ts_type.is_ref:
+                    # CompoundScalar constructor fields are values. Present a
+                    # reference input as its target TS so graph input binding
+                    # performs the same dereference as a typed node argument.
+                    value = WiringPort(unwrapped.dereferenced)
                 lifted[name] = value
             fields = [(k, _unwrap(v).ts_type) for k, v in lifted.items()]
             tsb_type = _m.un_named_tsb_type(fields)
