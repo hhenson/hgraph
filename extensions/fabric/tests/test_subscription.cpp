@@ -494,7 +494,8 @@ struct CaptureNotificationMetrics
 
     static void eval(hg::In<"values", hgf::FabricDiagnostics> values)
     {
-        for (const auto &[name, value] : values.template field<"metrics">().modified_items())
+        const auto metrics = values.template field<"metrics">();
+        for (const auto &[name, value] : metrics.modified_items())
         {
             if (value.valid())
             {
