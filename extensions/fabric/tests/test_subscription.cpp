@@ -495,11 +495,11 @@ struct CaptureNotificationMetrics
     static void eval(hg::In<"values", hgf::FabricDiagnostics> values)
     {
         const auto metrics = values.template field<"metrics">();
-        for (const auto &[name, value] : metrics.modified_items())
+        for (const auto &[metric_name, value] : metrics.modified_items())
         {
             if (value.valid())
             {
-                observed_notification_metrics.insert_or_assign(name.checked_as<hg::Str>(), value.value());
+                observed_notification_metrics.insert_or_assign(metric_name.checked_as<hg::Str>(), value.value());
             }
         }
     }
