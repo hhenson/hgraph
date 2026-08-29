@@ -1,10 +1,9 @@
 import runpy
 from pathlib import Path
 
-import _hgraph
 import pytest
 
-from hgraph.test import use_wiring
+from hgraph.test import eval_node
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
@@ -25,7 +24,4 @@ def test_python_fabric_example_wires_through_public_api(module, graph_name):
     namespace = runpy.run_path(EXAMPLES / module)
     example = namespace[graph_name]
 
-    wiring = _hgraph.Wiring()
-    with use_wiring(wiring):
-        example()
-    wiring.run()
+    assert eval_node(example) is None
