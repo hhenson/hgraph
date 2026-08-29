@@ -110,6 +110,26 @@ def test_aware_datetime_is_normalized_to_naive_utc():
     check(result.tzinfo is None, f"native datetime must be timezone-free: {result!r}")
 
 
+def test_aware_datetime_normalization_rejects_python_range_overflow():
+    import datetime
+
+    sources = (
+        datetime.datetime.max.replace(
+            tzinfo=datetime.timezone(-datetime.timedelta(hours=23, minutes=59))
+        ),
+        datetime.datetime.min.replace(
+            tzinfo=datetime.timezone(datetime.timedelta(hours=23, minutes=59))
+        ),
+    )
+    for source in sources:
+        try:
+            hg._roundtrip_value(source)
+        except TypeError as error:
+            check("invalid Python datetime value" in str(error), f"unexpected error: {error}")
+        else:
+            raise AssertionError(f"out-of-range UTC normalization was accepted: {source!r}")
+
+
 def test_aware_time_is_rejected_without_a_zoned_time_scalar():
     import datetime
     from zoneinfo import ZoneInfo

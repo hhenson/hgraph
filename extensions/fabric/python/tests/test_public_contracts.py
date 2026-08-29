@@ -103,6 +103,33 @@ def test_python_codec_uses_hgraph_datetime_timezone_semantics():
     assert decoded.as_of.tzinfo is None
 
 
+@pytest.mark.parametrize(
+    "as_of",
+    (
+        datetime.max.replace(
+            tzinfo=timezone(-timedelta(hours=23, minutes=59))
+        ),
+        datetime.min.replace(
+            tzinfo=timezone(timedelta(hours=23, minutes=59))
+        ),
+    ),
+)
+def test_python_codec_rejects_datetime_normalization_outside_python_range(as_of):
+    revision = _revision()
+    invalid = hgf.DataRevision(
+        format_version=revision.format_version,
+        data_id=revision.data_id,
+        revision=revision.revision,
+        output_version=revision.output_version,
+        dependencies=revision.dependencies,
+        self_predecessor=revision.self_predecessor,
+        as_of=as_of,
+    )
+
+    with pytest.raises(TypeError):
+        hgf.encode_revision(invalid)
+
+
 def test_python_public_operators_wire_through_native_registry():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
