@@ -107,6 +107,15 @@ def test_print_no_args_or_kwargs(capsys):
     assert "Contents" in capsys.readouterr().out
 
 
+def test_print_dynamic_message_with_braces_is_literal(capsys):
+    @graph
+    def main(message: TS[str]):
+        print_(message)
+
+    eval_node(main, ['payload={"value":"same"}'])
+    assert 'payload={"value":"same"}' in capsys.readouterr().out
+
+
 def test_print_stderr(capsys):
     @graph
     def main():
@@ -157,6 +166,16 @@ def test_log_no_args_or_kwargs(caplog):
     with caplog.at_level(logging.ERROR, logger="hgraph"):
         eval_node(main)
     assert "Error output Test 1" in caplog.text
+
+
+def test_log_dynamic_message_with_braces_is_literal(caplog):
+    @graph
+    def main(message: TS[str]):
+        log_(message, level=logging.ERROR)
+
+    with caplog.at_level(logging.ERROR, logger="hgraph"):
+        eval_node(main, ['payload={"value":"same"}'])
+    assert 'payload={"value":"same"}' in caplog.text
 
 
 def test_log_sample(caplog):
