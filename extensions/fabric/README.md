@@ -76,6 +76,130 @@ Python consumers import `hgraph_fabric` and call
 `register_memory_fabric_service()` for the deterministic local host; importing
 the package registers the same native operators and scalar enum.
 
+## Python examples
+
+Install the extension and import ordinary hgraph graph-building primitives:
+
+```sh
+python -m pip install hgraph-fabric
+```
+
+Fabric registration belongs in the outer host graph. Reusable components call
+only `subscribe_data()` and `publish_data()`, so the same component can run
+against the local memory host or a production host configured with persistent
+stores and Kafka.
+
+### Publish one Frame locally
+
+This complete example publishes one atomic Arrow table. The memory service is
+run-scoped and intended for local development and tests; a separate graph run
+gets a separate memory Fabric.
+
+```python
+from datetime import timedelta
+
+import pyarrow as pa
+import hgraph as hg
+import hgraph_fabric as fabric
+
+
+@hg.graph
+def publish_prices() -> None:
+    prices = hg.const(
+        pa.table({"symbol": ["AAPL", "MSFT"], "price": [201.5, 415.0]}),
+        tp=hg.TS[hg.Frame],
+    )
+    fabric.publish_data("prices/raw", prices)
+
+
+@hg.graph
+def local_app() -> None:
+    fabric.register_memory_fabric_service(prefix="examples/basic")
+    publish_prices()
+
+
+hg.run_graph(
+    local_app,
+    run_mode=hg.EvaluationMode.SIMULATION,
+    start_time=hg.MIN_ST,
+    end_time=hg.MIN_ST + timedelta(microseconds=20),
+)
+```
+
+The runnable version is
+[`python/examples/publish_once.py`](python/examples/publish_once.py).
+
+### Subscribe using Live, Replay, or Snapshot
+
+Choose exactly one policy for a data id in one root graph:
+
+```python
+from datetime import datetime
+
+live = fabric.subscribe_data(
+    "prices/enriched", mode=fabric.SubscriptionMode.LIVE
+)
+
+replay = fabric.subscribe_data(
+    "prices/enriched", mode=fabric.SubscriptionMode.REPLAY
+)
+
+snapshot = fabric.subscribe_data(
+    "prices/enriched",
+    mode=fabric.SubscriptionMode.SNAPSHOT,
+    as_of=datetime(2026, 1, 2, 12, 0),
+)
+```
+
+`LIVE` follows new accepted revisions and is normally run by a real-time host.
+`REPLAY` deterministically walks revisions in the graph executor's start/end
+interval. `SNAPSHOT` emits one consistent image at the required `as_of` cutoff.
+The alternatives are separate graphs in
+[`python/examples/subscription_modes.py`](python/examples/subscription_modes.py);
+wiring several policies for the same data id into one graph is rejected because
+it would make that graph's consistency contract ambiguous.
+
+### Build a derived dataset with automatic lineage
+
+Application code may give incoming Frames typed row views, compose ordinary
+hgraph operators, and publish the complete result. Fabric's durable boundary is
+`TS[Frame]`, so the typed result is converted back to that schema-free Frame
+view for publication; its Arrow schema remains part of the stored Frame.
+
+```python
+raw_prices = fabric.subscribe_data(
+    "prices/raw", mode=fabric.SubscriptionMode.LIVE
+)
+instrument_reference = fabric.subscribe_data(
+    "instruments/reference", mode=fabric.SubscriptionMode.LIVE
+)
+
+prices = hg.convert[hg.TS[hg.Frame[Price]]](raw_prices)
+instruments = hg.convert[hg.TS[hg.Frame[Instrument]]](instrument_reference)
+enriched: hg.TS[hg.Frame[EnrichedPrice]] = hg.join(
+    prices, instruments, on="symbol", how="left"
+)
+
+fabric.publish_data(
+    "prices/enriched", hg.convert[hg.TS[hg.Frame]](enriched)
+)
+```
+
+The wiring planner discovers both subscriptions upstream of the joined result,
+so every accepted `prices/enriched` revision records both immediate input
+versions. Reusing one subscription in several computations is safe: each
+publisher records the lineage reachable from its own value edge.
+
+[`python/examples/derived_dataset.py`](python/examples/derived_dataset.py)
+contains the complete graph, plus an explicit-lineage variant using
+`dependency_handle()` and `DependencySelection.explicit()`. Prefer automatic
+lineage; use explicit handles only when the semantic dependency is deliberately
+not reachable through the published value's graph ancestry.
+
+All example files keep service registration in small local host wrappers. A
+production native host installs `FabricConfig` and the Kafka transport instead;
+the reusable Python component graphs are unchanged.
+
 ## Production configuration
 
 `FabricConfig` is run-scoped state. A host constructs the persistence handles
