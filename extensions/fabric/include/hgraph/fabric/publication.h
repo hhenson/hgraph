@@ -81,6 +81,11 @@ namespace hgraph::fabric
             LatestDurable state so the accepted notification can be retried. */
         PublicationState advance();
 
+        /** Acknowledge a notification delivered by an explicit graph transport
+            edge. The machine must be paused at LatestDurable; configured
+            notifier delivery continues to use advance(). */
+        void acknowledge_notification();
+
         [[nodiscard]] PublicationState state() const noexcept;
         [[nodiscard]] std::optional<DataRevisionInput> accepted_revision() const;
         [[nodiscard]] std::optional<DataRevisionInput> candidate_revision() const;

@@ -348,9 +348,11 @@ use of one cached realization. Native and Python graph behavior, push ingress,
 feedback, tables, and keyed operator tests cover the migrated representation.
 
 Kafka subscription ingress now retains its record field as
-``Shared<KafkaRecord>`` in the private cross-thread transport envelope.  The
-public service remains ``TS<KafkaRecord>`` and materialises one concrete copy
-at graph publication, so native and Python clients see no schema change.
+``Shared<KafkaRecord>`` through the cross-thread transport envelope and public
+C++ service edge.  Native consumers borrow the concrete view without a graph
+publication copy.  ``Shared`` remains transparent to Python clients, which
+declare the storage as ``TS[Shared[KafkaRecord]]`` where exact schema identity
+is required but continue to receive the ``KafkaRecord`` value.
 
 Web ingress retains the six private request, response, WebSocket, delivery,
 and event envelopes as ``Shared<T>`` values.  One envelope allocation now
@@ -368,7 +370,8 @@ Kafka transport evidence
 ``hgraph_kafka_transport_perf`` preserves the former plain-record envelope as
 an A/B control and exercises the production retention segment: envelope
 construction, burst push output, emit pending state, keyed transport child,
-and the public record projection.  It reports allocation count and bytes for
+and the shared public record projection.  It reports allocation count and
+bytes for
 the complete segment, p50/p99 segment latency, and the peak tracked retained
 state.  The retained figure includes the shared arena slab reservation rather
 than hiding it behind per-handle zero accounting.
@@ -393,23 +396,23 @@ records with a 64 KiB payload was:
      - allocated bytes / record
      - tracked retained bytes
    * - Plain control
-     - 9,041
-     - 11,583
+     - 8,667
+     - 11,625
      - 31
-     - 409,224
+     - 409,072
      - 197,912
    * - Shared record
-     - 4,708
-     - 6,084
+     - 4,417
+     - 6,000
      - 23
-     - 144,632
-     - 151,088
+     - 144,480
+     - 85,472
    * - Change
-     - -47.9%
-     - -47.5%
+     - -49.0%
+     - -48.4%
      - -25.8%
      - -64.7%
-     - -23.7%
+     - -56.8%
 
 This is the deterministic native retention segment, not broker/network
 latency.  Full Kafka service tests continue to cover real and mock broker

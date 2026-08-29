@@ -392,7 +392,7 @@ struct FabricKafkaProbeCapture {
 
     const auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
-      const auto fields = record.base().value().as_bundle();
+      const auto fields = record.base().value().concrete().as_bundle();
       require(fields.at("topic").checked_as<hg::Str>() == FABRIC_TOPIC,
               "installed Kafka subscription received the wrong topic");
       require(fields.at("key").checked_as<hg::Bytes>().data == DATA_ID,

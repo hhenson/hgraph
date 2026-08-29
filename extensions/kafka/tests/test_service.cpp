@@ -73,6 +73,12 @@ void test_transport_sender_handles_graph_teardown() {
 }
 
 void test_subscription_transport_retains_one_shared_record() {
+  const auto *public_schema =
+      schema_descriptor<KafkaSubscriptionOutput>::ts_meta();
+  require(public_schema != nullptr && public_schema->field_count() == 3 &&
+              public_schema->fields()[0].type->value_type ==
+                  scalar_descriptor<Shared<KafkaRecord>>::value_meta(),
+          "Kafka public subscription schema did not retain Shared<KafkaRecord>");
   const auto bindings = kafka::detail::make_transport_bindings();
   const auto live_before = shared_value_pool_metrics().live_values;
   Value key = make_subscription_key(
@@ -99,15 +105,15 @@ void test_subscription_transport_retains_one_shared_record() {
   require(shared_value_pool_metrics().live_values == live_before + 1,
           "Kafka transport copy duplicated the shared record payload");
 
-  const auto plain_record_binding = ValuePlanFactory::instance().type_for(
-      scalar_descriptor<KafkaRecord>::value_meta());
-  Value public_record{plain_record_binding, copied_record.concrete()};
-  require(public_record.view().as_bundle().at("offset").checked_as<Int>() ==
+  Value public_record = copied_record.clone();
+  require(public_record.view().concrete().as_bundle().at("offset").checked_as<Int>() ==
               Int{42},
           "Kafka public record projection changed its value semantics");
   require(public_record.schema() ==
-              scalar_descriptor<KafkaRecord>::value_meta(),
-          "Kafka shared transport representation escaped the public schema");
+              scalar_descriptor<Shared<KafkaRecord>>::value_meta(),
+          "Kafka public record projection did not retain Shared<KafkaRecord>");
+  require(public_record.view().concrete().data() == stable,
+          "Kafka public record projection duplicated the shared payload");
 }
 
 Value delivery_burst(
@@ -274,6 +280,65 @@ void test_mixed_burst_stops_at_first_output_collision() {
               tsd_delta_empty(fourth.at("deliveries")) &&
               fourth.at("events").has_value(),
           "the emitter did not resume from the scalar output collision");
+}
+
+void test_subscription_lifecycle_preserves_transport_order() {
+  const auto bindings = kafka::detail::make_transport_bindings();
+  Value key = make_subscription_key({Str{"ordered"}}, Str{"ordered"},
+                                    Str{"earliest"}, Str{"unbounded"},
+                                    KafkaCommitMode::Explicit, Str{"ordered"});
+  ListBuilder burst{bindings.value->event,
+                    *scalar_descriptor<
+                        kafka::detail::KafkaTransportEventBatch>::value_meta()};
+  burst.push_back(kafka::detail::subscription_transport_event(
+      *bindings.value, key.clone(), std::nullopt, std::nullopt,
+      KafkaSubscriptionState::Starting));
+  for (Int offset : {Int{1}, Int{2}}) {
+    burst.push_back(kafka::detail::subscription_transport_event(
+        *bindings.value, key.clone(),
+        make_record(Str{"ordered"}, Int{0}, offset, Bytes{"record"}),
+        std::nullopt, KafkaSubscriptionState::Live));
+  }
+  burst.push_back(kafka::detail::subscription_removed_transport_event(
+      *bindings.value, key.clone()));
+
+  std::vector<std::optional<Value>> input;
+  input.emplace_back(burst.build());
+  const auto output = eval_node<MixedTransportEmitGraph>(input);
+  require(output.size() >= 4 && output[0].has_value() &&
+              output[1].has_value() && output[2].has_value() &&
+              output[3].has_value(),
+          "subscription lifecycle burst did not drain over four ordered ticks");
+
+  const auto subscription_delta = [&](std::size_t index) {
+    return output[index]->view().as_bundle().at("subscriptions").as_bundle();
+  };
+  const auto first = subscription_delta(0);
+  require(first.at("modified")
+                  .as_map()
+                  .at(key.view())
+                  .as_bundle()
+                  .at("state")
+                  .checked_as<KafkaSubscriptionState>() ==
+              KafkaSubscriptionState::Starting,
+          "subscription Starting did not remain first in transport order");
+  for (std::size_t index = 1; index != 3; ++index) {
+    const auto event = subscription_delta(index)
+                           .at("modified")
+                           .as_map()
+                           .at(key.view())
+                           .as_bundle();
+    require(event.at("record")
+                    .concrete()
+                    .as_bundle()
+                    .at("offset")
+                    .checked_as<Int>() == static_cast<Int>(index),
+            "a buffered subscription record was overtaken by removal");
+  }
+  const auto removed = subscription_delta(3);
+  require(removed.at("modified").as_map().empty() &&
+              removed.at("removed").as_set().contains(key.view()),
+          "subscription removal did not follow every buffered record");
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -537,7 +602,7 @@ struct SubscriptionBacklogCapture {
       return;
     }
     backlog_offsets.push_back(
-        record.base().value().as_bundle().at("offset").checked_as<Int>());
+        record.base().value().concrete().as_bundle().at("offset").checked_as<Int>());
     if (backlog_offsets.size() == 3) {
       node.graph().executor().request_stop();
     }
@@ -568,7 +633,7 @@ struct BurstSubscriptionCapture {
       return;
     }
     const Int offset =
-        record.base().value().as_bundle().at("offset").checked_as<Int>();
+        record.base().value().concrete().as_bundle().at("offset").checked_as<Int>();
     if (offset == Int{99}) {
       burst_subscription_gate.block();
       return;
@@ -798,7 +863,7 @@ struct RecordTimeRecoveryLiveCapture {
     if (!record.valid() || !record.modified()) {
       return;
     }
-    const auto fields = record.base().value().as_bundle();
+    const auto fields = record.base().value().concrete().as_bundle();
     recovery_live_records.emplace_back(
         fields.at("value").checked_as<Bytes>().data,
         node.graph().evaluation_time());
@@ -830,7 +895,7 @@ struct BoundedSubscriptionCapture {
            subscription) {
     auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
-      const auto fields = record.base().value().as_bundle();
+      const auto fields = record.base().value().concrete().as_bundle();
       bounded_offsets.push_back(fields.at("offset").checked_as<Int>());
       if (present(fields.at("value"))) {
         bounded_payloads.push_back(fields.at("value").checked_as<Bytes>().data);
@@ -872,7 +937,7 @@ struct MultiBoundedSubscriptionCapture {
            subscription) {
     auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
-      const auto fields = record.base().value().as_bundle();
+      const auto fields = record.base().value().concrete().as_bundle();
       if (present(fields.at("value"))) {
         const auto payload = fields.at("value").checked_as<Bytes>().data;
         bounded_payloads.push_back(payload);
@@ -953,6 +1018,16 @@ void test_runtime_specific_wiring_shapes() {
   }
   require(find_node_schema(realtime, "kafka_simulation_replay") == nullptr,
           "real-time Kafka unexpectedly wired simulation replay");
+  const auto *transport_emit =
+      find_node_schema(realtime, "kafka_transport_emit");
+  require(transport_emit != nullptr &&
+              transport_emit->input_schema != nullptr &&
+              transport_emit->input_schema->kind == TSTypeKind::TSB &&
+              transport_emit->input_schema->data.tsb.field_count == 1 &&
+              std::string_view{
+                  transport_emit->input_schema->data.tsb.fields[0].name} ==
+                  "transport",
+          "Kafka transport emit retained a separately ordered command input");
   for (const auto legacy : {std::string_view{"kafka_group_delivery_batch"},
                             std::string_view{"kafka_select_event_batch"}}) {
     require(find_node_schema(realtime, legacy) == nullptr,
@@ -982,7 +1057,7 @@ struct OrderedIngressCapture {
     auto record = subscription.template field<"record">();
     if (record.valid() && record.modified()) {
       bounded_offsets.push_back(
-          record.base().value().as_bundle().at("offset").checked_as<Int>());
+          record.base().value().concrete().as_bundle().at("offset").checked_as<Int>());
     }
     auto state = subscription.template field<"state">();
     if (state.valid() && state.modified() &&
@@ -1087,7 +1162,7 @@ struct ReaddedSubscriptionCapture {
       first_readded_cursor = cursor_port.base().value().clone();
     }
     subscription_generations.publish(
-        record_port.base().value().as_bundle().at("topic").checked_as<Str>(),
+        record_port.base().value().concrete().as_bundle().at("topic").checked_as<Str>(),
         cursor_port.base()
             .value()
             .as_bundle()
@@ -1691,21 +1766,34 @@ void test_burst_distributes_subscriptions_and_unrolls_key_collisions() {
           "same Kafka subscription key was not unrolled next cycle");
 }
 
-void test_service_can_start_and_stop_repeatedly() {
+void test_reusable_graph_builders_create_independent_service_resources() {
   event_broker = std::make_shared<FakeBroker>();
-  for (int run = 0; run < 2; ++run) {
-    auto executor = start_realtime(build_realtime_graph<CommitAndEventGraph>());
-    auto view = executor.view();
-    AsyncGraphExecutorRun runner{view};
-    require(event_broker->wait_until_attached(2s),
-            "restarted service did not attach");
-    view.request_stop();
-    runner.join();
-    require(event_broker->wait_until_detached(2s),
-            "restarted service did not detach");
+  const DateTime start = wall_now();
+  GraphExecutorBuilder builder;
+  builder.graph_builder(build_realtime_graph<CommitAndEventGraph>())
+      .mode(GraphExecutorMode::RealTime)
+      .start_time(start)
+      .end_time(start + TimeDelta{5'000'000});
+  auto first = builder.make_executor();
+  auto second = builder.make_executor();
+  auto first_graph = first.view().graph();
+  auto second_graph = second.view().graph();
+
+  first_graph.start(start);
+  try {
+    second_graph.start(start);
+  } catch (...) {
+    first_graph.stop(start);
+    throw;
   }
+  require(event_broker->wait_until_attached(2s),
+          "concurrent service instances did not attach");
+  second_graph.stop(start);
+  first_graph.stop(start);
+  require(event_broker->wait_until_detached(2s),
+          "concurrent service instances did not detach");
   require(event_broker->attach_count() == 2,
-          "service did not materialize once per graph run");
+          "service did not materialize once per GraphValue");
 }
 
 void test_standard_ingress_accepts_before_the_graph_drains() {
@@ -1939,7 +2027,7 @@ void test_librdkafka_subscription_path() {
   AsyncGraphExecutorRun runner{view};
   runner.join();
 
-  const auto record = production_record.view().as_bundle();
+  const auto record = production_record.view().concrete().as_bundle();
   require(record.at("topic").checked_as<Str>() == Str{"native-in"},
           "consumed topic was lost");
   require(record.at("offset").checked_as<Int>() == Int{0},
@@ -1995,6 +2083,7 @@ void test_graph_lifetime_stop_remains_live_in_real_time() {
   runner.join();
 
   require(production_record.view()
+                  .concrete()
                   .as_bundle()
                   .at("value")
                   .checked_as<Bytes>()
@@ -2220,8 +2309,12 @@ void test_subscription_removal_and_readd_uses_a_fresh_assignment_generation() {
           "dynamic Kafka commit push source did not start");
 
   sender->send_blocking(first.clone());
-  require(subscription_generations.await(1),
-          "first subscription assignment did not produce a cursor");
+  if (!subscription_generations.await(1)) {
+    view.request_stop();
+    runner.join();
+    throw std::runtime_error(
+        "first subscription assignment did not produce a cursor");
+  }
   sender->send_blocking(second.clone());
   require(subscription_generations.await(2),
           "replacement subscription assignment did not produce a cursor");
@@ -2977,6 +3070,7 @@ int main() {
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_mixed_burst_stops_at_first_output_collision();
+    test_subscription_lifecycle_preserves_transport_order();
     test_runtime_specific_wiring_shapes();
     test_public_value_validation_and_producer_configuration();
     test_simulation_rejects_publish_and_commit_work();
@@ -2986,7 +3080,7 @@ int main() {
     test_subscription_sharing_is_explicit_and_duplicate_registration_fails();
     test_push_backlogs_drain_one_value_per_graph_cycle();
     test_burst_distributes_subscriptions_and_unrolls_key_collisions();
-    test_service_can_start_and_stop_repeatedly();
+    test_reusable_graph_builders_create_independent_service_resources();
     test_subscription_removal_and_readd_uses_a_fresh_assignment_generation();
     test_standard_ingress_accepts_before_the_graph_drains();
     test_librdkafka_standard_ingress_preserves_order();

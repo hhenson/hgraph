@@ -578,6 +578,7 @@ public:
     return key_.view().equals(key);
   }
   [[nodiscard]] const Str &identity() const noexcept { return spec_.identity; }
+  [[nodiscard]] const Value &key() const noexcept { return key_; }
   [[nodiscard]] KafkaCommitMode commit_mode() const noexcept {
     return spec_.commit_mode;
   }
@@ -771,6 +772,16 @@ public:
         }
       }
     });
+    // Lifecycle and records share the runtime's one ordered transport. Each
+    // Starting event is admitted before its consumer can emit any record.
+    for (const auto &session : additions) {
+      if (!output_(subscription_envelope(
+              bindings_, session->key().clone(), std::nullopt, std::nullopt,
+              KafkaSubscriptionState::Starting, std::nullopt))) {
+        throw std::runtime_error(
+            "Kafka graph stopped while starting a subscription");
+      }
+    }
     for (auto &session : additions) {
       session->start();
     }
@@ -785,17 +796,21 @@ public:
     rollback.release();
   }
 
-  void remove_subscription(const ValueView &key) {
+  [[nodiscard]] bool remove_subscription(const ValueView &key) {
     const auto found = std::find_if(
         sessions_.begin(), sessions_.end(),
         [&](const auto &session) { return session->matches_key(key); });
     if (found == sessions_.end()) {
-      return;
+      return false;
     }
+    Value removed_key = (*found)->key().clone();
     (*found)->stop();
     sessions_.erase(found);
-    static_cast<void>(
-        output_(subscription_removed_transport_event(bindings_, key.clone())));
+    // Joining establishes that every record from this session was admitted
+    // before its removal marker on the same FIFO transport.
+    static_cast<void>(output_(subscription_removed_transport_event(
+        bindings_, std::move(removed_key))));
+    return true;
   }
 
   void publish(Int request_id, Str topic, Value record) {
@@ -1322,7 +1337,6 @@ ConsumerSession::ConsumerSession(KafkaRuntime &owner, Value key,
 ConsumerSession::~ConsumerSession() { stop(); }
 
 void ConsumerSession::start() {
-  emit_state(KafkaSubscriptionState::Starting);
   if (owner_.simulation()) {
     run();
   } else {
@@ -2432,33 +2446,8 @@ void ConsumerSession::emit_state(KafkaSubscriptionState state,
   owner_.emit_subscription_state(key_.clone(), state, evaluation_time);
 }
 
-class KafkaRuntimeResource {
-public:
-  void install(std::shared_ptr<KafkaRuntime> runtime) {
-    std::lock_guard lock{mutex_};
-    if (runtime_) {
-      throw std::logic_error("Kafka runtime resource was installed twice");
-    }
-    runtime_ = std::move(runtime);
-  }
-
-  [[nodiscard]] std::shared_ptr<KafkaRuntime> get() const {
-    std::lock_guard lock{mutex_};
-    return runtime_;
-  }
-
-  [[nodiscard]] std::shared_ptr<KafkaRuntime> take() noexcept {
-    std::lock_guard lock{mutex_};
-    return std::exchange(runtime_, {});
-  }
-
-private:
-  mutable std::mutex mutex_{};
-  std::shared_ptr<KafkaRuntime> runtime_{};
-};
-
 struct KafkaRuntimeHandle {
-  std::shared_ptr<KafkaRuntimeResource> value{};
+  std::shared_ptr<KafkaRuntime> value{};
 
   friend bool operator==(const KafkaRuntimeHandle &,
                          const KafkaRuntimeHandle &) noexcept = default;
@@ -2500,6 +2489,21 @@ public:
 
   [[nodiscard]] bool push(Value value) {
     std::lock_guard lock{mutex_};
+    const auto fields = value.view().as_bundle();
+    if (fields.at("kind").checked_as<KafkaTransportEventKind>() ==
+        KafkaTransportEventKind::Subscription) {
+      const auto removed = fields.at("removed");
+      if (removed.data() != nullptr && removed.checked_as<Bool>()) {
+        const auto key = fields.at("subscription_key");
+        std::erase_if(values_, [&](const Value &pending) {
+          const auto pending_fields = pending.view().as_bundle();
+          return pending_fields.at("kind")
+                         .checked_as<KafkaTransportEventKind>() ==
+                     KafkaTransportEventKind::Subscription &&
+                 pending_fields.at("subscription_key").equals(key);
+        });
+      }
+    }
     const auto position =
         std::upper_bound(values_.begin(), values_.end(), value,
                          [](const Value &lhs, const Value &rhs) {
@@ -2654,15 +2658,73 @@ using KafkaCommitInput =
     In<"commits", TSD<Int, TS<KafkaCursor>>, InputValidity::Unchecked>;
 
 [[nodiscard]] std::shared_ptr<detail::KafkaRuntime>
-live_runtime(Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
-  if (!runtime.value().value) {
-    throw std::logic_error("Kafka runtime resource is not configured");
-  }
-  auto value = runtime.value().value->get();
-  if (!value) {
+live_runtime(GlobalStateView global_state,
+             Scalar<"runtime_key", Str> runtime_key) {
+  const auto stored = global_state.get(runtime_key.value());
+  if (!stored.valid()) {
     throw std::logic_error("Kafka command evaluated before runtime start");
   }
-  return value;
+  auto runtime = stored.checked_as<detail::KafkaRuntimeHandle>().value;
+  if (!runtime) {
+    throw std::logic_error("Kafka runtime resource is not configured");
+  }
+  return runtime;
+}
+
+void install_runtime(GlobalStateView global_state, std::string_view runtime_key,
+                     std::shared_ptr<detail::KafkaRuntime> runtime) {
+  if (global_state.contains(runtime_key)) {
+    throw std::logic_error("Kafka runtime resource was installed twice");
+  }
+  global_state.set(runtime_key,
+                   Value{detail::KafkaRuntimeHandle{std::move(runtime)}});
+}
+
+[[nodiscard]] std::shared_ptr<detail::KafkaRuntime>
+take_runtime(GlobalStateView global_state, std::string_view runtime_key) {
+  const auto stored = global_state.get(runtime_key);
+  if (!stored.valid()) {
+    return {};
+  }
+  auto runtime = stored.checked_as<detail::KafkaRuntimeHandle>().value;
+  static_cast<void>(global_state.erase(runtime_key));
+  return runtime;
+}
+
+[[nodiscard]] Str runtime_state_key(std::string_view path) {
+  return "__hgraph.kafka.runtime/" + Str{path};
+}
+
+[[nodiscard]] Str simulation_queue_state_key(std::string_view runtime_key) {
+  return Str{runtime_key} + "/simulation_queue";
+}
+
+void install_simulation_queue(
+    GlobalStateView global_state, std::string_view queue_key,
+    std::shared_ptr<detail::SimulationTransportQueue> queue) {
+  if (global_state.contains(queue_key)) {
+    throw std::logic_error(
+        "Kafka simulation queue resource was installed twice");
+  }
+  global_state.set(
+      queue_key,
+      Value{detail::SimulationTransportQueueHandle{std::move(queue)}});
+}
+
+[[nodiscard]] std::shared_ptr<detail::SimulationTransportQueue>
+simulation_queue(GlobalStateView global_state,
+                 Scalar<"queue_key", Str> queue_key) {
+  const auto stored = global_state.get(queue_key.value());
+  if (!stored.valid()) {
+    throw std::logic_error(
+        "Kafka simulation replay evaluated before runtime start");
+  }
+  auto queue =
+      stored.checked_as<detail::SimulationTransportQueueHandle>().value;
+  if (!queue) {
+    throw std::logic_error("Kafka simulation queue resource is not configured");
+  }
+  return queue;
 }
 
 void process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
@@ -2672,7 +2734,7 @@ void process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
   }
   const auto &erased = static_cast<const TSSInputView &>(subscriptions);
   for (const auto key : erased.removed()) {
-    runtime.remove_subscription(key);
+    static_cast<void>(runtime.remove_subscription(key));
   }
   std::vector<Value> additions;
   for (const auto key : erased.added()) {
@@ -2687,12 +2749,14 @@ void process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
  *  side effect; it processes only the TSS delta and starts/stops the affected
  *  consumer sessions. Cost is O(A + R) per tick for additions A and removals
  *  R; removal may wait for the corresponding owner thread to join. */
-struct KafkaSubscriptionCommandSink {
+struct KafkaSubscriptionCommandNode {
   static constexpr auto name = "kafka_subscription_commands";
 
   static void eval(KafkaSubscriptionsInput subscriptions,
-                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
-    process_subscription_commands(subscriptions, *live_runtime(runtime));
+                   GlobalStateView global_state,
+                   Scalar<"runtime_key", Str> runtime_key) {
+    process_subscription_commands(subscriptions,
+                                  *live_runtime(global_state, runtime_key));
   }
 };
 
@@ -2703,11 +2767,12 @@ struct KafkaPublishSink {
   static constexpr auto name = "kafka_publish_commands";
 
   static void eval(KafkaPublishInput publish_requests,
-                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+                   GlobalStateView global_state,
+                   Scalar<"runtime_key", Str> runtime_key) {
     if (!publish_requests.modified()) {
       return;
     }
-    auto task = live_runtime(runtime);
+    auto task = live_runtime(global_state, runtime_key);
     for (const auto &[request_id_view, request] :
          publish_requests.modified_items()) {
       auto record = request.template field<"record">();
@@ -2731,11 +2796,12 @@ struct KafkaCommitSink {
   static constexpr auto name = "kafka_commit_commands";
 
   static void eval(KafkaCommitInput commits,
-                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+                   GlobalStateView global_state,
+                   Scalar<"runtime_key", Str> runtime_key) {
     if (!commits.modified()) {
       return;
     }
-    auto task = live_runtime(runtime);
+    auto task = live_runtime(global_state, runtime_key);
     for (const auto &[request_id, cursor] : commits.modified_items()) {
       static_cast<void>(request_id);
       if (cursor.valid() && cursor.modified()) {
@@ -2755,11 +2821,12 @@ struct KafkaGraphDeliveryCommitSink {
   eval(In<"subscriptions", TSD<KafkaSubscriptionKey, KafkaSubscriptionOutput>,
           InputValidity::Unchecked>
            subscriptions,
-       Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
+       GlobalStateView global_state,
+       Scalar<"runtime_key", Str> runtime_key) {
     if (!subscriptions.modified()) {
       return;
     }
-    auto task = live_runtime(runtime);
+    auto task = live_runtime(global_state, runtime_key);
     for (const auto &[key, update] : subscriptions.modified_items()) {
       static_cast<void>(key);
       auto cursor = update.template field<"cursor">();
@@ -2774,12 +2841,12 @@ struct KafkaRealtimeTransportTag {};
 
 [[nodiscard]] Port<TS<detail::KafkaTransportEventBatch>>
 wire_realtime_transport(Wiring &w, detail::RuntimeConfigHandle config, Str path,
-                        detail::KafkaRuntimeHandle runtime,
+                        Str runtime_key,
                         detail::KafkaTransportBindingsHandle bindings) {
   return detail::wire_transport_source<KafkaRealtimeTransportTag>(
       w,
-      [config = std::move(config), path = std::move(path), runtime,
-       bindings](PushSourceSender sender, const NodeView &, DateTime now) {
+      [config = std::move(config), path = std::move(path), runtime_key,
+       bindings](PushSourceSender sender, const NodeView &node, DateTime now) {
         auto task = std::make_shared<detail::KafkaRuntime>(
             *config.value, path, *bindings.value,
             [sender = std::move(sender)](Value value) {
@@ -2788,11 +2855,11 @@ wire_realtime_transport(Wiring &w, detail::RuntimeConfigHandle config, Str path,
             now, false);
         task->start();
         auto rollback = make_scope_exit<true>([&] { task->stop(); });
-        runtime.value->install(task);
+        install_runtime(node.global_state(), runtime_key, task);
         rollback.release();
       },
-      [runtime](const NodeView &) {
-        if (auto task = runtime.value->take()) {
+      [runtime_key](const NodeView &node) {
+        if (auto task = take_runtime(node.global_state(), runtime_key)) {
           task->stop();
         }
       });
@@ -2806,9 +2873,10 @@ struct KafkaSimulationSubscriptionNode {
   static constexpr auto name = "kafka_simulation_subscription_commands";
 
   static void eval(KafkaSubscriptionsInput subscriptions,
-                   Scalar<"runtime", detail::KafkaRuntimeHandle> runtime,
-                   Out<TS<Int>> ready) {
-    process_subscription_commands(subscriptions, *live_runtime(runtime));
+                   GlobalStateView global_state,
+                   Scalar<"runtime_key", Str> runtime_key, Out<TS<Int>> ready) {
+    process_subscription_commands(subscriptions,
+                                  *live_runtime(global_state, runtime_key));
     ready.set(Int{1});
   }
 };
@@ -2820,25 +2888,34 @@ struct KafkaSimulationReplayNode {
   static constexpr auto name = "kafka_simulation_replay";
   using signature_args = std::tuple<
       In<"ready", TS<Int>>, Scalar<"config", detail::RuntimeConfigHandle>,
-      Scalar<"path", Str>, Scalar<"runtime", detail::KafkaRuntimeHandle>,
-      Scalar<"queue", detail::SimulationTransportQueueHandle>,
-      SingleShotScheduler, Out<TS<detail::KafkaTransportEventBatch>>>;
+      Scalar<"path", Str>, Scalar<"runtime_key", Str>,
+      Scalar<"queue_key", Str>,
+      Scalar<"bindings", detail::KafkaTransportBindingsHandle>,
+      GlobalStateView, SingleShotScheduler,
+      Out<TS<detail::KafkaTransportEventBatch>>>;
 
   static void
   start(Scalar<"config", detail::RuntimeConfigHandle> config,
         Scalar<"path", Str> path,
-        Scalar<"runtime", detail::KafkaRuntimeHandle> runtime,
-        Scalar<"queue", detail::SimulationTransportQueueHandle> queue,
-        SingleShotScheduler scheduler) {
+        Scalar<"runtime_key", Str> runtime_key,
+        Scalar<"queue_key", Str> queue_key,
+        Scalar<"bindings", detail::KafkaTransportBindingsHandle> bindings,
+        GlobalStateView global_state, SingleShotScheduler scheduler) {
+    auto queue = std::make_shared<detail::SimulationTransportQueue>(
+        *bindings.value().value);
     auto task = std::make_shared<detail::KafkaRuntime>(
-        *config.value().value, path.value(), queue.value().value->bindings(),
-        [queue = queue.value().value](Value value) {
+        *config.value().value, path.value(), queue->bindings(),
+        [queue](Value value) {
           return queue->push(std::move(value));
         },
         scheduler.now(), true);
     task->start();
     auto rollback = make_scope_exit<true>([&] { task->stop(); });
-    runtime.value().value->install(task);
+    install_simulation_queue(global_state, queue_key.value(), queue);
+    auto erase_queue = make_scope_exit<true>(
+        [&] { static_cast<void>(global_state.erase(queue_key.value())); });
+    install_runtime(global_state, runtime_key.value(), task);
+    erase_queue.release();
     rollback.release();
   }
 
@@ -2850,32 +2927,36 @@ struct KafkaSimulationReplayNode {
    *  memory is O(n) in the bounded replay history. */
   static void
   eval(In<"ready", TS<Int>>,
-       Scalar<"queue", detail::SimulationTransportQueueHandle> queue,
+       Scalar<"queue_key", Str> queue_key, GlobalStateView global_state,
        SingleShotScheduler scheduler,
        Out<TS<detail::KafkaTransportEventBatch>> out) {
-    const auto next_time = queue.value().value->next_time();
+    const auto queue = simulation_queue(global_state, queue_key);
+    const auto next_time = queue->next_time();
     if (next_time.has_value() && *next_time > scheduler.now()) {
       scheduler.schedule(*next_time);
       return;
     }
-    auto batch = queue.value().value->pop_batch();
+    auto batch = queue->pop_batch();
     if (batch.empty()) {
       return;
     }
-    const Value value = queue.value().value->build_batch(batch);
+    const Value value = queue->build_batch(batch);
     out.apply(value.view());
-    const auto following_time = queue.value().value->next_time();
+    const auto following_time = queue->next_time();
     if (following_time.has_value() && *following_time > scheduler.now()) {
       scheduler.schedule(*following_time);
-    } else if (!queue.value().value->empty()) {
+    } else if (!queue->empty()) {
       scheduler.schedule(MIN_TD);
     }
   }
 
-  static void stop(Scalar<"runtime", detail::KafkaRuntimeHandle> runtime) {
-    if (auto task = runtime.value().value->take()) {
+  static void stop(Scalar<"runtime_key", Str> runtime_key,
+                   Scalar<"queue_key", Str> queue_key,
+                   GlobalStateView global_state) {
+    if (auto task = take_runtime(global_state, runtime_key.value())) {
       task->stop();
     }
+    static_cast<void>(global_state.erase(queue_key.value()));
   }
 };
 
@@ -2886,6 +2967,10 @@ struct KafkaServiceImpl {
                       Scalar<"simulation", Bool> simulation,
                       Scalar<"path", Str> path) {
     register_kafka_types();
+    static_cast<void>(
+        scalar_descriptor<detail::KafkaRuntimeHandle>::value_meta());
+    static_cast<void>(scalar_descriptor<detail::SimulationTransportQueueHandle>::
+                          value_meta());
     const auto parsed = detail::parse_config(config.value());
     detail::RuntimeConfigHandle runtime_config{
         std::make_shared<const detail::RuntimeConfig>(parsed)};
@@ -2896,34 +2981,40 @@ struct KafkaServiceImpl {
         service::impl_input<KafkaPublishService>(w, binding);
     auto commit_requests = service::impl_input<KafkaCommitService>(w, binding);
 
-    detail::KafkaRuntimeHandle runtime{
-        std::make_shared<detail::KafkaRuntimeResource>()};
+    const Str runtime_key = runtime_state_key(path.value());
+    const Str queue_key = simulation_queue_state_key(runtime_key);
     const auto transport_bindings = detail::make_transport_bindings();
     detail::ServiceOutputs outputs = [&] {
       if (simulation.value()) {
-        detail::SimulationTransportQueueHandle queue{
-            std::make_shared<detail::SimulationTransportQueue>(
-                *transport_bindings.value)};
-        auto ready = wire<KafkaSimulationSubscriptionNode>(w, subscription_keys,
-                                                           runtime);
-        static_cast<void>(wire<KafkaPublishSink>(w, publish_requests, runtime));
-        static_cast<void>(wire<KafkaCommitSink>(w, commit_requests, runtime));
+        auto ready =
+            wire<KafkaSimulationSubscriptionNode>(w, subscription_keys,
+                                                  runtime_key)
+                .template as<TS<Int>>();
+        static_cast<void>(
+            wire<KafkaPublishSink>(w, publish_requests, runtime_key));
+        static_cast<void>(
+            wire<KafkaCommitSink>(w, commit_requests, runtime_key));
         auto replay =
             wire<KafkaSimulationReplayNode>(w, ready, runtime_config,
-                                            path.value(), runtime, queue)
+                                            path.value(), runtime_key,
+                                            queue_key, transport_bindings)
                 .template as<TS<detail::KafkaTransportEventBatch>>();
         return detail::wire_service_outputs(w, replay, transport_bindings);
       }
       auto source = wire_realtime_transport(w, runtime_config, path.value(),
-                                            runtime, transport_bindings);
+                                            runtime_key, transport_bindings);
       static_cast<void>(
-          wire<KafkaSubscriptionCommandSink>(w, subscription_keys, runtime));
-      static_cast<void>(wire<KafkaPublishSink>(w, publish_requests, runtime));
-      static_cast<void>(wire<KafkaCommitSink>(w, commit_requests, runtime));
+          wire<KafkaSubscriptionCommandNode>(w, subscription_keys,
+                                             runtime_key));
+      static_cast<void>(
+          wire<KafkaPublishSink>(w, publish_requests, runtime_key));
+      static_cast<void>(
+          wire<KafkaCommitSink>(w, commit_requests, runtime_key));
       return detail::wire_service_outputs(w, source, transport_bindings);
     }();
     static_cast<void>(
-        wire<KafkaGraphDeliveryCommitSink>(w, outputs.subscriptions, runtime));
+        wire<KafkaGraphDeliveryCommitSink>(w, outputs.subscriptions,
+                                           runtime_key));
 
     service::impl_output<KafkaSubscriptionService>(w, binding,
                                                    outputs.subscriptions);

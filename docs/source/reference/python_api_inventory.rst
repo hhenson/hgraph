@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 211
+     - 212
    * - Public operator groups
      - 187
    * - Public submodules
@@ -107,6 +107,7 @@ Top-level wildcard exports
    * - ``SIZE``
    * - ``STATE``
    * - ``Series``
+   * - ``Shared``
    * - ``Size``
    * - ``TABLE``
    * - ``TIME_SERIES_TYPE``

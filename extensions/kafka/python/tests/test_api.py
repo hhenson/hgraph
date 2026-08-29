@@ -19,7 +19,7 @@ def test_time_series_collections_use_the_native_named_tsb_schemas() -> None:
     assert hg.TSB[kafka.KafkaSubscriptionOutput].handle == _hgraph.tsb(
         "hgraph.kafka::KafkaSubscriptionOutput",
         [
-            ("record", hg.TS[kafka.KafkaRecord].handle),
+            ("record", hg.TS[hg.Shared[kafka.KafkaRecord]].handle),
             ("cursor", hg.TS[kafka.KafkaCursor].handle),
             ("state", hg.TS[kafka.KafkaSubscriptionState].handle),
         ],

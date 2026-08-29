@@ -75,6 +75,13 @@ shape and keep graph-stop and commit-on-delivery policy on graph.  There is no
 extension-owned cross-thread ingress queue, conflated wake token, or opaque
 service projection or drain object in front of the graph.
 
+Subscription lifecycle envelopes share that same ordered transport.  A
+``Starting`` envelope is admitted before its consumer owner starts, and a
+removal envelope is admitted only after that owner stops and joins.  The graph
+emitter therefore has one transport input: records already accepted from a
+session drain before its removal, and a later session starts after that removal
+without a second-stream priority rule or subscription-generation filter.
+
 No push source is permitted in simulation.  The simulation specialization
 performs a finite bounded read without a worker thread, retains the resulting
 history in graph-owned replay state, and schedules it at the recorded Kafka
@@ -289,7 +296,7 @@ is specified below):
        Field<"headers", HomogeneousTuple<KafkaHeader>>>;
 
    using KafkaSubscriptionOutput = TSB<"hgraph.kafka::KafkaSubscriptionOutput",
-       Field<"record", TS<KafkaRecord>>,
+       Field<"record", TS<Shared<KafkaRecord>>>,
        Field<"cursor", TS<KafkaCursor>>,
        Field<"state", TS<KafkaSubscriptionState>>>;
 
@@ -350,9 +357,13 @@ integer aliases will be selected to match Kafka's partition and offset widths.
    of record ticks.
 
 ``KafkaSubscriptionOutput``
-   A named time-series bundle containing ``record: TS[KafkaRecord]``,
+   A named time-series bundle containing
+   ``record: TS[Shared[KafkaRecord]]`` in C++,
    ``cursor: TS[KafkaCursor]``, and
    ``state: TS[KafkaSubscriptionState]``.  Record and cursor tick together.
+   ``Shared`` is an immutable storage strategy.  Python declares the exact
+   edge as ``TS[Shared[KafkaRecord]]``, while conversion remains transparent
+   and node callables receive ``KafkaRecord`` values.
    The explicit cursor field is required because assignment generation cannot
    be reconstructed safely from record metadata after processing.  Service-
    wide details remain on the event service instead of being copied into
@@ -365,8 +376,10 @@ integer aliases will be selected to match Kafka's partition and offset widths.
    service request schema, not a C++ struct containing time-series handles.
 
 The transport is byte-oriented.  Typed serialization is graph composition:
-an encoder maps ``TS<T>`` to ``TS[KafkaProduceRecord]`` and a decoder maps
-``TS[KafkaRecord]`` to ``TS<T>``.  A codec is not hidden in connection state.
+an encoder maps ``TS<T>`` to ``TS[KafkaProduceRecord]`` and a native decoder
+maps ``TS[Shared[KafkaRecord]]`` to ``TS<T>`` by borrowing the concrete record
+view.  Python decoders continue to receive the transparent ``KafkaRecord``
+value.  A codec is not hidden in connection state.
 C++ codecs may provide native nodes; a Python callable codec executes on the
 graph thread under the GIL and is never invoked by a Kafka worker thread.
 
@@ -649,7 +662,8 @@ The graph-local runtime resource owns:
 * one shared producer and poll thread for the path's producer configuration;
 * one consumer owner thread per consumer session;
 * a session registry keyed by the complete semantic subscription identity;
-* the standard burst push-source sender used for real-time ingress;
+* the standard burst push-source sender used for real-time ingress and ordered
+  subscription lifecycle envelopes;
 * the bounded, record-counted simulation recovery and producer staging state;
 * explicit start, accepting, stopping, and stopped states.
 
@@ -680,6 +694,13 @@ graph.  The scalar call moves one envelope into the queue; dequeue produces a
 tuple containing all work pending at that point.  The send cannot wait for
 capacity; ``false`` means only that graph teardown closed the receiver.
 Storage is updated before the sender wakes the real-time executor.
+
+The subscription command sink starts and stops session owners, but it does not
+publish a second graph-side lifecycle stream.  It admits ``Starting`` before a
+new owner can publish and admits removal after the old owner has joined, so the
+standard sender FIFO is the causal order consumed by the graph emitter.  The
+scheduled simulation queue mirrors deletion by discarding that subscription's
+not-yet-replayed envelopes before it schedules the removal.
 
 The public Kafka configuration has record counts, not byte limits.  The
 consumer record limit bounds finite recovery retained before replay; the
@@ -822,7 +843,8 @@ Start order is:
 2. in real time, start the one transport push source, construct the graph-local
    runtime resource with its framework sender, and then start the Kafka task;
 3. in simulation, construct the replay resource without a sender or worker;
-4. start non-daemon owner threads; and
+4. admit each subscription's ``Starting`` lifecycle envelope, then start its
+   non-daemon owner thread; and
 5. have each consumer owner establish assignment and the recovery snapshot
    before it reports the session ready.
 
@@ -977,9 +999,9 @@ The native hot path must avoid Python and minimise copies:
 * librdkafka payloads are copied or retained exactly once into an owned
   cross-thread record according to the chosen safe lifetime strategy;
 * the standard burst push-source queue retains transport envelopes by move;
-* the private transport envelope retains ``Shared<KafkaRecord>`` handles
-  across graph-thread hand-offs, then copies the concrete record once into the
-  public ``TS<KafkaRecord>`` value;
+* the transport envelope and public subscription edge retain
+  ``Shared<KafkaRecord>`` handles across graph-thread hand-offs, without a
+  concrete record copy at publication;
 * codecs run after transport unless a native codec explicitly opts into safe
   off-thread decoding; and
 * delivery callbacks use their opaque token to avoid record lookup by content.
@@ -1138,8 +1160,9 @@ Implementation plan
    seam, CMake package, and installed pure-C++ smoke consumer.
 2. Implement one multi-interface ``KafkaServiceImpl`` and the four service
    contracts using a fake transport; prove one materialization per path,
-   sink/push boundaries, lifecycle, ordered transport delivery, generation, and
-   multi-engine behavior before introducing librdkafka.
+   sink/push boundaries, lifecycle, ordered transport delivery, cursor
+   assignment generations, and multi-engine behavior before introducing
+   librdkafka.
 3. Add the librdkafka C RAII layer, consumer recovery/live state machine,
    producer callbacks, commits, rebalances, and typed events.
 4. Add native byte codecs and the Python bridge/new service wiring API.

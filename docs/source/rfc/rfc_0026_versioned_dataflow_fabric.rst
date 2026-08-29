@@ -965,6 +965,23 @@ canonical data id and the value is the complete accepted ``DataRevision``.
 Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
+The delivery handshake is ordinary graph composition.  Once persistence has
+accepted a revision, the Fabric publication node exposes it in a bounded keyed
+time series.  A notification-flow node selects one candidate, exposes a
+reference to that same ``Shared<DataRevision>`` endpoint on an ordered request
+edge, and receives the correlated delivery report on another edge.  Its active
+candidate, retry count, completion feedback and diagnostic counters are
+time-series state.  A retriable report temporarily unbinds and then rebinds the
+same reference on the next graph cycle, so retry neither copies the revision
+nor creates a new shared allocation.  Completion feedback removes the
+candidate and advances the publication state machine.
+
+The Kafka service task is deliberately narrower: a publish sink submits the
+request to the broker and the service's FIFO root push source returns delivery
+reports and other broker events in admission order.  It does not own Fabric
+candidate selection, correlation, retry or completion state.  This is also the
+only off-graph boundary in the notification path.
+
 The topic and the in-process handoff are suitable for compaction/conflation:
 
 * a subscriber needs the newest accepted revision, not every notice;
@@ -984,12 +1001,12 @@ the fabric binding.  The coordinator discards unrelated ids after key parsing
 and retains notices for root ids and the dynamically discovered transitive
 closure of their forests.
 
-A valid message whose revision is not contiguous with the cached head is held
+A valid relevant message whose revision is not contiguous with the cached head is held
 while the missing range is recovered from immutable storage with bounded
 backoff.  This is a targeted continuation of a Kafka wake-up, not a store-wide
-polling loop.  The queue remains conflated and bounded to one newest accepted
-revision per data id.  Only contiguous accepted history participates in cut
-resolution.
+polling loop.  The live-session cache remains conflated and bounded to one
+newest accepted revision per observed data id; unrelated topic traffic is not
+retained.  Only contiguous accepted history participates in cut resolution.
 
 Subscription and consistency
 ----------------------------
@@ -1482,8 +1499,9 @@ Fabric costs occur at explicit boundaries:
 * revision records are cached because they are immutable;
 * an output Frame is serialised only when it ticks;
 * an unchanged-output acknowledgement writes metadata only;
-* the root Kafka service queue conflates by data id before its push-source edge
-  schedules graph work; and
+* the root Kafka service uses its standard burst push-source queue, while the
+  Fabric live session admits and conflates only data ids in the observed
+  consistency forest; and
 * unchanged direct Frames are not read or ticked again.
 
 Resolver worst-case work is exponential in the number of conflicting candidate
@@ -1701,14 +1719,25 @@ diagnostics and performance evidence.
 The accepted implementation resolves the proposal's remaining ownership and
 lifecycle choices as follows:
 
-* One lazy root ``FabricServiceImpl`` singleton owns Fabric persistence,
-  publication state, revision and Frame caches, consistency sessions,
-  synchronous load request/reply, diagnostics and lifecycle.  Nested and root
-  clients use purpose-specific service interfaces to that same instance.
-* The optional Kafka adapter is a separate service singleton.  It owns broker
-  workers, bounded transport queues and the root real-time push source.  Its
-  drain node emits ordinary graph edges into Fabric; neither a broker callback
-  nor Fabric runtime object addresses the graph directly.
+* One lazy root ``FabricServiceImpl`` graph composes Fabric publication,
+  snapshot, replay, live, synchronous load, diagnostics and lifecycle nodes.
+  Each node owns its local algorithm state in its graph ``State`` slot; the
+  immutable wiring plan is copied into each planned node's ``State`` at node
+  start, and persistence handles
+  come from run-scoped ``GlobalState``.  Mutable orchestration is not shared
+  through a service-runtime object.  Nested and root clients use
+  purpose-specific service interfaces to that graph.
+* The optional Kafka adapter is a separate lazy service graph.  Each
+  ``GraphValue`` likewise owns its Kafka runtime and broker workers.  It uses
+  the RFC 0015 standard burst transport and root real-time push source.  Its
+  drain node emits ordinary graph edges into Fabric; broker callbacks never
+  address the graph directly.
+* Durable publication candidates, one-at-a-time notification dispatch,
+  delivery correlation, retry, completion feedback and their counters are
+  modelled by Fabric graph nodes and time-series edges.  The outgoing edge is a
+  reference to the retained ``Shared<DataRevision>`` endpoint; retry rebinds
+  that reference without materialising another value.  Kafka owns only the
+  publish sink and ordered push-source return boundary.
 * V1 Frame loading is synchronous through the service-owned request/reply
   contract.  It therefore has no Fabric worker/completion queue or in-flight
   load de-duplication.  A future asynchronous strategy must return completions

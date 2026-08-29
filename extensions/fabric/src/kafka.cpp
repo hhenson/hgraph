@@ -61,10 +61,11 @@ struct FabricKafkaDecodeNode {
   static constexpr auto name = "hgraph.fabric.kafka.decode_revision";
 
   /** O(payload size) per Kafka record; no retained state. The complete
-      revision is canonicalised before it enters the Fabric service edge. */
-  static void eval(In<"record", TS<kafka::KafkaRecord>> record,
-                   Out<TS<DataRevision>> out) {
-    const auto fields = record.base().value().as_bundle();
+      revision is canonicalised once into shared storage before it enters the
+      Fabric service edge. */
+  static void eval(In<"record", TS<Shared<kafka::KafkaRecord>>> record,
+                   Out<TS<Shared<DataRevision>>> out) {
+    const auto fields = record.base().value().concrete().as_bundle();
     const auto key = fields.at("key");
     const auto payload = fields.at("value");
     if (key.data() == nullptr || payload.data() == nullptr) {
@@ -86,7 +87,7 @@ struct FabricKafkaDecodeNode {
 struct FabricKafkaValidatedCursorNode {
   static constexpr auto name = "hgraph.fabric.kafka.validated_cursor";
 
-  static void eval(In<"revision", TS<DataRevision>> revision,
+  static void eval(In<"revision", TS<Shared<DataRevision>>> revision,
                    In<"cursor", TS<kafka::KafkaCursor>> cursor,
                    Out<TS<kafka::KafkaCursor>> out) {
     if (revision.modified() && cursor.valid()) {
@@ -99,11 +100,11 @@ struct FabricKafkaProduceRecordNode {
   static constexpr auto name = "hgraph.fabric.kafka.encode_revision";
 
   /** O(revision metadata size) per durable publication; no retained state. */
-  static void eval(In<"revision", TS<DataRevision>> revision,
+  static void eval(In<"revision", TS<Shared<DataRevision>>> revision,
                    Out<TS<kafka::KafkaProduceRecord>> out) {
     const DataRevisionInput decoded =
-        data_revision_input(revision.base().value());
-    const auto payload = encode_revision(revision.base().value());
+        data_revision_input(revision.base().value().concrete());
+    const auto payload = encode_revision(revision.base().value().concrete());
     Value record = kafka::make_produce_record(
         kafka_bytes(payload), Bytes{decoded.data_id}, {}, std::nullopt,
         std::nullopt, delivery_token(decoded.data_id, decoded.revision));
@@ -234,7 +235,7 @@ void wire_kafka_transport(Wiring &wiring, service::ServicePath fabric_path,
   auto key = wire<stdlib::const_, TS<kafka::KafkaSubscriptionKey>>(
       wiring, fabric_kafka_subscription_key(topic, identity));
   auto subscription = kafka::subscribe(wiring, kafka_path, key);
-  auto record = wire<stdlib::getattr_, TS<kafka::KafkaRecord>>(
+  auto record = wire<stdlib::getattr_, TS<Shared<kafka::KafkaRecord>>>(
       wiring, subscription, Str{"record"});
   auto cursor = wire<stdlib::getattr_, TS<kafka::KafkaCursor>>(
       wiring, subscription, Str{"cursor"});

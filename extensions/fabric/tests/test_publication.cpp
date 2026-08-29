@@ -288,6 +288,26 @@ TEST_CASE("publication acknowledgement is asynchronous and retries the accepted 
     CHECK(failed.advance() == hgf::PublicationState::Published);
 }
 
+TEST_CASE("graph transport acknowledges the durable candidate without invoking a notifier")
+{
+    auto config = hgf::make_memory_fabric_config("tests/fabric-graph-notification");
+    auto notices = config.notifications.subscribe();
+    hgf::PublisherStateMachine machine{config, "result"};
+    CHECK_THROWS_AS(machine.acknowledge_notification(), std::logic_error);
+
+    machine.begin(output(7));
+    CHECK(machine.advance() == hgf::PublicationState::FrameDurable);
+    CHECK(machine.advance() == hgf::PublicationState::RevisionDurable);
+    CHECK(machine.advance() == hgf::PublicationState::AsOfDurable);
+    CHECK(machine.advance() == hgf::PublicationState::LatestDurable);
+    CHECK(notices.pending() == 0);
+
+    machine.acknowledge_notification();
+    CHECK(machine.state() == hgf::PublicationState::NotificationAcknowledged);
+    CHECK(machine.advance() == hgf::PublicationState::Published);
+    CHECK(notices.pending() == 0);
+}
+
 TEST_CASE("input-only revisions retain output and identical tuples are suppressed")
 {
     auto config = hgf::make_memory_fabric_config("tests/fabric");

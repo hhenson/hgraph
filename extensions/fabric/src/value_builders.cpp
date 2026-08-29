@@ -61,6 +61,53 @@ namespace hgraph::fabric
                                             " must be positive");
             }
         }
+
+        void validate_revision_header(const DataRevisionInput &revision)
+        {
+            if (revision.format_version != REVISION_FORMAT_VERSION)
+            {
+                throw std::invalid_argument("unsupported fabric revision format version");
+            }
+            require_data_id(revision.data_id);
+            require_positive(revision.revision, "revision id");
+            require_positive(revision.output_version, "output version");
+            if (revision.dependencies.size() > MAX_REVISION_DEPENDENCIES)
+            {
+                throw std::invalid_argument("fabric revision has too many dependencies");
+            }
+            if (revision.self_predecessor.has_value())
+            {
+                require_positive(*revision.self_predecessor, "self predecessor");
+                if (*revision.self_predecessor >= revision.output_version)
+                {
+                    throw std::invalid_argument(
+                        "fabric self predecessor must precede the output version");
+                }
+            }
+            if (revision.as_of <= MIN_DT)
+            {
+                throw std::invalid_argument("fabric revision as_of must be a real instant");
+            }
+        }
+
+        void validate_revision_dependencies(const DataRevisionInput &revision)
+        {
+            for (std::size_t index = 0; index < revision.dependencies.size(); ++index)
+            {
+                const auto &dependency = revision.dependencies[index];
+                require_data_id(dependency.data_id);
+                require_positive(dependency.version, "dependency version");
+                if (dependency.data_id == revision.data_id)
+                {
+                    throw std::invalid_argument(
+                        "fabric dependencies must not contain the output data id");
+                }
+                if (index != 0 && revision.dependencies[index - 1].data_id == dependency.data_id)
+                {
+                    throw std::invalid_argument("fabric dependency ids must be unique");
+                }
+            }
+        }
     }  // namespace
 
     Value make_data_dependency(DataDependencyInput dependency)
@@ -77,31 +124,7 @@ namespace hgraph::fabric
     Value make_data_revision(DataRevisionInput revision)
     {
         register_fabric_types();
-        if (revision.format_version != REVISION_FORMAT_VERSION)
-        {
-            throw std::invalid_argument("unsupported fabric revision format version");
-        }
-        require_data_id(revision.data_id);
-        require_positive(revision.revision, "revision id");
-        require_positive(revision.output_version, "output version");
-        if (revision.dependencies.size() > MAX_REVISION_DEPENDENCIES)
-        {
-            throw std::invalid_argument(
-                "fabric revision has too many dependencies");
-        }
-        if (revision.self_predecessor.has_value())
-        {
-            require_positive(*revision.self_predecessor, "self predecessor");
-            if (*revision.self_predecessor >= revision.output_version)
-            {
-                throw std::invalid_argument(
-                    "fabric self predecessor must precede the output version");
-            }
-        }
-        if (revision.as_of <= MIN_DT)
-        {
-            throw std::invalid_argument("fabric revision as_of must be a real instant");
-        }
+        validate_revision_header(revision);
 
         std::ranges::sort(revision.dependencies,
                           [](const DataDependencyInput &lhs,
@@ -109,22 +132,7 @@ namespace hgraph::fabric
                               return canonical_data_id_less(lhs.data_id,
                                                             rhs.data_id);
                           });
-        for (std::size_t index = 0; index < revision.dependencies.size(); ++index)
-        {
-            const auto &dependency = revision.dependencies[index];
-            require_data_id(dependency.data_id);
-            require_positive(dependency.version, "dependency version");
-            if (dependency.data_id == revision.data_id)
-            {
-                throw std::invalid_argument(
-                    "fabric dependencies must not contain the output data id");
-            }
-            if (index != 0 &&
-                revision.dependencies[index - 1].data_id == dependency.data_id)
-            {
-                throw std::invalid_argument("fabric dependency ids must be unique");
-            }
-        }
+        validate_revision_dependencies(revision);
 
         std::vector<std::pair<std::string_view, Value>> fields{
             {"format_version", atomic(revision.format_version)},
@@ -174,9 +182,9 @@ namespace hgraph::fabric
             });
         }
 
-        // Rebuild to apply every semantic validation rule, but reject rather
-        // than silently canonicalise an already materialized non-canonical
-        // value. That keeps the codec single-valued.
+        // Reject rather than silently canonicalise an already materialized
+        // non-canonical value. That keeps the codec single-valued without
+        // rebuilding the potentially large immutable revision.
         if (!std::ranges::is_sorted(
                 result.dependencies,
                 [](const DataDependencyInput &lhs,
@@ -187,7 +195,8 @@ namespace hgraph::fabric
             throw std::invalid_argument(
                 "fabric revision dependencies are not in canonical order");
         }
-        static_cast<void>(make_data_revision(result));
+        validate_revision_header(result);
+        validate_revision_dependencies(result);
         return result;
     }
 }  // namespace hgraph::fabric

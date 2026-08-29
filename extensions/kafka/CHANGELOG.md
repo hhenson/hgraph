@@ -3,9 +3,13 @@
 ## Unreleased
 
 - Retain consumed records as one immutable `Shared<KafkaRecord>` allocation
-  through the private cross-thread transport pipeline. The public
-  `TS<KafkaRecord>` service and Python value remain unchanged and receive one
-  concrete projection at graph publication.
+  through the cross-thread transport pipeline and public subscription edge;
+  consumers borrow the concrete record view without graph-publication copies.
+- Create runtime and simulation-queue resources per `GraphValue` so reusable
+  graph builders do not share mutable Kafka lifecycle state. Subscription
+  `Starting`, record/state, and removal envelopes retain one causal order on
+  the same transport: start is admitted before its consumer runs, while removal
+  is admitted only after that consumer stops and joins.
 - Rebuild manual/independent assignments as a new recovery generation after a
   broker disconnect, allowing live consumers to resume from committed offsets
   and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.

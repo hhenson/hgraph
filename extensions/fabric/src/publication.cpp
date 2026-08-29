@@ -498,6 +498,16 @@ namespace hgraph::fabric
 
     PublicationState PublisherStateMachine::advance() { return impl_->advance(); }
 
+    void PublisherStateMachine::acknowledge_notification()
+    {
+        if (impl_->state != PublicationState::LatestDurable)
+        {
+            throw std::logic_error(
+                "fabric graph notification acknowledgement has no durable candidate");
+        }
+        impl_->state = PublicationState::NotificationAcknowledged;
+    }
+
     PublicationState PublisherStateMachine::state() const noexcept
     {
         return impl_->state;

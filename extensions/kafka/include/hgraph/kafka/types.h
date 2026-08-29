@@ -422,8 +422,9 @@ namespace hgraph::kafka
                Field<"error_code", Int>, Field<"retriable", Bool>, Field<"fatal", Bool>, Field<"service_path", Str>,
                Field<"subscription_identity", Str>, Field<"publisher_identity", Str>, Field<"message", Str>>;
 
-    using KafkaSubscriptionOutput = TSB<"hgraph.kafka::KafkaSubscriptionOutput", Field<"record", TS<KafkaRecord>>,
-                                        Field<"cursor", TS<KafkaCursor>>, Field<"state", TS<KafkaSubscriptionState>>>;
+    using KafkaSubscriptionOutput = TSB<"hgraph.kafka::KafkaSubscriptionOutput",
+                                        Field<"record", TS<Shared<KafkaRecord>>>, Field<"cursor", TS<KafkaCursor>>,
+                                        Field<"state", TS<KafkaSubscriptionState>>>;
 
     using KafkaPublishRequest =
         TSB<"hgraph.kafka::KafkaPublishRequest", Field<"topic", TS<Str>>, Field<"record", TS<KafkaProduceRecord>>>;
