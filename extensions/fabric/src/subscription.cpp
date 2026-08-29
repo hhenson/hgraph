@@ -640,7 +640,6 @@ struct FabricServiceRuntime::Impl
     std::map<Str, std::unique_ptr<PublisherStateMachine>, IdLess> publishers{};
     std::map<Str, std::deque<PublicationRequestInput>, IdLess> publication_queues{};
     std::map<Str, RevisionId, IdLess> advertised{};
-    std::optional<Notifier> notification_override{};
     std::map<Str, FabricDiagnosticEventInput, IdLess> events{};
     Int diagnostic_revision{};
     bool graph_notifications{};
@@ -741,7 +740,7 @@ struct FabricServiceRuntime::Impl
     }
 };
 
-FabricServiceRuntime::FabricServiceRuntime(FabricServicePlanHandle plan, std::optional<Notifier> notification_override)
+FabricServiceRuntime::FabricServiceRuntime(FabricServicePlanHandle plan, bool graph_notifications)
     : impl_(std::make_unique<Impl>())
 {
     if (!plan.value)
@@ -749,8 +748,7 @@ FabricServiceRuntime::FabricServiceRuntime(FabricServicePlanHandle plan, std::op
         throw std::invalid_argument("fabric service runtime requires a wiring plan");
     }
     impl_->plan = std::move(plan);
-    impl_->graph_notifications = notification_override.has_value();
-    impl_->notification_override = std::move(notification_override);
+    impl_->graph_notifications = graph_notifications;
 }
 
 FabricServiceRuntime::~FabricServiceRuntime()
@@ -770,10 +768,6 @@ void FabricServiceRuntime::start(GlobalStateView global_state)
         throw std::logic_error("hgraph.fabric service requires FabricConfig in GlobalState");
     }
     require_valid_config(*impl_->config);
-    if (impl_->notification_override.has_value())
-    {
-        impl_->config->notifications = *impl_->notification_override;
-    }
     impl_->running = true;
 }
 
@@ -878,6 +872,10 @@ std::vector<DataRevisionInput> FabricServiceRuntime::advance_publications()
         for (std::size_t step = 0; step < 16; ++step)
         {
             const PublicationState before = machine->state();
+            if (impl_->graph_notifications && before == PublicationState::LatestDurable)
+            {
+                break;
+            }
             PublicationState after{};
             try
             {
@@ -895,12 +893,23 @@ std::vector<DataRevisionInput> FabricServiceRuntime::advance_publications()
             {
                 break;
             }
+            if (impl_->graph_notifications && after == PublicationState::LatestDurable)
+            {
+                break;
+            }
             if (after == before && after == PublicationState::NotificationPending)
             {
                 break;
             }
         }
-        if (machine->state() == PublicationState::Published)
+        if (impl_->graph_notifications && machine->state() == PublicationState::LatestDurable)
+        {
+            if (const auto revision = machine->candidate_revision(); revision.has_value())
+            {
+                accepted.push_back(*revision);
+            }
+        }
+        else if (!impl_->graph_notifications && machine->state() == PublicationState::Published)
         {
             const auto revision = machine->accepted_revision();
             if (revision.has_value() && impl_->advertised[data_id] < revision->revision)
@@ -912,6 +921,38 @@ std::vector<DataRevisionInput> FabricServiceRuntime::advance_publications()
         impl_->begin_next(data_id);
     }
     return accepted;
+}
+
+void FabricServiceRuntime::complete_notification(NotificationDeliveryInput delivery)
+{
+    require_data_id(delivery.data_id);
+    if (!impl_->graph_notifications)
+    {
+        throw std::logic_error("fabric notification completion requires graph transport mode");
+    }
+    const auto machine = impl_->publishers.find(delivery.data_id);
+    if (machine == impl_->publishers.end())
+    {
+        throw std::logic_error("fabric notification completion has no durable publication");
+    }
+    if (machine->second->state() != PublicationState::LatestDurable)
+    {
+        throw std::logic_error("fabric notification completion reached publication state " +
+                               std::to_string(static_cast<int>(machine->second->state())));
+    }
+    const auto candidate = machine->second->candidate_revision();
+    if (!candidate.has_value() || candidate->revision != delivery.revision)
+    {
+        throw std::logic_error("fabric notification completion does not match the durable publication");
+    }
+    if (!delivery.delivered)
+    {
+        const Str message = delivery.message.empty() ? Str{"fabric revision notification delivery failed"}
+                                                     : std::move(delivery.message);
+        impl_->record_event("transport", "notification", message, false, true);
+        throw std::runtime_error(message);
+    }
+    machine->second->acknowledge_notification();
 }
 
 bool FabricServiceRuntime::publication_work_pending() const noexcept
@@ -927,7 +968,7 @@ bool FabricServiceRuntime::publication_work_pending() const noexcept
     return std::ranges::any_of(impl_->publishers, [this](const auto &item) {
         const auto state = item.second->state();
         return !publication_terminal(state) &&
-               (!impl_->graph_notifications || state != PublicationState::NotificationPending);
+               (!impl_->graph_notifications || state != PublicationState::LatestDurable);
     });
 }
 

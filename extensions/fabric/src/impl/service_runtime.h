@@ -130,7 +130,7 @@ void plan_subscription(Wiring &wiring, SubscriptionSpec subscription, Subscripti
 class FabricServiceRuntime final
 {
   public:
-    explicit FabricServiceRuntime(FabricServicePlanHandle plan, std::optional<Notifier> notification_override = {});
+    explicit FabricServiceRuntime(FabricServicePlanHandle plan, bool graph_notifications = false);
     ~FabricServiceRuntime();
 
     FabricServiceRuntime(const FabricServiceRuntime &) = delete;
@@ -153,6 +153,7 @@ class FabricServiceRuntime final
 
     void publish(PublicationRequestInput request);
     [[nodiscard]] std::vector<DataRevisionInput> advance_publications();
+    void complete_notification(NotificationDeliveryInput delivery);
     [[nodiscard]] bool publication_work_pending() const noexcept;
 
     [[nodiscard]] std::optional<std::tuple<Str, DataVersion, Frame>> load(std::string_view data_id,
@@ -171,35 +172,13 @@ class FabricServiceRuntime final
     std::unique_ptr<Impl> impl_;
 };
 
-class GraphNotificationBridge final
-{
-  public:
-    GraphNotificationBridge();
-    ~GraphNotificationBridge();
-
-    GraphNotificationBridge(const GraphNotificationBridge &) = delete;
-    GraphNotificationBridge &operator=(const GraphNotificationBridge &) = delete;
-
-    [[nodiscard]] Notifier notifier() const;
-    /** Return one retained Shared<DataRevision> handle. Retries return another
-        handle to the same immutable allocation. */
-    [[nodiscard]] std::optional<Value> take_request();
-    void complete(NotificationDeliveryInput delivery);
-    [[nodiscard]] bool request_pending() const noexcept;
-    [[nodiscard]] std::vector<std::pair<Str, Str>> diagnostics() const;
-
-  private:
-    struct Impl;
-    std::shared_ptr<Impl> impl_;
-};
-
 /** One execution-owned Fabric service resource. The immutable plan remains a
-    wiring scalar; mutable runtime and transport correlation state are created
-    by the lifecycle node for each GraphValue. */
+    wiring scalar; mutable persistence/runtime state is created by the
+    lifecycle node for each GraphValue. Graph-transport correlation remains on
+    ordinary time-series edges owned by the notification flow node. */
 struct FabricServiceResource
 {
     std::shared_ptr<FabricServiceRuntime> runtime{};
-    std::shared_ptr<GraphNotificationBridge> bridge{};
 };
 
 struct FabricServiceResourceHandle

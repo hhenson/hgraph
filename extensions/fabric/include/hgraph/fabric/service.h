@@ -104,8 +104,7 @@ struct FabricNoticeService
 };
 
 /** One durable accepted revision awaiting graph-native transport. Requests
-    are serialized onto one ordinary TS edge; the transport may have multiple
-    broker deliveries in flight and correlates them by data id and revision. */
+    form one ordered TS stream; retry ticks the same Shared revision again. */
 struct FabricNotificationRequestService
 {
     static constexpr std::string_view name{"fabric_notification_request"};

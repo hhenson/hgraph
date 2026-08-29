@@ -50,12 +50,16 @@ trigger durable-head reconciliation for each new live generation. Replay and
 Snapshot do not compose the adapter and never create a push source.
 
 Publication crosses a graph-native request edge only after its Frame, immutable
-revision and derived indexes are durable. Correlated Kafka delivery reports
-return on a separate graph edge. Retriable failures requeue the same accepted
-revision through a bounded bridge; acknowledgement never selects or creates a
-revision. Valid decoded subscription cursors are explicitly committed, but
-offsets remain non-authoritative because durable history repairs duplicates or
-missed notifications.
+revision and derived indexes are durable. The Fabric service graph retains
+durable candidates in a keyed time series, serialises them onto one ordered
+request edge, and correlates Kafka delivery reports returning on a separate
+graph edge. Retriable failures unbind and rebind a reference to the same
+``Shared<DataRevision>`` allocation. Candidate selection, retry, completion and
+diagnostics remain graph-owned; acknowledgement never selects or creates a
+revision. The Kafka worker owns only broker I/O, returning events through its
+FIFO root push source. Valid decoded subscription cursors are explicitly
+committed, but offsets remain non-authoritative because durable history repairs
+duplicates or missed notifications.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data

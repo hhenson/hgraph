@@ -3,6 +3,7 @@
 #include "../src/impl/service_runtime.h"
 
 #include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/logger.h>
@@ -39,6 +40,8 @@ constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
 std::vector<std::pair<hg::DateTime, std::int64_t>> observed_frames{};
 std::vector<std::tuple<hg::DateTime, hg::Str, std::int64_t>> observed_tagged_frames{};
 std::map<hg::Str, hgf::FabricDiagnosticEventInput> observed_diagnostic_events{};
+std::vector<const void *> observed_notification_allocations{};
+std::map<hg::Str, hg::Str> observed_notification_metrics{};
 
 struct CapturedLog
 {
@@ -463,6 +466,60 @@ struct PublicationGraph
     {
         hgf::register_service(wiring);
         hgf::publish_data(wiring, "published", hg::wire<PublishedFrameSource>(wiring));
+    }
+};
+
+struct RetryThenDeliverNotification
+{
+    static constexpr auto name = "hgraph.fabric.test.retry_then_deliver_notification";
+
+    static void eval(hg::In<"revision", hg::TS<hg::Shared<hgf::DataRevision>>> revision,
+                     hg::State<hg::Int> attempts, hg::Out<hgf::FabricNotificationDelivery> delivery)
+    {
+        const hgf::DataRevisionInput decoded = hgf::data_revision_input(revision.base().value().concrete());
+        observed_notification_allocations.push_back(revision.base().value().concrete().data());
+        const bool delivered = attempts.get() != 0;
+        delivery.template field<"data_id">().set(decoded.data_id);
+        delivery.template field<"revision">().set(decoded.revision);
+        delivery.template field<"delivered">().set(delivered);
+        delivery.template field<"retriable">().set(!delivered);
+        delivery.template field<"message">().set(delivered ? hg::Str{} : hg::Str{"retry once"});
+        attempts.set(attempts.get() + 1);
+    }
+};
+
+struct CaptureNotificationMetrics
+{
+    static constexpr auto name = "hgraph.fabric.test.capture_notification_metrics";
+
+    static void eval(hg::In<"values", hgf::FabricDiagnostics> values)
+    {
+        for (const auto &[name, value] : values.template field<"metrics">().modified_items())
+        {
+            if (value.valid())
+            {
+                observed_notification_metrics.insert_or_assign(name.checked_as<hg::Str>(), value.value());
+            }
+        }
+    }
+};
+
+struct GraphNotificationPublicationGraph
+{
+    static constexpr auto name = "hgraph.fabric.test.graph_notification_publication";
+
+    static void compose(hg::Wiring &wiring)
+    {
+        const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
+        hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
+        hgf::publish_data(wiring, "published", hg::wire<PublishedFrameSource>(wiring));
+        // Production delivery returns through Kafka's asynchronous push-source
+        // edge. Feedback supplies the equivalent cycle break in this pure graph.
+        auto delivery_feedback = hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
+        hgf::submit_notification_delivery(wiring, delivery_feedback(), path);
+        auto delivery = hg::wire<RetryThenDeliverNotification>(wiring, hgf::notification_requests(wiring, path));
+        delivery_feedback(delivery);
+        static_cast<void>(hg::wire<CaptureNotificationMetrics>(wiring, hgf::diagnostics(wiring, path)));
     }
 };
 
@@ -1096,75 +1153,23 @@ TEST_CASE("stalled service queues and diagnostic paths enforce hard bounds")
     }
 }
 
-TEST_CASE("graph notification bridge retries with stable revision correlation")
+TEST_CASE("graph notification flow retries the retained shared revision on explicit edges")
 {
-    hgf::detail::GraphNotificationBridge bridge;
-    auto notifier = bridge.notifier();
-    hg::Value value = hgf::make_data_revision(hgf::DataRevisionInput{
-        .data_id = "prices",
-        .revision = 7,
-        .output_version = 3,
-        .as_of = BASE_TIME,
-    });
-    auto delivery = notifier.publish(hgf::RevisionNotification{"prices", hgf::encode_revision(value.view())});
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config = hgf::make_memory_fabric_config("tests/subscription/graph-notification");
+    observed_notification_allocations.clear();
+    observed_notification_metrics.clear();
 
-    auto first = bridge.take_request();
-    REQUIRE(first.has_value());
-    CHECK(hgf::data_revision_input(first->view().concrete()).revision == 7);
-    const void *const retained_revision = first->view().concrete().data();
-    bridge.complete(hgf::detail::NotificationDeliveryInput{
-        .data_id = "prices",
-        .revision = 7,
-        .retriable = true,
-        .message = "retry",
-    });
-    CHECK(delivery.poll().status == hgf::NotificationDeliveryStatus::Pending);
+    static_cast<void>(run(hg::build_graph<GraphNotificationPublicationGraph>(), config, BASE_TIME,
+                          BASE_TIME + hg::TimeDelta{20}));
 
-    auto retry = bridge.take_request();
-    REQUIRE(retry.has_value());
-    CHECK(*retry == *first);
-    CHECK(retry->view().concrete().data() == retained_revision);
-    bridge.complete(hgf::detail::NotificationDeliveryInput{
-        .data_id = "prices",
-        .revision = 7,
-        .delivered = true,
-    });
-    CHECK(delivery.poll().status == hgf::NotificationDeliveryStatus::Delivered);
-    CHECK_FALSE(bridge.request_pending());
-    const auto values = bridge.diagnostics();
-    const std::map<hg::Str, hg::Str> diagnostics{values.begin(), values.end()};
-    CHECK(diagnostics.at("transport.notification.pending") == "0");
-    CHECK(diagnostics.at("transport.notification.retried") == "1");
-    CHECK(diagnostics.at("transport.notification.delivered") == "1");
-}
-
-TEST_CASE("stalled graph notification delivery queue enforces its hard bound")
-{
-    hgf::detail::GraphNotificationBridge bridge;
-    auto notifier = bridge.notifier();
-    for (std::size_t index = 0; index < hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT; ++index)
-    {
-        const auto revision = hgf::make_data_revision(hgf::DataRevisionInput{
-            .data_id = "stalled",
-            .revision = static_cast<hgf::RevisionId>(index + 1U),
-            .output_version = 1,
-            .as_of = BASE_TIME + hg::TimeDelta{static_cast<hg::TimeDelta::rep>(index + 1U)},
-        });
-        static_cast<void>(notifier.publish(
-            hgf::RevisionNotification{"stalled", hgf::encode_revision(revision.view())}));
-    }
-    const auto overflow = hgf::make_data_revision(hgf::DataRevisionInput{
-        .data_id = "stalled",
-        .revision = static_cast<hgf::RevisionId>(hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT + 1U),
-        .output_version = 1,
-        .as_of = BASE_TIME + hg::TimeDelta{
-                               static_cast<hg::TimeDelta::rep>(hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT + 1U)},
-    });
-    CHECK_THROWS_AS(notifier.publish(
-                        hgf::RevisionNotification{"stalled", hgf::encode_revision(overflow.view())}),
-                    std::overflow_error);
-    const auto values = bridge.diagnostics();
-    const std::map<hg::Str, hg::Str> diagnostics{values.begin(), values.end()};
-    CHECK(std::stoull(diagnostics.at("transport.notification.pending")) ==
-          hgf::FABRIC_NOTIFICATION_REQUEST_LIMIT);
+    REQUIRE(observed_notification_allocations.size() == 2);
+    CHECK(observed_notification_allocations[0] == observed_notification_allocations[1]);
+    CHECK(observed_notification_metrics.at("transport.notification.pending") == "0");
+    CHECK(observed_notification_metrics.at("transport.notification.retried") == "1");
+    CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
+    const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
+    REQUIRE(latest.has_value());
+    CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::Latest, latest->data) == 1);
 }

@@ -41,7 +41,6 @@ add_library(hgraph_fabric
     src/publication.cpp
     src/resolution.cpp
     src/service.cpp
-    src/service_transport.cpp
     src/subscription.cpp
     src/types.cpp
     src/value_builders.cpp

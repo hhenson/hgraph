@@ -965,6 +965,23 @@ canonical data id and the value is the complete accepted ``DataRevision``.
 Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
+The delivery handshake is ordinary graph composition.  Once persistence has
+accepted a revision, the Fabric publication node exposes it in a bounded keyed
+time series.  A notification-flow node selects one candidate, exposes a
+reference to that same ``Shared<DataRevision>`` endpoint on an ordered request
+edge, and receives the correlated delivery report on another edge.  Its active
+candidate, retry count, completion feedback and diagnostic counters are
+time-series state.  A retriable report temporarily unbinds and then rebinds the
+same reference on the next graph cycle, so retry neither copies the revision
+nor creates a new shared allocation.  Completion feedback removes the
+candidate and advances the publication state machine.
+
+The Kafka service task is deliberately narrower: a publish sink submits the
+request to the broker and the service's FIFO root push source returns delivery
+reports and other broker events in admission order.  It does not own Fabric
+candidate selection, correlation, retry or completion state.  This is also the
+only off-graph boundary in the notification path.
+
 The topic and the in-process handoff are suitable for compaction/conflation:
 
 * a subscriber needs the newest accepted revision, not every notice;
@@ -1713,6 +1730,12 @@ lifecycle choices as follows:
   the RFC 0015 standard burst transport and root real-time push source.  Its
   drain node emits ordinary graph edges into Fabric; neither a broker callback
   nor Fabric runtime object addresses the graph directly.
+* Durable publication candidates, one-at-a-time notification dispatch,
+  delivery correlation, retry, completion feedback and their counters are
+  modelled by Fabric graph nodes and time-series edges.  The outgoing edge is a
+  reference to the retained ``Shared<DataRevision>`` endpoint; retry rebinds
+  that reference without materialising another value.  Kafka owns only the
+  publish sink and ordered push-source return boundary.
 * V1 Frame loading is synchronous through the service-owned request/reply
   contract.  It therefore has no Fabric worker/completion queue or in-flight
   load de-duplication.  A future asynchronous strategy must return completions
