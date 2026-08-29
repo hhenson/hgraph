@@ -60,6 +60,38 @@ def test_getattr_computed_compound_scalar_descriptor():
     assert eval_node(g, [Computed(3), Computed(5)]) == [6, 10]
 
 
+def test_getattr_computed_descriptor_without_default_can_return_none():
+    @dataclass(frozen=True)
+    class Computed(CompoundScalar):
+        value: int
+
+        @property
+        def optional_value(self) -> int:
+            return self.value if self.value > 0 else None
+
+    @graph
+    def g(ts: TS[Computed]) -> TS[int]:
+        return getattr_[SCALAR: int](ts, "optional_value")
+
+    assert eval_node(g, [Computed(0), Computed(2)]) == [None, 2]
+
+
+def test_getattr_computed_descriptor_uses_default_only_for_none():
+    @dataclass(frozen=True)
+    class Computed(CompoundScalar):
+        value: int
+
+        @property
+        def optional_value(self) -> int:
+            return self.value if self.value > 0 else None
+
+    @graph
+    def g(ts: TS[Computed], default_value: TS[int]) -> TS[int]:
+        return getattr_[SCALAR: int](ts, "optional_value", default_value)
+
+    assert eval_node(g, [Computed(0), Computed(2)], [7, 8]) == [7, 2]
+
+
 def test_getattr_computed_descriptor_on_closed_union_leaf():
     @dataclass(frozen=True)
     class ComputedBase(CompoundScalar, abstract=True):

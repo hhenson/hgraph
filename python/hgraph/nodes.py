@@ -69,7 +69,11 @@ def _getattr_compound_descriptor(
     value = getattr(ts.value, attr, None)
     if value is not None:
         return value
-    return default_value.value if default_value.valid else None
+    return (
+        default_value.value
+        if default_value is not None and default_value.valid
+        else None
+    )
 
 
 make_tsd = operator_function("make_tsd")
