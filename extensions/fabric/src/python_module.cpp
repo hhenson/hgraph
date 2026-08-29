@@ -6,6 +6,7 @@
 #include <hgraph/fabric/service.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include <hgraph/python/chrono.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/types/operator_dispatch.h>
 
@@ -125,7 +126,7 @@ NB_MODULE(_hgraph_fabric, module)
            DataVersion output_version,
            std::vector<std::pair<Str, DataVersion>> dependencies,
            std::optional<DataVersion> self_predecessor,
-           std::int64_t as_of_microseconds) {
+           DateTime as_of) {
             std::vector<DataDependencyInput> native_dependencies;
             native_dependencies.reserve(dependencies.size());
             for (auto &[dependency_id, version] : dependencies)
@@ -142,13 +143,13 @@ NB_MODULE(_hgraph_fabric, module)
                 .output_version = output_version,
                 .dependencies = std::move(native_dependencies),
                 .self_predecessor = self_predecessor,
-                .as_of = DateTime{TimeDelta{as_of_microseconds}},
+                .as_of = as_of,
             });
             return to_python_bytes(encode_revision(value.view()));
         },
         nb::arg("format_version"), nb::arg("data_id"), nb::arg("revision"),
         nb::arg("output_version"), nb::arg("dependencies"),
-        nb::arg("self_predecessor"), nb::arg("as_of_microseconds"));
+        nb::arg("self_predecessor"), nb::arg("as_of"));
 
     module.def(
         "_decode_revision",
@@ -170,8 +171,7 @@ NB_MODULE(_hgraph_fabric, module)
             result["self_predecessor"] = revision.self_predecessor.has_value()
                                                ? nb::cast(*revision.self_predecessor)
                                                : nb::none();
-            result["as_of_microseconds"] =
-                revision.as_of.time_since_epoch().count();
+            result["as_of"] = nb::cast(revision.as_of);
             return result;
         },
         nb::arg("encoded"));

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Final
 
 from hgraph import (
@@ -156,22 +156,6 @@ def publish_data(
     )
 
 
-def _to_epoch_microseconds(value: datetime) -> int:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    value = value.astimezone(timezone.utc)
-    delta = value - datetime(1970, 1, 1, tzinfo=timezone.utc)
-    return (
-        delta.days * 86_400_000_000
-        + delta.seconds * 1_000_000
-        + delta.microseconds
-    )
-
-
-def _from_epoch_microseconds(value: int) -> datetime:
-    return (datetime(1970, 1, 1) + timedelta(microseconds=value))
-
-
 def encode_revision(revision: DataRevision) -> bytes:
     """Encode a semantic revision with the canonical native v1 codec."""
 
@@ -182,7 +166,7 @@ def encode_revision(revision: DataRevision) -> bytes:
         revision.output_version,
         [(item.data_id, item.version) for item in revision.dependencies],
         revision.self_predecessor,
-        _to_epoch_microseconds(revision.as_of),
+        revision.as_of,
     )
 
 
@@ -197,7 +181,7 @@ def decode_revision(encoded: bytes) -> DataRevision:
         output_version=value["output_version"],
         dependencies=tuple(DataDependency(*item) for item in value["dependencies"]),
         self_predecessor=value["self_predecessor"],
-        as_of=_from_epoch_microseconds(value["as_of_microseconds"]),
+        as_of=value["as_of"],
     )
 
 

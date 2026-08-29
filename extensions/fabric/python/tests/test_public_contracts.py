@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 
@@ -74,6 +74,33 @@ def test_python_codec_does_not_replace_an_unsupported_format_version():
     )
     with pytest.raises(ValueError, match="unsupported fabric revision format"):
         hgf.encode_revision(invalid)
+
+
+def test_python_codec_uses_hgraph_datetime_timezone_semantics():
+    revision = _revision()
+    aware = hgf.DataRevision(
+        format_version=revision.format_version,
+        data_id=revision.data_id,
+        revision=revision.revision,
+        output_version=revision.output_version,
+        dependencies=revision.dependencies,
+        self_predecessor=revision.self_predecessor,
+        as_of=datetime(
+            2026,
+            1,
+            2,
+            7,
+            4,
+            5,
+            6007,
+            tzinfo=timezone(timedelta(hours=4)),
+        ),
+    )
+
+    decoded = hgf.decode_revision(hgf.encode_revision(aware))
+
+    assert decoded.as_of == datetime(2026, 1, 2, 3, 4, 5, 6007)
+    assert decoded.as_of.tzinfo is None
 
 
 def test_python_public_operators_wire_through_native_registry():
