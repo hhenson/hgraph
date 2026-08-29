@@ -16,7 +16,6 @@ namespace hgraph::fabric
 inline constexpr std::string_view DEFAULT_SERVICE_PATH{"fabric"};
 inline constexpr std::size_t FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID{1024U};
 inline constexpr std::size_t FABRIC_LIVE_NOTICE_LIMIT_PER_SESSION{4096U};
-inline constexpr std::size_t FABRIC_NOTIFICATION_REQUEST_LIMIT{1024U};
 inline constexpr std::size_t FABRIC_NOTIFICATION_RETRY_LIMIT{8U};
 inline constexpr std::size_t FABRIC_DIAGNOSTIC_EVENT_LIMIT{256U};
 

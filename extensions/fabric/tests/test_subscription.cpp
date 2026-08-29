@@ -619,6 +619,21 @@ namespace
         }
     };
 
+    struct SaturatedGraphNotificationPublicationGraph
+    {
+        static constexpr auto name = "hgraph.fabric.test.saturated_graph_notification";
+
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
+            hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
+            auto published = hg::wire<PublishedFrameSource>(wiring);
+            hgf::publish_data(wiring, "first", published);
+            hgf::publish_data(wiring, "second", published);
+            static_cast<void>(hgf::notification_requests(wiring, path));
+        }
+    };
+
     struct RetryAndCompletionNotificationGraph
     {
         static constexpr auto name = "hgraph.fabric.test.retry_and_delivery_notification";
@@ -1359,4 +1374,16 @@ TEST_CASE("graph notification completion cancels an earlier retry in the same ba
     CHECK(observed_notification_metrics.at("transport.notification.retried") == "1");
     CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
     CHECK(observed_notification_metrics.at("transport.notification.stale_reports") == "0");
+}
+
+TEST_CASE("graph notification candidate saturation uses the Fabric configuration")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config =
+        hgf::make_memory_fabric_config("tests/subscription/graph-notification-capacity");
+    config.notification_candidate_limit = 1U;
+
+    CHECK_THROWS(run(hg::build_graph<SaturatedGraphNotificationPublicationGraph>(), config,
+                     BASE_TIME, BASE_TIME + hg::TimeDelta{5}));
 }

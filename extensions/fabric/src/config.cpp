@@ -53,6 +53,11 @@ namespace hgraph::fabric
         {
             throw std::invalid_argument("fabric configuration requires a notifier");
         }
+        if (config.notification_candidate_limit == 0U)
+        {
+            throw std::invalid_argument(
+                "fabric notification candidate limit must be greater than zero");
+        }
     }
 
     void set_fabric_config(GlobalStateView state, FabricConfig config)

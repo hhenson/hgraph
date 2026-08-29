@@ -599,6 +599,7 @@ of execution with the normal graph state.  The semantic configuration includes:
        persistence::store::ObjectStore objects;
        persistence::store::FrameStore  frames;
        Notifier                         notifications;
+       std::size_t                      notification_candidate_limit;
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
@@ -975,6 +976,15 @@ time-series state.  A retriable report temporarily unbinds and then rebinds the
 same reference on the next graph cycle, so retry neither copies the revision
 nor creates a new shared allocation.  Completion feedback removes the
 candidate and advances the publication state machine.
+
+``FabricConfig::notification_candidate_limit`` is the explicit resource bound
+on durable candidates awaiting the graph-native transport (1024 by default).
+Saturation is fatal rather than implicit backpressure: publication requests
+have already entered the graph and candidates may already be durable, so merely
+stopping candidate extraction would transfer an unbounded broker stall into
+the per-data-id publication queues without applying admission at the sender.
+Hosts size the bound for the maximum notification lag they are prepared to
+retain.
 
 The Kafka service task is deliberately narrower: a publish sink submits the
 request to the broker and the service's FIFO root push source returns delivery

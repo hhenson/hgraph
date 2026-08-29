@@ -82,7 +82,11 @@ namespace hgraph::fabric::detail
 
     /** Immutable wiring metadata shared by declarations and lazy service
         materialisation. Planned nodes copy their subscription vectors into
-        node State during start; execution cannot mutate this plan. */
+        node State during start; execution cannot mutate this plan.
+
+        Identity is the scalar contract. The address-derived ordering and hash
+        exist only so wiring containers can store the handle; addresses are not
+        stable across runs and must never determine plan iteration or output. */
     struct FabricWiringPlanHandle
     {
         std::shared_ptr<const FabricWiringPlan> value{};
@@ -227,6 +231,7 @@ namespace hgraph::fabric::detail
         [[nodiscard]] std::vector<DataRevisionInput> advance();
         void complete(NotificationDeliveryInput delivery);
         [[nodiscard]] bool work_pending() const noexcept;
+        [[nodiscard]] std::size_t notification_candidate_limit() const;
         [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
 
       private:
