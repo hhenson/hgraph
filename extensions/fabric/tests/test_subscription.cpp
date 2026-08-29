@@ -271,19 +271,6 @@ namespace
         }
     };
 
-    struct SnapshotGraph
-    {
-        static constexpr auto name = "hgraph.fabric.test.snapshot";
-
-        static void compose(hg::Wiring &wiring)
-        {
-            hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Snapshot,
-                                             BASE_TIME + hg::TimeDelta{2});
-            static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
-        }
-    };
-
     struct ReplayGraph
     {
         static constexpr auto name = "hgraph.fabric.test.replay";
@@ -291,7 +278,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Replay);
+            auto value = hgf::subscribe_data(wiring, "prices");
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
         }
     };
@@ -303,8 +290,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto left = hgf::subscribe_data(wiring, "left", hgf::SubscriptionMode::Replay);
-            auto right = hgf::subscribe_data(wiring, "right", hgf::SubscriptionMode::Replay);
+            auto left = hgf::subscribe_data(wiring, "left");
+            auto right = hgf::subscribe_data(wiring, "right");
             static_cast<void>(hg::wire<CaptureTaggedFrame>(wiring, left, hg::Str{"left"}));
             static_cast<void>(hg::wire<CaptureTaggedFrame>(wiring, right, hg::Str{"right"}));
         }
@@ -317,20 +304,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "derived", hgf::SubscriptionMode::Replay);
-            static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
-        }
-    };
-
-    struct RecursiveSnapshotGraph
-    {
-        static constexpr auto name = "hgraph.fabric.test.recursive_snapshot";
-
-        static void compose(hg::Wiring &wiring)
-        {
-            hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "derived", hgf::SubscriptionMode::Snapshot,
-                                             BASE_TIME + hg::TimeDelta{5});
+            auto value = hgf::subscribe_data(wiring, "derived");
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
         }
     };
@@ -373,7 +347,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+            auto value = hgf::subscribe_data(wiring, "prices");
             auto notice = hg::wire<LiveNoticeSource>(wiring);
             hgf::submit_notice(wiring, notice, hg::service::path(hgf::DEFAULT_SERVICE_PATH));
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
@@ -389,7 +363,7 @@ namespace
             hgf::register_service(wiring);
             auto notice = hg::wire<LiveNoticeSource>(wiring);
             hgf::submit_notice(wiring, notice, hg::service::path(hgf::DEFAULT_SERVICE_PATH));
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+            auto value = hgf::subscribe_data(wiring, "prices");
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
         }
     };
@@ -449,7 +423,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+            auto value = hgf::subscribe_data(wiring, "prices");
             hgf::submit_notice(wiring, hg::wire<CountingNoticeSource<0, 5, true>>(wiring));
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
         }
@@ -462,7 +436,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "z-root", hgf::SubscriptionMode::Live);
+            auto value = hgf::subscribe_data(wiring, "z-root");
             hgf::submit_notice(wiring, hg::wire<CountingNoticeSource<0, 3, true>>(wiring));
             hgf::submit_notice(wiring, hg::wire<CountingNoticeSource<1, 5, false>>(wiring));
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
@@ -476,7 +450,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+            auto value = hgf::subscribe_data(wiring, "prices");
             hgf::submit_notice(wiring, hg::wire<CountingNoticeSource<0, 5, true, 2>>(wiring));
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
         }
@@ -583,15 +557,14 @@ namespace
         }
     };
 
-    struct SnapshotDiagnosticsGraph
+    struct ReplayDiagnosticsGraph
     {
-        static constexpr auto name = "hgraph.fabric.test.snapshot_diagnostics";
+        static constexpr auto name = "hgraph.fabric.test.replay_diagnostics";
 
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto value = hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Snapshot,
-                                             BASE_TIME + hg::TimeDelta{2});
+            auto value = hgf::subscribe_data(wiring, "prices");
             static_cast<void>(hg::wire<CaptureFrame>(wiring, value));
             static_cast<void>(
                 hg::wire<CaptureNotificationMetrics>(wiring, hgf::diagnostics(wiring)));
@@ -791,30 +764,14 @@ namespace
 
     [[nodiscard]] hg::GraphExecutorValue run(hg::GraphBuilder graph,
                                              const hgf::FabricConfig &config, hg::DateTime start,
-                                             hg::DateTime end)
+                                             hg::DateTime end,
+                                             hg::GraphExecutorMode mode =
+                                                 hg::GraphExecutorMode::Simulation)
     {
         hgf::set_fabric_config(graph.global_state(), config);
-        return hg::testing::run_graph(std::move(graph), start, end);
+        return hg::testing::run_graph(std::move(graph), start, end, mode);
     }
 } // namespace
-
-TEST_CASE("snapshot loads one consistent image at the requested as-of")
-{
-    hg::stdlib::register_standard_operators();
-    hgf::register_fabric_operators();
-    auto config = hgf::make_memory_fabric_config("tests/subscription/snapshot");
-    static_cast<void>(seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
-    static_cast<void>(seed(config, "prices", 2, 2, BASE_TIME + hg::TimeDelta{2}));
-    static_cast<void>(seed(config, "prices", 3, 3, BASE_TIME + hg::TimeDelta{3}));
-    observed_frames.clear();
-
-    static_cast<void>(
-        run(hg::build_graph<SnapshotGraph>(), config, BASE_TIME, BASE_TIME + hg::TimeDelta{5}));
-
-    REQUIRE(observed_frames.size() == 1);
-    CHECK(observed_frames.front().first == BASE_TIME);
-    CHECK(observed_frames.front().second == 2);
-}
 
 TEST_CASE("service lifecycle logs its path once at start and stop")
 {
@@ -826,7 +783,7 @@ TEST_CASE("service lifecycle logs its path once at start and stop")
     CapturedLog captured;
 
     static_cast<void>(
-        run(hg::build_graph<SnapshotGraph>(), config, BASE_TIME, BASE_TIME + hg::TimeDelta{2}));
+        run(hg::build_graph<ReplayGraph>(), config, BASE_TIME, BASE_TIME + hg::TimeDelta{2}));
 
     const auto output = captured.joined();
     CHECK(output.find("hgraph.fabric service started path=fabric") != std::string::npos);
@@ -838,7 +795,7 @@ TEST_CASE("reusable graph builders create independent Fabric node state")
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
     auto config = hgf::make_memory_fabric_config("tests/subscription/independent-node-state");
-    auto graph = hg::build_graph<SnapshotGraph>();
+    auto graph = hg::build_graph<ReplayGraph>();
     hgf::set_fabric_config(graph.global_state(), config);
 
     hg::GraphExecutorBuilder builder;
@@ -862,28 +819,6 @@ TEST_CASE("reusable graph builders create independent Fabric node state")
     }
     second_graph.stop(BASE_TIME);
     first_graph.stop(BASE_TIME);
-}
-
-TEST_CASE("snapshot applies its as-of bound through transitive ancestry")
-{
-    hg::stdlib::register_standard_operators();
-    hgf::register_fabric_operators();
-    auto config = hgf::make_memory_fabric_config("tests/subscription/snapshot-ancestry");
-    static_cast<void>(seed(config, "base", 1, 1, BASE_TIME + hg::TimeDelta{1}));
-    static_cast<void>(seed(config, "middle", 1, 1, BASE_TIME + hg::TimeDelta{2}, {{"base", 1}}));
-    static_cast<void>(seed(config, "derived", 1, 1, BASE_TIME + hg::TimeDelta{3}, {{"middle", 1}}));
-    static_cast<void>(seed(config, "derived", 2, 2, BASE_TIME + hg::TimeDelta{5}, {{"middle", 2}}));
-    static_cast<void>(seed(config, "base", 2, 2, BASE_TIME + hg::TimeDelta{6}));
-    static_cast<void>(seed(config, "middle", 2, 2, BASE_TIME + hg::TimeDelta{7}, {{"base", 2}}));
-    observed_frames.clear();
-
-    const auto graph_start = BASE_TIME + hg::TimeDelta{20};
-    static_cast<void>(run(hg::build_graph<RecursiveSnapshotGraph>(), config, graph_start,
-                          graph_start + hg::TimeDelta{5}));
-
-    REQUIRE(observed_frames.size() == 1);
-    CHECK(observed_frames.front().first == graph_start);
-    CHECK(observed_frames.front().second == 1);
 }
 
 TEST_CASE("replay emits ordered as-of images over a half-open run interval")
@@ -979,14 +914,15 @@ TEST_CASE("live starts from durable state and advances only from notice ticks")
     auto config = hgf::make_memory_fabric_config("tests/subscription/live");
     static_cast<void>(seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
     observed_frames.clear();
+    const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<LiveGraph>(), config, BASE_TIME + hg::TimeDelta{1},
-                          BASE_TIME + hg::TimeDelta{10}));
+    static_cast<void>(run(hg::build_graph<LiveGraph>(), config, start,
+                          start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
-    CHECK(observed_frames[0].first == BASE_TIME + hg::TimeDelta{1});
+    CHECK(observed_frames[0].first == start);
     CHECK(observed_frames[0].second == 1);
-    CHECK(observed_frames[1].first == BASE_TIME + hg::TimeDelta{6});
+    CHECK(observed_frames[1].first == start + hg::TimeDelta{5});
     CHECK(observed_frames[1].second == 2);
 }
 
@@ -997,9 +933,11 @@ TEST_CASE("live plan freezes after transport-first service materialization")
     auto config = hgf::make_memory_fabric_config("tests/subscription/live-transport-first");
     static_cast<void>(seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
     observed_frames.clear();
+    const auto start = hg::testing::wall_now();
 
     static_cast<void>(run(hg::build_graph<LiveTransportFirstGraph>(), config,
-                          BASE_TIME + hg::TimeDelta{1}, BASE_TIME + hg::TimeDelta{10}));
+                          start, start + hg::TimeDelta{100},
+                          hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames[0].second == 1);
@@ -1024,9 +962,11 @@ TEST_CASE("complete live notices avoid metadata reads and load only the "
         .as_of = BASE_TIME + hg::TimeDelta{2},
     }};
     observed_frames.clear();
+    const auto start = hg::testing::wall_now();
 
     static_cast<void>(run(hg::build_graph<CompleteNoticeGraph>(), observed_config,
-                          BASE_TIME + hg::TimeDelta{1}, BASE_TIME + hg::TimeDelta{10}));
+                          start, start + hg::TimeDelta{100},
+                          hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 2);
@@ -1065,9 +1005,11 @@ TEST_CASE("live gap recovery reads only missing metadata and the selected Frame"
         },
     };
     observed_frames.clear();
+    const auto start = hg::testing::wall_now();
 
     static_cast<void>(run(hg::build_graph<GapNoticeGraph>(), observed_config,
-                          BASE_TIME + hg::TimeDelta{1}, BASE_TIME + hg::TimeDelta{10}));
+                          start, start + hg::TimeDelta{100},
+                          hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 3);
@@ -1108,9 +1050,11 @@ TEST_CASE("live uses durable fallback for dependency notices received before "
         },
     };
     observed_frames.clear();
+    const auto start = hg::testing::wall_now();
 
     static_cast<void>(run(hg::build_graph<CachedAncestryNoticeGraph>(), observed_config,
-                          BASE_TIME + hg::TimeDelta{1}, BASE_TIME + hg::TimeDelta{10}));
+                          start, start + hg::TimeDelta{100},
+                          hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 2);
@@ -1122,13 +1066,11 @@ TEST_CASE("live uses durable fallback for dependency notices received before "
     notice_io_counters.reset();
 }
 
-TEST_CASE("snapshot and replay service graphs contain no push sources")
+TEST_CASE("simulation Fabric service graph contains no push sources")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
-    const auto snapshot = hg::build_graph<SnapshotGraph>();
     const auto replay = hg::build_graph<ReplayGraph>();
-    CHECK(snapshot.root_type().schema()->push_source_nodes_end == 0);
     CHECK(replay.root_type().schema()->push_source_nodes_end == 0);
 }
 
@@ -1196,14 +1138,14 @@ TEST_CASE("service diagnostics expose resolver work and bounded queue usage")
     static_cast<void>(seed(config, "prices", 1, 1, BASE_TIME + hg::TimeDelta{1}));
     observed_notification_metrics.clear();
 
-    static_cast<void>(run(hg::build_graph<SnapshotDiagnosticsGraph>(), config, BASE_TIME,
+    static_cast<void>(run(hg::build_graph<ReplayDiagnosticsGraph>(), config, BASE_TIME,
                           BASE_TIME + hg::TimeDelta{5}));
 
     CHECK(observed_notification_metrics.at("lifecycle") == "running");
     CHECK(observed_notification_metrics.at("publication.queued") == "0");
     CHECK(observed_notification_metrics.at("publication.queue_limit_per_data_id") == "1024");
     CHECK(observed_notification_metrics.at("live.notice_limit_per_session") == "4096");
-    CHECK(observed_notification_metrics.at("resolution.calls") == "1");
+    CHECK(observed_notification_metrics.at("resolution.calls") == "2");
     CHECK(observed_notification_metrics.at("resolution.forests.ready") == "1");
     CHECK(std::stoull(observed_notification_metrics.at("resolution.revision_cache.misses")) >= 1);
     CHECK(std::stoull(observed_notification_metrics.at("resolution.frame_cache.misses")) >= 1);

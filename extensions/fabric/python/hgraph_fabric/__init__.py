@@ -9,11 +9,11 @@ from typing import Final
 from hgraph import (
     CompoundScalar,
     Frame,
-    MIN_DT,
     TS,
     WiringPort,
     operator_function,
 )
+from hgraph._wiring._state import _active_global_state
 
 # The native Fabric bridge consumes the persistence SDK.  Loading its declared
 # Python dependency first is also required on Windows: the
@@ -26,9 +26,8 @@ from . import _hgraph_fabric as _native
 
 DataVersion = int
 RevisionId = int
-SubscriptionMode = _native.SubscriptionMode
-FabricSubscriptionMode = SubscriptionMode
 ResolutionStatus = _native.ResolutionStatus
+FabricConfig = _native.FabricConfig
 
 
 @dataclass(frozen=True)
@@ -100,6 +99,25 @@ _publish_data_explicit = operator_function(
 _register_memory_service = operator_function(
     "hgraph.fabric.register_memory_service"
 )
+_register_configured_service = operator_function(
+    "hgraph.fabric.register_configured_service"
+)
+
+
+def make_memory_fabric_config(*, prefix: str = "fabric") -> FabricConfig:
+    """Create an owning in-process Fabric configuration."""
+
+    return _native._make_memory_fabric_config(prefix)
+
+
+def register_fabric_service(
+    config: FabricConfig, *, path: str = "fabric"
+) -> None:
+    """Register the native graph service using an explicit configuration."""
+
+    state = _active_global_state()
+    _native._set_fabric_config(state._impl, config)
+    _register_configured_service(path)
 
 
 def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
@@ -113,15 +131,27 @@ def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
     _register_memory_service(prefix)
 
 
-def subscribe_data(
-    data_id: str,
-    *,
-    mode: SubscriptionMode,
-    as_of: datetime | None = None,
-) -> TS[Frame]:
-    """Wire a complete atomic Frame subscription under one stable data id."""
+def subscribe_data(data_id: str) -> TS[Frame]:
+    """Wire a Frame subscription governed by the graph's Fabric run policy."""
 
-    return _subscribe_data(data_id, mode, MIN_DT if as_of is None else as_of)
+    return _subscribe_data(data_id)
+
+
+def load_data_as_of(
+    config: FabricConfig,
+    data_id: str,
+    as_of: datetime,
+):
+    """Load the newest stored Frame at or before ``as_of``.
+
+    This is a synchronous point lookup, not a graph subscription: it does not
+    coordinate the selected value with dependency versions. The result is
+    ``None`` when no earlier value exists. Frame presentation follows hgraph's
+    compatibility switch, yielding Polars when enabled and available and
+    PyArrow otherwise.
+    """
+
+    return _native._load_data_as_of(config, data_id, as_of)
 
 
 def dependency_handle(subscription: TS[Frame]) -> DependencyHandle:
@@ -225,12 +255,11 @@ __all__ = [
     "DataVersion",
     "DependencyHandle",
     "DependencySelection",
-    "FabricSubscriptionMode",
+    "FabricConfig",
     "LATEST_MEDIA_TYPE",
     "REVISION_MEDIA_TYPE",
     "RevisionId",
     "ResolutionStatus",
-    "SubscriptionMode",
     "decode_as_of_reference",
     "decode_latest_reference",
     "decode_revision",
@@ -238,7 +267,10 @@ __all__ = [
     "encode_as_of_reference",
     "encode_latest_reference",
     "encode_revision",
+    "load_data_as_of",
+    "make_memory_fabric_config",
     "publish_data",
+    "register_fabric_service",
     "register_memory_fabric_service",
     "subscribe_data",
 ]

@@ -32,7 +32,6 @@ namespace hgraph::fabric
             static constexpr auto name = "hgraph.fabric.subscribe_data.planned";
             using signature_args =
                 std::tuple<In<"signal", FabricIngressSignal>, Scalar<"data_id", Str>,
-                           Scalar<"mode", SubscriptionMode>, Scalar<"as_of", DateTime>,
                            Out<TS<Frame>>>;
 
             /** O(Frame handle copy) per delivered version. The service has
@@ -89,8 +88,6 @@ namespace hgraph::fabric
         struct SubscriptionDeclaration
         {
             Str                                 data_id{};
-            SubscriptionMode                    mode{SubscriptionMode::Live};
-            DateTime                            as_of{MIN_DT};
             DelayedBindingWiringPort<TS<Frame>> delayed{};
             WiringPortRef                       output{};
         };
@@ -101,8 +98,7 @@ namespace hgraph::fabric
             WiringPortRef       value{};
             DependencySelection dependencies{DependencySelection::automatic()};
             std::vector<Str>    resolved_dependencies{};
-            std::map<Str, std::pair<SubscriptionMode, DateTime>> resolved_subscription_policies{};
-            bool                                                 wired{false};
+            bool                wired{false};
         };
 
         struct DeclarationState
@@ -110,7 +106,6 @@ namespace hgraph::fabric
             std::vector<SubscriptionDeclaration>                 subscriptions{};
             std::vector<PublisherDeclaration>                    publishers{};
             std::map<Str, WiringPortRef>                         lineage_signals{};
-            std::map<Str, std::pair<SubscriptionMode, DateTime>> lineage_policies{};
             bool                                                 finalizer_registered{false};
         };
 
@@ -131,40 +126,16 @@ namespace hgraph::fabric
             return scalars.view().as_bundle().at("data_id").checked_as<Str>();
         }
 
-        [[nodiscard]] std::pair<SubscriptionMode, DateTime>
-        source_policy(const NodeBuilder &builder)
-        {
-            const Value &scalars = builder.scalars();
-            if (!scalars.has_value())
-            {
-                throw std::logic_error("fabric subscription source has no scalar configuration");
-            }
-            const auto fields = scalars.view().as_bundle();
-            return {
-                fields.at("mode").checked_as<SubscriptionMode>(),
-                fields.at("as_of").checked_as<DateTime>(),
-            };
-        }
-
         struct SourceCollection
         {
             std::unordered_set<const WiringInstance *> wiring_nodes{};
             std::unordered_map<const GraphBuilder *, std::unordered_set<std::size_t>>
                                                                  compiled_nodes{};
             std::vector<Str>                                     data_ids{};
-            std::map<Str, std::pair<SubscriptionMode, DateTime>> policies{};
 
             void add(const NodeBuilder &builder)
             {
-                Str        data_id = source_data_id(builder);
-                const auto policy = source_policy(builder);
-                const auto [found, inserted] = policies.emplace(data_id, policy);
-                if (!inserted && found->second != policy)
-                {
-                    throw std::invalid_argument(
-                        "fabric dependency discovery found one data id with "
-                        "multiple subscription policies");
-                }
+                Str data_id = source_data_id(builder);
                 if (std::ranges::find(data_ids, data_id) == data_ids.end())
                 {
                     data_ids.push_back(std::move(data_id));
@@ -303,12 +274,10 @@ namespace hgraph::fabric
             return dependency_plan_input(make_dependency_plan(std::move(plan)).view());
         }
 
-        [[nodiscard]] Port<FabricIngressSignal> wire_subscription_signal(Wiring          &wiring,
-                                                                         const Str       &data_id,
-                                                                         SubscriptionMode mode,
-                                                                         DateTime         as_of)
+        [[nodiscard]] Port<FabricIngressSignal>
+        wire_subscription_signal(Wiring &wiring, const Str &data_id)
         {
-            const Str  key_value = detail::subscription_key(data_id, mode, as_of);
+            const Str  key_value = data_id;
             auto       key = wire<stdlib::const_, TS<Str>>(wiring, key_value);
             const auto path = service::path(DEFAULT_SERVICE_PATH);
             if (wiring.kind() == WiringKind::TopLevel)
@@ -317,39 +286,14 @@ namespace hgraph::fabric
                                           detail::SubscriptionSpec{
                                               .key = key_value,
                                               .data_id = data_id,
-                                              .as_of = as_of,
                                           },
-                                          mode, DEFAULT_SERVICE_PATH);
-                switch (mode)
-                {
-                    case SubscriptionMode::Live:
-                        return wire<stdlib::getitem_>(
-                                   wiring, wire<detail::FabricPlannedLiveService>(wiring, path),
-                                   key)
-                            .template as<FabricIngressSignal>();
-                    case SubscriptionMode::Replay:
-                        return wire<stdlib::getitem_>(
-                                   wiring, wire<detail::FabricPlannedReplayService>(wiring, path),
-                                   key)
-                            .template as<FabricIngressSignal>();
-                    case SubscriptionMode::Snapshot:
-                        return wire<stdlib::getitem_>(
-                                   wiring, wire<detail::FabricPlannedSnapshotService>(wiring, path),
-                                   key)
-                            .template as<FabricIngressSignal>();
-                }
-                throw std::invalid_argument("unsupported fabric subscription mode");
+                                          DEFAULT_SERVICE_PATH);
+                return wire<stdlib::getitem_>(
+                           wiring,
+                           wire<detail::FabricPlannedSubscriptionService>(wiring, path), key)
+                    .template as<FabricIngressSignal>();
             }
-            switch (mode)
-            {
-                case SubscriptionMode::Live:
-                    return wire<FabricLiveSubscriptionService>(wiring, path, key);
-                case SubscriptionMode::Replay:
-                    return wire<FabricReplaySubscriptionService>(wiring, path, key);
-                case SubscriptionMode::Snapshot:
-                    return wire<FabricSnapshotSubscriptionService>(wiring, path, key);
-            }
-            throw std::invalid_argument("unsupported fabric subscription mode");
+            return wire<FabricSubscriptionService>(wiring, path, key);
         }
 
         [[nodiscard]] WiringPortRef combine_cut(Wiring &wiring, const DeclarationState &state,
@@ -384,20 +328,9 @@ namespace hgraph::fabric
             {
                 if (!subscription.delayed.bound())
                 {
-                    auto signal = wire_subscription_signal(wiring, subscription.data_id,
-                                                           subscription.mode, subscription.as_of);
+                    auto signal = wire_subscription_signal(wiring, subscription.data_id);
                     auto source =
-                        wire<SubscribeDataPlanningSource>(wiring, signal, subscription.data_id,
-                                                          subscription.mode, subscription.as_of);
-                    const auto policy = std::pair{subscription.mode, subscription.as_of};
-                    const auto [known_policy, inserted_policy] =
-                        state.lineage_policies.emplace(subscription.data_id, policy);
-                    if (!inserted_policy && known_policy->second != policy)
-                    {
-                        throw std::invalid_argument("fabric dependency discovery found one data id "
-                                                    "with "
-                                                    "multiple subscription policies");
-                    }
+                        wire<SubscribeDataPlanningSource>(wiring, signal, subscription.data_id);
                     state.lineage_signals.try_emplace(subscription.data_id, signal.erased());
                     subscription.delayed(source);
                 }
@@ -423,7 +356,6 @@ namespace hgraph::fabric
                     }
                 }
                 publisher.resolved_dependencies = canonical_ids(std::move(collection.data_ids));
-                publisher.resolved_subscription_policies = std::move(collection.policies);
                 if (std::ranges::find(publisher.resolved_dependencies, publisher.data_id) !=
                     publisher.resolved_dependencies.end())
                 {
@@ -437,25 +369,11 @@ namespace hgraph::fabric
             {
                 for (const auto &data_id : publisher.resolved_dependencies)
                 {
-                    const auto policy = publisher.resolved_subscription_policies.find(data_id);
-                    if (policy == publisher.resolved_subscription_policies.end())
-                    {
-                        throw std::logic_error("fabric dependency has no subscription policy");
-                    }
-                    const auto [known_policy, inserted_policy] =
-                        state.lineage_policies.emplace(data_id, policy->second);
-                    if (!inserted_policy && known_policy->second != policy->second)
-                    {
-                        throw std::invalid_argument("fabric dependency discovery found one data id "
-                                                    "with "
-                                                    "multiple subscription policies");
-                    }
                     if (state.lineage_signals.contains(data_id))
                     {
                         continue;
                     }
-                    auto signal = wire_subscription_signal(wiring, data_id, policy->second.first,
-                                                           policy->second.second);
+                    auto signal = wire_subscription_signal(wiring, data_id);
                     state.lineage_signals.emplace(data_id, signal.erased());
                 }
             }
@@ -511,34 +429,6 @@ namespace hgraph::fabric
             return state;
         }
 
-        void require_subscription_arguments(Str const &data_id, SubscriptionMode mode,
-                                            DateTime as_of)
-        {
-            require_data_id(data_id);
-            const bool supplied_as_of = as_of != MIN_DT;
-            switch (mode)
-            {
-                case SubscriptionMode::Snapshot:
-                    if (!supplied_as_of)
-                    {
-                        throw std::invalid_argument("hgraph.fabric.subscribe_data: "
-                                                    "Snapshot requires as_of");
-                    }
-                    return;
-                case SubscriptionMode::Live:
-                case SubscriptionMode::Replay:
-                    if (supplied_as_of)
-                    {
-                        throw std::invalid_argument(
-                            "hgraph.fabric.subscribe_data: as_of is valid only for "
-                            "Snapshot");
-                    }
-                    return;
-            }
-            throw std::invalid_argument(
-                "hgraph.fabric.subscribe_data: unsupported subscription mode");
-        }
-
         void record_publisher(Wiring &wiring, Str data_id, WiringPortRef value,
                               DependencySelection dependencies)
         {
@@ -560,36 +450,24 @@ namespace hgraph::fabric
         {
             static constexpr auto name = "hgraph.fabric.subscribe_data.planning_graph";
 
-            static auto defaults()
+            static Port<TS<Frame>> compose(Wiring &wiring,
+                                           Scalar<"data_id", Str> data_id)
             {
-                return std::tuple{
-                    arg<"as_of">(MIN_DT),
-                };
-            }
-
-            static Port<TS<Frame>> compose(Wiring &wiring, Scalar<"data_id", Str> data_id,
-                                           Scalar<"mode", SubscriptionMode> mode,
-                                           Scalar<"as_of", DateTime>        as_of)
-            {
-                require_subscription_arguments(data_id.value(), mode.value(), as_of.value());
+                require_data_id(data_id.value());
                 if (wiring.kind() == WiringKind::TopLevel)
                 {
-                    const Str key =
-                        detail::subscription_key(data_id.value(), mode.value(), as_of.value());
+                    const Str key = data_id.value();
                     detail::plan_subscription(wiring,
                                               detail::SubscriptionSpec{
                                                   .key = key,
                                                   .data_id = data_id.value(),
-                                                  .as_of = as_of.value(),
                                               },
-                                              mode.value(), DEFAULT_SERVICE_PATH);
+                                              DEFAULT_SERVICE_PATH);
                 }
                 auto delayed = delayed_binding<TS<Frame>>(wiring);
                 auto output = delayed();
                 declarations(wiring)->subscriptions.push_back(SubscriptionDeclaration{
                     .data_id = data_id.value(),
-                    .mode = mode.value(),
-                    .as_of = as_of.value(),
                     .delayed = delayed,
                     .output = output.erased(),
                 });
@@ -715,12 +593,10 @@ namespace hgraph::fabric
             "fabric dependency handle requires a direct subscribe_data result");
     }
 
-    Port<TS<Frame>> subscribe_data(Wiring &wiring, Str data_id, SubscriptionMode mode,
-                                   std::optional<DateTime> as_of)
+    Port<TS<Frame>> subscribe_data(Wiring &wiring, Str data_id)
     {
-        const DateTime resolved_as_of = as_of.value_or(MIN_DT);
-        require_subscription_arguments(data_id, mode, resolved_as_of);
-        return wire<SubscribeData, TS<Frame>>(wiring, data_id, mode, resolved_as_of);
+        require_data_id(data_id);
+        return wire<SubscribeData, TS<Frame>>(wiring, data_id);
     }
 
     void publish_data(Wiring &wiring, Str data_id, Port<TS<Frame>> value,

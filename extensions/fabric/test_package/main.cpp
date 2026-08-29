@@ -21,8 +21,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto input = hgf::subscribe_data(
-                wiring, "installed/input", hgf::SubscriptionMode::Live);
+            auto input = hgf::subscribe_data(wiring, "installed/input");
             hgf::publish_data(wiring, "installed/output", input);
             static_cast<void>(hgf::diagnostics(wiring));
         }
@@ -42,6 +41,13 @@ int main()
     if (!config.has_value() || config->prefix != "installed/fabric")
     {
         return 1;
+    }
+    if (hgf::load_data_as_of(
+            *config, "installed/missing",
+            hg::DateTime{hg::TimeDelta{1'767'323'045'006'007}})
+            .has_value())
+    {
+        return 8;
     }
 
     hg::Value revision = hgf::make_data_revision(hgf::DataRevisionInput{

@@ -24,32 +24,6 @@ namespace hgraph::fabric
     inline constexpr std::size_t MAX_REVISION_DEPENDENCIES{65'535U};
     inline constexpr std::size_t MAX_METADATA_BYTES{16U * 1024U * 1024U};
 
-    enum class SubscriptionMode : std::int64_t
-    {
-        Live,
-        Replay,
-        Snapshot,
-    };
-
-    [[nodiscard]] constexpr std::string_view enum_name(SubscriptionMode value) noexcept
-    {
-        switch (value)
-        {
-            case SubscriptionMode::Live:
-                return "Live";
-            case SubscriptionMode::Replay:
-                return "Replay";
-            case SubscriptionMode::Snapshot:
-                return "Snapshot";
-        }
-        return "Unknown";
-    }
-
-    inline std::ostream &operator<<(std::ostream &stream, SubscriptionMode value)
-    {
-        return stream << enum_name(value);
-    }
-
     using DataDependency =
         Bundle<"hgraph.fabric::DataDependency", Field<"data_id", Str>,
                Field<"version", Int>>;
@@ -115,39 +89,9 @@ namespace hgraph::fabric
     [[nodiscard]] HGRAPH_FABRIC_EXPORT bool
     canonical_data_id_less(std::string_view lhs, std::string_view rhs) noexcept;
 
-    /** Register the fabric enum and structural scalar schemas. Idempotent for
+    /** Register the fabric structural scalar schemas. Idempotent for
         one type-registry lifetime. */
     HGRAPH_FABRIC_EXPORT void register_fabric_types();
 }  // namespace hgraph::fabric
-
-namespace hgraph::static_schema_detail
-{
-    template <>
-    struct scalar_name<fabric::SubscriptionMode>
-    {
-        static constexpr std::string_view value{"hgraph.fabric::SubscriptionMode"};
-    };
-}  // namespace hgraph::static_schema_detail
-
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-namespace hgraph
-{
-    template <>
-    struct python_conversion_traits<fabric::SubscriptionMode>
-    {
-        static nb::object to_python(const fabric::SubscriptionMode &value)
-        {
-            return nb::cast(value);
-        }
-
-        static fabric::SubscriptionMode from_python(nb::handle source)
-        {
-            if (nb::hasattr(source, "value")) { source = source.attr("value"); }
-            return static_cast<fabric::SubscriptionMode>(
-                nb::cast<std::int64_t>(source));
-        }
-    };
-}  // namespace hgraph
-#endif
 
 #endif  // HGRAPH_FABRIC_TYPES_H

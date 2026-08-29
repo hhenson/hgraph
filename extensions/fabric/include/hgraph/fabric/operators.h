@@ -9,7 +9,6 @@
 #include <hgraph/types/operator_dispatch.h>
 
 #include <cstdint>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -17,14 +16,11 @@ namespace hgraph::fabric
 {
     /** Subscribe to one stable fabric data id.
         @param data_id Durable data identity fixed while wiring.
-        @param mode Wiring-time subscription mode.
         @return Complete atomic Frame versions selected by the fabric.
-        Snapshot calls additionally accept an ``as_of`` scalar in their
-        concrete overload. */
+        The service derives live versus replay from the graph executor. */
     struct SubscribeData
         : Operator<"hgraph.fabric.subscribe_data", Scalar<"data_id", Str>,
-                   Scalar<"mode", SubscriptionMode>,
-                   Scalar<"as_of", DateTime>, Out<TS<Frame>>>
+                   Out<TS<Frame>>>
     {
     };
 
@@ -84,8 +80,7 @@ namespace hgraph::fabric
     dependency_handle(Wiring &wiring, Port<TS<Frame>> subscription);
 
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Frame>>
-    subscribe_data(Wiring &wiring, Str data_id, SubscriptionMode mode,
-                   std::optional<DateTime> as_of = {});
+    subscribe_data(Wiring &wiring, Str data_id);
 
     HGRAPH_FABRIC_EXPORT void publish_data(
         Wiring &wiring, Str data_id, Port<TS<Frame>> value,

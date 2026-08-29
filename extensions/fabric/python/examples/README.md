@@ -1,11 +1,13 @@
 # Python Fabric examples
 
-These examples progress from a one-frame local publisher to subscription
-policies and a typed multi-input derived dataset:
+These examples progress from a one-frame local publisher to historical reads,
+run-selected subscriptions, and a typed multi-input derived dataset:
 
 - [`publish_once.py`](publish_once.py) is a complete runnable local example.
-- [`subscription_modes.py`](subscription_modes.py) shows separate Live, Replay,
-  and Snapshot consumers.
+- [`load_as_of.py`](load_as_of.py) performs a standalone point-in-time read
+  against an explicit configuration.
+- [`subscription_modes.py`](subscription_modes.py) shows that the same
+  subscription graph runs Live in real time and Replay in simulation.
 - [`derived_dataset.py`](derived_dataset.py) joins two Fabric inputs and
   publishes a derived dataset with automatic or explicit lineage.
 
@@ -23,13 +25,17 @@ the outer host wrapper does that once. A production native host supplies
 persistent object/Frame stores and Kafka while reusing the same Python
 components.
 
-Subscription modes are alternatives for a given data id in one root graph:
+Subscription behavior belongs to the graph run, not each data id:
 
-- `LIVE` follows new accepted revisions and normally runs in real time.
-- `REPLAY` walks durable revisions over the executor's start/end interval.
-- `SNAPSHOT` emits one consistent image at a required `as_of` cutoff.
+- real-time execution follows new accepted revisions;
+- simulation walks durable revisions over the executor's start/end interval;
+- a narrow simulation interval is the graph-coordinated equivalent of a
+  one-point replay.
+
+For a simple historical read that needs no graph coordination,
+`load_data_as_of(config, data_id, as_of)` returns the newest version at or
+before the cutoff. It does not resolve dependency consistency.
 
 Fabric publishes complete atomic Frames. Typed `Frame[Row]` views are useful
 inside an application graph; convert the final value to `TS[Frame]` at the
 Fabric publication boundary. The Arrow schema is retained in the stored Frame.
-

@@ -8,7 +8,6 @@
 #include <hgraph/runtime/evaluation_clock.h>
 
 #include <algorithm>
-#include <charconv>
 #include <deque>
 #include <iterator>
 #include <limits>
@@ -22,8 +21,6 @@ namespace hgraph::fabric::detail
 {
     namespace
     {
-        inline constexpr char KEY_SEPARATOR{'\n'};
-
         struct IdLess
         {
             using is_transparent = void;
@@ -37,31 +34,6 @@ namespace hgraph::fabric::detail
         [[nodiscard]] DateTime wall_time() noexcept
         {
             return std::chrono::time_point_cast<TimeDelta>(engine_clock::now());
-        }
-
-        [[nodiscard]] Int parse_integer(std::string_view text, std::string_view subject)
-        {
-            Int value{};
-            const auto [end, error] =
-                std::from_chars(text.data(), text.data() + text.size(), value);
-            if (error != std::errc{} || end != text.data() + text.size())
-            {
-                throw std::invalid_argument("invalid fabric " + std::string{subject});
-            }
-            return value;
-        }
-
-        [[nodiscard]] std::pair<Str, Int> split_key(std::string_view encoded,
-                                                    std::string_view subject)
-        {
-            const auto separator = encoded.rfind(KEY_SEPARATOR);
-            if (separator == std::string_view::npos)
-            {
-                throw std::invalid_argument("invalid fabric " + std::string{subject});
-            }
-            Str data_id{encoded.substr(0, separator)};
-            require_data_id(data_id);
-            return {std::move(data_id), parse_integer(encoded.substr(separator + 1), subject)};
         }
 
         [[nodiscard]] std::vector<Str> roots_of(const std::vector<SubscriptionSpec> &subscriptions)
@@ -296,84 +268,6 @@ namespace hgraph::fabric::detail
             }
             return delivery;
         }
-
-        struct SnapshotGroup
-        {
-            std::vector<SubscriptionSpec> subscriptions{};
-            std::unique_ptr<ResolutionCore> core{};
-            bool complete{};
-        };
-
-        struct SnapshotSession
-        {
-            std::vector<SubscriptionSpec> subscriptions{};
-            std::map<DateTime, SnapshotGroup> groups{};
-
-            void configure(const FabricConfig &config, std::vector<SubscriptionSpec> requested)
-            {
-                requested = canonical_subscriptions(std::move(requested));
-                if (requested == subscriptions)
-                {
-                    return;
-                }
-                subscriptions = std::move(requested);
-                groups.clear();
-                for (const auto &subscription : subscriptions)
-                {
-                    auto &group = groups[subscription.as_of];
-                    group.subscriptions.push_back(subscription);
-                }
-                for (auto &[as_of, group] : groups)
-                {
-                    static_cast<void>(as_of);
-                    group.core =
-                        std::make_unique<ResolutionCore>(config, roots_of(group.subscriptions));
-                }
-            }
-
-            [[nodiscard]] std::optional<DeliveryBatch> evaluate()
-            {
-                DeliveryBatch combined;
-                for (auto &[as_of, group] : groups)
-                {
-                    if (group.complete)
-                    {
-                        continue;
-                    }
-                    group.complete = true;
-                    auto batch = group.core->batch(group.core->coordinator.resolve_at(as_of));
-                    if (!batch.has_value())
-                    {
-                        continue;
-                    }
-                    auto delivery = deliver(std::move(*batch), group.subscriptions);
-                    if (!delivery.has_value())
-                    {
-                        continue;
-                    }
-                    combined.roots.insert(combined.roots.end(),
-                                          std::make_move_iterator(delivery->roots.begin()),
-                                          std::make_move_iterator(delivery->roots.end()));
-                }
-                if (combined.roots.empty())
-                {
-                    return std::nullopt;
-                }
-                return combined;
-            }
-
-            void collect_metrics(ResolutionMetrics &metrics) const
-            {
-                for (const auto &[as_of, group] : groups)
-                {
-                    static_cast<void>(as_of);
-                    if (group.core)
-                    {
-                        metrics.add(group.core->metrics);
-                    }
-                }
-            }
-        };
 
         struct ReplaySession
         {
@@ -769,65 +663,6 @@ namespace hgraph::fabric::detail
         }
     } // namespace
 
-    struct SnapshotNodeState::Impl
-    {
-        std::optional<FabricConfig> config{};
-        std::vector<SubscriptionSpec> planned{};
-        SnapshotSession session{};
-        DiagnosticState diagnostics{};
-    };
-
-    SnapshotNodeState::SnapshotNodeState() : impl_(std::make_unique<Impl>()) {}
-    SnapshotNodeState::~SnapshotNodeState() = default;
-    SnapshotNodeState::SnapshotNodeState(SnapshotNodeState &&) noexcept = default;
-    SnapshotNodeState &SnapshotNodeState::operator=(SnapshotNodeState &&) noexcept = default;
-
-    void SnapshotNodeState::start(FabricConfig config, std::vector<SubscriptionSpec> planned)
-    {
-        if (impl_->config.has_value())
-        {
-            throw std::logic_error("fabric snapshot node started twice");
-        }
-        impl_->config = checked_config(std::move(config));
-        impl_->planned = std::move(planned);
-    }
-
-    void SnapshotNodeState::stop() noexcept
-    {
-        impl_->session = {};
-        impl_->diagnostics = {};
-        impl_->planned.clear();
-        impl_->config.reset();
-    }
-
-    std::optional<DeliveryBatch> SnapshotNodeState::evaluate_planned()
-    {
-        return evaluate(impl_->planned);
-    }
-
-    std::optional<DeliveryBatch>
-    SnapshotNodeState::evaluate(std::vector<SubscriptionSpec> subscriptions)
-    {
-        if (!impl_->config.has_value())
-        {
-            throw std::logic_error("fabric snapshot node is not started");
-        }
-        return with_failure_diagnostic(impl_->diagnostics, "store", "snapshot",
-                                       [&]
-                                       {
-                                           impl_->session.configure(*impl_->config,
-                                                                    std::move(subscriptions));
-                                           return impl_->session.evaluate();
-                                       });
-    }
-
-    FabricNodeDiagnostics SnapshotNodeState::diagnostics() const
-    {
-        ResolutionMetrics metrics;
-        impl_->session.collect_metrics(metrics);
-        return node_diagnostics(metrics, impl_->diagnostics);
-    }
-
     struct ReplayNodeState::Impl
     {
         std::optional<FabricConfig> config{};
@@ -1185,49 +1020,18 @@ namespace hgraph::fabric::detail
         };
     }
 
-    Str subscription_key(Str data_id, SubscriptionMode mode, DateTime as_of)
+    SubscriptionSpec decode_subscription_key(std::string_view key)
     {
+        Str data_id{key};
         require_data_id(data_id);
-        if (mode != SubscriptionMode::Snapshot)
-        {
-            return data_id;
-        }
-        return data_id + KEY_SEPARATOR + std::to_string(as_of.time_since_epoch().count());
+        return SubscriptionSpec{.key = data_id, .data_id = std::move(data_id)};
     }
 
-    SubscriptionSpec decode_subscription_key(std::string_view key, SubscriptionMode mode)
+    void FabricWiringPlan::add(SubscriptionSpec subscription)
     {
-        if (mode != SubscriptionMode::Snapshot)
-        {
-            Str data_id{key};
-            require_data_id(data_id);
-            return SubscriptionSpec{.key = data_id, .data_id = std::move(data_id)};
-        }
-        auto [data_id, micros] = split_key(key, "snapshot subscription key");
-        return SubscriptionSpec{
-            .key = Str{key},
-            .data_id = std::move(data_id),
-            .as_of = DateTime{TimeDelta{micros}},
-        };
-    }
-
-    void FabricWiringPlan::add(SubscriptionSpec subscription, SubscriptionMode mode)
-    {
-        auto *target = [&]() -> std::vector<SubscriptionSpec> *
-        {
-            switch (mode)
-            {
-            case SubscriptionMode::Live:
-                return &live;
-            case SubscriptionMode::Replay:
-                return &replay;
-            case SubscriptionMode::Snapshot:
-                return &snapshot;
-            }
-            throw std::invalid_argument("unsupported fabric planned subscription mode");
-        }();
-        const auto found = std::ranges::find(*target, subscription.key, &SubscriptionSpec::key);
-        if (found != target->end())
+        const auto found = std::ranges::find(subscriptions, subscription.key,
+                                             &SubscriptionSpec::key);
+        if (found != subscriptions.end())
         {
             if (*found != subscription)
             {
@@ -1236,7 +1040,7 @@ namespace hgraph::fabric::detail
             }
             return;
         }
-        target->push_back(std::move(subscription));
+        subscriptions.push_back(std::move(subscription));
     }
 
     [[nodiscard]] static std::shared_ptr<FabricWiringPlan>
@@ -1262,10 +1066,10 @@ namespace hgraph::fabric::detail
         return FabricWiringPlanHandle{mutable_service_plan(wiring, path)};
     }
 
-    void plan_subscription(Wiring &wiring, SubscriptionSpec subscription, SubscriptionMode mode,
+    void plan_subscription(Wiring &wiring, SubscriptionSpec subscription,
                            std::string_view path)
     {
-        mutable_service_plan(wiring, path)->add(std::move(subscription), mode);
+        mutable_service_plan(wiring, path)->add(std::move(subscription));
     }
 
 } // namespace hgraph::fabric::detail

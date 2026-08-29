@@ -1,4 +1,5 @@
 #include <hgraph/fabric/config.h>
+#include <hgraph/fabric/history.h>
 #include <hgraph/fabric/keys.h>
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/operators.h>
@@ -32,6 +33,11 @@ namespace nb = nanobind;
 
 namespace
 {
+    struct PythonFabricConfig
+    {
+        hgraph::fabric::FabricConfig value{};
+    };
+
     [[nodiscard]] nb::bytes to_python_bytes(
         const hgraph::persistence::store::ObjectBytes &value)
     {
@@ -91,6 +97,28 @@ namespace hgraph::fabric
                 register_service(wiring);
             }
         };
+
+        struct RegisterConfiguredFabricServiceOperator
+            : Operator<"hgraph.fabric.register_configured_service",
+                       Scalar<"path", Str>>
+        {
+        };
+
+        struct RegisterConfiguredFabricServiceGraph
+        {
+            static constexpr auto name =
+                "hgraph.fabric.register_configured_service_impl";
+
+            static void compose(Wiring &wiring, Scalar<"path", Str> path)
+            {
+                if (!fabric_config(wiring.global_state()).has_value())
+                {
+                    throw std::invalid_argument(
+                        "register_fabric_service requires FabricConfig in the wiring state");
+                }
+                register_service(wiring, service::path(path.value()));
+            }
+        };
     }  // namespace
 }  // namespace hgraph::fabric
 
@@ -99,10 +127,24 @@ NB_MODULE(_hgraph_fabric, module)
     using namespace hgraph;
     using namespace hgraph::fabric;
 
-    auto mode = nb::enum_<SubscriptionMode>(module, "SubscriptionMode")
-                    .value("LIVE", SubscriptionMode::Live)
-                    .value("REPLAY", SubscriptionMode::Replay)
-                    .value("SNAPSHOT", SubscriptionMode::Snapshot);
+    nb::class_<PythonFabricConfig>(
+        module, "FabricConfig",
+        "Owning Fabric persistence configuration for graph hosting and standalone reads.");
+
+    module.def(
+        "_make_memory_fabric_config",
+        [](Str prefix) {
+            return PythonFabricConfig{make_memory_fabric_config(std::move(prefix))};
+        },
+        nb::arg("prefix"));
+
+    module.def(
+        "_set_fabric_config",
+        [](nb::object state, const PythonFabricConfig &config) {
+            set_fabric_config(nb::cast<GlobalState &>(state).view(), config.value);
+        },
+        nb::arg("state"), nb::arg("config"));
+
     nb::enum_<ResolutionStatus>(module, "ResolutionStatus")
         .value("READY", ResolutionStatus::Ready)
         .value("UNCHANGED", ResolutionStatus::Unchanged)
@@ -113,10 +155,11 @@ NB_MODULE(_hgraph_fabric, module)
 
     register_fabric_operators();
     OperatorRegistry::instance().register_installer(
-        "hgraph.fabric.python_scalars", [mode] {
+        "hgraph.fabric.python_scalars", [] {
             register_graph_overload<RegisterMemoryFabricServiceOperator,
                                     RegisterMemoryFabricServiceGraph>();
-            python_bridge::register_native_scalar_type<SubscriptionMode>(mode);
+            register_graph_overload<RegisterConfiguredFabricServiceOperator,
+                                    RegisterConfiguredFabricServiceGraph>();
         });
     OperatorRegistry::instance().run_installers();
 
@@ -191,6 +234,17 @@ NB_MODULE(_hgraph_fabric, module)
                 static_cast<MetadataObjectKind>(kind), bytes_view(encoded));
         },
         nb::arg("kind"), nb::arg("encoded"));
+
+    module.def(
+        "_load_data_as_of",
+        [](const PythonFabricConfig &config, Str data_id,
+           DateTime as_of) -> nb::object {
+            auto frame = load_data_as_of(config.value, std::move(data_id), as_of);
+            return frame.has_value()
+                       ? python_conversion_traits<Frame>::to_python(*frame)
+                       : nb::none();
+        },
+        nb::arg("config"), nb::arg("data_id"), nb::arg("as_of"));
 
     module.def(
         "_resolve_fixture",

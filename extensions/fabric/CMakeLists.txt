@@ -33,6 +33,7 @@ endif()
 
 add_library(hgraph_fabric
     src/config.cpp
+    src/history.cpp
     src/keys.cpp
     src/metadata_codec.cpp
     src/notifier.cpp

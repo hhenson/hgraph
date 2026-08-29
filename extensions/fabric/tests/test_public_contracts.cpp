@@ -85,8 +85,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto source = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
+            auto source = hgf::subscribe_data(wiring, "input");
             auto dependency = hgf::dependency_handle(wiring, source);
             hgf::publish_data(wiring, "automatic", source);
             hgf::publish_data(
@@ -103,10 +102,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto first = hgf::subscribe_data(
-                wiring, "input-a", hgf::SubscriptionMode::Live);
-            auto second = hgf::subscribe_data(
-                wiring, "input-b", hgf::SubscriptionMode::Live);
+            auto first = hgf::subscribe_data(wiring, "input-a");
+            auto second = hgf::subscribe_data(wiring, "input-b");
             hgf::publish_data(wiring, "output", first);
             hgf::publish_data(wiring, "output", second);
         }
@@ -120,10 +117,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto first = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
-            auto second = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
+            auto first = hgf::subscribe_data(wiring, "input");
+            auto second = hgf::subscribe_data(wiring, "input");
             hgf::publish_data(
                 wiring, "output", first,
                 hgf::DependencySelection::explicit_dependencies(
@@ -143,8 +138,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto source = hgf::subscribe_data(
-                wiring, "shared", hgf::SubscriptionMode::Live);
+            auto source = hgf::subscribe_data(wiring, "shared");
             hgf::publish_data(wiring, "left", source);
             hgf::publish_data(wiring, "right", source);
         }
@@ -154,8 +148,7 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            return hgf::subscribe_data(
-                wiring, "nested", hgf::SubscriptionMode::Live);
+            return hgf::subscribe_data(wiring, "nested");
         }
     };
 
@@ -168,10 +161,8 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            auto returned = hgf::subscribe_data(
-                wiring, "nested-returned", hgf::SubscriptionMode::Live);
-            auto unrelated = hgf::subscribe_data(
-                wiring, "nested-side-effect", hgf::SubscriptionMode::Live);
+            auto returned = hgf::subscribe_data(wiring, "nested-returned");
+            auto unrelated = hgf::subscribe_data(wiring, "nested-side-effect");
             hg::wire<ConsumeFrameSink>(wiring, unrelated);
             return returned;
         }
@@ -202,10 +193,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto left = hgf::subscribe_data(
-                wiring, "conditional-a", hgf::SubscriptionMode::Live);
-            auto right = hgf::subscribe_data(
-                wiring, "conditional-b", hgf::SubscriptionMode::Live);
+            auto left = hgf::subscribe_data(wiring, "conditional-a");
+            auto right = hgf::subscribe_data(wiring, "conditional-b");
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto selected = hg::wire<hg::stdlib::if_then_else>(
@@ -220,8 +209,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto dependency = hgf::subscribe_data(
-                wiring, "declared-only", hgf::SubscriptionMode::Live);
+            auto dependency = hgf::subscribe_data(wiring, "declared-only");
             auto value = hg::wire<NeverFrameSource>(wiring);
             hgf::publish_data(
                 wiring, "explicit-output", value,
@@ -235,12 +223,9 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto a = hgf::subscribe_data(
-                wiring, "a", hgf::SubscriptionMode::Live);
-            auto b = hgf::subscribe_data(
-                wiring, "b", hgf::SubscriptionMode::Live);
-            auto x = hgf::subscribe_data(
-                wiring, "x", hgf::SubscriptionMode::Live);
+            auto a = hgf::subscribe_data(wiring, "a");
+            auto b = hgf::subscribe_data(wiring, "b");
+            auto x = hgf::subscribe_data(wiring, "x");
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto joined = hg::wire<hg::stdlib::if_then_else>(
@@ -485,8 +470,7 @@ TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
     hg::Wiring wiring;
-    auto source = hgf::subscribe_data(
-        wiring, "direct", hgf::SubscriptionMode::Live);
+    auto source = hgf::subscribe_data(wiring, "direct");
     auto forwarded = hg::wire<hg::stdlib::pass_through_node>(wiring, source)
                          .as<hg::TS<hg::Frame>>();
     CHECK_THROWS_WITH(
@@ -495,15 +479,6 @@ TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
     CHECK_THROWS_WITH(
         hgf::dependency_handle(wiring, hg::wire<NeverFrameSource>(wiring)),
         "fabric dependency handle requires a direct subscribe_data result");
-}
-
-TEST_CASE("fabric subscription mode validation rejects unknown enum values")
-{
-    hg::Wiring wiring;
-    CHECK_THROWS_WITH(
-        hgf::subscribe_data(wiring, "input",
-                            static_cast<hgf::SubscriptionMode>(99)),
-        "hgraph.fabric.subscribe_data: unsupported subscription mode");
 }
 
 TEST_CASE("fabric wiring rejects duplicate publisher and dependency data ids")

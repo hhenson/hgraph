@@ -54,6 +54,13 @@ namespace hgraph::fabric
                        Field<"delivered", TS<Int>>, Field<"retried", TS<Int>>,
                        Field<"failed", TS<Int>>, Field<"stale_reports", TS<Int>>>;
 
+        using FabricRunPolicy =
+            UnNamedTSB<Field<"live", TS<Bool>>, Field<"replay", TS<Bool>>>;
+
+        template <typename Schema>
+        using FabricRunRoute =
+            UnNamedTSB<Field<"true", REF<Schema>>, Field<"false", REF<Schema>>>;
+
         template <typename ValueSchema>
         using FabricServiceNodeResult =
             UnNamedTSB<Field<"value", ValueSchema>, Field<"metrics", TSD<Str, TS<Str>>>,
@@ -80,6 +87,18 @@ namespace hgraph::fabric
         {
             return wire<stdlib::getattr_>(wiring, result, Str{"events"})
                 .template as<TSD<Str, TS<FabricDiagnosticEvent>>>();
+        }
+
+        template <typename Schema>
+        [[nodiscard]] Port<Schema> active_run_input(Wiring &wiring,
+                                                    Port<TS<Bool>> active,
+                                                    Port<Schema> input)
+        {
+            auto routed = wire<stdlib::if_, FabricRunRoute<Schema>>(
+                              wiring, active, input)
+                              .template as<FabricRunRoute<Schema>>();
+            return wire<stdlib::getitem_>(wiring, routed, Str{"true"})
+                .template as<Schema>();
         }
 
         [[nodiscard]] FabricConfig service_config(GlobalStateView global_state)
@@ -196,8 +215,7 @@ namespace hgraph::fabric
             }
         }
 
-        [[nodiscard]] std::vector<SubscriptionSpec> subscriptions(const TSSInputView &keys,
-                                                                  SubscriptionMode mode)
+        [[nodiscard]] std::vector<SubscriptionSpec> subscriptions(const TSSInputView &keys)
         {
             std::vector<SubscriptionSpec> result;
             if (!keys.valid())
@@ -207,7 +225,7 @@ namespace hgraph::fabric
             result.reserve(keys.size());
             for (const ValueView key : keys.values())
             {
-                result.push_back(detail::decode_subscription_key(key.checked_as<Str>(), mode));
+                result.push_back(detail::decode_subscription_key(key.checked_as<Str>()));
             }
             return result;
         }
@@ -258,6 +276,21 @@ namespace hgraph::fabric
             return result;
         }
 
+        /** Emits the immutable run-scoped subscription policy once. Executor
+            mode alone owns live versus deterministic replay. */
+        struct FabricRunPolicyNode
+        {
+            static constexpr auto name = "hgraph.fabric.service.run_policy";
+            static constexpr bool schedule_on_start = true;
+
+            static void eval(EngineControlView engine, Out<FabricRunPolicy> out)
+            {
+                const bool live = engine.mode() == GraphExecutorMode::RealTime;
+                out.template field<"live">().set(live);
+                out.template field<"replay">().set(!live);
+            }
+        };
+
         struct FabricLifecycleNode
         {
             static constexpr auto name = "hgraph.fabric.service.lifecycle";
@@ -282,76 +315,6 @@ namespace hgraph::fabric
             }
         };
 
-        struct FabricSnapshotNode
-        {
-            static constexpr auto name = "hgraph.fabric.service.snapshot";
-
-            static void start(GlobalStateView global_state, State<detail::SnapshotNodeState> state)
-            {
-                state.modify().start(service_config(global_state));
-            }
-
-            static void eval(In<"keys", TSS<Str>, InputValidity::Unchecked> keys,
-                             State<detail::SnapshotNodeState> state,
-                             Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
-            {
-                auto out = result.template field<"value">();
-                UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
-                const auto &erased = static_cast<const TSSInputView &>(keys);
-                if (auto delivery =
-                        state.modify().evaluate(subscriptions(erased, SubscriptionMode::Snapshot));
-                    delivery.has_value())
-                {
-                    apply_delivery(std::move(*delivery), out);
-                }
-                diagnostic_change.complete();
-            }
-
-            static void stop(State<detail::SnapshotNodeState> state)
-            {
-                state.modify().stop();
-            }
-        };
-
-        /** Planned root snapshots are independent of the keyed subscription
-            transport, so the initial image is produced at the exact graph
-            start. One evaluation performs one durable consistency resolve. */
-        struct FabricPlannedSnapshotNode
-        {
-            static constexpr auto name = "hgraph.fabric.service.snapshot.planned";
-
-            static void start(Scalar<"plan", detail::FabricWiringPlanHandle> plan,
-                              GlobalStateView global_state, State<detail::SnapshotNodeState> state)
-            {
-                if (!plan.value().value)
-                {
-                    throw std::logic_error("fabric planned snapshot node requires a wiring plan");
-                }
-                state.modify().start(service_config(global_state), plan.value().value->snapshot);
-            }
-
-            static void eval(In<"lifecycle", TS<Str>>,
-                             Scalar<"plan", detail::FabricWiringPlanHandle>,
-                             State<detail::SnapshotNodeState> state,
-                             Out<FabricServiceNodeResult<TSD<Str, FabricIngressSignal>>> result)
-            {
-                auto out = result.template field<"value">();
-                UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
-                if (auto delivery = state.modify().evaluate_planned(); delivery.has_value())
-                {
-                    apply_delivery(std::move(*delivery), out);
-                }
-                diagnostic_change.complete();
-            }
-
-            static void stop(State<detail::SnapshotNodeState> state)
-            {
-                state.modify().stop();
-            }
-        };
-
         struct FabricReplayNode
         {
             static constexpr auto name = "hgraph.fabric.service.replay";
@@ -371,8 +334,7 @@ namespace hgraph::fabric
                 UnwindCleanupGuard diagnostic_change{
                     [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
                 const auto &erased = static_cast<const TSSInputView &>(keys);
-                if (auto delivery = state.modify().evaluate(
-                        subscriptions(erased, SubscriptionMode::Replay), now, scheduler);
+                if (auto delivery = state.modify().evaluate(subscriptions(erased), now, scheduler);
                     delivery.has_value())
                 {
                     apply_delivery(std::move(*delivery), out);
@@ -402,7 +364,7 @@ namespace hgraph::fabric
                     throw std::logic_error("fabric planned replay node requires a wiring plan");
                 }
                 state.modify().start(service_config(global_state), engine.start_time(),
-                                     engine.end_time(), plan.value().value->replay);
+                                     engine.end_time(), plan.value().value->subscriptions);
             }
 
             static void eval(In<"lifecycle", TS<Str>>,
@@ -466,7 +428,7 @@ namespace hgraph::fabric
                 collect_revisions(notices, revisions);
                 const auto &erased = static_cast<const TSSInputView &>(keys);
                 if (auto delivery = state.modify().evaluate(
-                        subscriptions(erased, SubscriptionMode::Live), std::move(revisions), now,
+                        subscriptions(erased), std::move(revisions), now,
                         control.has_value() && control->reconcile);
                     delivery.has_value())
                 {
@@ -495,7 +457,8 @@ namespace hgraph::fabric
                 {
                     throw std::logic_error("fabric planned live node requires a wiring plan");
                 }
-                state.modify().start(service_config(global_state), plan.value().value->live);
+                state.modify().start(service_config(global_state),
+                                     plan.value().value->subscriptions);
             }
 
             static void eval(
@@ -1086,10 +1049,6 @@ namespace hgraph::fabric
                 In<"lifecycle", TS<Str>, InputValidity::Unchecked> lifecycle,
                 In<"publication_metrics", TSD<Str, TS<Str>>, InputValidity::Unchecked>
                     publication_metrics,
-                In<"snapshot_metrics", TSD<Str, TS<Str>>, InputValidity::Unchecked>
-                    snapshot_metrics,
-                In<"planned_snapshot_metrics", TSD<Str, TS<Str>>, InputValidity::Unchecked>
-                    planned_snapshot_metrics,
                 In<"replay_metrics", TSD<Str, TS<Str>>, InputValidity::Unchecked> replay_metrics,
                 In<"planned_replay_metrics", TSD<Str, TS<Str>>, InputValidity::Unchecked>
                     planned_replay_metrics,
@@ -1101,11 +1060,6 @@ namespace hgraph::fabric
                 In<"publication_events", TSD<Str, TS<FabricDiagnosticEvent>>,
                    InputValidity::Unchecked>
                     publication_events,
-                In<"snapshot_events", TSD<Str, TS<FabricDiagnosticEvent>>, InputValidity::Unchecked>
-                    snapshot_events,
-                In<"planned_snapshot_events", TSD<Str, TS<FabricDiagnosticEvent>>,
-                   InputValidity::Unchecked>
-                    planned_snapshot_events,
                 In<"replay_events", TSD<Str, TS<FabricDiagnosticEvent>>, InputValidity::Unchecked>
                     replay_events,
                 In<"planned_replay_events", TSD<Str, TS<FabricDiagnosticEvent>>,
@@ -1163,8 +1117,6 @@ namespace hgraph::fabric
                     }
                 };
                 collect_metric_input(static_cast<const TSDInputView &>(publication_metrics));
-                collect_metric_input(static_cast<const TSDInputView &>(snapshot_metrics));
-                collect_metric_input(static_cast<const TSDInputView &>(planned_snapshot_metrics));
                 collect_metric_input(static_cast<const TSDInputView &>(replay_metrics));
                 collect_metric_input(static_cast<const TSDInputView &>(planned_replay_metrics));
                 collect_metric_input(static_cast<const TSDInputView &>(live_metrics));
@@ -1258,8 +1210,6 @@ namespace hgraph::fabric
                     }
                 };
                 collect_event_input(static_cast<const TSDInputView &>(publication_events));
-                collect_event_input(static_cast<const TSDInputView &>(snapshot_events));
-                collect_event_input(static_cast<const TSDInputView &>(planned_snapshot_events));
                 collect_event_input(static_cast<const TSDInputView &>(replay_events));
                 collect_event_input(static_cast<const TSDInputView &>(planned_replay_events));
                 collect_event_input(static_cast<const TSDInputView &>(live_events));
@@ -1288,12 +1238,8 @@ namespace hgraph::fabric
                     Scalar<"path", Str> path)
             {
                 const auto binding = service::path(path.value());
-                auto live_keys =
-                    service::impl_input<FabricLiveSubscriptionService>(wiring, binding);
-                auto replay_keys =
-                    service::impl_input<FabricReplaySubscriptionService>(wiring, binding);
-                auto snapshot_keys =
-                    service::impl_input<FabricSnapshotSubscriptionService>(wiring, binding);
+                auto subscription_keys =
+                    service::impl_input<FabricSubscriptionService>(wiring, binding);
                 auto publications = service::impl_input<FabricPublicationService>(wiring, binding);
                 auto notices = service::impl_input<FabricNoticeService>(wiring, binding);
                 auto deliveries =
@@ -1307,6 +1253,19 @@ namespace hgraph::fabric
                     throw std::logic_error("fabric service implementation requires a wiring plan");
                 }
                 auto lifecycle = wire<FabricLifecycleNode>(wiring, path.value());
+                auto run_policy = wire<FabricRunPolicyNode>(wiring);
+                auto live_active =
+                    wire<stdlib::getattr_>(wiring, run_policy, Str{"live"})
+                        .template as<TS<Bool>>();
+                auto replay_active =
+                    wire<stdlib::getattr_>(wiring, run_policy, Str{"replay"})
+                        .template as<TS<Bool>>();
+                auto live_keys = active_run_input(wiring, live_active, subscription_keys);
+                auto replay_keys = active_run_input(wiring, replay_active, subscription_keys);
+                auto live_lifecycle = active_run_input(wiring, live_active, lifecycle);
+                auto replay_lifecycle = active_run_input(wiring, replay_active, lifecycle);
+                auto live_notices = active_run_input(wiring, live_active, notices);
+                auto live_controls = active_run_input(wiring, live_active, controls);
                 Port<FabricServiceNodeResult<TSD<Str, TS<Shared<DataRevision>>>>>
                     publication_result;
                 Port<TS<Shared<DataRevision>>> notification_requests;
@@ -1352,55 +1311,44 @@ namespace hgraph::fabric
                     notification_metrics = wire<stdlib::const_, TSD<Str, TS<Str>>>(
                         wiring, stdlib::make_map<Str, Str>({}));
                 }
-                auto snapshot_result = wire<FabricSnapshotNode>(wiring, snapshot_keys);
                 auto replay_result = wire<FabricReplayNode>(wiring, replay_keys);
-                auto live_result = wire<FabricLiveNode>(wiring, live_keys, notices, controls,
+                auto live_result = wire<FabricLiveNode>(wiring, live_keys, live_notices,
+                                                        live_controls,
                                                         notification_mode.value());
-                auto planned_snapshot_result =
-                    wire<FabricPlannedSnapshotNode>(wiring, lifecycle, plan.value());
                 auto planned_replay_result =
-                    wire<FabricPlannedReplayNode>(wiring, lifecycle, plan.value());
+                    wire<FabricPlannedReplayNode>(wiring, replay_lifecycle, plan.value());
                 auto planned_live_result = wire<FabricPlannedLiveNode>(
-                    wiring, lifecycle, notices, controls, plan.value(), notification_mode.value());
+                    wiring, live_lifecycle, live_notices, live_controls, plan.value(),
+                    notification_mode.value());
                 auto load_result = wire<FabricLoadNode>(wiring, loads);
                 auto transport_diagnostic_events = wire<FabricTransportEventsNode>(wiring, events);
 
-                auto snapshot = service_result_value(wiring, snapshot_result);
                 auto replay = service_result_value(wiring, replay_result);
                 auto live = service_result_value(wiring, live_result);
-                auto planned_snapshot = service_result_value(wiring, planned_snapshot_result);
                 auto planned_replay = service_result_value(wiring, planned_replay_result);
                 auto planned_live = service_result_value(wiring, planned_live_result);
+                auto subscription = wire<stdlib::merge>(wiring, live, replay)
+                                        .template as<TSD<Str, FabricIngressSignal>>();
+                auto planned_subscription =
+                    wire<stdlib::merge>(wiring, planned_live, planned_replay)
+                        .template as<TSD<Str, FabricIngressSignal>>();
                 auto loaded = service_result_value(wiring, load_result);
                 auto diagnostic_values = wire<FabricDiagnosticsNode>(
                     wiring, lifecycle, service_result_metrics(wiring, publication_result),
-                    service_result_metrics(wiring, snapshot_result),
-                    service_result_metrics(wiring, planned_snapshot_result),
                     service_result_metrics(wiring, replay_result),
                     service_result_metrics(wiring, planned_replay_result),
                     service_result_metrics(wiring, live_result),
                     service_result_metrics(wiring, planned_live_result), notification_metrics,
                     service_result_events(wiring, publication_result),
-                    service_result_events(wiring, snapshot_result),
-                    service_result_events(wiring, planned_snapshot_result),
                     service_result_events(wiring, replay_result),
                     service_result_events(wiring, planned_replay_result),
                     service_result_events(wiring, live_result),
                     service_result_events(wiring, planned_live_result),
                     service_result_events(wiring, load_result), transport_diagnostic_events);
 
-                service::impl_output<FabricLiveSubscriptionService>(
-                    wiring, binding, live.template as<TSD<Str, FabricIngressSignal>>());
-                service::impl_output<FabricReplaySubscriptionService>(
-                    wiring, binding, replay.template as<TSD<Str, FabricIngressSignal>>());
-                service::impl_output<FabricSnapshotSubscriptionService>(
-                    wiring, binding, snapshot.template as<TSD<Str, FabricIngressSignal>>());
-                service::impl_output<detail::FabricPlannedLiveService>(
-                    wiring, binding, planned_live.template as<TSD<Str, FabricIngressSignal>>());
-                service::impl_output<detail::FabricPlannedReplayService>(
-                    wiring, binding, planned_replay.template as<TSD<Str, FabricIngressSignal>>());
-                service::impl_output<detail::FabricPlannedSnapshotService>(
-                    wiring, binding, planned_snapshot.template as<TSD<Str, FabricIngressSignal>>());
+                service::impl_output<FabricSubscriptionService>(wiring, binding, subscription);
+                service::impl_output<detail::FabricPlannedSubscriptionService>(
+                    wiring, binding, planned_subscription);
                 service::impl_output<FabricLoadService>(
                     wiring, binding, loaded.template as<TSD<Int, FabricLoadResponse>>());
                 service::impl_output<FabricDiagnosticsService>(
@@ -1420,10 +1368,9 @@ namespace hgraph::fabric
     {
         const auto plan = detail::service_plan(wiring, path.value);
         service::register_services<
-            FabricServiceImpl, FabricLiveSubscriptionService, FabricReplaySubscriptionService,
-            FabricSnapshotSubscriptionService, detail::FabricPlannedLiveService,
-            detail::FabricPlannedReplayService, detail::FabricPlannedSnapshotService,
-            FabricPublicationService, FabricNoticeService, FabricLoadService,
+            FabricServiceImpl, FabricSubscriptionService,
+            detail::FabricPlannedSubscriptionService, FabricPublicationService,
+            FabricNoticeService, FabricLoadService,
             FabricDiagnosticsService, FabricNotificationRequestService,
             FabricNotificationDeliveryService, FabricTransportControlService,
             FabricTransportEventService>(wiring, std::move(path), plan, mode);
