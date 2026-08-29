@@ -105,9 +105,9 @@ target_link_libraries(hgraph_debugger_fixture
 
 hgraph_enable_private_pch(hgraph_debugger_fixture)
 if(MSVC)
-    # Release builds add /O2 globally; this fixture deliberately overrides it
-    # so debugger inspection remains deterministic. Silence that one override.
-    target_compile_options(hgraph_debugger_fixture PRIVATE /Od /Zi /wd9025)
+    # Windows currently runs this as a fixture test, not as a debugger smoke
+    # test. Keep symbols without overriding the Release optimisation level.
+    target_compile_options(hgraph_debugger_fixture PRIVATE /Zi)
 else()
     target_compile_options(hgraph_debugger_fixture PRIVATE -O0 -g)
 endif()
