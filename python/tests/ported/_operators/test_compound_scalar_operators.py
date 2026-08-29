@@ -142,6 +142,32 @@ def test_combine_compound_scalar_dereferences_reference_fields():
     assert eval_node(g, [dog]) == [Kennel(dog)]
 
 
+def test_combine_compound_scalar_accepts_covariant_variadic_tuple_fields():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar, abstract=True):
+        name: str
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        pass
+
+    @dataclass(frozen=True)
+    class Pack(CompoundScalar):
+        animals: tuple[Animal, ...]
+
+    @graph
+    def upcast(dogs: TS[tuple[Dog, ...]]) -> TS[tuple[Animal, ...]]:
+        return dogs
+
+    @graph
+    def combine_pack(dogs: TS[tuple[Dog, ...]]) -> TS[Pack]:
+        return combine[TS[Pack]](animals=dogs)
+
+    dogs = (Dog("Fido"), Dog("Rex"))
+    assert eval_node(upcast, [dogs]) == [dogs]
+    assert eval_node(combine_pack, [dogs]) == [Pack(dogs)]
+
+
 def test_getattr_cs_default():
     @dataclass
     class Test(CompoundScalar):

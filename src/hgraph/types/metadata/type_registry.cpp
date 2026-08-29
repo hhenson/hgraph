@@ -375,6 +375,16 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         if (candidate == base) { return candidate != nullptr; }
         if (candidate == nullptr || base == nullptr) { return false; }
+        while (candidate->value_kind() == ValueTypeKind::List &&
+               base->value_kind() == ValueTypeKind::List &&
+               candidate->has(ValueTypeFlags::VariadicTuple) &&
+               base->has(ValueTypeFlags::VariadicTuple))
+        {
+            candidate = candidate->element_type;
+            base = base->element_type;
+            if (candidate == base) { return candidate != nullptr; }
+            if (candidate == nullptr || base == nullptr) { return false; }
+        }
         if (candidate->bundle_hierarchy == nullptr) { return false; }
         std::vector<const ValueTypeMetaData *> pending{candidate};
         std::unordered_map<const ValueTypeMetaData *, bool> seen;

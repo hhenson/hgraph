@@ -24,7 +24,16 @@ namespace hgraph
 
         bool compact_accepts_source(const void *, ValueTypeRef binding, ValueTypeRef source) noexcept
         {
-            return binding && source && (binding.schema() == source.schema() || binding.plan() == source.plan());
+            if (!binding || !source) { return false; }
+            if (binding.schema() == source.schema() || binding.plan() == source.plan()) { return true; }
+            try
+            {
+                return TypeRegistry::instance().value_is_a(source.schema(), binding.schema());
+            }
+            catch (...)
+            {
+                return false;
+            }
         }
 
         void compact_list_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
