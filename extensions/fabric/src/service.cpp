@@ -855,6 +855,7 @@ namespace hgraph::fabric
                         if (delivery.delivered)
                         {
                             active.set(false);
+                            retry_pending.set(false);
                             is_active = false;
                             completed_data_ids.push_back(delivery.data_id);
                             increment_counter(delivered_count);
@@ -881,6 +882,7 @@ namespace hgraph::fabric
                             delivery.message = "fabric notification delivery failed";
                         }
                         active.set(false);
+                        retry_pending.set(false);
                         is_active = false;
                         completed_data_ids.push_back(delivery.data_id);
                         increment_counter(failed_count);
