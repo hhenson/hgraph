@@ -1141,8 +1141,9 @@ namespace hgraph::fabric
                         }
                         if (name == "resolution.backtracking_depth.maximum")
                         {
-                            maximum_backtracking_depth =
-                                std::max(maximum_backtracking_depth, std::stoull(text));
+                            maximum_backtracking_depth = std::max(
+                                maximum_backtracking_depth,
+                                static_cast<std::uint64_t>(std::stoull(text)));
                             continue;
                         }
                         if (name.starts_with("resolution.") || name == "live.notices")
@@ -1183,13 +1184,13 @@ namespace hgraph::fabric
                 auto mutation = metrics.begin_mutation(metrics.evaluation_time());
                 for (auto &[metric_name, value] : direct)
                 {
-                    Value key{std::move(metric_name)};
+                    Value key{metric_name};
                     Value item{std::move(value)};
                     mutation.set(key.view(), item.view());
                 }
                 for (auto &[metric_name, value] : sums)
                 {
-                    Value key{std::move(metric_name)};
+                    Value key{metric_name};
                     Value item{std::to_string(value)};
                     mutation.set(key.view(), item.view());
                 }
@@ -1262,7 +1263,7 @@ namespace hgraph::fabric
                     diagnostic_events.begin_mutation(diagnostic_events.evaluation_time());
                 for (auto &[path, event] : combined_events)
                 {
-                    Value key{std::move(path)};
+                    Value key{path};
                     Value item = diagnostic_event_value(event);
                     event_mutation.set(key.view(), item.view());
                 }
