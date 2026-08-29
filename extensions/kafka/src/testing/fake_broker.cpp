@@ -174,6 +174,16 @@ struct detail::FakeRuntimeAccess {
   static void subscriptions(FakeBroker &broker, Value delta) {
     {
       std::lock_guard lock{broker.impl_->mutex};
+      const auto fields = delta.view().as_bundle();
+      const auto removed = fields.at("removed").as_set();
+      for (const auto key : removed) {
+        if (!broker.impl_->sender.try_send(
+                ::hgraph::kafka::detail::subscription_removed_transport_event(
+                    *broker.impl_->bindings.value, key.clone()))) {
+          throw std::runtime_error(
+              "Kafka fake graph stopped before subscription removal");
+        }
+      }
       broker.impl_->subscription_updates.push_back(std::move(delta));
     }
     broker.impl_->changed.notify_all();
@@ -284,21 +294,19 @@ void FakeBroker::emit_subscription(Value subscription_key, Value record,
         "Kafka fake subscription payload has the wrong schema");
   }
 
-  PushSourceSender sender;
-  ::hgraph::kafka::detail::KafkaTransportBindingsHandle bindings;
   {
     std::lock_guard lock{impl_->mutex};
     if (!impl_->sender.valid()) {
       throw std::logic_error(
           "Kafka fake broker is not attached to a running graph");
     }
-    sender = impl_->sender;
-    bindings = impl_->bindings;
-  }
-  if (!sender.send_blocking(
-          subscription_envelope(std::move(subscription_key), std::move(record),
-                                std::move(cursor), state, *bindings.value))) {
-    throw std::runtime_error("Kafka fake graph stopped before subscription");
+    // The fake broker and subscription-removal sink serialize through this
+    // mutex before entering the same unbounded FIFO sender.
+    if (!impl_->sender.try_send(subscription_envelope(
+            std::move(subscription_key), std::move(record), std::move(cursor),
+            state, *impl_->bindings.value))) {
+      throw std::runtime_error("Kafka fake graph stopped before subscription");
+    }
   }
 }
 
@@ -419,28 +427,11 @@ struct FakeSubscriptionNode {
   eval(In<"subscriptions", TSS<KafkaSubscriptionKey>, InputValidity::Unchecked>
            subscriptions,
        GlobalStateView global_state,
-       Scalar<"runtime_key", Str> runtime_key,
-       Scalar<"bindings",
-              ::hgraph::kafka::detail::KafkaTransportBindingsHandle> bindings,
-       Out<TS<::hgraph::kafka::detail::KafkaTransportEventBatch>> commands) {
+       Scalar<"runtime_key", Str> runtime_key) {
     if (!subscriptions.modified()) {
       return;
     }
     auto task = fake_runtime(global_state, runtime_key);
-    const auto &erased = static_cast<const TSSInputView &>(subscriptions);
-    ListBuilder builder{bindings.value().value->event};
-    bool removed{};
-    for (const auto key : erased.removed()) {
-      removed = true;
-      builder.push_back(
-          ::hgraph::kafka::detail::subscription_removed_transport_event(
-              *bindings.value().value, key.clone()));
-    }
-    if (removed) {
-      ListStorage storage = builder.build_storage();
-      Value batch{bindings.value().value->batch, &storage};
-      commands.apply(batch.view());
-    }
     task->subscriptions(subscriptions.delta().clone());
   }
 };
@@ -527,10 +518,10 @@ struct KafkaFakeServiceImpl {
     auto transport =
         wire_fake_transport(w, broker.value(), runtime_key,
                             transport_bindings);
-    auto commands = wire<FakeSubscriptionNode>(
-        w, subscription_keys, runtime_key, transport_bindings);
+    static_cast<void>(
+        wire<FakeSubscriptionNode>(w, subscription_keys, runtime_key));
     auto outputs = ::hgraph::kafka::detail::wire_service_outputs(
-        w, transport, commands, transport_bindings);
+        w, transport, transport_bindings);
 
     static_cast<void>(
         wire<FakePublishSink>(w, publish_requests, runtime_key));

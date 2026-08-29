@@ -75,6 +75,13 @@ shape and keep graph-stop and commit-on-delivery policy on graph.  There is no
 extension-owned cross-thread ingress queue, conflated wake token, or opaque
 service projection or drain object in front of the graph.
 
+Subscription lifecycle envelopes share that same ordered transport.  A
+``Starting`` envelope is admitted before its consumer owner starts, and a
+removal envelope is admitted only after that owner stops and joins.  The graph
+emitter therefore has one transport input: records already accepted from a
+session drain before its removal, and a later session starts after that removal
+without a second-stream priority rule or subscription-generation filter.
+
 No push source is permitted in simulation.  The simulation specialization
 performs a finite bounded read without a worker thread, retains the resulting
 history in graph-owned replay state, and schedules it at the recorded Kafka
@@ -655,7 +662,8 @@ The graph-local runtime resource owns:
 * one shared producer and poll thread for the path's producer configuration;
 * one consumer owner thread per consumer session;
 * a session registry keyed by the complete semantic subscription identity;
-* the standard burst push-source sender used for real-time ingress;
+* the standard burst push-source sender used for real-time ingress and ordered
+  subscription lifecycle envelopes;
 * the bounded, record-counted simulation recovery and producer staging state;
 * explicit start, accepting, stopping, and stopped states.
 
@@ -686,6 +694,13 @@ graph.  The scalar call moves one envelope into the queue; dequeue produces a
 tuple containing all work pending at that point.  The send cannot wait for
 capacity; ``false`` means only that graph teardown closed the receiver.
 Storage is updated before the sender wakes the real-time executor.
+
+The subscription command sink starts and stops session owners, but it does not
+publish a second graph-side lifecycle stream.  It admits ``Starting`` before a
+new owner can publish and admits removal after the old owner has joined, so the
+standard sender FIFO is the causal order consumed by the graph emitter.  The
+scheduled simulation queue mirrors deletion by discarding that subscription's
+not-yet-replayed envelopes before it schedules the removal.
 
 The public Kafka configuration has record counts, not byte limits.  The
 consumer record limit bounds finite recovery retained before replay; the
@@ -828,7 +843,8 @@ Start order is:
 2. in real time, start the one transport push source, construct the graph-local
    runtime resource with its framework sender, and then start the Kafka task;
 3. in simulation, construct the replay resource without a sender or worker;
-4. start non-daemon owner threads; and
+4. admit each subscription's ``Starting`` lifecycle envelope, then start its
+   non-daemon owner thread; and
 5. have each consumer owner establish assignment and the recovery snapshot
    before it reports the session ready.
 
@@ -1144,8 +1160,9 @@ Implementation plan
    seam, CMake package, and installed pure-C++ smoke consumer.
 2. Implement one multi-interface ``KafkaServiceImpl`` and the four service
    contracts using a fake transport; prove one materialization per path,
-   sink/push boundaries, lifecycle, ordered transport delivery, generation, and
-   multi-engine behavior before introducing librdkafka.
+   sink/push boundaries, lifecycle, ordered transport delivery, cursor
+   assignment generations, and multi-engine behavior before introducing
+   librdkafka.
 3. Add the librdkafka C RAII layer, consumer recovery/live state machine,
    producer callbacks, commits, rebalances, and typed events.
 4. Add native byte codecs and the Python bridge/new service wiring API.

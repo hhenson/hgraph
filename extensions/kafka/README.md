@@ -12,8 +12,9 @@ One path-bound, multi-interface `service_impl` owns the Kafka clients for a
 configuration. Subscriptions, publish requests, explicit commits, and events
 all bind to that service instance. Graph output reaches Kafka through the
 service's sink inputs; records, delivery reports, and events re-enter the root
-graph through bounded push sources. Kafka clients and worker threads are
-created on graph start and stopped with the graph.
+graph through one standard unbounded burst push source. Subscription lifecycle
+envelopes use that same ordered transport as their records. Kafka clients and
+worker threads are created on graph start and stopped with the graph.
 
 The public record and configuration shapes are hgraph compound scalars. Kafka
 headers preserve order, duplicates, null values, and empty byte strings.

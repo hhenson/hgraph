@@ -7,8 +7,9 @@
   consumers borrow the concrete record view without graph-publication copies.
 - Create runtime and simulation-queue resources per `GraphValue` so reusable
   graph builders do not share mutable Kafka lifecycle state. Subscription
-  add/remove lifecycle envelopes now enter the transport projection on an
-  ordinary graph edge instead of looping back through the root push source.
+  `Starting`, record/state, and removal envelopes retain one causal order on
+  the same transport: start is admitted before its consumer runs, while removal
+  is admitted only after that consumer stops and joins.
 - Rebuild manual/independent assignments as a new recovery generation after a
   broker disconnect, allowing live consumers to resume from committed offsets
   and exposing `Retrying` -> `Recovering` -> `Live` lifecycle transitions.

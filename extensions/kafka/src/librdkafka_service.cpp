@@ -578,6 +578,7 @@ public:
     return key_.view().equals(key);
   }
   [[nodiscard]] const Str &identity() const noexcept { return spec_.identity; }
+  [[nodiscard]] const Value &key() const noexcept { return key_; }
   [[nodiscard]] KafkaCommitMode commit_mode() const noexcept {
     return spec_.commit_mode;
   }
@@ -771,6 +772,16 @@ public:
         }
       }
     });
+    // Lifecycle and records share the runtime's one ordered transport. Each
+    // Starting event is admitted before its consumer can emit any record.
+    for (const auto &session : additions) {
+      if (!output_(subscription_envelope(
+              bindings_, session->key().clone(), std::nullopt, std::nullopt,
+              KafkaSubscriptionState::Starting, std::nullopt))) {
+        throw std::runtime_error(
+            "Kafka graph stopped while starting a subscription");
+      }
+    }
     for (auto &session : additions) {
       session->start();
     }
@@ -792,8 +803,13 @@ public:
     if (found == sessions_.end()) {
       return false;
     }
+    Value removed_key = (*found)->key().clone();
     (*found)->stop();
     sessions_.erase(found);
+    // Joining establishes that every record from this session was admitted
+    // before its removal marker on the same FIFO transport.
+    static_cast<void>(output_(subscription_removed_transport_event(
+        bindings_, std::move(removed_key))));
     return true;
   }
 
@@ -2443,11 +2459,6 @@ struct KafkaRuntimeHandle {
   }
 };
 
-using KafkaSimulationSubscriptionResult =
-    TSB<"hgraph.kafka.internal::SimulationSubscriptionResult",
-        Field<"ready", TS<Int>>,
-        Field<"commands", TS<KafkaTransportEventBatch>>>;
-
 inline std::ostream &operator<<(std::ostream &stream,
                                 const KafkaRuntimeHandle &value) {
   return stream << "KafkaRuntimeHandle(" << value.value.get() << ')';
@@ -2478,6 +2489,21 @@ public:
 
   [[nodiscard]] bool push(Value value) {
     std::lock_guard lock{mutex_};
+    const auto fields = value.view().as_bundle();
+    if (fields.at("kind").checked_as<KafkaTransportEventKind>() ==
+        KafkaTransportEventKind::Subscription) {
+      const auto removed = fields.at("removed");
+      if (removed.data() != nullptr && removed.checked_as<Bool>()) {
+        const auto key = fields.at("subscription_key");
+        std::erase_if(values_, [&](const Value &pending) {
+          const auto pending_fields = pending.view().as_bundle();
+          return pending_fields.at("kind")
+                         .checked_as<KafkaTransportEventKind>() ==
+                     KafkaTransportEventKind::Subscription &&
+                 pending_fields.at("subscription_key").equals(key);
+        });
+      }
+    }
     const auto position =
         std::upper_bound(values_.begin(), values_.end(), value,
                          [](const Value &lhs, const Value &rhs) {
@@ -2701,55 +2727,22 @@ simulation_queue(GlobalStateView global_state,
   return queue;
 }
 
-struct SubscriptionCommandEvents {
-  std::vector<Value> removals{};
-  std::vector<Value> starting{};
-};
-
-[[nodiscard]] SubscriptionCommandEvents
-process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
-                              detail::KafkaRuntime &runtime) {
+void process_subscription_commands(KafkaSubscriptionsInput &subscriptions,
+                                   detail::KafkaRuntime &runtime) {
   if (!subscriptions.modified()) {
-    return {};
+    return;
   }
-  SubscriptionCommandEvents events;
   const auto &erased = static_cast<const TSSInputView &>(subscriptions);
   for (const auto key : erased.removed()) {
-    if (runtime.remove_subscription(key)) {
-      events.removals.push_back(key.clone());
-    }
+    static_cast<void>(runtime.remove_subscription(key));
   }
   std::vector<Value> additions;
   for (const auto key : erased.added()) {
     additions.push_back(key.clone());
-    events.starting.push_back(key.clone());
   }
   if (!additions.empty()) {
     runtime.add_subscriptions(std::move(additions));
   }
-  return events;
-}
-
-void emit_subscription_commands(
-    SubscriptionCommandEvents events,
-    const detail::KafkaTransportBindings &bindings,
-    const Out<TS<detail::KafkaTransportEventBatch>> &out) {
-  if (events.removals.empty() && events.starting.empty()) {
-    return;
-  }
-  ListBuilder builder{bindings.event};
-  for (auto &key : events.removals) {
-    builder.push_back(detail::subscription_removed_transport_event(
-        bindings, std::move(key)));
-  }
-  for (auto &key : events.starting) {
-    builder.push_back(detail::subscription_transport_event(
-        bindings, std::move(key), std::nullopt, std::nullopt,
-        KafkaSubscriptionState::Starting));
-  }
-  ListStorage storage = builder.build_storage();
-  Value batch{bindings.batch, &storage};
-  out.apply(batch.view());
 }
 
 /** Graph-to-runtime subscription boundary. A sink is required for the external
@@ -2761,14 +2754,9 @@ struct KafkaSubscriptionCommandNode {
 
   static void eval(KafkaSubscriptionsInput subscriptions,
                    GlobalStateView global_state,
-                   Scalar<"runtime_key", Str> runtime_key,
-                   Scalar<"bindings", detail::KafkaTransportBindingsHandle>
-                       bindings,
-                   Out<TS<detail::KafkaTransportEventBatch>> commands) {
-    emit_subscription_commands(
-        process_subscription_commands(
-            subscriptions, *live_runtime(global_state, runtime_key)),
-        *bindings.value().value, commands);
+                   Scalar<"runtime_key", Str> runtime_key) {
+    process_subscription_commands(subscriptions,
+                                  *live_runtime(global_state, runtime_key));
   }
 };
 
@@ -2886,15 +2874,10 @@ struct KafkaSimulationSubscriptionNode {
 
   static void eval(KafkaSubscriptionsInput subscriptions,
                    GlobalStateView global_state,
-                   Scalar<"runtime_key", Str> runtime_key,
-                   Scalar<"bindings", detail::KafkaTransportBindingsHandle>
-                       bindings,
-                   Out<detail::KafkaSimulationSubscriptionResult> result) {
-    emit_subscription_commands(
-        process_subscription_commands(
-            subscriptions, *live_runtime(global_state, runtime_key)),
-        *bindings.value().value, result.template field<"commands">());
-    result.template field<"ready">().set(Int{1});
+                   Scalar<"runtime_key", Str> runtime_key, Out<TS<Int>> ready) {
+    process_subscription_commands(subscriptions,
+                                  *live_runtime(global_state, runtime_key));
+    ready.set(Int{1});
   }
 };
 
@@ -3003,15 +2986,10 @@ struct KafkaServiceImpl {
     const auto transport_bindings = detail::make_transport_bindings();
     detail::ServiceOutputs outputs = [&] {
       if (simulation.value()) {
-        auto subscription_result =
-            wire<KafkaSimulationSubscriptionNode>(
-                w, subscription_keys, runtime_key, transport_bindings)
-                .template as<detail::KafkaSimulationSubscriptionResult>();
-        auto ready = wire<stdlib::getattr_, TS<Int>>(
-            w, subscription_result, Str{"ready"});
-        auto commands = wire<stdlib::getattr_,
-                             TS<detail::KafkaTransportEventBatch>>(
-            w, subscription_result, Str{"commands"});
+        auto ready =
+            wire<KafkaSimulationSubscriptionNode>(w, subscription_keys,
+                                                  runtime_key)
+                .template as<TS<Int>>();
         static_cast<void>(
             wire<KafkaPublishSink>(w, publish_requests, runtime_key));
         static_cast<void>(
@@ -3021,19 +2999,18 @@ struct KafkaServiceImpl {
                                             path.value(), runtime_key,
                                             queue_key, transport_bindings)
                 .template as<TS<detail::KafkaTransportEventBatch>>();
-        return detail::wire_service_outputs(
-            w, replay, commands, transport_bindings);
+        return detail::wire_service_outputs(w, replay, transport_bindings);
       }
       auto source = wire_realtime_transport(w, runtime_config, path.value(),
                                             runtime_key, transport_bindings);
-      auto commands = wire<KafkaSubscriptionCommandNode>(
-          w, subscription_keys, runtime_key, transport_bindings);
+      static_cast<void>(
+          wire<KafkaSubscriptionCommandNode>(w, subscription_keys,
+                                             runtime_key));
       static_cast<void>(
           wire<KafkaPublishSink>(w, publish_requests, runtime_key));
       static_cast<void>(
           wire<KafkaCommitSink>(w, commit_requests, runtime_key));
-      return detail::wire_service_outputs(
-          w, source, commands, transport_bindings);
+      return detail::wire_service_outputs(w, source, transport_bindings);
     }();
     static_cast<void>(
         wire<KafkaGraphDeliveryCommitSink>(w, outputs.subscriptions,

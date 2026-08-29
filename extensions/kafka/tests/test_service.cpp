@@ -135,11 +135,8 @@ struct DeliveryBurstProjectionGraph {
 
   static Port<TSD<Int, TS<KafkaDeliveryReport>>>
   compose(Wiring &w, Port<TS<kafka::detail::KafkaTransportEventBatch>> batch) {
-    auto commands = wire<stdlib::nothing,
-                         TS<kafka::detail::KafkaTransportEventBatch>>(w);
     return kafka::detail::wire_service_outputs(
-               w, batch, commands,
-               kafka::detail::make_transport_bindings())
+               w, batch, kafka::detail::make_transport_bindings())
         .deliveries;
   }
 };
@@ -149,11 +146,8 @@ struct MixedTransportEmitGraph {
 
   static Port<kafka::detail::KafkaTransportStreams>
   compose(Wiring &w, Port<TS<kafka::detail::KafkaTransportEventBatch>> batch) {
-    auto commands = wire<stdlib::nothing,
-                         TS<kafka::detail::KafkaTransportEventBatch>>(w);
     return wire<kafka::detail::KafkaTransportEmitNode>(
-               w, batch, commands,
-               kafka::detail::make_transport_bindings())
+               w, batch, kafka::detail::make_transport_bindings())
         .template as<kafka::detail::KafkaTransportStreams>();
   }
 };
@@ -286,6 +280,65 @@ void test_mixed_burst_stops_at_first_output_collision() {
               tsd_delta_empty(fourth.at("deliveries")) &&
               fourth.at("events").has_value(),
           "the emitter did not resume from the scalar output collision");
+}
+
+void test_subscription_lifecycle_preserves_transport_order() {
+  const auto bindings = kafka::detail::make_transport_bindings();
+  Value key = make_subscription_key({Str{"ordered"}}, Str{"ordered"},
+                                    Str{"earliest"}, Str{"unbounded"},
+                                    KafkaCommitMode::Explicit, Str{"ordered"});
+  ListBuilder burst{bindings.value->event,
+                    *scalar_descriptor<
+                        kafka::detail::KafkaTransportEventBatch>::value_meta()};
+  burst.push_back(kafka::detail::subscription_transport_event(
+      *bindings.value, key.clone(), std::nullopt, std::nullopt,
+      KafkaSubscriptionState::Starting));
+  for (Int offset : {Int{1}, Int{2}}) {
+    burst.push_back(kafka::detail::subscription_transport_event(
+        *bindings.value, key.clone(),
+        make_record(Str{"ordered"}, Int{0}, offset, Bytes{"record"}),
+        std::nullopt, KafkaSubscriptionState::Live));
+  }
+  burst.push_back(kafka::detail::subscription_removed_transport_event(
+      *bindings.value, key.clone()));
+
+  std::vector<std::optional<Value>> input;
+  input.emplace_back(burst.build());
+  const auto output = eval_node<MixedTransportEmitGraph>(input);
+  require(output.size() >= 4 && output[0].has_value() &&
+              output[1].has_value() && output[2].has_value() &&
+              output[3].has_value(),
+          "subscription lifecycle burst did not drain over four ordered ticks");
+
+  const auto subscription_delta = [&](std::size_t index) {
+    return output[index]->view().as_bundle().at("subscriptions").as_bundle();
+  };
+  const auto first = subscription_delta(0);
+  require(first.at("modified")
+                  .as_map()
+                  .at(key.view())
+                  .as_bundle()
+                  .at("state")
+                  .checked_as<KafkaSubscriptionState>() ==
+              KafkaSubscriptionState::Starting,
+          "subscription Starting did not remain first in transport order");
+  for (std::size_t index = 1; index != 3; ++index) {
+    const auto event = subscription_delta(index)
+                           .at("modified")
+                           .as_map()
+                           .at(key.view())
+                           .as_bundle();
+    require(event.at("record")
+                    .concrete()
+                    .as_bundle()
+                    .at("offset")
+                    .checked_as<Int>() == static_cast<Int>(index),
+            "a buffered subscription record was overtaken by removal");
+  }
+  const auto removed = subscription_delta(3);
+  require(removed.at("modified").as_map().empty() &&
+              removed.at("removed").as_set().contains(key.view()),
+          "subscription removal did not follow every buffered record");
 }
 
 template <typename Fn> void require_invalid(Fn &&fn, std::string message) {
@@ -965,6 +1018,16 @@ void test_runtime_specific_wiring_shapes() {
   }
   require(find_node_schema(realtime, "kafka_simulation_replay") == nullptr,
           "real-time Kafka unexpectedly wired simulation replay");
+  const auto *transport_emit =
+      find_node_schema(realtime, "kafka_transport_emit");
+  require(transport_emit != nullptr &&
+              transport_emit->input_schema != nullptr &&
+              transport_emit->input_schema->kind == TSTypeKind::TSB &&
+              transport_emit->input_schema->data.tsb.field_count == 1 &&
+              std::string_view{
+                  transport_emit->input_schema->data.tsb.fields[0].name} ==
+                  "transport",
+          "Kafka transport emit retained a separately ordered command input");
   for (const auto legacy : {std::string_view{"kafka_group_delivery_batch"},
                             std::string_view{"kafka_select_event_batch"}}) {
     require(find_node_schema(realtime, legacy) == nullptr,
@@ -3007,6 +3070,7 @@ int main() {
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_mixed_burst_stops_at_first_output_collision();
+    test_subscription_lifecycle_preserves_transport_order();
     test_runtime_specific_wiring_shapes();
     test_public_value_validation_and_producer_configuration();
     test_simulation_rejects_publish_and_commit_work();

@@ -235,8 +235,6 @@ struct KafkaTransportEmitNode {
   static void
   eval(In<"transport", TS<KafkaTransportEventBatch>, InputValidity::Unchecked>
            transport,
-       In<"commands", TS<KafkaTransportEventBatch>, InputValidity::Unchecked>
-           commands,
        Scalar<"bindings", KafkaTransportBindingsHandle>,
        State<KafkaTransportEmitState> state, SingleShotScheduler scheduler,
        Out<KafkaTransportStreams> out) {
@@ -339,7 +337,6 @@ struct KafkaTransportEmitNode {
         current.pending.insert(position, std::move(event));
       }
     };
-    ingest(commands);
     ingest(transport);
 
     auto subscriptions = out.template field<"subscriptions">();
@@ -486,9 +483,8 @@ struct ServiceOutputs {
 
 [[nodiscard]] inline ServiceOutputs
 wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport,
-                     Port<TS<KafkaTransportEventBatch>> commands,
                      KafkaTransportBindingsHandle bindings) {
-  auto streams = wire<KafkaTransportEmitNode>(w, transport, commands, bindings)
+  auto streams = wire<KafkaTransportEmitNode>(w, transport, bindings)
                      .template as<KafkaTransportStreams>();
   auto subscriptions = wire<stdlib::getattr_,
                             TSD<KafkaSubscriptionKey, TS<KafkaTransportEvent>>>(
