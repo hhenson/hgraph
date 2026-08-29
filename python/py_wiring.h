@@ -8,6 +8,7 @@
 #define HGRAPH_PYTHON_PY_WIRING_H
 
 #include "py_runtime.h"
+#include <hgraph/python/ts_data_conversion.h>
 
 namespace hgraph::python_bridge
 {
@@ -309,11 +310,36 @@ namespace hgraph::python_bridge
             ensure_open();
             std::vector<std::optional<Value>> deltas;
             deltas.reserve(nb::len(values));
-            for (nb::handle object : values)
+            if (ts_type.has_value())
             {
-                if (object.is_none()) { deltas.emplace_back(std::nullopt); }
-                else if (ts_type.has_value()) { deltas.emplace_back(py_to_delta(object, ts_type->meta)); }
-                else { deltas.emplace_back(py_to_value(object)); }
+                const auto conversion_snapshot =
+                    TypeRealizationSnapshot::capture(TypeRegistry::instance());
+                TypeRealizationScope realization_scope{conversion_snapshot.get()};
+                TSOutput authored{ts_type->meta};
+                DateTime evaluation_time = MIN_ST;
+                for (nb::handle object : values)
+                {
+                    if (object.is_none()) { deltas.emplace_back(std::nullopt); }
+                    else
+                    {
+                        // Preserve eval_node's target-directed boundary checks
+                        // before deriving state-aware collection deltas.
+                        static_cast<void>(py_to_delta(object, ts_type->meta));
+                        auto output = authored.view(evaluation_time);
+                        apply_python_result(output, object);
+                        deltas.emplace_back(
+                            output.modified() ? std::optional<Value>{Value{output.delta_value()}} : std::nullopt);
+                    }
+                    evaluation_time += MIN_TD;
+                }
+            }
+            else
+            {
+                for (nb::handle object : values)
+                {
+                    deltas.emplace_back(object.is_none() ? std::nullopt
+                                                         : std::optional<Value>{py_to_value(object)});
+                }
             }
             testing::set_replay_deltas(wiring_ref().global_state(), key, deltas);
         }
