@@ -1719,17 +1719,19 @@ diagnostics and performance evidence.
 The accepted implementation resolves the proposal's remaining ownership and
 lifecycle choices as follows:
 
-* One lazy root ``FabricServiceImpl`` graph owns Fabric persistence,
-  publication state, revision and Frame caches, consistency sessions,
-  synchronous load request/reply, diagnostics and lifecycle.  Each
-  ``GraphValue`` constructs its own mutable runtime resource from the immutable
-  wiring plan.  Nested and root clients use purpose-specific service
-  interfaces to that execution-local instance.
+* One lazy root ``FabricServiceImpl`` graph composes Fabric publication,
+  snapshot, replay, live, synchronous load, diagnostics and lifecycle nodes.
+  Each node owns its local algorithm state in its graph ``State`` slot; the
+  immutable wiring plan is copied into each planned node's ``State`` at node
+  start, and persistence handles
+  come from run-scoped ``GlobalState``.  Mutable orchestration is not shared
+  through a service-runtime object.  Nested and root clients use
+  purpose-specific service interfaces to that graph.
 * The optional Kafka adapter is a separate lazy service graph.  Each
   ``GraphValue`` likewise owns its Kafka runtime and broker workers.  It uses
   the RFC 0015 standard burst transport and root real-time push source.  Its
-  drain node emits ordinary graph edges into Fabric; neither a broker callback
-  nor Fabric runtime object addresses the graph directly.
+  drain node emits ordinary graph edges into Fabric; broker callbacks never
+  address the graph directly.
 * Durable publication candidates, one-at-a-time notification dispatch,
   delivery correlation, retry, completion feedback and their counters are
   modelled by Fabric graph nodes and time-series edges.  The outgoing edge is a

@@ -4,7 +4,7 @@
 #include <hgraph/fabric/service.h>
 #include <hgraph/fabric/value_builders.h>
 
-#include "impl/service_runtime.h"
+#include "impl/service_state.h"
 
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/container.h>
@@ -572,6 +572,18 @@ namespace hgraph::fabric
                                            Scalar<"as_of", DateTime>        as_of)
             {
                 require_subscription_arguments(data_id.value(), mode.value(), as_of.value());
+                if (wiring.kind() == WiringKind::TopLevel)
+                {
+                    const Str key =
+                        detail::subscription_key(data_id.value(), mode.value(), as_of.value());
+                    detail::plan_subscription(wiring,
+                                              detail::SubscriptionSpec{
+                                                  .key = key,
+                                                  .data_id = data_id.value(),
+                                                  .as_of = as_of.value(),
+                                              },
+                                              mode.value(), DEFAULT_SERVICE_PATH);
+                }
                 auto delayed = delayed_binding<TS<Frame>>(wiring);
                 auto output = delayed();
                 declarations(wiring)->subscriptions.push_back(SubscriptionDeclaration{

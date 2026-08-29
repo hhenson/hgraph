@@ -23,7 +23,8 @@ inline constexpr std::size_t FABRIC_DIAGNOSTIC_EVENT_LIMIT{256U};
 /** Select where accepted revision notifications are delivered. Configured
     uses the Notifier stored in FabricConfig. GraphTransport exposes requests
     and accepts delivery reports through the services below, allowing Kafka or
-    another graph-native transport to remain outside the Fabric runtime. */
+    another graph-native transport to remain outside the Fabric publication
+    graph. */
 enum class FabricNotificationMode
 {
     Configured,

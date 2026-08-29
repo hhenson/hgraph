@@ -8,10 +8,11 @@ versions and contiguous lineage revisions.
 The current implementation provides the installed C++/Python operator and
 value contracts, canonical durable keys and metadata, run-scoped
 configuration, and broker-free memory notification. One lazy root
-`FabricServiceImpl` graph creates an execution-local runtime for each
-`GraphValue`; that runtime owns publication state, persistence access, live
-revision caches, replay/snapshot sessions, bounded Fabric queues and
-diagnostics. Client
+`FabricServiceImpl` graph composes publication, live, replay, snapshot, load
+and diagnostics nodes for each `GraphValue`. Each node owns only its local
+algorithm state; their sequencing, candidates, completions, metrics and events
+remain on ordinary graph edges. Persistence handles are copied from the
+run-scoped `FabricConfig`. Client
 `subscribe_data` and `publish_data` operators only communicate with that
 service through hgraph service edges.
 
@@ -42,7 +43,7 @@ It validates idempotent `acks=all` publication and non-dropping queue policies,
 subscribes independently to the complete configured topic, and carries the
 full accepted `DataRevision` keyed by canonical data id. Decoded Kafka records
 and revisions cross their public C++ graph edges as immutable `Shared` values.
-The Kafka service creates execution-local runtime and worker resources. Its
+The Kafka service creates one execution-local broker worker resource. Its
 standard burst push source emits ordinary graph
 edges into Fabric; broker callbacks never access the graph or a Fabric output.
 `Recovering` and `Live` lifecycle edges gate the initial durable image and
