@@ -1194,6 +1194,17 @@ namespace hgraph::stdlib
 
             if (preserve_terminal) { return; }
 
+            // A REF terminal owns the selected reference token. Re-homing it
+            // into another REF output would turn its local mutation into a
+            // target-link write and add an unnecessary reference endpoint
+            // layer. The enclosing switch copies the token instead.
+            if (switch_output_schema != nullptr &&
+                switch_output_schema->kind == TSTypeKind::REF &&
+                branch_output_schema->kind == TSTypeKind::REF)
+            {
+                return;
+            }
+
             // When a VALUE branch participates in a REF-shaped switch, its
             // terminal must own the value inside the branch's A/B graph slot.
             // The switch publishes a reference to that terminal. All other
@@ -2659,7 +2670,7 @@ namespace hgraph::stdlib
                     : terminal_override;
             const TSEndpointSchema &terminal_endpoint =
                 !terminal_override.empty() ? terminal_override : terminal_declared;
-            if (!exact_match ||
+            if (!exact_match || terminal_output_schema->kind == TSTypeKind::REF ||
                 (!terminal_endpoint.empty() &&
                  (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered())))
             {

@@ -197,10 +197,15 @@ void bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
 
   if (switch_output.schema() != nullptr &&
       switch_output.schema()->kind == TSTypeKind::REF &&
-      branch_terminal.schema() != nullptr &&
-      branch_terminal.schema()->kind != TSTypeKind::REF) {
+      branch_terminal.schema() != nullptr) {
+    if (branch_terminal.schema()->kind == TSTypeKind::REF &&
+        !branch_terminal.valid()) {
+      return;
+    }
     const TimeSeriesReference reference =
-        TimeSeriesReference::peered(branch_terminal);
+        branch_terminal.schema()->kind == TSTypeKind::REF
+            ? branch_terminal.value().checked_as<TimeSeriesReference>()
+            : TimeSeriesReference::peered(branch_terminal);
     if (switch_output.valid() &&
         switch_output.value().checked_as<TimeSeriesReference>() == reference) {
       return;
@@ -416,7 +421,12 @@ bool switch_evaluate(const NodeView &view, DateTime evaluation_time) {
     const SingleNestedGraphNodeSpec &spec = *storage.active_spec;
     bind_branch_inputs(view, spec, active->view(), evaluation_time);
     bind_branch_output(view, context, spec, active->view(), evaluation_time);
-    return active->view().evaluate(evaluation_time);
+    const bool complete = active->view().evaluate(evaluation_time);
+    // A REF terminal can become valid or repoint while evaluating the child.
+    // Refresh the copied switch boundary after that mutation; value terminals
+    // propagate through their forwarding endpoints without this extra sample.
+    bind_branch_output(view, context, spec, active->view(), evaluation_time);
+    return complete;
   }
   return true;
 }

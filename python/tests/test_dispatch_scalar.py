@@ -12,16 +12,19 @@ from hgraph import (
     TS,
     TSB,
     TSD,
+    MIN_TD,
     TimeSeriesSchema,
     combine,
     compute_node,
     const,
     convert,
+    default,
     dispatch,
     dispatch_,
     downcast_,
     downcast_ref,
     graph,
+    lag,
     mesh_,
     operator,
     pass_through,
@@ -188,6 +191,7 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
 
     class Result(TimeSeriesSchema):
         value: TS[str]
+        error: TS[str]
 
     # The selected branch returns a value. The two unselected, but reachable,
     # branches make the common output REF[TSB] and require preserving a live
@@ -202,7 +206,10 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
     def by_future(
         key: TS[FutureKey], repository: TSD[str, TSB[Result]]
     ) -> TSB[Result]:
-        return combine[TSB[Result]](value="future")
+        return combine[TSB[Result]](
+            value=lag(const("future"), MIN_TD),
+            error=default(lag(const(""), MIN_TD), "missing"),
+        )
 
     @graph(overloads=by_key)
     def by_existing(
@@ -255,7 +262,8 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
         [{"item": ByName()}],
         [{"existing": {"value": "existing"}}],
     ) == [
-        {"item": {"value": "future"}}
+        {"item": {"error": "missing"}},
+        {"item": {"value": "future", "error": ""}},
     ]
 
 
