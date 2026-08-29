@@ -990,8 +990,7 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
   const auto *output = registry.dereference(source.schema);
   const bool nominal_upcast =
       input_schema->kind == TSTypeKind::TS && source.schema != nullptr &&
-      source.schema->kind == TSTypeKind::TS && input != nullptr &&
-      output != nullptr && input->kind == TSTypeKind::TS &&
+      input != nullptr && output != nullptr && input->kind == TSTypeKind::TS &&
       output->kind == TSTypeKind::TS && input->value_schema != nullptr &&
       output->value_schema != nullptr &&
       TypeRegistry::instance().value_is_a(output->value_schema,
@@ -1026,6 +1025,7 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
           "wire<T>: structural source schema does not match REF input target");
     }
 
+    source = adapt_source_for_input(w, target_schema, std::move(source));
     std::array<WiringPortRef, 1> inputs{std::move(source)};
     NodeBuilder builder = structural_ref_node_builder(target_schema, inputs[0]);
     return w.add_node(

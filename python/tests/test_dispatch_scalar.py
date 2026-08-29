@@ -189,8 +189,15 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
 
     class PeerKey(InstrumentKey): ...
 
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar, abstract=True):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument): ...
+
     class Result(TimeSeriesSchema):
-        value: TS[str]
+        value: TS[Instrument]
         error: TS[str]
 
     # The selected branch returns a value. The two unselected, but reachable,
@@ -200,14 +207,14 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
     def by_key(
         key: TS[InstrumentKey], repository: TSD[str, TSB[Result]]
     ) -> TSB[Result]:
-        return combine[TSB[Result]](value="unknown")
+        return combine[TSB[Result]](value=Future("unknown"))
 
     @graph(overloads=by_key)
     def by_future(
         key: TS[FutureKey], repository: TSD[str, TSB[Result]]
     ) -> TSB[Result]:
         return combine[TSB[Result]](
-            value=lag(const("future"), MIN_TD),
+            value=lag(const(Future("future"), tp=TS[Future]), MIN_TD),
             error=default(lag(const(""), MIN_TD), "missing"),
         )
 
@@ -227,7 +234,7 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
     def resolve(
         request: TS[Request], repository: TSD[str, TSB[Result]]
     ) -> TSB[Result]:
-        return combine[TSB[Result]](value="unsupported")
+        return combine[TSB[Result]](value=Future("unsupported"))
 
     @graph(overloads=resolve)
     def resolve_by_name(
@@ -260,10 +267,10 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
     assert eval_node(
         app,
         [{"item": ByName()}],
-        [{"existing": {"value": "existing"}}],
+        [{"existing": {"value": Future("existing")}}],
     ) == [
         {"item": {"error": "missing"}},
-        {"item": {"value": "future", "error": ""}},
+        {"item": {"value": Future("future"), "error": ""}},
     ]
 
 
