@@ -24,6 +24,17 @@
 
 #include <nanobind/stl/detail/chrono.h>
 
+[[nodiscard]] constexpr bool python_datetime_representable(
+    std::chrono::microseconds value) noexcept {
+    namespace ch = std::chrono;
+
+    constexpr auto min_value = ch::duration_cast<ch::microseconds>(
+        ch::sys_days{ch::year{1} / ch::January / ch::day{1}}.time_since_epoch());
+    constexpr auto max_value = ch::duration_cast<ch::microseconds>(
+        ch::sys_days{ch::year{10000} / ch::January / ch::day{1}}.time_since_epoch());
+    return value >= min_value && value < max_value;
+}
+
 // Casts a std::chrono type (either a duration or a time_point) to/from
 // Python timedelta objects, or from a Python float representing seconds.
 template<typename type>
@@ -176,6 +187,13 @@ public:
             }
         } catch (python_error &e) {
             e.discard_as_unraisable(src.ptr());
+            return false;
+        }
+
+        // An aware datetime can itself be valid while its normalized UTC
+        // instant lies outside Python's year 1..9999 range. Reject it here so
+        // every accepted Python datetime can also be converted back to one.
+        if (!python_datetime_representable(total_us)) {
             return false;
         }
 
