@@ -11,10 +11,17 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 using namespace hgraph;
 using namespace hgraph::persistence::store;
@@ -243,4 +250,37 @@ TEST_CASE("value codec registry: names are listed and re-registration is idempot
                                          ValueCodecOps{.encode = &reversing_encode,
                                                        .decode = &reversing_decode}),
                     std::invalid_argument);
+}
+
+
+TEST_CASE("value store: a local-backend object is a json file on disk")
+{
+    // The requirement in plain terms: open the file in a text editor and see
+    // json. Asserting on encoded bytes is a proxy; this reads the file back
+    // through the filesystem with no hgraph code in the path.
+    register_builtin_value_codecs();
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("hgraph_value_store_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(root);
+
+    const auto store = make_value_store(ValueStoreConfig{
+        .objects = make_object_store(ObjectStoreConfig{LocalLocation{root.string()}})});
+
+    const Value written = record_value("alpha", 7, "BOM");
+    store.write("records/alpha", written.view());
+
+    const auto path = root / "records" / "alpha.json";
+    REQUIRE(std::filesystem::exists(path));
+
+    std::ifstream file{path};
+    REQUIRE(file.is_open());
+    const std::string contents{std::istreambuf_iterator<char>{file},
+                               std::istreambuf_iterator<char>{}};
+
+    CHECK(contents == to_json_string(written.view()));
+    CHECK(contents.starts_with("{"));
+    CHECK(contents.ends_with("}"));
+    CHECK(contents.find("\"name\"") != std::string::npos);
+
+    std::filesystem::remove_all(root);
 }
