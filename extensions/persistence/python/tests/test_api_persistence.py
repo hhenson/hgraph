@@ -16,18 +16,19 @@ def test_per_call_model_selection_loads_the_extension():
     # A per-call ``model=`` is an extension load point exactly like the
     # graph-level setter (RFC 0025): in a fresh process that never imports
     # hgraph_persistence, the documented ``hg.record(..., model=hg.DATA_FRAME)``
-    # flow must register the durable overloads itself. Run in a clean
-    # interpreter so this suite's own imports cannot mask the load.
-    import os
+    # flow must register the durable overloads itself. A fresh interpreter is
+    # the whole requirement, so the subprocess inherits this process's
+    # environment and resolves packages exactly as a user's would. Do not
+    # force resolution away from the installed package (an explicit
+    # PYTHONPATH, or dropping meta_path finders): under an editable install
+    # the scikit-build-core finder IS what serves the compiled
+    # _hgraph_persistence module, and the in-tree package directory has no
+    # .so for it to fall back to.
     import subprocess
     import sys
 
     script = (
         "import sys\n"
-        # Editable-install finders would shadow PYTHONPATH with a different
-        # checkout's package; drop them first (a no-op in CI).
-        "sys.meta_path = [finder for finder in sys.meta_path"
-        " if 'ScikitBuild' not in type(finder).__name__]\n"
         "import hgraph as hg\n"
         "from hgraph import TS, GlobalState, MIN_ST, MIN_TD, set_as_of\n"
         "from hgraph.test import eval_node\n"
@@ -44,7 +45,6 @@ def test_per_call_model_selection_loads_the_extension():
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -53,14 +53,11 @@ def test_per_call_model_on_replay_const_loads_the_extension():
     # replay_const's durable overload accepts a per-call ``model=`` (the
     # operator has no in-memory implementation), so that call shape is a load
     # point exactly like record/replay/compare's (PR #507 review finding).
-    import os
     import subprocess
     import sys
 
     script = (
         "import sys\n"
-        "sys.meta_path = [finder for finder in sys.meta_path"
-        " if 'ScikitBuild' not in type(finder).__name__]\n"
         "import hgraph as hg\n"
         "from hgraph import TS\n"
         "assert 'hgraph_persistence' not in sys.modules\n"
@@ -74,7 +71,6 @@ def test_per_call_model_on_replay_const_loads_the_extension():
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -85,14 +81,11 @@ def test_unloaded_extension_wiring_failure_names_the_activation_paths():
     # (RFC 0025's "wiring diagnoses the missing backend") rather than leaving
     # an unexplained resolution failure. Clean interpreter: this suite's own
     # imports must not mask the unloaded state.
-    import os
     import subprocess
     import sys
 
     script = (
         "import sys\n"
-        "sys.meta_path = [finder for finder in sys.meta_path"
-        " if 'ScikitBuild' not in type(finder).__name__]\n"
         "import hgraph as hg\n"
         "from hgraph import TS, GlobalState\n"
         "from hgraph.test import eval_node\n"
@@ -113,7 +106,6 @@ def test_unloaded_extension_wiring_failure_names_the_activation_paths():
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
