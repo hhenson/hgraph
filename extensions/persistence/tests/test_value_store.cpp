@@ -86,7 +86,7 @@ namespace
     void register_reversing_codec()
     {
         register_value_codec(
-            "test-reversed", "rev", nullptr,
+            "test-reversed", nullptr,
             ValueCodecOps{.encode = &reversing_encode, .decode = &reversing_decode});
     }
 
@@ -107,7 +107,8 @@ TEST_CASE("value store: a declared struct round trips without extension codec co
     const auto store = memory_store();
     const Value written = record_value("alpha", 7, "BOM");
 
-    store.write("records/alpha", written.view());
+    REQUIRE(store.write("records/alpha", written.view()).status ==
+            ImmutableWriteStatus::Created);
     const Value read = store.read("records/alpha", record_meta());
 
     CHECK(read.view().equals(written.view()));
@@ -130,54 +131,72 @@ TEST_CASE("value store: a stored json object is a json document and nothing else
     CHECK(text.find("alpha") != std::string::npos);
 }
 
-TEST_CASE("value store: json is the default codec and names the object .json")
+TEST_CASE("value store: json is the default codec")
 {
     const auto store = memory_store();
     CHECK(store.default_codec() == std::string{JSON_VALUE_CODEC});
-    CHECK(store.resolve_key("records/alpha") == "records/alpha.json");
-    CHECK(codec_for_key("records/alpha.json") == std::string{JSON_VALUE_CODEC});
-    CHECK_FALSE(codec_for_key("records/alpha").has_value());
-    // A dot in a directory name is not a format.
-    CHECK_FALSE(codec_for_key("records.v2/alpha").has_value());
 }
 
-TEST_CASE("value store: the default is configurable and a call or key can override it")
+TEST_CASE("value store: the key is the caller's, untouched")
+{
+    // Keys are not rewritten, so a caller whose keys are structured, parsed or
+    // range-scanned keeps them exactly as written -- and one that wants an
+    // extension simply writes it.
+    register_builtin_value_codecs();
+    const auto  store = memory_store();
+    const Value written = record_value("alpha", 7, "BOM");
+
+    REQUIRE(store.write("records/0000000000000000001", written.view()).status ==
+            ImmutableWriteStatus::Created);
+    REQUIRE(store.write("records/alpha.json", written.view()).status ==
+            ImmutableWriteStatus::Created);
+
+    CHECK(store.try_read("records/0000000000000000001", record_meta()).has_value());
+    CHECK(store.try_read("records/alpha.json", record_meta()).has_value());
+    // Nothing was written anywhere else.
+    CHECK_FALSE(store.try_read("records/alpha", record_meta()).has_value());
+    CHECK_FALSE(
+        store.try_read("records/0000000000000000001.json", record_meta()).has_value());
+}
+
+TEST_CASE("value store: the codec is configuration, defaulted or given per call")
 {
     register_reversing_codec();
 
     const auto reversed_default = memory_store("test-reversed");
     CHECK(reversed_default.default_codec() == "test-reversed");
-    CHECK(reversed_default.resolve_key("records/a") == "records/a.rev");
 
-    // A per-call override wins over the store default, in both directions.
-    CHECK(reversed_default.resolve_key("records/a", JSON_VALUE_CODEC) == "records/a.json");
-    const auto json_default = memory_store();
-    CHECK(json_default.resolve_key("records/a", "test-reversed") == "records/a.rev");
+    const Value written = record_value("alpha", 7, "BOM");
+    const auto  json_default = memory_store();
 
-    // An extension already on the key is the most explicit statement and wins
-    // over both.
-    CHECK(json_default.resolve_key("records/a.rev") == "records/a.rev");
-    CHECK(json_default.resolve_key("records/a.rev", JSON_VALUE_CODEC) == "records/a.rev");
+    // The store default applies when a call names nothing...
+    CHECK(as_text(json_default.encode(written.view())) == to_json_string(written.view()));
+    CHECK(as_text(reversed_default.encode(written.view())) !=
+          to_json_string(written.view()));
+
+    // ...and a per-call codec overrides it, in both directions.
+    CHECK(as_text(reversed_default.encode(written.view(), JSON_VALUE_CODEC)) ==
+          to_json_string(written.view()));
+    CHECK(as_text(json_default.encode(written.view(), "test-reversed")) !=
+          to_json_string(written.view()));
 }
 
-TEST_CASE("value store: a read resolves the codec from the stored key")
+TEST_CASE("value store: a read names the codec its object was written with")
 {
     register_reversing_codec();
-    // One store, two codecs, no out-of-band agreement. The key carries the
-    // format, so the reader does not need to be told which was used.
     const auto  store = memory_store();
-    const Value first = record_value("alpha", 1, "BOM");
-    const Value second = record_value("beta", 2, "FRONT");
+    const Value written = record_value("beta", 2, "FRONT");
 
-    store.write("records/first", first.view());
-    store.write("records/second", second.view(), "test-reversed");
+    REQUIRE(store.write("records/beta", written.view(), "test-reversed").status ==
+            ImmutableWriteStatus::Created);
 
-    CHECK(store.read("records/first", record_meta()).view().equals(first.view()));
-    // Found by listing, because the caller asks for the logical key and the
-    // object was written under a non-default codec.
-    CHECK(store.read("records/second", record_meta()).view().equals(second.view()));
-    // And directly, when the caller names the encoded key.
-    CHECK(store.read("records/second.rev", record_meta()).view().equals(second.view()));
+    CHECK(store.read("records/beta", record_meta(), "test-reversed")
+              .view()
+              .equals(written.view()));
+
+    // Reading it with the wrong codec is a configuration error, and reports
+    // itself rather than returning a plausible wrong answer.
+    CHECK_THROWS(store.read("records/beta", record_meta()));
 }
 
 TEST_CASE("value store: an unknown codec fails closed rather than guessing")
@@ -191,18 +210,6 @@ TEST_CASE("value store: an unknown codec fails closed rather than guessing")
                         .objects = make_object_store(ObjectStoreConfig{}),
                         .codec   = "no-such-codec"}),
                     std::invalid_argument);
-}
-
-TEST_CASE("value store: an unregistered extension is not treated as a format")
-{
-    register_builtin_value_codecs();
-    // A key ending in something we do not know is not silently decoded with the
-    // default; it simply does not name a codec, so the object is written under
-    // the default extension instead of being mistaken for a foreign format.
-    CHECK_FALSE(codec_for_key("records/alpha.bin").has_value());
-
-    const auto store = memory_store();
-    CHECK(store.resolve_key("records/alpha.bin") == "records/alpha.bin.json");
 }
 
 TEST_CASE("value store: missing keys are absent rather than an error for try_read")
@@ -239,17 +246,11 @@ TEST_CASE("value codec registry: names are listed and re-registration is idempot
     CHECK(std::find(names.begin(), names.end(), std::string{JSON_VALUE_CODEC}) != names.end());
 
     // Two implementations under one name is a build error, not last-writer-wins.
-    CHECK_THROWS_AS(register_value_codec(JSON_VALUE_CODEC, "json", nullptr,
+    CHECK_THROWS_AS(register_value_codec(JSON_VALUE_CODEC, nullptr,
                                          ValueCodecOps{.encode = &reversing_encode,
                                                        .decode = &reversing_decode}),
                     std::invalid_argument);
 
-    // Two codecs cannot claim one extension: a stored object would be
-    // ambiguous, which the key-based scheme cannot tolerate.
-    CHECK_THROWS_AS(register_value_codec("another-json", "json", nullptr,
-                                         ValueCodecOps{.encode = &reversing_encode,
-                                                       .decode = &reversing_decode}),
-                    std::invalid_argument);
 }
 
 
@@ -267,7 +268,10 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
         .objects = make_object_store(ObjectStoreConfig{LocalLocation{root.string()}})});
 
     const Value written = record_value("alpha", 7, "BOM");
-    store.write("records/alpha", written.view());
+    // The caller names the file, including its extension: that is the whole
+    // point of leaving keys alone.
+    REQUIRE(store.write("records/alpha.json", written.view()).status ==
+            ImmutableWriteStatus::Created);
 
     const auto path = root / "records" / "alpha.json";
     REQUIRE(std::filesystem::exists(path));

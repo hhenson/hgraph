@@ -33,17 +33,30 @@ namespace hgraph::fabric
     [[nodiscard]] HGRAPH_FABRIC_EXPORT const persistence::store::ValueCodec &
     notification_codec();
 
-    /** Encode an as-of or latest index entry as a RevisionReference document. */
+    /** The RevisionReference schema, for reads that name their type. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT const ValueTypeMetaData *revision_reference_meta();
+
+    /** Build an as-of or latest index entry. Fabric builds values; the store
+        decides how they are encoded. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT Value
+    make_revision_reference(MetadataObjectKind kind, RevisionId revision);
+
+    /** Read an index entry, requiring its kind to match the object being read.
+        Throws std::invalid_argument on a mismatch or a malformed entry. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT RevisionId
+    revision_reference_id(const ValueView &reference, MetadataObjectKind expected_kind);
+
+    /** Encode an index entry through `values`. The store decides the format;
+        this only spares every call site the schema and the view. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ObjectBytes
     encode_reference(const persistence::store::ValueStore &values, MetadataObjectKind kind,
                      RevisionId revision);
 
-    /** Decode an index entry and require its kind to match the object being
-        read. Throws std::invalid_argument on a mismatch or malformed document. */
+    /** Decode an index entry through `values` and check its kind. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT RevisionId
     revision_reference_value(const persistence::store::ValueStore &values,
-                             MetadataObjectKind expected_kind,
-                             std::span<const std::byte> encoded);
+                             MetadataObjectKind                    expected_kind,
+                             std::span<const std::byte>            encoded);
 
 }  // namespace hgraph::fabric
 

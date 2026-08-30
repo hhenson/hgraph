@@ -33,20 +33,13 @@ namespace hgraph::persistence::store
                         std::span<const std::byte> encoded);
     };
 
-    /** Register a codec under a stable name and the file extension its
-        objects carry. Idempotent for an identical registration; a conflicting
-        re-registration of the same name throws, so two extensions cannot
-        silently disagree about what a name means.
-
-        The extension is how a stored object names its codec, so it must be the
-        conventional one for the format -- "json", "arrow", "parquet". A reader
-        outside this codebase recognises the file by that extension and by its
-        content, both of which are exactly what the format specifies.
+    /** Register a codec under a stable name. Idempotent for an identical
+        registration; a conflicting re-registration of the same name throws, so
+        two extensions cannot silently disagree about what a name means.
 
         Registration is build-time machinery. It is not reachable from the
         per-tick path and its registry lock is a counted TypeSystemMutex. */
     HGRAPH_PERSISTENCE_EXPORT void register_value_codec(std::string_view name,
-                                                        std::string_view extension,
                                                         std::shared_ptr<void> context,
                                                         const ValueCodecOps &ops);
 
@@ -55,14 +48,11 @@ namespace hgraph::persistence::store
     {
       public:
         ValueCodec() noexcept = default;
-        ValueCodec(std::string name, std::string extension, std::shared_ptr<void> context,
+        ValueCodec(std::string name, std::shared_ptr<void> context,
                    ValueCodecOps ops) noexcept;
 
         [[nodiscard]] bool valid() const noexcept { return ops_.encode != nullptr; }
         [[nodiscard]] const std::string &name() const noexcept { return name_; }
-
-        /** The file extension objects of this codec carry, without the dot. */
-        [[nodiscard]] const std::string &extension() const noexcept { return extension_; }
 
         void encode(const ValueView &value, ObjectBytes &out) const;
         [[nodiscard]] Value decode(const ValueTypeMetaData *schema,
@@ -70,7 +60,6 @@ namespace hgraph::persistence::store
 
       private:
         std::string             name_{};
-        std::string             extension_{};
         std::shared_ptr<void>   context_{};
         ValueCodecOps           ops_{};
     };
@@ -85,10 +74,6 @@ namespace hgraph::persistence::store
 
     /** Registered codec names, sorted. Diagnostics and tests. */
     [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::vector<std::string> value_codec_names();
-
-    /** The codec registered for a file extension, or nothing. */
-    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::optional<std::string>
-    value_codec_for_extension(std::string_view extension);
 
     /** Install the codecs this library owns. Idempotent; called by the
         extension's registration entry point and safe to call directly in a

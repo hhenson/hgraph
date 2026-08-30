@@ -16,12 +16,11 @@ a fixed format, selected by a store-level default and overridable per call. JSON
 is the required baseline and the initial default; RFC 0017's binary codec,
 protobuf, and avro register the same way without touching a caller.
 
-**Stored bytes are exactly the codec's output.** A ``.json`` object is a JSON
-document a text editor opens and ``jq`` reads; an ``.arrow`` object is a file
-polars loads directly. The store adds no header, framing, or trailer. The codec
-is therefore named by the object key -- the conventional file extension -- which
-every backend surfaces in listings and which a filesystem shows as an ordinary
-file.
+**Stored bytes are exactly the codec's output.** A JSON object is a JSON
+document a text editor opens and ``jq`` reads; an Arrow object is a file polars
+loads directly. The store adds no header, framing, or trailer, and it does not
+alter the key: the caller names its own objects, extension included if it wants
+one.
 
 Motivation
 ----------
@@ -82,48 +81,44 @@ context. It is registered under a stable name.
                         std::span<const std::byte> encoded);
     };
 
-    void register_value_codec(std::string_view name, std::string_view extension,
-                              std::shared_ptr<void> context, const ValueCodecOps &ops);
+    void register_value_codec(std::string_view name, std::shared_ptr<void> context,
+                              const ValueCodecOps &ops);
 
 Registration is build-time machinery, not a per-tick path, so guarding the
 registry with a counted ``TypeSystemMutex`` is sanctioned by the single-threaded
 evaluation ruling rather than a departure from it. Codecs are resolved once when
 a store is constructed or a call names one, never per value.
 
-The extension is the conventional suffix for the format — ``json``, ``arrow``,
-``parquet`` — because it is what names the codec in the stored key and what an
-external tool recognises the file by.
+The baseline codec is ``"json"``, implemented over the core's interned
+``JsonConverter`` — ``to_json_string`` and ``from_json_string``. It is
+required: a build without it is not a conforming persistence build.
 
-The baseline codec is ``"json"``, extension ``json``, implemented over the
-core's interned ``JsonConverter`` — ``to_json_string`` and ``from_json_string``.
-It is required: a build without it is not a conforming persistence build.
+Selection
+---------
 
-Selection and self-description
-------------------------------
+The codec is **configuration**, at two levels:
 
-Three levels, most explicit first:
-
-* **The key.** ``records/alpha.json`` names its codec. A caller that cares
-  states it, and the object is then self-describing to every reader, including
-  ones outside this codebase.
-* **Per call.** ``write(key, value, codec)`` selects for one object when the key
-  does not, which is what makes a mixed store possible -- small metadata as
-  JSON beside a large record in a binary format -- without splitting the store.
 * **Store default.** ``ValueStoreConfig::codec``, unset meaning ``"json"``.
+* **Per call.** An optional codec argument on ``write``, ``read``,
+  ``try_read``, ``try_read_versioned`` and ``compare_exchange``, which is what
+  makes a mixed store possible -- small metadata as JSON beside a large record
+  in a binary format -- without splitting the store.
 
-A write appends the codec's extension when the key does not already carry one,
-so ``write("records/alpha", v)`` stores ``records/alpha.json``.
-``resolve_key()`` exposes that name, because a caller handing the object to an
-external reader needs it.
+It is never inferred. A read decodes with the codec the caller configured or
+named, so reading an object with a codec it was not written with is a
+configuration error and surfaces as a decode failure. That is the right
+outcome: the alternative is a store that guesses, and a guess that succeeds by
+accident is worse than a failure.
 
-A read takes the logical key. When it names a codec, the object is fetched
-directly. Otherwise the default's key is tried -- one ``get``, the common path
--- and failing that a single prefix listing finds an object written under
-another codec, so a per-call override stays readable by a caller that does not
-know one was used.
-
-Extensions are unique across codecs: two codecs claiming ``json`` would make a
-stored object ambiguous, and the registry rejects it.
+Keys are passed through verbatim. A caller that wants ``records/alpha.json``
+writes that key and gets a file of that name; one whose keys are structured --
+parsed for an ordinal, range-scanned by prefix, compared lexicographically --
+keeps them exactly as they are. Fabric's revision and as-of keys are the second
+kind, and an earlier draft of this RFC had the store append an extension to
+them, which broke the as-of scan in two ways at once: the ordinal parser saw
+five extra characters, and every stored key sorted after a bare comparison
+target. Format identity and key structure are separate concerns, and the store
+owns neither.
 
 Why not a wrapper
 -----------------
@@ -151,19 +146,27 @@ Store contract
     class ValueStore final
     {
       public:
-        void write(std::string_view key, const ValueView &value,
-                   std::optional<std::string_view> codec = {});
+        [[nodiscard]] ImmutableWriteResult
+        write(std::string_view key, const ValueView &value,
+              std::optional<std::string_view> codec = {}) const;
 
-        [[nodiscard]] Value read(std::string_view key,
-                                 const ValueTypeMetaData *schema);
+        [[nodiscard]] Value read(std::string_view key, const ValueTypeMetaData *schema,
+                                 std::optional<std::string_view> codec = {}) const;
 
         [[nodiscard]] std::optional<Value>
-        try_read(std::string_view key, const ValueTypeMetaData *schema);
+        try_read(std::string_view key, const ValueTypeMetaData *schema,
+                 std::optional<std::string_view> codec = {}) const;
+
+        /** Value plus version token: a compare-and-swap loop needs both, and
+            would otherwise reach past this store to the bytes. */
+        [[nodiscard]] std::optional<StoredValue>
+        try_read_versioned(std::string_view key, const ValueTypeMetaData *schema,
+                           std::optional<std::string_view> codec = {}) const;
 
         [[nodiscard]] CompareExchangeResult
         compare_exchange(std::string_view key, const ValueView &value,
                          std::optional<std::string_view> expected_version,
-                         std::optional<std::string_view> codec = {});
+                         std::optional<std::string_view> codec = {}) const;
     };
 
 ``compare_exchange`` forwards the object store's version token unchanged.

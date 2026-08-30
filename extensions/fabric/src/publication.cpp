@@ -185,9 +185,7 @@ namespace hgraph::fabric
 
         void repair_as_of(const DataRevisionInput &revision) const
         {
-            const ObjectBytes desired = encode_reference(
-                config.values,
-                MetadataObjectKind::AsOf, revision.revision);
+            const ObjectBytes desired = encode_reference(config.values, MetadataObjectKind::AsOf, revision.revision);
             const auto result = config.objects.put_immutable(
                 as_of_key(config.prefix, data_id, revision.as_of), desired);
             if (result.status == ImmutableWriteStatus::Conflict)
@@ -201,23 +199,19 @@ namespace hgraph::fabric
         {
             const auto current = metadata(latest_key(config.prefix, data_id));
             if (!current.has_value()) { return std::nullopt; }
-            return revision_reference_value(config.values, MetadataObjectKind::Latest,
-                                            current->data);
+            return revision_reference_value(config.values, MetadataObjectKind::Latest, current->data);
         }
 
         void advance_latest(RevisionId target) const
         {
             const std::string key = latest_key(config.prefix, data_id);
-            const ObjectBytes desired =
-                encode_reference(config.values, MetadataObjectKind::Latest, target);
+            const ObjectBytes desired = encode_reference(config.values, MetadataObjectKind::Latest, target);
             for (;;)
             {
                 const auto current = metadata(key);
                 if (current.has_value())
                 {
-                    const RevisionId current_revision = revision_reference_value(
-                        config.values,
-                        MetadataObjectKind::Latest, current->data);
+                    const RevisionId current_revision = revision_reference_value(config.values, MetadataObjectKind::Latest, current->data);
                     if (current_revision >= target) { return; }
                 }
                 const auto result = config.objects.compare_exchange_ref(
@@ -228,9 +222,7 @@ namespace hgraph::fabric
                     desired);
                 if (result.exchanged) { return; }
                 if (!result.current.has_value()) { continue; }
-                const RevisionId winner = revision_reference_value(
-                    config.values,
-                    MetadataObjectKind::Latest, result.current->data);
+                const RevisionId winner = revision_reference_value(config.values, MetadataObjectKind::Latest, result.current->data);
                 if (winner >= target) { return; }
             }
         }

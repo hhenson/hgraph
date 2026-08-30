@@ -227,8 +227,9 @@ NB_MODULE(_hgraph_fabric, module)
     module.def(
         "_encode_revision_reference",
         [](const PythonFabricConfig &config, std::uint8_t kind, RevisionId revision) {
-            return to_python_bytes(encode_reference(
-                config.value.values, static_cast<MetadataObjectKind>(kind), revision));
+            return to_python_bytes(config.value.values.encode(
+                make_revision_reference(static_cast<MetadataObjectKind>(kind), revision)
+                    .view()));
         },
         nb::arg("config"),
         nb::arg("kind"), nb::arg("revision"));
@@ -236,9 +237,11 @@ NB_MODULE(_hgraph_fabric, module)
     module.def(
         "_decode_revision_reference",
         [](const PythonFabricConfig &config, std::uint8_t kind, const nb::bytes &encoded) {
-            return revision_reference_value(config.value.values,
-                                            static_cast<MetadataObjectKind>(kind),
-                                            bytes_view(encoded));
+            return revision_reference_id(
+                config.value.values
+                    .decode(revision_reference_meta(), bytes_view(encoded))
+                    .view(),
+                static_cast<MetadataObjectKind>(kind));
         },
         nb::arg("config"),
         nb::arg("kind"), nb::arg("encoded"));
