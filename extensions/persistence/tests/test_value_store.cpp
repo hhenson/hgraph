@@ -60,16 +60,25 @@ namespace
     /** A second codec, so "pluggable" is exercised rather than asserted. It
         stores the JSON form reversed, which is enough to prove the store
         dispatches on the recorded name rather than assuming a format. */
-    void reversing_encode(void *, const ValueView &value, ObjectBytes &out)
+    const void *reversing_bind(void *, const ValueTypeMetaData *schema)
     {
-        const std::string text = to_json_string(value);
+        // Same binding the json codec performs: resolve the interned converter
+        // once so encode/decode take no lock.
+        return &json_converter(schema);
+    }
+
+    void reversing_encode(void *, const void *bound, const ValueView &value,
+                          ObjectBytes &out)
+    {
+        std::string text;
+        static_cast<const JsonConverter *>(bound)->write(value, text);
         for (auto character = text.rbegin(); character != text.rend(); ++character)
         {
             out.push_back(static_cast<std::byte>(*character));
         }
     }
 
-    Value reversing_decode(void *, const ValueTypeMetaData *schema,
+    Value reversing_decode(void *, const void *bound,
                            std::span<const std::byte> encoded)
     {
         std::string text;
@@ -78,14 +87,16 @@ namespace
         {
             text.push_back(std::to_integer<char>(*byte));
         }
-        return from_json_string(schema, text);
+        return from_json_string(*static_cast<const JsonConverter *>(bound), text);
     }
 
     void register_reversing_codec()
     {
         register_value_codec(
             "test-reversed", nullptr,
-            ValueCodecOps{.encode = &reversing_encode, .decode = &reversing_decode});
+            ValueCodecOps{.bind = &reversing_bind,
+                          .encode = &reversing_encode,
+                          .decode = &reversing_decode});
     }
 
     [[nodiscard]] std::string as_text(std::span<const std::byte> bytes)
@@ -245,7 +256,8 @@ TEST_CASE("value codec registry: names are listed and re-registration is idempot
 
     // Two implementations under one name is a build error, not last-writer-wins.
     CHECK_THROWS_AS(register_value_codec(JSON_VALUE_CODEC, nullptr,
-                                         ValueCodecOps{.encode = &reversing_encode,
+                                         ValueCodecOps{.bind = &reversing_bind,
+                                                       .encode = &reversing_encode,
                                                        .decode = &reversing_decode}),
                     std::invalid_argument);
 

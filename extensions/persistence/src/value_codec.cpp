@@ -21,8 +21,10 @@ namespace hgraph::persistence::store
             ValueCodecOps         ops{};
         };
 
-        void json_encode(void *context, const ValueView &value, ObjectBytes &out);
-        Value json_decode(void *context, const ValueTypeMetaData *schema,
+        const void *json_bind(void *context, const ValueTypeMetaData *schema);
+        void json_encode(void *context, const void *bound, const ValueView &value,
+                         ObjectBytes &out);
+        Value json_decode(void *context, const void *bound,
                           std::span<const std::byte> encoded);
 
         struct Registry
@@ -37,7 +39,8 @@ namespace hgraph::persistence::store
             Registry()
             {
                 codecs.emplace(std::string{JSON_VALUE_CODEC},
-                               Registration{nullptr, ValueCodecOps{.encode = &json_encode,
+                               Registration{nullptr, ValueCodecOps{.bind = &json_bind,
+                                                                   .encode = &json_encode,
                                                                    .decode = &json_decode}});
             }
 
@@ -53,29 +56,39 @@ namespace hgraph::persistence::store
 
         [[nodiscard]] bool same_ops(const ValueCodecOps &lhs, const ValueCodecOps &rhs) noexcept
         {
-            return lhs.encode == rhs.encode && lhs.decode == rhs.decode;
+            return lhs.bind == rhs.bind && lhs.encode == rhs.encode &&
+                   lhs.decode == rhs.decode;
         }
 
-        /** The baseline codec. Delegates to the core's interned JsonConverter,
-            which is synthesized once per schema; this adds no format of its
-            own. */
-        void json_encode(void * /*context*/, const ValueView &value, ObjectBytes &out)
-        {
-            const std::string text = to_json_string(value);
-            const auto        bytes = std::as_bytes(std::span{text.data(), text.size()});
-            out.insert(out.end(), bytes.begin(), bytes.end());
-        }
-
-        Value json_decode(void * /*context*/, const ValueTypeMetaData *schema,
-                          std::span<const std::byte> encoded)
+        /** The baseline codec. Binding resolves the core's interned
+            JsonConverter, which is synthesized once per schema and locks to do
+            it -- so it happens here, in bind, and never again. to_json_string
+            and from_json_string(meta, ...) would repeat that lookup per value,
+            which is why neither is used below. */
+        const void *json_bind(void * /*context*/, const ValueTypeMetaData *schema)
         {
             if (schema == nullptr)
             {
-                throw std::invalid_argument("value codec decode requires a schema");
+                throw std::invalid_argument("value codec bind requires a schema");
             }
+            return &json_converter(schema);
+        }
+
+        void json_encode(void * /*context*/, const void *bound, const ValueView &value,
+                         ObjectBytes &out)
+        {
+            std::string text;
+            static_cast<const JsonConverter *>(bound)->write(value, text);
+            const auto bytes = std::as_bytes(std::span{text.data(), text.size()});
+            out.insert(out.end(), bytes.begin(), bytes.end());
+        }
+
+        Value json_decode(void * /*context*/, const void *bound,
+                          std::span<const std::byte> encoded)
+        {
             const std::string_view text{reinterpret_cast<const char *>(encoded.data()),
                                         encoded.size()};
-            return from_json_string(schema, text);
+            return from_json_string(*static_cast<const JsonConverter *>(bound), text);
         }
     }  // namespace
 
@@ -85,23 +98,49 @@ namespace hgraph::persistence::store
     {
     }
 
-    void ValueCodec::encode(const ValueView &value, ObjectBytes &out) const
+    void BoundValueCodec::encode(const ValueView &value, ObjectBytes &out) const
+    {
+        if (!*this)
+        {
+            throw std::logic_error("value codec is not bound to a schema");
+        }
+        ops_.encode(context_, bound_, value, out);
+    }
+
+    ObjectBytes BoundValueCodec::encode(const ValueView &value) const
+    {
+        ObjectBytes out;
+        encode(value, out);
+        return out;
+    }
+
+    Value BoundValueCodec::decode(std::span<const std::byte> encoded) const
+    {
+        if (!*this)
+        {
+            throw std::logic_error("value codec is not bound to a schema");
+        }
+        return ops_.decode(context_, bound_, encoded);
+    }
+
+    BoundValueCodec ValueCodec::bind(const ValueTypeMetaData *schema) const
     {
         if (!valid())
         {
             throw std::logic_error("value codec is not bound to an implementation");
         }
-        ops_.encode(context_.get(), value, out);
+        return BoundValueCodec{ops_, context_.get(), ops_.bind(context_.get(), schema)};
+    }
+
+    void ValueCodec::encode(const ValueView &value, ObjectBytes &out) const
+    {
+        bind(value.schema()).encode(value, out);
     }
 
     Value ValueCodec::decode(const ValueTypeMetaData *schema,
                              std::span<const std::byte> encoded) const
     {
-        if (!valid())
-        {
-            throw std::logic_error("value codec is not bound to an implementation");
-        }
-        return ops_.decode(context_.get(), schema, encoded);
+        return bind(schema).decode(encoded);
     }
 
     void register_value_codec(std::string_view name, std::shared_ptr<void> context,
@@ -111,9 +150,10 @@ namespace hgraph::persistence::store
         {
             throw std::invalid_argument("value codec name must not be empty");
         }
-        if (ops.encode == nullptr || ops.decode == nullptr)
+        if (ops.bind == nullptr || ops.encode == nullptr || ops.decode == nullptr)
         {
-            throw std::invalid_argument("value codec requires both encode and decode");
+            throw std::invalid_argument(
+                "value codec requires bind, encode and decode");
         }
         auto           &state = registry();
         std::lock_guard lock{state.mutex};
@@ -171,7 +211,9 @@ namespace hgraph::persistence::store
     void register_builtin_value_codecs()
     {
         register_value_codec(JSON_VALUE_CODEC, nullptr,
-                             ValueCodecOps{.encode = &json_encode, .decode = &json_decode});
+                             ValueCodecOps{.bind = &json_bind,
+                                           .encode = &json_encode,
+                                           .decode = &json_decode});
     }
 
 }  // namespace hgraph::persistence::store

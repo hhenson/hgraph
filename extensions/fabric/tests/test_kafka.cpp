@@ -155,7 +155,7 @@ template <typename Predicate>
   }
   const auto as_of_write = config.objects.put_immutable(
       hgf::as_of_key(config.prefix, "prices", decoded.as_of),
-      hgf::encode_reference(config.values, hgf::MetadataObjectKind::AsOf, revision));
+      hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, revision));
   if (as_of_write.status ==
       hg::persistence::store::ImmutableWriteStatus::Conflict) {
     throw std::runtime_error("Fabric Kafka test as-of entry conflicted");
@@ -167,7 +167,7 @@ template <typename Predicate>
       current.has_value()
           ? std::optional<std::string_view>{current->version_token}
           : std::nullopt,
-      hgf::encode_reference(config.values, hgf::MetadataObjectKind::Latest, revision));
+      hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::Latest, revision));
   if (!latest.exchanged) {
     throw std::runtime_error("Fabric Kafka test latest update lost a race");
   }
@@ -496,7 +496,7 @@ TEST_CASE("Kafka queue wakes live Fabric through the Kafka root push source") {
   const auto latest =
       config.objects.get(hgf::latest_key(config.prefix, "prices"));
   REQUIRE(latest.has_value());
-  CHECK(hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+  CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
   kafka_config = {};
 }
 
@@ -627,7 +627,7 @@ TEST_CASE("manual Kafka assignment recovers after every broker disconnects") {
         const auto latest =
             config.objects.get(hgf::latest_key(config.prefix, "prices"));
         return latest.has_value() &&
-               hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 2;
+               hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 2;
       },
       5s);
   if (!second_is_durable ||
@@ -744,7 +744,7 @@ TEST_CASE("actual broker preserves Fabric recovery, retry, and ordering",
         const auto latest =
             config.objects.get(hgf::latest_key(config.prefix, "prices"));
         return latest.has_value() &&
-               hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 2;
+               hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 2;
       },
       20s);
   if (!second_is_durable) {

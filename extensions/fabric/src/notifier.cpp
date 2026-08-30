@@ -193,6 +193,12 @@ namespace hgraph::fabric
         return *this;
     }
 
+    void Notifier::bind_revision_codec(
+        persistence::store::BoundValueCodec codec) noexcept
+    {
+        revision_codec_ = std::move(codec);
+    }
+
     NotificationSubscription Notifier::subscribe() const
     {
         return ops_.subscribe(context_.get());
@@ -208,8 +214,13 @@ namespace hgraph::fabric
                 "fabric revision notification payload must not be empty");
         }
         require_metadata_within_limit(notification.revision.size());
-        const Value decoded = notification_codec().decode(
-            data_revision_meta(), notification.revision);
+        if (!revision_codec_)
+        {
+            // Only for a notifier built outside the fabric configuration path;
+            // a configured one is bound at wiring time.
+            revision_codec_ = notification_codec().bind(data_revision_meta());
+        }
+        const Value decoded = revision_codec_.decode(notification.revision);
         validate_data_revision(data_revision_input(decoded.view()));
         if (decoded.view().as_bundle().at("data_id").checked_as<Str>() !=
             notification.data_id)

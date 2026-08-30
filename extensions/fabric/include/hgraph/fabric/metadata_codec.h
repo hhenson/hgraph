@@ -12,6 +12,8 @@
 
 namespace hgraph::fabric
 {
+    struct FabricConfig;
+
     /** Which index an object belongs to. Carried in the stored document so a
         latest entry read as an as-of entry is rejected rather than silently
         accepted; the check survived the move off the hand-written envelope
@@ -25,6 +27,11 @@ namespace hgraph::fabric
 
     /** The DataRevision schema, for reads that name their type. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT const ValueTypeMetaData *data_revision_meta();
+
+    /** Bind every codec Fabric persists or transmits with, once, at wiring
+        time. Called from the configuration path so nothing on the evaluation
+        path has to resolve a codec or a json converter. */
+    HGRAPH_FABRIC_EXPORT void bind_metadata_codecs(FabricConfig &config);
 
     /** The codec for transport payloads -- Kafka records and notifier blobs.
         Those are messages rather than stored objects, so they carry no key to
@@ -51,8 +58,8 @@ namespace hgraph::fabric
         limit is Fabric's own invariant and survived the move off the
         hand-written codec. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ObjectBytes
-    encode_data_revision(const persistence::store::ValueStore &values,
-                         const ValueView                      &revision);
+    encode_data_revision(const persistence::store::BoundValueCodec &codec,
+                         const ValueView                           &revision);
 
     /** Decode a DataRevision through `values` and validate it. The documents
         are externally readable and therefore externally editable, so every
@@ -60,8 +67,8 @@ namespace hgraph::fabric
         and in range, dependencies must be within the count limit and in
         canonical order. Throws std::invalid_argument otherwise. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Value
-    decode_data_revision(const persistence::store::ValueStore &values,
-                         std::span<const std::byte>            encoded);
+    decode_data_revision(const persistence::store::BoundValueCodec &codec,
+                         std::span<const std::byte>                 encoded);
 
     /** Validate a decoded revision. Exposed so call sites that already hold a
         Value (a Kafka payload, a notification) get the same checks. */
@@ -75,14 +82,14 @@ namespace hgraph::fabric
     /** Encode an index entry through `values`. The store decides the format;
         this only spares every call site the schema and the view. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ObjectBytes
-    encode_reference(const persistence::store::ValueStore &values, MetadataObjectKind kind,
-                     RevisionId revision);
+    encode_reference(const persistence::store::BoundValueCodec &codec,
+                     MetadataObjectKind kind, RevisionId revision);
 
     /** Decode an index entry through `values` and check its kind. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT RevisionId
-    revision_reference_value(const persistence::store::ValueStore &values,
-                             MetadataObjectKind                    expected_kind,
-                             std::span<const std::byte>            encoded);
+    revision_reference_value(const persistence::store::BoundValueCodec &codec,
+                             MetadataObjectKind         expected_kind,
+                             std::span<const std::byte> encoded);
 
 }  // namespace hgraph::fabric
 

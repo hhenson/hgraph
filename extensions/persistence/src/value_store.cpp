@@ -21,6 +21,13 @@ namespace hgraph::persistence::store
         return !codec.has_value() || *codec == default_codec_;
     }
 
+    BoundValueCodec ValueStore::bind(const ValueTypeMetaData        *schema,
+                                     std::optional<std::string_view> codec) const
+    {
+        if (uses_default(codec)) { return default_resolved_.bind(schema); }
+        return value_codec(*codec).bind(schema);
+    }
+
     ObjectBytes ValueStore::encode(const ValueView                &value,
                                    std::optional<std::string_view> codec) const
     {

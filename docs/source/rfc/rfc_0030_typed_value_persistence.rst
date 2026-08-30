@@ -90,26 +90,31 @@ evaluation ruling rather than a departure from it. A store resolves its default
 codec once, at construction, and keeps it: an ordinary call never reaches the
 registry, and only an explicit per-call override looks one up by name.
 
-**Known limitation: per-value converter resolution.** The json codec is
-implemented over ``to_json_string``/``from_json_string``, and those resolve the
-interned ``JsonConverter`` on every call, taking a ``TypeSystemRecursiveMutex``
-to do it. ``json_converter()`` documents the contract it expects instead —
-"nodes resolve their converter in ``start`` and carry it in node State" — so a
-caller encoding during evaluation, as Fabric's publisher does, takes a lock per
-value. The store no longer contributes to that, and the codec registry no longer
-does either, but the converter lookup remains and is a real departure from the
-single-threaded evaluation ruling for any per-tick user of this store.
+**Binding: everything schema-dependent is resolved once.** ``ValueCodecOps``
+has three entry points, not two. ``bind`` takes a schema and returns an opaque
+handle the codec owns; ``encode`` and ``decode`` take that handle and must do no
+lookup, take no lock, and touch no registry. The json codec resolves the
+interned ``JsonConverter`` in ``bind`` — ``json_converter()`` locks, and its own
+documentation states the contract this follows: "nodes resolve their converter
+in ``start`` and carry it in node State".
 
-Closing it needs a way for a codec to bind a schema once and carry the result,
-which is an addition to ``ValueCodecOps`` rather than a change to any caller.
-That is deliberately left to a follow-up: the shape of the binding handle
-deserves its own design pass, and inventing it here would put an unreviewed API
-on the critical path of removing Fabric's codec. It is recorded so it is not
-rediscovered as a mystery regression.
+A caller on the evaluation path binds at **wiring time** and carries the
+resulting ``BoundValueCodec``, which holds no ``shared_ptr`` and performs no
+lookup. Fabric binds in its configuration path (``bind_metadata_codecs``), which
+is where a run's resources are already assembled; its Kafka nodes bind in
+``start`` and hold the handle in node State. The unbound convenience calls on
+``ValueCodec`` and ``ValueStore`` bind per call and are for build-time and
+ad-hoc use only.
 
-The baseline codec is ``"json"``, implemented over the core's interned
-``JsonConverter`` — ``to_json_string`` and ``from_json_string``. It is
-required: a build without it is not a conforming persistence build.
+This is enforced rather than asserted: every type-system mutex is a counted
+``TypeSystemMutex``, so a test drives 64 encodes through a wired fabric's codec
+and requires ``type_system_lock_count()`` to be unchanged.
+
+A binding is invalidated by a registry reset, which frees the interned state it
+points at — exactly as it invalidates a node's captured converter. That is why
+binding belongs with graph construction and never in a process-lifetime static.
+The constraint is real: caching a bound codec in a function-local static crashed
+the Fabric suite with a bus error the first time it was written.
 
 Selection
 ---------

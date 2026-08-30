@@ -1,5 +1,7 @@
 #include <hgraph/fabric/config.h>
 
+#include <hgraph/fabric/metadata_codec.h>
+
 #include <hgraph/persistence/store_location.h>
 #include <hgraph/types/metadata/type_registry.h>
 
@@ -48,6 +50,7 @@ namespace hgraph::fabric
         persistence::store::register_builtin_value_codecs();
         config.values = persistence::store::make_value_store(
             persistence::store::ValueStoreConfig{.objects = config.objects});
+        bind_metadata_codecs(config);
     }
 
     FabricConfig make_memory_fabric_config(Str prefix,

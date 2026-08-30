@@ -231,7 +231,7 @@ namespace
         }
         const auto as_of_result = config.objects.put_immutable(
             hgf::as_of_key(config.prefix, decoded.data_id, as_of),
-            hgf::encode_reference(config.values, hgf::MetadataObjectKind::AsOf, revision));
+            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, revision));
         if (as_of_result.status == hgps::ImmutableWriteStatus::Conflict)
         {
             throw std::runtime_error("test as-of index conflicted");
@@ -242,7 +242,7 @@ namespace
             latest_key,
             current.has_value() ? std::optional<std::string_view>{current->version_token}
                                 : std::nullopt,
-            hgf::encode_reference(config.values, hgf::MetadataObjectKind::Latest, revision));
+            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::Latest, revision));
         if (!latest.exchanged)
         {
             throw std::runtime_error("test latest index update lost a race");
@@ -1056,7 +1056,7 @@ TEST_CASE("publish_data routes through the singleton service publication state")
 
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
     const auto revision_object =
         config.objects.get(hgf::revision_key(config.prefix, "published", 1));
     REQUIRE(revision_object.has_value());
@@ -1298,7 +1298,7 @@ TEST_CASE("graph notification flow retries the retained shared revision on "
     CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
 }
 
 TEST_CASE("a success clears retry state when duplicate reports arrive first")

@@ -14,7 +14,10 @@ namespace hgraph::fabric
         template <typename T>
         [[nodiscard]] Value atomic(T value)
         {
-            static_cast<void>(scalar_descriptor<T>::value_meta());
+            // No value_meta() call: these are standard scalars, which
+            // TypeRegistry seeds (and re-seeds after a reset), so forcing
+            // registration here only added registry traffic per field on a
+            // path that runs during evaluation.
             return Value{std::move(value)};
         }
 
@@ -112,7 +115,6 @@ namespace hgraph::fabric
 
     Value make_data_dependency(DataDependencyInput dependency)
     {
-        register_fabric_types();
         require_data_id(dependency.data_id);
         require_positive(dependency.version, "dependency version");
         return bundle<DataDependency>({
@@ -123,7 +125,10 @@ namespace hgraph::fabric
 
     Value make_data_revision(DataRevisionInput revision)
     {
-        register_fabric_types();
+        // No register_fabric_types() here: bundle<DataRevision> resolves the
+        // schema it builds, which registers it, and this function runs during
+        // evaluation where a blanket six-schema registration is per-tick
+        // registry traffic for nothing.
         validate_revision_header(revision);
 
         std::ranges::sort(revision.dependencies,
@@ -152,7 +157,9 @@ namespace hgraph::fabric
 
     DataRevisionInput data_revision_input(ValueView revision)
     {
-        register_fabric_types();
+        // The schema comparison below resolves DataRevision, which registers
+        // it; the blanket registration was per-call registry traffic on a path
+        // that runs during evaluation.
         if (!revision.valid() ||
             revision.schema() != scalar_descriptor<DataRevision>::value_meta())
         {

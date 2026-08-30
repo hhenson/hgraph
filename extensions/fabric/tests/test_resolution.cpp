@@ -104,11 +104,11 @@ TEST_CASE("resolver reproduces the RFC D1 D2 D3 bootstrap cut") {
 
   const auto latest = config.objects.get(hgf::latest_key(config.prefix, "D1"));
   REQUIRE(latest.has_value());
-  CHECK(hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, latest->data) == 3);
+  CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 3);
   const auto as_of = config.objects.get(
       hgf::as_of_key(config.prefix, "D1", BASE_TIME + hg::TimeDelta{3}));
   REQUIRE(as_of.has_value());
-  CHECK(hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::AsOf, as_of->data) == 3);
+  CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::AsOf, as_of->data) == 3);
 }
 
 TEST_CASE(

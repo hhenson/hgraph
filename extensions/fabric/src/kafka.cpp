@@ -32,6 +32,23 @@ bytes_view(const Bytes &value) noexcept {
       std::string{reinterpret_cast<const char *>(value.data()), value.size()}};
 }
 
+}  // namespace
+
+namespace detail {
+/** The codec a Kafka node uses, bound once in start. A node must not resolve
+    a codec or a json converter in eval: that takes a TypeSystemMutex on the
+    per-tick path. A function-local static would not do either -- a registry
+    reset clears the interned converters a binding points at, and node state is
+    torn down with the graph that owns it. */
+struct RevisionCodecState {
+  persistence::store::BoundValueCodec codec{};
+
+  void bind() { codec = notification_codec().bind(data_revision_meta()); }
+};
+}  // namespace detail
+
+namespace {
+
 [[nodiscard]] Str delivery_token(std::string_view data_id,
                                  RevisionId revision) {
   return Str{data_id} + TOKEN_SEPARATOR + std::to_string(revision);
@@ -63,7 +80,10 @@ struct FabricKafkaDecodeNode {
   /** O(payload size) per Kafka record; no retained state. The complete
       revision is canonicalised once into shared storage before it enters the
       Fabric service edge. */
+  static void start(State<detail::RevisionCodecState> state) { state.modify().bind(); }
+
   static void eval(In<"record", TS<Shared<kafka::KafkaRecord>>> record,
+                   State<detail::RevisionCodecState> state,
                    Out<TS<Shared<DataRevision>>> out) {
     const auto fields = record.base().value().concrete().as_bundle();
     const auto key = fields.at("key");
@@ -75,8 +95,7 @@ struct FabricKafkaDecodeNode {
     const Bytes &key_bytes = key.checked_as<Bytes>();
     const Bytes &payload_bytes = payload.checked_as<Bytes>();
     require_metadata_within_limit(payload_bytes.data.size());
-    Value revision = notification_codec().decode(data_revision_meta(),
-                                                 bytes_view(payload_bytes));
+    Value revision = state.ref().codec.decode(bytes_view(payload_bytes));
     const DataRevisionInput decoded = data_revision_input(revision.view());
     // A broker record is as untrusted as a stored document.
     validate_data_revision(decoded);
@@ -104,12 +123,15 @@ struct FabricKafkaProduceRecordNode {
   static constexpr auto name = "hgraph.fabric.kafka.encode_revision";
 
   /** O(revision metadata size) per durable publication; no retained state. */
+  static void start(State<detail::RevisionCodecState> state) { state.modify().bind(); }
+
   static void eval(In<"revision", TS<Shared<DataRevision>>> revision,
+                   State<detail::RevisionCodecState> state,
                    Out<TS<kafka::KafkaProduceRecord>> out) {
     const DataRevisionInput decoded =
         data_revision_input(revision.base().value().concrete());
     persistence::store::ObjectBytes payload;
-    notification_codec().encode(revision.base().value().concrete(), payload);
+    state.ref().codec.encode(revision.base().value().concrete(), payload);
     Value record = kafka::make_produce_record(
         kafka_bytes(payload), Bytes{decoded.data_id}, {}, std::nullopt,
         std::nullopt, delivery_token(decoded.data_id, decoded.revision));
@@ -289,3 +311,12 @@ void register_kafka_transport(Wiring &wiring, Str topic, Str identity,
                            std::move(kafka_service_config));
 }
 } // namespace hgraph::fabric
+
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<fabric::detail::RevisionCodecState>
+    {
+        static constexpr std::string_view value{
+            "hgraph.fabric.internal::RevisionCodecState"};
+    };
+}  // namespace hgraph::static_schema_detail

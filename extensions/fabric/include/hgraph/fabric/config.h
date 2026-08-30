@@ -29,6 +29,19 @@ namespace hgraph::fabric
             json documents; tabular data goes to `frames` as Arrow. Fabric owns
             no serialization code of its own (RFC 0030). */
         persistence::store::ValueStore  values{};
+        /** Codecs bound at wiring time, one per schema Fabric persists.
+            Publication and resolution run during evaluation, where resolving a
+            codec or a json converter would take a TypeSystemMutex per value --
+            the single-threaded evaluation ruling forbids it. Binding here, with
+            the rest of the run-scoped configuration, is the "compose once"
+            contract the runtime already applies to nodes. */
+        persistence::store::BoundValueCodec revision_codec{};
+        persistence::store::BoundValueCodec reference_codec{};
+        /** Transport payloads (Kafka records, notifier blobs) are messages
+            rather than stored objects and always use the json baseline, so a
+            topic stays readable by an ordinary consumer. Bound for the same
+            reason as the two above. */
+        persistence::store::BoundValueCodec notification_revision_codec{};
         Notifier                         notifications{};
         std::size_t                     notification_request_limit{
             DEFAULT_NOTIFICATION_REQUEST_LIMIT};

@@ -89,6 +89,14 @@ namespace hgraph::persistence::store
                          std::optional<std::string_view> expected_version,
                          std::optional<std::string_view> codec = {}) const;
 
+        /** Bind this store's codec to one schema, once. Callers on the
+            evaluation path -- anything encoding or decoding during a graph
+            run -- must do this at wiring time and keep the result: the bound
+            handle performs no registry lookup and takes no lock, which the
+            unbound calls below cannot promise. */
+        [[nodiscard]] BoundValueCodec bind(const ValueTypeMetaData        *schema,
+                                           std::optional<std::string_view> codec = {}) const;
+
         /** The bytes a write would store: the codec's output verbatim. */
         [[nodiscard]] ObjectBytes encode(const ValueView                &value,
                                          std::optional<std::string_view> codec = {}) const;

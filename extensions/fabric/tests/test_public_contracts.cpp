@@ -37,6 +37,24 @@ namespace
     }
 
 
+    /** The bound codecs a configured fabric would carry.
+
+        Deliberately NOT cached in a static: this suite resets the registries
+        between cases, and a reset frees the interned converters a binding
+        points at. Caching one across a reset dangles -- it crashed this suite
+        with a bus error when first written, which is the hazard the
+        BoundValueCodec docs describe, reproduced. Real callers bind with the
+        config at wiring time and are torn down with the graph. */
+    [[nodiscard]] hgps::BoundValueCodec contract_revision_codec()
+    {
+        return contract_values().bind(hgf::data_revision_meta());
+    }
+
+    [[nodiscard]] hgps::BoundValueCodec contract_reference_codec()
+    {
+        return contract_values().bind(hgf::revision_reference_meta());
+    }
+
     [[nodiscard]] hgraph::persistence::store::ObjectBytes notice(
         hgraph::Str data_id, hgraph::Int revision)
     {
@@ -336,10 +354,10 @@ TEST_CASE("fabric metadata is a json document with the properties that matter")
     // An index entry names the index it belongs to, so reading a latest entry
     // as an as-of entry is refused rather than silently answered.
     const auto as_of =
-        hgf::encode_reference(values, hgf::MetadataObjectKind::AsOf, 3);
-    CHECK(hgf::revision_reference_value(values, hgf::MetadataObjectKind::AsOf, as_of) == 3);
+        hgf::encode_reference(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, 3);
+    CHECK(hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, as_of) == 3);
     CHECK_THROWS_AS(
-        hgf::revision_reference_value(values, hgf::MetadataObjectKind::Latest, as_of),
+        hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::Latest, as_of),
         std::invalid_argument);
 
     // Malformed input still fails closed.
@@ -592,7 +610,8 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
         builder.set("revision", hg::Value{hg::Int{0}}.view());
         const auto encoded = values.encode(builder.build().view());
         CHECK_THROWS_AS(hgf::revision_reference_value(
-                            values, hgf::MetadataObjectKind::Latest, encoded),
+                            contract_reference_codec(),
+                            hgf::MetadataObjectKind::Latest, encoded),
                         std::invalid_argument);
     }
 
@@ -614,21 +633,21 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
 
         auto zero_revision = valid;
         zero_revision.revision = 0;
-        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(zero_revision)),
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_revision)),
                         std::invalid_argument);
 
         auto zero_output = valid;
         zero_output.output_version = 0;
-        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(zero_output)),
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_output)),
                         std::invalid_argument);
 
         auto bad_dependency = valid;
         bad_dependency.dependencies = {{"input", 0}};
-        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(bad_dependency)),
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(bad_dependency)),
                         std::invalid_argument);
 
         // A valid one still round trips, so the checks are not simply refusing.
-        CHECK_NOTHROW(hgf::decode_data_revision(values, encoded_with(valid)));
+        CHECK_NOTHROW(hgf::decode_data_revision(contract_revision_codec(), encoded_with(valid)));
     }
 
     SECTION("dependencies out of canonical order are malformed")
@@ -653,7 +672,7 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
     {
         const std::vector<std::byte> oversized(hgf::MAX_METADATA_BYTES + 1,
                                                std::byte{'{'});
-        CHECK_THROWS_AS(hgf::decode_data_revision(values, oversized),
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), oversized),
                         std::invalid_argument);
     }
 }

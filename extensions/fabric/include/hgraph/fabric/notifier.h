@@ -3,6 +3,8 @@
 
 #include <hgraph/fabric/export.h>
 
+#include <hgraph/persistence/value_codec.h>
+
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/types/primitive_types.h>
 
@@ -133,11 +135,20 @@ namespace hgraph::fabric
         [[nodiscard]] explicit operator bool() const noexcept;
         void reset() noexcept;
 
+        /** Pre-bind the codec publish() validates with. Called at wiring time
+            from the fabric configuration path so publish(), which runs during
+            evaluation, resolves nothing. */
+        void bind_revision_codec(persistence::store::BoundValueCodec codec) noexcept;
+
       private:
         [[nodiscard]] static const NotifierOps &empty_ops() noexcept;
 
         std::shared_ptr<void> context_{};
         NotifierOps           ops_{empty_ops()};
+        /** Bound at wiring time. Mutable so a Notifier used outside the fabric
+            configuration path still works, binding once on first publish
+            rather than per call. */
+        mutable persistence::store::BoundValueCodec revision_codec_{};
     };
 
     /** Construct the broker-free, process-local conflating notifier used by

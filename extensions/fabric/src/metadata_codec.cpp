@@ -1,4 +1,6 @@
 #include <hgraph/fabric/metadata_codec.h>
+
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/value_builders.h>
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -80,20 +82,35 @@ namespace hgraph::fabric
         }
     }
 
-    persistence::store::ObjectBytes
-    encode_data_revision(const persistence::store::ValueStore &values,
-                         const ValueView                      &revision)
+    void bind_metadata_codecs(FabricConfig &config)
     {
-        auto encoded = values.encode(revision);
+        // Wiring time: every schema-dependent resolution happens here, so the
+        // evaluation path carries handles rather than looking anything up.
+        config.revision_codec = config.values.bind(data_revision_meta());
+        config.reference_codec = config.values.bind(revision_reference_meta());
+        config.notification_revision_codec =
+            notification_codec().bind(data_revision_meta());
+        if (config.notifications)
+        {
+            config.notifications.bind_revision_codec(
+                config.notification_revision_codec);
+        }
+    }
+
+    persistence::store::ObjectBytes
+    encode_data_revision(const persistence::store::BoundValueCodec &codec,
+                         const ValueView                           &revision)
+    {
+        auto encoded = codec.encode(revision);
         require_metadata_within_limit(encoded.size());
         return encoded;
     }
 
-    Value decode_data_revision(const persistence::store::ValueStore &values,
-                               std::span<const std::byte>            encoded)
+    Value decode_data_revision(const persistence::store::BoundValueCodec &codec,
+                               std::span<const std::byte>                 encoded)
     {
         require_metadata_within_limit(encoded.size());
-        Value decoded = values.decode(data_revision_meta(), encoded);
+        Value decoded = codec.decode(encoded);
         validate_data_revision(data_revision_input(decoded.view()));
         return decoded;
     }
@@ -158,18 +175,17 @@ namespace hgraph::fabric
     }
 
     persistence::store::ObjectBytes encode_reference(
-        const persistence::store::ValueStore &values, MetadataObjectKind kind,
+        const persistence::store::BoundValueCodec &codec, MetadataObjectKind kind,
         RevisionId revision)
     {
-        return values.encode(make_revision_reference(kind, revision).view());
+        return codec.encode(make_revision_reference(kind, revision).view());
     }
 
-    RevisionId revision_reference_value(const persistence::store::ValueStore &values,
+    RevisionId revision_reference_value(const persistence::store::BoundValueCodec &codec,
                                         MetadataObjectKind         expected_kind,
                                         std::span<const std::byte> encoded)
     {
-        return revision_reference_id(
-            values.decode(revision_reference_meta(), encoded).view(), expected_kind);
+        return revision_reference_id(codec.decode(encoded).view(), expected_kind);
     }
 
 }  // namespace hgraph::fabric

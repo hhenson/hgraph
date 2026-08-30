@@ -1,5 +1,7 @@
 #include <hgraph/fabric/fabric.h>
 
+#include <hgraph/types/utils/counted_mutex.h>
+
 #include <hgraph/persistence/frame_store.h>
 
 #include <arrow/array.h>
@@ -88,7 +90,7 @@ namespace
         const auto stored =
             config.objects.get(hgf::latest_key(config.prefix, data_id));
         REQUIRE(stored.has_value());
-        return hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, stored->data);
+        return hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, stored->data);
     }
 
     struct ControlledDelivery
@@ -451,7 +453,7 @@ TEST_CASE("startup repairs contiguous revision slots and stale derived indexes")
         REQUIRE(current);
         const auto stale = config.objects.compare_exchange_ref(
             key, current->version_token,
-            hgf::encode_reference(config.values, hgf::MetadataObjectKind::Latest, 1));
+            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::Latest, 1));
         REQUIRE(stale.exchanged);
 
         hgf::PublisherStateMachine recovered{config, "result"};
@@ -561,4 +563,75 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
         CHECK_FALSE(config.objects.get(
             hgf::latest_key(config.prefix, "result")));
     }
+}
+
+TEST_CASE("the codec a wired fabric carries resolves nothing per value")
+{
+    // The enforceable form of the single-threaded evaluation ruling: every
+    // type-system mutex is counted, so a codec bound at wiring time must leave
+    // the counter untouched no matter how many values go through it.
+    // bind_metadata_codecs resolves the json converter once, in the
+    // configuration path; before that, to_json_string resolved it per value and
+    // locked to do it.
+    //
+    // This asserts the codec's contribution only. A whole publication still
+    // takes locks -- roughly 300 at the time of writing, down from 910 -- and
+    // those come from value construction and field reads (bundle plan lookup,
+    // checked_as per field) rather than from serialization. Removing them needs
+    // the same bind-at-wiring-time treatment applied to value plans, which is
+    // core-level and tracked separately; pinning a whole-publication number
+    // here would be a brittle proxy for a property this test can state exactly.
+    auto config = hgf::make_memory_fabric_config("tests/fabric");
+    const hg::Value revision = hgf::make_data_revision(hgf::DataRevisionInput{
+        .data_id = "result", .revision = 1, .output_version = 1,
+        .as_of = hg::MIN_ST});
+
+    // Warm once: the converter is composed on first sight of the schema.
+    static_cast<void>(config.revision_codec.encode(revision.view()));
+
+    const auto before = hgraph::type_system_lock_count();
+    for (int index = 0; index < 64; ++index)
+    {
+        static_cast<void>(config.revision_codec.encode(revision.view()));
+    }
+    CHECK(hgraph::type_system_lock_count() == before);
+}
+
+TEST_CASE("diagnostic: where publication still locks", "[.diagnostic]")
+{
+    auto config = hgf::make_memory_fabric_config("tests/fabric");
+    {
+        hgf::PublisherStateMachine warmup{config, "warm"};
+        warmup.begin(output(7));
+        while (warmup.advance() != hgf::PublicationState::Published) {}
+    }
+    const hgf::DataRevisionInput input{
+        .data_id = "probe", .revision = 1, .output_version = 1,
+        .as_of = hg::MIN_ST};
+
+    auto measure = [](auto &&fn) {
+        const auto before = hgraph::type_system_lock_count();
+        fn();
+        return hgraph::type_system_lock_count() - before;
+    };
+
+    hg::Value revision = hgf::make_data_revision(input);
+    const auto build = measure([&] { static_cast<void>(hgf::make_data_revision(input)); });
+    const auto encode = measure([&] {
+        static_cast<void>(config.revision_codec.encode(revision.view()));
+    });
+    const auto encoded = config.revision_codec.encode(revision.view());
+    const auto decode = measure([&] {
+        static_cast<void>(config.revision_codec.decode(encoded));
+    });
+    const auto to_input = measure([&] {
+        static_cast<void>(hgf::data_revision_input(revision.view()));
+    });
+    const auto reference = measure([&] {
+        static_cast<void>(hgf::encode_reference(config.reference_codec,
+                                                hgf::MetadataObjectKind::Latest, 1));
+    });
+    WARN("make_data_revision=" << build << " encode=" << encode
+         << " decode=" << decode << " data_revision_input=" << to_input
+         << " encode_reference=" << reference);
 }
