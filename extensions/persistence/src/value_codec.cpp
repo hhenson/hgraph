@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -16,6 +17,7 @@ namespace hgraph::persistence::store
     {
         struct Registration
         {
+            std::string           extension{};
             std::shared_ptr<void> context{};
             ValueCodecOps         ops{};
         };
@@ -60,9 +62,10 @@ namespace hgraph::persistence::store
         }
     }  // namespace
 
-    ValueCodec::ValueCodec(std::string name, std::shared_ptr<void> context,
-                           ValueCodecOps ops) noexcept
-        : name_{std::move(name)}, context_{std::move(context)}, ops_{ops}
+    ValueCodec::ValueCodec(std::string name, std::string extension,
+                           std::shared_ptr<void> context, ValueCodecOps ops) noexcept
+        : name_{std::move(name)}, extension_{std::move(extension)},
+          context_{std::move(context)}, ops_{ops}
     {
     }
 
@@ -85,12 +88,18 @@ namespace hgraph::persistence::store
         return ops_.decode(context_.get(), schema, encoded);
     }
 
-    void register_value_codec(std::string_view name, std::shared_ptr<void> context,
-                              const ValueCodecOps &ops)
+    void register_value_codec(std::string_view name, std::string_view extension,
+                              std::shared_ptr<void> context, const ValueCodecOps &ops)
     {
         if (name.empty())
         {
             throw std::invalid_argument("value codec name must not be empty");
+        }
+        if (extension.empty() || extension.front() == '.' ||
+            extension.find('/') != std::string_view::npos)
+        {
+            throw std::invalid_argument(
+                "value codec extension must be a bare suffix such as \"json\"");
         }
         if (ops.encode == nullptr || ops.decode == nullptr)
         {
@@ -104,7 +113,7 @@ namespace hgraph::persistence::store
             // Re-registering the same implementation is how an idempotent
             // install behaves; two different implementations under one name is
             // a build error, not a last-writer-wins race.
-            if (!same_ops(found->second.ops, ops))
+            if (!same_ops(found->second.ops, ops) || found->second.extension != extension)
             {
                 throw std::invalid_argument("value codec '" + std::string{name} +
                                             "' is already registered with a different "
@@ -112,7 +121,19 @@ namespace hgraph::persistence::store
             }
             return;
         }
-        state.codecs.emplace(std::string{name}, Registration{std::move(context), ops});
+        for (const auto &[existing_name, registration] : state.codecs)
+        {
+            // Two codecs claiming one extension would make a stored object
+            // ambiguous, which is the one thing the key-based scheme cannot
+            // tolerate.
+            if (registration.extension == extension)
+            {
+                throw std::invalid_argument("value codec extension '" + std::string{extension} +
+                                            "' is already claimed by '" + existing_name + "'");
+            }
+        }
+        state.codecs.emplace(std::string{name},
+                             Registration{std::string{extension}, std::move(context), ops});
     }
 
     ValueCodec value_codec(std::string_view name)
@@ -124,7 +145,8 @@ namespace hgraph::persistence::store
         {
             throw std::invalid_argument("unknown value codec '" + std::string{name} + "'");
         }
-        return ValueCodec{std::string{name}, found->second.context, found->second.ops};
+        return ValueCodec{std::string{name}, found->second.extension, found->second.context,
+                          found->second.ops};
     }
 
     bool value_codec_registered(std::string_view name) noexcept
@@ -149,9 +171,23 @@ namespace hgraph::persistence::store
         return names;
     }
 
+    std::optional<std::string> value_codec_for_extension(std::string_view extension)
+    {
+        auto           &state = registry();
+        std::lock_guard lock{state.mutex};
+        for (const auto &[name, registration] : state.codecs)
+        {
+            if (registration.extension == extension)
+            {
+                return name;
+            }
+        }
+        return std::nullopt;
+    }
+
     void register_builtin_value_codecs()
     {
-        register_value_codec(JSON_VALUE_CODEC, nullptr,
+        register_value_codec(JSON_VALUE_CODEC, "json", nullptr,
                              ValueCodecOps{.encode = &json_encode, .decode = &json_decode});
     }
 

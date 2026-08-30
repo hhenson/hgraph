@@ -5,10 +5,12 @@
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <span>
 #include <string>
@@ -77,8 +79,19 @@ namespace
     void register_reversing_codec()
     {
         register_value_codec(
-            "test-reversed", nullptr,
+            "test-reversed", "rev", nullptr,
             ValueCodecOps{.encode = &reversing_encode, .decode = &reversing_decode});
+    }
+
+    [[nodiscard]] std::string as_text(std::span<const std::byte> bytes)
+    {
+        std::string text;
+        text.reserve(bytes.size());
+        for (const auto byte : bytes)
+        {
+            text.push_back(std::to_integer<char>(byte));
+        }
+        return text;
     }
 }  // namespace
 
@@ -93,40 +106,58 @@ TEST_CASE("value store: a declared struct round trips without extension codec co
     CHECK(read.view().equals(written.view()));
 }
 
-TEST_CASE("value store: json is the default codec")
+TEST_CASE("value store: a stored json object is a json document and nothing else")
+{
+    // The point of the format is that something outside this codebase can read
+    // it: a text editor, jq, json.load. Any framing of ours would break that,
+    // so the stored bytes must equal the codec's output exactly.
+    const auto  store = memory_store();
+    const Value written = record_value("alpha", 7, "BOM");
+
+    const ObjectBytes encoded = store.encode(written.view());
+    const std::string text = as_text(encoded);
+
+    CHECK(text == to_json_string(written.view()));
+    CHECK(text.front() == '{');
+    CHECK(text.back() == '}');
+    CHECK(text.find("alpha") != std::string::npos);
+}
+
+TEST_CASE("value store: json is the default codec and names the object .json")
 {
     const auto store = memory_store();
     CHECK(store.default_codec() == std::string{JSON_VALUE_CODEC});
-
-    const ObjectBytes encoded = store.encode(record_value("a", 1, "X").view());
-    CHECK(value_envelope_codec(encoded) == std::string{JSON_VALUE_CODEC});
+    CHECK(store.resolve_key("records/alpha") == "records/alpha.json");
+    CHECK(codec_for_key("records/alpha.json") == std::string{JSON_VALUE_CODEC});
+    CHECK_FALSE(codec_for_key("records/alpha").has_value());
+    // A dot in a directory name is not a format.
+    CHECK_FALSE(codec_for_key("records.v2/alpha").has_value());
 }
 
-TEST_CASE("value store: the default is configurable and a call can override it")
+TEST_CASE("value store: the default is configurable and a call or key can override it")
 {
     register_reversing_codec();
 
     const auto reversed_default = memory_store("test-reversed");
     CHECK(reversed_default.default_codec() == "test-reversed");
-    CHECK(value_envelope_codec(reversed_default.encode(record_value("a", 1, "X").view())) ==
-          "test-reversed");
+    CHECK(reversed_default.resolve_key("records/a") == "records/a.rev");
 
     // A per-call override wins over the store default, in both directions.
-    CHECK(value_envelope_codec(reversed_default.encode(record_value("a", 1, "X").view(),
-                                                       JSON_VALUE_CODEC)) ==
-          std::string{JSON_VALUE_CODEC});
-
+    CHECK(reversed_default.resolve_key("records/a", JSON_VALUE_CODEC) == "records/a.json");
     const auto json_default = memory_store();
-    CHECK(value_envelope_codec(
-              json_default.encode(record_value("a", 1, "X").view(), "test-reversed")) ==
-          "test-reversed");
+    CHECK(json_default.resolve_key("records/a", "test-reversed") == "records/a.rev");
+
+    // An extension already on the key is the most explicit statement and wins
+    // over both.
+    CHECK(json_default.resolve_key("records/a.rev") == "records/a.rev");
+    CHECK(json_default.resolve_key("records/a.rev", JSON_VALUE_CODEC) == "records/a.rev");
 }
 
-TEST_CASE("value store: a read resolves the codec the object was written with")
+TEST_CASE("value store: a read resolves the codec from the stored key")
 {
     register_reversing_codec();
-    // One store, two codecs, no out-of-band agreement: this is the case the
-    // envelope exists for.
+    // One store, two codecs, no out-of-band agreement. The key carries the
+    // format, so the reader does not need to be told which was used.
     const auto  store = memory_store();
     const Value first = record_value("alpha", 1, "BOM");
     const Value second = record_value("beta", 2, "FRONT");
@@ -135,7 +166,11 @@ TEST_CASE("value store: a read resolves the codec the object was written with")
     store.write("records/second", second.view(), "test-reversed");
 
     CHECK(store.read("records/first", record_meta()).view().equals(first.view()));
+    // Found by listing, because the caller asks for the logical key and the
+    // object was written under a non-default codec.
     CHECK(store.read("records/second", record_meta()).view().equals(second.view()));
+    // And directly, when the caller names the encoded key.
+    CHECK(store.read("records/second.rev", record_meta()).view().equals(second.view()));
 }
 
 TEST_CASE("value store: an unknown codec fails closed rather than guessing")
@@ -151,16 +186,16 @@ TEST_CASE("value store: an unknown codec fails closed rather than guessing")
                     std::invalid_argument);
 }
 
-TEST_CASE("value store: bytes without the envelope are recognised, not mis-parsed")
+TEST_CASE("value store: an unregistered extension is not treated as a format")
 {
     register_builtin_value_codecs();
-    // A legacy object predating RFC 0030 must be distinguishable so a migration
-    // can read both formats. The magic check is how that is done.
-    const ObjectBytes legacy{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
-    CHECK_FALSE(value_envelope_codec(legacy).has_value());
+    // A key ending in something we do not know is not silently decoded with the
+    // default; it simply does not name a codec, so the object is written under
+    // the default extension instead of being mistaken for a foreign format.
+    CHECK_FALSE(codec_for_key("records/alpha.bin").has_value());
 
     const auto store = memory_store();
-    CHECK_THROWS_AS(store.decode(record_meta(), legacy), std::invalid_argument);
+    CHECK(store.resolve_key("records/alpha.bin") == "records/alpha.bin.json");
 }
 
 TEST_CASE("value store: missing keys are absent rather than an error for try_read")
@@ -197,7 +232,14 @@ TEST_CASE("value codec registry: names are listed and re-registration is idempot
     CHECK(std::find(names.begin(), names.end(), std::string{JSON_VALUE_CODEC}) != names.end());
 
     // Two implementations under one name is a build error, not last-writer-wins.
-    CHECK_THROWS_AS(register_value_codec(JSON_VALUE_CODEC, nullptr,
+    CHECK_THROWS_AS(register_value_codec(JSON_VALUE_CODEC, "json", nullptr,
+                                         ValueCodecOps{.encode = &reversing_encode,
+                                                       .decode = &reversing_decode}),
+                    std::invalid_argument);
+
+    // Two codecs cannot claim one extension: a stored object would be
+    // ambiguous, which the key-based scheme cannot tolerate.
+    CHECK_THROWS_AS(register_value_codec("another-json", "json", nullptr,
                                          ValueCodecOps{.encode = &reversing_encode,
                                                        .decode = &reversing_decode}),
                     std::invalid_argument);

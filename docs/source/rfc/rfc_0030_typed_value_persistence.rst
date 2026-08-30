@@ -16,9 +16,12 @@ a fixed format, selected by a store-level default and overridable per call. JSON
 is the required baseline and the initial default; RFC 0017's binary codec,
 protobuf, and avro register the same way without touching a caller.
 
-Objects written through the store carry a minimal envelope naming the codec, so
-a read resolves its decoder from the stored bytes rather than from out-of-band
-agreement. Without that, a per-call override would be unreadable.
+**Stored bytes are exactly the codec's output.** A ``.json`` object is a JSON
+document a text editor opens and ``jq`` reads; an ``.arrow`` object is a file
+polars loads directly. The store adds no header, framing, or trailer. The codec
+is therefore named by the object key -- the conventional file extension -- which
+every backend surfaces in listings and which a filesystem shows as an ordinary
+file.
 
 Motivation
 ----------
@@ -79,51 +82,66 @@ context. It is registered under a stable name.
                         std::span<const std::byte> encoded);
     };
 
-    void register_value_codec(std::string_view name, std::shared_ptr<void> context,
-                              const ValueCodecOps &ops);
+    void register_value_codec(std::string_view name, std::string_view extension,
+                              std::shared_ptr<void> context, const ValueCodecOps &ops);
 
 Registration is build-time machinery, not a per-tick path, so guarding the
 registry with a counted ``TypeSystemMutex`` is sanctioned by the single-threaded
 evaluation ruling rather than a departure from it. Codecs are resolved once when
 a store is constructed or a call names one, never per value.
 
-The baseline codec is ``"json"``, implemented over the core's interned
-``JsonConverter`` — ``to_json_string`` and ``from_json_string``. It is required:
-a build without it is not a conforming persistence build.
+The extension is the conventional suffix for the format — ``json``, ``arrow``,
+``parquet`` — because it is what names the codec in the stored key and what an
+external tool recognises the file by.
+
+The baseline codec is ``"json"``, extension ``json``, implemented over the
+core's interned ``JsonConverter`` — ``to_json_string`` and ``from_json_string``.
+It is required: a build without it is not a conforming persistence build.
 
 Selection and self-description
 ------------------------------
 
-Two levels, as requested:
+Three levels, most explicit first:
 
-* **Store default.** ``ValueStoreConfig::codec`` names the codec every write
-  uses unless overridden. Unset means ``"json"``.
-* **Per call.** ``write(key, value, codec_name)`` overrides for one object,
-  which is what makes a mixed store possible — small metadata as JSON, a large
-  retained record as binary — without splitting the store.
+* **The key.** ``records/alpha.json`` names its codec. A caller that cares
+  states it, and the object is then self-describing to every reader, including
+  ones outside this codebase.
+* **Per call.** ``write(key, value, codec)`` selects for one object when the key
+  does not, which is what makes a mixed store possible -- small metadata as
+  JSON beside a large record in a binary format -- without splitting the store.
+* **Store default.** ``ValueStoreConfig::codec``, unset meaning ``"json"``.
 
-Reads take no codec. ``ObjectBytes`` is ``std::vector<std::byte>`` and the
-object store persists no content type, so a decoder cannot be inferred from the
-storage layer and must not be supplied by the caller: a per-call override would
-then be silently unreadable by any reader that guessed differently.
+A write appends the codec's extension when the key does not already carry one,
+so ``write("records/alpha", v)`` stores ``records/alpha.json``.
+``resolve_key()`` exposes that name, because a caller handing the object to an
+external reader needs it.
 
-``ValueStore`` therefore writes a minimal envelope ahead of the payload:
+A read takes the logical key. When it names a codec, the object is fetched
+directly. Otherwise the default's key is tried -- one ``get``, the common path
+-- and failing that a single prefix listing finds an object written under
+another codec, so a per-call override stays readable by a caller that does not
+know one was used.
 
-.. code-block:: text
+Extensions are unique across codecs: two codecs claiming ``json`` would make a
+stored object ambiguous, and the registry rejects it.
 
-    "HGV1"  u8:name_length  name_bytes  payload...
+Why not a wrapper
+-----------------
 
-Four magic bytes, one length, the codec name, then the codec's own output. It
-records exactly one fact — which decoder to use — and it is written once in the
-library rather than per extension.
+The first draft of this RFC put a four-byte envelope ahead of the payload
+naming the codec. That was wrong and the reason is worth recording, because it
+is the mistake the whole RFC exists to correct.
 
-This is deliberately the *only* framing this RFC adds, and the distinction from
-what it removes matters. The Fabric envelope encoded a domain type: field order,
-integer widths, dependency canonicalisation, all of which had to change whenever
-``DataRevision`` changed. This envelope is independent of every schema and every
-codec; it names a decoder and stops. RFC 0017 proposes a richer stream envelope
-carrying schema identity and sequence for transports, and a future codec is free
-to place that inside its payload without this envelope changing.
+A wrapper makes the stored object readable only by code that knows about the
+wrapper. ``jq`` fails, ``json.load`` fails, a text editor shows a few bytes of
+noise before the document, and polars cannot open an Arrow file at all. It
+would have reintroduced -- one layer down, and for every extension at once --
+exactly the private format that motivated removing Fabric's codec.
+
+Putting the codec in the key costs one listing on the uncommon read path and
+buys files that every external tool already understands. Interoperability is
+the property being paid for, and a self-describing byte stream that only we can
+parse is not interoperability.
 
 Store contract
 --------------
@@ -163,8 +181,9 @@ Non-goals
 * **Frames.** Tabular data continues through ``FrameStore``. A single struct
   wrapped as a one-row table would pay Arrow's per-object overhead and lose the
   natural nesting of ``HomogeneousTuple<DataDependency>``.
-* **Transport framing.** RFC 0017 owns stream envelopes. This RFC persists
-  objects.
+* **Transport framing.** RFC 0017 owns stream envelopes, which carry schema
+  identity and sequence for a socket. This RFC persists objects, where the
+  requirement is the opposite: no framing at all, so the file stays a file.
 * **A canonical-bytes guarantee.** No codec is required to be deterministic
   byte-for-byte. Any future caller needing content addressing must say so, and
   should register a codec that promises it rather than assume one.
@@ -196,11 +215,11 @@ Migration
 
 Fabric is the first consumer and the proof.
 
-``DataRevision`` carries ``format_version`` as its first field, and the two
-formats are distinguishable without it: the new envelope begins ``HGV1`` and
-the legacy envelope begins with its version byte. The read path can therefore
-accept both with a four-byte check, so there is no flag day and no offline
-migration.
+The two formats live at different keys. Legacy objects sit at the bare key that
+Fabric writes today; new objects gain a ``.json`` suffix. A read that tries the
+new key and falls back to the bare key therefore serves both without a flag day,
+an offline migration, or any byte-level discrimination -- and the two can coexist
+indefinitely if a store is never fully rewritten.
 
 * Write the new format from the first release that has ``ValueStore``.
 * Keep ``decode_revision`` as a read-only legacy path for one release.
