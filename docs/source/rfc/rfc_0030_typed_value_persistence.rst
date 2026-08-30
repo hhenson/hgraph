@@ -133,10 +133,11 @@ noise before the document, and polars cannot open an Arrow file at all. It
 would have reintroduced -- one layer down, and for every extension at once --
 exactly the private format that motivated removing Fabric's codec.
 
-Putting the codec in the key costs one listing on the uncommon read path and
-buys files that every external tool already understands. Interoperability is
-the property being paid for, and a self-describing byte stream that only we can
-parse is not interoperability.
+Taking the codec from configuration instead costs a caller nothing it does not
+already know -- it chose the format when it configured the store -- and buys
+files every external tool already understands. Interoperability is the property
+being paid for, and a self-describing byte stream only we can parse is not
+interoperability.
 
 Store contract
 --------------
@@ -203,12 +204,13 @@ Alternatives considered
   existing machinery at the cost of representing a struct as a table, with
   per-object overhead on the metadata path.
 * **Add a content type to ObjectStore** — rejected for now, and the closer
-  call. It would make objects self-describing without a new envelope, and S3
-  carries content types natively. But it changes the ops table every backend
-  implements, and memory and local backends would have to store and return a
-  field they otherwise have no use for. The envelope keeps the change inside
-  one library. If a content type is added later for other reasons, the envelope
-  becomes redundant and can be retired behind the same read path.
+  call. It would let a store record what it wrote without touching the payload,
+  and S3 carries content types natively. But it changes the ops table every
+  backend implements, and the memory and local backends would have to store and
+  return a field they otherwise have no use for -- for a benefit only a reader
+  that mistrusts its own configuration would use. If a content type is added
+  later for other reasons, a store may then verify against it; the format would
+  still be selected here.
 * **Codec as a template parameter on the store** — rejected: it moves the
   choice to compile time, which defeats a per-call override and forces every
   caller to name a format it should not care about.
@@ -244,9 +246,10 @@ Each step is independently reviewable and leaves the tree green.
 1. ``ValueCodecOps``, the registry, and the ``"json"`` codec over
    ``JsonConverter``, with round-trip tests across the schema kinds the core
    codec supports.
-2. ``ValueStore`` over ``ObjectStore``: envelope, default selection, per-call
-   override, ``compare_exchange``. Tests covering a mixed-codec store and an
-   unknown codec name failing closed on read.
+2. ``ValueStore`` over ``ObjectStore``: default selection, per-call override,
+   ``compare_exchange``, and keys passed through verbatim. Tests covering a
+   mixed-codec store, an unknown codec name failing closed, and a local-backend
+   object read back off disk as a json file.
 3. Fabric writes and reads through ``ValueStore``; ``metadata_codec.{h,cpp}``
    deleted outright.
 4. Generic key primitives moved beside ``require_valid_key()``; Fabric keeps its

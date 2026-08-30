@@ -190,7 +190,7 @@ NB_MODULE(_hgraph_fabric, module)
                 .self_predecessor = self_predecessor,
                 .as_of = as_of,
             });
-            hgf::ObjectBytes encoded;
+            persistence::store::ObjectBytes encoded;
             notification_codec().encode(value.view(), encoded);
             return to_python_bytes(encoded);
         },
@@ -229,7 +229,7 @@ NB_MODULE(_hgraph_fabric, module)
         [](std::uint8_t kind, RevisionId revision) {
             // A utility, not a store operation: the json codec directly, so the
             // Python surface needs no configuration to encode a reference.
-            hgf::ObjectBytes encoded;
+            persistence::store::ObjectBytes encoded;
             notification_codec().encode(
                 make_revision_reference(static_cast<MetadataObjectKind>(kind), revision)
                     .view(),
@@ -358,8 +358,5 @@ NB_MODULE(_hgraph_fabric, module)
         nb::arg("encoded_revisions"), nb::arg("roots"),
         nb::arg("exposed") = std::vector<std::pair<Str, DataVersion>>{});
 
-    module.attr("REVISION_MEDIA_TYPE") = std::string{REVISION_MEDIA_TYPE};
-    module.attr("AS_OF_MEDIA_TYPE") = std::string{AS_OF_MEDIA_TYPE};
-    module.attr("LATEST_MEDIA_TYPE") = std::string{LATEST_MEDIA_TYPE};
     module.doc() = "hgraph versioned dataflow fabric public contracts";
 }

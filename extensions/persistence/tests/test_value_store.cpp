@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -18,10 +19,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-
-#if !defined(_WIN32)
-#include <unistd.h>
-#endif
 
 using namespace hgraph;
 using namespace hgraph::persistence::store;
@@ -260,8 +257,10 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
     // json. Asserting on encoded bytes is a proxy; this reads the file back
     // through the filesystem with no hgraph code in the path.
     register_builtin_value_codecs();
-    const auto root = std::filesystem::temp_directory_path() /
-                      ("hgraph_value_store_" + std::to_string(::getpid()));
+    const auto root =
+        std::filesystem::temp_directory_path() /
+        ("hgraph_value_store_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
 
     const auto store = make_value_store(ValueStoreConfig{
