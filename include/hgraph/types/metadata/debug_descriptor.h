@@ -136,7 +136,7 @@ namespace hgraph
     };
 
     /** Data-only offsets used by Sequence and KeyedSlots descriptors. */
-    struct HGRAPH_EXPORT DebugDynamicLayout
+    struct HGRAPH_CLASS_EXPORT DebugDynamicLayout
     {
         std::uint32_t magic{0};
         std::uint16_t abi_version{0};
@@ -158,7 +158,7 @@ namespace hgraph
         [[nodiscard]] constexpr bool operator==(const DebugDynamicLayout &) const noexcept = default;
     };
 
-    struct HGRAPH_EXPORT DebugDescriptor
+    struct HGRAPH_CLASS_EXPORT DebugDescriptor
     {
         std::uint32_t magic{0};
         std::uint16_t abi_version{0};
@@ -179,7 +179,7 @@ namespace hgraph
     };
 
     /** Stable, data-only navigation for one TSData allocation. */
-    struct HGRAPH_EXPORT DebugTimeSeriesLayout
+    struct HGRAPH_CLASS_EXPORT DebugTimeSeriesLayout
     {
         const TypeRecord *value_type{nullptr};
         const TypeRecord *delta_type{nullptr};

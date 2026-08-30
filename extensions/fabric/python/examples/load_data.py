@@ -1,6 +1,6 @@
-"""Publish locally, then perform a standalone historical point lookup."""
+"""Publish locally, then perform a standalone direct load."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pyarrow as pa
 
@@ -9,9 +9,9 @@ import hgraph_fabric as fabric
 
 
 def local_load_example():
-    """Return the newest stored prices Frame at or before the cutoff."""
+    """Return the latest stored prices Frame."""
 
-    config = fabric.make_memory_fabric_config(prefix="examples/load-as-of")
+    config = fabric.make_memory_fabric_config(prefix="examples/load-data")
 
     @hg.graph
     def publish_prices() -> None:
@@ -30,9 +30,9 @@ def local_load_example():
         )
 
     # Point lookup is deliberately outside the graph. It selects only this
-    # dataset's newest version <= the requested instant; it does not solve a
-    # dependency-consistent forest.
-    return fabric.load_data_as_of(config, "prices/raw", datetime.max)
+    # dataset's latest version; passing as_of would select the newest version
+    # at or before that instant. It does not solve a consistent forest.
+    return fabric.load_data(config, "prices/raw")
 
 
 if __name__ == "__main__":

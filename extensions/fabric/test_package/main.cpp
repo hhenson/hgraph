@@ -42,7 +42,7 @@ int main()
     {
         return 1;
     }
-    if (hgf::load_data_as_of(
+    if (hgf::load_data(
             *config, "installed/missing",
             hg::DateTime{hg::TimeDelta{1'767'323'045'006'007}})
             .has_value())

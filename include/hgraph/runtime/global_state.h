@@ -21,7 +21,7 @@ namespace hgraph
      * the way in (``set`` assigns in place — no temporary) and unwrapped on the
      * way out (``get`` returns the contained value directly).
      */
-    class HGRAPH_EXPORT GlobalStateView
+    class HGRAPH_CLASS_EXPORT GlobalStateView
     {
       public:
         GlobalStateView() noexcept = default;
@@ -84,7 +84,7 @@ namespace hgraph
      * Backed by a value-layer mutable ``Map<string, Any>`` ``Value`` — so it is a
      * single type-erased value: copyable, and bindable to Python.
      */
-    class HGRAPH_EXPORT GlobalState
+    class HGRAPH_CLASS_EXPORT GlobalState
     {
       public:
         /** Construct an empty store (an empty mutable ``Map<string, Any>``). */
@@ -119,7 +119,7 @@ namespace hgraph
      * wiring process — a wiring whose context exited early fails its build
      * loudly rather than dereferencing a dead state.
      */
-    class HGRAPH_EXPORT GlobalContext
+    class HGRAPH_CLASS_EXPORT GlobalContext
     {
       public:
         GlobalContext();

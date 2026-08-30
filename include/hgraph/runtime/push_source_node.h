@@ -31,7 +31,7 @@ namespace hgraph
         Burst,
     };
 
-    class HGRAPH_EXPORT PushSourcePolicy
+    class HGRAPH_CLASS_EXPORT PushSourcePolicy
     {
       public:
         PushSourcePolicy() noexcept;
@@ -82,7 +82,7 @@ namespace hgraph
      * synchronization remain internal; default and moved-from handles bind a
      * canonical stopped sentinel.
      */
-    class HGRAPH_EXPORT PushSourceSender
+    class HGRAPH_CLASS_EXPORT PushSourceSender
     {
       public:
         PushSourceSender() noexcept;

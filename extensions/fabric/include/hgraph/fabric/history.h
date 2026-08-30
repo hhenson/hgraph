@@ -18,7 +18,7 @@ namespace hgraph::fabric
         the requested instant returns ``std::nullopt``; corrupt metadata or a
         missing referenced frame fails explicitly. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT std::optional<Frame>
-    load_data_as_of(const FabricConfig &config, Str data_id, DateTime as_of);
+    load_data(const FabricConfig &config, Str data_id, DateTime as_of = MAX_DT);
 
 }  // namespace hgraph::fabric
 

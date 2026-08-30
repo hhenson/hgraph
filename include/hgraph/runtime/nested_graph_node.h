@@ -18,20 +18,20 @@ namespace hgraph
      * endpoint. ``target`` selects the child node input endpoint that should
      * receive the same upstream output binding.
      */
-    struct HGRAPH_EXPORT NestedGraphInputBinding
+    struct HGRAPH_CLASS_EXPORT NestedGraphInputBinding
     {
         std::vector<std::size_t> source_path{};
         NestedGraphEndpoint      target{};
     };
 
-    struct HGRAPH_EXPORT SingleNestedGraphNodeSpec
+    struct HGRAPH_CLASS_EXPORT SingleNestedGraphNodeSpec
     {
         GraphBuilder                            graph_builder{};
         std::vector<NestedGraphInputBinding>    input_bindings{};
         std::optional<NestedGraphOutputBinding> output_binding{};
     };
 
-    struct HGRAPH_EXPORT SingleNestedGraphNodeOptions
+    struct HGRAPH_CLASS_EXPORT SingleNestedGraphNodeOptions
     {
         bool start_child_on_start{true};
         bool stop_child_on_stop{true};
@@ -44,7 +44,7 @@ namespace hgraph
         bool manage_output_externally{false};
     };
 
-    struct HGRAPH_EXPORT SingleNestedGraphNodeContext
+    struct HGRAPH_CLASS_EXPORT SingleNestedGraphNodeContext
     {
         SingleNestedGraphNodeSpec    spec{};
         std::size_t                  graph_storage_offset{0};
@@ -60,7 +60,7 @@ namespace hgraph
      * build on this view and supply their own callbacks while reusing the same
      * storage and child graph binding model.
      */
-    class HGRAPH_EXPORT SingleNestedGraphNodeView
+    class HGRAPH_CLASS_EXPORT SingleNestedGraphNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;

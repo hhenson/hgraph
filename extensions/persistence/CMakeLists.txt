@@ -203,7 +203,10 @@ set_target_properties(hgraph_persistence PROPERTIES
 )
 
 if(MSVC)
-    target_compile_options(hgraph_persistence PRIVATE /W4 /permissive-)
+    # Class exports are producer-only; private STL representation is not
+    # imported by consumers. Scope these interface diagnostics to this DLL.
+    target_compile_options(hgraph_persistence PRIVATE
+        /W4 /permissive- /wd4251 /wd4275)
     if(HGRAPH_PERSISTENCE_WARNINGS_AS_ERRORS)
         target_compile_options(hgraph_persistence PRIVATE /WX)
     endif()

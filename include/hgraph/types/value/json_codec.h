@@ -32,7 +32,7 @@ namespace hgraph
      * ``"D:H:M:S.ffffff"``), bundles/tuples as objects/arrays, lists and sets
      * as arrays, maps as objects (non-string keys rendered then quoted).
      */
-    class HGRAPH_EXPORT JsonConverter
+    class HGRAPH_CLASS_EXPORT JsonConverter
     {
       public:
         using WriteFn = void (*)(const JsonConverter &, const ValueView &, std::string &);

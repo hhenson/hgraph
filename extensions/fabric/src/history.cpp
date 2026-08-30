@@ -11,8 +11,8 @@
 
 namespace hgraph::fabric
 {
-    std::optional<Frame> load_data_as_of(const FabricConfig &config, Str data_id,
-                                         DateTime as_of)
+    std::optional<Frame> load_data(const FabricConfig &config, Str data_id,
+                                   DateTime as_of)
     {
         require_valid_config(config);
         require_data_id(data_id);
@@ -29,6 +29,7 @@ namespace hgraph::fabric
         const std::string prefix = category + "/";
         const std::string target = as_of_key(config.prefix, data_id, as_of);
         std::optional<std::string> selected;
+        std::optional<DateTime> selected_as_of;
         std::optional<std::string> cursor;
 
         for (;;)
@@ -44,14 +45,15 @@ namespace hgraph::fabric
                 {
                     throw std::runtime_error("fabric as-of listing escaped its data id");
                 }
-                static_cast<void>(decode_fabric_ordinal(
-                    std::string_view{object.key}.substr(prefix.size())));
+                const Int ordinal = decode_fabric_ordinal(
+                    std::string_view{object.key}.substr(prefix.size()));
                 if (object.key > target)
                 {
                     reached_cutoff = true;
                     break;
                 }
                 selected = object.key;
+                selected_as_of = DateTime{TimeDelta{ordinal}};
             }
             if (reached_cutoff || !page.next_start_after.has_value())
             {
@@ -60,7 +62,7 @@ namespace hgraph::fabric
             cursor = page.next_start_after;
         }
 
-        if (!selected.has_value())
+        if (!selected.has_value() || !selected_as_of.has_value())
         {
             return std::nullopt;
         }
@@ -80,7 +82,7 @@ namespace hgraph::fabric
         const DataRevisionInput revision = data_revision_input(
             decode_revision(stored_revision->data).view());
         if (revision.data_id != data_id || revision.revision != revision_id ||
-            revision.as_of > as_of)
+            revision.as_of != *selected_as_of)
         {
             throw std::runtime_error("fabric as-of index references inconsistent revision metadata");
         }

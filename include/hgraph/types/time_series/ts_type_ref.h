@@ -17,7 +17,7 @@ namespace hgraph
 
     inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 12;
 
-    class HGRAPH_EXPORT TSRoleTypeRef
+    class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {
       public:
         constexpr TSRoleTypeRef() noexcept = default;

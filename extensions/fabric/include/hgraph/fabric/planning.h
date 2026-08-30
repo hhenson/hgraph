@@ -6,6 +6,7 @@
 
 #include <hgraph/types/value/value.h>
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -13,6 +14,11 @@ namespace hgraph::fabric
 {
     inline constexpr std::string_view DEPENDENCY_PLAN_TRAIT{
         "hgraph.fabric.dependency_plan"};
+
+    /** Graph trait key for one Fabric service path. The default path retains
+        DEPENDENCY_PLAN_TRAIT for source compatibility. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT Str
+    dependency_plan_trait(std::string_view path);
 
     using PlannedPublisher =
         Bundle<"hgraph.fabric::PlannedPublisher", Field<"data_id", Str>,

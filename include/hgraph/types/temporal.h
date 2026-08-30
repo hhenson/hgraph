@@ -47,7 +47,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT Duration checked_divide(Duration value, double divisor);
 
     /** Gregorian civil date/time fields stored as local epoch microseconds. */
-    class HGRAPH_EXPORT CivilDateTime
+    class HGRAPH_CLASS_EXPORT CivilDateTime
     {
       public:
         constexpr CivilDateTime() noexcept = default;
@@ -94,7 +94,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT Duration checked_subtract(CivilDate lhs, CivilDate rhs);
 
     /** Calendar-relative total months plus days. */
-    class HGRAPH_EXPORT Period
+    class HGRAPH_CLASS_EXPORT Period
     {
       public:
         constexpr Period() noexcept = default;
@@ -171,7 +171,7 @@ namespace hgraph
                                                            const ZoneIdPayload &) noexcept = default;
     };
 
-    class HGRAPH_EXPORT ZoneId
+    class HGRAPH_CLASS_EXPORT ZoneId
     {
       public:
         constexpr ZoneId() noexcept = default;
@@ -261,7 +261,7 @@ namespace hgraph
         friend bool operator==(const OffsetInfo &, const OffsetInfo &) noexcept = default;
     };
 
-    class HGRAPH_EXPORT TimeZoneProvider
+    class HGRAPH_CLASS_EXPORT TimeZoneProvider
     {
       public:
         virtual ~TimeZoneProvider() = default;
@@ -293,7 +293,7 @@ namespace hgraph
     time_zone_provider(GlobalStateView state);
 
     /** Resolved instant, named-zone intent, and the offset used to resolve it. */
-    class HGRAPH_EXPORT ZonedDateTime
+    class HGRAPH_CLASS_EXPORT ZonedDateTime
     {
       public:
         constexpr ZonedDateTime() noexcept = default;

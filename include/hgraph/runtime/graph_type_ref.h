@@ -18,7 +18,7 @@ namespace hgraph
 
     inline constexpr std::uint16_t GRAPH_OPS_ABI_VERSION = 8;
 
-    class HGRAPH_EXPORT GraphTypeRef
+    class HGRAPH_CLASS_EXPORT GraphTypeRef
     {
       public:
         constexpr GraphTypeRef() noexcept = default;

@@ -11,7 +11,7 @@
 namespace hgraph
 {
     /** Schema descriptor for a type-erased evaluation clock provider. */
-    struct HGRAPH_EXPORT EvaluationClockTypeMetaData
+    struct HGRAPH_CLASS_EXPORT EvaluationClockTypeMetaData
     {
         SchemaHeader header{};
         const char *display_name{nullptr};
@@ -23,7 +23,7 @@ namespace hgraph
     };
 
     /** Type-erased read-only clock operations exposed to user-authored nodes. */
-    struct HGRAPH_EXPORT EvaluationClockOps
+    struct HGRAPH_CLASS_EXPORT EvaluationClockOps
     {
         const void *context{nullptr};
 
@@ -46,7 +46,7 @@ namespace hgraph
      * whose type record carries the operation table; static nodes receive this
      * as a transparent injectable.
      */
-    class HGRAPH_EXPORT EvaluationClockView
+    class HGRAPH_CLASS_EXPORT EvaluationClockView
     {
       public:
         EvaluationClockView() noexcept = default;

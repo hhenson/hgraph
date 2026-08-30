@@ -9,7 +9,7 @@
 namespace hgraph
 {
     /** Read view over window-shaped TSData. */
-    class HGRAPH_EXPORT TSWDataView
+    class HGRAPH_CLASS_EXPORT TSWDataView
     {
       public:
         explicit TSWDataView(TSDataView view);
@@ -102,7 +102,7 @@ namespace hgraph
     };
 
     /** Mutation view over window-shaped TSData. */
-    class HGRAPH_EXPORT TSWDataMutationView : public TSWDataView
+    class HGRAPH_CLASS_EXPORT TSWDataMutationView : public TSWDataView
     {
       public:
         TSWDataMutationView(TSDataView view, DateTime evaluation_time);

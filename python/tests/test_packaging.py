@@ -77,13 +77,13 @@ def test_installed_sdk_exports_required_msvc_source_contract():
     assert "$<INSTALL_INTERFACE:FMT_HEADER_ONLY>" in cmake
     assert "FMT_LIB_EXPORT" not in cmake
     assert "FMT_SHARED" not in cmake
-    assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
-    assert "class HGRAPH_EXPORT GraphTypeRef" in graph_type_ref
+    assert "class HGRAPH_CLASS_EXPORT ServiceImplementationScope" in graph_wiring
+    assert "class HGRAPH_CLASS_EXPORT GraphTypeRef" in graph_type_ref
     assert "friend HGRAPH_EXPORT GraphTypeRef intern_graph_type" in graph_type_ref
-    assert "class HGRAPH_EXPORT TSRoleTypeRef" in ts_type_ref
+    assert "class HGRAPH_CLASS_EXPORT TSRoleTypeRef" in ts_type_ref
     assert "friend HGRAPH_EXPORT TSRoleTypeRef intern_ts_type" in ts_type_ref
-    assert "class HGRAPH_EXPORT TSOutput" in ts_output
-    assert "class HGRAPH_EXPORT TSDataPlanFactory" in ts_data_plan_factory
+    assert "class HGRAPH_CLASS_EXPORT TSOutput" in ts_output
+    assert "class HGRAPH_CLASS_EXPORT TSDataPlanFactory" in ts_data_plan_factory
     assert "HGRAPH_EXPORT TSRoleTypeRef tsd_value_projection_type" in ts_data_plan_factory_detail
     assert "HGRAPH_EXPORT ValueTypeRef any_type" in any_ops
 
@@ -198,11 +198,14 @@ def test_repository_enables_polars_compatibility_without_a_cpp_switch():
 
 
 def test_wheel_uses_shared_runtime_for_downstream_native_extensions():
+    scikit_build = load_project()["tool"]["scikit-build"]
     cmake_defines = load_project()["tool"]["scikit-build"]["cmake"]["define"]
     cmake = (ROOT / "CMakeLists.txt").read_text()
     native_consumer = (ROOT / "tests/install_consumer/CMakeLists.txt").read_text()
 
     assert cmake_defines["HGRAPH_BUILD_SHARED"] == "ON"
+    assert cmake_defines["HGRAPH_WARNINGS_AS_ERRORS"] == "ON"
+    assert scikit_build["build-dir"] == "cmake-build-wheel/{wheel_tag}"
     assert "function(hgraph_link_python_embedding target)" in cmake
     assert 'target_link_options(\\${target} PRIVATE \\"LINKER:--no-as-needed\\")' in cmake
     assert "add_library(hgraph::pyarrow_arrow SHARED IMPORTED)" in cmake

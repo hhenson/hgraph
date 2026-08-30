@@ -25,10 +25,12 @@ Repository = "https://github.com/hhenson/hgraph.git"
 test = ["pytest>=8"]
 
 [tool.scikit-build]
+build-dir = "cmake-build-wheel/{wheel_tag}"
 cmake.source-dir = "."
 cmake.args = [
     "-DHGRAPH_FABRIC_BUILD_PYTHON=ON",
     "-DHGRAPH_FABRIC_BUILD_KAFKA=OFF",
+    "-DHGRAPH_FABRIC_WARNINGS_AS_ERRORS=ON",
     "-DBUILD_TESTING=OFF",
 ]
 install.components = ["Python", "Development"]

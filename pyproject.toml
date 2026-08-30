@@ -139,6 +139,7 @@ hgraph-web = {workspace = true}
 members = ["extensions/*"]
 
 [tool.scikit-build]
+build-dir = "cmake-build-wheel/{wheel_tag}"
 build.verbose = true
 cmake.source-dir = "."
 minimum-version = "build-system.requires"
@@ -156,6 +157,7 @@ sdist.exclude = [
 HGRAPH_BUILD_PYTHON_BINDINGS = "ON"
 HGRAPH_ENABLE_PYTHON_USER_NODES = "ON"
 HGRAPH_BUILD_SHARED = "ON"
+HGRAPH_WARNINGS_AS_ERRORS = "ON"
 HGRAPH_FETCH_DATE = "ON"
 BUILD_TESTING = "OFF"
 

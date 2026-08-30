@@ -21,6 +21,14 @@ namespace
 {
     constexpr char retained_run_capsule_name[] = "hgraph.failed_run";
 
+    [[nodiscard]] std::string python_utf8(nb::handle value)
+    {
+        Py_ssize_t size{};
+        const char *data = PyUnicode_AsUTF8AndSize(value.ptr(), &size);
+        if (data == nullptr) { throw nb::python_error(); }
+        return {data, static_cast<std::size_t>(size)};
+    }
+
     [[nodiscard]] std::string retained_error_message(
         const std::exception_ptr &error)
     {
@@ -730,7 +738,7 @@ namespace hgraph::python_bridge
                 nb::dict options = nb::cast<nb::dict>(trace_wiring);
                 const std::string filter = options.contains("filter") &&
                                                    !options["filter"].is_none()
-                                               ? nb::cast<std::string>(options["filter"])
+                                               ? python_utf8(options["filter"])
                                                : std::string{};
                 const bool graph = !options.contains("graph") ||
                                    nb::cast<bool>(options["graph"]);
@@ -827,7 +835,7 @@ namespace hgraph::python_bridge
             out.push_back(std::move(arg));
         };
         for (nb::handle object : args) { push(object, {}); }
-        for (auto [key, object] : kwargs) { push(object, nb::cast<std::string>(key)); }
+        for (auto [key, object] : kwargs) { push(object, python_utf8(key)); }
         return out;
     }
 
@@ -1063,7 +1071,7 @@ namespace hgraph::python_bridge
         .def("__exit__", [](WiringObservationScope &self, nb::object,
                             nb::object error, nb::object) {
             if (error.is_none()) { self.complete(); }
-            else { self.fail(nb::cast<std::string>(nb::str(error))); }
+            else { self.fail(python_utf8(nb::str(error))); }
             return false;
         }, nb::arg("exception_type").none(), nb::arg("exception").none(),
            nb::arg("traceback").none());
@@ -1111,7 +1119,7 @@ namespace hgraph::python_bridge
                                                      ? nb::handle{identity}
                                                      : nb::handle{user_callable};
             record->diagnostic_label = nb::hasattr(diagnostic_source, "__name__")
-                                           ? nb::cast<std::string>(
+                                           ? python_utf8(
                                                  diagnostic_source.attr("__name__"))
                                            : std::string{"<python-graph>"};
             record->has_output = has_output;
@@ -1132,7 +1140,7 @@ namespace hgraph::python_bridge
                         : std::optional<TypePattern>{nb::cast<PyTypePattern &>(input_pattern).pattern});
             }
             record->name_storage.reserve(record->arity);
-            for (nb::handle name : param_names) { record->name_storage.push_back(nb::cast<std::string>(name)); }
+            for (nb::handle name : param_names) { record->name_storage.push_back(python_utf8(name)); }
             for (const auto &name : record->name_storage) { record->names.emplace_back(name); }
             found = registry.emplace(identity.ptr(), record).first;
         }
@@ -1178,7 +1186,7 @@ namespace hgraph::python_bridge
             else
             {
                 const auto &table = wired_fn_table();
-                const auto  found = table.find(nb::cast<std::string>(branch));
+                const auto  found = table.find(python_utf8(branch));
                 if (found == table.end()) { throw nb::value_error("no wired-fn erasure for switch branch"); }
                 fn = found->second;
             }
@@ -1202,7 +1210,7 @@ namespace hgraph::python_bridge
                 return nb::cast<PyWiredFn &>(branch).fn;
             }
             const auto &table = wired_fn_table();
-            const auto found = table.find(nb::cast<std::string>(branch));
+            const auto found = table.find(python_utf8(branch));
             if (found == table.end())
             {
                 throw nb::value_error("no wired-fn erasure for dispatch branch");
@@ -1350,7 +1358,7 @@ namespace hgraph::python_bridge
             for (std::size_t index = 0; index < nb::len(names); ++index)
             {
                 inputs.emplace_back(
-                    nb::cast<std::string>(names[index]),
+                    python_utf8(names[index]),
                     nb::cast<PyPort &>(ports[index]).ref);
             }
 

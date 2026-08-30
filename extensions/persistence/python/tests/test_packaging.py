@@ -39,6 +39,12 @@ def test_persistence_is_a_separate_workspace_distribution():
     assert "-DBUILD_SHARED_LIBS=ON" in project["tool"]["scikit-build"]["cmake"][
         "args"
     ]
+    assert "-DHGRAPH_PERSISTENCE_WARNINGS_AS_ERRORS=ON" in project["tool"][
+        "scikit-build"
+    ]["cmake"]["args"]
+    assert project["tool"]["scikit-build"]["build-dir"] == (
+        "cmake-build-wheel/{wheel_tag}"
+    )
     assert not any((EXTENSION_ROOT / "python" / "hgraph").rglob("*.py"))
     # The released import paths ride hgraph.adaptors.data_frame's guarded
     # lazy re-export (RFC 0025), not a dedicated core shim package.

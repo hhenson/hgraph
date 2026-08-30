@@ -30,7 +30,7 @@ namespace hgraph::util
     };
 
     /** Streaming SHA-256 hasher. */
-    class HGRAPH_EXPORT Sha256 final
+    class HGRAPH_CLASS_EXPORT Sha256 final
     {
       public:
         Sha256() noexcept;

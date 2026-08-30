@@ -12,7 +12,7 @@ namespace hgraph
     class Value;
 
     /** Read view over dictionary-shaped TSData. */
-    class HGRAPH_EXPORT TSDDataView
+    class HGRAPH_CLASS_EXPORT TSDDataView
     {
       public:
         explicit TSDDataView(TSDataView view);
@@ -109,7 +109,7 @@ namespace hgraph
     };
 
     /** Mutation view over dictionary-shaped TSData. */
-    class HGRAPH_EXPORT TSDDataMutationView : public TSDDataView
+    class HGRAPH_CLASS_EXPORT TSDDataMutationView : public TSDDataView
     {
       public:
         TSDDataMutationView(TSDataView view, DateTime evaluation_time);

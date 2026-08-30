@@ -10,6 +10,22 @@
 
 namespace hgraph::fabric
 {
+    Str dependency_plan_trait(std::string_view path)
+    {
+        if (path.empty())
+        {
+            throw std::invalid_argument("fabric service path must not be empty");
+        }
+        if (path == "fabric")
+        {
+            return Str{DEPENDENCY_PLAN_TRAIT};
+        }
+        Str result{DEPENDENCY_PLAN_TRAIT};
+        result.push_back('/');
+        result.append(path);
+        return result;
+    }
+
     namespace
     {
         template <typename Schema>

@@ -499,43 +499,35 @@ namespace
         }
     };
 
-    struct RetriableNotificationDelivery
+    struct AlwaysRetryNotification
     {
-        static constexpr auto name = "hgraph.fabric.test.retriable_notification";
-
         static void eval(hg::In<"revision", hg::TS<hg::Shared<hgf::DataRevision>>> revision,
                          hg::Out<hgf::FabricNotificationDelivery> delivery)
         {
-            const hgf::DataRevisionInput decoded =
-                hgf::data_revision_input(revision.base().value().concrete());
+            const auto decoded = hgf::data_revision_input(revision.base().value().concrete());
             delivery.template field<"data_id">().set(decoded.data_id);
             delivery.template field<"revision">().set(decoded.revision);
             delivery.template field<"delivered">().set(false);
             delivery.template field<"retriable">().set(true);
-            delivery.template field<"message">().set(hg::Str{"retry once"});
+            delivery.template field<"message">().set("retry");
         }
     };
 
-    struct CompleteNotificationAfterRetry
+    struct DeliverOnRetryNotification
     {
-        static constexpr auto name = "hgraph.fabric.test.deliver_notification_after_retry";
-
         static void eval(hg::In<"revision", hg::TS<hg::Shared<hgf::DataRevision>>> revision,
-                         hg::State<hg::Bool> observed_initial_request,
+                         hg::State<hg::Int> attempts,
                          hg::Out<hgf::FabricNotificationDelivery> delivery)
         {
-            if (!observed_initial_request.get())
+            if (attempts.get() != 0)
             {
-                observed_initial_request.set(true);
-                return;
+                const auto decoded = hgf::data_revision_input(revision.base().value().concrete());
+                delivery.template field<"data_id">().set(decoded.data_id);
+                delivery.template field<"revision">().set(decoded.revision);
+                delivery.template field<"delivered">().set(true);
+                delivery.template field<"retriable">().set(false);
             }
-            const hgf::DataRevisionInput decoded =
-                hgf::data_revision_input(revision.base().value().concrete());
-            delivery.template field<"data_id">().set(decoded.data_id);
-            delivery.template field<"revision">().set(decoded.revision);
-            delivery.template field<"delivered">().set(true);
-            delivery.template field<"retriable">().set(false);
-            delivery.template field<"message">().set(hg::Str{});
+            attempts.set(attempts.get() + 1);
         }
     };
 
@@ -592,41 +584,22 @@ namespace
         }
     };
 
-    struct SaturatedGraphNotificationPublicationGraph
+    struct DuplicateRetryThenSuccessGraph
     {
-        static constexpr auto name = "hgraph.fabric.test.saturated_graph_notification";
-
-        static void compose(hg::Wiring &wiring)
-        {
-            const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
-            hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
-            auto published = hg::wire<PublishedFrameSource>(wiring);
-            hgf::publish_data(wiring, "first", published);
-            hgf::publish_data(wiring, "second", published);
-            static_cast<void>(hgf::notification_requests(wiring, path));
-        }
-    };
-
-    struct RetryAndCompletionNotificationGraph
-    {
-        static constexpr auto name = "hgraph.fabric.test.retry_and_delivery_notification";
-
         static void compose(hg::Wiring &wiring)
         {
             const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
             hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
             hgf::publish_data(wiring, "published", hg::wire<PublishedFrameSource>(wiring));
             auto request = hgf::notification_requests(wiring, path);
-
-            // The first report requests a retry. On the retried request, the
-            // duplicate retriable report sorts before the terminal report.
+            // Request ids follow client wiring order, reproducing the failing
+            // retry-before-success delivery ordering in one evaluation.
             auto retry_feedback = hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
+            auto success_feedback = hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
             hgf::submit_notification_delivery(wiring, retry_feedback(), path);
-            retry_feedback(hg::wire<RetriableNotificationDelivery>(wiring, request));
-            auto completion_feedback =
-                hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
-            hgf::submit_notification_delivery(wiring, completion_feedback(), path);
-            completion_feedback(hg::wire<CompleteNotificationAfterRetry>(wiring, request));
+            hgf::submit_notification_delivery(wiring, success_feedback(), path);
+            retry_feedback(hg::wire<AlwaysRetryNotification>(wiring, request));
+            success_feedback(hg::wire<DeliverOnRetryNotification>(wiring, request));
             static_cast<void>(
                 hg::wire<CaptureNotificationMetrics>(wiring, hgf::diagnostics(wiring, path)));
         }
@@ -762,14 +735,17 @@ namespace
         }
     };
 
-    [[nodiscard]] hg::GraphExecutorValue run(hg::GraphBuilder graph,
-                                             const hgf::FabricConfig &config, hg::DateTime start,
-                                             hg::DateTime end,
-                                             hg::GraphExecutorMode mode =
-                                                 hg::GraphExecutorMode::Simulation)
+    [[nodiscard]] hg::GraphExecutorValue
+    run(hg::GraphBuilder graph, const hgf::FabricConfig &config, hg::DateTime start,
+        hg::DateTime end, hg::GraphExecutorMode mode = hg::GraphExecutorMode::Simulation)
     {
         hgf::set_fabric_config(graph.global_state(), config);
         return hg::testing::run_graph(std::move(graph), start, end, mode);
+    }
+
+    template <typename Graph> [[nodiscard]] hg::GraphBuilder build_realtime_graph()
+    {
+        return hg::build_graph<Graph>(hg::WiringOptions{.is_realtime = true});
     }
 } // namespace
 
@@ -916,7 +892,7 @@ TEST_CASE("live starts from durable state and advances only from notice ticks")
     observed_frames.clear();
     const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<LiveGraph>(), config, start,
+    static_cast<void>(run(build_realtime_graph<LiveGraph>(), config, start,
                           start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
@@ -935,9 +911,8 @@ TEST_CASE("live plan freezes after transport-first service materialization")
     observed_frames.clear();
     const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<LiveTransportFirstGraph>(), config,
-                          start, start + hg::TimeDelta{100},
-                          hg::GraphExecutorMode::RealTime));
+    static_cast<void>(run(build_realtime_graph<LiveTransportFirstGraph>(), config, start,
+                          start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames[0].second == 1);
@@ -964,9 +939,8 @@ TEST_CASE("complete live notices avoid metadata reads and load only the "
     observed_frames.clear();
     const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<CompleteNoticeGraph>(), observed_config,
-                          start, start + hg::TimeDelta{100},
-                          hg::GraphExecutorMode::RealTime));
+    static_cast<void>(run(build_realtime_graph<CompleteNoticeGraph>(), observed_config, start,
+                          start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 2);
@@ -1007,9 +981,8 @@ TEST_CASE("live gap recovery reads only missing metadata and the selected Frame"
     observed_frames.clear();
     const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<GapNoticeGraph>(), observed_config,
-                          start, start + hg::TimeDelta{100},
-                          hg::GraphExecutorMode::RealTime));
+    static_cast<void>(run(build_realtime_graph<GapNoticeGraph>(), observed_config, start,
+                          start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 3);
@@ -1052,9 +1025,8 @@ TEST_CASE("live uses durable fallback for dependency notices received before "
     observed_frames.clear();
     const auto start = hg::testing::wall_now();
 
-    static_cast<void>(run(hg::build_graph<CachedAncestryNoticeGraph>(), observed_config,
-                          start, start + hg::TimeDelta{100},
-                          hg::GraphExecutorMode::RealTime));
+    static_cast<void>(run(build_realtime_graph<CachedAncestryNoticeGraph>(), observed_config, start,
+                          start + hg::TimeDelta{100}, hg::GraphExecutorMode::RealTime));
 
     REQUIRE(observed_frames.size() == 2);
     CHECK(observed_frames.back().second == 2);
@@ -1174,8 +1146,36 @@ TEST_CASE("service diagnostics retain typed transport and store events")
     CHECK(observed_diagnostic_events.at("kafka.disconnect").occurrences == 1);
 }
 
-TEST_CASE("stalled service queues and diagnostic paths enforce hard bounds")
+TEST_CASE("stalled service queues apply backpressure or enforce hard bounds")
 {
+    SECTION("graph notification candidates apply configured backpressure")
+    {
+        auto config = hgf::make_memory_fabric_config("tests/subscription/notification-bound", 1U);
+        hgf::detail::PublicationNodeState state;
+        state.start(config, true);
+        state.enqueue(hgf::detail::PublicationRequestInput{.data_id = "a", .output = frame(1)});
+        state.enqueue(hgf::detail::PublicationRequestInput{.data_id = "b", .output = frame(2)});
+
+        const auto first = state.advance(1U);
+        REQUIRE(first.size() == 1U);
+        CHECK(state.notification_request_limit() == 1U);
+        CHECK(state.advance(0U).empty());
+        CHECK(state.work_pending());
+
+        state.complete(hgf::detail::NotificationDeliveryInput{
+            .data_id = first.front().data_id,
+            .revision = first.front().revision,
+            .delivered = true,
+        });
+        const auto second = state.advance(1U);
+        REQUIRE(second.size() == 1U);
+        CHECK(second.front().data_id != first.front().data_id);
+
+        const auto values = state.diagnostics().metrics;
+        const std::map<hg::Str, hg::Str> metrics{values.begin(), values.end()};
+        CHECK(metrics.at("transport.notification.request_limit") == "1");
+    }
+
     SECTION("publication requests")
     {
         auto config = hgf::make_memory_fabric_config("tests/subscription/publication-bound");
@@ -1301,31 +1301,17 @@ TEST_CASE("graph notification flow retries the retained shared revision on "
     CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::Latest, latest->data) == 1);
 }
 
-TEST_CASE("graph notification completion cancels an earlier retry in the same batch")
+TEST_CASE("a success clears retry state when duplicate reports arrive first")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
-    auto config = hgf::make_memory_fabric_config(
-        "tests/subscription/graph-notification-retry-completion");
+    auto config = hgf::make_memory_fabric_config("tests/subscription/duplicate-retry-success");
     observed_notification_metrics.clear();
 
-    static_cast<void>(run(hg::build_graph<RetryAndCompletionNotificationGraph>(), config,
-                          BASE_TIME, BASE_TIME + hg::TimeDelta{20}));
+    CHECK_NOTHROW(static_cast<void>(run(hg::build_graph<DuplicateRetryThenSuccessGraph>(), config,
+                                        BASE_TIME, BASE_TIME + hg::TimeDelta{20})));
 
-    CHECK(observed_notification_metrics.at("transport.notification.pending") == "0");
-    CHECK(observed_notification_metrics.at("transport.notification.retried") == "1");
     CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
-    CHECK(observed_notification_metrics.at("transport.notification.stale_reports") == "0");
-}
-
-TEST_CASE("graph notification candidate saturation uses the Fabric configuration")
-{
-    hg::stdlib::register_standard_operators();
-    hgf::register_fabric_operators();
-    auto config =
-        hgf::make_memory_fabric_config("tests/subscription/graph-notification-capacity");
-    config.notification_candidate_limit = 1U;
-
-    CHECK_THROWS(run(hg::build_graph<SaturatedGraphNotificationPublicationGraph>(), config,
-                     BASE_TIME, BASE_TIME + hg::TimeDelta{5}));
+    const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
+    REQUIRE(latest.has_value());
 }

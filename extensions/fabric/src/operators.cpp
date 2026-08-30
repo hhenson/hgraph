@@ -32,7 +32,7 @@ namespace hgraph::fabric
             static constexpr auto name = "hgraph.fabric.subscribe_data.planned";
             using signature_args =
                 std::tuple<In<"signal", FabricIngressSignal>, Scalar<"data_id", Str>,
-                           Out<TS<Frame>>>;
+                           Scalar<"path", Str>, Out<TS<Frame>>>;
 
             /** O(Frame handle copy) per delivered version. The service has
                 already resolved consistency and performed durable loading. */
@@ -65,7 +65,7 @@ namespace hgraph::fabric
             static void eval(In<"value", TS<Frame>, InputValidity::Unchecked> value,
                              In<"cut", TSD<Str, FabricIngressSignal>, InputActivity::Structural,
                                 InputValidity::Unchecked>
-                                                    cut,
+                                 cut,
                              Scalar<"data_id", Str> data_id, Out<FabricPublicationRequest> out)
             {
                 out.field<"data_id">().set(data_id.value());
@@ -87,26 +87,31 @@ namespace hgraph::fabric
 
         struct SubscriptionDeclaration
         {
-            Str                                 data_id{};
+            Str data_id{};
             DelayedBindingWiringPort<TS<Frame>> delayed{};
-            WiringPortRef                       output{};
+            WiringPortRef output{};
         };
 
         struct PublisherDeclaration
         {
-            Str                 data_id{};
-            WiringPortRef       value{};
+            Str data_id{};
+            WiringPortRef value{};
             DependencySelection dependencies{DependencySelection::automatic()};
-            std::vector<Str>    resolved_dependencies{};
-            bool                wired{false};
+            std::vector<Str> resolved_dependencies{};
+            bool wired{false};
         };
 
         struct DeclarationState
         {
-            std::vector<SubscriptionDeclaration>                 subscriptions{};
-            std::vector<PublisherDeclaration>                    publishers{};
-            std::map<Str, WiringPortRef>                         lineage_signals{};
-            bool                                                 finalizer_registered{false};
+            std::vector<SubscriptionDeclaration> subscriptions{};
+            std::vector<PublisherDeclaration> publishers{};
+            std::map<Str, WiringPortRef> lineage_signals{};
+        };
+
+        struct DeclarationRegistry
+        {
+            std::map<Str, DeclarationState> paths{};
+            bool finalizer_registered{false};
         };
 
         [[nodiscard]] NodeTypeRef subscribe_source_type()
@@ -116,26 +121,34 @@ namespace hgraph::fabric
             return builder.type();
         }
 
-        [[nodiscard]] Str source_data_id(const NodeBuilder &builder)
+        [[nodiscard]] Str source_scalar(const NodeBuilder &builder, std::string_view name)
         {
             const Value &scalars = builder.scalars();
             if (!scalars.has_value())
             {
                 throw std::logic_error("fabric subscription source has no scalar configuration");
             }
-            return scalars.view().as_bundle().at("data_id").checked_as<Str>();
+            return scalars.view().as_bundle().at(name).checked_as<Str>();
         }
 
         struct SourceCollection
         {
             std::unordered_set<const WiringInstance *> wiring_nodes{};
             std::unordered_map<const GraphBuilder *, std::unordered_set<std::size_t>>
-                                                                 compiled_nodes{};
-            std::vector<Str>                                     data_ids{};
+                compiled_nodes{};
+            std::vector<Str> data_ids{};
+            Str path{};
 
             void add(const NodeBuilder &builder)
             {
-                Str data_id = source_data_id(builder);
+                const Str source_path = source_scalar(builder, "path");
+                if (source_path != path)
+                {
+                    throw std::invalid_argument(
+                        "hgraph.fabric.publish_data: dependency belongs to another "
+                        "Fabric service path");
+                }
+                Str data_id = source_scalar(builder, "data_id");
                 if (std::ranges::find(data_ids, data_id) == data_ids.end())
                 {
                     data_ids.push_back(std::move(data_id));
@@ -172,7 +185,7 @@ namespace hgraph::fabric
             {
                 return;
             }
-            const NodeTypeRef  source_type = subscribe_source_type();
+            const NodeTypeRef source_type = subscribe_source_type();
             const NodeBuilder &node = graph.nodes()[node_index];
             if (node.type() == source_type)
             {
@@ -195,49 +208,47 @@ namespace hgraph::fabric
             using SourceKind = WiringPortRef::SourceKind;
             switch (source.source_kind())
             {
-                case SourceKind::Null:
-                    return;
-                case SourceKind::Structural:
-                    for (const auto &child : source.structural_children())
-                    {
-                        collect_subscription_sources(child, collection);
-                    }
-                    return;
-                case SourceKind::Delayed:
+            case SourceKind::Null:
+                return;
+            case SourceKind::Structural:
+                for (const auto &child : source.structural_children())
                 {
-                    const auto &resolved = source.delayed_state()->source;
-                    if (!resolved)
-                    {
-                        throw std::logic_error(
-                            "fabric planner encountered an unbound delayed source");
-                    }
-                    collect_subscription_sources(*resolved, collection);
+                    collect_subscription_sources(child, collection);
+                }
+                return;
+            case SourceKind::Delayed:
+            {
+                const auto &resolved = source.delayed_state()->source;
+                if (!resolved)
+                {
+                    throw std::logic_error("fabric planner encountered an unbound delayed source");
+                }
+                collect_subscription_sources(*resolved, collection);
+                return;
+            }
+            case SourceKind::Peered:
+            {
+                const WiringInstance *node = source.peered_node();
+                if (!collection.wiring_nodes.insert(node).second)
+                {
                     return;
                 }
-                case SourceKind::Peered:
+                if (node->definition == std::type_index(typeid(SubscribeDataPlanningSource)))
                 {
-                    const WiringInstance *node = source.peered_node();
-                    if (!collection.wiring_nodes.insert(node).second)
-                    {
-                        return;
-                    }
-                    if (node->definition == std::type_index(typeid(SubscribeDataPlanningSource)))
-                    {
-                        collection.add(node->builder);
-                        return;
-                    }
-                    node->builder.visit_child_graphs(&collection, &collect_compiled_child);
-                    for (const auto &input : node->inputs)
-                    {
-                        collect_subscription_sources(input.source, collection);
-                    }
+                    collection.add(node->builder);
                     return;
                 }
-                case SourceKind::Boundary:
-                    throw std::logic_error(
-                        "fabric planner expected a materialised top-level source");
-                case SourceKind::Unbound:
-                    throw std::logic_error("fabric planner encountered an unbound wiring source");
+                node->builder.visit_child_graphs(&collection, &collect_compiled_child);
+                for (const auto &input : node->inputs)
+                {
+                    collect_subscription_sources(input.source, collection);
+                }
+                return;
+            }
+            case SourceKind::Boundary:
+                throw std::logic_error("fabric planner expected a materialised top-level source");
+            case SourceKind::Unbound:
+                throw std::logic_error("fabric planner encountered an unbound wiring source");
             }
         }
 
@@ -275,11 +286,11 @@ namespace hgraph::fabric
         }
 
         [[nodiscard]] Port<FabricIngressSignal>
-        wire_subscription_signal(Wiring &wiring, const Str &data_id)
+        wire_subscription_signal(Wiring &wiring, const Str &path_value, const Str &data_id)
         {
-            const Str  key_value = data_id;
-            auto       key = wire<stdlib::const_, TS<Str>>(wiring, key_value);
-            const auto path = service::path(DEFAULT_SERVICE_PATH);
+            const Str key_value = data_id;
+            auto key = wire<stdlib::const_, TS<Str>>(wiring, key_value);
+            const auto path = service::path(path_value);
             if (wiring.kind() == WiringKind::TopLevel)
             {
                 detail::plan_subscription(wiring,
@@ -287,10 +298,10 @@ namespace hgraph::fabric
                                               .key = key_value,
                                               .data_id = data_id,
                                           },
-                                          DEFAULT_SERVICE_PATH);
+                                          path_value);
                 return wire<stdlib::getitem_>(
-                           wiring,
-                           wire<detail::FabricPlannedSubscriptionService>(wiring, path), key)
+                           wiring, wire<detail::FabricPlannedSubscriptionService>(wiring, path),
+                           key)
                     .template as<FabricIngressSignal>();
             }
             return wire<FabricSubscriptionService>(wiring, path, key);
@@ -322,15 +333,15 @@ namespace hgraph::fabric
             return wire_operator(wiring, "combine_tsd", args, true).output.erased();
         }
 
-        void finalize(DeclarationState &state, Wiring &wiring)
+        void finalize(DeclarationState &state, Wiring &wiring, const Str &path)
         {
             for (auto &subscription : state.subscriptions)
             {
                 if (!subscription.delayed.bound())
                 {
-                    auto signal = wire_subscription_signal(wiring, subscription.data_id);
-                    auto source =
-                        wire<SubscribeDataPlanningSource>(wiring, signal, subscription.data_id);
+                    auto signal = wire_subscription_signal(wiring, path, subscription.data_id);
+                    auto source = wire<SubscribeDataPlanningSource>(wiring, signal,
+                                                                    subscription.data_id, path);
                     state.lineage_signals.try_emplace(subscription.data_id, signal.erased());
                     subscription.delayed(source);
                 }
@@ -338,7 +349,7 @@ namespace hgraph::fabric
 
             for (auto &publisher : state.publishers)
             {
-                SourceCollection collection;
+                SourceCollection collection{.path = path};
                 if (publisher.dependencies.is_automatic())
                 {
                     collect_subscription_sources(publisher.value, collection);
@@ -351,6 +362,12 @@ namespace hgraph::fabric
                         {
                             throw std::logic_error("fabric explicit dependency belongs to another "
                                                    "wired root");
+                        }
+                        if (dependency.path() != path)
+                        {
+                            throw std::invalid_argument(
+                                "hgraph.fabric.publish_data: explicit dependency belongs to "
+                                "another Fabric service path");
                         }
                         collect_subscription_sources(dependency.source(), collection);
                     }
@@ -373,13 +390,13 @@ namespace hgraph::fabric
                     {
                         continue;
                     }
-                    auto signal = wire_subscription_signal(wiring, data_id);
+                    auto signal = wire_subscription_signal(wiring, path, data_id);
                     state.lineage_signals.emplace(data_id, signal.erased());
                 }
             }
 
             DependencyPlanInput plan = build_plan(state);
-            wiring.set_trait(DEPENDENCY_PLAN_TRAIT, make_dependency_plan(plan));
+            wiring.set_trait(dependency_plan_trait(path), make_dependency_plan(plan));
 
             for (auto &publisher : state.publishers)
             {
@@ -392,54 +409,61 @@ namespace hgraph::fabric
                 {
                     auto request =
                         wire<PublishDataWithoutCutRequest>(wiring, value, publisher.data_id);
-                    wire<FabricPublicationService>(wiring, service::path(DEFAULT_SERVICE_PATH),
-                                                   request);
+                    wire<FabricPublicationService>(wiring, service::path(path), request);
                 }
                 else
                 {
                     WiringPortRef cut = combine_cut(wiring, state, publisher.resolved_dependencies);
-                    auto          request = wire<PublishDataWithCutRequest>(
+                    auto request = wire<PublishDataWithCutRequest>(
                         wiring, value, Port<void>{wiring, cut}, publisher.data_id);
-                    wire<FabricPublicationService>(wiring, service::path(DEFAULT_SERVICE_PATH),
-                                                   request);
+                    wire<FabricPublicationService>(wiring, service::path(path), request);
                 }
                 publisher.wired = true;
             }
-            wiring.build_services();
         }
 
-        [[nodiscard]] std::shared_ptr<DeclarationState> declarations(Wiring &wiring)
+        [[nodiscard]] std::shared_ptr<DeclarationRegistry> declaration_registry(Wiring &wiring)
         {
-            auto state = std::static_pointer_cast<DeclarationState>(
-                wiring.acquire_extension_state(std::type_index(typeid(DeclarationState)), []
-                                               { return std::make_shared<DeclarationState>(); }));
+            auto state =
+                std::static_pointer_cast<DeclarationRegistry>(wiring.acquire_extension_state(
+                    std::type_index(typeid(DeclarationRegistry)),
+                    [] { return std::make_shared<DeclarationRegistry>(); }));
             if (!state->finalizer_registered)
             {
                 state->finalizer_registered = true;
-                std::weak_ptr<DeclarationState> weak = state;
+                std::weak_ptr<DeclarationRegistry> weak = state;
                 wiring.register_pre_rank_finalizer(
                     [weak](Wiring &target)
                     {
                         if (const auto locked = weak.lock())
                         {
-                            finalize(*locked, target);
+                            for (auto &[path, declarations] : locked->paths)
+                            {
+                                finalize(declarations, target, path);
+                            }
+                            target.build_services();
                         }
                     });
             }
             return state;
         }
 
-        void record_publisher(Wiring &wiring, Str data_id, WiringPortRef value,
+        [[nodiscard]] DeclarationState &declarations(Wiring &wiring, std::string_view path)
+        {
+            return declaration_registry(wiring)->paths[Str{path}];
+        }
+
+        void record_publisher(Wiring &wiring, Str path, Str data_id, WiringPortRef value,
                               DependencySelection dependencies)
         {
-            auto state = declarations(wiring);
-            if (std::ranges::any_of(state->publishers, [&](const PublisherDeclaration &publisher)
+            auto &state = declarations(wiring, path);
+            if (std::ranges::any_of(state.publishers, [&](const PublisherDeclaration &publisher)
                                     { return publisher.data_id == data_id; }))
             {
                 throw std::invalid_argument("hgraph.fabric.publish_data: data id already has a "
                                             "publisher in this wiring root");
             }
-            state->publishers.push_back(PublisherDeclaration{
+            state.publishers.push_back(PublisherDeclaration{
                 .data_id = std::move(data_id),
                 .value = std::move(value),
                 .dependencies = std::move(dependencies),
@@ -450,10 +474,11 @@ namespace hgraph::fabric
         {
             static constexpr auto name = "hgraph.fabric.subscribe_data.planning_graph";
 
-            static Port<TS<Frame>> compose(Wiring &wiring,
-                                           Scalar<"data_id", Str> data_id)
+            static Port<TS<Frame>> compose(Wiring &wiring, Scalar<"data_id", Str> data_id,
+                                           Scalar<"path", Str> path)
             {
                 require_data_id(data_id.value());
+                static_cast<void>(service::path(path.value()));
                 if (wiring.kind() == WiringKind::TopLevel)
                 {
                     const Str key = data_id.value();
@@ -462,15 +487,16 @@ namespace hgraph::fabric
                                                   .key = key,
                                                   .data_id = data_id.value(),
                                               },
-                                              DEFAULT_SERVICE_PATH);
+                                              path.value());
                 }
                 auto delayed = delayed_binding<TS<Frame>>(wiring);
                 auto output = delayed();
-                declarations(wiring)->subscriptions.push_back(SubscriptionDeclaration{
-                    .data_id = data_id.value(),
-                    .delayed = delayed,
-                    .output = output.erased(),
-                });
+                declarations(wiring, path.value())
+                    .subscriptions.push_back(SubscriptionDeclaration{
+                        .data_id = data_id.value(),
+                        .delayed = delayed,
+                        .output = output.erased(),
+                    });
                 return output;
             }
         };
@@ -480,26 +506,29 @@ namespace hgraph::fabric
             static constexpr auto name = "hgraph.fabric.publish_data.planning_graph";
 
             static void compose(Wiring &wiring, Scalar<"data_id", Str> data_id,
-                                NamedPort<"value", TS<Frame>> value)
+                                Scalar<"path", Str> path, NamedPort<"value", TS<Frame>> value)
             {
                 require_data_id(data_id.value());
-                record_publisher(wiring, data_id.value(), value.erased(),
+                static_cast<void>(service::path(path.value()));
+                record_publisher(wiring, path.value(), data_id.value(), value.erased(),
                                  DependencySelection::automatic());
             }
         };
 
         using PublishDataExplicit =
             Operator<"hgraph.fabric._publish_data_explicit", Scalar<"data_id", Str>,
-                     In<"value", TS<Frame>>, VarIn<"dependencies", TS<Frame>>>;
+                     Scalar<"path", Str>, In<"value", TS<Frame>>, VarIn<"dependencies", TS<Frame>>>;
 
         struct PublishDataExplicitPlanningGraph
         {
             static constexpr auto name = "hgraph.fabric.publish_data.explicit_planning_graph";
 
             static void compose(Wiring &wiring, Scalar<"data_id", Str> data_id,
-                                NamedPort<"value", TS<Frame>>    value,
+                                Scalar<"path", Str> path, NamedPort<"value", TS<Frame>> value,
                                 VarIn<"dependencies", TS<Frame>> dependencies)
             {
+                require_data_id(data_id.value());
+                static_cast<void>(service::path(path.value()));
                 if (dependencies.empty())
                 {
                     throw std::invalid_argument("explicit fabric dependencies must not be empty");
@@ -511,7 +540,7 @@ namespace hgraph::fabric
                     handles.push_back(
                         dependency_handle(wiring, Port<TS<Frame>>{wiring, dependency}));
                 }
-                record_publisher(wiring, data_id.value(), value.erased(),
+                record_publisher(wiring, path.value(), data_id.value(), value.erased(),
                                  DependencySelection::explicit_dependencies(std::move(handles)));
             }
         };
@@ -525,19 +554,37 @@ namespace hgraph::fabric
         }
     } // namespace
 
-    DependencyHandle::DependencyHandle(std::uint64_t root_identity, Str data_id,
+    DependencyHandle::DependencyHandle(std::uint64_t root_identity, Str data_id, Str path,
                                        WiringPortRef source)
-        : root_identity_(root_identity), data_id_(std::move(data_id)), source_(std::move(source))
+        : root_identity_(root_identity), data_id_(std::move(data_id)), path_(std::move(path)),
+          source_(std::move(source))
     {
     }
 
-    std::uint64_t DependencyHandle::root_identity() const noexcept { return root_identity_; }
+    std::uint64_t DependencyHandle::root_identity() const noexcept
+    {
+        return root_identity_;
+    }
 
-    std::string_view DependencyHandle::data_id() const noexcept { return data_id_; }
+    std::string_view DependencyHandle::data_id() const noexcept
+    {
+        return data_id_;
+    }
 
-    const WiringPortRef &DependencyHandle::source() const noexcept { return source_; }
+    std::string_view DependencyHandle::path() const noexcept
+    {
+        return path_;
+    }
 
-    DependencySelection DependencySelection::automatic() { return DependencySelection{}; }
+    const WiringPortRef &DependencyHandle::source() const noexcept
+    {
+        return source_;
+    }
+
+    DependencySelection DependencySelection::automatic()
+    {
+        return DependencySelection{};
+    }
 
     DependencySelection
     DependencySelection::explicit_dependencies(std::vector<DependencyHandle> dependencies)
@@ -547,12 +594,18 @@ namespace hgraph::fabric
             throw std::invalid_argument("explicit fabric dependencies must not be empty");
         }
         const std::uint64_t root = dependencies.front().root_identity();
+        const std::string_view path = dependencies.front().path();
         for (std::size_t index = 0; index < dependencies.size(); ++index)
         {
             if (dependencies[index].root_identity() != root)
             {
                 throw std::invalid_argument("explicit fabric dependencies must "
                                             "belong to one wiring root");
+            }
+            if (dependencies[index].path() != path)
+            {
+                throw std::invalid_argument("explicit fabric dependencies must "
+                                            "belong to one service path");
             }
             for (std::size_t previous = 0; previous < index; ++previous)
             {
@@ -569,7 +622,10 @@ namespace hgraph::fabric
         return result;
     }
 
-    bool DependencySelection::is_automatic() const noexcept { return automatic_; }
+    bool DependencySelection::is_automatic() const noexcept
+    {
+        return automatic_;
+    }
 
     const std::vector<DependencyHandle> &DependencySelection::dependencies() const noexcept
     {
@@ -582,24 +638,33 @@ namespace hgraph::fabric
         {
             throw std::invalid_argument("fabric dependency handle requires the same wiring root");
         }
-        for (const auto &declaration : declarations(wiring)->subscriptions)
+        for (const auto &[path, state] : declaration_registry(wiring)->paths)
         {
-            if (declaration.output.same_source_as(subscription.erased()))
+            for (const auto &declaration : state.subscriptions)
             {
-                return DependencyHandle{wiring.identity(), declaration.data_id, declaration.output};
+                if (declaration.output.same_source_as(subscription.erased()))
+                {
+                    return DependencyHandle{wiring.identity(), declaration.data_id, path,
+                                            declaration.output};
+                }
             }
         }
         throw std::invalid_argument(
             "fabric dependency handle requires a direct subscribe_data result");
     }
 
-    Port<TS<Frame>> subscribe_data(Wiring &wiring, Str data_id)
+    Port<TS<Frame>> subscribe_data(Wiring &wiring, service::ServicePath path, Str data_id)
     {
         require_data_id(data_id);
-        return wire<SubscribeData, TS<Frame>>(wiring, data_id);
+        return wire<SubscribeData, TS<Frame>>(wiring, data_id, path.value);
     }
 
-    void publish_data(Wiring &wiring, Str data_id, Port<TS<Frame>> value,
+    Port<TS<Frame>> subscribe_data(Wiring &wiring, Str data_id)
+    {
+        return subscribe_data(wiring, service::path(DEFAULT_SERVICE_PATH), std::move(data_id));
+    }
+
+    void publish_data(Wiring &wiring, service::ServicePath path, Str data_id, Port<TS<Frame>> value,
                       DependencySelection dependencies)
     {
         require_data_id(data_id);
@@ -616,17 +681,29 @@ namespace hgraph::fabric
                     "explicit fabric dependency belongs to a different wiring "
                     "root");
             }
+            if (dependency.path() != path.value)
+            {
+                throw std::invalid_argument(
+                    "explicit fabric dependency belongs to a different service path");
+            }
         }
-        wire<PublishData>(wiring, data_id, value);
+        wire<PublishData>(wiring, data_id, path.value, value);
         if (!dependencies.is_automatic())
         {
-            auto state = declarations(wiring);
-            if (state->publishers.empty() || state->publishers.back().data_id != data_id)
+            auto &state = declarations(wiring, path.value);
+            if (state.publishers.empty() || state.publishers.back().data_id != data_id)
             {
                 throw std::logic_error("fabric publisher declaration was not recorded");
             }
-            state->publishers.back().dependencies = std::move(dependencies);
+            state.publishers.back().dependencies = std::move(dependencies);
         }
+    }
+
+    void publish_data(Wiring &wiring, Str data_id, Port<TS<Frame>> value,
+                      DependencySelection dependencies)
+    {
+        publish_data(wiring, service::path(DEFAULT_SERVICE_PATH), std::move(data_id),
+                     std::move(value), std::move(dependencies));
     }
 
     void register_fabric_operators()

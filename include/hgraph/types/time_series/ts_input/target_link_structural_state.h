@@ -20,7 +20,7 @@ namespace hgraph::detail
      * TSS/TSD links bind the concrete structural implementation without
      * exposing that representation to the semantic target-link owner.
      */
-    struct HGRAPH_EXPORT TSInputTargetLinkStructuralOps
+    struct HGRAPH_CLASS_EXPORT TSInputTargetLinkStructuralOps
     {
         bool supports_structural{false};
 
@@ -59,7 +59,7 @@ namespace hgraph::detail
     };
 
     /** Raw-storage access selected alongside the storage plan. */
-    struct HGRAPH_EXPORT TSInputTargetLinkStorageAccessOps
+    struct HGRAPH_CLASS_EXPORT TSInputTargetLinkStorageAccessOps
     {
         const TSInputTargetLinkStorage *(*get_const)(const void *memory) noexcept;
         TSInputTargetLinkStorage *(*get_mutable)(void *memory) noexcept;

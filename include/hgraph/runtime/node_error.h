@@ -17,7 +17,7 @@ namespace hgraph
     class NodeView;
 
     /** Diagnostic detail requested when a node or child graph captures an error. */
-    struct HGRAPH_EXPORT ErrorCaptureOptions
+    struct HGRAPH_CLASS_EXPORT ErrorCaptureOptions
     {
         std::size_t trace_back_depth{1};
         bool        capture_values{false};
@@ -45,7 +45,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT const TSValueTypeMetaData *node_error_ts_meta();
 
     /** The structurally-meaningful fields captured when building a ``NodeError``. */
-    struct HGRAPH_EXPORT NodeErrorFields
+    struct HGRAPH_CLASS_EXPORT NodeErrorFields
     {
         std::string signature_name{};
         std::string label{};

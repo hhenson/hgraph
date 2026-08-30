@@ -34,7 +34,7 @@ namespace hgraph
         TypeCapabilities capabilities{TypeCapabilities::None};
     };
 
-    class HGRAPH_EXPORT TypeRecordRegistry
+    class HGRAPH_CLASS_EXPORT TypeRecordRegistry
     {
     public:
         static TypeRecordRegistry &instance();

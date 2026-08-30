@@ -21,7 +21,7 @@ struct PolymorphicValueTypeOps {
  * canonical no-op table, so ordinary queries never branch around a null
  * operations pointer.
  */
-class HGRAPH_EXPORT PolymorphicValueType {
+class HGRAPH_CLASS_EXPORT PolymorphicValueType {
 public:
   PolymorphicValueType() noexcept;
   PolymorphicValueType(void *context,

@@ -38,7 +38,7 @@ namespace hgraph
 namespace hgraph::manifest
 {
     /** A value/scalar cannot participate in a manifest; ``what()`` says why. */
-    class HGRAPH_EXPORT UnsupportedManifestValue : public std::runtime_error
+    class HGRAPH_CLASS_EXPORT UnsupportedManifestValue : public std::runtime_error
     {
       public:
         using std::runtime_error::runtime_error;

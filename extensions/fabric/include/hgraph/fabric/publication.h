@@ -62,7 +62,7 @@ namespace hgraph::fabric
         First recovery is O(contiguous accepted history); retained head state
         makes later recovery proportional to revisions accepted since the last
         attempt. */
-    class HGRAPH_FABRIC_EXPORT PublisherStateMachine final
+    class HGRAPH_FABRIC_CLASS_EXPORT PublisherStateMachine final
     {
       public:
         PublisherStateMachine(FabricConfig config, Str data_id);

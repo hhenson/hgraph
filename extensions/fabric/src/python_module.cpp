@@ -73,7 +73,7 @@ namespace hgraph::fabric
     {
         struct RegisterMemoryFabricServiceOperator
             : Operator<"hgraph.fabric.register_memory_service",
-                       Scalar<"prefix", Str>>
+                       Scalar<"prefix", Str>, Scalar<"path", Str>>
         {
         };
 
@@ -83,18 +83,19 @@ namespace hgraph::fabric
                 "hgraph.fabric.register_memory_service_impl";
 
             static void compose(Wiring &wiring,
-                                Scalar<"prefix", Str> prefix)
+                                Scalar<"prefix", Str> prefix,
+                                Scalar<"path", Str> path)
             {
-                if (fabric_config(wiring.global_state()).has_value())
+                if (fabric_config(wiring.global_state(), path.value()).has_value())
                 {
                     throw std::invalid_argument(
                         "register_memory_fabric_service found an existing "
                         "FabricConfig");
                 }
                 set_fabric_config(
-                    wiring.global_state(),
+                    wiring.global_state(), path.value(),
                     make_memory_fabric_config(prefix.value()));
-                register_service(wiring);
+                register_service(wiring, service::path(path.value()));
             }
         };
 
@@ -111,7 +112,7 @@ namespace hgraph::fabric
 
             static void compose(Wiring &wiring, Scalar<"path", Str> path)
             {
-                if (!fabric_config(wiring.global_state()).has_value())
+                if (!fabric_config(wiring.global_state(), path.value()).has_value())
                 {
                     throw std::invalid_argument(
                         "register_fabric_service requires FabricConfig in the wiring state");
@@ -133,17 +134,18 @@ NB_MODULE(_hgraph_fabric, module)
 
     module.def(
         "_make_memory_fabric_config",
-        [](Str prefix) {
-            return PythonFabricConfig{make_memory_fabric_config(std::move(prefix))};
+        [](Str prefix, std::size_t notification_request_limit) {
+            return PythonFabricConfig{make_memory_fabric_config(
+                std::move(prefix), notification_request_limit)};
         },
-        nb::arg("prefix"));
+        nb::arg("prefix"), nb::arg("notification_request_limit"));
 
     module.def(
         "_set_fabric_config",
-        [](nb::object state, const PythonFabricConfig &config) {
-            set_fabric_config(nb::cast<GlobalState &>(state).view(), config.value);
+        [](nb::object state, Str path, const PythonFabricConfig &config) {
+            set_fabric_config(nb::cast<GlobalState &>(state).view(), path, config.value);
         },
-        nb::arg("state"), nb::arg("config"));
+        nb::arg("state"), nb::arg("path"), nb::arg("config"));
 
     nb::enum_<ResolutionStatus>(module, "ResolutionStatus")
         .value("READY", ResolutionStatus::Ready)
@@ -236,10 +238,10 @@ NB_MODULE(_hgraph_fabric, module)
         nb::arg("kind"), nb::arg("encoded"));
 
     module.def(
-        "_load_data_as_of",
+        "_load_data",
         [](const PythonFabricConfig &config, Str data_id,
            DateTime as_of) -> nb::object {
-            auto frame = load_data_as_of(config.value, std::move(data_id), as_of);
+            auto frame = load_data(config.value, std::move(data_id), as_of);
             return frame.has_value()
                        ? python_conversion_traits<Frame>::to_python(*frame)
                        : nb::none();

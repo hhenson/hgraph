@@ -246,6 +246,34 @@ namespace
         }
     };
 
+    struct MultipleFabricPathsGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto left_path = hg::service::path("left-fabric");
+            const auto right_path = hg::service::path("right-fabric");
+            hgf::register_service(wiring, left_path);
+            hgf::register_service(wiring, right_path);
+            auto left = hgf::subscribe_data(wiring, left_path, "input");
+            auto right = hgf::subscribe_data(wiring, right_path, "input");
+            hgf::publish_data(wiring, left_path, "output", left);
+            hgf::publish_data(wiring, right_path, "output", right);
+        }
+    };
+
+    struct CrossPathDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto left_path = hg::service::path("left-fabric");
+            const auto right_path = hg::service::path("right-fabric");
+            hgf::register_service(wiring, left_path);
+            hgf::register_service(wiring, right_path);
+            auto left = hgf::subscribe_data(wiring, left_path, "input");
+            hgf::publish_data(wiring, right_path, "output", left);
+        }
+    };
+
     template <typename Graph>
     [[nodiscard]] hgf::DependencyPlanInput plan_for()
     {
@@ -291,6 +319,8 @@ TEST_CASE("fabric public values are canonical and validate identity")
                         .as_of = hg::MIN_ST,
                     }),
                     std::invalid_argument);
+    CHECK_THROWS_WITH(hgf::make_memory_fabric_config("test/invalid-limit", 0U),
+                      "fabric notification request limit must be positive");
     CHECK_THROWS_AS(hgf::make_data_revision(hgf::DataRevisionInput{
                         .data_id = "x",
                         .revision = 1,
@@ -365,15 +395,20 @@ TEST_CASE("fabric configuration is run scoped and validates resources")
     CHECK(configured->objects);
     CHECK(configured->frames);
     CHECK(configured->notifications);
-    CHECK(configured->notification_candidate_limit ==
-          hgf::FABRIC_NOTIFICATION_CANDIDATE_LIMIT);
     hgf::clear_fabric_config(state);
     CHECK_FALSE(hgf::fabric_config(state).has_value());
 
-    auto invalid = hgf::make_memory_fabric_config("test/invalid-fabric");
-    invalid.notification_candidate_limit = 0U;
-    CHECK_THROWS_WITH(hgf::set_fabric_config(state, std::move(invalid)),
-                      "fabric notification candidate limit must be greater than zero");
+    auto left = hgf::make_memory_fabric_config("test/fabric/left");
+    auto right = hgf::make_memory_fabric_config("test/fabric/right");
+    hgf::set_fabric_config(state, "left-fabric", left);
+    hgf::set_fabric_config(state, "right-fabric", right);
+    REQUIRE(hgf::fabric_config(state, "left-fabric").has_value());
+    REQUIRE(hgf::fabric_config(state, "right-fabric").has_value());
+    CHECK(hgf::fabric_config(state, "left-fabric")->prefix == "test/fabric/left");
+    CHECK(hgf::fabric_config(state, "right-fabric")->prefix == "test/fabric/right");
+    hgf::clear_fabric_config(state, "left-fabric");
+    CHECK_FALSE(hgf::fabric_config(state, "left-fabric").has_value());
+    CHECK(hgf::fabric_config(state, "right-fabric").has_value());
 }
 
 TEST_CASE("fabric operator installer survives a registry rebuild")
@@ -463,6 +498,54 @@ TEST_CASE("fabric planner wires shared service clients and hidden lineage cuts")
               independent, "hgraph.fabric.publish_data.with_cut") == 0);
     CHECK(count_semantic_node(
               independent, "hgraph.fabric.publish_data.no_dependencies") == 1);
+}
+
+TEST_CASE("fabric selects live or replay service topology during wiring")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    const auto simulation = hg::build_graph<InstalledContractGraph>();
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.replay") == 1);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.replay.planned") == 1);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.live") == 0);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.live.planned") == 0);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.run_policy") == 0);
+
+    const auto realtime = hg::build_graph<InstalledContractGraph>(
+        hg::WiringOptions{.is_realtime = true});
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.replay") == 0);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.replay.planned") == 0);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.live") == 1);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.live.planned") == 1);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.run_policy") == 0);
+}
+
+TEST_CASE("fabric service paths isolate plans publishers and lineage")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    auto graph = hg::build_graph<MultipleFabricPathsGraph>();
+    CHECK(count_semantic_node(graph, "hgraph.fabric.service.lifecycle") == 2);
+    CHECK(hgf::dependency_plan_input(
+              graph.traits().get(hgf::dependency_plan_trait("left-fabric"))) ==
+          hgf::DependencyPlanInput{
+              .roots = {"input"},
+              .publishers = {{"output", {"input"}}},
+              .forests = {{{"input"}}},
+          });
+    CHECK(hgf::dependency_plan_input(
+              graph.traits().get(hgf::dependency_plan_trait("right-fabric"))) ==
+          hgf::DependencyPlanInput{
+              .roots = {"input"},
+              .publishers = {{"output", {"input"}}},
+              .forests = {{{"input"}}},
+          });
+
+    CHECK_THROWS_WITH(
+        hg::build_graph<CrossPathDependencyGraph>(),
+        Catch::Matchers::ContainsSubstring("another Fabric service path"));
 }
 
 TEST_CASE("fabric dependency handles reject forwarded and unrelated values")

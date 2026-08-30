@@ -27,7 +27,7 @@ namespace hgraph
      * carries the owning output identity and the borrowed TSData cursor, but
      * leaves time-sensitive ``modified`` / ``delta`` interpretation to views.
      */
-    class HGRAPH_EXPORT TSOutputHandle
+    class HGRAPH_CLASS_EXPORT TSOutputHandle
     {
       public:
         TSOutputHandle() noexcept = default;
@@ -73,7 +73,7 @@ namespace hgraph
      * ``TSDataView::valid()`` means "live handle"; this view exposes the
      * time-series validity rule where ``MIN_DT`` means no current value.
      */
-    class HGRAPH_EXPORT TSOutputView
+    class HGRAPH_CLASS_EXPORT TSOutputView
     {
       public:
         TSOutputView() noexcept = default;

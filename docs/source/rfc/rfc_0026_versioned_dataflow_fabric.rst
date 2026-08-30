@@ -531,27 +531,31 @@ intended shape is:
    {
        Port<TS<Frame>> subscribe_data(
            Wiring &w,
+           service::ServicePath path,
            Str data_id);
 
        void publish_data(
            Wiring &w,
+           service::ServicePath path,
            Str data_id,
            Port<TS<Frame>> value,
            DependencySelection dependencies = DependencySelection::automatic());
 
-       std::optional<Frame> load_data_as_of(
+       std::optional<Frame> load_data(
            const FabricConfig &config,
            Str data_id,
-           DateTime as_of);
+           DateTime as_of = MAX_DT);
    }
 
-``data_id`` and an explicit dependency selection are wiring-time scalars.  The
-root service graph selects live ingress for a real-time executor and ordinary
+The overloads without ``path`` use ``"fabric"``. ``data_id``, ``path`` and an
+explicit dependency selection are wiring-time scalars. Each path selects its
+own service instance, configuration and dependency plan; lineage cannot cross
+paths. The root service graph selects live ingress for a real-time executor and ordinary
 deterministic scheduled replay for simulation.  The selection is graph-wide;
 individual subscriptions cannot request a conflicting policy.  Simulation
 does not construct the real-time push source.
 
-``load_data_as_of`` is a synchronous non-graph point lookup over an explicit
+``load_data`` is a synchronous non-graph point lookup over an explicit
 configuration.  It does not inspect ``GlobalState``, schedule graph work or
 resolve a dependency forest.
 
@@ -569,19 +573,22 @@ Python adapts the same operators:
 
    def subscribe_data(
        data_id: str,
+       *,
+       path: str = "fabric",
    ) -> TS[Frame]: ...
 
    def publish_data(
        data_id: str,
        value: TS[Frame],
        *,
+       path: str = "fabric",
        dependencies: DependencySelection = AUTO,
    ) -> None: ...
 
-   def load_data_as_of(
+   def load_data(
        config: FabricConfig,
        data_id: str,
-       as_of: datetime,
+       as_of: datetime = MAX_DT,
    ) -> Frame | None: ...
 
 Python's load result follows hgraph's existing Frame presentation policy:
@@ -602,13 +609,17 @@ of execution with the normal graph state.  The semantic configuration includes:
        persistence::store::ObjectStore objects;
        persistence::store::FrameStore  frames;
        Notifier                         notifications;
-       std::size_t                      notification_candidate_limit;
+       std::size_t                     notification_request_limit;
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
 contract described above.  ``prefix`` and every data id use the common
-persistence key validation rules.  A configuration error fails at wiring or
-start; it never falls back from S3/Kafka to process memory.
+persistence key validation rules. ``notification_request_limit`` bounds the
+durable candidates admitted to the graph-transport request flow; saturation
+stops publication advancement until a delivery frees capacity. A configuration
+error fails at wiring or start; it never falls back from S3/Kafka to process
+memory. Configurations are stored by service path so one graph may host several
+independent Fabric instances.
 
 Dependency discovery
 --------------------
@@ -970,8 +981,10 @@ Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
 The delivery handshake is ordinary graph composition.  Once persistence has
-accepted a revision, the Fabric publication node exposes it in a bounded keyed
-time series.  A notification-flow node selects one candidate, exposes a
+accepted a revision, the Fabric publication node exposes it in a keyed time
+series bounded by ``FabricConfig::notification_request_limit``. Saturation is
+backpressure: the node leaves later publishers unadvanced until completion
+frees a slot. A notification-flow node selects one candidate, exposes a
 reference to that same ``Shared<DataRevision>`` endpoint on an ordered request
 edge, and receives the correlated delivery report on another edge.  Its active
 candidate, retry count, completion feedback and diagnostic counters are
@@ -979,15 +992,6 @@ time-series state.  A retriable report temporarily unbinds and then rebinds the
 same reference on the next graph cycle, so retry neither copies the revision
 nor creates a new shared allocation.  Completion feedback removes the
 candidate and advances the publication state machine.
-
-``FabricConfig::notification_candidate_limit`` is the explicit resource bound
-on durable candidates awaiting the graph-native transport (1024 by default).
-Saturation is fatal rather than implicit backpressure: publication requests
-have already entered the graph and candidates may already be durable, so merely
-stopping candidate extraction would transfer an unbounded broker stall into
-the per-data-id publication queues without applying admission at the sender.
-Hosts size the bound for the maximum notification lag they are prepared to
-retain.
 
 The Kafka service task is deliberately narrower: a publish sink submits the
 request to the broker and the service's FIFO root push source returns delivery
@@ -1302,14 +1306,14 @@ because it exists when the replay is executed.  If a revision introduces a new
 dependency id, the replay merge opens that id's as-of history at the current
 time and incorporates only entries which were then knowable.
 
-Standalone as-of load
-~~~~~~~~~~~~~~~~~~~~~
+Standalone direct load
+~~~~~~~~~~~~~~~~~~~~~~
 
-``load_data_as_of(config, data_id, as_of)`` is intentionally simpler than a
-subscription.  It walks the selected data id's ordered as-of index, chooses
-the newest entry whose timestamp is ``<= as_of``, validates the referenced
-revision and loads that revision's Frame.  It returns absence when no such
-entry exists.
+``load_data(config, data_id)`` is intentionally simpler than a subscription.
+It loads the latest revision by default. Passing ``as_of`` walks the selected
+data id's ordered as-of index, chooses the newest entry whose timestamp is
+``<= as_of``, validates the referenced revision and loads that revision's
+Frame. It returns absence when no such entry exists.
 
 The call does not construct a graph, coordinate several roots, or inspect
 transitive dependencies.  Consumers that require graph-wide consistency use
@@ -1767,7 +1771,7 @@ lifecycle choices as follows:
 * The executor selects subscription behavior for the whole graph: real-time
   execution activates live ingress and simulation activates the ordinary
   deterministic replay source.  Every push source remains real-time-only.
-  A separate non-graph ``load_data_as_of`` API performs an uncoordinated
+  A separate non-graph ``load_data`` API performs an uncoordinated
   single-dataset point lookup against an explicit ``FabricConfig``.
 * Metadata uses the canonical version-1 ``HGFM`` binary envelope and the media
   types declared in ``metadata_codec.h``.  Public contracts are split across

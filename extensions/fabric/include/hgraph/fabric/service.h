@@ -1,6 +1,7 @@
 #ifndef HGRAPH_FABRIC_SERVICE_H
 #define HGRAPH_FABRIC_SERVICE_H
 
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/export.h>
 #include <hgraph/fabric/types.h>
 

@@ -30,7 +30,7 @@ namespace hgraph
      * and node beneath it. All hooks default to no-ops; implementations
      * override only what they need.
      */
-    struct HGRAPH_EXPORT LifecycleObserver
+    struct HGRAPH_CLASS_EXPORT LifecycleObserver
     {
         virtual ~LifecycleObserver() = default;
 

@@ -826,7 +826,7 @@ namespace hgraph
 
     struct WiringObserverRegistry;
 
-    class HGRAPH_EXPORT WiringObservationScope
+    class HGRAPH_CLASS_EXPORT WiringObservationScope
     {
       public:
         WiringObservationScope() noexcept = default;
@@ -853,7 +853,7 @@ namespace hgraph
      * ``finish``, topologically sorts + ranks them into a ``GraphBuilder``. (The
      * Python wiring bridge will drive this same core.)
      */
-    class HGRAPH_EXPORT Wiring
+    class HGRAPH_CLASS_EXPORT Wiring
     {
       public:
         explicit Wiring(WiringKind kind = WiringKind::TopLevel,
@@ -1054,7 +1054,7 @@ namespace hgraph
          * wiring an implementation cannot leak a stale active scope into the
          * enclosing graph wiring.
          */
-        class HGRAPH_EXPORT ServiceImplementationScope
+        class HGRAPH_CLASS_EXPORT ServiceImplementationScope
         {
           public:
             ServiceImplementationScope() noexcept = default;
@@ -1408,7 +1408,7 @@ namespace hgraph
     };
 
     /** Type-erased core of ``delayed_binding``; Python uses this same handle. */
-    class HGRAPH_EXPORT ErasedDelayedBindingWiringPort
+    class HGRAPH_CLASS_EXPORT ErasedDelayedBindingWiringPort
     {
       public:
         ErasedDelayedBindingWiringPort() noexcept = default;

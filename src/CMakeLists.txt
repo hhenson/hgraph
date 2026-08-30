@@ -270,10 +270,14 @@ if(HGRAPH_BUILD_SHARED)
 endif()
 
 if(MSVC)
-    target_compile_options(hgraph_stdlib PRIVATE /bigobj)
+    # HGRAPH_CLASS_EXPORT deliberately omits consumer-side dllimport for the
+    # complete class while retaining producer-side exports. C4251/C4275 then
+    # describe private representation that is not part of the supported DLL
+    # boundary. Keep this documented exception on the producing targets only.
+    target_compile_options(hgraph_stdlib PRIVATE /bigobj /wd4251 /wd4275)
     if(NOT HGRAPH_WINDOWS_UNIFIED_SHARED)
-        target_compile_options(hgraph_runtime PRIVATE /bigobj)
-        target_compile_options(hgraph_wiring PRIVATE /bigobj)
+        target_compile_options(hgraph_runtime PRIVATE /bigobj /wd4251 /wd4275)
+        target_compile_options(hgraph_wiring PRIVATE /bigobj /wd4251 /wd4275)
     endif()
 endif()
 

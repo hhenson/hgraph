@@ -882,11 +882,16 @@ namespace hgraph::fabric::detail
         impl_->begin_next(data_id);
     }
 
-    std::vector<DataRevisionInput> PublicationNodeState::advance()
+    std::vector<DataRevisionInput>
+    PublicationNodeState::advance(std::size_t notification_capacity)
     {
         std::vector<DataRevisionInput> accepted;
         for (auto &[data_id, machine] : impl_->publishers)
         {
+            if (impl_->graph_notifications && accepted.size() >= notification_capacity)
+            {
+                break;
+            }
             for (std::size_t step = 0; step < 16; ++step)
             {
                 const PublicationState before = machine->state();
@@ -991,13 +996,9 @@ namespace hgraph::fabric::detail
                                    });
     }
 
-    std::size_t PublicationNodeState::notification_candidate_limit() const
+    std::size_t PublicationNodeState::notification_request_limit() const
     {
-        if (!impl_->config.has_value())
-        {
-            throw std::logic_error("fabric publication node is not started");
-        }
-        return impl_->config->notification_candidate_limit;
+        return impl_->configured().notification_request_limit;
     }
 
     FabricNodeDiagnostics PublicationNodeState::diagnostics() const
@@ -1015,6 +1016,10 @@ namespace hgraph::fabric::detail
                     {"publication.queued", std::to_string(queued)},
                     {"publication.queue_limit_per_data_id",
                      std::to_string(FABRIC_PUBLICATION_QUEUE_LIMIT_PER_DATA_ID)},
+                    {"transport.notification.request_limit",
+                     impl_->config.has_value()
+                         ? std::to_string(impl_->config->notification_request_limit)
+                         : "0"},
                 },
             .events = {impl_->diagnostics.events.begin(), impl_->diagnostics.events.end()},
         };

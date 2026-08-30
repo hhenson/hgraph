@@ -137,7 +137,7 @@ namespace hgraph::record_replay
     [[nodiscard]] HGRAPH_EXPORT const ScopeState &current_scope() noexcept;
 
     /** RAII mode scope. */
-    class HGRAPH_EXPORT scope
+    class HGRAPH_CLASS_EXPORT scope
     {
       public:
         explicit scope(Mode mode, std::string recordable_id = {});

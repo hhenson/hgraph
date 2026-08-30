@@ -26,7 +26,7 @@ namespace hgraph
      *
      * See the developer guide *Mesh*.
      */
-    struct HGRAPH_EXPORT MeshNodeSpec
+    struct HGRAPH_CLASS_EXPORT MeshNodeSpec
     {
         /** The child template (same shape as ``map_``). */
         SingleNestedGraphNodeSpec child{};
@@ -47,7 +47,7 @@ namespace hgraph
      * it via the ``parent_node()`` walk to register cross-instance dependencies
      * and trigger on-demand instance creation.
      */
-    class HGRAPH_EXPORT MeshNodeView
+    class HGRAPH_CLASS_EXPORT MeshNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;

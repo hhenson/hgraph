@@ -63,26 +63,37 @@ namespace
     }
 }  // namespace
 
-TEST_CASE("load_data_as_of selects the newest point at or before the cutoff")
+TEST_CASE("load_data selects the newest point at or before the cutoff")
 {
     auto config = hgf::make_memory_fabric_config("tests/history/select");
     seed(config, 1, 10, BASE_TIME + hg::TimeDelta{10});
     seed(config, 2, 20, BASE_TIME + hg::TimeDelta{20});
     seed(config, 3, 30, BASE_TIME + hg::TimeDelta{30});
 
-    CHECK_FALSE(hgf::load_data_as_of(config, "prices", BASE_TIME).has_value());
-    REQUIRE(hgf::load_data_as_of(config, "prices",
-                                 BASE_TIME + hg::TimeDelta{20})
+    CHECK_FALSE(hgf::load_data(config, "prices", BASE_TIME).has_value());
+    REQUIRE(hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{20})
                 .has_value());
-    CHECK(scalar(*hgf::load_data_as_of(config, "prices",
-                                       BASE_TIME + hg::TimeDelta{20})) == 20);
-    CHECK(scalar(*hgf::load_data_as_of(config, "prices",
-                                       BASE_TIME + hg::TimeDelta{29})) == 20);
-    CHECK(scalar(*hgf::load_data_as_of(config, "prices",
-                                       BASE_TIME + hg::TimeDelta{40})) == 30);
+    CHECK(scalar(*hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{20})) == 20);
+    CHECK(scalar(*hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{29})) == 20);
+    CHECK(scalar(*hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{40})) == 30);
+    CHECK(scalar(*hgf::load_data(config, "prices")) == 30);
 }
 
-TEST_CASE("load_data_as_of fails on a missing referenced frame")
+TEST_CASE("load_data rejects an as-of index entry for another instant")
+{
+    auto config = hgf::make_memory_fabric_config("tests/history/inconsistent-as-of");
+    seed(config, 1, 10, BASE_TIME + hg::TimeDelta{10});
+    REQUIRE(config.objects
+                .put_immutable(
+                    hgf::as_of_key(config.prefix, "prices", BASE_TIME + hg::TimeDelta{20}),
+                    hgf::encode_revision_reference(hgf::MetadataObjectKind::AsOf, 1))
+                .status == hgps::ImmutableWriteStatus::Created);
+
+    CHECK_THROWS_WITH(hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{20}),
+                      "fabric as-of index references inconsistent revision metadata");
+}
+
+TEST_CASE("load_data fails on a missing referenced frame")
 {
     auto config = hgf::make_memory_fabric_config("tests/history/missing-frame");
     hg::Value value = hgf::make_data_revision(hgf::DataRevisionInput{
@@ -101,6 +112,6 @@ TEST_CASE("load_data_as_of fails on a missing referenced frame")
                     hgf::encode_revision_reference(hgf::MetadataObjectKind::AsOf, 1))
                 .status == hgps::ImmutableWriteStatus::Created);
 
-    CHECK_THROWS_WITH(hgf::load_data_as_of(config, "prices", BASE_TIME),
+    CHECK_THROWS_WITH(hgf::load_data(config, "prices", BASE_TIME),
                       "fabric as-of revision references a missing frame");
 }

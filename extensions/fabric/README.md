@@ -33,7 +33,7 @@ The shared ingress coordinator derives behavior from the graph run:
 
 There is no per-subscription mode. A narrow simulation interval provides the
 graph-coordinated equivalent of a one-point replay. The separate synchronous
-`load_data_as_of` API handles a simple single-dataset point lookup without
+`load_data` API handles a simple single-dataset point lookup without
 constructing or solving a consistency forest.
 
 Complete live revision messages populate dependency indexes directly. Durable
@@ -149,22 +149,23 @@ of a snapshot without changing application wiring. The complete alternatives
 are in
 [`python/examples/subscription_modes.py`](python/examples/subscription_modes.py).
 
-### Load one dataset as of an instant
+### Load one dataset directly
 
 When no graph coordination is required, use the standalone point lookup. It
-selects the newest stored version of one data id whose revision timestamp is
-less than or equal to the cutoff:
+loads the latest stored version of one data id by default. Pass `as_of` to
+select the newest revision at or before a cutoff:
 
 ```python
 config = fabric.make_memory_fabric_config(prefix="examples/history")
-value = fabric.load_data_as_of(config, "prices/enriched", as_of)
+latest = fabric.load_data(config, "prices/enriched")
+historical = fabric.load_data(config, "prices/enriched", as_of)
 ```
 
 The configuration is explicit; the call does not inspect graph state and does
-not solve transitive lineage. It returns `None` when no earlier value exists.
+not solve transitive lineage. It returns `None` when no matching value exists.
 The Python Frame presentation is PyArrow by default and Polars when hgraph's
 Polars compatibility switch is enabled and Polars is installed. See
-[`python/examples/load_as_of.py`](python/examples/load_as_of.py) for a runnable
+[`python/examples/load_data.py`](python/examples/load_data.py) for a runnable
 publish-then-load example using one owning configuration.
 
 ### Build a derived dataset with automatic lineage
@@ -214,9 +215,10 @@ deployment and exercises the same protocol as S3:
 ```cpp
 namespace hgf = hgraph::fabric;
 namespace hgps = hgraph::persistence::store;
+namespace hg = hgraph;
 
 auto config = hgf::make_memory_fabric_config("production/blue");
-config.notification_candidate_limit = 4096;
+config.notification_request_limit = 4096;
 config.objects = hgps::make_object_store(
     hgps::ObjectStoreConfig{hgps::LocalLocation{"/srv/fabric/metadata"}});
 config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
@@ -224,15 +226,10 @@ config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
     .format = hgps::Format::Parquet,
     .compression = hgps::Compression::Zstd,
 });
-hgf::set_fabric_config(wiring.global_state(), std::move(config));
-hgf::register_service(wiring);
+const auto path = hg::service::path("blue-fabric");
+hgf::set_fabric_config(wiring.global_state(), path.value, std::move(config));
+hgf::register_service(wiring, path);
 ```
-
-`notification_candidate_limit` bounds durable revisions waiting for the
-graph-native notification transport. Reaching the configured bound fails the
-run explicitly; it does not silently shift an unbounded broker backlog into
-the per-data-id publication queues. Size it for the maximum notification lag
-the host is prepared to retain. The default is 1024 candidates.
 
 For S3, replace both `LocalLocation` values with independently prefixed
 `S3Location` values. Credentials use the persistence extension's ambient,

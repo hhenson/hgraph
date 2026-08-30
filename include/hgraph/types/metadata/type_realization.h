@@ -66,7 +66,7 @@ namespace hgraph
      * Bundle whose construction must be resolved to a concrete descendant.
      * Later registrations cannot change its alternatives or storage size.
      */
-    class HGRAPH_EXPORT TypeRealizationSnapshot
+    class HGRAPH_CLASS_EXPORT TypeRealizationSnapshot
     {
       public:
         [[nodiscard]] static std::shared_ptr<const TypeRealizationSnapshot>
@@ -94,7 +94,7 @@ namespace hgraph
     };
 
     /** Thread-local construction scope used while a graph creates its nodes. */
-    class HGRAPH_EXPORT TypeRealizationScope
+    class HGRAPH_CLASS_EXPORT TypeRealizationScope
     {
       public:
         explicit TypeRealizationScope(const TypeRealizationSnapshot *snapshot) noexcept;
@@ -109,7 +109,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT const TypeRealizationSnapshot *active_type_realization() noexcept;
 
     /** Limits graph-local representation selection to graph storage construction. */
-    class HGRAPH_EXPORT GraphValueRealizationScope
+    class HGRAPH_CLASS_EXPORT GraphValueRealizationScope
     {
       public:
         GraphValueRealizationScope() noexcept;

@@ -50,7 +50,7 @@ namespace hgraph::stdlib
      * graph ``GlobalState`` before the normal copy-out to an active
      * ``GlobalContext``.
      */
-    class HGRAPH_EXPORT LowerExecution
+    class HGRAPH_CLASS_EXPORT LowerExecution
     {
       public:
         LowerExecution() noexcept;

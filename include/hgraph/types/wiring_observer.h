@@ -16,7 +16,7 @@ namespace hgraph
     struct TSValueTypeMetaData;
 
     /** Stable handle to one interned value or time-series schema. */
-    struct HGRAPH_EXPORT WiringTypeHandle
+    struct HGRAPH_CLASS_EXPORT WiringTypeHandle
     {
         WiringTypeHandle() noexcept = default;
         explicit WiringTypeHandle(const ValueTypeMetaData *type) noexcept;
@@ -89,7 +89,7 @@ namespace hgraph
      * Wiring-time observer. Unlike lifecycle observers, every callback receives
      * an owned diagnostic record rather than a borrowed runtime view.
      */
-    class HGRAPH_EXPORT WiringObserver
+    class HGRAPH_CLASS_EXPORT WiringObserver
     {
       public:
         virtual ~WiringObserver() = default;
@@ -104,7 +104,7 @@ namespace hgraph
     };
 
     /** Native formatter for the wiring-observer protocol. */
-    class HGRAPH_EXPORT WiringTracer final : public WiringObserver
+    class HGRAPH_CLASS_EXPORT WiringTracer final : public WiringObserver
     {
       public:
         explicit WiringTracer(std::string filter = {}, bool graph = true,

@@ -4,8 +4,8 @@ These examples progress from a one-frame local publisher to historical reads,
 run-selected subscriptions, and a typed multi-input derived dataset:
 
 - [`publish_once.py`](publish_once.py) is a complete runnable local example.
-- [`load_as_of.py`](load_as_of.py) performs a standalone point-in-time read
-  against an explicit configuration.
+- [`load_data.py`](load_data.py) performs a standalone latest or point-in-time
+  read against an explicit configuration.
 - [`subscription_modes.py`](subscription_modes.py) shows that the same
   subscription graph runs Live in real time and Replay in simulation.
 - [`derived_dataset.py`](derived_dataset.py) joins two Fabric inputs and
@@ -33,8 +33,9 @@ Subscription behavior belongs to the graph run, not each data id:
   one-point replay.
 
 For a simple historical read that needs no graph coordination,
-`load_data_as_of(config, data_id, as_of)` returns the newest version at or
-before the cutoff. It does not resolve dependency consistency.
+`load_data(config, data_id)` returns the latest version. Passing `as_of`
+instead returns the newest version at or before that cutoff. Neither form
+resolves dependency consistency.
 
 Fabric publishes complete atomic Frames. Typed `Frame[Row]` views are useful
 inside an application graph; convert the final value to `TS[Frame]` at the
