@@ -4,6 +4,7 @@
 #include <hgraph/persistence/export.h>
 
 #include <optional>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -79,6 +80,31 @@ namespace hgraph::persistence::store
 
     /** Throws ``std::invalid_argument`` when ``validate_key`` rejects the key. */
     HGRAPH_PERSISTENCE_EXPORT void require_valid_key(std::string_view key);
+
+    /** Encode an arbitrary string as one key segment, base64url without
+        padding. Object keys are a restricted alphabet with '/' as the only
+        separator, so a value that may contain either has to be encoded before
+        it becomes part of a path. Generic: the caller owns the key layout,
+        this owns the alphabet. */
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::string
+    encode_key_segment(std::string_view value);
+
+    /** Inverse of encode_key_segment. Throws std::invalid_argument on input
+        that is not base64url. */
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::string
+    decode_key_segment(std::string_view encoded);
+
+    /** Render a positive integer zero-padded to `width`, so keys containing it
+        sort lexicographically in numeric order -- which is what makes prefix
+        listing return a range in sequence. Throws when the value is
+        non-positive or does not fit. */
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::string
+    encode_ordered_ordinal(std::int64_t value, std::size_t width);
+
+    /** Inverse of encode_ordered_ordinal, rejecting a segment of the wrong
+        width or with non-digit characters. */
+    [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT std::int64_t
+    decode_ordered_ordinal(std::string_view encoded, std::size_t width);
 
     /**
      * Shut the Arrow S3 layer down after every S3-backed store has been reset.
