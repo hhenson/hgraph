@@ -79,7 +79,7 @@ namespace
         const auto stored = config.objects.get(
             hgf::revision_key(config.prefix, data_id, revision));
         REQUIRE(stored.has_value());
-        return hgf::data_revision_input(hgf::decode_revision(stored->data).view());
+        return hgf::data_revision_input(config.values.decode(hgf::data_revision_meta(), stored->data).view());
     }
 
     [[nodiscard]] hgf::RevisionId stored_latest(
@@ -88,8 +88,7 @@ namespace
         const auto stored =
             config.objects.get(hgf::latest_key(config.prefix, data_id));
         REQUIRE(stored.has_value());
-        return hgf::decode_revision_reference(hgf::MetadataObjectKind::Latest,
-                                              stored->data);
+        return hgf::revision_reference_value(config.values, hgf::MetadataObjectKind::Latest, stored->data);
     }
 
     struct ControlledDelivery
@@ -230,7 +229,7 @@ TEST_CASE("publication makes the accepted revision durable before advertising it
     const auto notice = notices.try_pop();
     REQUIRE(notice.has_value());
     CHECK(notice->data_id == "result");
-    CHECK(hgf::data_revision_input(hgf::decode_revision(notice->revision).view()) ==
+    CHECK(hgf::data_revision_input(config.values.decode(hgf::data_revision_meta(), notice->revision).view()) ==
           *candidate);
     CHECK(machine.advance() ==
           hgf::PublicationState::NotificationAcknowledged);
@@ -378,7 +377,7 @@ TEST_CASE("publication races are first-writer-wins and losers never become the n
         const auto notice = notices.try_pop();
         REQUIRE(notice);
         CHECK(hgf::data_revision_input(
-                  hgf::decode_revision(notice->revision).view()) ==
+                  config.values.decode(hgf::data_revision_meta(), notice->revision).view()) ==
               *first.candidate_revision());
     }
 
@@ -452,7 +451,7 @@ TEST_CASE("startup repairs contiguous revision slots and stale derived indexes")
         REQUIRE(current);
         const auto stale = config.objects.compare_exchange_ref(
             key, current->version_token,
-            hgf::encode_revision_reference(hgf::MetadataObjectKind::Latest, 1));
+            hgf::encode_reference(config.values, hgf::MetadataObjectKind::Latest, 1));
         REQUIRE(stale.exchanged);
 
         hgf::PublisherStateMachine recovered{config, "result"};
@@ -528,7 +527,7 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
         });
         REQUIRE(config.objects.put_immutable(
                     hgf::revision_key(config.prefix, "result", 1),
-                    hgf::encode_revision(value.view()))
+                    config.values.encode(value.view()))
                     .status == hgps::ImmutableWriteStatus::Created);
         hgf::PublisherStateMachine machine{config, "result"};
         machine.begin(inputs_only({}));
@@ -552,7 +551,7 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
         });
         REQUIRE(config.objects.put_immutable(
                     hgf::revision_key(config.prefix, "result", 2),
-                    hgf::encode_revision(value.view()))
+                    config.values.encode(value.view()))
                     .status == hgps::ImmutableWriteStatus::Created);
         hgf::PublisherStateMachine machine{config, "result"};
         machine.begin(inputs_only({}));

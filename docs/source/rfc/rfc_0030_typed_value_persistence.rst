@@ -210,31 +210,28 @@ Alternatives considered
   choice to compile time, which defeats a per-call override and forces every
   caller to name a format it should not care about.
 
-Migration
----------
+No migration
+------------
 
-Fabric is the first consumer and the proof.
+Fabric's durable format has no deployed readers: the extension is new and no
+client store predates this change. The old codec is therefore **deleted rather
+than retained**, and no dual-read, format sniffing, or version negotiation is
+added.
 
-The two formats live at different keys. Legacy objects sit at the bare key that
-Fabric writes today; new objects gain a ``.json`` suffix. A read that tries the
-new key and falls back to the bare key therefore serves both without a flag day,
-an offline migration, or any byte-level discrimination -- and the two can coexist
-indefinitely if a store is never fully rewritten.
+That is worth stating explicitly because the alternative is expensive and
+permanent. A compatibility path would have to be written, tested against
+synthesised legacy objects, and carried until every store had been rewritten --
+for objects that do not exist. Compatibility machinery added speculatively is
+the hardest kind to remove later, because nothing proves it is unused.
 
-* Write the new format from the first release that has ``ValueStore``.
-* Keep ``decode_revision`` as a read-only legacy path for one release.
-* Retire it when no reachable store predates the change.
+Any store written by a previous build is discarded. Seven Fabric test files
+exercise the current format; those asserting round-trip behaviour port to the
+new store unchanged, and any asserting byte layout are deleted rather than
+rewritten, since they test a codec that no longer exists.
 
-Seven Fabric test files exercise the current format. Those asserting round-trip
-behaviour port unchanged. Any asserting byte layout should be deleted rather
-than rewritten: they test a codec that is being removed, and the replacement's
-byte layout is the library's business, covered by the library's own tests.
-
-``resolution_perf`` already exists and should answer whether the packed envelope
-was buying anything measurable on the metadata path, rather than the question
-being settled by argument. Metadata objects are small and one is written per
-publication, against a frame write and a broker round trip; the expectation is
-that the difference does not register.
+``resolution_perf`` should confirm the metadata path is unaffected, rather than
+the question being settled by argument. Metadata objects are small and one is
+written per publication, against a frame write and a broker round trip.
 
 Implementation plan
 -------------------
@@ -247,11 +244,10 @@ Each step is independently reviewable and leaves the tree green.
 2. ``ValueStore`` over ``ObjectStore``: envelope, default selection, per-call
    override, ``compare_exchange``. Tests covering a mixed-codec store and an
    unknown codec name failing closed on read.
-3. Fabric writes and reads through ``ValueStore``; ``metadata_codec.cpp``
-   reduced to the legacy decoder.
+3. Fabric writes and reads through ``ValueStore``; ``metadata_codec.{h,cpp}``
+   deleted outright.
 4. Generic key primitives moved beside ``require_valid_key()``; Fabric keeps its
    key layout.
-5. Legacy decoder removed once the compatibility window closes.
 
 Steps 1 and 2 are additive and land before any Fabric change, so the new surface
 is exercised by its own tests before it carries a consumer.

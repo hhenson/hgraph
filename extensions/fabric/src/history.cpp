@@ -71,8 +71,8 @@ namespace hgraph::fabric
         {
             throw std::runtime_error("fabric as-of index disappeared during load");
         }
-        const RevisionId revision_id = decode_revision_reference(
-            MetadataObjectKind::AsOf, reference->data);
+        const RevisionId revision_id = revision_reference_value(
+            config.values, MetadataObjectKind::AsOf, reference->data);
         const auto stored_revision = config.objects.get(
             revision_key(config.prefix, data_id, revision_id));
         if (!stored_revision.has_value())
@@ -80,7 +80,8 @@ namespace hgraph::fabric
             throw std::runtime_error("fabric as-of index references a missing revision");
         }
         const DataRevisionInput revision = data_revision_input(
-            decode_revision(stored_revision->data).view());
+            config.values.decode(data_revision_meta(), stored_revision->data)
+                .view());
         if (revision.data_id != data_id || revision.revision != revision_id ||
             revision.as_of != *selected_as_of)
         {

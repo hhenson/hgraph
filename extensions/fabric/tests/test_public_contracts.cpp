@@ -1,4 +1,5 @@
 #include <hgraph/fabric/fabric.h>
+#include <hgraph/persistence/value_store.h>
 
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/std_operators.h>
@@ -23,8 +24,22 @@
 
 namespace
 {
-    namespace hg  = hgraph;
-    namespace hgf = hgraph::fabric;
+    namespace hg   = hgraph;
+    namespace hgf  = hgraph::fabric;
+    namespace hgps = hgraph::persistence::store;
+
+    /** A store for encoding fixtures, independent of any fabric config. */
+    [[nodiscard]] const hgps::ValueStore &contract_values()
+    {
+        static const hgps::ValueStore store = [] {
+            hgps::register_builtin_value_codecs();
+            return hgps::make_value_store(
+                hgps::ValueStoreConfig{.objects = hgps::make_object_store(
+                                           hgps::ObjectStoreConfig{})});
+        }();
+        return store;
+    }
+
 
     [[nodiscard]] hgraph::persistence::store::ObjectBytes notice(
         hgraph::Str data_id, hgraph::Int revision)
@@ -35,7 +50,7 @@ namespace
             .output_version = revision,
             .as_of = hg::DateTime{hg::TimeDelta{1'767'323'045'000'000 + revision}},
         });
-        return hgf::encode_revision(value.view());
+        return contract_values().encode(value.view());
     }
 
     [[nodiscard]] std::string hex(
@@ -329,30 +344,40 @@ TEST_CASE("fabric public values are canonical and validate identity")
                     std::invalid_argument);
 }
 
-TEST_CASE("fabric canonical metadata matches the shared golden fixtures")
+TEST_CASE("fabric metadata is a json document with the properties that matter")
 {
-    hg::Value revision = canonical_revision();
-    const auto encoded = hgf::encode_revision(revision.view());
-    CHECK(hex(encoded) == fixture("revision_v1.hex"));
-    const auto decoded = hgf::decode_revision(encoded);
+    // The golden hex fixtures are gone with the hand-written codec they pinned:
+    // the byte layout is now the library's business, covered by the value
+    // store's own tests. What still belongs to fabric is behaviour.
+    const auto &values = contract_values();
+
+    hg::Value  revision = canonical_revision();
+    const auto encoded  = values.encode(revision.view());
+
+    // Readable outside this codebase: the stored object is a json document.
+    const std::string text{reinterpret_cast<const char *>(encoded.data()),
+                           encoded.size()};
+    CHECK(text.front() == '{');
+    CHECK(text.find("\"data_id\"") != std::string::npos);
+
+    const auto decoded = values.decode(hgf::data_revision_meta(), encoded);
     CHECK(hgf::data_revision_input(decoded.view()) ==
           hgf::data_revision_input(revision.view()));
 
-    const auto as_of = hgf::encode_revision_reference(
-        hgf::MetadataObjectKind::AsOf, 3);
-    const auto latest = hgf::encode_revision_reference(
-        hgf::MetadataObjectKind::Latest, 3);
-    CHECK(hex(as_of) == fixture("as_of_v1.hex"));
-    CHECK(hex(latest) == fixture("latest_v1.hex"));
-    CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::AsOf,
-                                         as_of) == 3);
-    CHECK_THROWS_AS(hgf::decode_revision_reference(
-                        hgf::MetadataObjectKind::Latest, as_of),
-                    std::invalid_argument);
+    // An index entry names the index it belongs to, so reading a latest entry
+    // as an as-of entry is refused rather than silently answered.
+    const auto as_of =
+        hgf::encode_reference(values, hgf::MetadataObjectKind::AsOf, 3);
+    CHECK(hgf::revision_reference_value(values, hgf::MetadataObjectKind::AsOf, as_of) == 3);
+    CHECK_THROWS_AS(
+        hgf::revision_reference_value(values, hgf::MetadataObjectKind::Latest, as_of),
+        std::invalid_argument);
 
+    // Malformed input still fails closed.
     auto malformed = encoded;
-    malformed.push_back(std::byte{});
-    CHECK_THROWS_AS(hgf::decode_revision(malformed), std::invalid_argument);
+    malformed.push_back(std::byte{'!'});
+    CHECK_THROWS_AS(values.decode(hgf::data_revision_meta(), malformed),
+                    std::invalid_argument);
 }
 
 TEST_CASE("memory notifier fans out and conflates each data id")

@@ -206,7 +206,8 @@ namespace hgraph::fabric
             throw std::invalid_argument(
                 "fabric revision notification payload must not be empty");
         }
-        const Value decoded = decode_revision(notification.revision);
+        const Value decoded = notification_codec().decode(
+            data_revision_meta(), notification.revision);
         if (decoded.view().as_bundle().at("data_id").checked_as<Str>() !=
             notification.data_id)
         {

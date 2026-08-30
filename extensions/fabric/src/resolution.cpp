@@ -134,7 +134,9 @@ struct ConsistencyResolver::Impl {
               const StoredObject &object) const {
     try {
       DataRevisionInput decoded =
-          data_revision_input(decode_revision(object.data).view());
+          data_revision_input(config.values.decode(data_revision_meta(),
+                                                   object.data)
+                                  .view());
       if (decoded.data_id != data_id || decoded.revision != revision) {
         throw CorruptHistory(
             "fabric revision payload does not match its durable key");
@@ -155,8 +157,8 @@ struct ConsistencyResolver::Impl {
       return std::nullopt;
     }
     try {
-      return decode_revision_reference(MetadataObjectKind::Latest,
-                                       object->data);
+      return revision_reference_value(config.values, MetadataObjectKind::Latest,
+                                      object->data);
     } catch (const std::exception &error) {
       throw CorruptHistory("fabric latest index is malformed for '" +
                            std::string{data_id} + "': " + error.what());
@@ -164,8 +166,8 @@ struct ConsistencyResolver::Impl {
   }
 
   void repair_as_of(const DataRevisionInput &revision) const {
-    const ObjectBytes desired =
-        encode_revision_reference(MetadataObjectKind::AsOf, revision.revision);
+    const ObjectBytes desired = encode_reference(
+        config.values, MetadataObjectKind::AsOf, revision.revision);
     const auto result = config.objects.put_immutable(
         as_of_key(config.prefix, revision.data_id, revision.as_of), desired);
     if (result.status == ImmutableWriteStatus::Conflict) {
@@ -178,14 +180,14 @@ struct ConsistencyResolver::Impl {
   void advance_latest(std::string_view data_id, RevisionId target) const {
     const std::string key = latest_key(config.prefix, data_id);
     const ObjectBytes desired =
-        encode_revision_reference(MetadataObjectKind::Latest, target);
+        encode_reference(config.values, MetadataObjectKind::Latest, target);
     for (;;) {
       const auto current = config.objects.get(key);
       if (current.has_value()) {
         RevisionId current_revision{};
         try {
-          current_revision = decode_revision_reference(
-              MetadataObjectKind::Latest, current->data);
+          current_revision = revision_reference_value(
+              config.values, MetadataObjectKind::Latest, current->data);
         } catch (const std::exception &error) {
           throw CorruptHistory("fabric latest index is malformed for '" +
                                std::string{data_id} + "': " + error.what());
@@ -207,8 +209,8 @@ struct ConsistencyResolver::Impl {
         continue;
       }
       try {
-        if (decode_revision_reference(MetadataObjectKind::Latest,
-                                      result.current->data) >= target) {
+        if (revision_reference_value(config.values, MetadataObjectKind::Latest,
+                                     result.current->data) >= target) {
           return;
         }
       } catch (const std::exception &error) {

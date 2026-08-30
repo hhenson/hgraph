@@ -6,6 +6,7 @@
 #include <hgraph/fabric/types.h>
 
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/value_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/runtime/global_state.h>
 
@@ -24,6 +25,10 @@ namespace hgraph::fabric
         Str                              prefix{};
         persistence::store::ObjectStore objects{};
         persistence::store::FrameStore  frames{};
+        /** Declared metadata schemas. Structured data goes here as ordinary
+            json documents; tabular data goes to `frames` as Arrow. Fabric owns
+            no serialization code of its own (RFC 0030). */
+        persistence::store::ValueStore  values{};
         Notifier                         notifications{};
         std::size_t                     notification_request_limit{
             DEFAULT_NOTIFICATION_REQUEST_LIMIT};

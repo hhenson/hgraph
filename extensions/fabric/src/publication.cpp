@@ -119,7 +119,8 @@ namespace hgraph::fabric
                                          data_id + ":" + std::to_string(revision));
             }
             DataRevisionInput decoded =
-                data_revision_input(decode_revision(object->data).view());
+                data_revision_input(
+                    config.values.decode(data_revision_meta(), object->data).view());
             if (decoded.data_id != data_id || decoded.revision != revision)
             {
                 throw std::runtime_error(
@@ -184,7 +185,8 @@ namespace hgraph::fabric
 
         void repair_as_of(const DataRevisionInput &revision) const
         {
-            const ObjectBytes desired = encode_revision_reference(
+            const ObjectBytes desired = encode_reference(
+                config.values,
                 MetadataObjectKind::AsOf, revision.revision);
             const auto result = config.objects.put_immutable(
                 as_of_key(config.prefix, data_id, revision.as_of), desired);
@@ -199,20 +201,22 @@ namespace hgraph::fabric
         {
             const auto current = metadata(latest_key(config.prefix, data_id));
             if (!current.has_value()) { return std::nullopt; }
-            return decode_revision_reference(MetadataObjectKind::Latest, current->data);
+            return revision_reference_value(config.values, MetadataObjectKind::Latest,
+                                            current->data);
         }
 
         void advance_latest(RevisionId target) const
         {
             const std::string key = latest_key(config.prefix, data_id);
             const ObjectBytes desired =
-                encode_revision_reference(MetadataObjectKind::Latest, target);
+                encode_reference(config.values, MetadataObjectKind::Latest, target);
             for (;;)
             {
                 const auto current = metadata(key);
                 if (current.has_value())
                 {
-                    const RevisionId current_revision = decode_revision_reference(
+                    const RevisionId current_revision = revision_reference_value(
+                        config.values,
                         MetadataObjectKind::Latest, current->data);
                     if (current_revision >= target) { return; }
                 }
@@ -224,7 +228,8 @@ namespace hgraph::fabric
                     desired);
                 if (result.exchanged) { return; }
                 if (!result.current.has_value()) { continue; }
-                const RevisionId winner = decode_revision_reference(
+                const RevisionId winner = revision_reference_value(
+                    config.values,
                     MetadataObjectKind::Latest, result.current->data);
                 if (winner >= target) { return; }
             }
@@ -278,7 +283,8 @@ namespace hgraph::fabric
                     metadata(revision_key(config.prefix, data_id, next));
                 if (!object.has_value()) { break; }
                 DataRevisionInput revision =
-                    data_revision_input(decode_revision(object->data).view());
+                    data_revision_input(
+                    config.values.decode(data_revision_meta(), object->data).view());
                 if (revision.data_id != data_id || revision.revision != next)
                 {
                     throw std::runtime_error(
@@ -374,7 +380,7 @@ namespace hgraph::fabric
             };
             Value canonical = make_data_revision(std::move(proposed));
             candidate = data_revision_input(canonical.view());
-            candidate_bytes = encode_revision(canonical.view());
+            candidate_bytes = config.values.encode(canonical.view());
 
             if (!input.output.has_value() && same_tuple(*candidate, *accepted))
             {

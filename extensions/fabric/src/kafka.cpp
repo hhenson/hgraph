@@ -74,7 +74,8 @@ struct FabricKafkaDecodeNode {
     }
     const Bytes &key_bytes = key.checked_as<Bytes>();
     const Bytes &payload_bytes = payload.checked_as<Bytes>();
-    Value revision = decode_revision(bytes_view(payload_bytes));
+    Value revision = notification_codec().decode(data_revision_meta(),
+                                                 bytes_view(payload_bytes));
     const DataRevisionInput decoded = data_revision_input(revision.view());
     if (key_bytes.data != decoded.data_id) {
       throw std::invalid_argument(
@@ -104,7 +105,8 @@ struct FabricKafkaProduceRecordNode {
                    Out<TS<kafka::KafkaProduceRecord>> out) {
     const DataRevisionInput decoded =
         data_revision_input(revision.base().value().concrete());
-    const auto payload = encode_revision(revision.base().value().concrete());
+    hgf::ObjectBytes payload;
+    notification_codec().encode(revision.base().value().concrete(), payload);
     Value record = kafka::make_produce_record(
         kafka_bytes(payload), Bytes{decoded.data_id}, {}, std::nullopt,
         std::nullopt, delivery_token(decoded.data_id, decoded.revision));
