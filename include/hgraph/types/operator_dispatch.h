@@ -378,7 +378,7 @@ namespace hgraph
     };
 
     /** Thrown when an operator call has no matching overload, or an ambiguous one. */
-    class HGRAPH_EXPORT OperatorResolutionError : public std::runtime_error
+    class HGRAPH_CLASS_EXPORT OperatorResolutionError : public std::runtime_error
     {
       public:
         using std::runtime_error::runtime_error;
@@ -387,7 +387,7 @@ namespace hgraph
     /** No overload matched AND at least one otherwise-matching candidate was
         rejected by its requires predicate (python surfaces this as
         RequirementsNotMetWiringError). */
-    class HGRAPH_EXPORT OperatorRequirementsError : public OperatorResolutionError
+    class HGRAPH_CLASS_EXPORT OperatorRequirementsError : public OperatorResolutionError
     {
       public:
         using OperatorResolutionError::OperatorResolutionError;
@@ -402,7 +402,7 @@ namespace hgraph
      * *borrowed* interned schema pointers, so ``reset()`` must run before the
      * ``TypeRegistry`` reset.
      */
-    class HGRAPH_EXPORT OperatorRegistry
+    class HGRAPH_CLASS_EXPORT OperatorRegistry
     {
       public:
         static OperatorRegistry &instance() noexcept;

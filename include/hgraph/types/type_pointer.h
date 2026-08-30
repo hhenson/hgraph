@@ -35,7 +35,7 @@ namespace hgraph
         struct TypePointerLayoutAccess;
     }
 
-    class HGRAPH_EXPORT AnyPtr
+    class HGRAPH_CLASS_EXPORT AnyPtr
     {
     public:
         constexpr AnyPtr() noexcept = default;

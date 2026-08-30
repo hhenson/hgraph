@@ -10,7 +10,7 @@ namespace hgraph
 {
     struct LiftedKernel;
 
-    struct HGRAPH_EXPORT ReduceNodeSpec
+    struct HGRAPH_CLASS_EXPORT ReduceNodeSpec
     {
         /**
          * The compiled binary combiner template; binding ``source_path[0]`` is
@@ -28,7 +28,7 @@ namespace hgraph
     };
 
     /** Typed extension view exposed by ``reduce_node`` (runtime inspection surface). */
-    class HGRAPH_EXPORT ReduceNodeView
+    class HGRAPH_CLASS_EXPORT ReduceNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;

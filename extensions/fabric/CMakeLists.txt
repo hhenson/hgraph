@@ -33,6 +33,7 @@ endif()
 
 add_library(hgraph_fabric
     src/config.cpp
+    src/history.cpp
     src/keys.cpp
     src/metadata_codec.cpp
     src/notifier.cpp
@@ -100,7 +101,10 @@ if(HGRAPH_FABRIC_BUILD_KAFKA)
 endif()
 
 if(MSVC)
-    target_compile_options(hgraph_fabric PRIVATE /W4 /permissive-)
+    # Class exports are producer-only; private STL representation is not
+    # imported by consumers. Scope these interface diagnostics to this DLL.
+    target_compile_options(hgraph_fabric PRIVATE
+        /W4 /permissive- /wd4251 /wd4275)
     if(HGRAPH_FABRIC_WARNINGS_AS_ERRORS)
         target_compile_options(hgraph_fabric PRIVATE /WX)
     endif()

@@ -20,7 +20,7 @@ namespace hgraph
      * integrations may recover their concrete logger only inside this selected
      * boundary; ``LoggerView`` never uses RTTI to rediscover the strategy.
      */
-    struct HGRAPH_EXPORT LoggerOps
+    struct HGRAPH_CLASS_EXPORT LoggerOps
     {
         using Emit = void (*)(spdlog::logger &logger,
                               spdlog::level::level_enum level,
@@ -51,7 +51,7 @@ namespace hgraph
      * no reference counting or process-global lookup occurs on the per-tick
      * path. Formatting is skipped when the target level is disabled.
      */
-    class HGRAPH_EXPORT LoggerView
+    class HGRAPH_CLASS_EXPORT LoggerView
     {
       public:
         LoggerView() noexcept = default;

@@ -12,7 +12,7 @@ namespace hgraph
         schemas retained by a type-erased ``Value``. Registration/reset are
         wiring/test operations; evaluation performs lock-free lookups against
         the immutable table, like ``OperatorRegistry``. */
-    class HGRAPH_EXPORT ValueConversionRegistry
+    class HGRAPH_CLASS_EXPORT ValueConversionRegistry
     {
       public:
         using Converter = Value (*)(const ValueView &source);

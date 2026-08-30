@@ -30,7 +30,7 @@ namespace hgraph
         PythonOnly,
     };
 
-    struct HGRAPH_EXPORT ValueStorageSelection
+    struct HGRAPH_CLASS_EXPORT ValueStorageSelection
     {
         static constexpr std::size_t no_offset = static_cast<std::size_t>(-1);
 
@@ -80,7 +80,7 @@ namespace hgraph
      * The factory is a process-wide singleton via ``instance()``;
      * non-copyable and non-movable.
      */
-    class HGRAPH_EXPORT ValuePlanFactory
+    class HGRAPH_CLASS_EXPORT ValuePlanFactory
     {
       public:
         /** Singleton accessor; returns a reference to the process-wide factory. */

@@ -9,11 +9,12 @@ from typing import Final
 from hgraph import (
     CompoundScalar,
     Frame,
-    MIN_DT,
+    MAX_DT,
     TS,
     WiringPort,
     operator_function,
 )
+from hgraph._wiring._state import _active_global_state
 
 # The native Fabric bridge consumes the persistence SDK.  Loading its declared
 # Python dependency first is also required on Windows: the
@@ -26,9 +27,8 @@ from . import _hgraph_fabric as _native
 
 DataVersion = int
 RevisionId = int
-SubscriptionMode = _native.SubscriptionMode
-FabricSubscriptionMode = SubscriptionMode
 ResolutionStatus = _native.ResolutionStatus
+FabricConfig = _native.FabricConfig
 
 
 @dataclass(frozen=True)
@@ -100,9 +100,36 @@ _publish_data_explicit = operator_function(
 _register_memory_service = operator_function(
     "hgraph.fabric.register_memory_service"
 )
+_register_configured_service = operator_function(
+    "hgraph.fabric.register_configured_service"
+)
 
 
-def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
+def make_memory_fabric_config(
+    *, prefix: str = "fabric", notification_request_limit: int = 1024
+) -> FabricConfig:
+    """Create an owning in-process Fabric configuration.
+
+    ``notification_request_limit`` bounds graph-transport candidates and
+    applies publication backpressure while all slots are awaiting delivery.
+    """
+
+    return _native._make_memory_fabric_config(prefix, notification_request_limit)
+
+
+def register_fabric_service(
+    config: FabricConfig, *, path: str = "fabric"
+) -> None:
+    """Register the native graph service using an explicit configuration."""
+
+    state = _active_global_state()
+    _native._set_fabric_config(state._impl, path, config)
+    _register_configured_service(path)
+
+
+def register_memory_fabric_service(
+    *, prefix: str = "fabric", path: str = "fabric"
+) -> None:
     """Register one native Fabric service backed by process-local stores.
 
     This is the deterministic local/test host. Production hosts install their
@@ -110,18 +137,30 @@ def register_memory_fabric_service(*, prefix: str = "fabric") -> None:
     same native service contract from C++.
     """
 
-    _register_memory_service(prefix)
+    _register_memory_service(prefix, path)
 
 
-def subscribe_data(
+def subscribe_data(data_id: str, *, path: str = "fabric") -> TS[Frame]:
+    """Wire a Frame subscription on one Fabric service path."""
+
+    return _subscribe_data(data_id, path)
+
+
+def load_data(
+    config: FabricConfig,
     data_id: str,
-    *,
-    mode: SubscriptionMode,
-    as_of: datetime | None = None,
-) -> TS[Frame]:
-    """Wire a complete atomic Frame subscription under one stable data id."""
+    as_of: datetime = MAX_DT,
+):
+    """Load the latest stored Frame, optionally at or before ``as_of``.
 
-    return _subscribe_data(data_id, mode, MIN_DT if as_of is None else as_of)
+    This is a synchronous point lookup, not a graph subscription: it does not
+    coordinate the selected value with dependency versions. The result is
+    ``None`` when no matching value exists. Frame presentation follows hgraph's
+    compatibility switch, yielding Polars when enabled and available and
+    PyArrow otherwise.
+    """
+
+    return _native._load_data(config, data_id, as_of)
 
 
 def dependency_handle(subscription: TS[Frame]) -> DependencyHandle:
@@ -140,19 +179,20 @@ def publish_data(
     data_id: str,
     value: TS[Frame],
     *,
+    path: str = "fabric",
     dependencies: DependencySelection = AUTO,
 ) -> None:
-    """Wire a complete atomic Frame publisher.
+    """Wire a complete atomic Frame publisher on one Fabric service path.
 
     Explicit handles and automatic discovery use the same native wiring-time
     dependency planner.
     """
 
     if dependencies.is_automatic:
-        _publish_data(data_id, value)
+        _publish_data(data_id, path, value)
         return
     _publish_data_explicit(
-        data_id, value, *(item._token for item in dependencies.dependencies)
+        data_id, path, value, *(item._token for item in dependencies.dependencies)
     )
 
 
@@ -225,12 +265,11 @@ __all__ = [
     "DataVersion",
     "DependencyHandle",
     "DependencySelection",
-    "FabricSubscriptionMode",
+    "FabricConfig",
     "LATEST_MEDIA_TYPE",
     "REVISION_MEDIA_TYPE",
     "RevisionId",
     "ResolutionStatus",
-    "SubscriptionMode",
     "decode_as_of_reference",
     "decode_latest_reference",
     "decode_revision",
@@ -238,7 +277,10 @@ __all__ = [
     "encode_as_of_reference",
     "encode_latest_reference",
     "encode_revision",
+    "load_data",
+    "make_memory_fabric_config",
     "publish_data",
+    "register_fabric_service",
     "register_memory_fabric_service",
     "subscribe_data",
 ]

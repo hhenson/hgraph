@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -9,6 +10,16 @@ import pytest
 
 FABRIC_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_SCRIPT = FABRIC_ROOT / "tools/audit_distribution.py"
+
+
+def test_fabric_wheel_build_is_warning_clean_and_outside_temp():
+    project = tomllib.loads((FABRIC_ROOT / "pyproject.toml").read_text())
+    scikit_build = project["tool"]["scikit-build"]
+
+    assert scikit_build["build-dir"] == "cmake-build-wheel/{wheel_tag}"
+    assert "-DHGRAPH_FABRIC_WARNINGS_AS_ERRORS=ON" in scikit_build["cmake"][
+        "args"
+    ]
 
 
 @pytest.mark.parametrize("library_directory", ["lib", "lib64"])
@@ -23,6 +34,7 @@ def test_wheel_audit_accepts_platform_library_directories(
         "include/hgraph/fabric/config.h": "",
         "include/hgraph/fabric/export.h": "",
         "include/hgraph/fabric/fabric.h": "",
+        "include/hgraph/fabric/history.h": "",
         "include/hgraph/fabric/kafka.h": "",
         "include/hgraph/fabric/kafka_export.h": "",
         "include/hgraph/fabric/keys.h": "",

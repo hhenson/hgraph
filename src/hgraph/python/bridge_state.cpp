@@ -85,6 +85,15 @@ nb::object PythonValueHolder::get() const {
 }
 
 namespace {
+[[nodiscard]] std::string python_utf8(nb::handle value) {
+  Py_ssize_t size{};
+  const char *data = PyUnicode_AsUTF8AndSize(value.ptr(), &size);
+  if (data == nullptr) {
+    throw nb::python_error();
+  }
+  return {data, static_cast<std::size_t>(size)};
+}
+
 struct NativeScalarRegistrations {
   std::unordered_map<PyObject *,
                      std::pair<nb::object, const ValueTypeMetaData *>>
@@ -347,7 +356,7 @@ struct PythonBundleBindingEntry {
     if (!text.is_valid()) {
       throw nb::python_error();
     }
-    return nb::cast<std::string>(text);
+    return python_utf8(text);
   }
 
   static nb::object to_python(const void *, const void *memory) {
@@ -579,7 +588,7 @@ struct PythonBundleBindingEntry {
       nb::object actual_type = nb::steal(PyObject_Type(attribute.ptr()));
       std::string actual =
           actual_type.is_valid()
-              ? nb::cast<std::string>(
+              ? python_utf8(
                     nb::getattr(actual_type, "__name__", nb::str{"<unknown>"}))
               : std::string{"<unknown>"};
       const char *field_name = self.schema->fields[index].name;

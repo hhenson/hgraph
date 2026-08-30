@@ -14,9 +14,10 @@
   publication state machine with schema locking and crash/index repair.
 - Add the native wiring-time dependency planner, explicit subscription handles,
   independent consistency forests, and hidden publisher lineage cuts.
-- Add the shared root Fabric service, Snapshot/Replay/Live subscription
-  sessions, service-owned publication and load paths, complete-revision live
-  cache ingestion, and the local Python memory-service host.
+- Add the shared root Fabric service, run-selected Replay/Live subscription
+  sessions, service-owned publication and version-load paths, a standalone
+  as-of point lookup, complete-revision live cache ingestion, and the local
+  Python memory-service host.
 - Add the optional graph-native Kafka transport: strict Fabric producer/queue
   profiles, full accepted-revision payloads, root push-source ingress through
   the Kafka service, lifecycle-gated durable handoff, explicit cursor commits,

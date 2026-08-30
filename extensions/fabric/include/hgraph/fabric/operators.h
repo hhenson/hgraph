@@ -7,9 +7,9 @@
 #include <hgraph/types/frame.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
+#include <hgraph/types/service_wiring.h>
 
 #include <cstdint>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -17,51 +17,54 @@ namespace hgraph::fabric
 {
     /** Subscribe to one stable fabric data id.
         @param data_id Durable data identity fixed while wiring.
-        @param mode Wiring-time subscription mode.
+        @param path Fabric service/configuration path fixed while wiring.
         @return Complete atomic Frame versions selected by the fabric.
-        Snapshot calls additionally accept an ``as_of`` scalar in their
-        concrete overload. */
+        The service derives live versus replay from the graph executor. */
     struct SubscribeData
         : Operator<"hgraph.fabric.subscribe_data", Scalar<"data_id", Str>,
-                   Scalar<"mode", SubscriptionMode>,
-                   Scalar<"as_of", DateTime>, Out<TS<Frame>>>
+                   Scalar<"path", Str>,
+                   Out<TS<Frame>>>
     {
     };
 
     /** Publish complete Frame values under one stable fabric data id.
         @param data_id Durable data identity fixed while wiring.
+        @param path Fabric service/configuration path fixed while wiring.
         @param value Complete atomic Frame values.
         This sink records automatic or explicitly selected fabric ancestry;
         publication side effects are idempotent by contract. */
     struct PublishData
         : Operator<"hgraph.fabric.publish_data", Scalar<"data_id", Str>,
+                   Scalar<"path", Str>,
                    In<"value", TS<Frame>>>
     {
     };
 
     /** Opaque proof that a dependency was obtained from subscribe_data in one
         wired root. It cannot be constructed from an arbitrary data-id string. */
-    class HGRAPH_FABRIC_EXPORT DependencyHandle final
+    class HGRAPH_FABRIC_CLASS_EXPORT DependencyHandle final
     {
       public:
         DependencyHandle() = delete;
 
         [[nodiscard]] std::uint64_t root_identity() const noexcept;
         [[nodiscard]] std::string_view data_id() const noexcept;
+        [[nodiscard]] std::string_view path() const noexcept;
         [[nodiscard]] const WiringPortRef &source() const noexcept;
 
       private:
         friend DependencyHandle dependency_handle(Wiring &, Port<TS<Frame>>);
 
-        DependencyHandle(std::uint64_t root_identity, Str data_id,
+        DependencyHandle(std::uint64_t root_identity, Str data_id, Str path,
                          WiringPortRef source);
 
         std::uint64_t root_identity_{};
         Str           data_id_{};
+        Str           path_{};
         WiringPortRef source_{};
     };
 
-    class HGRAPH_FABRIC_EXPORT DependencySelection final
+    class HGRAPH_FABRIC_CLASS_EXPORT DependencySelection final
     {
       public:
         [[nodiscard]] static DependencySelection automatic();
@@ -84,8 +87,14 @@ namespace hgraph::fabric
     dependency_handle(Wiring &wiring, Port<TS<Frame>> subscription);
 
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Frame>>
-    subscribe_data(Wiring &wiring, Str data_id, SubscriptionMode mode,
-                   std::optional<DateTime> as_of = {});
+    subscribe_data(Wiring &wiring, service::ServicePath path, Str data_id);
+
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT Port<TS<Frame>>
+    subscribe_data(Wiring &wiring, Str data_id);
+
+    HGRAPH_FABRIC_EXPORT void publish_data(
+        Wiring &wiring, service::ServicePath path, Str data_id, Port<TS<Frame>> value,
+        DependencySelection dependencies = DependencySelection::automatic());
 
     HGRAPH_FABRIC_EXPORT void publish_data(
         Wiring &wiring, Str data_id, Port<TS<Frame>> value,

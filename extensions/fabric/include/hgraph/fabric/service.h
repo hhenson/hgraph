@@ -1,6 +1,7 @@
 #ifndef HGRAPH_FABRIC_SERVICE_H
 #define HGRAPH_FABRIC_SERVICE_H
 
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/export.h>
 #include <hgraph/fabric/types.h>
 
@@ -67,23 +68,11 @@ using FabricDiagnostics =
     TSB<"hgraph.fabric::Diagnostics", Field<"metrics", TSD<Str, TS<Str>>>,
         Field<"events", TSD<Str, TS<FabricDiagnosticEvent>>>>;
 
-struct FabricLiveSubscriptionService
+/** Run-scoped subscription service. Real-time execution consumes live
+    notifications; simulation replays the executor's configured interval. */
+struct FabricSubscriptionService
 {
-    static constexpr std::string_view name{"fabric_live_subscription"};
-    using key_type = Str;
-    using value_schema = FabricIngressSignal;
-};
-
-struct FabricReplaySubscriptionService
-{
-    static constexpr std::string_view name{"fabric_replay_subscription"};
-    using key_type = Str;
-    using value_schema = FabricIngressSignal;
-};
-
-struct FabricSnapshotSubscriptionService
-{
-    static constexpr std::string_view name{"fabric_snapshot_subscription"};
+    static constexpr std::string_view name{"fabric_subscription"};
     using key_type = Str;
     using value_schema = FabricIngressSignal;
 };

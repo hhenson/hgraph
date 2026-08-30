@@ -50,7 +50,7 @@ namespace hgraph
      * schema must match (or be dereference-compatible with)
      * ``target_schema`` for the binding to succeed.
      */
-    struct HGRAPH_EXPORT TimeSeriesReference
+    struct HGRAPH_CLASS_EXPORT TimeSeriesReference
     {
         /** The reference's kind discriminator. */
         enum class Kind : uint8_t

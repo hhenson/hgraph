@@ -19,7 +19,7 @@ namespace hgraph::persistence::store
     using ObjectBytes = std::vector<std::byte>;
 
     /** A persistence backend failed; this is never used to report absence or conflict. */
-    class HGRAPH_PERSISTENCE_EXPORT ObjectStoreError : public std::runtime_error
+    class HGRAPH_PERSISTENCE_CLASS_EXPORT ObjectStoreError : public std::runtime_error
     {
       public:
         using std::runtime_error::runtime_error;
@@ -101,7 +101,7 @@ namespace hgraph::persistence::store
      * the constructor is copied into the handle, so downstream strategies may
      * construct it dynamically without imposing a separate lifetime contract.
      */
-    class HGRAPH_PERSISTENCE_EXPORT ObjectStore final
+    class HGRAPH_PERSISTENCE_CLASS_EXPORT ObjectStore final
     {
       public:
         ObjectStore() noexcept;

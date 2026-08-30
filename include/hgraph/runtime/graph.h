@@ -97,7 +97,7 @@ namespace hgraph
      */
     inline constexpr std::size_t ts_key_set_path_component = static_cast<std::size_t>(-1);
 
-struct HGRAPH_EXPORT GraphEdge
+struct HGRAPH_CLASS_EXPORT GraphEdge
     {
         std::size_t source_node{0};
         std::vector<std::size_t> source_path{};
@@ -106,14 +106,14 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Schema-side node entry retained by ``GraphTypeMetaData``. */
-    struct HGRAPH_EXPORT GraphNodeEntry
+    struct HGRAPH_CLASS_EXPORT GraphNodeEntry
     {
         const NodeTypeMetaData *node_schema{nullptr};
         std::size_t             index{0};
     };
 
     /** Interned graph schema descriptor. */
-    struct HGRAPH_EXPORT GraphTypeMetaData
+    struct HGRAPH_CLASS_EXPORT GraphTypeMetaData
     {
         SchemaHeader header{};
         const char *display_name{nullptr};
@@ -125,7 +125,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Type-erased graph operation table. */
-    struct HGRAPH_EXPORT GraphOps
+    struct HGRAPH_CLASS_EXPORT GraphOps
     {
         const void *context{nullptr};
         GraphParentKind parent_kind{GraphParentKind::Root};
@@ -177,7 +177,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Borrowed type-erased view over graph runtime storage. */
-    class HGRAPH_EXPORT GraphView
+    class HGRAPH_CLASS_EXPORT GraphView
     {
       public:
         GraphView() noexcept;
@@ -282,7 +282,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Root-specific graph view. A root graph has a graph executor parent. */
-    class HGRAPH_EXPORT RootGraphView : public GraphView
+    class HGRAPH_CLASS_EXPORT RootGraphView : public GraphView
     {
       public:
         RootGraphView() noexcept;
@@ -292,7 +292,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Nested-specific graph view. A nested graph has a node parent. */
-    class HGRAPH_EXPORT NestedGraphView : public GraphView
+    class HGRAPH_CLASS_EXPORT NestedGraphView : public GraphView
     {
       public:
         NestedGraphView() noexcept;
@@ -310,7 +310,7 @@ struct HGRAPH_EXPORT GraphEdge
      * transparent, stateless injectable (the ``SingleShotScheduler``
      * pattern): no signature footprint, no per-node slot.
      */
-    class HGRAPH_EXPORT TraitsView
+    class HGRAPH_CLASS_EXPORT TraitsView
     {
       public:
         TraitsView() noexcept = default;
@@ -324,7 +324,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Graph lifetime wrapper: owns ordinary graphs and points into slot-owned nested storage. */
-    class HGRAPH_EXPORT GraphValue
+    class HGRAPH_CLASS_EXPORT GraphValue
     {
       public:
         using storage_type = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
@@ -369,7 +369,7 @@ struct HGRAPH_EXPORT GraphEdge
     };
 
     /** Reusable graph construction recipe. */
-    class HGRAPH_EXPORT GraphBuilder
+    class HGRAPH_CLASS_EXPORT GraphBuilder
     {
       public:
         GraphBuilder();

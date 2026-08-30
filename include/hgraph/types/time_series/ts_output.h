@@ -31,7 +31,7 @@ namespace hgraph
      * subscriptions are delegated to the root TSData observer set; child-level
      * subscriptions are registered on the projected child TSData views.
      */
-    class HGRAPH_EXPORT TSOutput : private TSDataParent
+    class HGRAPH_CLASS_EXPORT TSOutput : private TSDataParent
     {
       public:
         TSOutput() noexcept;
@@ -91,9 +91,8 @@ namespace hgraph
 
       private:
         friend struct TSParentLink;
-        friend void notify_node_endpoint_child_modified(NodePtr             node,
-                                                        TSEndpointOwnerPort port,
-                                                        DateTime            mutation_time);
+        friend HGRAPH_EXPORT void notify_node_endpoint_child_modified(
+            NodePtr node, TSEndpointOwnerPort port, DateTime mutation_time);
 
         static TSData checked_data_for(const TSValueTypeMetaData *schema);
         static TSData checked_data_for(const TSValueTypeMetaData *schema,

@@ -54,7 +54,7 @@ namespace hgraph
     };
 
     /** Owned storage counters returned through the type-erased node API. */
-    struct HGRAPH_EXPORT NodeStorageMetrics
+    struct HGRAPH_CLASS_EXPORT NodeStorageMetrics
     {
         /** Bytes reserved in the graph's fixed node allocation. */
         std::size_t static_bytes{0};
@@ -75,7 +75,7 @@ namespace hgraph
      * Semantic diagnostics consume this contract rather than inferring the
      * private layout of a concrete node or its standard-library containers.
      */
-    struct HGRAPH_EXPORT NodeInspectionMetrics
+    struct HGRAPH_CLASS_EXPORT NodeInspectionMetrics
     {
         /** Work accepted by a source policy but not yet emitted. */
         std::optional<std::size_t> pending_items{};
@@ -88,7 +88,7 @@ namespace hgraph
      * shapes, optional local state schema, kind, and readiness selectors. The
      * executable behaviour lives in ``NodeOps`` and its context.
      */
-    struct HGRAPH_EXPORT NodeTypeMetaData
+    struct HGRAPH_CLASS_EXPORT NodeTypeMetaData
     {
         SchemaHeader header{};
         const char *display_name{nullptr};
@@ -146,7 +146,7 @@ namespace hgraph
      * lifecycle sequencing is driven by ``NodeView`` / ``GraphView`` through
      * these operations.
      */
-    struct HGRAPH_EXPORT NodeOps
+    struct HGRAPH_CLASS_EXPORT NodeOps
     {
         const void *context{nullptr};
 
@@ -207,7 +207,7 @@ namespace hgraph
     };
 
     /** User callbacks used by the first-pass native node builder. */
-    struct HGRAPH_EXPORT NodeCallbacks
+    struct HGRAPH_CLASS_EXPORT NodeCallbacks
     {
         std::function<void(const NodeView &, DateTime)> start{};
         std::function<void(const NodeView &, DateTime)> evaluate{};
@@ -220,7 +220,7 @@ namespace hgraph
         bool input_validity_in_evaluate{false};
     };
 
-    struct HGRAPH_EXPORT NodeStorageField
+    struct HGRAPH_CLASS_EXPORT NodeStorageField
     {
         std::string_view                name{};
         const MemoryUtils::StoragePlan *plan{nullptr};
@@ -247,7 +247,7 @@ namespace hgraph
         std::span<const NodeStorageField> extra_fields = {},
         std::span<const NodeStorageField> extra_fields_after_output = {});
 
-    struct HGRAPH_EXPORT NodeTypeDescriptor
+    struct HGRAPH_CLASS_EXPORT NodeTypeDescriptor
     {
         struct DynamicDebug
         {
@@ -273,7 +273,7 @@ namespace hgraph
      * evaluation time explicitly. The active input notification target is
      * recovered from the node runtime memory.
      */
-    class HGRAPH_EXPORT NodeView
+    class HGRAPH_CLASS_EXPORT NodeView
     {
       public:
         NodeView() noexcept;
@@ -369,7 +369,7 @@ namespace hgraph
      * The stable active-input notification identity lives in the node runtime
      * storage header and is reached through the node memory pointer.
      */
-    class HGRAPH_EXPORT NodeValue final
+    class HGRAPH_CLASS_EXPORT NodeValue final
     {
       public:
         using storage_type = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
@@ -403,7 +403,7 @@ namespace hgraph
      * endpoint annotation and can be reused to create many runtime node
      * instances.
      */
-    class HGRAPH_EXPORT NodeBuilder
+    class HGRAPH_CLASS_EXPORT NodeBuilder
     {
       public:
         NodeBuilder();

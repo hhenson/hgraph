@@ -39,7 +39,7 @@ namespace hgraph
      * to dotted column names. v1 covers atomic leaves and depth-1 bundles;
      * TSD partition keys land with the record/replay backend (step 4).
      */
-    class HGRAPH_EXPORT TableConverter
+    class HGRAPH_CLASS_EXPORT TableConverter
     {
       public:
         struct Column
@@ -120,7 +120,7 @@ namespace hgraph
      * Build-time construction, per-row appends; the builders are the only
      * accumulation.
      */
-    class HGRAPH_EXPORT TableRecorder
+    class HGRAPH_CLASS_EXPORT TableRecorder
     {
       public:
         /** ``names`` and ``leaf_metas`` are parallel and in row order. */
@@ -154,7 +154,7 @@ namespace hgraph
         std::unique_ptr<Impl> impl_;
     };
 
-    class HGRAPH_EXPORT FrameRecorder
+    class HGRAPH_CLASS_EXPORT FrameRecorder
     {
       public:
         explicit FrameRecorder(const TableConverter &converter);

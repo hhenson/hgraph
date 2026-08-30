@@ -28,7 +28,7 @@ namespace hgraph
      * demand when the scheduler is injected — the value/view split keeps the node
      * memory minimal and the graph/node-index/now context out of storage.
      */
-    struct HGRAPH_EXPORT NodeSchedulerState
+    struct HGRAPH_CLASS_EXPORT NodeSchedulerState
     {
         std::set<std::pair<DateTime, std::string>> events{};
         std::map<std::string, DateTime>            tags{};
@@ -48,7 +48,7 @@ namespace hgraph
      * (no input/scalar/state/kind effect) and is available to C++ nodes only — a
      * node may declare it on ``start`` without also declaring it on ``eval``.
      */
-    class HGRAPH_EXPORT SingleShotScheduler
+    class HGRAPH_CLASS_EXPORT SingleShotScheduler
     {
       public:
         SingleShotScheduler() noexcept = default;
@@ -96,7 +96,7 @@ namespace hgraph
      * manually constructed schedulers without explicit wall-clock support reject
      * them, because the simulation engine cannot advance from host wall time.
      */
-    class HGRAPH_EXPORT NodeScheduler
+    class HGRAPH_CLASS_EXPORT NodeScheduler
     {
       public:
         NodeScheduler() noexcept = default;

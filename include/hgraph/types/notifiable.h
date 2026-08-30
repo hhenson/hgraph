@@ -17,7 +17,7 @@ namespace hgraph
      * ``notify`` is called once per observed level and evaluation time when the
      * level first records a modification.
      */
-    struct HGRAPH_EXPORT Notifiable
+    struct HGRAPH_CLASS_EXPORT Notifiable
     {
         virtual ~Notifiable() = default;
 

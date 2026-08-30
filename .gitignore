@@ -4,6 +4,7 @@
 /CMakeFiles/
 /.idea/
 /cmake-build*/
+/extensions/fabric/cmake-build*/
 /*build*/
 /**/__pycache__/
 /docs/_build/

@@ -10,6 +10,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -22,7 +23,6 @@ namespace hgraph::fabric::detail
     {
         Str key{};
         Str data_id{};
-        DateTime as_of{MIN_DT};
 
         friend bool operator==(const SubscriptionSpec &, const SubscriptionSpec &) = default;
     };
@@ -71,22 +71,18 @@ namespace hgraph::fabric::detail
 
     struct FabricWiringPlan
     {
-        std::vector<SubscriptionSpec> live{};
-        std::vector<SubscriptionSpec> replay{};
-        std::vector<SubscriptionSpec> snapshot{};
+        std::vector<SubscriptionSpec> subscriptions{};
 
-        void add(SubscriptionSpec subscription, SubscriptionMode mode);
+        void add(SubscriptionSpec subscription);
 
         friend bool operator==(const FabricWiringPlan &, const FabricWiringPlan &) = default;
     };
 
     /** Immutable wiring metadata shared by declarations and lazy service
         materialisation. Planned nodes copy their subscription vectors into
-        node State during start; execution cannot mutate this plan.
-
-        Identity is the scalar contract. The address-derived ordering and hash
-        exist only so wiring containers can store the handle; addresses are not
-        stable across runs and must never determine plan iteration or output. */
+        node State during start; execution cannot mutate this plan. Identity
+        ordering and hashing exist only for scalar/container bookkeeping and
+        must never determine graph output or any other semantic iteration. */
     struct FabricWiringPlanHandle
     {
         std::shared_ptr<const FabricWiringPlan> value{};
@@ -106,56 +102,20 @@ namespace hgraph::fabric::detail
         return stream << "FabricWiringPlanHandle(" << value.value.get() << ')';
     }
 
-    struct FabricPlannedLiveService
+    struct FabricPlannedSubscriptionService
     {
-        static constexpr std::string_view name{"fabric_planned_live"};
-        using output_schema = TSD<Str, FabricIngressSignal>;
-    };
-
-    struct FabricPlannedReplayService
-    {
-        static constexpr std::string_view name{"fabric_planned_replay"};
-        using output_schema = TSD<Str, FabricIngressSignal>;
-    };
-
-    struct FabricPlannedSnapshotService
-    {
-        static constexpr std::string_view name{"fabric_planned_snapshot"};
+        static constexpr std::string_view name{"fabric_planned_subscription"};
         using output_schema = TSD<Str, FabricIngressSignal>;
     };
 
     [[nodiscard]] FabricWiringPlanHandle service_plan(Wiring &wiring, std::string_view path);
-    void plan_subscription(Wiring &wiring, SubscriptionSpec subscription, SubscriptionMode mode,
+    void plan_subscription(Wiring &wiring, SubscriptionSpec subscription,
                            std::string_view path);
 
     struct FabricNodeDiagnostics
     {
         std::vector<std::pair<Str, Str>> metrics{};
         std::vector<std::pair<Str, FabricDiagnosticEventInput>> events{};
-    };
-
-    /** Node-local snapshot algorithm state. This object is stored only in the
-        snapshot node's State slot; it is never shared with another node. */
-    class SnapshotNodeState final
-    {
-      public:
-        SnapshotNodeState();
-        ~SnapshotNodeState();
-        SnapshotNodeState(SnapshotNodeState &&) noexcept;
-        SnapshotNodeState &operator=(SnapshotNodeState &&) noexcept;
-        SnapshotNodeState(const SnapshotNodeState &) = delete;
-        SnapshotNodeState &operator=(const SnapshotNodeState &) = delete;
-
-        void start(FabricConfig config, std::vector<SubscriptionSpec> planned = {});
-        void stop() noexcept;
-        [[nodiscard]] std::optional<DeliveryBatch>
-        evaluate(std::vector<SubscriptionSpec> subscriptions);
-        [[nodiscard]] std::optional<DeliveryBatch> evaluate_planned();
-        [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
-
-      private:
-        struct Impl;
-        std::unique_ptr<Impl> impl_{};
     };
 
     /** Node-local replay algorithm state. Its scheduler is supplied by the replay
@@ -228,10 +188,12 @@ namespace hgraph::fabric::detail
         void start(FabricConfig config, bool graph_notifications);
         void stop() noexcept;
         void enqueue(PublicationRequestInput request);
-        [[nodiscard]] std::vector<DataRevisionInput> advance();
+        [[nodiscard]] std::vector<DataRevisionInput>
+        advance(std::size_t notification_capacity =
+                    std::numeric_limits<std::size_t>::max());
         void complete(NotificationDeliveryInput delivery);
         [[nodiscard]] bool work_pending() const noexcept;
-        [[nodiscard]] std::size_t notification_candidate_limit() const;
+        [[nodiscard]] std::size_t notification_request_limit() const;
         [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
 
       private:
@@ -239,15 +201,15 @@ namespace hgraph::fabric::detail
         std::unique_ptr<Impl> impl_{};
     };
 
-    [[nodiscard]] Str subscription_key(Str data_id, SubscriptionMode mode, DateTime as_of);
-    [[nodiscard]] SubscriptionSpec decode_subscription_key(std::string_view key,
-                                                           SubscriptionMode mode);
+    [[nodiscard]] SubscriptionSpec decode_subscription_key(std::string_view key);
 } // namespace hgraph::fabric::detail
 
 namespace std
 {
     template <> struct hash<hgraph::fabric::detail::FabricWiringPlanHandle>
     {
+        // Identity hashing matches equality. As with ordering above, bucket
+        // placement must never escape into observable graph semantics.
         size_t
         operator()(const hgraph::fabric::detail::FabricWiringPlanHandle &value) const noexcept
         {
@@ -259,11 +221,6 @@ namespace std
 
 namespace hgraph::static_schema_detail
 {
-    template <> struct scalar_name<fabric::detail::SnapshotNodeState>
-    {
-        static constexpr std::string_view value{"hgraph.fabric.internal::SnapshotNodeState"};
-    };
-
     template <> struct scalar_name<fabric::detail::ReplayNodeState>
     {
         static constexpr std::string_view value{"hgraph.fabric.internal::ReplayNodeState"};

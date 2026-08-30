@@ -111,7 +111,6 @@ namespace hgraph::fabric
 
     void register_fabric_types()
     {
-        static_cast<void>(scalar_descriptor<SubscriptionMode>::value_meta());
         static_cast<void>(scalar_descriptor<DataDependency>::value_meta());
         static_cast<void>(scalar_descriptor<DataRevision>::value_meta());
         static_cast<void>(scalar_descriptor<FabricDiagnosticEvent>::value_meta());

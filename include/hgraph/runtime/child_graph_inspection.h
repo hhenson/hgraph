@@ -13,14 +13,14 @@ namespace hgraph
     class NodeBuilder;
 
     /** A path to a time-series endpoint inside a compiled child graph. */
-    struct HGRAPH_EXPORT NestedGraphEndpoint
+    struct HGRAPH_CLASS_EXPORT NestedGraphEndpoint
     {
         std::size_t              node{0};
         std::vector<std::size_t> path{};
     };
 
     /** The endpoint exposed by a compiled child through its owning node. */
-    struct HGRAPH_EXPORT NestedGraphOutputBinding
+    struct HGRAPH_CLASS_EXPORT NestedGraphOutputBinding
     {
         enum class Kind : std::uint8_t
         {
@@ -35,7 +35,7 @@ namespace hgraph
     };
 
     /** Borrowed, data-only view of one immediate compiled child graph. */
-    struct HGRAPH_EXPORT ChildGraphInspectionView
+    struct HGRAPH_CLASS_EXPORT ChildGraphInspectionView
     {
         const GraphBuilder             *graph{nullptr};
         const NestedGraphOutputBinding *output_binding{nullptr};
@@ -63,7 +63,7 @@ namespace hgraph
      * representation. The canonical no-op visitor keeps ordinary nodes'
      * inspection contract non-null.
      */
-    struct HGRAPH_EXPORT ChildGraphInspectionOps
+    struct HGRAPH_CLASS_EXPORT ChildGraphInspectionOps
     {
         const void *context{nullptr};
         void (*visit_impl)(const void *context,

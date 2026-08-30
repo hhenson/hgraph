@@ -2495,6 +2495,10 @@ public:
       const auto removed = fields.at("removed");
       if (removed.data() != nullptr && removed.checked_as<Bool>()) {
         const auto key = fields.at("subscription_key");
+        // Records and lifecycle markers share the Subscription envelope kind,
+        // so removing this key drops its entire undrained simulated session.
+        // A later re-add starts with a fresh session just as the live runtime
+        // discards buffered work when it tears the former consumer down.
         std::erase_if(values_, [&](const Value &pending) {
           const auto pending_fields = pending.view().as_bundle();
           return pending_fields.at("kind")

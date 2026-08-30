@@ -5,8 +5,10 @@ from pathlib import Path
 import sys
 
 import _hgraph
+import pyarrow as pa
 import pytest
 
+import hgraph as hg
 import hgraph_fabric as hgf
 from hgraph import TS, Frame, graph, if_then_else
 from hgraph.test import use_wiring
@@ -36,6 +38,11 @@ def _revision() -> hgf.DataRevision:
 
 def test_python_package_loads_its_native_persistence_dependency_first():
     assert "hgraph_persistence" in sys.modules
+
+
+def test_python_memory_config_validates_notification_backpressure_limit():
+    with pytest.raises(ValueError, match="request limit must be positive"):
+        hgf.make_memory_fabric_config(notification_request_limit=0)
 
 
 def test_python_codec_uses_shared_native_golden_fixtures():
@@ -134,40 +141,109 @@ def test_python_public_operators_wire_through_native_registry():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         hgf.register_memory_fabric_service()
-        value = hgf.subscribe_data(
-            "python/input", mode=hgf.SubscriptionMode.LIVE
-        )
+        value = hgf.subscribe_data("python/input")
         hgf.publish_data("python/output", value)
     wiring.run()
 
 
-def test_python_operator_validation_is_wiring_time():
-    with pytest.raises(TypeError, match="mode"):
-        hgf.subscribe_data("python/input")
+def test_python_service_paths_select_independent_configurations():
+    left = hgf.make_memory_fabric_config(prefix="python/path/left")
+    right = hgf.make_memory_fabric_config(prefix="python/path/right")
 
+    @graph
+    def publish_to_both_paths() -> None:
+        hgf.register_fabric_service(left, path="left-fabric")
+        hgf.register_fabric_service(right, path="right-fabric")
+        left_value = hg.const(pa.table({"value": [1]}), tp=TS[Frame])
+        right_value = hg.const(pa.table({"value": [2]}), tp=TS[Frame])
+        hgf.publish_data("prices", left_value, path="left-fabric")
+        hgf.publish_data("prices", right_value, path="right-fabric")
+
+    with hg.GlobalState():
+        hg.run_graph(
+            publish_to_both_paths,
+            start_time=hg.MIN_ST,
+            end_time=hg.MIN_ST + timedelta(microseconds=5),
+        )
+
+    previous = _hgraph.polars_frames()
+    _hgraph.set_polars_frames(False)
+    try:
+        left_frame = hgf.load_data(left, "prices")
+        right_frame = hgf.load_data(right, "prices")
+    finally:
+        _hgraph.set_polars_frames(previous)
+
+    assert left_frame.to_pydict() == {"value": [1]}
+    assert right_frame.to_pydict() == {"value": [2]}
+
+
+def test_python_subscription_execution_policy_is_service_scoped():
+    with pytest.raises(TypeError, match="unexpected keyword argument 'mode'"):
+        hgf.subscribe_data("python/input", mode="live")
+    with pytest.raises(TypeError, match="unexpected keyword argument 'as_of'"):
+        hgf.subscribe_data("python/input", as_of=datetime(2026, 1, 1))
+    with pytest.raises(TypeError, match="unexpected keyword argument 'as_of'"):
+        hgf.register_memory_fabric_service(as_of=datetime(2026, 1, 1))
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        with pytest.raises(RuntimeError, match="Snapshot requires as_of"):
-            hgf.subscribe_data(
-                "python/input", mode=hgf.SubscriptionMode.SNAPSHOT
-            )
-        with pytest.raises(RuntimeError, match="as_of is valid only for Snapshot"):
-            hgf.subscribe_data(
-                "python/input",
-                mode=hgf.SubscriptionMode.LIVE,
-                as_of=datetime(2026, 1, 1),
-            )
+        hgf.register_memory_fabric_service()
+        hgf.subscribe_data("python/input")
+    wiring.run()
+
+
+def _config_with_load_fixture() -> hgf.FabricConfig:
+    config = hgf.make_memory_fabric_config(prefix="python/load-as-of")
+
+    @graph
+    def publish_load_fixture() -> None:
+        hgf.register_fabric_service(config)
+        value = hg.const(pa.table({"value": [42]}), tp=TS[Frame])
+        hgf.publish_data("prices", value)
+
+    with hg.GlobalState():
+        hg.run_graph(
+            publish_load_fixture,
+            start_time=hg.MIN_ST,
+            end_time=hg.MIN_ST + timedelta(microseconds=5),
+        )
+    return config
+
+
+def test_python_load_data_is_a_non_graph_arrow_point_lookup():
+    config = _config_with_load_fixture()
+
+    assert hgf.load_data(config, "prices", datetime(1971, 1, 1)) is None
+    previous = _hgraph.polars_frames()
+    _hgraph.set_polars_frames(False)
+    try:
+        loaded = hgf.load_data(config, "prices")
+    finally:
+        _hgraph.set_polars_frames(previous)
+
+    assert isinstance(loaded, pa.Table)
+    assert loaded.to_pydict() == {"value": [42]}
+
+
+def test_python_load_data_honours_polars_frame_presentation():
+    polars = pytest.importorskip("polars")
+    config = _config_with_load_fixture()
+    previous = _hgraph.polars_frames()
+    _hgraph.set_polars_frames(True)
+    try:
+        loaded = hgf.load_data(config, "prices")
+    finally:
+        _hgraph.set_polars_frames(previous)
+
+    assert isinstance(loaded, polars.DataFrame)
+    assert loaded.to_dict(as_series=False) == {"value": [42]}
 
 
 def test_python_wiring_rejects_duplicate_publishers():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        first = hgf.subscribe_data(
-            "python/input-a", mode=hgf.SubscriptionMode.LIVE
-        )
-        second = hgf.subscribe_data(
-            "python/input-b", mode=hgf.SubscriptionMode.LIVE
-        )
+        first = hgf.subscribe_data("python/input-a")
+        second = hgf.subscribe_data("python/input-b")
         hgf.publish_data("python/output", first)
         with pytest.raises(RuntimeError, match="data id already has a publisher"):
             hgf.publish_data("python/output", second)
@@ -185,30 +261,20 @@ def _finish_contract_wiring(wiring: _hgraph.Wiring) -> None:
 def test_python_planner_wires_direct_shared_conditional_and_nested_graphs():
     @graph
     def nested_subscription() -> TS[Frame]:
-        return hgf.subscribe_data(
-            "python/nested", mode=hgf.SubscriptionMode.LIVE
-        )
+        return hgf.subscribe_data("python/nested")
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         hgf.register_memory_fabric_service()
-        direct = hgf.subscribe_data(
-            "python/direct", mode=hgf.SubscriptionMode.LIVE
-        )
+        direct = hgf.subscribe_data("python/direct")
         hgf.publish_data("python/direct-output", direct)
 
-        shared = hgf.subscribe_data(
-            "python/shared", mode=hgf.SubscriptionMode.LIVE
-        )
+        shared = hgf.subscribe_data("python/shared")
         hgf.publish_data("python/shared-left", shared)
         hgf.publish_data("python/shared-right", shared)
 
-        left = hgf.subscribe_data(
-            "python/conditional-a", mode=hgf.SubscriptionMode.LIVE
-        )
-        right = hgf.subscribe_data(
-            "python/conditional-b", mode=hgf.SubscriptionMode.LIVE
-        )
+        left = hgf.subscribe_data("python/conditional-a")
+        right = hgf.subscribe_data("python/conditional-b")
         hgf.publish_data(
             "python/conditional-output", if_then_else(True, left, right)
         )
@@ -221,9 +287,7 @@ def test_python_explicit_dependencies_use_the_native_planner():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         hgf.register_memory_fabric_service()
-        source = hgf.subscribe_data(
-            "python/explicit-input", mode=hgf.SubscriptionMode.LIVE
-        )
+        source = hgf.subscribe_data("python/explicit-input")
         handle = hgf.dependency_handle(source)
         hgf.publish_data(
             "python/explicit-output",
@@ -239,9 +303,7 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        value = hgf.subscribe_data(
-            "python/value", mode=hgf.SubscriptionMode.LIVE
-        )
+        value = hgf.subscribe_data("python/value")
         arbitrary = hgf.DependencySelection.explicit(
             hgf.DependencyHandle("arbitrary")
         )
@@ -254,12 +316,8 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
 
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
-        first = hgf.subscribe_data(
-            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
-        )
-        second = hgf.subscribe_data(
-            "python/duplicate", mode=hgf.SubscriptionMode.LIVE
-        )
+        first = hgf.subscribe_data("python/duplicate")
+        second = hgf.subscribe_data("python/duplicate")
         duplicate = hgf.DependencySelection.explicit(
             hgf.dependency_handle(first),
             hgf.dependency_handle(second),
@@ -277,8 +335,6 @@ def test_python_operator_registration_survives_registry_reset():
     wiring = _hgraph.Wiring()
     with use_wiring(wiring):
         hgf.register_memory_fabric_service()
-        value = hgf.subscribe_data(
-            "python/reset-input", mode=hgf.SubscriptionMode.LIVE
-        )
+        value = hgf.subscribe_data("python/reset-input")
         hgf.publish_data("python/reset-output", value)
     wiring.run()

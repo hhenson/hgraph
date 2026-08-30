@@ -14,6 +14,7 @@ endif()
 add_executable(hgraph_fabric_tests
     registry_test_listener.cpp
     test_backends.cpp
+    test_history.cpp
     test_public_contracts.cpp
     test_publication.cpp
     test_resolution.cpp

@@ -45,7 +45,7 @@ namespace hgraph::fabric
     /** Correlated asynchronous acknowledgement for one accepted revision.
         The concrete notifier owns delivery correlation; publication polls this
         passive handle after the immutable revision and its indexes are durable. */
-    class HGRAPH_FABRIC_EXPORT NotificationDelivery final
+    class HGRAPH_FABRIC_CLASS_EXPORT NotificationDelivery final
     {
       public:
         NotificationDelivery() noexcept;
@@ -80,7 +80,7 @@ namespace hgraph::fabric
         notices are conflated by data id; distinct first-pending ids retain
         publication order. Default and moved-from handles use a non-null empty
         operations table. */
-    class HGRAPH_FABRIC_EXPORT NotificationSubscription final
+    class HGRAPH_FABRIC_CLASS_EXPORT NotificationSubscription final
     {
       public:
         NotificationSubscription() noexcept;
@@ -115,7 +115,7 @@ namespace hgraph::fabric
     /** Owning type-erased fabric notification contract. The contract validates
         complete encoded accepted-revision notices and matching data ids before
         dispatch; persistence remains authoritative. */
-    class HGRAPH_FABRIC_EXPORT Notifier final
+    class HGRAPH_FABRIC_CLASS_EXPORT Notifier final
     {
       public:
         Notifier() noexcept;

@@ -138,7 +138,7 @@ struct ForestResolution {
     maximal closures to be distinguished), O(R + E) for the usual unique
     closure, and O(new revisions + retained indexes) storage. The class is
     intended to be owned by one ingress coordinator and is not thread-safe. */
-class HGRAPH_FABRIC_EXPORT ConsistencyResolver final {
+class HGRAPH_FABRIC_CLASS_EXPORT ConsistencyResolver final {
 public:
   explicit ConsistencyResolver(FabricConfig config);
   ~ConsistencyResolver();
@@ -189,7 +189,7 @@ struct CoordinationResult {
     Successful cuts and their hidden lineage commit atomically with the
     returned root batch; failed forests retain their previously exposed
     cut and do not block independent forests. */
-class HGRAPH_FABRIC_EXPORT ConsistencyCoordinator final {
+class HGRAPH_FABRIC_CLASS_EXPORT ConsistencyCoordinator final {
 public:
   ConsistencyCoordinator(FabricConfig config, std::vector<Str> roots);
   ~ConsistencyCoordinator();

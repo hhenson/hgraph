@@ -52,7 +52,7 @@ namespace hgraph::manifest
     };
 
     /** A graph cannot be captured; ``path()`` addresses the refusing entry. */
-    class HGRAPH_EXPORT ManifestCaptureError : public std::runtime_error
+    class HGRAPH_CLASS_EXPORT ManifestCaptureError : public std::runtime_error
     {
       public:
         ManifestCaptureError(std::string path, const std::string &message);
@@ -72,7 +72,7 @@ namespace hgraph::manifest
     };
 
     /** Path-addressed comparison outcome; empty differences = identical. */
-    struct HGRAPH_EXPORT ValidationResult
+    struct HGRAPH_CLASS_EXPORT ValidationResult
     {
         std::vector<ManifestDifference> differences{};
 
@@ -80,7 +80,7 @@ namespace hgraph::manifest
     };
 
     /** Immutable description of a fully resolved wired program. */
-    class HGRAPH_EXPORT GraphManifest final
+    class HGRAPH_CLASS_EXPORT GraphManifest final
     {
       public:
         [[nodiscard]] std::uint16_t format_version() const noexcept { return format_version_; }

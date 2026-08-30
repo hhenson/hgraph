@@ -40,7 +40,7 @@ namespace hgraph
      * different factories from different inputs, and a peered endpoint over a
      * carried value is an ordinary combination.
      */
-    class HGRAPH_EXPORT TSEndpointSchema
+    class HGRAPH_CLASS_EXPORT TSEndpointSchema
     {
       public:
         TSEndpointSchema() noexcept;

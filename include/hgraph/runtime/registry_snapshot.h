@@ -17,7 +17,7 @@ namespace hgraph
      * adding work to graph evaluation.  Call it only while graph wiring is
      * quiescent; the runtime registries themselves are wiring-thread owned.
      */
-    struct HGRAPH_EXPORT RuntimeRegistrySnapshot
+    struct HGRAPH_CLASS_EXPORT RuntimeRegistrySnapshot
     {
         std::size_t node_runtime_types{0};
         std::size_t graph_programs{0};

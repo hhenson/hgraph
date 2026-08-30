@@ -26,7 +26,7 @@ namespace hgraph
      * a slot store via ``add_slot_observer``; the store fires the matching
      * hook whenever the corresponding event happens.
      */
-    struct HGRAPH_EXPORT SlotObserver
+    struct HGRAPH_CLASS_EXPORT SlotObserver
     {
         virtual ~SlotObserver() = default;
 
@@ -52,7 +52,7 @@ namespace hgraph
      * when traversal starts, removals before an observer's turn suppress that
      * callback, and additions are deferred until the next traversal.
      */
-    class HGRAPH_EXPORT SlotObserverList
+    class HGRAPH_CLASS_EXPORT SlotObserverList
     {
       public:
         SlotObserverList() noexcept = default;

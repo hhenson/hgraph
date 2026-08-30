@@ -34,9 +34,10 @@ The production shape combines durable object storage and Kafka:
 Persistence is authoritative.  Kafka is the live wake-up path.  A real-time
 subscriber starts from the latest durable state and then follows Kafka.  A
 simulation subscriber reconstructs state from the as-of index and replays
-revision history at its original publication times.  A snapshot subscriber
-loads one consistent view as of a requested time and ticks it once at graph
-start.
+revision history at its original publication times.  Running simulation over
+a narrow interval gives the graph-coordinated equivalent of a one-point
+replay.  A separate non-graph load API selects one dataset's newest version at
+or before a requested time when dependency coordination is not required.
 
 This RFC fixes the semantic model and the public C++/Python shape implemented
 by the first version of ``hgraph-fabric``.  The accepted implementation does
@@ -288,9 +289,8 @@ An application graph remains ordinary hgraph composition:
 
    @graph
    def normalised_prices() -> None:
-       prices = subscribe_data("raw-prices", mode=SubscriptionMode.LIVE)
-       instruments = subscribe_data(
-           "instrument-reference", mode=SubscriptionMode.LIVE)
+       prices = subscribe_data("raw-prices")
+       instruments = subscribe_data("instrument-reference")
        result = normalise(prices, instruments)
        publish_data("normalised-prices", result)
 
@@ -318,8 +318,8 @@ execution and extension authoring:
 * extension operator registration; and
 * the ``Frame`` value type and Arrow schema/value operations.
 
-Core does not name fabric data ids, versions, revisions, stores, topics,
-subscription modes or consistency policies.
+Core does not name fabric data ids, versions, revisions, stores, topics or
+consistency policies.
 
 The public extension seam has been validated from a separately built installed
 SDK consumer.  A fabric-shaped proof can retain one wiring-owned plan, defer
@@ -332,8 +332,9 @@ unrelated child side effects are excluded from that output lineage.  It
 therefore proves the ownership boundary rather than merely following an outer
 input.
 Fabric does not use the proof source to select runtime behavior.  Its public
-operator requires an explicit subscription mode, and wiring selects the
-concrete source implementation before execution.
+operator declares only the durable identity.  The root service graph routes
+subscriptions to live ingress in real-time execution and scheduled replay in
+simulation.
 
 The proof exposed one missing generally reusable core seam.  ``NodeBuilder``
 now visits its immediate compiled child graph templates through a passive,
@@ -383,13 +384,13 @@ hgraph-fabric owns
 
 The new extension owns:
 
-* data-id, version, revision, dependency and subscription-mode types;
+* data-id, version, revision and dependency types;
 * the ``publish_data`` and ``subscribe_data`` operator contracts;
 * wiring-time dependency discovery;
 * durable fabric key layout and metadata schemas;
 * publication ordering and first-writer-wins reconciliation;
 * consistency-forest construction and cut resolution;
-* real-time conflation, simulation replay and snapshot semantics;
+* real-time conflation, simulation replay and standalone as-of lookup;
 * fabric-specific store/notifier composition and configuration;
 * diagnostics and tests; and
 * Python registrations of the same C++ contracts.
@@ -493,13 +494,6 @@ to build and decode those schemas, not a second contract.
                   Field<"revision", Int>, Field<"output_version", Int>,
                   Field<"dependencies", HomogeneousTuple<DataDependency>>,
                   Field<"self_predecessor", Int>, Field<"as_of", DateTime>>;
-
-       enum class SubscriptionMode
-       {
-           Live,
-           Replay,
-           Snapshot,
-       };
    }
 
 ``dependencies`` is sorted by the canonical UTF-8 data id and contains no
@@ -537,23 +531,33 @@ intended shape is:
    {
        Port<TS<Frame>> subscribe_data(
            Wiring &w,
-           Str data_id,
-           SubscriptionMode mode,
-           std::optional<DateTime> as_of = {});
+           service::ServicePath path,
+           Str data_id);
 
        void publish_data(
            Wiring &w,
+           service::ServicePath path,
            Str data_id,
            Port<TS<Frame>> value,
            DependencySelection dependencies = DependencySelection::automatic());
+
+       std::optional<Frame> load_data(
+           const FabricConfig &config,
+           Str data_id,
+           DateTime as_of = MAX_DT);
    }
 
-``data_id``, ``mode``, ``as_of`` and an explicit dependency selection are
-wiring-time scalars.  The required ``Live``, ``Replay`` or ``Snapshot`` mode
-selects its concrete source overload during wiring.  ``Live`` uses the
-real-time Kafka service push-source edge.  ``Replay`` and ``Snapshot`` use
-ordinary deterministic scheduled sources and never construct a push source.
-No source inspects executor mode or branches on subscription mode in ``eval``.
+The overloads without ``path`` use ``"fabric"``. ``data_id``, ``path`` and an
+explicit dependency selection are wiring-time scalars. Each path selects its
+own service instance, configuration and dependency plan; lineage cannot cross
+paths. The root service graph selects live ingress for a real-time executor and ordinary
+deterministic scheduled replay for simulation.  The selection is graph-wide;
+individual subscriptions cannot request a conflicting policy.  Simulation
+does not construct the real-time push source.
+
+``load_data`` is a synchronous non-graph point lookup over an explicit
+configuration.  It does not inspect ``GlobalState``, schedule graph work or
+resolve a dependency forest.
 
 A time-varying data id would change the durable identity and is therefore not
 accepted by this operator.  Applications requiring a dynamic family wire keyed
@@ -570,20 +574,26 @@ Python adapts the same operators:
    def subscribe_data(
        data_id: str,
        *,
-       mode: FabricSubscriptionMode,
-       as_of: datetime | None = None,
+       path: str = "fabric",
    ) -> TS[Frame]: ...
 
    def publish_data(
        data_id: str,
        value: TS[Frame],
        *,
+       path: str = "fabric",
        dependencies: DependencySelection = AUTO,
    ) -> None: ...
 
-``as_of`` is required in ``SNAPSHOT`` mode and rejected in ``LIVE`` and
-``REPLAY`` modes.  Callers must choose ``SNAPSHOT`` for a one-shot value,
-``REPLAY`` for deterministic history, or ``LIVE`` for Kafka-driven updates.
+   def load_data(
+       config: FabricConfig,
+       data_id: str,
+       as_of: datetime = MAX_DT,
+   ) -> Frame | None: ...
+
+Python's load result follows hgraph's existing Frame presentation policy:
+PyArrow by default, or Polars when the compatibility switch is enabled and
+Polars is installed.
 
 Configuration
 ~~~~~~~~~~~~~
@@ -599,13 +609,17 @@ of execution with the normal graph state.  The semantic configuration includes:
        persistence::store::ObjectStore objects;
        persistence::store::FrameStore  frames;
        Notifier                         notifications;
-       std::size_t                      notification_candidate_limit;
+       std::size_t                     notification_request_limit;
    };
 
 The concrete persistence spelling is resolved with the prerequisite store
 contract described above.  ``prefix`` and every data id use the common
-persistence key validation rules.  A configuration error fails at wiring or
-start; it never falls back from S3/Kafka to process memory.
+persistence key validation rules. ``notification_request_limit`` bounds the
+durable candidates admitted to the graph-transport request flow; saturation
+stops publication advancement until a delivery frees capacity. A configuration
+error fails at wiring or start; it never falls back from S3/Kafka to process
+memory. Configurations are stored by service path so one graph may host several
+independent Fabric instances.
 
 Dependency discovery
 --------------------
@@ -967,8 +981,10 @@ Partitioning by key preserves per-data-id order.  No ordering across data ids
 is required.
 
 The delivery handshake is ordinary graph composition.  Once persistence has
-accepted a revision, the Fabric publication node exposes it in a bounded keyed
-time series.  A notification-flow node selects one candidate, exposes a
+accepted a revision, the Fabric publication node exposes it in a keyed time
+series bounded by ``FabricConfig::notification_request_limit``. Saturation is
+backpressure: the node leaves later publishers unadvanced until completion
+frees a slot. A notification-flow node selects one candidate, exposes a
 reference to that same ``Shared<DataRevision>`` endpoint on an ordered request
 edge, and receives the correlated delivery report on another edge.  Its active
 candidate, retry count, completion feedback and diagnostic counters are
@@ -976,15 +992,6 @@ time-series state.  A retriable report temporarily unbinds and then rebinds the
 same reference on the next graph cycle, so retry neither copies the revision
 nor creates a new shared allocation.  Completion feedback removes the
 candidate and advances the publication state machine.
-
-``FabricConfig::notification_candidate_limit`` is the explicit resource bound
-on durable candidates awaiting the graph-native transport (1024 by default).
-Saturation is fatal rather than implicit backpressure: publication requests
-have already entered the graph and candidates may already be durable, so merely
-stopping candidate extraction would transfer an unbounded broker stall into
-the per-data-id publication queues without applying admission at the sender.
-Hosts size the bound for the maximum notification lag they are prepared to
-retain.
 
 The Kafka service task is deliberately narrower: a publish sink submits the
 request to the broker and the service's FIFO root push source returns delivery
@@ -1229,18 +1236,18 @@ Publishers sharing a subscription see the same input tick.  Each publisher's
 hidden dependency projection independently schedules its revision handling.
 There is no need to duplicate or exclusively claim the subscription.
 
-Subscription modes
-------------------
+Run-selected subscription behavior
+----------------------------------
 
-Explicit selection
-~~~~~~~~~~~~~~~~~~
+Graph-wide selection
+~~~~~~~~~~~~~~~~~~~~
 
-Every subscription declares ``Live``, ``Replay`` or ``Snapshot`` explicitly.
-The operator dispatch mechanism selects the concrete graph/source overload at
-wiring time, when the mode scalar is known.  There is no automatic executor
-mode mapping and no generic source which changes ingress strategy at start.
-This keeps the real-time wake path structurally separate from deterministic
-scheduled replay and snapshot sources.
+Every subscription declares only its durable data id.  The root service graph
+routes the complete subscription set according to the executor mode:
+real-time execution activates live ingress, while simulation activates
+scheduled replay over the executor interval.  The inactive branch receives no
+subscription or lifecycle input.  This keeps application wiring independent
+of deployment policy while preserving graph ownership of ingress selection.
 
 Live mode
 ~~~~~~~~~
@@ -1299,15 +1306,19 @@ because it exists when the replay is executed.  If a revision introduces a new
 dependency id, the replay merge opens that id's as-of history at the current
 time and incorporates only entries which were then knowable.
 
-Snapshot mode
-~~~~~~~~~~~~~
+Standalone direct load
+~~~~~~~~~~~~~~~~~~~~~~
 
-``Snapshot`` requires an explicit ``as_of``.  It selects the greatest
-consistent cut whose indexed revisions are not later than that time and emits
-the selected direct Frames once at graph start.  It does not move the graph
-clock to the historical time and it does not follow later Kafka or store
-updates.  The time bound applies recursively to every revision selected in the
-ordinary dependency closure.
+``load_data(config, data_id)`` is intentionally simpler than a subscription.
+It loads the latest revision by default. Passing ``as_of`` walks the selected
+data id's ordered as-of index, chooses the newest entry whose timestamp is
+``<= as_of``, validates the referenced revision and loads that revision's
+Frame. It returns absence when no such entry exists.
+
+The call does not construct a graph, coordinate several roots, or inspect
+transitive dependencies.  Consumers that require graph-wide consistency use
+simulation replay and may choose a very narrow executor interval around the
+desired time.
 
 Worked examples
 ---------------
@@ -1722,15 +1733,15 @@ Implementation outcome
 The implementation landed through the separately reviewed checkpoints tracked
 by issue 512.  It supplied the reusable persistence object-store contract,
 installed-SDK extension seam, Fabric public types and operators, durable
-publication state machine, wiring planner, resolver/coordinator, all three
-subscription modes, production Kafka adapter, backend/package matrix,
-diagnostics and performance evidence.
+publication state machine, wiring planner, resolver/coordinator, run-selected
+subscription behavior, standalone as-of loading, production Kafka adapter,
+backend/package matrix, diagnostics and performance evidence.
 
 The accepted implementation resolves the proposal's remaining ownership and
 lifecycle choices as follows:
 
 * One lazy root ``FabricServiceImpl`` graph composes Fabric publication,
-  snapshot, replay, live, synchronous load, diagnostics and lifecycle nodes.
+  replay, live, synchronous version load, diagnostics and lifecycle nodes.
   Each node owns its local algorithm state in its graph ``State`` slot; the
   immutable wiring plan is copied into each planned node's ``State`` at node
   start, and persistence handles
@@ -1757,9 +1768,11 @@ lifecycle choices as follows:
   valid notice directly populates revision, output-version and dependency
   indexes.  Persistence metadata is read for startup, reconnect, detected gaps
   and uncached selected Frames rather than once per notice.
-* ``Live``, ``Replay`` and ``Snapshot`` are required wiring-time choices.
-  Replay and Snapshot are ordinary deterministic scheduled sources; every push
-  source remains real-time-only.
+* The executor selects subscription behavior for the whole graph: real-time
+  execution activates live ingress and simulation activates the ordinary
+  deterministic replay source.  Every push source remains real-time-only.
+  A separate non-graph ``load_data`` API performs an uncoordinated
+  single-dataset point lookup against an explicit ``FabricConfig``.
 * Metadata uses the canonical version-1 ``HGFM`` binary envelope and the media
   types declared in ``metadata_codec.h``.  Public contracts are split across
   ``types.h``, ``config.h``, ``operators.h``, ``service.h`` and the persistence
@@ -1786,11 +1799,11 @@ operators and serialized schemas.  At minimum the implementation must cover:
 Public contract
 ~~~~~~~~~~~~~~~
 
-* first-class C++ and Python wiring for publish, live subscribe, replay and
-  snapshot;
+* first-class C++ and Python wiring for publish and run-selected subscription,
+  plus standalone as-of loading;
 * installed-SDK C++ and Python consumers;
 * registration across registry reset;
-* invalid modes, ids, prefixes and missing as-of arguments; and
+* invalid ids, prefixes, configurations and as-of arguments; and
 * rejection of two publishers for one data id in one wired graph.
 
 Publication
@@ -1827,8 +1840,8 @@ Modes and lifecycle
 ~~~~~~~~~~~~~~~~~~~
 
 * live initial image and notification handoff with updates at every race point;
-* explicit wiring-time selection of ``Live``, ``Replay`` and ``Snapshot``;
-* no push source in deterministic replay or snapshot graphs;
+* graph-wide real-time/live and simulation/replay selection;
+* no push source in simulation graphs;
 * duplicate, stale, invalid, out-of-order and conflated Kafka messages;
 * slow clients skipping intermediate versions;
 * reconnect reconciliation;
@@ -1836,8 +1849,11 @@ Modes and lifecycle
 * replay from ``MIN_ST``;
 * equal as-of timestamps across data ids;
 * a held cut ticking at the revision time which makes it ready;
-* end-time exclusion; and
-* snapshot selection and its one tick at graph start.
+* end-time exclusion;
+* a narrow simulation interval producing the coordinated one-point behavior;
+  and
+* standalone load selection before, exactly on and between indexed times,
+  including missing and corrupt referenced data.
 
 Storage and platforms
 ~~~~~~~~~~~~~~~~~~~~~

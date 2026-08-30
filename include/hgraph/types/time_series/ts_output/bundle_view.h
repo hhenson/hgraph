@@ -14,7 +14,7 @@ namespace hgraph
     class TSDOutputView;
     class TSWOutputView;
 
-    class HGRAPH_EXPORT TSBOutputView : public TSOutputTypedView<TSBOutputView>
+    class HGRAPH_CLASS_EXPORT TSBOutputView : public TSOutputTypedView<TSBOutputView>
     {
       public:
         explicit TSBOutputView(TSOutputView view);

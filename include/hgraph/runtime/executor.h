@@ -60,7 +60,7 @@ namespace hgraph
      * synchronously. The action is valid only for the duration of the runner
      * call and must not be retained.
      */
-    class HGRAPH_EXPORT GraphExecutorPhaseAction
+    class HGRAPH_CLASS_EXPORT GraphExecutorPhaseAction
     {
       public:
         GraphExecutorPhaseAction() noexcept = default;
@@ -92,14 +92,14 @@ namespace hgraph
      * evaluation path of the last cycle (design record: execution_layer.rst,
      * *Opt-in recursion guard*).
      */
-    class HGRAPH_EXPORT RecursiveEvaluationError : public std::runtime_error
+    class HGRAPH_CLASS_EXPORT RecursiveEvaluationError : public std::runtime_error
     {
       public:
         using std::runtime_error::runtime_error;
     };
 
     /** Schema/config descriptor for a graph executor. */
-    struct HGRAPH_EXPORT GraphExecutorTypeMetaData
+    struct HGRAPH_CLASS_EXPORT GraphExecutorTypeMetaData
     {
         SchemaHeader header{};
         const char *display_name{nullptr};
@@ -109,7 +109,7 @@ namespace hgraph
     };
 
     /** Type-erased executor operation table. */
-    struct HGRAPH_EXPORT GraphExecutorOps
+    struct HGRAPH_CLASS_EXPORT GraphExecutorOps
     {
         const void *context{nullptr};
 
@@ -146,7 +146,7 @@ namespace hgraph
     };
 
     /** Real-time push queue projection over the root graph executor. */
-    class HGRAPH_EXPORT PushQueueEngineView
+    class HGRAPH_CLASS_EXPORT PushQueueEngineView
     {
       public:
         PushQueueEngineView() noexcept;
@@ -174,7 +174,7 @@ namespace hgraph
      * authored nodes can inspect run configuration and request an orderly
      * stop after the current evaluation cycle.
      */
-    class HGRAPH_EXPORT EngineControlView
+    class HGRAPH_CLASS_EXPORT EngineControlView
     {
       public:
         EngineControlView() noexcept;
@@ -204,7 +204,7 @@ namespace hgraph
     static_assert(std::is_trivially_copyable_v<EngineControlView>);
 
     /** Borrowed type-erased executor view. */
-    class HGRAPH_EXPORT GraphExecutorView
+    class HGRAPH_CLASS_EXPORT GraphExecutorView
     {
       public:
         GraphExecutorView() noexcept;
@@ -268,7 +268,7 @@ namespace hgraph
     };
 
     /** Owning graph executor value. */
-    class HGRAPH_EXPORT GraphExecutorValue
+    class HGRAPH_CLASS_EXPORT GraphExecutorValue
     {
       public:
         using storage_type = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
@@ -291,7 +291,7 @@ namespace hgraph
     };
 
     /** Reusable construction recipe for graph executors. */
-    class HGRAPH_EXPORT GraphExecutorBuilder
+    class HGRAPH_CLASS_EXPORT GraphExecutorBuilder
     {
       public:
         GraphExecutorBuilder();

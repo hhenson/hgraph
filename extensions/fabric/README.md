@@ -8,8 +8,8 @@ versions and contiguous lineage revisions.
 The current implementation provides the installed C++/Python operator and
 value contracts, canonical durable keys and metadata, run-scoped
 configuration, and broker-free memory notification. One lazy root
-`FabricServiceImpl` graph composes publication, live, replay, snapshot, load
-and diagnostics nodes for each `GraphValue`. Each node owns only its local
+`FabricServiceImpl` graph composes publication, live, replay, version load and
+diagnostics nodes for each `GraphValue`. Each node owns only its local
 algorithm state; their sequencing, candidates, completions, metrics and events
 remain on ordinary graph edges. Persistence handles are copied from the
 run-scoped `FabricConfig`. Client
@@ -24,13 +24,17 @@ wiring-time planner discovers subscriptions through direct and nested graph
 ownership, validates explicit dependency handles, partitions independent
 consistency forests, and wires hidden lineage signals to publication requests.
 
-The shared ingress coordinator supports all three wiring-time modes:
+The shared ingress coordinator derives behavior from the graph run:
 
-* `Snapshot` emits one recursively bounded consistent image;
-* `Replay` walks durable as-of histories over the executor's half-open
+* simulation walks durable as-of histories over the executor's half-open
   interval using ordinary node scheduling; and
-* `Live` loads a durable initial image, then advances only when a complete
-  shared revision arrives on the ordinary notice edge.
+* real-time execution loads a durable initial image, then advances only when
+  a complete shared revision arrives on the ordinary notice edge.
+
+There is no per-subscription mode. A narrow simulation interval provides the
+graph-coordinated equivalent of a one-point replay. The separate synchronous
+`load_data` API handles a simple single-dataset point lookup without
+constructing or solving a consistency forest.
 
 Complete live revision messages populate dependency indexes directly. Durable
 metadata is read for startup, reconnect reconciliation and explicit revision
@@ -48,7 +52,7 @@ standard burst push source emits ordinary graph
 edges into Fabric; broker callbacks never access the graph or a Fabric output.
 `Recovering` and `Live` lifecycle edges gate the initial durable image and
 trigger durable-head reconciliation for each new live generation. Replay and
-Snapshot do not compose the adapter and never create a push source.
+other simulation runs do not compose the adapter and never create a push source.
 
 Publication crosses a graph-native request edge only after its Frame, immutable
 revision and derived indexes are durable. The Fabric service graph retains
@@ -74,7 +78,7 @@ Production Kafka hosts instead link `hgraph::fabric_kafka` and call
 and `KafkaServiceConfig`; that call registers both lazy service singletons.
 Python consumers import `hgraph_fabric` and call
 `register_memory_fabric_service()` for the deterministic local host; importing
-the package registers the same native operators and scalar enum.
+the package registers the same native operators.
 
 ## Python examples
 
@@ -129,35 +133,40 @@ hg.run_graph(
 The runnable version is
 [`python/examples/publish_once.py`](python/examples/publish_once.py).
 
-### Subscribe using Live, Replay, or Snapshot
+### Run one subscription graph live or as replay
 
-Choose exactly one policy for a data id in one root graph:
+Application code declares only the durable data id:
 
 ```python
-from datetime import datetime
-
-live = fabric.subscribe_data(
-    "prices/enriched", mode=fabric.SubscriptionMode.LIVE
-)
-
-replay = fabric.subscribe_data(
-    "prices/enriched", mode=fabric.SubscriptionMode.REPLAY
-)
-
-snapshot = fabric.subscribe_data(
-    "prices/enriched",
-    mode=fabric.SubscriptionMode.SNAPSHOT,
-    as_of=datetime(2026, 1, 2, 12, 0),
-)
+prices = fabric.subscribe_data("prices/enriched")
 ```
 
-`LIVE` follows new accepted revisions and is normally run by a real-time host.
-`REPLAY` deterministically walks revisions in the graph executor's start/end
-interval. `SNAPSHOT` emits one consistent image at the required `as_of` cutoff.
-The alternatives are separate graphs in
-[`python/examples/subscription_modes.py`](python/examples/subscription_modes.py);
-wiring several policies for the same data id into one graph is rejected because
-it would make that graph's consistency contract ambiguous.
+The run owns the policy. `EvaluationMode.REAL_TIME` follows accepted revisions
+from the configured live transport. Simulation deterministically replays the
+executor's start/end interval. Running simulation over one timestamp (or the
+smallest practical interval around it) gives the graph-coordinated equivalent
+of a snapshot without changing application wiring. The complete alternatives
+are in
+[`python/examples/subscription_modes.py`](python/examples/subscription_modes.py).
+
+### Load one dataset directly
+
+When no graph coordination is required, use the standalone point lookup. It
+loads the latest stored version of one data id by default. Pass `as_of` to
+select the newest revision at or before a cutoff:
+
+```python
+config = fabric.make_memory_fabric_config(prefix="examples/history")
+latest = fabric.load_data(config, "prices/enriched")
+historical = fabric.load_data(config, "prices/enriched", as_of)
+```
+
+The configuration is explicit; the call does not inspect graph state and does
+not solve transitive lineage. It returns `None` when no matching value exists.
+The Python Frame presentation is PyArrow by default and Polars when hgraph's
+Polars compatibility switch is enabled and Polars is installed. See
+[`python/examples/load_data.py`](python/examples/load_data.py) for a runnable
+publish-then-load example using one owning configuration.
 
 ### Build a derived dataset with automatic lineage
 
@@ -167,12 +176,8 @@ hgraph operators, and publish the complete result. Fabric's durable boundary is
 view for publication; its Arrow schema remains part of the stored Frame.
 
 ```python
-raw_prices = fabric.subscribe_data(
-    "prices/raw", mode=fabric.SubscriptionMode.LIVE
-)
-instrument_reference = fabric.subscribe_data(
-    "instruments/reference", mode=fabric.SubscriptionMode.LIVE
-)
+raw_prices = fabric.subscribe_data("prices/raw")
+instrument_reference = fabric.subscribe_data("instruments/reference")
 
 prices = hg.convert[hg.TS[hg.Frame[Price]]](raw_prices)
 instruments = hg.convert[hg.TS[hg.Frame[Instrument]]](instrument_reference)
@@ -210,9 +215,10 @@ deployment and exercises the same protocol as S3:
 ```cpp
 namespace hgf = hgraph::fabric;
 namespace hgps = hgraph::persistence::store;
+namespace hg = hgraph;
 
 auto config = hgf::make_memory_fabric_config("production/blue");
-config.notification_candidate_limit = 4096;
+config.notification_request_limit = 4096;
 config.objects = hgps::make_object_store(
     hgps::ObjectStoreConfig{hgps::LocalLocation{"/srv/fabric/metadata"}});
 config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
@@ -220,15 +226,10 @@ config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
     .format = hgps::Format::Parquet,
     .compression = hgps::Compression::Zstd,
 });
-hgf::set_fabric_config(wiring.global_state(), std::move(config));
-hgf::register_service(wiring);
+const auto path = hg::service::path("blue-fabric");
+hgf::set_fabric_config(wiring.global_state(), path.value, std::move(config));
+hgf::register_service(wiring, path);
 ```
-
-`notification_candidate_limit` bounds durable revisions waiting for the
-graph-native notification transport. Reaching the configured bound fails the
-run explicitly; it does not silently shift an unbounded broker backlog into
-the per-data-id publication queues. Size it for the maximum notification lag
-the host is prepared to retain. The default is 1024 candidates.
 
 For S3, replace both `LocalLocation` values with independently prefixed
 `S3Location` values. Credentials use the persistence extension's ambient,

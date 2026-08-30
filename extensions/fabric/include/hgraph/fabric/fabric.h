@@ -2,6 +2,7 @@
 #define HGRAPH_FABRIC_FABRIC_H
 
 #include <hgraph/fabric/config.h>
+#include <hgraph/fabric/history.h>
 #include <hgraph/fabric/keys.h>
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/notifier.h>

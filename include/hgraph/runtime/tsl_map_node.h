@@ -10,7 +10,7 @@
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT TslMapNodeSpec
+    struct HGRAPH_CLASS_EXPORT TslMapNodeSpec
     {
         /** One child template instantiated once for every observed list index. */
         SingleNestedGraphNodeSpec child{};
@@ -29,7 +29,7 @@ namespace hgraph
     };
 
     /** Typed inspection surface for a dynamic-TSL arbitrary-function map. */
-    class HGRAPH_EXPORT TslMapNodeView
+    class HGRAPH_CLASS_EXPORT TslMapNodeView
     {
       public:
         [[nodiscard]] static const void    *node_view_type_id() noexcept;

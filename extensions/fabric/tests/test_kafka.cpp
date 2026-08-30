@@ -26,6 +26,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -47,6 +48,7 @@ std::int64_t observed_value{};
 std::size_t observed_count{};
 hgk::testing::FakeBrokerPtr fake_broker{};
 std::vector<std::int64_t> observed_sequence{};
+std::mutex observed_sequence_mutex{};
 hg::Value actual_kafka_config{};
 hg::Value actual_notice_record{};
 hg::Value actual_delivery_report{};
@@ -187,6 +189,7 @@ struct CaptureLiveSequence {
 
   static void eval(hg::NodeView node,
                    hg::In<"value", hg::TS<hg::Frame>> value) {
+    std::scoped_lock lock{observed_sequence_mutex};
     observed_sequence.push_back(frame_value(value.value()));
     if (observed_sequence.size() == 2) {
       node.graph().executor().request_stop();
@@ -308,7 +311,7 @@ struct ActualBrokerGraph {
                                   "fabric-broker-conformance",
                                   actual_kafka_config.clone());
     auto subscribed =
-        hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+        hgf::subscribe_data(wiring, "prices");
     hgf::publish_data(wiring, "prices",
                       hg::wire<ActualBrokerFrameSource>(wiring));
     static_cast<void>(hg::wire<CaptureActualLiveFrame>(wiring, subscribed));
@@ -371,7 +374,7 @@ struct KafkaFabricGraph {
                                   hg::Str{"fabric-transport-test"},
                                   kafka_config.clone());
     auto subscribed =
-        hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+        hgf::subscribe_data(wiring, "prices");
     hgf::publish_data(wiring, "prices", hg::wire<PublishedFrameSource>(wiring));
     static_cast<void>(hg::wire<CaptureLiveFrame>(wiring, subscribed));
   }
@@ -388,7 +391,7 @@ struct KafkaFabricFakeGraph {
         wiring, hg::service::path(hgf::DEFAULT_SERVICE_PATH), kafka_path,
         hg::Str{TOPIC}, hg::Str{"fabric-fake-transport"});
     auto subscribed =
-        hgf::subscribe_data(wiring, "prices", hgf::SubscriptionMode::Live);
+        hgf::subscribe_data(wiring, "prices");
     static_cast<void>(hg::wire<CaptureLiveSequence>(wiring, subscribed));
   }
 };
@@ -496,7 +499,10 @@ TEST_CASE("Kafka lifecycle establishes the durable image before "
                      .build();
   auto config = hgf::make_memory_fabric_config("tests/kafka-lifecycle");
   const auto first = seed(config, 1, 1);
-  observed_sequence.clear();
+  {
+    std::scoped_lock lock{observed_sequence_mutex};
+    observed_sequence.clear();
+  }
 
   auto graph = build_realtime_graph<KafkaFabricFakeGraph>();
   hgf::set_fabric_config(graph.global_state(), config);
@@ -521,6 +527,12 @@ TEST_CASE("Kafka lifecycle establishes the durable image before "
       hgk::make_cursor("fabric-fake-transport", 1, hg::Str{TOPIC}, 0, 1),
       hgk::KafkaSubscriptionState::Recovering);
   REQUIRE(fake_broker->wait_for_commits(1, 2s));
+  REQUIRE(wait_until(
+      [] {
+        std::scoped_lock lock{observed_sequence_mutex};
+        return observed_sequence == std::vector<std::int64_t>{1};
+      },
+      2s));
 
   const auto second = seed(config, 2, 2);
   fake_broker->emit_subscription(
@@ -531,7 +543,12 @@ TEST_CASE("Kafka lifecycle establishes the durable image before "
       hgk::KafkaSubscriptionState::Live);
   runner.join();
 
-  CHECK((observed_sequence == std::vector<std::int64_t>{1, 2}));
+  std::vector<std::int64_t> sequence;
+  {
+    std::scoped_lock lock{observed_sequence_mutex};
+    sequence = observed_sequence;
+  }
+  CHECK((sequence == std::vector<std::int64_t>{1, 2}));
   CHECK(fake_broker->committed_cursors().size() == 2);
   CHECK(fake_broker->attach_count() == 1);
   CHECK(fake_broker->wait_until_detached(2s));

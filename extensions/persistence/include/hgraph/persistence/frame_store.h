@@ -83,7 +83,7 @@ namespace hgraph::persistence::store
      * therefore remain safe without testing an ops pointer for null; a write
      * fails explicitly rather than silently discarding data.
      */
-    class HGRAPH_PERSISTENCE_EXPORT FrameStore final
+    class HGRAPH_PERSISTENCE_CLASS_EXPORT FrameStore final
     {
       public:
         FrameStore() noexcept;

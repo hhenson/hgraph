@@ -13,7 +13,7 @@
 
 namespace hgraph {
 /** Aggregate timings for one lifecycle phase of one graph or node. */
-struct HGRAPH_EXPORT EvaluationProfilePhase {
+struct HGRAPH_CLASS_EXPORT EvaluationProfilePhase {
   std::uint64_t count{0};
   std::uint64_t failures{0};
   TimeDelta total_time{0};
@@ -23,7 +23,7 @@ struct HGRAPH_EXPORT EvaluationProfilePhase {
 
 /** Owned profile entry. No runtime graph/node pointer escapes into a snapshot.
  */
-struct HGRAPH_EXPORT EvaluationProfileEntry {
+struct HGRAPH_CLASS_EXPORT EvaluationProfileEntry {
   std::string path{};
   std::string label{};
   bool graph{false};
@@ -33,7 +33,7 @@ struct HGRAPH_EXPORT EvaluationProfileEntry {
 };
 
 /** Immutable, self-contained profile captured from an EvaluationProfiler. */
-struct HGRAPH_EXPORT EvaluationProfileSnapshot {
+struct HGRAPH_CLASS_EXPORT EvaluationProfileSnapshot {
   std::uint64_t graph_cycles{0};
   TimeDelta wall_time{0};
   TimeDelta root_evaluation_time{0};
@@ -45,7 +45,7 @@ struct HGRAPH_EXPORT EvaluationProfileSnapshot {
 };
 
 /** Select which lifecycle phases and entity families are measured. */
-struct HGRAPH_EXPORT EvaluationProfilerOptions {
+struct HGRAPH_CLASS_EXPORT EvaluationProfilerOptions {
   bool start{true};
   bool eval{true};
   bool stop{true};
@@ -64,7 +64,7 @@ struct HGRAPH_EXPORT EvaluationProfilerOptions {
  * state; this lets a Python-facing profiler remain inspectable when the run
  * owns its observer copy.
  */
-class HGRAPH_EXPORT EvaluationProfiler final : public LifecycleObserver {
+class HGRAPH_CLASS_EXPORT EvaluationProfiler final : public LifecycleObserver {
 public:
   struct State;
 

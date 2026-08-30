@@ -18,13 +18,13 @@ namespace hgraph
      * root: ``{0}`` is the key input, ``{1..}`` the time-series arguments — a
      * key-consuming branch simply binds outer input ``0``.
      */
-    struct HGRAPH_EXPORT SwitchBranch
+    struct HGRAPH_CLASS_EXPORT SwitchBranch
     {
         Value                     key{};
         SingleNestedGraphNodeSpec spec{};
     };
 
-    struct HGRAPH_EXPORT SwitchNodeSpec
+    struct HGRAPH_CLASS_EXPORT SwitchNodeSpec
     {
         std::vector<SwitchBranch>                branches{};
         std::optional<SingleNestedGraphNodeSpec> default_branch{};
@@ -41,7 +41,7 @@ namespace hgraph
      * Typed extension view exposed by ``switch_node`` (the runtime inspection
      * surface, mirroring ``SingleNestedGraphNodeView``).
      */
-    class HGRAPH_EXPORT SwitchNodeView
+    class HGRAPH_CLASS_EXPORT SwitchNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;

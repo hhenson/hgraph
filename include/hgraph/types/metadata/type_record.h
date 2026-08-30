@@ -112,7 +112,7 @@ namespace hgraph
 
     class TypeRecordRegistry;
 
-    struct HGRAPH_EXPORT TypeRecord
+    struct HGRAPH_CLASS_EXPORT TypeRecord
     {
         std::uint32_t magic;
         std::uint16_t abi_version;

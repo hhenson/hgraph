@@ -85,8 +85,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto source = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
+            auto source = hgf::subscribe_data(wiring, "input");
             auto dependency = hgf::dependency_handle(wiring, source);
             hgf::publish_data(wiring, "automatic", source);
             hgf::publish_data(
@@ -103,10 +102,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto first = hgf::subscribe_data(
-                wiring, "input-a", hgf::SubscriptionMode::Live);
-            auto second = hgf::subscribe_data(
-                wiring, "input-b", hgf::SubscriptionMode::Live);
+            auto first = hgf::subscribe_data(wiring, "input-a");
+            auto second = hgf::subscribe_data(wiring, "input-b");
             hgf::publish_data(wiring, "output", first);
             hgf::publish_data(wiring, "output", second);
         }
@@ -120,10 +117,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto first = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
-            auto second = hgf::subscribe_data(
-                wiring, "input", hgf::SubscriptionMode::Live);
+            auto first = hgf::subscribe_data(wiring, "input");
+            auto second = hgf::subscribe_data(wiring, "input");
             hgf::publish_data(
                 wiring, "output", first,
                 hgf::DependencySelection::explicit_dependencies(
@@ -143,8 +138,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto source = hgf::subscribe_data(
-                wiring, "shared", hgf::SubscriptionMode::Live);
+            auto source = hgf::subscribe_data(wiring, "shared");
             hgf::publish_data(wiring, "left", source);
             hgf::publish_data(wiring, "right", source);
         }
@@ -154,8 +148,7 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            return hgf::subscribe_data(
-                wiring, "nested", hgf::SubscriptionMode::Live);
+            return hgf::subscribe_data(wiring, "nested");
         }
     };
 
@@ -168,10 +161,8 @@ namespace
     {
         static hg::Port<hg::TS<hg::Frame>> compose(hg::Wiring &wiring)
         {
-            auto returned = hgf::subscribe_data(
-                wiring, "nested-returned", hgf::SubscriptionMode::Live);
-            auto unrelated = hgf::subscribe_data(
-                wiring, "nested-side-effect", hgf::SubscriptionMode::Live);
+            auto returned = hgf::subscribe_data(wiring, "nested-returned");
+            auto unrelated = hgf::subscribe_data(wiring, "nested-side-effect");
             hg::wire<ConsumeFrameSink>(wiring, unrelated);
             return returned;
         }
@@ -202,10 +193,8 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto left = hgf::subscribe_data(
-                wiring, "conditional-a", hgf::SubscriptionMode::Live);
-            auto right = hgf::subscribe_data(
-                wiring, "conditional-b", hgf::SubscriptionMode::Live);
+            auto left = hgf::subscribe_data(wiring, "conditional-a");
+            auto right = hgf::subscribe_data(wiring, "conditional-b");
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto selected = hg::wire<hg::stdlib::if_then_else>(
@@ -220,8 +209,7 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto dependency = hgf::subscribe_data(
-                wiring, "declared-only", hgf::SubscriptionMode::Live);
+            auto dependency = hgf::subscribe_data(wiring, "declared-only");
             auto value = hg::wire<NeverFrameSource>(wiring);
             hgf::publish_data(
                 wiring, "explicit-output", value,
@@ -235,12 +223,9 @@ namespace
         static void compose(hg::Wiring &wiring)
         {
             hgf::register_service(wiring);
-            auto a = hgf::subscribe_data(
-                wiring, "a", hgf::SubscriptionMode::Live);
-            auto b = hgf::subscribe_data(
-                wiring, "b", hgf::SubscriptionMode::Live);
-            auto x = hgf::subscribe_data(
-                wiring, "x", hgf::SubscriptionMode::Live);
+            auto a = hgf::subscribe_data(wiring, "a");
+            auto b = hgf::subscribe_data(wiring, "b");
+            auto x = hgf::subscribe_data(wiring, "x");
             auto condition =
                 hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(wiring, true);
             auto joined = hg::wire<hg::stdlib::if_then_else>(
@@ -258,6 +243,34 @@ namespace
             hgf::register_service(wiring);
             hgf::publish_data(wiring, "independent-output",
                               hg::wire<NeverFrameSource>(wiring));
+        }
+    };
+
+    struct MultipleFabricPathsGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto left_path = hg::service::path("left-fabric");
+            const auto right_path = hg::service::path("right-fabric");
+            hgf::register_service(wiring, left_path);
+            hgf::register_service(wiring, right_path);
+            auto left = hgf::subscribe_data(wiring, left_path, "input");
+            auto right = hgf::subscribe_data(wiring, right_path, "input");
+            hgf::publish_data(wiring, left_path, "output", left);
+            hgf::publish_data(wiring, right_path, "output", right);
+        }
+    };
+
+    struct CrossPathDependencyGraph
+    {
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto left_path = hg::service::path("left-fabric");
+            const auto right_path = hg::service::path("right-fabric");
+            hgf::register_service(wiring, left_path);
+            hgf::register_service(wiring, right_path);
+            auto left = hgf::subscribe_data(wiring, left_path, "input");
+            hgf::publish_data(wiring, right_path, "output", left);
         }
     };
 
@@ -306,6 +319,8 @@ TEST_CASE("fabric public values are canonical and validate identity")
                         .as_of = hg::MIN_ST,
                     }),
                     std::invalid_argument);
+    CHECK_THROWS_WITH(hgf::make_memory_fabric_config("test/invalid-limit", 0U),
+                      "fabric notification request limit must be positive");
     CHECK_THROWS_AS(hgf::make_data_revision(hgf::DataRevisionInput{
                         .data_id = "x",
                         .revision = 1,
@@ -380,15 +395,20 @@ TEST_CASE("fabric configuration is run scoped and validates resources")
     CHECK(configured->objects);
     CHECK(configured->frames);
     CHECK(configured->notifications);
-    CHECK(configured->notification_candidate_limit ==
-          hgf::FABRIC_NOTIFICATION_CANDIDATE_LIMIT);
     hgf::clear_fabric_config(state);
     CHECK_FALSE(hgf::fabric_config(state).has_value());
 
-    auto invalid = hgf::make_memory_fabric_config("test/invalid-fabric");
-    invalid.notification_candidate_limit = 0U;
-    CHECK_THROWS_WITH(hgf::set_fabric_config(state, std::move(invalid)),
-                      "fabric notification candidate limit must be greater than zero");
+    auto left = hgf::make_memory_fabric_config("test/fabric/left");
+    auto right = hgf::make_memory_fabric_config("test/fabric/right");
+    hgf::set_fabric_config(state, "left-fabric", left);
+    hgf::set_fabric_config(state, "right-fabric", right);
+    REQUIRE(hgf::fabric_config(state, "left-fabric").has_value());
+    REQUIRE(hgf::fabric_config(state, "right-fabric").has_value());
+    CHECK(hgf::fabric_config(state, "left-fabric")->prefix == "test/fabric/left");
+    CHECK(hgf::fabric_config(state, "right-fabric")->prefix == "test/fabric/right");
+    hgf::clear_fabric_config(state, "left-fabric");
+    CHECK_FALSE(hgf::fabric_config(state, "left-fabric").has_value());
+    CHECK(hgf::fabric_config(state, "right-fabric").has_value());
 }
 
 TEST_CASE("fabric operator installer survives a registry rebuild")
@@ -480,13 +500,60 @@ TEST_CASE("fabric planner wires shared service clients and hidden lineage cuts")
               independent, "hgraph.fabric.publish_data.no_dependencies") == 1);
 }
 
+TEST_CASE("fabric selects live or replay service topology during wiring")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    const auto simulation = hg::build_graph<InstalledContractGraph>();
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.replay") == 1);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.replay.planned") == 1);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.live") == 0);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.live.planned") == 0);
+    CHECK(count_semantic_node(simulation, "hgraph.fabric.service.run_policy") == 0);
+
+    const auto realtime = hg::build_graph<InstalledContractGraph>(
+        hg::WiringOptions{.is_realtime = true});
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.replay") == 0);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.replay.planned") == 0);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.live") == 1);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.live.planned") == 1);
+    CHECK(count_semantic_node(realtime, "hgraph.fabric.service.run_policy") == 0);
+}
+
+TEST_CASE("fabric service paths isolate plans publishers and lineage")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+
+    auto graph = hg::build_graph<MultipleFabricPathsGraph>();
+    CHECK(count_semantic_node(graph, "hgraph.fabric.service.lifecycle") == 2);
+    CHECK(hgf::dependency_plan_input(
+              graph.traits().get(hgf::dependency_plan_trait("left-fabric"))) ==
+          hgf::DependencyPlanInput{
+              .roots = {"input"},
+              .publishers = {{"output", {"input"}}},
+              .forests = {{{"input"}}},
+          });
+    CHECK(hgf::dependency_plan_input(
+              graph.traits().get(hgf::dependency_plan_trait("right-fabric"))) ==
+          hgf::DependencyPlanInput{
+              .roots = {"input"},
+              .publishers = {{"output", {"input"}}},
+              .forests = {{{"input"}}},
+          });
+
+    CHECK_THROWS_WITH(
+        hg::build_graph<CrossPathDependencyGraph>(),
+        Catch::Matchers::ContainsSubstring("another Fabric service path"));
+}
+
 TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
 {
     hg::stdlib::register_standard_operators();
     hgf::register_fabric_operators();
     hg::Wiring wiring;
-    auto source = hgf::subscribe_data(
-        wiring, "direct", hgf::SubscriptionMode::Live);
+    auto source = hgf::subscribe_data(wiring, "direct");
     auto forwarded = hg::wire<hg::stdlib::pass_through_node>(wiring, source)
                          .as<hg::TS<hg::Frame>>();
     CHECK_THROWS_WITH(
@@ -495,15 +562,6 @@ TEST_CASE("fabric dependency handles reject forwarded and unrelated values")
     CHECK_THROWS_WITH(
         hgf::dependency_handle(wiring, hg::wire<NeverFrameSource>(wiring)),
         "fabric dependency handle requires a direct subscribe_data result");
-}
-
-TEST_CASE("fabric subscription mode validation rejects unknown enum values")
-{
-    hg::Wiring wiring;
-    CHECK_THROWS_WITH(
-        hgf::subscribe_data(wiring, "input",
-                            static_cast<hgf::SubscriptionMode>(99)),
-        "hgraph.fabric.subscribe_data: unsupported subscription mode");
 }
 
 TEST_CASE("fabric wiring rejects duplicate publisher and dependency data ids")

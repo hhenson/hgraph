@@ -8,13 +8,13 @@
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT OrderedReduceNodeSpec
+    struct HGRAPH_CLASS_EXPORT OrderedReduceNodeSpec
     {
         /** Compiled ``(accumulator, element) -> accumulator`` child graph. */
         SingleNestedGraphNodeSpec child{};
     };
 
-    class HGRAPH_EXPORT OrderedReduceNodeView
+    class HGRAPH_CLASS_EXPORT OrderedReduceNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;

@@ -151,7 +151,7 @@ namespace hgraph
     static_assert(sizeof(IndexedTSDataStorageRef) == sizeof(void *) * 2);
     static_assert(std::is_trivially_copyable_v<TSDataStorageRef<>>);
 
-    class HGRAPH_EXPORT TSDataView
+    class HGRAPH_CLASS_EXPORT TSDataView
     {
       public:
         constexpr TSDataView() noexcept = default;
@@ -349,7 +349,7 @@ namespace hgraph
         TSDataStorageRef<> storage_{};
     };
 
-    class HGRAPH_EXPORT TSDataMutationView
+    class HGRAPH_CLASS_EXPORT TSDataMutationView
     {
       public:
         /** Begin a mutation-capable projection of a live TSData view. */

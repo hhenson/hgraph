@@ -19,7 +19,7 @@ namespace spdlog
 namespace hgraph
 {
     /** Select which lifecycle events an :cpp:class:`EvaluationTrace` emits. */
-    struct HGRAPH_EXPORT EvaluationTraceOptions
+    struct HGRAPH_CLASS_EXPORT EvaluationTraceOptions
     {
         /** Optional substring matched against graph and node paths. */
         std::optional<std::string> filter{};
@@ -41,7 +41,7 @@ namespace hgraph
      * the executor-owned run logger, or stdout when ``set_use_logger(false)``
      * is set.
      */
-    class HGRAPH_EXPORT EvaluationTrace final : public LifecycleObserver
+    class HGRAPH_CLASS_EXPORT EvaluationTrace final : public LifecycleObserver
     {
       public:
         using OutputSink = std::function<void(std::string_view)>;

@@ -25,7 +25,7 @@ namespace hgraph
     /** One owned source-to-output navigation edge captured for the inspector.
         Path components are JSON fragments so scalar dictionary keys retain
         their type without retaining runtime objects. */
-    struct HGRAPH_EXPORT GraphDiagnosticTarget
+    struct HGRAPH_CLASS_EXPORT GraphDiagnosticTarget
     {
         std::vector<std::string> source_path{};
         std::uint64_t node_id{0};
@@ -33,7 +33,7 @@ namespace hgraph
     };
 
     /** Owned rendering of one scalar or time-series endpoint. */
-    struct HGRAPH_EXPORT GraphDiagnosticValue
+    struct HGRAPH_CLASS_EXPORT GraphDiagnosticValue
     {
         bool available{false};
         bool valid{false};
@@ -63,7 +63,7 @@ namespace hgraph
     };
 
     /** One owned graph/node record in a diagnostics snapshot. */
-    struct HGRAPH_EXPORT GraphDiagnosticEntry
+    struct HGRAPH_CLASS_EXPORT GraphDiagnosticEntry
     {
         std::uint64_t id{0};
         std::uint64_t parent_id{0};
@@ -91,7 +91,7 @@ namespace hgraph
     };
 
     /** Self-contained graph diagnostics result. */
-    struct HGRAPH_EXPORT GraphDiagnosticsSnapshot
+    struct HGRAPH_CLASS_EXPORT GraphDiagnosticsSnapshot
     {
         std::uint64_t graph_cycles{0};
         TimeDelta wall_time{0};
@@ -108,7 +108,7 @@ namespace hgraph
         std::vector<GraphDiagnosticEntry> entries{};
     };
 
-    struct HGRAPH_EXPORT GraphDiagnosticsOptions
+    struct HGRAPH_CLASS_EXPORT GraphDiagnosticsOptions
     {
         std::size_t recent_window{100};
         /** Copy endpoint/scalar values as JSON. Off by default because this is
@@ -124,7 +124,7 @@ namespace hgraph
      * walks borrowed graph or node pointers. Copies share one collector state
      * so a caller-owned handle can observe an executor-owned observer copy.
      */
-    class HGRAPH_EXPORT GraphDiagnostics final : public LifecycleObserver
+    class HGRAPH_CLASS_EXPORT GraphDiagnostics final : public LifecycleObserver
     {
       public:
         struct State;

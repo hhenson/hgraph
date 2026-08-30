@@ -42,12 +42,8 @@ def enrich_prices(
 def build_enriched_prices() -> None:
     """Publish with the preferred automatic upstream-lineage discovery."""
 
-    raw_prices = fabric.subscribe_data(
-        "prices/raw", mode=fabric.SubscriptionMode.LIVE
-    )
-    instrument_reference = fabric.subscribe_data(
-        "instruments/reference", mode=fabric.SubscriptionMode.LIVE
-    )
+    raw_prices = fabric.subscribe_data("prices/raw")
+    instrument_reference = fabric.subscribe_data("instruments/reference")
 
     enriched = enrich_prices(
         hg.convert[hg.TS[hg.Frame[Price]]](raw_prices),
@@ -60,12 +56,8 @@ def build_enriched_prices() -> None:
 def build_enriched_prices_with_explicit_lineage() -> None:
     """Name dependencies explicitly when value ancestry cannot represent them."""
 
-    raw_prices = fabric.subscribe_data(
-        "prices/raw", mode=fabric.SubscriptionMode.LIVE
-    )
-    instrument_reference = fabric.subscribe_data(
-        "instruments/reference", mode=fabric.SubscriptionMode.LIVE
-    )
+    raw_prices = fabric.subscribe_data("prices/raw")
+    instrument_reference = fabric.subscribe_data("instruments/reference")
 
     enriched = enrich_prices(
         hg.convert[hg.TS[hg.Frame[Price]]](raw_prices),

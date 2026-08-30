@@ -30,14 +30,14 @@ namespace hgraph
         OutputElementForwardsToParentSource,
     };
 
-    struct HGRAPH_EXPORT MapArgSource
+    struct HGRAPH_CLASS_EXPORT MapArgSource
     {
         MapArgSourceKind kind{MapArgSourceKind::OuterInput};
         /** ``Element`` / ``OuterInput``: index of the source within the outer input root. */
         std::size_t      outer_index{0};
     };
 
-    struct HGRAPH_EXPORT MapNodeSpec
+    struct HGRAPH_CLASS_EXPORT MapNodeSpec
     {
         /** The child template; binding ``source_path[0]`` is the boundary arg ordinal. */
         SingleNestedGraphNodeSpec child{};
@@ -66,7 +66,7 @@ namespace hgraph
     };
 
     /** Typed extension view exposed by ``map_node`` (runtime inspection surface). */
-    class HGRAPH_EXPORT MapNodeView
+    class HGRAPH_CLASS_EXPORT MapNodeView
     {
       public:
         [[nodiscard]] static const void *node_view_type_id() noexcept;
