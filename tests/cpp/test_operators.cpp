@@ -545,6 +545,37 @@ TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and co
 
     Value puppy_value{ValuePlanFactory::instance().type_for(puppy)};
     puppy_value.as_any().begin_mutation().set(Value{Int{7}});
+
+    WiringArg puppy_scalar;
+    puppy_scalar.kind = WiringArg::Kind::Scalar;
+    puppy_scalar.scalar_value = puppy_value;
+    puppy_scalar.scalar_meta = puppy;
+    std::array<WiringArg, 1> scalar_args{puppy_scalar};
+    const auto scalar_resolved = OperatorRegistry::instance().resolve(
+        "opaque_nominal_overload", std::span<const WiringArg>{scalar_args}, false);
+    REQUIRE(scalar_resolved.impl != nullptr);
+    CHECK(scalar_resolved.impl->label == "dog");
+
+    register_overload<add_, add_generic>();
+    std::array<WiringArg, 2> bound_args{
+        ts_arg(registry.ts(animal)), puppy_scalar};
+    const auto bound_resolved = OperatorRegistry::instance().resolve(
+        "add", std::span<const WiringArg>{bound_args}, true);
+    REQUIRE(bound_resolved.impl != nullptr);
+    CHECK(bound_resolved.map.find_ts("S") == registry.ts(animal));
+
+    stdlib::register_standard_operators();
+    const auto scalar_variable_resolved = OperatorRegistry::instance().resolve(
+        "eq_", std::span<const WiringArg>{bound_args}, true);
+    REQUIRE(scalar_variable_resolved.impl != nullptr);
+    CHECK(scalar_variable_resolved.impl->label.find("eq_any") != std::string::npos);
+    CHECK(scalar_variable_resolved.map.find_scalar("T") == animal);
+
+    Wiring scalar_wiring{WiringKind::SubGraph};
+    const auto lifted = operator_dispatch_detail::wire_scalar_const(
+        scalar_wiring, puppy_scalar, registry.ts(animal));
+    CHECK(lifted.schema == registry.ts(animal));
+
     const auto coerced = operator_dispatch_detail::coerce_scalar_value_to_meta(
         puppy_value, animal);
     REQUIRE(coerced.has_value());

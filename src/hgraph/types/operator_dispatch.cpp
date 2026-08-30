@@ -91,34 +91,58 @@ namespace hgraph
             return false;
         }
 
-        [[nodiscard]] bool scalar_value_matches_ts_pattern(const TypePattern &pattern,
-                                                           const Value &value,
-                                                           ResolutionMap &map)
+        [[nodiscard]] bool scalar_value_matches_ts_schema(
+            const TSValueTypeMetaData *target, const Value &value, int &rank_adjustment)
+        {
+            const auto *source = value.schema();
+            if (target == nullptr || source == nullptr ||
+                !operator_dispatch_detail::auto_const_value_matches(*target, *source))
+            {
+                return false;
+            }
+            rank_adjustment += static_cast<int>(
+                operator_dispatch_detail::opaque_auto_const_distance(*target, *source)
+                    .value_or(0));
+            return true;
+        }
+
+        [[nodiscard]] bool scalar_value_matches_ts_pattern(
+            const TypePattern &pattern, const Value &value, ResolutionMap &map,
+            int &rank_adjustment)
         {
             if (pattern.kind == TypePattern::Kind::REF && !pattern.children.empty())
             {
                 // A scalar promoting into a REF input: the const it lifts to
                 // adapts through the to-REF binding, so match the TARGET.
-                return scalar_value_matches_ts_pattern(pattern.children[0], value, map);
+                return scalar_value_matches_ts_pattern(
+                    pattern.children[0], value, map, rank_adjustment);
             }
             if (pattern.kind == TypePattern::Kind::Var)
             {
                 if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                 {
-                    const auto *schema = value.schema();
-                    return schema != nullptr && current_value_schema_compatible(*bound, *schema);
+                    return scalar_value_matches_ts_schema(bound, value, rank_adjustment);
                 }
             }
             if (pattern.kind == TypePattern::Kind::Concrete)
             {
-                if (pattern.meta == nullptr) { return false; }
-                const auto *schema = value.schema();
-                return schema != nullptr && current_value_schema_compatible(*pattern.meta, *schema);
+                return scalar_value_matches_ts_schema(
+                    pattern.meta, value, rank_adjustment);
             }
             if (pattern.kind == TypePattern::Kind::TS &&
                 pattern.scalar.kind == ScalarPattern::Kind::Concrete)
             {
-                return value.schema() == pattern.scalar.meta;
+                const auto *target = TypeRegistry::instance().ts(pattern.scalar.meta);
+                return scalar_value_matches_ts_schema(target, value, rank_adjustment);
+            }
+            if (pattern.kind == TypePattern::Kind::TS &&
+                pattern.scalar.kind == ScalarPattern::Kind::Var)
+            {
+                if (const ValueTypeMetaData *bound = map.find_scalar(pattern.scalar.name))
+                {
+                    const auto *target = TypeRegistry::instance().ts(bound);
+                    return scalar_value_matches_ts_schema(target, value, rank_adjustment);
+                }
             }
             return value_schema_matches_ts_pattern(pattern, value.schema(), map);
         }
@@ -402,7 +426,8 @@ namespace hgraph
                     else
                     {
                         ++rank_adjustment;
-                        matched = scalar_value_matches_ts_pattern(param.ts, arg.scalar_value, tail_scope);
+                        matched = scalar_value_matches_ts_pattern(
+                            param.ts, arg.scalar_value, tail_scope, rank_adjustment);
                     }
                     if (!matched)
                     {
@@ -443,7 +468,8 @@ namespace hgraph
                         // specific than a candidate taking it as a true
                         // scalar parameter (python's overload rule).
                         ++rank_adjustment;
-                        if (!scalar_value_matches_ts_pattern(param.ts, arg.scalar_value, map))
+                        if (!scalar_value_matches_ts_pattern(
+                                param.ts, arg.scalar_value, map, rank_adjustment))
                         {
                             why = fmt::format("scalar argument {} cannot be promoted to {}", i,
                                               ts_pattern_to_string(param.ts));
