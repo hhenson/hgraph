@@ -328,13 +328,12 @@ TEST_CASE("local Fabric publication has one accepted winner across processes")
     auto config = local_config(store, hgps::Format::ArrowIpc);
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "race"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::Latest,
-                                         latest->data) == 1);
+    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
     const auto stored = config.objects.get(
         hgf::revision_key(config.prefix, "race", 1));
     REQUIRE(stored.has_value());
     const auto winner = hgf::data_revision_input(
-        hgf::decode_revision(stored->data).view());
+        config.values.decode(hgf::data_revision_meta(), stored->data).view());
     CHECK(config.frames.contains(hgf::data_version_key(
         config.prefix, "race", winner.output_version)));
 }

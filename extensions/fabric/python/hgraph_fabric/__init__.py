@@ -88,10 +88,6 @@ class DependencySelection:
 
 AUTO: Final = DependencySelection.automatic()
 
-REVISION_MEDIA_TYPE: Final[str] = _native.REVISION_MEDIA_TYPE
-AS_OF_MEDIA_TYPE: Final[str] = _native.AS_OF_MEDIA_TYPE
-LATEST_MEDIA_TYPE: Final[str] = _native.LATEST_MEDIA_TYPE
-
 _subscribe_data = operator_function("hgraph.fabric.subscribe_data")
 _publish_data = operator_function("hgraph.fabric.publish_data")
 _publish_data_explicit = operator_function(
@@ -258,7 +254,6 @@ def _resolve_fixture(
 
 
 __all__ = [
-    "AS_OF_MEDIA_TYPE",
     "AUTO",
     "DataDependency",
     "DataRevision",
@@ -266,8 +261,6 @@ __all__ = [
     "DependencyHandle",
     "DependencySelection",
     "FabricConfig",
-    "LATEST_MEDIA_TYPE",
-    "REVISION_MEDIA_TYPE",
     "RevisionId",
     "ResolutionStatus",
     "decode_as_of_reference",

@@ -190,7 +190,9 @@ NB_MODULE(_hgraph_fabric, module)
                 .self_predecessor = self_predecessor,
                 .as_of = as_of,
             });
-            return to_python_bytes(encode_revision(value.view()));
+            persistence::store::ObjectBytes encoded;
+            notification_codec().encode(value.view(), encoded);
+            return to_python_bytes(encoded);
         },
         nb::arg("format_version"), nb::arg("data_id"), nb::arg("revision"),
         nb::arg("output_version"), nb::arg("dependencies"),
@@ -199,7 +201,8 @@ NB_MODULE(_hgraph_fabric, module)
     module.def(
         "_decode_revision",
         [](const nb::bytes &encoded) {
-            Value value = decode_revision(bytes_view(encoded));
+            Value value =
+                notification_codec().decode(data_revision_meta(), bytes_view(encoded));
             const DataRevisionInput revision = data_revision_input(value.view());
             nb::list dependencies;
             for (const auto &dependency : revision.dependencies)
@@ -224,16 +227,25 @@ NB_MODULE(_hgraph_fabric, module)
     module.def(
         "_encode_revision_reference",
         [](std::uint8_t kind, RevisionId revision) {
-            return to_python_bytes(encode_revision_reference(
-                static_cast<MetadataObjectKind>(kind), revision));
+            // A utility, not a store operation: the json codec directly, so the
+            // Python surface needs no configuration to encode a reference.
+            persistence::store::ObjectBytes encoded;
+            notification_codec().encode(
+                make_revision_reference(static_cast<MetadataObjectKind>(kind), revision)
+                    .view(),
+                encoded);
+            return to_python_bytes(encoded);
         },
         nb::arg("kind"), nb::arg("revision"));
 
     module.def(
         "_decode_revision_reference",
         [](std::uint8_t kind, const nb::bytes &encoded) {
-            return decode_revision_reference(
-                static_cast<MetadataObjectKind>(kind), bytes_view(encoded));
+            return revision_reference_id(
+                notification_codec()
+                    .decode(revision_reference_meta(), bytes_view(encoded))
+                    .view(),
+                static_cast<MetadataObjectKind>(kind));
         },
         nb::arg("kind"), nb::arg("encoded"));
 
@@ -257,7 +269,9 @@ NB_MODULE(_hgraph_fabric, module)
             {
                 const nb::bytes encoded = nb::cast<nb::bytes>(item);
                 revisions.push_back(data_revision_input(
-                    decode_revision(bytes_view(encoded)).view()));
+                    notification_codec()
+                        .decode(data_revision_meta(), bytes_view(encoded))
+                        .view()));
             }
             std::ranges::sort(
                 revisions,
@@ -284,7 +298,7 @@ NB_MODULE(_hgraph_fabric, module)
                 const auto stored = config.objects.put_immutable(
                     revision_key(config.prefix, revision.data_id,
                                  revision.revision),
-                    encode_revision(value.view()));
+                    config.values.encode(value.view()));
                 if (stored.status !=
                     persistence::store::ImmutableWriteStatus::Created)
                 {
@@ -344,8 +358,5 @@ NB_MODULE(_hgraph_fabric, module)
         nb::arg("encoded_revisions"), nb::arg("roots"),
         nb::arg("exposed") = std::vector<std::pair<Str, DataVersion>>{});
 
-    module.attr("REVISION_MEDIA_TYPE") = std::string{REVISION_MEDIA_TYPE};
-    module.attr("AS_OF_MEDIA_TYPE") = std::string{AS_OF_MEDIA_TYPE};
-    module.attr("LATEST_MEDIA_TYPE") = std::string{LATEST_MEDIA_TYPE};
     module.doc() = "hgraph versioned dataflow fabric public contracts";
 }

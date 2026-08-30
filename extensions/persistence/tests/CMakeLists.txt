@@ -23,6 +23,7 @@ add_executable(hgraph_persistence_tests
     test_record_replay_partitioned.cpp
     test_replay_const.cpp
     test_table_persisted.cpp
+    test_value_store.cpp
 )
 target_link_libraries(hgraph_persistence_tests
     PRIVATE

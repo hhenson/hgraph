@@ -1,321 +1,191 @@
 #include <hgraph/fabric/metadata_codec.h>
 
+#include <hgraph/fabric/config.h>
 #include <hgraph/fabric/value_builders.h>
 
-#include <bit>
+#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/value_builder.h>
+
 #include <limits>
 #include <stdexcept>
 #include <string>
-#include <utility>
+#include <string_view>
 
 namespace hgraph::fabric
 {
     namespace
     {
-        inline constexpr std::uint16_t SELF_PREDECESSOR_FLAG{0x0001U};
-
-        class Writer
+        [[nodiscard]] std::string_view kind_name(MetadataObjectKind kind)
         {
-          public:
-            void byte(std::uint8_t value)
+            switch (kind)
             {
-                if (bytes_.size() == MAX_METADATA_BYTES)
-                {
-                    throw std::invalid_argument("fabric metadata exceeds 16 MiB");
-                }
-                bytes_.push_back(static_cast<std::byte>(value));
+                case MetadataObjectKind::Revision:
+                    return "revision";
+                case MetadataObjectKind::AsOf:
+                    return "as_of";
+                case MetadataObjectKind::Latest:
+                    return "latest";
             }
-
-            void u16(std::uint16_t value)
-            {
-                byte(static_cast<std::uint8_t>(value >> 8U));
-                byte(static_cast<std::uint8_t>(value));
-            }
-
-            void u32(std::uint32_t value)
-            {
-                for (int shift = 24; shift >= 0; shift -= 8)
-                {
-                    byte(static_cast<std::uint8_t>(value >> shift));
-                }
-            }
-
-            void u64(std::uint64_t value)
-            {
-                for (int shift = 56; shift >= 0; shift -= 8)
-                {
-                    byte(static_cast<std::uint8_t>(value >> shift));
-                }
-            }
-
-            void string(std::string_view value)
-            {
-                if (value.size() > std::numeric_limits<std::uint32_t>::max())
-                {
-                    throw std::invalid_argument("fabric metadata string is too large");
-                }
-                u32(static_cast<std::uint32_t>(value.size()));
-                for (const unsigned char character : value) { byte(character); }
-            }
-
-            [[nodiscard]] persistence::store::ObjectBytes finish()
-            {
-                if (bytes_.size() > MAX_METADATA_BYTES)
-                {
-                    throw std::invalid_argument("fabric metadata exceeds 16 MiB");
-                }
-                return std::move(bytes_);
-            }
-
-          private:
-            persistence::store::ObjectBytes bytes_{};
-        };
-
-        class Reader
-        {
-          public:
-            explicit Reader(std::span<const std::byte> bytes) : bytes_(bytes)
-            {
-                if (bytes.size() > MAX_METADATA_BYTES)
-                {
-                    throw std::invalid_argument("fabric metadata exceeds 16 MiB");
-                }
-            }
-
-            [[nodiscard]] std::uint8_t byte()
-            {
-                require(1);
-                return std::to_integer<std::uint8_t>(bytes_[offset_++]);
-            }
-
-            [[nodiscard]] std::uint16_t u16()
-            {
-                std::uint16_t value{};
-                for (int index = 0; index < 2; ++index)
-                {
-                    value = static_cast<std::uint16_t>((value << 8U) | byte());
-                }
-                return value;
-            }
-
-            [[nodiscard]] std::uint32_t u32()
-            {
-                std::uint32_t value{};
-                for (int index = 0; index < 4; ++index)
-                {
-                    value = (value << 8U) | byte();
-                }
-                return value;
-            }
-
-            [[nodiscard]] std::uint64_t u64()
-            {
-                std::uint64_t value{};
-                for (int index = 0; index < 8; ++index)
-                {
-                    value = (value << 8U) | byte();
-                }
-                return value;
-            }
-
-            [[nodiscard]] Str string()
-            {
-                const std::uint32_t size = u32();
-                require(size);
-                const char *start = reinterpret_cast<const char *>(
-                    bytes_.data() + static_cast<std::ptrdiff_t>(offset_));
-                Str value{start, size};
-                offset_ += size;
-                require_data_id(value);
-                return value;
-            }
-
-            void finish() const
-            {
-                if (offset_ != bytes_.size())
-                {
-                    throw std::invalid_argument(
-                        "fabric metadata contains trailing bytes");
-                }
-            }
-
-          private:
-            void require(std::size_t count) const
-            {
-                if (count > bytes_.size() - offset_)
-                {
-                    throw std::invalid_argument("truncated fabric metadata");
-                }
-            }
-
-            std::span<const std::byte> bytes_{};
-            std::size_t                offset_{};
-        };
-
-        void write_header(Writer &writer, MetadataObjectKind kind,
-                          std::uint16_t flags)
-        {
-            writer.byte('H');
-            writer.byte('G');
-            writer.byte('F');
-            writer.byte('M');
-            writer.byte(1);
-            writer.byte(static_cast<std::uint8_t>(kind));
-            writer.u16(flags);
+            throw std::invalid_argument("unknown fabric metadata object kind");
         }
 
-        [[nodiscard]] std::uint16_t read_header(Reader &reader,
-                                                MetadataObjectKind expected)
+        /** The hand-written codec rejected zero, negative and out-of-range
+            ordinals at the decode boundary. A json document is easier to hand
+            edit than a binary blob, not harder, so the check belongs here
+            still. */
+        void require_positive_ordinal(Int value, std::string_view field)
         {
-            if (reader.byte() != 'H' || reader.byte() != 'G' ||
-                reader.byte() != 'F' || reader.byte() != 'M')
-            {
-                throw std::invalid_argument("fabric metadata has invalid magic");
-            }
-            if (reader.byte() != 1)
-            {
-                throw std::invalid_argument("unsupported fabric metadata version");
-            }
-            if (reader.byte() != static_cast<std::uint8_t>(expected))
-            {
-                throw std::invalid_argument("fabric metadata object kind mismatch");
-            }
-            return reader.u16();
-        }
-
-        void require_positive_ordinal(std::uint64_t value, std::string_view field)
-        {
-            if (value == 0 ||
-                value > static_cast<std::uint64_t>(std::numeric_limits<Int>::max()))
+            if (value <= 0)
             {
                 throw std::invalid_argument("fabric " + std::string{field} +
                                             " is out of range");
             }
         }
+
     }  // namespace
 
-    persistence::store::ObjectBytes encode_revision(ValueView revision)
+    void require_metadata_within_limit(std::size_t size)
     {
-        const DataRevisionInput input = data_revision_input(std::move(revision));
-        Writer writer;
-        write_header(writer, MetadataObjectKind::Revision,
-                     input.self_predecessor.has_value()
-                         ? SELF_PREDECESSOR_FLAG
-                         : std::uint16_t{});
-        writer.u64(static_cast<std::uint64_t>(input.revision));
-        writer.u64(static_cast<std::uint64_t>(input.output_version));
-        writer.u64(std::bit_cast<std::uint64_t>(
-            static_cast<std::int64_t>(input.as_of.time_since_epoch().count())));
-        writer.string(input.data_id);
-        writer.u32(static_cast<std::uint32_t>(input.dependencies.size()));
-        for (const auto &dependency : input.dependencies)
+        if (size > MAX_METADATA_BYTES)
         {
-            writer.string(dependency.data_id);
-            writer.u64(static_cast<std::uint64_t>(dependency.version));
+            throw std::invalid_argument("fabric metadata exceeds 16 MiB");
         }
-        if (input.self_predecessor.has_value())
-        {
-            writer.u64(static_cast<std::uint64_t>(*input.self_predecessor));
-        }
-        return writer.finish();
     }
 
-    Value decode_revision(std::span<const std::byte> encoded)
+    void validate_data_revision(const DataRevisionInput &revision)
     {
-        Reader reader{encoded};
-        const std::uint16_t flags = read_header(reader, MetadataObjectKind::Revision);
-        if ((flags & ~SELF_PREDECESSOR_FLAG) != 0)
-        {
-            throw std::invalid_argument("fabric revision contains unknown flags");
-        }
-
-        const std::uint64_t revision = reader.u64();
-        const std::uint64_t output_version = reader.u64();
-        require_positive_ordinal(revision, "revision id");
-        require_positive_ordinal(output_version, "output version");
-        const auto raw_as_of = std::bit_cast<std::int64_t>(reader.u64());
-        Str data_id = reader.string();
-        const std::uint32_t count = reader.u32();
-        if (count > MAX_REVISION_DEPENDENCIES)
+        require_positive_ordinal(revision.revision, "revision id");
+        require_positive_ordinal(revision.output_version, "output version");
+        if (revision.dependencies.size() > MAX_REVISION_DEPENDENCIES)
         {
             throw std::invalid_argument("fabric revision has too many dependencies");
         }
-
-        std::vector<DataDependencyInput> dependencies;
-        dependencies.reserve(count);
-        for (std::uint32_t index = 0; index < count; ++index)
+        for (std::size_t index = 0; index < revision.dependencies.size(); ++index)
         {
-            Str dependency_id = reader.string();
-            const std::uint64_t dependency_version = reader.u64();
-            require_positive_ordinal(dependency_version, "dependency version");
-            if (!dependencies.empty() &&
-                !canonical_data_id_less(dependencies.back().data_id,
-                                        dependency_id))
+            const auto &dependency = revision.dependencies[index];
+            require_positive_ordinal(dependency.version, "dependency version");
+            // Canonical order is what makes two equivalent revisions compare
+            // equal, so an out-of-order document is malformed rather than
+            // merely unusual.
+            if (index > 0 &&
+                !canonical_data_id_less(revision.dependencies[index - 1].data_id,
+                                        dependency.data_id))
             {
                 throw std::invalid_argument(
                     "fabric revision dependencies are not canonical");
             }
-            dependencies.push_back(DataDependencyInput{
-                .data_id = std::move(dependency_id),
-                .version = static_cast<Int>(dependency_version),
-            });
         }
-        std::optional<DataVersion> self_predecessor;
-        if ((flags & SELF_PREDECESSOR_FLAG) != 0)
+        if (revision.self_predecessor.has_value())
         {
-            const std::uint64_t raw_predecessor = reader.u64();
-            require_positive_ordinal(raw_predecessor, "self predecessor");
-            self_predecessor = static_cast<Int>(raw_predecessor);
+            require_positive_ordinal(*revision.self_predecessor, "self predecessor");
         }
-        reader.finish();
-
-        return make_data_revision(DataRevisionInput{
-            .format_version = REVISION_FORMAT_VERSION,
-            .data_id = std::move(data_id),
-            .revision = static_cast<Int>(revision),
-            .output_version = static_cast<Int>(output_version),
-            .dependencies = std::move(dependencies),
-            .self_predecessor = self_predecessor,
-            .as_of = DateTime{TimeDelta{raw_as_of}},
-        });
     }
 
-    persistence::store::ObjectBytes encode_revision_reference(
-        MetadataObjectKind kind, RevisionId revision)
+    void bind_metadata_codecs(FabricConfig &config)
     {
+        // Wiring time: every schema-dependent resolution happens here, so the
+        // evaluation path carries handles rather than looking anything up.
+        config.revision_codec = config.values.bind(data_revision_meta());
+        config.reference_codec = config.values.bind(revision_reference_meta());
+        config.notification_revision_codec =
+            notification_codec().bind(data_revision_meta());
+        if (config.notifications)
+        {
+            config.notifications.bind_revision_codec(
+                config.notification_revision_codec);
+        }
+    }
+
+    persistence::store::ObjectBytes
+    encode_data_revision(const persistence::store::BoundValueCodec &codec,
+                         const ValueView                           &revision)
+    {
+        auto encoded = codec.encode(revision);
+        require_metadata_within_limit(encoded.size());
+        return encoded;
+    }
+
+    Value decode_data_revision(const persistence::store::BoundValueCodec &codec,
+                               std::span<const std::byte>                 encoded)
+    {
+        require_metadata_within_limit(encoded.size());
+        Value decoded = codec.decode(encoded);
+        validate_data_revision(data_revision_input(decoded.view()));
+        return decoded;
+    }
+
+    const persistence::store::ValueCodec &notification_codec()
+    {
+        static const persistence::store::ValueCodec codec = [] {
+            persistence::store::register_builtin_value_codecs();
+            return persistence::store::value_codec(persistence::store::JSON_VALUE_CODEC);
+        }();
+        return codec;
+    }
+
+    const ValueTypeMetaData *data_revision_meta()
+    {
+        return scalar_descriptor<DataRevision>::value_meta();
+    }
+
+    const ValueTypeMetaData *revision_reference_meta()
+    {
+        return scalar_descriptor<RevisionReference>::value_meta();
+    }
+
+    Value make_revision_reference(MetadataObjectKind kind, RevisionId revision)
+    {
+        BundleBuilder builder{
+            ValuePlanFactory::instance().type_for(revision_reference_meta())};
         if (kind != MetadataObjectKind::AsOf && kind != MetadataObjectKind::Latest)
         {
             throw std::invalid_argument(
                 "fabric revision reference kind must be as-of or latest");
         }
-        if (revision <= 0)
-        {
-            throw std::invalid_argument("fabric revision reference must be positive");
-        }
-        Writer writer;
-        write_header(writer, kind, 0);
-        writer.u64(static_cast<std::uint64_t>(revision));
-        return writer.finish();
+        require_positive_ordinal(revision, "revision reference");
+        builder.set("kind", Value{Str{kind_name(kind)}}.view());
+        builder.set("revision", Value{revision}.view());
+        return builder.build();
     }
 
-    RevisionId decode_revision_reference(MetadataObjectKind expected_kind,
-                                         std::span<const std::byte> encoded)
+    RevisionId revision_reference_id(const ValueView   &reference,
+                                     MetadataObjectKind expected_kind)
     {
-        if (expected_kind != MetadataObjectKind::AsOf &&
-            expected_kind != MetadataObjectKind::Latest)
+        const auto fields = reference.as_bundle();
+        const auto kind   = fields.at("kind");
+        const auto revision = fields.at("revision");
+        if (kind.data() == nullptr || revision.data() == nullptr)
         {
-            throw std::invalid_argument(
-                "fabric revision reference kind must be as-of or latest");
+            throw std::invalid_argument("fabric revision reference is incomplete");
         }
-        Reader reader{encoded};
-        if (read_header(reader, expected_kind) != 0)
+        const auto stored_kind = kind.checked_as<Str>();
+        if (stored_kind != kind_name(expected_kind))
         {
-            throw std::invalid_argument(
-                "fabric revision reference contains unknown flags");
+            // The index a document belongs to is part of its meaning: a latest
+            // entry read as an as-of entry would silently answer the wrong
+            // question.
+            throw std::invalid_argument("fabric revision reference is a '" +
+                                        std::string{stored_kind} + "' entry, expected '" +
+                                        std::string{kind_name(expected_kind)} + "'");
         }
-        const std::uint64_t revision = reader.u64();
-        require_positive_ordinal(revision, "revision reference");
-        reader.finish();
-        return static_cast<RevisionId>(revision);
+        const auto stored_revision = revision.checked_as<Int>();
+        require_positive_ordinal(stored_revision, "revision reference");
+        return stored_revision;
     }
+
+    persistence::store::ObjectBytes encode_reference(
+        const persistence::store::BoundValueCodec &codec, MetadataObjectKind kind,
+        RevisionId revision)
+    {
+        return codec.encode(make_revision_reference(kind, revision).view());
+    }
+
+    RevisionId revision_reference_value(const persistence::store::BoundValueCodec &codec,
+                                        MetadataObjectKind         expected_kind,
+                                        std::span<const std::byte> encoded)
+    {
+        return revision_reference_id(codec.decode(encoded).view(), expected_kind);
+    }
+
 }  // namespace hgraph::fabric

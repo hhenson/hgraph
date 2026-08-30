@@ -39,6 +39,8 @@ def test_wheel_audit_accepts_platform_library_directories(
         "include/hgraph/persistence/object_store.h": "",
         "include/hgraph/persistence/recording_store.h": "",
         "include/hgraph/persistence/store_location.h": "",
+        "include/hgraph/persistence/value_codec.h": "",
+        "include/hgraph/persistence/value_store.h": "",
         f"{library_directory}/libhgraph_persistence.so": "",
         f"{library_directory}/cmake/hgraph-persistence/hgraph-persistenceConfig.cmake": "",
         f"{library_directory}/cmake/hgraph-persistence/hgraphPersistenceTargets.cmake": "",

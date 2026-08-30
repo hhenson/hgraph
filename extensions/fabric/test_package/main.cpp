@@ -8,6 +8,7 @@
 #include <hgraph/types/graph_wiring.h>
 
 #include <span>
+#include <string_view>
 
 namespace
 {
@@ -57,12 +58,28 @@ int main()
         .dependencies = {{"installed/input", 3}},
         .as_of = hg::MIN_ST,
     });
-    const auto encoded = hgf::encode_revision(revision.view());
-    const auto decoded = hgf::decode_revision(encoded);
+    // Metadata is a declared value schema through the configured store, and
+    // the codecs are bound with that configuration at wiring time, so nothing
+    // on an evaluation path resolves a codec per value (RFC 0030). An
+    // installed consumer gets both without writing a codec.
+    const auto encoded =
+        hgf::encode_data_revision(config->revision_codec, revision.view());
+    const auto decoded = hgf::decode_data_revision(config->revision_codec, encoded);
     if (hgf::data_revision_input(decoded.view()) !=
         hgf::data_revision_input(revision.view()))
     {
         return 2;
+    }
+
+    // The stored bytes are the codec's output and nothing else, which is what
+    // makes an object readable by tools that know nothing about hgraph. Worth
+    // asserting from outside the library, where the promise actually matters.
+    const std::string_view document(reinterpret_cast<const char *>(encoded.data()),
+                                    encoded.size());
+    if (!document.starts_with("{") || !document.ends_with("}") ||
+        document.find("\"data_id\"") == std::string_view::npos)
+    {
+        return 9;
     }
 
     if (hgf::decode_data_id_segment(

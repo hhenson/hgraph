@@ -17,6 +17,8 @@ WHEEL_REQUIRED = (
     "include/hgraph/persistence/object_store.h",
     "include/hgraph/persistence/recording_store.h",
     "include/hgraph/persistence/store_location.h",
+    "include/hgraph/persistence/value_codec.h",
+    "include/hgraph/persistence/value_store.h",
     # GNUInstallDirs selects lib64 on manylinux, while macOS and Windows wheels
     # use lib. Match the package-relative suffix so both layouts are audited.
     "cmake/hgraph-persistence/hgraph-persistenceConfig.cmake",
@@ -32,6 +34,8 @@ SDIST_REQUIRED = (
     "include/hgraph/persistence/object_store.h",
     "include/hgraph/persistence/recording_store.h",
     "include/hgraph/persistence/store_location.h",
+    "include/hgraph/persistence/value_codec.h",
+    "include/hgraph/persistence/value_store.h",
     "python/hgraph_persistence/__init__.py",
     "python/hgraph_persistence/compat.py",
     "src/frame_store.cpp",
@@ -49,6 +53,8 @@ SDIST_REQUIRED = (
     "src/recording_store.cpp",
     "src/registration.cpp",
     "src/store_location.cpp",
+    "src/value_codec.cpp",
+    "src/value_store.cpp",
     "test_package/CMakeLists.txt",
     "tests/test_frame_store.cpp",
     "tests/test_object_store.cpp",

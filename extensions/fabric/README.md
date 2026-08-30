@@ -68,7 +68,15 @@ duplicates or missed notifications.
 
 Durable keys use a canonical reversible data-id segment and a portable
 1,024-byte whole-key limit shared with S3. The fabric prefix and encoded data
-id must leave room for the key category and fixed-width ordinal.
+id must leave room for the key category and fixed-width ordinal, which is
+padded so a prefix listing returns revisions in order.
+
+Metadata is a declared value schema written through
+`persistence::store::ValueStore`, in that store's configured codec — `json` by
+default. A stored revision is therefore an ordinary json document: it opens in
+a text editor and any tool can read it. Fabric owns the schemas, the key
+layout, and the check that an as-of entry is not read as a latest entry; it
+owns no serialisation format.
 
 Native hosts install `FabricConfig` in `GlobalState`, call
 `hgraph::fabric::register_service()`, call

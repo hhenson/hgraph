@@ -1,4 +1,5 @@
 #include <hgraph/fabric/fabric.h>
+#include <hgraph/persistence/value_store.h>
 
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/std_operators.h>
@@ -13,18 +14,46 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
-#include <fstream>
-#include <iterator>
-#include <span>
 #include <string>
 #include <utility>
 
 namespace
 {
-    namespace hg  = hgraph;
-    namespace hgf = hgraph::fabric;
+    namespace hg   = hgraph;
+    namespace hgf  = hgraph::fabric;
+    namespace hgps = hgraph::persistence::store;
+
+    /** A store for encoding fixtures, independent of any fabric config. */
+    [[nodiscard]] const hgps::ValueStore &contract_values()
+    {
+        static const hgps::ValueStore store = [] {
+            hgps::register_builtin_value_codecs();
+            return hgps::make_value_store(
+                hgps::ValueStoreConfig{.objects = hgps::make_object_store(
+                                           hgps::ObjectStoreConfig{})});
+        }();
+        return store;
+    }
+
+
+    /** The bound codecs a configured fabric would carry.
+
+        Deliberately NOT cached in a static: this suite resets the registries
+        between cases, and a reset frees the interned converters a binding
+        points at. Caching one across a reset dangles -- it crashed this suite
+        with a bus error when first written, which is the hazard the
+        BoundValueCodec docs describe, reproduced. Real callers bind with the
+        config at wiring time and are torn down with the graph. */
+    [[nodiscard]] hgps::BoundValueCodec contract_revision_codec()
+    {
+        return contract_values().bind(hgf::data_revision_meta());
+    }
+
+    [[nodiscard]] hgps::BoundValueCodec contract_reference_codec()
+    {
+        return contract_values().bind(hgf::revision_reference_meta());
+    }
 
     [[nodiscard]] hgraph::persistence::store::ObjectBytes notice(
         hgraph::Str data_id, hgraph::Int revision)
@@ -35,34 +64,7 @@ namespace
             .output_version = revision,
             .as_of = hg::DateTime{hg::TimeDelta{1'767'323'045'000'000 + revision}},
         });
-        return hgf::encode_revision(value.view());
-    }
-
-    [[nodiscard]] std::string hex(
-        std::span<const std::byte> value)
-    {
-        constexpr char digits[]{"0123456789abcdef"};
-        std::string result;
-        result.reserve(value.size() * 2);
-        for (const std::byte item : value)
-        {
-            const auto raw = std::to_integer<unsigned char>(item);
-            result.push_back(digits[raw >> 4U]);
-            result.push_back(digits[raw & 0x0fU]);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string fixture(std::string_view name)
-    {
-        std::ifstream input{std::string{HGRAPH_FABRIC_FIXTURE_DIR} + "/" +
-                            std::string{name}};
-        REQUIRE(input.good());
-        std::string result{std::istreambuf_iterator<char>{input}, {}};
-        std::erase_if(result, [](unsigned char value) {
-            return std::isspace(value) != 0;
-        });
-        return result;
+        return contract_values().encode(value.view());
     }
 
     [[nodiscard]] hg::Value canonical_revision()
@@ -329,30 +331,40 @@ TEST_CASE("fabric public values are canonical and validate identity")
                     std::invalid_argument);
 }
 
-TEST_CASE("fabric canonical metadata matches the shared golden fixtures")
+TEST_CASE("fabric metadata is a json document with the properties that matter")
 {
-    hg::Value revision = canonical_revision();
-    const auto encoded = hgf::encode_revision(revision.view());
-    CHECK(hex(encoded) == fixture("revision_v1.hex"));
-    const auto decoded = hgf::decode_revision(encoded);
+    // The golden hex fixtures are gone with the hand-written codec they pinned:
+    // the byte layout is now the library's business, covered by the value
+    // store's own tests. What still belongs to fabric is behaviour.
+    const auto &values = contract_values();
+
+    hg::Value  revision = canonical_revision();
+    const auto encoded  = values.encode(revision.view());
+
+    // Readable outside this codebase: the stored object is a json document.
+    const std::string text{reinterpret_cast<const char *>(encoded.data()),
+                           encoded.size()};
+    CHECK(text.front() == '{');
+    CHECK(text.find("\"data_id\"") != std::string::npos);
+
+    const auto decoded = values.decode(hgf::data_revision_meta(), encoded);
     CHECK(hgf::data_revision_input(decoded.view()) ==
           hgf::data_revision_input(revision.view()));
 
-    const auto as_of = hgf::encode_revision_reference(
-        hgf::MetadataObjectKind::AsOf, 3);
-    const auto latest = hgf::encode_revision_reference(
-        hgf::MetadataObjectKind::Latest, 3);
-    CHECK(hex(as_of) == fixture("as_of_v1.hex"));
-    CHECK(hex(latest) == fixture("latest_v1.hex"));
-    CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::AsOf,
-                                         as_of) == 3);
-    CHECK_THROWS_AS(hgf::decode_revision_reference(
-                        hgf::MetadataObjectKind::Latest, as_of),
-                    std::invalid_argument);
+    // An index entry names the index it belongs to, so reading a latest entry
+    // as an as-of entry is refused rather than silently answered.
+    const auto as_of =
+        hgf::encode_reference(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, 3);
+    CHECK(hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, as_of) == 3);
+    CHECK_THROWS_AS(
+        hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::Latest, as_of),
+        std::invalid_argument);
 
+    // Malformed input still fails closed.
     auto malformed = encoded;
-    malformed.push_back(std::byte{});
-    CHECK_THROWS_AS(hgf::decode_revision(malformed), std::invalid_argument);
+    malformed.push_back(std::byte{'!'});
+    CHECK_THROWS_AS(values.decode(hgf::data_revision_meta(), malformed),
+                    std::invalid_argument);
 }
 
 TEST_CASE("memory notifier fans out and conflates each data id")
@@ -573,4 +585,94 @@ TEST_CASE("fabric wiring rejects duplicate publisher and dependency data ids")
     CHECK_THROWS_WITH(
         hg::build_graph<DuplicateExplicitDependencyGraph>(),
         Catch::Matchers::ContainsSubstring("dependency data ids must be unique"));
+}
+
+TEST_CASE("fabric rejects malformed metadata at the decode boundary")
+{
+    // The documents are externally readable, and therefore externally
+    // editable: a hand-edited or corrupted file must be classified as
+    // malformed here rather than reaching history and index logic. These
+    // checks existed in the hand-written codec and are not the store's job,
+    // so they live with the schema that owns their meaning.
+    const auto &values = contract_values();
+
+    SECTION("a non-positive revision reference is malformed")
+    {
+        CHECK_THROWS_AS(hgf::make_revision_reference(hgf::MetadataObjectKind::Latest, 0),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(hgf::make_revision_reference(hgf::MetadataObjectKind::AsOf, -1),
+                        std::invalid_argument);
+
+        // ...including one that arrives already encoded, as an edited file would.
+        hg::BundleBuilder builder{hg::ValuePlanFactory::instance().type_for(
+            hgf::revision_reference_meta())};
+        builder.set("kind", hg::Value{hg::Str{"latest"}}.view());
+        builder.set("revision", hg::Value{hg::Int{0}}.view());
+        const auto encoded = values.encode(builder.build().view());
+        CHECK_THROWS_AS(hgf::revision_reference_value(
+                            contract_reference_codec(),
+                            hgf::MetadataObjectKind::Latest, encoded),
+                        std::invalid_argument);
+    }
+
+    SECTION("a revision reference cannot claim the revision kind")
+    {
+        CHECK_THROWS_AS(
+            hgf::make_revision_reference(hgf::MetadataObjectKind::Revision, 1),
+            std::invalid_argument);
+    }
+
+    SECTION("non-positive ordinals in a revision are malformed")
+    {
+        auto encoded_with = [&](hgf::DataRevisionInput input) {
+            return values.encode(hgf::make_data_revision(std::move(input)).view());
+        };
+        const hgf::DataRevisionInput valid{
+            .data_id = "alpha", .revision = 1, .output_version = 1,
+            .as_of = hg::MIN_ST};
+
+        auto zero_revision = valid;
+        zero_revision.revision = 0;
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_revision)),
+                        std::invalid_argument);
+
+        auto zero_output = valid;
+        zero_output.output_version = 0;
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_output)),
+                        std::invalid_argument);
+
+        auto bad_dependency = valid;
+        bad_dependency.dependencies = {{"input", 0}};
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(bad_dependency)),
+                        std::invalid_argument);
+
+        // A valid one still round trips, so the checks are not simply refusing.
+        CHECK_NOTHROW(hgf::decode_data_revision(contract_revision_codec(), encoded_with(valid)));
+    }
+
+    SECTION("dependencies out of canonical order are malformed")
+    {
+        // Canonical order is what makes two equivalent revisions compare equal.
+        // make_data_revision sorts, so this state cannot be reached through the
+        // builder -- only by editing a stored document. The validator is
+        // exported for exactly that reason, so drive it directly rather than
+        // pretend the builder can produce the case.
+        CHECK_THROWS_AS(hgf::validate_data_revision(hgf::DataRevisionInput{
+                            .data_id = "alpha", .revision = 1,
+                            .output_version = 1,
+                            .dependencies = {{"b", 1}, {"a", 1}},
+                            .as_of = hg::MIN_ST}),
+                        std::invalid_argument);
+        CHECK_NOTHROW(hgf::validate_data_revision(hgf::DataRevisionInput{
+            .data_id = "alpha", .revision = 1, .output_version = 1,
+            .dependencies = {{"a", 1}, {"b", 1}}, .as_of = hg::MIN_ST}));
+    }
+
+    SECTION("an oversized document is rejected before it is decoded")
+    {
+        const std::vector<std::byte> oversized(hgf::MAX_METADATA_BYTES + 1,
+                                               std::byte{'{'});
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), oversized),
+                        std::invalid_argument);
+    }
 }

@@ -23,9 +23,6 @@ add_executable(hgraph_fabric_tests
 target_link_libraries(hgraph_fabric_tests
     PRIVATE hgraph::fabric Catch2::Catch2WithMain)
 target_compile_features(hgraph_fabric_tests PRIVATE cxx_std_23)
-target_compile_definitions(hgraph_fabric_tests PRIVATE
-    HGRAPH_FABRIC_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
-
 add_test(NAME hgraph_fabric.tests COMMAND hgraph_fabric_tests)
 if(COMMAND hgraph_configure_test_runtime_paths)
     hgraph_configure_test_runtime_paths(hgraph_fabric.tests)

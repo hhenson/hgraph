@@ -95,6 +95,12 @@ namespace hgraph::fabric
         std::optional<DataRevisionInput> accepted{};
         std::optional<DataRevisionInput> candidate{};
         ObjectBytes candidate_bytes{};
+        /** The notification is a message, not a stored object, so it is
+            encoded with the transport codec rather than the store's. Sharing
+            one buffer would break any store configured with a non-json codec:
+            the revision commits and the indexes advance, then the notifier
+            fails decoding its own payload. */
+        ObjectBytes notification_bytes{};
         NotificationDelivery delivery{};
         std::shared_ptr<arrow::Schema> fixed_schema{};
 
@@ -119,7 +125,8 @@ namespace hgraph::fabric
                                          data_id + ":" + std::to_string(revision));
             }
             DataRevisionInput decoded =
-                data_revision_input(decode_revision(object->data).view());
+                data_revision_input(
+                    decode_data_revision(config.revision_codec, object->data).view());
             if (decoded.data_id != data_id || decoded.revision != revision)
             {
                 throw std::runtime_error(
@@ -184,8 +191,7 @@ namespace hgraph::fabric
 
         void repair_as_of(const DataRevisionInput &revision) const
         {
-            const ObjectBytes desired = encode_revision_reference(
-                MetadataObjectKind::AsOf, revision.revision);
+            const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::AsOf, revision.revision);
             const auto result = config.objects.put_immutable(
                 as_of_key(config.prefix, data_id, revision.as_of), desired);
             if (result.status == ImmutableWriteStatus::Conflict)
@@ -199,21 +205,19 @@ namespace hgraph::fabric
         {
             const auto current = metadata(latest_key(config.prefix, data_id));
             if (!current.has_value()) { return std::nullopt; }
-            return decode_revision_reference(MetadataObjectKind::Latest, current->data);
+            return revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, current->data);
         }
 
         void advance_latest(RevisionId target) const
         {
             const std::string key = latest_key(config.prefix, data_id);
-            const ObjectBytes desired =
-                encode_revision_reference(MetadataObjectKind::Latest, target);
+            const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::Latest, target);
             for (;;)
             {
                 const auto current = metadata(key);
                 if (current.has_value())
                 {
-                    const RevisionId current_revision = decode_revision_reference(
-                        MetadataObjectKind::Latest, current->data);
+                    const RevisionId current_revision = revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, current->data);
                     if (current_revision >= target) { return; }
                 }
                 const auto result = config.objects.compare_exchange_ref(
@@ -224,8 +228,7 @@ namespace hgraph::fabric
                     desired);
                 if (result.exchanged) { return; }
                 if (!result.current.has_value()) { continue; }
-                const RevisionId winner = decode_revision_reference(
-                    MetadataObjectKind::Latest, result.current->data);
+                const RevisionId winner = revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, result.current->data);
                 if (winner >= target) { return; }
             }
         }
@@ -278,7 +281,8 @@ namespace hgraph::fabric
                     metadata(revision_key(config.prefix, data_id, next));
                 if (!object.has_value()) { break; }
                 DataRevisionInput revision =
-                    data_revision_input(decode_revision(object->data).view());
+                    data_revision_input(
+                    decode_data_revision(config.revision_codec, object->data).view());
                 if (revision.data_id != data_id || revision.revision != next)
                 {
                     throw std::runtime_error(
@@ -374,12 +378,16 @@ namespace hgraph::fabric
             };
             Value canonical = make_data_revision(std::move(proposed));
             candidate = data_revision_input(canonical.view());
-            candidate_bytes = encode_revision(canonical.view());
+            candidate_bytes = encode_data_revision(config.revision_codec, canonical.view());
+            notification_bytes.clear();
+            config.notification_revision_codec.encode(canonical.view(), notification_bytes);
+            require_metadata_within_limit(notification_bytes.size());
 
             if (!input.output.has_value() && same_tuple(*candidate, *accepted))
             {
                 candidate.reset();
                 candidate_bytes.clear();
+                notification_bytes.clear();
                 state = PublicationState::Unchanged;
                 return;
             }
@@ -394,7 +402,7 @@ namespace hgraph::fabric
         void publish_notification()
         {
             delivery = config.notifications.publish(
-                RevisionNotification{data_id, candidate_bytes});
+                RevisionNotification{data_id, notification_bytes});
             state = PublicationState::NotificationPending;
         }
 
@@ -492,6 +500,7 @@ namespace hgraph::fabric
         impl_->input = std::move(input);
         impl_->candidate.reset();
         impl_->candidate_bytes.clear();
+        impl_->notification_bytes.clear();
         impl_->delivery.reset();
         impl_->state = PublicationState::Preparing;
     }

@@ -28,6 +28,14 @@ namespace hgraph::fabric
         Bundle<"hgraph.fabric::DataDependency", Field<"data_id", Str>,
                Field<"version", Int>>;
 
+    /** The as-of and latest index objects: a revision pointer plus the kind of
+        index it belongs to, so a latest entry read as an as-of entry is
+        rejected rather than silently accepted. Declared rather than
+        hand-encoded, so the stored object is an ordinary json document. */
+    using RevisionReference =
+        Bundle<"hgraph.fabric::RevisionReference", Field<"kind", Str>,
+               Field<"revision", Int>>;
+
     using DataRevision =
         Bundle<"hgraph.fabric::DataRevision", Field<"format_version", Int>,
                Field<"data_id", Str>, Field<"revision", Int>,

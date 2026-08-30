@@ -93,7 +93,7 @@ void seed(const hgf::FabricConfig &config,
   auto value = hgf::make_data_revision(input);
   const auto result = config.objects.put_immutable(
       hgf::revision_key(config.prefix, input.data_id, input.revision),
-      hgf::encode_revision(value.view()));
+      config.values.encode(value.view()));
   if (result.status != hgps::ImmutableWriteStatus::Created) {
     throw std::runtime_error("failed to seed resolver benchmark");
   }

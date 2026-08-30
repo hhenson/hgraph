@@ -517,3 +517,36 @@ TEST_CASE("object store: S3 uses conditional writes, ETags, and ordered discover
     CHECK_THROWS_AS(invalid_store.get("absent"), ObjectStoreError);
     invalid_store.reset();
 }
+
+TEST_CASE("store keys: segment encoding round trips arbitrary text")
+{
+    // Object keys are a restricted alphabet with '/' as the only separator, so
+    // a value that may contain either has to survive a round trip intact.
+    for (const std::string_view value : {"simple", "with/slash", "with space",
+                                         "unicode \xc2\xa3 pound", "", "a"})
+    {
+        const auto encoded = encode_key_segment(value);
+        CHECK(encoded.find('/') == std::string::npos);
+        CHECK(decode_key_segment(encoded) == value);
+    }
+    CHECK_THROWS_AS(decode_key_segment("!!"), std::invalid_argument);
+}
+
+TEST_CASE("store keys: ordinals sort lexicographically in numeric order")
+{
+    // This is the property the fixed width exists for: a prefix listing must
+    // return a range in sequence, which only holds if string order matches
+    // numeric order.
+    const auto small = encode_ordered_ordinal(9, 19);
+    const auto large = encode_ordered_ordinal(10, 19);
+    CHECK(small < large);
+    CHECK(small.size() == large.size());
+    CHECK(decode_ordered_ordinal(small, 19) == 9);
+    CHECK(decode_ordered_ordinal(large, 19) == 10);
+
+    CHECK_THROWS_AS(encode_ordered_ordinal(0, 19), std::invalid_argument);
+    CHECK_THROWS_AS(encode_ordered_ordinal(-1, 19), std::invalid_argument);
+    CHECK_THROWS_AS(encode_ordered_ordinal(1, 0), std::invalid_argument);
+    CHECK_THROWS_AS(decode_ordered_ordinal("123", 19), std::invalid_argument);
+    CHECK_THROWS_AS(decode_ordered_ordinal(std::string(19, 'x'), 19), std::invalid_argument);
+}
