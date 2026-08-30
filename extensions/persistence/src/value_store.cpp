@@ -8,23 +8,25 @@ namespace hgraph::persistence::store
     ValueStore::ValueStore(ValueStoreConfig config)
         : objects_{std::move(config.objects)},
           default_codec_{config.codec.empty() ? std::string{JSON_VALUE_CODEC}
-                                              : std::move(config.codec)}
+                                              : std::move(config.codec)},
+          // Resolve once, at construction, so a misspelled default fails where
+          // it was configured rather than on a later write -- and so the
+          // default path never reaches the registry again.
+          default_resolved_{value_codec(default_codec_)}
     {
-        // Resolve once, at construction, so a misspelled default fails where it
-        // was configured rather than on a later write.
-        static_cast<void>(value_codec(default_codec_));
     }
 
-    ValueCodec ValueStore::resolve(std::optional<std::string_view> codec) const
+    bool ValueStore::uses_default(std::optional<std::string_view> codec) const noexcept
     {
-        return value_codec(codec.has_value() ? *codec : std::string_view{default_codec_});
+        return !codec.has_value() || *codec == default_codec_;
     }
 
     ObjectBytes ValueStore::encode(const ValueView                &value,
                                    std::optional<std::string_view> codec) const
     {
         ObjectBytes encoded;
-        resolve(codec).encode(value, encoded);
+        if (uses_default(codec)) { default_resolved_.encode(value, encoded); }
+        else { value_codec(*codec).encode(value, encoded); }
         return encoded;
     }
 
@@ -32,7 +34,8 @@ namespace hgraph::persistence::store
                              std::span<const std::byte>      encoded,
                              std::optional<std::string_view> codec) const
     {
-        return resolve(codec).decode(schema, encoded);
+        if (uses_default(codec)) { return default_resolved_.decode(schema, encoded); }
+        return value_codec(*codec).decode(schema, encoded);
     }
 
     ImmutableWriteResult ValueStore::write(std::string_view key, const ValueView &value,

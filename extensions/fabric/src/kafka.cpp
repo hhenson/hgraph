@@ -74,9 +74,12 @@ struct FabricKafkaDecodeNode {
     }
     const Bytes &key_bytes = key.checked_as<Bytes>();
     const Bytes &payload_bytes = payload.checked_as<Bytes>();
+    require_metadata_within_limit(payload_bytes.data.size());
     Value revision = notification_codec().decode(data_revision_meta(),
                                                  bytes_view(payload_bytes));
     const DataRevisionInput decoded = data_revision_input(revision.view());
+    // A broker record is as untrusted as a stored document.
+    validate_data_revision(decoded);
     if (key_bytes.data != decoded.data_id) {
       throw std::invalid_argument(
           "fabric Kafka record key does not match its revision data id");

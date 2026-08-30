@@ -568,3 +568,92 @@ TEST_CASE("fabric wiring rejects duplicate publisher and dependency data ids")
         hg::build_graph<DuplicateExplicitDependencyGraph>(),
         Catch::Matchers::ContainsSubstring("dependency data ids must be unique"));
 }
+
+TEST_CASE("fabric rejects malformed metadata at the decode boundary")
+{
+    // The documents are externally readable, and therefore externally
+    // editable: a hand-edited or corrupted file must be classified as
+    // malformed here rather than reaching history and index logic. These
+    // checks existed in the hand-written codec and are not the store's job,
+    // so they live with the schema that owns their meaning.
+    const auto &values = contract_values();
+
+    SECTION("a non-positive revision reference is malformed")
+    {
+        CHECK_THROWS_AS(hgf::make_revision_reference(hgf::MetadataObjectKind::Latest, 0),
+                        std::invalid_argument);
+        CHECK_THROWS_AS(hgf::make_revision_reference(hgf::MetadataObjectKind::AsOf, -1),
+                        std::invalid_argument);
+
+        // ...including one that arrives already encoded, as an edited file would.
+        hg::BundleBuilder builder{hg::ValuePlanFactory::instance().type_for(
+            hgf::revision_reference_meta())};
+        builder.set("kind", hg::Value{hg::Str{"latest"}}.view());
+        builder.set("revision", hg::Value{hg::Int{0}}.view());
+        const auto encoded = values.encode(builder.build().view());
+        CHECK_THROWS_AS(hgf::revision_reference_value(
+                            values, hgf::MetadataObjectKind::Latest, encoded),
+                        std::invalid_argument);
+    }
+
+    SECTION("a revision reference cannot claim the revision kind")
+    {
+        CHECK_THROWS_AS(
+            hgf::make_revision_reference(hgf::MetadataObjectKind::Revision, 1),
+            std::invalid_argument);
+    }
+
+    SECTION("non-positive ordinals in a revision are malformed")
+    {
+        auto encoded_with = [&](hgf::DataRevisionInput input) {
+            return values.encode(hgf::make_data_revision(std::move(input)).view());
+        };
+        const hgf::DataRevisionInput valid{
+            .data_id = "alpha", .revision = 1, .output_version = 1,
+            .as_of = hg::MIN_ST};
+
+        auto zero_revision = valid;
+        zero_revision.revision = 0;
+        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(zero_revision)),
+                        std::invalid_argument);
+
+        auto zero_output = valid;
+        zero_output.output_version = 0;
+        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(zero_output)),
+                        std::invalid_argument);
+
+        auto bad_dependency = valid;
+        bad_dependency.dependencies = {{"input", 0}};
+        CHECK_THROWS_AS(hgf::decode_data_revision(values, encoded_with(bad_dependency)),
+                        std::invalid_argument);
+
+        // A valid one still round trips, so the checks are not simply refusing.
+        CHECK_NOTHROW(hgf::decode_data_revision(values, encoded_with(valid)));
+    }
+
+    SECTION("dependencies out of canonical order are malformed")
+    {
+        // Canonical order is what makes two equivalent revisions compare equal.
+        // make_data_revision sorts, so this state cannot be reached through the
+        // builder -- only by editing a stored document. The validator is
+        // exported for exactly that reason, so drive it directly rather than
+        // pretend the builder can produce the case.
+        CHECK_THROWS_AS(hgf::validate_data_revision(hgf::DataRevisionInput{
+                            .data_id = "alpha", .revision = 1,
+                            .output_version = 1,
+                            .dependencies = {{"b", 1}, {"a", 1}},
+                            .as_of = hg::MIN_ST}),
+                        std::invalid_argument);
+        CHECK_NOTHROW(hgf::validate_data_revision(hgf::DataRevisionInput{
+            .data_id = "alpha", .revision = 1, .output_version = 1,
+            .dependencies = {{"a", 1}, {"b", 1}}, .as_of = hg::MIN_ST}));
+    }
+
+    SECTION("an oversized document is rejected before it is decoded")
+    {
+        const std::vector<std::byte> oversized(hgf::MAX_METADATA_BYTES + 1,
+                                               std::byte{'{'});
+        CHECK_THROWS_AS(hgf::decode_data_revision(values, oversized),
+                        std::invalid_argument);
+    }
+}

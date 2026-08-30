@@ -95,6 +95,12 @@ namespace hgraph::fabric
         std::optional<DataRevisionInput> accepted{};
         std::optional<DataRevisionInput> candidate{};
         ObjectBytes candidate_bytes{};
+        /** The notification is a message, not a stored object, so it is
+            encoded with the transport codec rather than the store's. Sharing
+            one buffer would break any store configured with a non-json codec:
+            the revision commits and the indexes advance, then the notifier
+            fails decoding its own payload. */
+        ObjectBytes notification_bytes{};
         NotificationDelivery delivery{};
         std::shared_ptr<arrow::Schema> fixed_schema{};
 
@@ -120,7 +126,7 @@ namespace hgraph::fabric
             }
             DataRevisionInput decoded =
                 data_revision_input(
-                    config.values.decode(data_revision_meta(), object->data).view());
+                    decode_data_revision(config.values, object->data).view());
             if (decoded.data_id != data_id || decoded.revision != revision)
             {
                 throw std::runtime_error(
@@ -276,7 +282,7 @@ namespace hgraph::fabric
                 if (!object.has_value()) { break; }
                 DataRevisionInput revision =
                     data_revision_input(
-                    config.values.decode(data_revision_meta(), object->data).view());
+                    decode_data_revision(config.values, object->data).view());
                 if (revision.data_id != data_id || revision.revision != next)
                 {
                     throw std::runtime_error(
@@ -372,12 +378,16 @@ namespace hgraph::fabric
             };
             Value canonical = make_data_revision(std::move(proposed));
             candidate = data_revision_input(canonical.view());
-            candidate_bytes = config.values.encode(canonical.view());
+            candidate_bytes = encode_data_revision(config.values, canonical.view());
+            notification_bytes.clear();
+            notification_codec().encode(canonical.view(), notification_bytes);
+            require_metadata_within_limit(notification_bytes.size());
 
             if (!input.output.has_value() && same_tuple(*candidate, *accepted))
             {
                 candidate.reset();
                 candidate_bytes.clear();
+                notification_bytes.clear();
                 state = PublicationState::Unchanged;
                 return;
             }
@@ -392,7 +402,7 @@ namespace hgraph::fabric
         void publish_notification()
         {
             delivery = config.notifications.publish(
-                RevisionNotification{data_id, candidate_bytes});
+                RevisionNotification{data_id, notification_bytes});
             state = PublicationState::NotificationPending;
         }
 
@@ -490,6 +500,7 @@ namespace hgraph::fabric
         impl_->input = std::move(input);
         impl_->candidate.reset();
         impl_->candidate_bytes.clear();
+        impl_->notification_bytes.clear();
         impl_->delivery.reset();
         impl_->state = PublicationState::Preparing;
     }

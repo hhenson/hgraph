@@ -134,7 +134,7 @@ struct ConsistencyResolver::Impl {
               const StoredObject &object) const {
     try {
       DataRevisionInput decoded =
-          data_revision_input(config.values.decode(data_revision_meta(),
+          data_revision_input(decode_data_revision(config.values,
                                                    object.data)
                                   .view());
       if (decoded.data_id != data_id || decoded.revision != revision) {

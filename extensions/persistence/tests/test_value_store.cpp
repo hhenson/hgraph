@@ -4,6 +4,7 @@
 #include <hgraph/persistence/value_store.h>
 
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value_builder.h>
@@ -286,4 +287,58 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
     CHECK(contents.find("\"name\"") != std::string::npos);
 
     std::filesystem::remove_all(root);
+}
+
+TEST_CASE("value store: the json baseline needs no registration call")
+{
+    // A standalone consumer of the installed SDK constructs the advertised
+    // default store without running any extension's registration. json is a
+    // required part of a conforming persistence build (RFC 0030), so it must
+    // already be there -- not installed as a side effect of something else.
+    CHECK(value_codec_registered(JSON_VALUE_CODEC));
+    CHECK_NOTHROW(value_codec(JSON_VALUE_CODEC));
+
+    const auto store = make_value_store(
+        ValueStoreConfig{.objects = make_object_store(ObjectStoreConfig{})});
+    const Value written = record_value("alpha", 7, "BOM");
+    CHECK(as_text(store.encode(written.view())) == to_json_string(written.view()));
+}
+
+TEST_CASE("value store: the default codec is not looked up per call")
+{
+    // The store resolves its default at construction, so an ordinary call must
+    // not reach the codec registry and take its TypeSystemMutex. Naming a
+    // different codec does perform that lookup, so the two paths differ by
+    // exactly the registry traffic this store avoids -- the difference, not an
+    // absolute count, is the honest assertion.
+    //
+    // Both codecs are warmed first: the interned JsonConverter is composed on
+    // first sight of a schema, and that one-off cost would otherwise swamp the
+    // measurement. Neither count is zero afterwards, because
+    // to_json_string/from_json_string resolve the converter per value and lock
+    // to do it -- the json codec's cost, not the store's, noted in RFC 0030.
+    register_reversing_codec();
+    const auto  store = memory_store();
+    const Value written = record_value("alpha", 7, "BOM");
+
+    static_cast<void>(store.encode(written.view()));
+    static_cast<void>(store.encode(written.view(), "test-reversed"));
+
+    const auto default_before = type_system_lock_count();
+    for (int index = 0; index < 16; ++index)
+    {
+        static_cast<void>(store.encode(written.view()));
+    }
+    const auto default_cost = type_system_lock_count() - default_before;
+
+    const auto named_before = type_system_lock_count();
+    for (int index = 0; index < 16; ++index)
+    {
+        static_cast<void>(store.encode(written.view(), "test-reversed"));
+    }
+    const auto named_cost = type_system_lock_count() - named_before;
+
+    // Both encode one value through one json conversion; only the named path
+    // additionally resolves its codec by name.
+    CHECK(default_cost < named_cost);
 }

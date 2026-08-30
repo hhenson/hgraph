@@ -86,8 +86,26 @@ context. It is registered under a stable name.
 
 Registration is build-time machinery, not a per-tick path, so guarding the
 registry with a counted ``TypeSystemMutex`` is sanctioned by the single-threaded
-evaluation ruling rather than a departure from it. Codecs are resolved once when
-a store is constructed or a call names one, never per value.
+evaluation ruling rather than a departure from it. A store resolves its default
+codec once, at construction, and keeps it: an ordinary call never reaches the
+registry, and only an explicit per-call override looks one up by name.
+
+**Known limitation: per-value converter resolution.** The json codec is
+implemented over ``to_json_string``/``from_json_string``, and those resolve the
+interned ``JsonConverter`` on every call, taking a ``TypeSystemRecursiveMutex``
+to do it. ``json_converter()`` documents the contract it expects instead —
+"nodes resolve their converter in ``start`` and carry it in node State" — so a
+caller encoding during evaluation, as Fabric's publisher does, takes a lock per
+value. The store no longer contributes to that, and the codec registry no longer
+does either, but the converter lookup remains and is a real departure from the
+single-threaded evaluation ruling for any per-tick user of this store.
+
+Closing it needs a way for a codec to bind a schema once and carry the result,
+which is an addition to ``ValueCodecOps`` rather than a change to any caller.
+That is deliberately left to a follow-up: the shape of the binding handle
+deserves its own design pass, and inventing it here would put an unreviewed API
+on the critical path of removing Fabric's codec. It is recorded so it is not
+rediscovered as a mystery regression.
 
 The baseline codec is ``"json"``, implemented over the core's interned
 ``JsonConverter`` — ``to_json_string`` and ``from_json_string``. It is

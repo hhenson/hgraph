@@ -21,8 +21,26 @@ namespace hgraph::persistence::store
             ValueCodecOps         ops{};
         };
 
+        void json_encode(void *context, const ValueView &value, ObjectBytes &out);
+        Value json_decode(void *context, const ValueTypeMetaData *schema,
+                          std::span<const std::byte> encoded);
+
         struct Registry
         {
+            /** The baseline codec is seeded here rather than by an installer
+                call, because a build without json is not a conforming
+                persistence build (RFC 0030) and ValueStore's advertised default
+                names it. Seeding at construction means a standalone consumer
+                that never runs an extension's registration still gets a working
+                default store; going through register_value_codec() instead
+                would deadlock on the mutex this constructor is building. */
+            Registry()
+            {
+                codecs.emplace(std::string{JSON_VALUE_CODEC},
+                               Registration{nullptr, ValueCodecOps{.encode = &json_encode,
+                                                                   .decode = &json_decode}});
+            }
+
             TypeSystemMutex                              mutex{};
             std::unordered_map<std::string, Registration> codecs{};
         };

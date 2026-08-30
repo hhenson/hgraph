@@ -79,7 +79,7 @@ namespace hgraph::fabric
             throw std::runtime_error("fabric as-of index references a missing revision");
         }
         const DataRevisionInput revision = data_revision_input(
-            config.values.decode(data_revision_meta(), stored_revision->data)
+            decode_data_revision(config.values, stored_revision->data)
                 .view());
         if (revision.data_id != data_id || revision.revision != revision_id ||
             revision.as_of != *selected_as_of)

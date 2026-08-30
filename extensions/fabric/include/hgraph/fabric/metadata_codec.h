@@ -46,6 +46,32 @@ namespace hgraph::fabric
     [[nodiscard]] HGRAPH_FABRIC_EXPORT RevisionId
     revision_reference_id(const ValueView &reference, MetadataObjectKind expected_kind);
 
+    /** Encode a DataRevision through `values`, enforcing Fabric's aggregate
+        metadata limit (MAX_METADATA_BYTES). The store owns the format; the
+        limit is Fabric's own invariant and survived the move off the
+        hand-written codec. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ObjectBytes
+    encode_data_revision(const persistence::store::ValueStore &values,
+                         const ValueView                      &revision);
+
+    /** Decode a DataRevision through `values` and validate it. The documents
+        are externally readable and therefore externally editable, so every
+        field is checked here rather than trusted: ordinals must be positive
+        and in range, dependencies must be within the count limit and in
+        canonical order. Throws std::invalid_argument otherwise. */
+    [[nodiscard]] HGRAPH_FABRIC_EXPORT Value
+    decode_data_revision(const persistence::store::ValueStore &values,
+                         std::span<const std::byte>            encoded);
+
+    /** Validate a decoded revision. Exposed so call sites that already hold a
+        Value (a Kafka payload, a notification) get the same checks. */
+    HGRAPH_FABRIC_EXPORT void validate_data_revision(const DataRevisionInput &revision);
+
+    /** Fabric's aggregate metadata limit. Applies to notification payloads as
+        well as stored objects: a document that is too large to persist is also
+        too large to put on a topic. */
+    HGRAPH_FABRIC_EXPORT void require_metadata_within_limit(std::size_t size);
+
     /** Encode an index entry through `values`. The store decides the format;
         this only spares every call site the schema and the view. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ObjectBytes

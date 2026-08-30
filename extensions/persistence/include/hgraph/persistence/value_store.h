@@ -98,10 +98,19 @@ namespace hgraph::persistence::store
                                    std::optional<std::string_view> codec = {}) const;
 
       private:
-        [[nodiscard]] ValueCodec resolve(std::optional<std::string_view> codec) const;
+        /** True when a call takes the store's default rather than an override. */
+        [[nodiscard]] bool uses_default(std::optional<std::string_view> codec) const noexcept;
 
         ObjectStore objects_{};
         std::string default_codec_{JSON_VALUE_CODEC};
+
+        /** Resolved once at construction. Fabric encodes revisions during
+            evaluation, so the default path must not reach the registry: that
+            would take a TypeSystemMutex on the per-tick path, which the
+            single-threaded evaluation ruling forbids. An explicit per-call
+            override still resolves by name -- it is asked for by a caller that
+            is not on that path. */
+        ValueCodec default_resolved_{};
     };
 
     [[nodiscard]] HGRAPH_PERSISTENCE_EXPORT ValueStore make_value_store(ValueStoreConfig config);

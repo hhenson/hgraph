@@ -1,6 +1,7 @@
 #include <hgraph/fabric/notifier.h>
 
 #include <hgraph/fabric/metadata_codec.h>
+#include <hgraph/fabric/value_builders.h>
 #include <hgraph/fabric/types.h>
 
 #include <stdexcept>
@@ -206,8 +207,10 @@ namespace hgraph::fabric
             throw std::invalid_argument(
                 "fabric revision notification payload must not be empty");
         }
+        require_metadata_within_limit(notification.revision.size());
         const Value decoded = notification_codec().decode(
             data_revision_meta(), notification.revision);
+        validate_data_revision(data_revision_input(decoded.view()));
         if (decoded.view().as_bundle().at("data_id").checked_as<Str>() !=
             notification.data_id)
         {
