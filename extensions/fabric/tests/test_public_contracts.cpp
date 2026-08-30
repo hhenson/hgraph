@@ -14,11 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
-#include <fstream>
-#include <iterator>
-#include <span>
 #include <string>
 #include <utility>
 
@@ -51,33 +47,6 @@ namespace
             .as_of = hg::DateTime{hg::TimeDelta{1'767'323'045'000'000 + revision}},
         });
         return contract_values().encode(value.view());
-    }
-
-    [[nodiscard]] std::string hex(
-        std::span<const std::byte> value)
-    {
-        constexpr char digits[]{"0123456789abcdef"};
-        std::string result;
-        result.reserve(value.size() * 2);
-        for (const std::byte item : value)
-        {
-            const auto raw = std::to_integer<unsigned char>(item);
-            result.push_back(digits[raw >> 4U]);
-            result.push_back(digits[raw & 0x0fU]);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string fixture(std::string_view name)
-    {
-        std::ifstream input{std::string{HGRAPH_FABRIC_FIXTURE_DIR} + "/" +
-                            std::string{name}};
-        REQUIRE(input.good());
-        std::string result{std::istreambuf_iterator<char>{input}, {}};
-        std::erase_if(result, [](unsigned char value) {
-            return std::isspace(value) != 0;
-        });
-        return result;
     }
 
     [[nodiscard]] hg::Value canonical_revision()
