@@ -21,6 +21,13 @@ namespace hgraph::persistence::store
         names none. RFC 0030. */
     inline constexpr std::string_view JSON_VALUE_CODEC{"json"};
 
+    /** Explicit erased ownership for schema-dependent codec state. */
+    struct ValueCodecBinding
+    {
+        std::shared_ptr<const void> owner{};
+        const void                 *handle{nullptr};
+    };
+
     /** Encode and decode one declared value schema.
 
         An ops table in the runtime's convention: function pointers whose first
@@ -30,21 +37,25 @@ namespace hgraph::persistence::store
         needs per-schema machinery -- json's interned converter, a protobuf
         descriptor, an avro schema -- synthesizes it once in `bind` and returns
         an opaque handle; `encode` and `decode` then take that handle and must
-        do no lookup, take no lock, and touch no registry. This is the same
+        do no schema-plan lookup and touch no type or realisation registry.
+        This is the same
         "compose once" contract the runtime already applies to nodes, which
         resolve their converter in `start` and carry it in node State.
 
-        A caller on the evaluation path binds at wiring time and carries the
-        BoundValueCodec. The unbound convenience calls on ValueCodec bind per
-        call and are for build-time and ad-hoc use only. */
+        A caller on the evaluation path binds while constructing run-local
+        node/service state and carries the BoundValueCodec. The unbound
+        convenience calls on ValueCodec bind per call and are for build-time
+        and ad-hoc use only. */
     struct ValueCodecOps
     {
-        /** Resolve the schema-dependent state once. The returned handle is
-            owned by the codec and must outlive every use; codecs are never
-            unregistered, so an interned or context-owned pointer is correct. */
-        const void *(*bind)(void *context, const ValueTypeMetaData *schema);
+        /** Resolve the schema-dependent state once. The returned erased owner
+            explicitly retains any run-local plan; a context-owned or interned
+            handle may leave owner empty because BoundValueCodec also retains
+            the registered implementation context. */
+        ValueCodecBinding (*bind)(void *context,
+                                  const ValueTypeMetaData *schema);
 
-        /** Encode with a handle from `bind`. Must not lock or allocate
+        /** Encode with a handle from `bind`. Must not look up or allocate
             schema state -- this is the per-tick path. */
         void (*encode)(void *context, const void *bound, const ValueView &value,
                        ObjectBytes &out);
@@ -54,37 +65,47 @@ namespace hgraph::persistence::store
                         std::span<const std::byte> encoded);
     };
 
-    /** A codec bound to one schema: the per-tick handle.
+    /** A codec bound to one schema: the run-local per-tick handle.
 
-        Bind at wiring time and carry this. It holds no shared_ptr and performs
-        no lookup, so encoding during evaluation acquires no TypeSystemMutex --
-        the single-threaded evaluation ruling. The bound handle and the codec
-        context are owned by the registry, which never removes a registration,
-        so the raw pointers stay valid; a registry reset that clears interned
-        state invalidates bindings exactly as it invalidates a node's captured
-        converter, which is why binding belongs with graph construction. */
+        Bind while constructing node/service state and carry this only for that
+        run. It retains the codec implementation context, but the schema-bound
+        handle may refer to interned type/converter state. Test-only registry
+        reset invalidates that state just as it invalidates bindings captured by
+        ordinary nodes, so a bound codec must never be stored in reusable graph
+        configuration or a process-lifetime static. */
     class HGRAPH_PERSISTENCE_CLASS_EXPORT BoundValueCodec final
     {
       public:
-        BoundValueCodec() noexcept = default;
-        BoundValueCodec(ValueCodecOps ops, void *context, const void *bound) noexcept
-            : ops_{ops}, context_{context}, bound_{bound}
-        {
-        }
+        BoundValueCodec() noexcept;
+        BoundValueCodec(ValueCodecOps ops, std::shared_ptr<void> context,
+                        const ValueTypeMetaData *schema,
+                        ValueCodecBinding binding);
+
+        BoundValueCodec(const BoundValueCodec &) = default;
+        BoundValueCodec &operator=(const BoundValueCodec &) = default;
+        BoundValueCodec(BoundValueCodec &&other) noexcept;
+        BoundValueCodec &operator=(BoundValueCodec &&other) noexcept;
+        ~BoundValueCodec() = default;
 
         [[nodiscard]] explicit operator bool() const noexcept
         {
-            return ops_.encode != nullptr;
+            return schema_ != nullptr;
         }
+
+        [[nodiscard]] const ValueTypeMetaData *schema() const noexcept { return schema_; }
 
         void encode(const ValueView &value, ObjectBytes &out) const;
         [[nodiscard]] ObjectBytes encode(const ValueView &value) const;
         [[nodiscard]] Value decode(std::span<const std::byte> encoded) const;
 
       private:
-        ValueCodecOps ops_{};
-        void         *context_{nullptr};
-        const void   *bound_{nullptr};
+        [[nodiscard]] static const ValueCodecOps &empty_ops() noexcept;
+
+        ValueCodecOps            ops_{};
+        std::shared_ptr<void>     context_{};
+        std::shared_ptr<const void> binding_owner_{};
+        const ValueTypeMetaData  *schema_{nullptr};
+        const void               *bound_{nullptr};
     };
 
     /** Register a codec under a stable name. Idempotent for an identical
@@ -101,15 +122,26 @@ namespace hgraph::persistence::store
     class HGRAPH_PERSISTENCE_CLASS_EXPORT ValueCodec final
     {
       public:
-        ValueCodec() noexcept = default;
+        ValueCodec() noexcept;
         ValueCodec(std::string name, std::shared_ptr<void> context,
                    ValueCodecOps ops) noexcept;
 
-        [[nodiscard]] bool valid() const noexcept { return ops_.encode != nullptr; }
+        ValueCodec(const ValueCodec &) = default;
+        ValueCodec &operator=(const ValueCodec &) = default;
+        ValueCodec(ValueCodec &&other) noexcept;
+        ValueCodec &operator=(ValueCodec &&other) noexcept;
+        ~ValueCodec() = default;
+
+        [[nodiscard]] bool valid() const noexcept
+        {
+            return !name_.empty() && ops_.bind != nullptr &&
+                   ops_.encode != nullptr && ops_.decode != nullptr;
+        }
         [[nodiscard]] const std::string &name() const noexcept { return name_; }
 
-        /** Resolve this codec's schema-dependent state once. Do this at wiring
-            time and keep the result for anything on the evaluation path. */
+        /** Resolve this codec's schema-dependent state once. Do this while
+            constructing run-local node/service state and keep the result for
+            anything on the evaluation path. */
         [[nodiscard]] BoundValueCodec bind(const ValueTypeMetaData *schema) const;
 
         /** Convenience: binds per call. Build-time and ad-hoc use only -- on
@@ -119,6 +151,8 @@ namespace hgraph::persistence::store
                                    std::span<const std::byte> encoded) const;
 
       private:
+        [[nodiscard]] static const ValueCodecOps &empty_ops() noexcept;
+
         std::string             name_{};
         std::shared_ptr<void>   context_{};
         ValueCodecOps           ops_{};

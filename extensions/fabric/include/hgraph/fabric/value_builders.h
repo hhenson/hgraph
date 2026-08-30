@@ -8,17 +8,19 @@
 
 namespace hgraph::fabric
 {
-    /** Build and validate a structural data dependency value. */
+    /** Ad-hoc convenience which resolves Fabric value plans for this call.
+        Evaluation code retains the private run-local binding instead. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Value
     make_data_dependency(DataDependencyInput dependency);
 
-    /** Build a canonical structural revision value. Dependencies are sorted by
-        data id; duplicate ids and all invalid identifiers/ordinals fail. */
+    /** Ad-hoc canonical revision builder. Dependencies are sorted by data id;
+        duplicate ids and all invalid identifiers/ordinals fail. Evaluation
+        code uses the private run-local binding. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT Value
     make_data_revision(DataRevisionInput revision);
 
-    /** Extract and validate the native revision record represented by a
-        structural value. */
+    /** Ad-hoc extraction and validation convenience. Evaluation code uses its
+        private retained run binding. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT DataRevisionInput
     data_revision_input(ValueView revision);
 }  // namespace hgraph::fabric

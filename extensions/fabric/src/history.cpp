@@ -4,6 +4,8 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include "impl/metadata_binding.h"
+
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -24,6 +26,10 @@ namespace hgraph::fabric
         {
             return std::nullopt;
         }
+
+        // This is the deliberately synchronous non-graph API. Its binding is
+        // local to the call, rather than retained in reusable FabricConfig.
+        const detail::FabricMetadataBinding metadata{config};
 
         const std::string category = as_of_key_prefix(config.prefix, data_id);
         const std::string prefix = category + "/";
@@ -66,21 +72,22 @@ namespace hgraph::fabric
         {
             return std::nullopt;
         }
-        const auto reference = config.objects.get(*selected);
+        const auto reference = metadata.references().try_read(*selected);
         if (!reference.has_value())
         {
             throw std::runtime_error("fabric as-of index disappeared during load");
         }
-        const RevisionId revision_id = revision_reference_value(config.reference_codec, MetadataObjectKind::AsOf, reference->data);
-        const auto stored_revision = config.objects.get(
+        const RevisionId revision_id =
+            metadata.values().revision_reference_id(reference->view(),
+                                                    MetadataObjectKind::AsOf);
+        const auto stored_revision = metadata.revisions().try_read(
             revision_key(config.prefix, data_id, revision_id));
         if (!stored_revision.has_value())
         {
             throw std::runtime_error("fabric as-of index references a missing revision");
         }
-        const DataRevisionInput revision = data_revision_input(
-            decode_data_revision(config.revision_codec, stored_revision->data)
-                .view());
+        const DataRevisionInput revision =
+            metadata.values().data_revision_input(stored_revision->view());
         if (revision.data_id != data_id || revision.revision != revision_id ||
             revision.as_of != *selected_as_of)
         {

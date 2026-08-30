@@ -4,6 +4,8 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include "impl/metadata_binding.h"
+
 #include <arrow/table.h>
 
 #include <algorithm>
@@ -18,8 +20,6 @@
 namespace hgraph::fabric {
 namespace {
 using persistence::store::ImmutableWriteStatus;
-using persistence::store::ObjectBytes;
-using persistence::store::StoredObject;
 
 struct IdLess {
   using is_transparent = void;
@@ -116,6 +116,7 @@ struct ConsistencyResolver::Impl {
   };
 
   FabricConfig config;
+  detail::FabricMetadataBinding metadata_binding;
   std::map<Str, CachedData, IdLess> cache{};
   std::set<Str, IdLess> refreshed_this_call{};
   ResolverMetrics metrics{};
@@ -125,18 +126,15 @@ struct ConsistencyResolver::Impl {
   bool cache_only{};
   bool saw_cycle{};
 
-  explicit Impl(FabricConfig configured) : config(std::move(configured)) {
-    require_valid_config(config);
-  }
+  Impl(FabricConfig configured, detail::FabricMetadataBinding binding)
+      : config(std::move(configured)), metadata_binding(std::move(binding)) {}
 
   [[nodiscard]] DataRevisionInput
-  decode_slot(std::string_view data_id, RevisionId revision,
-              const StoredObject &object) const {
+  decode_value(std::string_view data_id, RevisionId revision,
+               ValueView value) const {
     try {
       DataRevisionInput decoded =
-          data_revision_input(decode_data_revision(config.revision_codec,
-                                                   object.data)
-                                  .view());
+          metadata_binding.values().data_revision_input(std::move(value));
       if (decoded.data_id != data_id || decoded.revision != revision) {
         throw CorruptHistory(
             "fabric revision payload does not match its durable key");
@@ -150,14 +148,28 @@ struct ConsistencyResolver::Impl {
     }
   }
 
+  [[nodiscard]] DataRevisionInput
+  decode_slot(std::string_view data_id, RevisionId revision) const {
+    const auto value = metadata_binding.revisions().try_read(
+        revision_key(config.prefix, data_id, revision));
+    if (!value.has_value()) {
+      throw CorruptHistory("fabric accepted revision slot is missing: " +
+                           std::string{data_id} + ":" +
+                           std::to_string(revision));
+    }
+    return decode_value(data_id, revision, value->view());
+  }
+
   [[nodiscard]] std::optional<RevisionId>
   indexed_latest(std::string_view data_id) const {
-    const auto object = config.objects.get(latest_key(config.prefix, data_id));
-    if (!object.has_value()) {
+    const auto value = metadata_binding.references().try_read(
+        latest_key(config.prefix, data_id));
+    if (!value.has_value()) {
       return std::nullopt;
     }
     try {
-      return revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, object->data);
+      return metadata_binding.values().revision_reference_id(
+          value->view(), MetadataObjectKind::Latest);
     } catch (const std::exception &error) {
       throw CorruptHistory("fabric latest index is malformed for '" +
                            std::string{data_id} + "': " + error.what());
@@ -165,9 +177,11 @@ struct ConsistencyResolver::Impl {
   }
 
   void repair_as_of(const DataRevisionInput &revision) const {
-    const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::AsOf, revision.revision);
-    const auto result = config.objects.put_immutable(
-        as_of_key(config.prefix, revision.data_id, revision.as_of), desired);
+    Value desired = metadata_binding.values().make_revision_reference(
+        MetadataObjectKind::AsOf, revision.revision);
+    const auto result = metadata_binding.references().write(
+        as_of_key(config.prefix, revision.data_id, revision.as_of),
+        desired.view());
     if (result.status == ImmutableWriteStatus::Conflict) {
       throw CorruptHistory(
           "fabric as-of entry conflicts with accepted revision '" +
@@ -177,13 +191,16 @@ struct ConsistencyResolver::Impl {
 
   void advance_latest(std::string_view data_id, RevisionId target) const {
     const std::string key = latest_key(config.prefix, data_id);
-    const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::Latest, target);
+    Value desired = metadata_binding.values().make_revision_reference(
+        MetadataObjectKind::Latest, target);
     for (;;) {
-      const auto current = config.objects.get(key);
+      const auto current =
+          metadata_binding.references().try_read_versioned(key);
       if (current.has_value()) {
         RevisionId current_revision{};
         try {
-          current_revision = revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, current->data);
+          current_revision = metadata_binding.values().revision_reference_id(
+              current->value.view(), MetadataObjectKind::Latest);
         } catch (const std::exception &error) {
           throw CorruptHistory("fabric latest index is malformed for '" +
                                std::string{data_id} + "': " + error.what());
@@ -192,12 +209,12 @@ struct ConsistencyResolver::Impl {
           return;
         }
       }
-      const auto result = config.objects.compare_exchange_ref(
+      const auto result = metadata_binding.references().compare_exchange(
           key,
+          desired.view(),
           current.has_value()
               ? std::optional<std::string_view>{current->version_token}
-              : std::nullopt,
-          desired);
+              : std::nullopt);
       if (result.exchanged) {
         return;
       }
@@ -205,7 +222,9 @@ struct ConsistencyResolver::Impl {
         continue;
       }
       try {
-        if (revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, result.current->data) >= target) {
+        if (metadata_binding.values().revision_reference_id(
+                result.current->value.view(), MetadataObjectKind::Latest) >=
+            target) {
           return;
         }
       } catch (const std::exception &error) {
@@ -322,23 +341,17 @@ struct ConsistencyResolver::Impl {
       throw CorruptHistory("fabric latest index must be positive");
     }
     while (latest.has_value() && next <= *latest) {
-      const auto object =
-          config.objects.get(revision_key(config.prefix, data_id, next));
-      if (!object.has_value()) {
-        throw CorruptHistory("fabric accepted revision slot is missing: " +
-                             std::string{data_id} + ":" + std::to_string(next));
-      }
-      append(data, decode_slot(data_id, next, *object));
+      append(data, decode_slot(data_id, next));
       next = checked_increment(next, "revision id");
     }
 
     for (;;) {
-      const auto object =
-          config.objects.get(revision_key(config.prefix, data_id, next));
-      if (!object.has_value()) {
+      const auto value = metadata_binding.revisions().try_read(
+          revision_key(config.prefix, data_id, next));
+      if (!value.has_value()) {
         break;
       }
-      append(data, decode_slot(data_id, next, *object));
+      append(data, decode_value(data_id, next, value->view()));
       next = checked_increment(next, "revision id");
     }
     require_no_gap(data_id, next);
@@ -610,8 +623,9 @@ struct ConsistencyResolver::Impl {
   }
 
   void observe_revision(DataRevisionInput revision) {
-    Value canonical = make_data_revision(std::move(revision));
-    revision = data_revision_input(canonical.view());
+    Value canonical =
+        metadata_binding.values().make_data_revision(std::move(revision));
+    revision = metadata_binding.values().data_revision_input(canonical.view());
     auto [entry, inserted] = cache.try_emplace(revision.data_id);
     static_cast<void>(inserted);
     auto &data = entry->second;
@@ -627,14 +641,7 @@ struct ConsistencyResolver::Impl {
 
     RevisionId next = static_cast<RevisionId>(data.revisions.size() + 1);
     while (next < revision.revision) {
-      const auto object = config.objects.get(
-          revision_key(config.prefix, revision.data_id, next));
-      if (!object.has_value()) {
-        throw CorruptHistory(
-            "fabric accepted notice has a missing revision gap: " +
-            revision.data_id + ":" + std::to_string(next));
-      }
-      append(data, decode_slot(revision.data_id, next, *object), false);
+      append(data, decode_slot(revision.data_id, next), false);
       next = checked_increment(next, "revision id");
     }
     append(data, std::move(revision), false);
@@ -731,7 +738,16 @@ struct ConsistencyResolver::Impl {
 };
 
 ConsistencyResolver::ConsistencyResolver(FabricConfig config)
-    : impl_(std::make_unique<Impl>(std::move(config))) {}
+{
+  require_valid_config(config);
+  detail::FabricMetadataBinding metadata_binding{config};
+  impl_ = std::make_unique<Impl>(std::move(config),
+                                 std::move(metadata_binding));
+}
+
+ConsistencyResolver::ConsistencyResolver(
+    std::unique_ptr<Impl> impl) noexcept
+    : impl_(std::move(impl)) {}
 
 ConsistencyResolver::~ConsistencyResolver() = default;
 ConsistencyResolver::ConsistencyResolver(ConsistencyResolver &&) noexcept =
@@ -767,8 +783,10 @@ struct ConsistencyCoordinator::Impl {
   std::map<Str, ResolvedCut, IdLess> root_cuts{};
   std::map<Str, DateTime, IdLess> pending_notices{};
 
-  Impl(FabricConfig config, std::vector<Str> configured_roots)
-      : resolver(std::move(config)), roots(std::move(configured_roots)) {
+  Impl(ConsistencyResolver configured_resolver,
+       std::vector<Str> configured_roots)
+      : resolver(std::move(configured_resolver)),
+        roots(std::move(configured_roots)) {
     canonicalise_ids(roots, "coordinator roots");
   }
 
@@ -954,7 +972,12 @@ struct ConsistencyCoordinator::Impl {
 
 ConsistencyCoordinator::ConsistencyCoordinator(FabricConfig config,
                                                std::vector<Str> roots)
-    : impl_(std::make_unique<Impl>(std::move(config), std::move(roots))) {}
+    : impl_(std::make_unique<Impl>(ConsistencyResolver{std::move(config)},
+                                  std::move(roots))) {}
+
+ConsistencyCoordinator::ConsistencyCoordinator(
+    std::unique_ptr<Impl> impl) noexcept
+    : impl_(std::move(impl)) {}
 
 ConsistencyCoordinator::~ConsistencyCoordinator() = default;
 ConsistencyCoordinator::ConsistencyCoordinator(
@@ -982,5 +1005,16 @@ CoordinationResult ConsistencyCoordinator::resolve_cached(DateTime ready_at) {
 CoordinationResult ConsistencyCoordinator::resolve_at(DateTime maximum_as_of,
                                                       DateTime ready_at) {
   return impl_->resolve_all(ready_at, maximum_as_of, false);
+}
+
+ConsistencyCoordinator detail::BoundConsistencyFactory::coordinator(
+    FabricConfig config, std::vector<Str> roots,
+    FabricMetadataBinding metadata_binding) {
+  auto resolver_impl = std::make_unique<ConsistencyResolver::Impl>(
+      std::move(config), std::move(metadata_binding));
+  ConsistencyResolver resolver{std::move(resolver_impl)};
+  auto coordinator_impl = std::make_unique<ConsistencyCoordinator::Impl>(
+      std::move(resolver), std::move(roots));
+  return ConsistencyCoordinator{std::move(coordinator_impl)};
 }
 } // namespace hgraph::fabric

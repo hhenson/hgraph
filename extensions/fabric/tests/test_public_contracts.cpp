@@ -25,26 +25,21 @@ namespace
     namespace hgps = hgraph::persistence::store;
 
     /** A store for encoding fixtures, independent of any fabric config. */
-    [[nodiscard]] const hgps::ValueStore &contract_values()
+    [[nodiscard]] hgps::ValueStore contract_values()
     {
-        static const hgps::ValueStore store = [] {
-            hgps::register_builtin_value_codecs();
-            return hgps::make_value_store(
-                hgps::ValueStoreConfig{.objects = hgps::make_object_store(
-                                           hgps::ObjectStoreConfig{})});
-        }();
-        return store;
+        hgps::register_builtin_value_codecs();
+        return hgps::make_value_store(
+            hgps::ValueStoreConfig{.objects = hgps::make_object_store(
+                                       hgps::ObjectStoreConfig{})});
     }
 
 
-    /** The bound codecs a configured fabric would carry.
+    /** The bound codecs a running Fabric algorithm would carry.
 
-        Deliberately NOT cached in a static: this suite resets the registries
-        between cases, and a reset frees the interned converters a binding
-        points at. Caching one across a reset dangles -- it crashed this suite
-        with a bus error when first written, which is the hazard the
-        BoundValueCodec docs describe, reproduced. Real callers bind with the
-        config at wiring time and are torn down with the graph. */
+        Deliberately not cached in a static: this suite resets the registries
+        between cases, which invalidates registry-scoped metadata retained by
+        a binding. Real callers bind while constructing run-local node/service
+        state and tear the binding down with the graph. */
     [[nodiscard]] hgps::BoundValueCodec contract_revision_codec()
     {
         return contract_values().bind(hgf::data_revision_meta());
@@ -65,6 +60,17 @@ namespace
             .as_of = hg::DateTime{hg::TimeDelta{1'767'323'045'000'000 + revision}},
         });
         return contract_values().encode(value.view());
+    }
+
+    [[nodiscard]] hgps::ObjectBytes json_bytes(std::string_view text)
+    {
+        hgps::ObjectBytes result;
+        result.reserve(text.size());
+        for (const char character : text)
+        {
+            result.push_back(static_cast<std::byte>(character));
+        }
+        return result;
     }
 
     [[nodiscard]] hg::Value canonical_revision()
@@ -337,7 +343,6 @@ TEST_CASE("fabric metadata is a json document with the properties that matter")
     // the byte layout is now the library's business, covered by the value
     // store's own tests. What still belongs to fabric is behaviour.
     const auto &values = contract_values();
-
     hg::Value  revision = canonical_revision();
     const auto encoded  = values.encode(revision.view());
 
@@ -354,10 +359,14 @@ TEST_CASE("fabric metadata is a json document with the properties that matter")
     // An index entry names the index it belongs to, so reading a latest entry
     // as an as-of entry is refused rather than silently answered.
     const auto as_of =
-        hgf::encode_reference(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, 3);
-    CHECK(hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::AsOf, as_of) == 3);
+        hgf::encode_reference(contract_reference_codec(),
+                              hgf::MetadataObjectKind::AsOf, 3);
+    CHECK(hgf::revision_reference_value(
+              contract_reference_codec(), hgf::MetadataObjectKind::AsOf,
+              as_of) == 3);
     CHECK_THROWS_AS(
-        hgf::revision_reference_value(contract_reference_codec(), hgf::MetadataObjectKind::Latest, as_of),
+        hgf::revision_reference_value(contract_reference_codec(),
+                                      hgf::MetadataObjectKind::Latest, as_of),
         std::invalid_argument);
 
     // Malformed input still fails closed.
@@ -379,9 +388,6 @@ TEST_CASE("memory notifier fans out and conflates each data id")
           hgf::NotificationDeliveryStatus::Delivered);
     CHECK(notifier.publish({"a", notice("a", 2)}).poll().status ==
           hgf::NotificationDeliveryStatus::Delivered);
-    CHECK_THROWS_AS(notifier.publish({"a", notice("different", 1)}),
-                    std::invalid_argument);
-
     REQUIRE(first.pending() == 2);
     REQUIRE(second.pending() == 2);
     CHECK(first.try_pop() == hgf::RevisionNotification{"a", notice("a", 2)});
@@ -393,6 +399,19 @@ TEST_CASE("memory notifier fans out and conflates each data id")
           hgf::NotificationDeliveryStatus::Delivered);
     CHECK(second.pending() == 0);
     CHECK(first.try_pop() == hgf::RevisionNotification{"c", notice("c", 1)});
+}
+
+TEST_CASE("notifier transports opaque revision bytes without off-graph decoding")
+{
+    auto notifier = hgf::make_memory_notifier();
+    auto subscription = notifier.subscribe();
+    const hgraph::persistence::store::ObjectBytes opaque{
+        std::byte{'n'}, std::byte{'o'}, std::byte{'t'}, std::byte{'-'},
+        std::byte{'j'}, std::byte{'s'}, std::byte{'o'}, std::byte{'n'}};
+
+    CHECK(notifier.publish({"data", opaque}).poll().status ==
+          hgf::NotificationDeliveryStatus::Delivered);
+    CHECK(subscription.try_pop() == hgf::RevisionNotification{"data", opaque});
 }
 
 TEST_CASE("fabric configuration is run scoped and validates resources")
@@ -421,6 +440,27 @@ TEST_CASE("fabric configuration is run scoped and validates resources")
     hgf::clear_fabric_config(state, "left-fabric");
     CHECK_FALSE(hgf::fabric_config(state, "left-fabric").has_value());
     CHECK(hgf::fabric_config(state, "right-fabric").has_value());
+}
+
+TEST_CASE("reusable Fabric configuration contains no registry-bound state")
+{
+    auto config = hgf::make_memory_fabric_config("test/fabric/reusable");
+
+    // Configuration may be assembled before a run and copied into a later
+    // one. The reset destroys interned value plans and JSON converters; only
+    // run-local bindings created afterwards may point at their replacements.
+    hg::reset_all_registries();
+
+    const auto store = hgps::make_value_store(
+        {.objects = config.objects, .codec = config.metadata_codec});
+    const auto revisions = store.bind_schema(hgf::data_revision_meta());
+    hg::Value revision = hgf::make_data_revision(hgf::DataRevisionInput{
+        .data_id = "prices", .revision = 1, .output_version = 1,
+        .as_of = hg::MIN_ST});
+    REQUIRE(revisions.write("revision", revision.view()).status ==
+            hgps::ImmutableWriteStatus::Created);
+    CHECK(hgf::data_revision_input(revisions.read("revision").view()).data_id ==
+          "prices");
 }
 
 TEST_CASE("fabric operator installer survives a registry rebuild")
@@ -595,7 +635,6 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
     // checks existed in the hand-written codec and are not the store's job,
     // so they live with the schema that owns their meaning.
     const auto &values = contract_values();
-
     SECTION("a non-positive revision reference is malformed")
     {
         CHECK_THROWS_AS(hgf::make_revision_reference(hgf::MetadataObjectKind::Latest, 0),
@@ -624,30 +663,30 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
 
     SECTION("non-positive ordinals in a revision are malformed")
     {
-        auto encoded_with = [&](hgf::DataRevisionInput input) {
-            return values.encode(hgf::make_data_revision(std::move(input)).view());
-        };
-        const hgf::DataRevisionInput valid{
-            .data_id = "alpha", .revision = 1, .output_version = 1,
-            .as_of = hg::MIN_ST};
-
-        auto zero_revision = valid;
-        zero_revision.revision = 0;
-        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_revision)),
+        // These are externally edited documents. Going through
+        // make_data_revision would only prove that the builder rejects bad
+        // input before the decode boundary is reached.
+        CHECK_THROWS_AS(hgf::decode_data_revision(
+                            contract_revision_codec(),
+                            json_bytes(
+                                R"({"format_version":1,"data_id":"alpha","revision":0,"output_version":1,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
-
-        auto zero_output = valid;
-        zero_output.output_version = 0;
-        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(zero_output)),
+        CHECK_THROWS_AS(hgf::decode_data_revision(
+                            contract_revision_codec(),
+                            json_bytes(
+                                R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":0,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
-
-        auto bad_dependency = valid;
-        bad_dependency.dependencies = {{"input", 0}};
-        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), encoded_with(bad_dependency)),
+        CHECK_THROWS_AS(hgf::decode_data_revision(
+                            contract_revision_codec(),
+                            json_bytes(
+                                R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":1,"dependencies":[{"data_id":"input","version":0}],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
 
         // A valid one still round trips, so the checks are not simply refusing.
-        CHECK_NOTHROW(hgf::decode_data_revision(contract_revision_codec(), encoded_with(valid)));
+        CHECK_NOTHROW(hgf::decode_data_revision(
+            contract_revision_codec(),
+            json_bytes(
+                R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":1,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")));
     }
 
     SECTION("dependencies out of canonical order are malformed")
@@ -672,7 +711,8 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
     {
         const std::vector<std::byte> oversized(hgf::MAX_METADATA_BYTES + 1,
                                                std::byte{'{'});
-        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(), oversized),
+        CHECK_THROWS_AS(hgf::decode_data_revision(contract_revision_codec(),
+                                                  oversized),
                         std::invalid_argument);
     }
 }

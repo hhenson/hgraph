@@ -3,6 +3,8 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include "impl/metadata_value_binding.h"
+
 #include <hgraph/kafka/service.h>
 #include <hgraph/kafka/value_builders.h>
 
@@ -37,13 +39,29 @@ bytes_view(const Bytes &value) noexcept {
 namespace detail {
 /** The codec a Kafka node uses, bound once in start. A node must not resolve
     a codec or a json converter in eval: that takes a TypeSystemMutex on the
-    per-tick path. A function-local static would not do either -- a registry
-    reset clears the interned converters a binding points at, and node state is
-    torn down with the graph that owns it. */
+    per-tick path. A function-local static has the wrong lifetime: a registry
+    reset invalidates its value plans, whereas this state is torn down with the
+    graph run that owns it. */
 struct RevisionCodecState {
+  std::optional<FabricMetadataValueBinding> values{};
   persistence::store::BoundValueCodec codec{};
 
-  void bind() { codec = notification_codec().bind(data_revision_meta()); }
+  void bind() {
+    values.emplace();
+    codec = notification_codec().bind(values->data_revision_schema());
+  }
+
+  void reset() noexcept {
+    codec = {};
+    values.reset();
+  }
+
+  [[nodiscard]] const FabricMetadataValueBinding &bound_values() const {
+    if (!values.has_value()) {
+      throw std::logic_error("fabric Kafka revision codec is not bound");
+    }
+    return *values;
+  }
 };
 }  // namespace detail
 
@@ -96,7 +114,8 @@ struct FabricKafkaDecodeNode {
     const Bytes &payload_bytes = payload.checked_as<Bytes>();
     require_metadata_within_limit(payload_bytes.data.size());
     Value revision = state.ref().codec.decode(bytes_view(payload_bytes));
-    const DataRevisionInput decoded = data_revision_input(revision.view());
+    const DataRevisionInput decoded =
+        state.ref().bound_values().data_revision_input(revision.view());
     // A broker record is as untrusted as a stored document.
     validate_data_revision(decoded);
     if (key_bytes.data != decoded.data_id) {
@@ -104,6 +123,10 @@ struct FabricKafkaDecodeNode {
           "fabric Kafka record key does not match its revision data id");
     }
     out.apply(revision.view());
+  }
+
+  static void stop(State<detail::RevisionCodecState> state) {
+    state.modify().reset();
   }
 };
 
@@ -129,13 +152,18 @@ struct FabricKafkaProduceRecordNode {
                    State<detail::RevisionCodecState> state,
                    Out<TS<kafka::KafkaProduceRecord>> out) {
     const DataRevisionInput decoded =
-        data_revision_input(revision.base().value().concrete());
+        state.ref().bound_values().data_revision_input(
+            revision.base().value().concrete());
     persistence::store::ObjectBytes payload;
     state.ref().codec.encode(revision.base().value().concrete(), payload);
     Value record = kafka::make_produce_record(
         kafka_bytes(payload), Bytes{decoded.data_id}, {}, std::nullopt,
         std::nullopt, delivery_token(decoded.data_id, decoded.revision));
     out.apply(record.view());
+  }
+
+  static void stop(State<detail::RevisionCodecState> state) {
+    state.modify().reset();
   }
 };
 

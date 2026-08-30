@@ -48,8 +48,8 @@ namespace hgraph::stdlib
     using namespace hgraph::operator_type_resolution;
 
     /**
-     * ``to_json`` — erased implementations over any time-series. The composed
-     * ``JsonConverter`` is resolved ONCE in ``start`` and carried in node
+     * ``to_json`` — erased implementations over any time-series. A complete
+     * ``BoundJsonConverter`` is resolved ONCE in ``start`` and carried in node
      * State (the lifecycle form of the builder pattern); ``eval`` is a plain
      * converter invocation. The ``delta`` flag is a wiring-time constant, so
      * value vs delta is resolved by OVERLOAD SELECTION (``requires_`` on the
@@ -57,12 +57,12 @@ namespace hgraph::stdlib
      */
     namespace json_ts_detail
     {
-        /** Start-resolved converter plan mirroring the TS shape. Converter
-            lookup takes the (counted) converter-interning mutex, so nodes
-            resolve every converter their shape needs ONCE in ``start`` and
-            the per-tick walkers read plan pointers (lock-free per-tick
-            ruling). Owned via the pointer-in-State lifecycle: built in
-            ``start``, freed in ``stop``. */
+        /** Start-resolved converter plan mirroring the TS shape. Binding may
+            consult converter and graph-realisation registries, so nodes
+            resolve every converter their shape needs ONCE in ``start``. The
+            per-tick walkers use owned bound plans and perform no lookup.
+            Owned via the pointer-in-State lifecycle: built in ``start``,
+            freed in ``stop``. */
         struct TsJsonPlan;
 
         struct TsJsonPlanState
@@ -102,7 +102,13 @@ namespace hgraph::stdlib
 
         static void start(In<"ts", TsVar<"S">> ts, State<JsonCodecState> codec)
         {
-            codec.set(JsonCodecState{&json_converter(ts.base().schema()->value_schema)});
+            codec.set(JsonCodecState{
+                bind_json_converter(ts.base().schema()->value_schema)});
+        }
+
+        static void stop(State<JsonCodecState> codec)
+        {
+            codec.set(JsonCodecState{});
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"delta", Bool> delta, State<JsonCodecState> codec,
@@ -110,7 +116,7 @@ namespace hgraph::stdlib
         {
             static_cast<void>(delta);   // resolved at wiring; always false here
             std::string text;
-            codec.get().converter->write(ts.value(), text);
+            codec.get().converter.write(ts.value(), text);
             out.set(std::move(text));
         }
     };

@@ -8,6 +8,7 @@
 
 #include <string>
 #include <string_view>
+#include <memory>
 #include <vector>
 
 namespace hgraph
@@ -70,15 +71,59 @@ namespace hgraph
         AtomicTag                          atomic_tag{AtomicTag::None};
         std::vector<const JsonConverter *> children{};         ///< element / (key, value) / fields
         std::vector<std::string_view>      names{};            ///< bundle field names
+        /** Pre-resolved concrete alternatives in a run-bound converter. */
+        std::vector<const JsonConverter *> alternatives{};
+        /** Opaque immutable parser configuration captured by a bound plan. */
+        std::shared_ptr<const void> read_context{};
+        bool realization_bound{false};
+        bool polymorphic{false};
     };
 
     /**
      * The interned converter for ``meta``. Synthesizes (and caches) on first
      * use; throws ``std::logic_error`` for schemas with no JSON form.
-     * Build-time machinery: may lock; never called on the per-tick path
-     * directly (operators capture the converter at start/first use).
+     * Build-time/ad-hoc machinery: may lock. Evaluation paths use
+     * ``bind_json_converter`` and retain the resulting owned plan.
      */
     [[nodiscard]] HGRAPH_EXPORT const JsonConverter &json_converter(const ValueTypeMetaData *meta);
+
+    /**
+     * A JSON conversion plan bound to the active graph type-realisation
+     * snapshot. Construction may consult type registries and the snapshot;
+     * read/write perform no schema lookup and take no type-system or
+     * realisation lock. The plan owns its converter tree and retains the
+     * realisation snapshot backing graph-local bindings; canonical metadata
+     * remains registry-scoped. The plan is intended to live in run-local
+     * node/service state.
+     */
+    class HGRAPH_CLASS_EXPORT BoundJsonConverter final
+    {
+      public:
+        BoundJsonConverter() noexcept = default;
+        BoundJsonConverter(const BoundJsonConverter &) noexcept = default;
+        BoundJsonConverter &operator=(const BoundJsonConverter &) noexcept = default;
+        BoundJsonConverter(BoundJsonConverter &&) noexcept = default;
+        BoundJsonConverter &operator=(BoundJsonConverter &&) noexcept = default;
+        ~BoundJsonConverter() = default;
+
+        [[nodiscard]] explicit operator bool() const noexcept;
+        [[nodiscard]] const ValueTypeMetaData *schema() const noexcept;
+        void write(const ValueView &view, std::string &out) const;
+        [[nodiscard]] Value read(json_detail::Reader &reader) const;
+
+      private:
+        struct Impl;
+        explicit BoundJsonConverter(std::shared_ptr<const Impl> impl) noexcept;
+        [[nodiscard]] const JsonConverter &converter() const;
+
+        std::shared_ptr<const Impl> impl_{};
+
+        friend BoundJsonConverter bind_json_converter(const ValueTypeMetaData *meta);
+    };
+
+    /** Resolve and own a complete run-local conversion plan for ``meta``. */
+    [[nodiscard]] HGRAPH_EXPORT BoundJsonConverter
+    bind_json_converter(const ValueTypeMetaData *meta);
 
     /** Clear the interned converters (registry reset — see registry_reset.h). */
     HGRAPH_EXPORT void clear_json_converters() noexcept;
@@ -90,7 +135,10 @@ namespace hgraph
      *
      * Registration is process-wide, idempotent, and safe to perform while
      * other threads are reading JSON. ISO 8601 and the built-in compatibility
-     * formats are always tried before registered extensions.
+     * formats are always tried before registered extensions. A run-bound
+     * converter snapshots the registered formats when it is bound, so a new
+     * registration affects subsequently bound plans rather than changing an
+     * active graph run.
      */
     HGRAPH_EXPORT void register_json_datetime_format(
         std::string format, bool time_only = false);
@@ -101,8 +149,12 @@ namespace hgraph
     /** Parse ``text`` into an owned value of schema ``meta``. */
     [[nodiscard]] HGRAPH_EXPORT Value from_json_string(const ValueTypeMetaData *meta, std::string_view text);
 
-    /** Parse with a pre-resolved converter (the node-State fast path). */
+    /** Parse with an interned converter. Ad-hoc use; realisation may lock. */
     [[nodiscard]] HGRAPH_EXPORT Value from_json_string(const JsonConverter &converter, std::string_view text);
+
+    /** Parse with a run-bound converter (the lock-free evaluation path). */
+    [[nodiscard]] HGRAPH_EXPORT Value from_json_string(
+        const BoundJsonConverter &converter, std::string_view text);
 
     /**
      * Fragment cursor: lets TS-aware operators (the friendly JSON delta
@@ -127,6 +179,9 @@ namespace hgraph
         HGRAPH_EXPORT std::string parse_string(Cursor &cursor);
         /** Parse one meta-directed value at the cursor. */
         HGRAPH_EXPORT Value parse_value(const JsonConverter &converter, Cursor &cursor);
+        /** Parse one value through a run-bound conversion plan. */
+        HGRAPH_EXPORT Value parse_value(const BoundJsonConverter &converter,
+                                        Cursor &cursor);
         /** Throw a parse error at the cursor position. */
         [[noreturn]] HGRAPH_EXPORT void fail(Cursor &cursor, std::string_view message);
     }  // namespace json_fragment
@@ -137,7 +192,7 @@ namespace hgraph
      */
     struct JsonCodecState
     {
-        const JsonConverter *converter{nullptr};
+        BoundJsonConverter converter{};
     };
 }  // namespace hgraph
 

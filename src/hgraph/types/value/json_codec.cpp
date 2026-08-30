@@ -45,6 +45,12 @@ namespace hgraph
         using JsonDateTimeFormatSnapshot =
             std::shared_ptr<const RegisteredJsonDateTimeFormats>;
 
+        struct JsonReadContext
+        {
+            JsonDateTimeFormatSnapshot formats{};
+            std::shared_ptr<const TimeZoneProvider> time_zone_provider{};
+        };
+
         struct JsonDateTimeFormatRegistry
         {
             std::mutex mutex{};
@@ -568,7 +574,8 @@ namespace hgraph
 
         template <typename TimePoint>
         [[nodiscard]] std::optional<TimePoint> parse_json_datetime_value(
-            std::string_view text)
+            std::string_view text,
+            const RegisteredJsonDateTimeFormats &registered)
         {
             static constexpr std::array<std::string_view, 3> compact_formats{
                 "%Y%m%d", "%Y%m%d%H%M%S", "%Y%m%d%H%M%S"};
@@ -667,8 +674,7 @@ namespace hgraph
             {
                 return value;
             }
-            const auto registered = registered_datetime_format_snapshot();
-            for (const std::string &format : registered->datetime)
+            for (const std::string &format : registered.datetime)
             {
                 if (auto value =
                         parse_datetime_format<TimePoint>(text, format))
@@ -680,7 +686,8 @@ namespace hgraph
         }
 
         [[nodiscard]] std::optional<CivilTime> parse_json_time_value(
-            std::string_view text)
+            std::string_view text,
+            const RegisteredJsonDateTimeFormats &registered)
         {
             static constexpr std::array<std::string_view, 3> iso_formats{
                 "%H:%M:%S", "%H:%M", "%H"};
@@ -758,8 +765,7 @@ namespace hgraph
             {
                 if (auto value = parse(text, format)) { return value; }
             }
-            const auto registered = registered_datetime_format_snapshot();
-            for (const std::string &format : registered->time)
+            for (const std::string &format : registered.time)
             {
                 if (auto value = parse(text, format)) { return value; }
             }
@@ -767,11 +773,13 @@ namespace hgraph
         }
 
         [[nodiscard]] CivilDate json_date(
-            std::string_view text, Reader &reader)
+            std::string_view text, Reader &reader,
+            const RegisteredJsonDateTimeFormats &registered)
         {
             using LocalMicros =
                 JsonLocalTime<std::chrono::microseconds>;
-            auto value = parse_json_datetime_value<LocalMicros>(text);
+            auto value = parse_json_datetime_value<LocalMicros>(
+                text, registered);
             if (!value)
             {
                 reader.fail(fmt::format(
@@ -783,9 +791,10 @@ namespace hgraph
         }
 
         [[nodiscard]] CivilTime json_time(
-            std::string_view text, Reader &reader)
+            std::string_view text, Reader &reader,
+            const RegisteredJsonDateTimeFormats &registered)
         {
-            auto value = parse_json_time_value(text);
+            auto value = parse_json_time_value(text, registered);
             if (!value)
             {
                 reader.fail(fmt::format(
@@ -796,10 +805,12 @@ namespace hgraph
         }
 
         [[nodiscard]] Instant json_instant(
-            std::string_view text, Reader &reader)
+            std::string_view text, Reader &reader,
+            const RegisteredJsonDateTimeFormats &registered)
         {
             using SysMicros = JsonSysTime<std::chrono::microseconds>;
-            auto value = parse_json_datetime_value<SysMicros>(text);
+            auto value = parse_json_datetime_value<SysMicros>(
+                text, registered);
             if (!value)
             {
                 reader.fail(fmt::format(
@@ -1315,16 +1326,38 @@ namespace hgraph
             bool polymorphic = false;
             if (self.meta->is_named_bundle())
             {
-                const auto *snapshot = active_type_realization();
-                polymorphic = view.binding() != self.binding ||
-                              (snapshot != nullptr && snapshot->is_polymorphic(self.meta));
-                if (polymorphic)
+                if (self.realization_bound)
                 {
-                    if (!TypeRegistry::instance().bundle_is_a(concrete.schema(), self.meta))
+                    polymorphic = self.polymorphic;
+                    if (polymorphic)
                     {
-                        throw std::logic_error("json: polymorphic Bundle contains an invalid concrete type");
+                        const auto alternative = std::ranges::find_if(
+                            self.alternatives,
+                            [&](const JsonConverter *candidate) {
+                                return candidate->meta == concrete.schema();
+                            });
+                        if (alternative == self.alternatives.end())
+                        {
+                            throw std::logic_error(
+                                "json: polymorphic Bundle contains an invalid concrete type");
+                        }
+                        selected = *alternative;
                     }
-                    selected = &json_converter(concrete.schema());
+                }
+                else
+                {
+                    const auto *snapshot = active_type_realization();
+                    polymorphic = view.binding() != self.binding ||
+                                  (snapshot != nullptr && snapshot->is_polymorphic(self.meta));
+                    if (polymorphic)
+                    {
+                        if (!TypeRegistry::instance().bundle_is_a(concrete.schema(), self.meta))
+                        {
+                            throw std::logic_error(
+                                "json: polymorphic Bundle contains an invalid concrete type");
+                        }
+                        selected = &json_converter(concrete.schema());
+                    }
                 }
             }
 
@@ -1423,39 +1456,78 @@ namespace hgraph
         // Read thunks
         // ---------------------------------------------------------------
 
+        template <typename T>
+        [[nodiscard]] Value read_bound_atomic(const JsonConverter &self,
+                                              T value)
+        {
+            return Value{self.binding, std::addressof(value)};
+        }
+
         Value read_atomic(const JsonConverter &self, Reader &reader)
         {
+            JsonDateTimeFormatSnapshot dynamic_formats{};
+            const auto *bound_read_context =
+                static_cast<const JsonReadContext *>(
+                    self.read_context.get());
+            const auto registered_formats = [&]()
+                -> const RegisteredJsonDateTimeFormats & {
+                if (bound_read_context != nullptr)
+                {
+                    return *bound_read_context->formats;
+                }
+                dynamic_formats = registered_datetime_format_snapshot();
+                return *dynamic_formats;
+            };
             switch (self.atomic_tag)
             {
                 case AtomicTag::Bool: {
-                    if (reader.consume_keyword("true")) { return Value{Bool{true}}; }
-                    if (reader.consume_keyword("false")) { return Value{Bool{false}}; }
+                    if (reader.consume_keyword("true"))
+                    {
+                        return read_bound_atomic(self, Bool{true});
+                    }
+                    if (reader.consume_keyword("false"))
+                    {
+                        return read_bound_atomic(self, Bool{false});
+                    }
                     reader.fail("expected a boolean");
                 }
-                case AtomicTag::Int: return Value{json_detail::parse_int_token(reader.parse_number_token(), reader)};
+                case AtomicTag::Int:
+                    return read_bound_atomic(
+                        self, json_detail::parse_int_token(
+                                  reader.parse_number_token(), reader));
                 case AtomicTag::Float:
-                    return Value{json_detail::parse_float_token(reader.parse_number_token(), reader)};
-                case AtomicTag::Str: return Value{Str{reader.parse_string()}};
+                    return read_bound_atomic(
+                        self, json_detail::parse_float_token(
+                                  reader.parse_number_token(), reader));
+                case AtomicTag::Str:
+                    return read_bound_atomic(self, Str{reader.parse_string()});
                 case AtomicTag::Date: {
-                    return Value{json_detail::json_date(
-                        reader.parse_string(), reader)};
+                    return read_bound_atomic(
+                        self, json_detail::json_date(
+                                  reader.parse_string(), reader,
+                                  registered_formats()));
                 }
                 case AtomicTag::DateTime: {
-                    return Value{json_detail::json_instant(
-                        reader.parse_string(), reader)};
+                    return read_bound_atomic(
+                        self, json_detail::json_instant(
+                                  reader.parse_string(), reader,
+                                  registered_formats()));
                 }
                 case AtomicTag::TimeDelta: {
-                    return Value{
-                        json_detail::parse_json_duration(
-                            reader.parse_string(), reader)};
+                    return read_bound_atomic(
+                        self, json_detail::parse_json_duration(
+                                  reader.parse_string(), reader));
                 }
                 case AtomicTag::Time: {
-                    return Value{json_detail::json_time(
-                        reader.parse_string(), reader)};
+                    return read_bound_atomic(
+                        self, json_detail::json_time(
+                                  reader.parse_string(), reader,
+                                  registered_formats()));
                 }
                 case AtomicTag::CivilDateTime:
-                    return Value{json_detail::parse_civil_datetime(
-                        reader.parse_string(), reader, false)};
+                    return read_bound_atomic(
+                        self, json_detail::parse_civil_datetime(
+                                  reader.parse_string(), reader, false));
                 case AtomicTag::Period: {
                     reader.expect('{');
                     if (reader.parse_string() != "months")
@@ -1474,10 +1546,12 @@ namespace hgraph
                     const auto days = json_detail::parse_int_token(
                         reader.parse_number_token(), reader);
                     reader.expect('}');
-                    return Value{Period{0, months, days}};
+                    return read_bound_atomic(
+                        self, Period{0, months, days});
                 }
                 case AtomicTag::ZoneId:
-                    return Value{ZoneId{reader.parse_string()}};
+                    return read_bound_atomic(
+                        self, ZoneId{reader.parse_string()});
                 case AtomicTag::ZonedDateTime: {
                     const std::string text = reader.parse_string();
                     const auto bracket = text.find('[');
@@ -1522,38 +1596,43 @@ namespace hgraph
                                  1'000'000});
                     const ZonedDateTime verified =
                         at_zone(instant, zone,
-                                codec_time_zone_provider());
+                                bound_read_context != nullptr
+                                    ? *bound_read_context->time_zone_provider
+                                    : codec_time_zone_provider());
                     if (verified.offset_seconds() != offset)
                     {
                         reader.fail(
                             "zoned datetime offset disagrees with provider");
                     }
-                    return Value{verified};
+                    return read_bound_atomic(self, verified);
                 }
                 case AtomicTag::InstantRange:
-                    return Value{json_detail::read_range<InstantRange>(
-                        reader,
-                        [](std::string_view value, Reader &nested) {
-                            const CivilDateTime parsed =
-                                json_detail::parse_civil_datetime(
-                                    value, nested, true);
-                            return Instant{
-                                Duration{parsed.epoch_microseconds()}};
-                        })};
+                    return read_bound_atomic(
+                        self, json_detail::read_range<InstantRange>(
+                                  reader,
+                                  [](std::string_view value, Reader &nested) {
+                                      const CivilDateTime parsed =
+                                          json_detail::parse_civil_datetime(
+                                              value, nested, true);
+                                      return Instant{Duration{
+                                          parsed.epoch_microseconds()}};
+                                  }));
                 case AtomicTag::CivilDateRange:
-                    return Value{json_detail::read_range<CivilDateRange>(
-                        reader,
-                        [](std::string_view value, Reader &nested) {
-                            std::size_t position = 0;
-                            const CivilDate parsed =
-                                json_detail::parse_date_body(
-                                    value, position, nested);
-                            if (position != value.size())
-                            {
-                                nested.fail("trailing date content");
-                            }
-                            return parsed;
-                        })};
+                    return read_bound_atomic(
+                        self, json_detail::read_range<CivilDateRange>(
+                                  reader,
+                                  [](std::string_view value, Reader &nested) {
+                                      std::size_t position = 0;
+                                      const CivilDate parsed =
+                                          json_detail::parse_date_body(
+                                              value, position, nested);
+                                      if (position != value.size())
+                                      {
+                                          nested.fail(
+                                              "trailing date content");
+                                      }
+                                      return parsed;
+                                  }));
                 case AtomicTag::InstantRangeSet: {
                     std::array<InstantRange, 2> ranges{};
                     std::size_t size = 0;
@@ -1582,8 +1661,9 @@ namespace hgraph
                         }
                         reader.expect(']');
                     }
-                    return Value{InstantRangeSet{
-                        std::span<const InstantRange>{ranges.data(), size}}};
+                    return read_bound_atomic(
+                        self, InstantRangeSet{std::span<const InstantRange>{
+                                  ranges.data(), size}});
                 }
                 case AtomicTag::CivilDateRangeSet: {
                     std::array<CivilDateRange, 2> ranges{};
@@ -1618,8 +1698,10 @@ namespace hgraph
                         }
                         reader.expect(']');
                     }
-                    return Value{CivilDateRangeSet{
-                        std::span<const CivilDateRange>{ranges.data(), size}}};
+                    return read_bound_atomic(
+                        self,
+                        CivilDateRangeSet{std::span<const CivilDateRange>{
+                            ranges.data(), size}});
                 }
                 case AtomicTag::None: break;
             }
@@ -1628,8 +1710,15 @@ namespace hgraph
 
         Value read_realized(const JsonConverter &converter, Reader &reader)
         {
-            const auto *snapshot = active_type_realization();
-            if (snapshot == nullptr || !snapshot->is_polymorphic(converter.meta))
+            const auto *snapshot = converter.realization_bound
+                                       ? nullptr
+                                       : active_type_realization();
+            const bool polymorphic = converter.realization_bound
+                                         ? converter.polymorphic
+                                         : snapshot != nullptr &&
+                                               snapshot->is_polymorphic(
+                                                   converter.meta);
+            if (!polymorphic)
             {
                 return converter.read_(converter, reader);
             }
@@ -1656,15 +1745,44 @@ namespace hgraph
             }
 
             const ValueTypeMetaData *selected = nullptr;
-            for (const auto *alternative : snapshot->alternatives(converter.meta))
+            const JsonConverter *selected_converter = nullptr;
+            if (converter.realization_bound)
             {
-                if (alternative->matches_bundle_discriminator(requested))
+                for (const auto *alternative : converter.alternatives)
                 {
-                    if (selected != nullptr) { probe.fail("polymorphic Bundle discriminator is ambiguous"); }
-                    selected = alternative;
+                    if (alternative->meta->matches_bundle_discriminator(
+                            requested))
+                    {
+                        if (selected_converter != nullptr)
+                        {
+                            probe.fail(
+                                "polymorphic Bundle discriminator is ambiguous");
+                        }
+                        selected_converter = alternative;
+                    }
                 }
             }
-            if (selected == nullptr)
+            else
+            {
+                for (const auto *alternative :
+                     snapshot->alternatives(converter.meta))
+                {
+                    if (alternative->matches_bundle_discriminator(requested))
+                    {
+                        if (selected != nullptr)
+                        {
+                            probe.fail(
+                                "polymorphic Bundle discriminator is ambiguous");
+                        }
+                        selected = alternative;
+                    }
+                }
+            }
+            if (converter.realization_bound && selected_converter == nullptr)
+            {
+                probe.fail("polymorphic Bundle discriminator names no valid alternative");
+            }
+            if (!converter.realization_bound && selected == nullptr)
             {
                 probe.fail("polymorphic Bundle discriminator names no valid alternative");
             }
@@ -1672,9 +1790,15 @@ namespace hgraph
             // Read the selected alternative exactly. Its own children still
             // use read_realized, but an instantiable parent remains a valid
             // concrete alternative even when it also has descendants.
-            const auto &selected_converter = json_converter(selected);
-            Value       concrete            = selected_converter.read_(selected_converter, reader);
-            const auto  realized            = snapshot->type_for(converter.meta);
+            if (!converter.realization_bound)
+            {
+                selected_converter = &json_converter(selected);
+            }
+            Value concrete = selected_converter->read_(*selected_converter,
+                                                       reader);
+            const auto realized = converter.realization_bound
+                                      ? converter.binding
+                                      : snapshot->type_for(converter.meta);
             Value       result{realized};
             auto        destination = result.begin_mutation();
             realized.ops_ref().copy_assign_from(
@@ -1685,10 +1809,14 @@ namespace hgraph
         Value read_composite(const JsonConverter &self, Reader &reader)
         {
             auto binding = self.binding;
-            if (const auto *snapshot = active_type_realization();
-                snapshot != nullptr && !snapshot->is_polymorphic(self.meta))
+            if (!self.realization_bound)
             {
-                binding = snapshot->type_for(self.meta);
+                if (const auto *snapshot = active_type_realization();
+                    snapshot != nullptr &&
+                    !snapshot->is_polymorphic(self.meta))
+                {
+                    binding = snapshot->type_for(self.meta);
+                }
             }
             BundleBuilder builder{binding};
             if (self.names.empty())
@@ -1749,6 +1877,7 @@ namespace hgraph
 
         [[nodiscard]] ValueTypeRef realized_read_binding(const JsonConverter &converter)
         {
+            if (converter.realization_bound) { return converter.binding; }
             if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
             {
                 return snapshot->type_for(converter.meta);
@@ -1758,8 +1887,9 @@ namespace hgraph
 
         Value read_list(const JsonConverter &self, Reader &reader)
         {
-            ListBuilder builder{
-                realized_read_binding(*self.children[0]), *self.meta};
+            const auto element_binding =
+                realized_read_binding(*self.children[0]);
+            ListBuilder builder{element_binding, *self.meta};
             reader.expect('[');
             if (!reader.consume_if(']'))
             {
@@ -1771,12 +1901,19 @@ namespace hgraph
                 }
                 reader.expect(']');
             }
-            return builder.build();
+            ListStorage storage = builder.build_storage();
+            const auto result_binding = self.realization_bound
+                                            ? self.binding
+                                            : compact_list_type(
+                                                  element_binding, *self.meta);
+            return Value{result_binding, &storage};
         }
 
         Value read_set(const JsonConverter &self, Reader &reader)
         {
-            SetBuilder builder{realized_read_binding(*self.children[0])};
+            const auto element_binding =
+                realized_read_binding(*self.children[0]);
+            SetBuilder builder{element_binding};
             reader.expect('[');
             if (!reader.consume_if(']'))
             {
@@ -1788,14 +1925,20 @@ namespace hgraph
                 }
                 reader.expect(']');
             }
-            return builder.build();
+            SetStorage storage = builder.build_storage();
+            const auto result_binding = self.realization_bound
+                                            ? self.binding
+                                            : compact_set_type(element_binding);
+            return Value{result_binding, &storage};
         }
 
         Value read_map(const JsonConverter &self, Reader &reader)
         {
-            MapBuilder builder{
-                realized_read_binding(*self.children[0]),
-                realized_read_binding(*self.children[1])};
+            const auto key_binding =
+                realized_read_binding(*self.children[0]);
+            const auto value_binding =
+                realized_read_binding(*self.children[1]);
+            MapBuilder builder{key_binding, value_binding};
             reader.expect('{');
             if (!reader.consume_if('}'))
             {
@@ -1805,7 +1948,11 @@ namespace hgraph
                     // its content, other keys parse the content as their token.
                     const std::string key_text = reader.parse_string();
                     Value             key;
-                    if (self.children[0]->atomic_tag == AtomicTag::Str) { key = Value{Str{key_text}}; }
+                    if (self.children[0]->atomic_tag == AtomicTag::Str)
+                    {
+                        key = read_bound_atomic(
+                            *self.children[0], Str{key_text});
+                    }
                     else
                     {
                         Reader key_reader{std::string_view{key_text}};
@@ -1840,7 +1987,12 @@ namespace hgraph
                 }
                 reader.expect('}');
             }
-            return builder.build();
+            MapStorage storage = builder.build_storage();
+            const auto result_binding = self.realization_bound
+                                            ? self.binding
+                                            : compact_map_type(
+                                                  key_binding, value_binding);
+            return Value{result_binding, &storage};
         }
 
         // ---------------------------------------------------------------
@@ -1994,7 +2146,149 @@ namespace hgraph
         }
     }  // namespace
 
+    struct BoundJsonConverter::Impl
+    {
+        explicit Impl(
+            std::shared_ptr<const TypeRealizationSnapshot> realization)
+            : realization_owner{std::move(realization)},
+              realization{realization_owner.get()},
+              read_context{std::make_shared<JsonReadContext>(
+                  JsonReadContext{
+                      registered_datetime_format_snapshot(),
+                      make_time_zone_provider()})}
+        {
+        }
+
+        [[nodiscard]] JsonConverter *build(const ValueTypeMetaData *meta,
+                                           bool exact_root)
+        {
+            auto &plans = exact_root ? exact_plans : plans_by_schema;
+            if (const auto found = plans.find(meta); found != plans.end())
+            {
+                return found->second.get();
+            }
+
+            const auto &prototype = json_converter(meta);
+            auto plan = std::make_unique<JsonConverter>();
+            auto *result = plan.get();
+            plans.emplace(meta, std::move(plan));
+
+            result->write_ = prototype.write_;
+            result->read_ = prototype.read_;
+            result->meta = prototype.meta;
+            result->atomic_tag = prototype.atomic_tag;
+            result->names = prototype.names;
+            result->read_context = read_context;
+            result->realization_bound = true;
+            result->binding = realization == nullptr
+                                  ? prototype.binding
+                                  : exact_root
+                                        ? realization->exact_type_for(meta)
+                                        : realization->type_for(meta);
+
+            result->children.reserve(prototype.children.size());
+            for (const auto *child : prototype.children)
+            {
+                result->children.push_back(build(child->meta, false));
+            }
+
+            // Container readers construct compact owning storage. A declared
+            // fixed List may have an inline canonical binding, so pairing its
+            // plan with a ListStorage address would be a representation lie.
+            // Resolve the matching owning representation once here; composite
+            // consumers convert it into their declared field binding through
+            // the normal erased assignment contract.
+            switch (meta->value_kind())
+            {
+                case ValueTypeKind::List:
+                    result->binding = compact_list_type(
+                        result->children[0]->binding, *meta);
+                    break;
+                case ValueTypeKind::Set:
+                    result->binding = compact_set_type(
+                        result->children[0]->binding);
+                    break;
+                case ValueTypeKind::Map:
+                    result->binding = compact_map_type(
+                        result->children[0]->binding,
+                        result->children[1]->binding);
+                    break;
+                default: break;
+            }
+
+            result->polymorphic = !exact_root && realization != nullptr &&
+                                  realization->is_polymorphic(meta);
+            if (result->polymorphic)
+            {
+                for (const auto *alternative : realization->alternatives(meta))
+                {
+                    result->alternatives.push_back(build(alternative, true));
+                }
+            }
+            return result;
+        }
+
+        std::shared_ptr<const TypeRealizationSnapshot> realization_owner{};
+        const TypeRealizationSnapshot *realization{nullptr};
+        std::shared_ptr<const JsonReadContext> read_context{};
+        std::unordered_map<const ValueTypeMetaData *,
+                           std::unique_ptr<JsonConverter>> plans_by_schema{};
+        std::unordered_map<const ValueTypeMetaData *,
+                           std::unique_ptr<JsonConverter>> exact_plans{};
+        const JsonConverter *root{nullptr};
+    };
+
     Value JsonConverter::read(json_detail::Reader &reader) const { return read_realized(*this, reader); }
+
+    BoundJsonConverter::BoundJsonConverter(
+        std::shared_ptr<const Impl> impl) noexcept
+        : impl_{std::move(impl)}
+    {
+    }
+
+    BoundJsonConverter::operator bool() const noexcept
+    {
+        return impl_ != nullptr && impl_->root != nullptr;
+    }
+
+    const ValueTypeMetaData *BoundJsonConverter::schema() const noexcept
+    {
+        return *this ? impl_->root->meta : nullptr;
+    }
+
+    const JsonConverter &BoundJsonConverter::converter() const
+    {
+        if (!*this)
+        {
+            throw std::logic_error("json: converter is not bound to a schema");
+        }
+        return *impl_->root;
+    }
+
+    void BoundJsonConverter::write(const ValueView &view,
+                                   std::string &out) const
+    {
+        converter().write(view, out);
+    }
+
+    Value BoundJsonConverter::read(json_detail::Reader &reader) const
+    {
+        return converter().read(reader);
+    }
+
+    BoundJsonConverter bind_json_converter(const ValueTypeMetaData *meta)
+    {
+        if (meta == nullptr)
+        {
+            throw std::invalid_argument(
+                "json: cannot bind a null value schema");
+        }
+        const auto *active = active_type_realization();
+        auto impl = std::make_shared<BoundJsonConverter::Impl>(
+            active != nullptr ? active->shared_from_this() : nullptr);
+        impl->root = impl->build(meta, false);
+        return BoundJsonConverter{std::move(impl)};
+    }
 
     const JsonConverter &json_converter(const ValueTypeMetaData *meta)
     {
@@ -2021,6 +2315,16 @@ namespace hgraph
     }
 
     Value from_json_string(const JsonConverter &converter, std::string_view text)
+    {
+        json_detail::Reader reader{text};
+        Value               result = converter.read(reader);
+        reader.skip_ws();
+        if (reader.pos != text.size()) { reader.fail("trailing content"); }
+        return result;
+    }
+
+    Value from_json_string(const BoundJsonConverter &converter,
+                           std::string_view text)
     {
         json_detail::Reader reader{text};
         Value               result = converter.read(reader);
@@ -2079,6 +2383,14 @@ namespace hgraph
         }
 
         Value parse_value(const JsonConverter &converter, Cursor &cursor)
+        {
+            json_detail::Reader reader{cursor.text, cursor.offset};
+            Value               result = converter.read(reader);
+            cursor.offset              = reader.pos;
+            return result;
+        }
+
+        Value parse_value(const BoundJsonConverter &converter, Cursor &cursor)
         {
             json_detail::Reader reader{cursor.text, cursor.offset};
             Value               result = converter.read(reader);

@@ -1,8 +1,7 @@
 #include <hgraph/fabric/config.h>
 
-#include <hgraph/fabric/metadata_codec.h>
-
 #include <hgraph/persistence/store_location.h>
+#include <hgraph/persistence/value_codec.h>
 #include <hgraph/types/metadata/type_registry.h>
 
 #include <stdexcept>
@@ -38,21 +37,6 @@ namespace hgraph::fabric
         }
     }  // namespace
 
-    void ensure_value_store(FabricConfig &config)
-    {
-        // Derived from the object store rather than configured separately:
-        // one backend, two typed views over it, so a caller cannot point
-        // metadata and frames at different places by accident.
-        if (config.values)
-        {
-            return;
-        }
-        persistence::store::register_builtin_value_codecs();
-        config.values = persistence::store::make_value_store(
-            persistence::store::ValueStoreConfig{.objects = config.objects});
-        bind_metadata_codecs(config);
-    }
-
     FabricConfig make_memory_fabric_config(Str prefix,
                                            std::size_t notification_request_limit)
     {
@@ -65,7 +49,6 @@ namespace hgraph::fabric
             .notifications = make_memory_notifier(),
             .notification_request_limit = notification_request_limit,
         };
-        ensure_value_store(config);
         require_valid_config(config);
         return config;
     }
@@ -81,6 +64,10 @@ namespace hgraph::fabric
         {
             throw std::invalid_argument("fabric configuration requires a frame store");
         }
+        static_cast<void>(persistence::store::value_codec(
+            config.metadata_codec.empty()
+                ? persistence::store::JSON_VALUE_CODEC
+                : std::string_view{config.metadata_codec}));
         if (!config.notifications)
         {
             throw std::invalid_argument("fabric configuration requires a notifier");
@@ -99,9 +86,6 @@ namespace hgraph::fabric
         {
             throw std::logic_error("fabric configuration requires GlobalState");
         }
-        // Every config reaches the runtime through here, so a hand-built one
-        // gets its value store without the caller knowing to ask.
-        ensure_value_store(config);
         require_valid_config(config);
         ensure_holder_type();
         state.set(config_key(path), Value{FabricConfigHolder{std::move(config)}});

@@ -1,5 +1,7 @@
 #include <hgraph/fabric/fabric.h>
 
+#include <hgraph/persistence/value_store.h>
+
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/table.h>
@@ -17,6 +19,12 @@ namespace
     namespace hgps = hgraph::persistence::store;
 
     constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
+
+    [[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config)
+    {
+        return hgps::make_value_store({.objects = config.objects,
+                                       .codec = config.metadata_codec});
+    }
 
     [[nodiscard]] hg::Frame frame(std::int64_t value)
     {
@@ -52,12 +60,14 @@ namespace
         });
         REQUIRE(config.objects
                     .put_immutable(hgf::revision_key(config.prefix, "prices", revision),
-                                   config.values.encode(value.view()))
+                                   metadata_store(config).encode(value.view()))
                     .status == hgps::ImmutableWriteStatus::Created);
         REQUIRE(config.objects
                     .put_immutable(
                         hgf::as_of_key(config.prefix, "prices", as_of),
-                        hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, revision))
+                        hgf::encode_reference(
+                            metadata_store(config).bind(hgf::revision_reference_meta()),
+                            hgf::MetadataObjectKind::AsOf, revision))
                     .status == hgps::ImmutableWriteStatus::Created);
     }
 }  // namespace
@@ -85,7 +95,9 @@ TEST_CASE("load_data rejects an as-of index entry for another instant")
     REQUIRE(config.objects
                 .put_immutable(
                     hgf::as_of_key(config.prefix, "prices", BASE_TIME + hg::TimeDelta{20}),
-                    hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, 1))
+                    hgf::encode_reference(
+                        metadata_store(config).bind(hgf::revision_reference_meta()),
+                        hgf::MetadataObjectKind::AsOf, 1))
                 .status == hgps::ImmutableWriteStatus::Created);
 
     CHECK_THROWS_WITH(hgf::load_data(config, "prices", BASE_TIME + hg::TimeDelta{20}),
@@ -103,12 +115,14 @@ TEST_CASE("load_data fails on a missing referenced frame")
     });
     REQUIRE(config.objects
                 .put_immutable(hgf::revision_key(config.prefix, "prices", 1),
-                               config.values.encode(value.view()))
+                               metadata_store(config).encode(value.view()))
                 .status == hgps::ImmutableWriteStatus::Created);
     REQUIRE(config.objects
                 .put_immutable(
                     hgf::as_of_key(config.prefix, "prices", BASE_TIME),
-                    hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, 1))
+                    hgf::encode_reference(
+                        metadata_store(config).bind(hgf::revision_reference_meta()),
+                        hgf::MetadataObjectKind::AsOf, 1))
                 .status == hgps::ImmutableWriteStatus::Created);
 
     CHECK_THROWS_WITH(hgf::load_data(config, "prices", BASE_TIME),

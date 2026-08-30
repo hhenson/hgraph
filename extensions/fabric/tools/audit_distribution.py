@@ -58,6 +58,8 @@ SDIST_REQUIRED = (
     "src/config.cpp",
     "src/history.cpp",
     "src/impl/memory_notifier.cpp",
+    "src/impl/metadata_binding.h",
+    "src/impl/metadata_value_binding.h",
     "src/impl/service_state.h",
     "src/kafka.cpp",
     "src/keys.cpp",

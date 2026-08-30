@@ -7,6 +7,8 @@
 #include <hgraph/fabric/service.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include <hgraph/persistence/value_store.h>
+
 #include <hgraph/python/chrono.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -285,6 +287,10 @@ NB_MODULE(_hgraph_fabric, module)
 
             FabricConfig config =
                 make_memory_fabric_config("python/resolution-fixture");
+            const auto metadata = persistence::store::make_value_store(
+                {.objects = config.objects, .codec = config.metadata_codec});
+            const auto revision_store =
+                metadata.bind_schema(data_revision_meta());
             for (const auto &revision : revisions)
             {
                 const std::string frame_key = data_version_key(
@@ -295,10 +301,10 @@ NB_MODULE(_hgraph_fabric, module)
                         frame_key, fixture_frame(revision.output_version));
                 }
                 Value value = make_data_revision(revision);
-                const auto stored = config.objects.put_immutable(
+                const auto stored = revision_store.write(
                     revision_key(config.prefix, revision.data_id,
                                  revision.revision),
-                    config.values.encode(value.view()));
+                    value.view());
                 if (stored.status !=
                     persistence::store::ImmutableWriteStatus::Created)
                 {

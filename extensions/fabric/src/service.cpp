@@ -31,6 +31,47 @@
 
 namespace hgraph::fabric
 {
+    void detail::DiagnosticValueState::bind()
+    {
+        auto &factory = ValuePlanFactory::instance();
+        str_type_ = factory.type_for(scalar_descriptor<Str>::value_meta());
+        bool_type_ = factory.type_for(scalar_descriptor<Bool>::value_meta());
+        int_type_ = factory.type_for(scalar_descriptor<Int>::value_meta());
+        event_type_ =
+            factory.type_for(scalar_descriptor<FabricDiagnosticEvent>::value_meta());
+        if (!str_type_ || !bool_type_ || !int_type_ || !event_type_)
+        {
+            throw std::logic_error(
+                "fabric diagnostic value bindings did not resolve");
+        }
+    }
+
+    void detail::DiagnosticValueState::reset() noexcept
+    {
+        str_type_ = {};
+        bool_type_ = {};
+        int_type_ = {};
+        event_type_ = {};
+    }
+
+    Value detail::DiagnosticValueState::make_event(
+        const FabricDiagnosticEventInput &event) const
+    {
+        if (!event_type_)
+        {
+            throw std::logic_error(
+                "fabric diagnostic value state is not bound");
+        }
+        BundleBuilder builder{event_type_};
+        builder.set(0U, Value{str_type_, &event.component});
+        builder.set(1U, Value{str_type_, &event.category});
+        builder.set(2U, Value{str_type_, &event.message});
+        builder.set(3U, Value{bool_type_, &event.retriable});
+        builder.set(4U, Value{bool_type_, &event.fatal});
+        builder.set(5U, Value{int_type_, &event.occurrences});
+        return builder.build();
+    }
+
     namespace
     {
         using detail::DeliveryBatch;
@@ -95,20 +136,8 @@ namespace hgraph::fabric
             return std::move(*config);
         }
 
-        [[nodiscard]] Value diagnostic_event_value(const FabricDiagnosticEventInput &event)
-        {
-            BundleBuilder builder{ValuePlanFactory::instance().type_for(
-                scalar_descriptor<FabricDiagnosticEvent>::value_meta())};
-            builder.set("component", Value{event.component});
-            builder.set("category", Value{event.category});
-            builder.set("message", Value{event.message});
-            builder.set("retriable", Value{event.retriable});
-            builder.set("fatal", Value{event.fatal});
-            builder.set("occurrences", Value{event.occurrences});
-            return builder.build();
-        }
-
         void record_diagnostic_event(const Out<TSD<Str, TS<FabricDiagnosticEvent>>> &events,
+                                     const detail::DiagnosticValueState &values,
                                      Str component, Str category, Str message, Bool retriable,
                                      Bool fatal)
         {
@@ -144,56 +173,40 @@ namespace hgraph::fabric
                 .fatal = fatal,
                 .occurrences = occurrences,
             };
-            auto mutation = events.begin_mutation(events.evaluation_time());
-            Value key{std::move(path)};
-            Value item = diagnostic_event_value(event);
-            mutation.set(key.view(), item.view());
+            Value item = values.make_event(event);
+            events.apply(path, item.view());
         }
 
         template <typename ValueSchema>
         void emit_node_diagnostics(FabricNodeDiagnostics diagnostics,
+                                   const detail::DiagnosticValueState &values,
                                    const Out<FabricServiceNodeResult<ValueSchema>> &result)
         {
             auto metrics = result.template field<"metrics">();
-            auto metric_mutation = metrics.begin_mutation(metrics.evaluation_time());
             for (auto &[name, value] : diagnostics.metrics)
             {
-                Value key{std::move(name)};
-                Value item{std::move(value)};
-                metric_mutation.set(key.view(), item.view());
+                metrics.set(name, std::move(value));
             }
 
             auto events = result.template field<"events">();
-            auto event_mutation = events.begin_mutation(events.evaluation_time());
             for (auto &[path, event] : diagnostics.events)
             {
-                Value key{std::move(path)};
-                Value item = diagnostic_event_value(event);
-                event_mutation.set(key.view(), item.view());
+                Value item = values.make_event(event);
+                events.apply(path, item.view());
             }
-        }
-
-        [[nodiscard]] Value ingress_value(const detail::DeliveredRoot &root)
-        {
-            BundleBuilder builder{ValuePlanFactory::instance().type_for(
-                schema_descriptor<FabricIngressSignal>::ts_meta()->value_schema)};
-            if (root.frame.has_value())
-            {
-                builder.set("frame", Value{*root.frame});
-            }
-            builder.set("version", Value{root.output_version});
-            builder.set("revision", Value{root.revision});
-            return builder.build();
         }
 
         void apply_delivery(DeliveryBatch delivery, Out<TSD<Str, FabricIngressSignal>> &out)
         {
-            auto mutation = out.begin_mutation(out.evaluation_time());
             for (const auto &root : delivery.roots)
             {
-                Value key{root.key};
-                Value update = ingress_value(root);
-                mutation.set(key.view(), update.view());
+                auto update = out.at(root.key);
+                if (root.frame.has_value())
+                {
+                    update.template field<"frame">().set(*root.frame);
+                }
+                update.template field<"version">().set(root.output_version);
+                update.template field<"revision">().set(root.revision);
             }
         }
 
@@ -213,7 +226,9 @@ namespace hgraph::fabric
         }
 
         template <typename Requests>
-        void collect_revisions(const Requests &requests, std::vector<DataRevisionInput> &revisions)
+        void collect_revisions(const Requests &requests,
+                               const detail::LiveNodeState &binding,
+                               std::vector<DataRevisionInput> &revisions)
         {
             if (!requests.modified())
             {
@@ -226,7 +241,8 @@ namespace hgraph::fabric
                 {
                     continue;
                 }
-                revisions.push_back(data_revision_input(revision.base().value().concrete()));
+                revisions.push_back(binding.decode_revision(
+                    revision.base().value().concrete()));
             }
         }
 
@@ -300,7 +316,8 @@ namespace hgraph::fabric
             {
                 auto out = result.template field<"value">();
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 const auto &erased = static_cast<const TSSInputView &>(keys);
                 if (auto delivery = state.modify().evaluate(subscriptions(erased), now, scheduler);
                     delivery.has_value())
@@ -344,7 +361,8 @@ namespace hgraph::fabric
             {
                 auto out = result.template field<"value">();
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 if (auto delivery = state.modify().evaluate_planned(now, scheduler);
                     delivery.has_value())
                 {
@@ -379,7 +397,8 @@ namespace hgraph::fabric
             {
                 auto out = result.template field<"value">();
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 const auto control = transport_control(controls);
                 if (notification_mode.value() == FabricNotificationMode::GraphTransport)
                 {
@@ -396,7 +415,7 @@ namespace hgraph::fabric
                     }
                 }
                 std::vector<DataRevisionInput> revisions;
-                collect_revisions(notices, revisions);
+                collect_revisions(notices, state.ref(), revisions);
                 const auto &erased = static_cast<const TSSInputView &>(keys);
                 if (auto delivery =
                         state.modify().evaluate(subscriptions(erased), std::move(revisions), now,
@@ -444,7 +463,8 @@ namespace hgraph::fabric
             {
                 auto out = result.template field<"value">();
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 const auto control = transport_control(controls);
                 if (notification_mode.value() == FabricNotificationMode::GraphTransport)
                 {
@@ -461,7 +481,7 @@ namespace hgraph::fabric
                     }
                 }
                 std::vector<DataRevisionInput> revisions;
-                collect_revisions(notices, revisions);
+                collect_revisions(notices, state.ref(), revisions);
                 if (auto delivery = state.modify().evaluate_planned(
                         std::move(revisions), now, control.has_value() && control->reconcile);
                     delivery.has_value())
@@ -552,7 +572,8 @@ namespace hgraph::fabric
                  Out<FabricServiceNodeResult<TSD<Str, TS<Shared<DataRevision>>>>> result)
             {
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 auto &publication = state.modify();
                 enqueue_publications(requests, publication);
                 static_cast<void>(publication.advance());
@@ -590,7 +611,8 @@ namespace hgraph::fabric
             {
                 auto candidates = result.template field<"value">();
                 UnwindCleanupGuard diagnostic_change{
-                    [&] { emit_node_diagnostics(state.ref().diagnostics(), result); }};
+                    [&] { emit_node_diagnostics(state.ref().diagnostics(),
+                                                state.ref().diagnostic_values(), result); }};
                 auto &publication = state.modify();
                 enqueue_publications(requests, publication);
 
@@ -651,7 +673,7 @@ namespace hgraph::fabric
                         continue;
                     }
                     const Str data_id = revision.data_id;
-                    Value value = make_data_revision(std::move(revision));
+                    Value value = publication.make_revision(std::move(revision));
                     candidates.apply(data_id, value.view());
                 }
                 if (publication.work_pending() && candidates.size() < request_limit)
@@ -721,12 +743,18 @@ namespace hgraph::fabric
             static constexpr auto name = "hgraph.fabric.service.notification_flow";
             static constexpr bool schedule_on_start = true;
 
+            static void start(State<detail::RevisionValueState> value_state)
+            {
+                value_state.modify().bind();
+            }
+
             static void
             eval(In<"candidates", TSD<Str, TS<Shared<DataRevision>>>, InputValidity::Unchecked>
                      candidates,
                  In<"deliveries", TSD<Int, FabricNotificationDelivery>, InputValidity::Unchecked>
                      deliveries,
-                 NodeScheduler scheduler, Out<FabricNotificationFlowResult> result)
+                 NodeScheduler scheduler, State<detail::RevisionValueState> value_state,
+                 Out<FabricNotificationFlowResult> result)
             {
                 auto request = result.template field<"request">();
                 auto active_data_id = result.template field<"active_data_id">();
@@ -842,7 +870,8 @@ namespace hgraph::fabric
                         }
                         const Str data_id = key.checked_as<Str>();
                         const DataRevisionInput revision =
-                            data_revision_input(candidate.base().value().concrete());
+                            value_state.ref().values().data_revision_input(
+                                candidate.base().value().concrete());
                         if (revision.data_id != data_id)
                         {
                             throw std::invalid_argument("fabric notification request key does "
@@ -867,7 +896,8 @@ namespace hgraph::fabric
                         continue;
                     }
                     const DataRevisionInput revision =
-                        data_revision_input(candidate.base().value().concrete());
+                        value_state.ref().values().data_revision_input(
+                            candidate.base().value().concrete());
                     request.set(candidate.base().reference());
                     active_data_id.set(data_id);
                     active_revision.set(revision.revision);
@@ -876,6 +906,11 @@ namespace hgraph::fabric
                     retry_pending.set(false);
                     break;
                 }
+            }
+
+            static void stop(State<detail::RevisionValueState> value_state)
+            {
+                value_state.modify().reset();
             }
         };
 
@@ -903,23 +938,23 @@ namespace hgraph::fabric
             }
         };
 
-        [[nodiscard]] Value load_response_value(Str data_id, DataVersion version, Frame frame)
-        {
-            BundleBuilder builder{ValuePlanFactory::instance().type_for(
-                schema_descriptor<FabricLoadResponse>::ts_meta()->value_schema)};
-            builder.set("data_id", Value{std::move(data_id)});
-            builder.set("version", Value{version});
-            builder.set("frame", Value{std::move(frame)});
-            return builder.build();
-        }
-
         struct FabricLoadNode
         {
             static constexpr auto name = "hgraph.fabric.service.load";
 
+            static void start(Scalar<"path", Str> path,
+                              GlobalStateView global_state,
+                              State<detail::LoadNodeState> state)
+            {
+                FabricConfig config = service_config(global_state, path.value());
+                state.modify().diagnostic_values.bind();
+                state.modify().config = std::move(config);
+            }
+
             static void
             eval(In<"requests", TSD<Int, FabricLoadRequest>, InputValidity::Unchecked> requests,
-                 Scalar<"path", Str> path, GlobalStateView global_state,
+                 Scalar<"path", Str>,
+                 State<detail::LoadNodeState> state,
                  Out<FabricServiceNodeResult<TSD<Int, FabricLoadResponse>>> result)
             {
                 auto responses = result.template field<"value">();
@@ -927,9 +962,12 @@ namespace hgraph::fabric
                 {
                     return;
                 }
-                const FabricConfig config = service_config(global_state, path.value());
+                if (!state.ref().config.has_value())
+                {
+                    throw std::logic_error("fabric load node is not started");
+                }
+                const FabricConfig &config = *state.ref().config;
                 auto diagnostic_events = result.template field<"events">();
-                auto mutation = responses.begin_mutation(responses.evaluation_time());
                 for (const auto &[request_id, request] : requests.modified_items())
                 {
                     if (!request.valid())
@@ -957,22 +995,32 @@ namespace hgraph::fabric
                     }
                     catch (const std::exception &error)
                     {
-                        record_diagnostic_event(diagnostic_events, "store", "frame.read",
-                                                error.what(), false, true);
+                        record_diagnostic_event(
+                            diagnostic_events, state.ref().diagnostic_values, "store",
+                            "frame.read", error.what(), false, true);
                         throw;
                     }
                     if (!frame.has_value())
                     {
-                        record_diagnostic_event(diagnostic_events, "store", "frame.missing",
-                                                "requested Fabric Frame is not present: " +
-                                                    data_id + ":" + std::to_string(version),
-                                                false, false);
+                        record_diagnostic_event(
+                            diagnostic_events, state.ref().diagnostic_values, "store",
+                            "frame.missing",
+                            "requested Fabric Frame is not present: " + data_id +
+                                ":" + std::to_string(version),
+                            false, false);
                         continue;
                     }
-                    Value response =
-                        load_response_value(std::move(data_id), version, std::move(frame));
-                    mutation.set(request_id, response.view());
+                    auto response = responses.at(request_id.checked_as<Int>());
+                    response.template field<"data_id">().set(std::move(data_id));
+                    response.template field<"version">().set(version);
+                    response.template field<"frame">().set(std::move(frame));
                 }
+            }
+
+            static void stop(State<detail::LoadNodeState> state)
+            {
+                state.modify().config.reset();
+                state.modify().diagnostic_values.reset();
             }
         };
 
@@ -980,8 +1028,15 @@ namespace hgraph::fabric
         {
             static constexpr auto name = "hgraph.fabric.service.transport_events";
 
+            static void start(
+                State<detail::DiagnosticValueState> diagnostic_values)
+            {
+                diagnostic_values.modify().bind();
+            }
+
             static void
             eval(In<"events", TSD<Int, FabricTransportEvent>, InputValidity::Unchecked> events,
+                 State<detail::DiagnosticValueState> diagnostic_values,
                  Out<TSD<Str, TS<FabricDiagnosticEvent>>> diagnostics)
             {
                 if (!events.modified())
@@ -1005,16 +1060,30 @@ namespace hgraph::fabric
                     {
                         throw std::invalid_argument("fabric transport event is incomplete");
                     }
-                    record_diagnostic_event(diagnostics, component.value(), category.value(),
-                                            message.valid() ? message.value() : Str{},
-                                            retriable.value(), fatal.value());
+                    record_diagnostic_event(
+                        diagnostics, diagnostic_values.ref(), component.value(),
+                        category.value(),
+                        message.valid() ? message.value() : Str{},
+                        retriable.value(), fatal.value());
                 }
+            }
+
+            static void stop(
+                State<detail::DiagnosticValueState> diagnostic_values)
+            {
+                diagnostic_values.modify().reset();
             }
         };
 
         struct FabricDiagnosticsNode
         {
             static constexpr auto name = "hgraph.fabric.service.diagnostics";
+
+            static void start(
+                State<detail::DiagnosticValueState> diagnostic_values)
+            {
+                diagnostic_values.modify().bind();
+            }
 
             /** Aggregate node-owned diagnostic edges. Additive resolver and live
                 counters are reduced here; no mutable service facade is consulted. */
@@ -1042,6 +1111,7 @@ namespace hgraph::fabric
                  In<"transport_events", TSD<Str, TS<FabricDiagnosticEvent>>,
                     InputValidity::Unchecked>
                      transport_events,
+                 State<detail::DiagnosticValueState> diagnostic_values,
                  Out<FabricDiagnostics> diagnostics)
             {
                 auto metrics = diagnostics.template field<"metrics">();
@@ -1107,18 +1177,13 @@ namespace hgraph::fabric
                 direct.insert_or_assign("resolution.backtracking_depth.maximum",
                                         std::to_string(maximum_backtracking_depth));
 
-                auto mutation = metrics.begin_mutation(metrics.evaluation_time());
                 for (auto &[metric_name, value] : direct)
                 {
-                    Value key{metric_name};
-                    Value item{std::move(value)};
-                    mutation.set(key.view(), item.view());
+                    metrics.set(metric_name, std::move(value));
                 }
                 for (auto &[metric_name, value] : sums)
                 {
-                    Value key{metric_name};
-                    Value item{std::to_string(value)};
-                    mutation.set(key.view(), item.view());
+                    metrics.set(metric_name, std::to_string(value));
                 }
 
                 auto diagnostic_events = diagnostics.template field<"events">();
@@ -1181,14 +1246,17 @@ namespace hgraph::fabric
                 collect_event_input(static_cast<const TSDInputView &>(load_events));
                 collect_event_input(static_cast<const TSDInputView &>(transport_events));
 
-                auto event_mutation =
-                    diagnostic_events.begin_mutation(diagnostic_events.evaluation_time());
                 for (auto &[path, event] : combined_events)
                 {
-                    Value key{path};
-                    Value item = diagnostic_event_value(event);
-                    event_mutation.set(key.view(), item.view());
+                    Value item = diagnostic_values.ref().make_event(event);
+                    diagnostic_events.apply(path, item.view());
                 }
+            }
+
+            static void stop(
+                State<detail::DiagnosticValueState> diagnostic_values)
+            {
+                diagnostic_values.modify().reset();
             }
         };
 

@@ -50,6 +50,47 @@ namespace hgraph::persistence::store
         std::string version_token{};
     };
 
+    /** Typed compare/exchange result. The winner is decoded through the same
+        schema-bound codec, so callers of the typed store never have to reach
+        through it to the byte layer. */
+    struct ValueCompareExchangeResult
+    {
+        bool exchanged{false};
+        std::optional<StoredValue> current{};
+    };
+
+    /** One ValueStore bound to one schema for a graph run.
+
+        This is the evaluation-path contract: the object backend and codec
+        context remain owned, schema resolution has already happened, and all
+        reads (including compare/exchange conflicts) return typed values. */
+    class HGRAPH_PERSISTENCE_CLASS_EXPORT BoundValueStore final
+    {
+      public:
+        BoundValueStore() noexcept = default;
+        BoundValueStore(ObjectStore objects, BoundValueCodec codec);
+
+        [[nodiscard]] explicit operator bool() const noexcept;
+        [[nodiscard]] const ValueTypeMetaData *schema() const noexcept;
+
+        [[nodiscard]] ImmutableWriteResult
+        write(std::string_view key, const ValueView &value) const;
+        [[nodiscard]] Value read(std::string_view key) const;
+        [[nodiscard]] std::optional<Value> try_read(std::string_view key) const;
+        [[nodiscard]] std::optional<StoredValue>
+        try_read_versioned(std::string_view key) const;
+        [[nodiscard]] ValueCompareExchangeResult
+        compare_exchange(std::string_view key, const ValueView &value,
+                         std::optional<std::string_view> expected_version) const;
+
+        [[nodiscard]] ObjectBytes encode(const ValueView &value) const;
+        [[nodiscard]] Value decode(std::span<const std::byte> encoded) const;
+
+      private:
+        ObjectStore      objects_{};
+        BoundValueCodec codec_{};
+    };
+
     class HGRAPH_PERSISTENCE_CLASS_EXPORT ValueStore final
     {
       public:
@@ -82,20 +123,29 @@ namespace hgraph::persistence::store
         try_read_versioned(std::string_view key, const ValueTypeMetaData *schema,
                            std::optional<std::string_view> codec = {}) const;
 
-        /** Forwards the object store's version token unchanged; this store adds
-            no concurrency control of its own. */
-        [[nodiscard]] CompareExchangeResult
+        /** Forwards the object store's version token unchanged and decodes the
+            winning value through the candidate's schema. This store adds no
+            concurrency control of its own. */
+        [[nodiscard]] ValueCompareExchangeResult
         compare_exchange(std::string_view key, const ValueView &value,
                          std::optional<std::string_view> expected_version,
                          std::optional<std::string_view> codec = {}) const;
 
         /** Bind this store's codec to one schema, once. Callers on the
             evaluation path -- anything encoding or decoding during a graph
-            run -- must do this at wiring time and keep the result: the bound
-            handle performs no registry lookup and takes no lock, which the
-            unbound calls below cannot promise. */
+            run -- must do this while constructing run-local node/service state
+            and keep the result: the bound handle performs no schema-plan or
+            type-registry lookup, which the unbound calls below cannot
+            promise. */
         [[nodiscard]] BoundValueCodec bind(const ValueTypeMetaData        *schema,
                                            std::optional<std::string_view> codec = {}) const;
+
+        /** Bind both the backend and codec to one schema. Graph/runtime code
+            should keep this run-local handle rather than pairing a bound codec
+            with direct ObjectStore byte operations. */
+        [[nodiscard]] BoundValueStore
+        bind_schema(const ValueTypeMetaData        *schema,
+                    std::optional<std::string_view> codec = {}) const;
 
         /** The bytes a write would store: the codec's output verbatim. */
         [[nodiscard]] ObjectBytes encode(const ValueView                &value,
@@ -112,12 +162,11 @@ namespace hgraph::persistence::store
         ObjectStore objects_{};
         std::string default_codec_{JSON_VALUE_CODEC};
 
-        /** Resolved once at construction. Fabric encodes revisions during
-            evaluation, so the default path must not reach the registry: that
-            would take a TypeSystemMutex on the per-tick path, which the
-            single-threaded evaluation ruling forbids. An explicit per-call
-            override still resolves by name -- it is asked for by a caller that
-            is not on that path. */
+        /** Resolved once at construction. Evaluation-path users of the default
+            must not reach the registry per value: that would take a
+            TypeSystemMutex on the single-threaded graph path. An explicit
+            per-call override still resolves by name and is therefore an
+            ad-hoc, non-evaluation operation. */
         ValueCodec default_resolved_{};
     };
 

@@ -6,42 +6,32 @@
 #include <hgraph/fabric/types.h>
 
 #include <hgraph/persistence/frame_store.h>
-#include <hgraph/persistence/value_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/runtime/global_state.h>
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace hgraph::fabric
 {
     inline constexpr std::size_t DEFAULT_NOTIFICATION_REQUEST_LIMIT{1024U};
 
-    /** Run-scoped fabric resources. Handles are owning and copyable so normal
-        GlobalState copy-in/copy-out preserves one configured fabric. */
+    /** Reusable Fabric resource configuration. Handles are owning and copyable
+        so normal GlobalState copy-in/copy-out preserves one configured
+        Fabric. Schema-dependent bindings are assembled separately for each
+        graph run and never retained here. */
     struct FabricConfig
     {
         Str                              prefix{};
         persistence::store::ObjectStore objects{};
         persistence::store::FrameStore  frames{};
-        /** Declared metadata schemas. Structured data goes here as ordinary
-            json documents; tabular data goes to `frames` as Arrow. Fabric owns
-            no serialization code of its own (RFC 0030). */
-        persistence::store::ValueStore  values{};
-        /** Codecs bound at wiring time, one per schema Fabric persists.
-            Publication and resolution run during evaluation, where resolving a
-            codec or a json converter would take a TypeSystemMutex per value --
-            the single-threaded evaluation ruling forbids it. Binding here, with
-            the rest of the run-scoped configuration, is the "compose once"
-            contract the runtime already applies to nodes. */
-        persistence::store::BoundValueCodec revision_codec{};
-        persistence::store::BoundValueCodec reference_codec{};
-        /** Transport payloads (Kafka records, notifier blobs) are messages
-            rather than stored objects and always use the json baseline, so a
-            topic stays readable by an ordinary consumer. Bound for the same
-            reason as the two above. */
-        persistence::store::BoundValueCodec notification_revision_codec{};
+        /** Named ValueStore codec for declared metadata. Empty selects JSON.
+            The run-local typed store is assembled from this policy and
+            `objects`, so configuration cannot accidentally supply two
+            different metadata backends. */
+        std::string                     metadata_codec{};
         Notifier                         notifications{};
         std::size_t                     notification_request_limit{
             DEFAULT_NOTIFICATION_REQUEST_LIMIT};

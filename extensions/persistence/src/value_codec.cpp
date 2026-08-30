@@ -21,7 +21,8 @@ namespace hgraph::persistence::store
             ValueCodecOps         ops{};
         };
 
-        const void *json_bind(void *context, const ValueTypeMetaData *schema);
+        ValueCodecBinding json_bind(void *context,
+                                    const ValueTypeMetaData *schema);
         void json_encode(void *context, const void *bound, const ValueView &value,
                          ObjectBytes &out);
         Value json_decode(void *context, const void *bound,
@@ -60,25 +61,28 @@ namespace hgraph::persistence::store
                    lhs.decode == rhs.decode;
         }
 
-        /** The baseline codec. Binding resolves the core's interned
-            JsonConverter, which is synthesized once per schema and locks to do
-            it -- so it happens here, in bind, and never again. to_json_string
-            and from_json_string(meta, ...) would repeat that lookup per value,
-            which is why neither is used below. */
-        const void *json_bind(void * /*context*/, const ValueTypeMetaData *schema)
+        /** The baseline codec. Binding owns a complete converter plan for the
+            active run, including realised value bindings and polymorphic
+            alternatives. Synthesis may lock, so it happens here and never in
+            encode/decode. The ad-hoc JSON helpers are not used below because
+            they resolve schema state per call. */
+        ValueCodecBinding json_bind(void * /*context*/,
+                                    const ValueTypeMetaData *schema)
         {
             if (schema == nullptr)
             {
                 throw std::invalid_argument("value codec bind requires a schema");
             }
-            return &json_converter(schema);
+            auto binding = std::make_shared<BoundJsonConverter>(
+                bind_json_converter(schema));
+            return ValueCodecBinding{binding, binding.get()};
         }
 
         void json_encode(void * /*context*/, const void *bound, const ValueView &value,
                          ObjectBytes &out)
         {
             std::string text;
-            static_cast<const JsonConverter *>(bound)->write(value, text);
+            static_cast<const BoundJsonConverter *>(bound)->write(value, text);
             const auto bytes = std::as_bytes(std::span{text.data(), text.size()});
             out.insert(out.end(), bytes.begin(), bytes.end());
         }
@@ -88,14 +92,110 @@ namespace hgraph::persistence::store
         {
             const std::string_view text{reinterpret_cast<const char *>(encoded.data()),
                                         encoded.size()};
-            return from_json_string(*static_cast<const JsonConverter *>(bound), text);
+            return from_json_string(
+                *static_cast<const BoundJsonConverter *>(bound), text);
+        }
+
+        ValueCodecBinding empty_bind(void *,
+                                     const ValueTypeMetaData *) noexcept
+        {
+            return {};
+        }
+
+        void empty_encode(void *, const void *, const ValueView &, ObjectBytes &)
+        {
+            throw std::logic_error("value codec is not bound to a schema");
+        }
+
+        Value empty_decode(void *, const void *, std::span<const std::byte>)
+        {
+            throw std::logic_error("value codec is not bound to a schema");
         }
     }  // namespace
+
+    const ValueCodecOps &BoundValueCodec::empty_ops() noexcept
+    {
+        static const ValueCodecOps ops{&empty_bind, &empty_encode, &empty_decode};
+        return ops;
+    }
+
+    BoundValueCodec::BoundValueCodec() noexcept : ops_{empty_ops()} {}
+
+    BoundValueCodec::BoundValueCodec(ValueCodecOps ops,
+                                     std::shared_ptr<void> context,
+                                     const ValueTypeMetaData *schema,
+                                     ValueCodecBinding binding)
+        : ops_{ops}, context_{std::move(context)},
+          binding_owner_{std::move(binding.owner)}, schema_{schema},
+          bound_{binding.handle}
+    {
+        if (schema_ == nullptr || bound_ == nullptr || ops_.bind == nullptr ||
+            ops_.encode == nullptr || ops_.decode == nullptr)
+        {
+            throw std::invalid_argument(
+                "bound value codec requires a schema, handle and complete operations");
+        }
+    }
+
+    BoundValueCodec::BoundValueCodec(BoundValueCodec &&other) noexcept
+        : ops_{other.ops_}, context_{std::move(other.context_)},
+          binding_owner_{std::move(other.binding_owner_)},
+          schema_{other.schema_}, bound_{other.bound_}
+    {
+        other.ops_ = empty_ops();
+        other.schema_ = nullptr;
+        other.bound_ = nullptr;
+    }
+
+    BoundValueCodec &BoundValueCodec::operator=(BoundValueCodec &&other) noexcept
+    {
+        if (this != &other)
+        {
+            ops_ = other.ops_;
+            context_ = std::move(other.context_);
+            binding_owner_ = std::move(other.binding_owner_);
+            schema_ = other.schema_;
+            bound_ = other.bound_;
+            other.ops_ = empty_ops();
+            other.schema_ = nullptr;
+            other.bound_ = nullptr;
+        }
+        return *this;
+    }
+
+    const ValueCodecOps &ValueCodec::empty_ops() noexcept
+    {
+        static const ValueCodecOps ops{&empty_bind, &empty_encode, &empty_decode};
+        return ops;
+    }
+
+    ValueCodec::ValueCodec() noexcept : ops_{empty_ops()} {}
 
     ValueCodec::ValueCodec(std::string name, std::shared_ptr<void> context,
                            ValueCodecOps ops) noexcept
         : name_{std::move(name)}, context_{std::move(context)}, ops_{ops}
     {
+    }
+
+    ValueCodec::ValueCodec(ValueCodec &&other) noexcept
+        : name_{std::move(other.name_)}, context_{std::move(other.context_)},
+          ops_{other.ops_}
+    {
+        other.name_.clear();
+        other.ops_ = empty_ops();
+    }
+
+    ValueCodec &ValueCodec::operator=(ValueCodec &&other) noexcept
+    {
+        if (this != &other)
+        {
+            name_ = std::move(other.name_);
+            context_ = std::move(other.context_);
+            ops_ = other.ops_;
+            other.name_.clear();
+            other.ops_ = empty_ops();
+        }
+        return *this;
     }
 
     void BoundValueCodec::encode(const ValueView &value, ObjectBytes &out) const
@@ -104,7 +204,12 @@ namespace hgraph::persistence::store
         {
             throw std::logic_error("value codec is not bound to a schema");
         }
-        ops_.encode(context_, bound_, value, out);
+        if (!value.valid() || value.schema() != schema_)
+        {
+            throw std::invalid_argument(
+                "value codec received a value with a different schema");
+        }
+        ops_.encode(context_.get(), bound_, value, out);
     }
 
     ObjectBytes BoundValueCodec::encode(const ValueView &value) const
@@ -120,7 +225,13 @@ namespace hgraph::persistence::store
         {
             throw std::logic_error("value codec is not bound to a schema");
         }
-        return ops_.decode(context_, bound_, encoded);
+        Value decoded = ops_.decode(context_.get(), bound_, encoded);
+        if (decoded.schema() != schema_)
+        {
+            throw std::invalid_argument(
+                "value codec returned a value with a different schema");
+        }
+        return decoded;
     }
 
     BoundValueCodec ValueCodec::bind(const ValueTypeMetaData *schema) const
@@ -129,7 +240,12 @@ namespace hgraph::persistence::store
         {
             throw std::logic_error("value codec is not bound to an implementation");
         }
-        return BoundValueCodec{ops_, context_.get(), ops_.bind(context_.get(), schema)};
+        if (schema == nullptr)
+        {
+            throw std::invalid_argument("value codec bind requires a schema");
+        }
+        return BoundValueCodec{ops_, context_, schema,
+                               ops_.bind(context_.get(), schema)};
     }
 
     void ValueCodec::encode(const ValueView &value, ObjectBytes &out) const
