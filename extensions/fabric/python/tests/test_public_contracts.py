@@ -14,11 +14,6 @@ from hgraph import TS, Frame, graph, if_then_else
 from hgraph.test import use_wiring
 
 
-FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
-
-
-def _fixture(name: str) -> bytes:
-    return bytes.fromhex((FIXTURES / name).read_text())
 
 
 def _revision() -> hgf.DataRevision:
@@ -45,9 +40,16 @@ def test_python_memory_config_validates_notification_backpressure_limit():
         hgf.make_memory_fabric_config(notification_request_limit=0)
 
 
-def test_python_codec_uses_shared_native_golden_fixtures():
+def test_python_codec_round_trips_through_the_shared_native_codec():
+    """The golden hex fixtures went with the hand-written codec they pinned.
+
+    Metadata is now a json document produced by the shared value codec, so the
+    byte layout is the library's business. What the Python surface owes is a
+    faithful round trip and a readable document.
+    """
     encoded = hgf.encode_revision(_revision())
-    assert encoded == _fixture("revision_v1.hex")
+    assert encoded.startswith(b"{")
+    assert b'"data_id"' in encoded
 
     decoded = hgf.decode_revision(encoded)
     assert decoded == hgf.DataRevision(
@@ -62,10 +64,14 @@ def test_python_codec_uses_shared_native_golden_fixtures():
         self_predecessor=41,
         as_of=datetime(2026, 1, 2, 3, 4, 5, 6007),
     )
-    assert hgf.encode_as_of_reference(3) == _fixture("as_of_v1.hex")
-    assert hgf.encode_latest_reference(3) == _fixture("latest_v1.hex")
-    assert hgf.decode_as_of_reference(_fixture("as_of_v1.hex")) == 3
-    assert hgf.decode_latest_reference(_fixture("latest_v1.hex")) == 3
+
+    assert hgf.decode_as_of_reference(hgf.encode_as_of_reference(3)) == 3
+    assert hgf.decode_latest_reference(hgf.encode_latest_reference(3)) == 3
+
+    # An index entry names the index it belongs to, so one cannot be read as
+    # the other.
+    with pytest.raises(Exception):
+        hgf.decode_latest_reference(hgf.encode_as_of_reference(3))
 
 
 def test_python_codec_does_not_replace_an_unsupported_format_version():

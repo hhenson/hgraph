@@ -226,24 +226,27 @@ NB_MODULE(_hgraph_fabric, module)
 
     module.def(
         "_encode_revision_reference",
-        [](const PythonFabricConfig &config, std::uint8_t kind, RevisionId revision) {
-            return to_python_bytes(config.value.values.encode(
+        [](std::uint8_t kind, RevisionId revision) {
+            // A utility, not a store operation: the json codec directly, so the
+            // Python surface needs no configuration to encode a reference.
+            hgf::ObjectBytes encoded;
+            notification_codec().encode(
                 make_revision_reference(static_cast<MetadataObjectKind>(kind), revision)
-                    .view()));
+                    .view(),
+                encoded);
+            return to_python_bytes(encoded);
         },
-        nb::arg("config"),
         nb::arg("kind"), nb::arg("revision"));
 
     module.def(
         "_decode_revision_reference",
-        [](const PythonFabricConfig &config, std::uint8_t kind, const nb::bytes &encoded) {
+        [](std::uint8_t kind, const nb::bytes &encoded) {
             return revision_reference_id(
-                config.value.values
+                notification_codec()
                     .decode(revision_reference_meta(), bytes_view(encoded))
                     .view(),
                 static_cast<MetadataObjectKind>(kind));
         },
-        nb::arg("config"),
         nb::arg("kind"), nb::arg("encoded"));
 
     module.def(
