@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 using namespace hgraph;
 using namespace hgraph::persistence::store;
@@ -288,17 +289,24 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
     const auto path = root / "records" / "alpha.json";
     REQUIRE(std::filesystem::exists(path));
 
-    std::ifstream file{path};
-    REQUIRE(file.is_open());
-    const std::string contents{std::istreambuf_iterator<char>{file},
-                               std::istreambuf_iterator<char>{}};
+    std::string contents;
+    {
+        // Scoped so the handle is closed before the cleanup below: Windows
+        // refuses to remove a file that is still open, where POSIX allows it.
+        std::ifstream file{path};
+        REQUIRE(file.is_open());
+        contents.assign(std::istreambuf_iterator<char>{file},
+                        std::istreambuf_iterator<char>{});
+    }
 
     CHECK(contents == to_json_string(written.view()));
     CHECK(contents.starts_with("{"));
     CHECK(contents.ends_with("}"));
     CHECK(contents.find("\"name\"") != std::string::npos);
 
-    std::filesystem::remove_all(root);
+    // Best-effort: a cleanup failure must not be reported as a codec failure.
+    std::error_code cleanup;
+    std::filesystem::remove_all(root, cleanup);
 }
 
 TEST_CASE("value store: the json baseline needs no registration call")
