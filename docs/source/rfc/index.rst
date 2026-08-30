@@ -57,3 +57,4 @@ RFC catalogue
    rfc_0027_bounded_push_source_queues
    rfc_0028_shared_value_representation
    rfc_0029_value_pool_ownership_and_binding
+   rfc_0030_typed_value_persistence

@@ -151,6 +151,8 @@ endif()
 add_library(hgraph_persistence
     src/frame_store.cpp
     src/object_store.cpp
+    src/value_codec.cpp
+    src/value_store.cpp
     src/store_location.cpp
     src/impl/object_store_memory.cpp
     src/impl/object_store_local.cpp
