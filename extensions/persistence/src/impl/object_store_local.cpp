@@ -350,6 +350,12 @@ namespace hgraph::persistence::store::impl
                 (void)::close(descriptor);
                 throw system_failure("size object", path, failure);
             }
+            if (!S_ISREG(info.st_mode))
+            {
+                (void)::close(descriptor);
+                throw ObjectStoreError("not a stored object: '" + path.string() +
+                                       "' is not a regular file");
+            }
             if (info.st_size < 0 ||
                 static_cast<std::uintmax_t>(info.st_size) > std::numeric_limits<std::size_t>::max())
             {
