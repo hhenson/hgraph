@@ -105,7 +105,7 @@ struct FabricKafkaProduceRecordNode {
                    Out<TS<kafka::KafkaProduceRecord>> out) {
     const DataRevisionInput decoded =
         data_revision_input(revision.base().value().concrete());
-    hgf::ObjectBytes payload;
+    persistence::store::ObjectBytes payload;
     notification_codec().encode(revision.base().value().concrete(), payload);
     Value record = kafka::make_produce_record(
         kafka_bytes(payload), Bytes{decoded.data_id}, {}, std::nullopt,

@@ -1,6 +1,8 @@
 #include <hgraph/fabric/fabric.h>
 #include <hgraph/fabric/kafka.h>
 
+#include <hgraph/persistence/value_store.h>
+
 #include <hgraph/kafka/service.h>
 #include <hgraph/kafka/testing/fake_broker.h>
 #include <hgraph/kafka/testing/mock_cluster.h>
@@ -39,6 +41,20 @@ namespace {
 namespace hg = hgraph;
 namespace hgf = hgraph::fabric;
 namespace hgk = hgraph::kafka;
+namespace hgps = hgraph::persistence::store;
+
+/** A store for encoding test payloads, independent of any fabric config.
+    The broker carries the same json the configured store writes, so a
+    default store round trips what the service produced. */
+[[nodiscard]] const hgps::ValueStore &test_values() {
+  static const hgps::ValueStore store = [] {
+    hgps::register_builtin_value_codecs();
+    return hgps::make_value_store(
+        hgps::ValueStoreConfig{.objects = hgps::make_object_store(
+                                   hgps::ObjectStoreConfig{})});
+  }();
+  return store;
+}
 
 using namespace std::chrono_literals;
 
@@ -160,7 +176,7 @@ template <typename Predicate>
 
 [[nodiscard]] hg::Bytes revision_bytes(const hgf::DataRevisionInput &revision) {
   const auto encoded =
-      config.values.encode(hgf::make_data_revision(revision).view());
+      test_values().encode(hgf::make_data_revision(revision).view());
   return hg::Bytes{std::string{reinterpret_cast<const char *>(encoded.data()),
                                encoded.size()}};
 }
@@ -338,7 +354,7 @@ struct CaptureActualBrokerRecords {
           .offset = fields.at("offset").checked_as<hg::Int>(),
           .key = fields.at("key").checked_as<hg::Bytes>(),
           .revision = hgf::data_revision_input(
-              config.values.decode(hgf::data_revision_meta(), 
+              test_values().decode(hgf::data_revision_meta(),
                   std::as_bytes(
                       std::span{payload.data.data(), payload.data.size()}))
                   .view()),
