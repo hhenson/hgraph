@@ -525,6 +525,46 @@ namespace
         }
     };
 
+    struct RetriableNotificationDelivery
+    {
+        static constexpr auto name = "hgraph.fabric.test.retriable_notification";
+
+        static void eval(hg::In<"revision", hg::TS<hg::Shared<hgf::DataRevision>>> revision,
+                         hg::Out<hgf::FabricNotificationDelivery> delivery)
+        {
+            const hgf::DataRevisionInput decoded =
+                hgf::data_revision_input(revision.base().value().concrete());
+            delivery.template field<"data_id">().set(decoded.data_id);
+            delivery.template field<"revision">().set(decoded.revision);
+            delivery.template field<"delivered">().set(false);
+            delivery.template field<"retriable">().set(true);
+            delivery.template field<"message">().set(hg::Str{"retry once"});
+        }
+    };
+
+    struct CompleteNotificationAfterRetry
+    {
+        static constexpr auto name = "hgraph.fabric.test.deliver_notification_after_retry";
+
+        static void eval(hg::In<"revision", hg::TS<hg::Shared<hgf::DataRevision>>> revision,
+                         hg::State<hg::Bool> observed_initial_request,
+                         hg::Out<hgf::FabricNotificationDelivery> delivery)
+        {
+            if (!observed_initial_request.get())
+            {
+                observed_initial_request.set(true);
+                return;
+            }
+            const hgf::DataRevisionInput decoded =
+                hgf::data_revision_input(revision.base().value().concrete());
+            delivery.template field<"data_id">().set(decoded.data_id);
+            delivery.template field<"revision">().set(decoded.revision);
+            delivery.template field<"delivered">().set(true);
+            delivery.template field<"retriable">().set(false);
+            delivery.template field<"message">().set(hg::Str{});
+        }
+    };
+
     struct CaptureNotificationMetrics
     {
         static constexpr auto name = "hgraph.fabric.test.capture_notification_metrics";
@@ -574,6 +614,46 @@ namespace
             auto delivery = hg::wire<RetryThenDeliverNotification>(
                 wiring, hgf::notification_requests(wiring, path));
             delivery_feedback(delivery);
+            static_cast<void>(
+                hg::wire<CaptureNotificationMetrics>(wiring, hgf::diagnostics(wiring, path)));
+        }
+    };
+
+    struct SaturatedGraphNotificationPublicationGraph
+    {
+        static constexpr auto name = "hgraph.fabric.test.saturated_graph_notification";
+
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
+            hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
+            auto published = hg::wire<PublishedFrameSource>(wiring);
+            hgf::publish_data(wiring, "first", published);
+            hgf::publish_data(wiring, "second", published);
+            static_cast<void>(hgf::notification_requests(wiring, path));
+        }
+    };
+
+    struct RetryAndCompletionNotificationGraph
+    {
+        static constexpr auto name = "hgraph.fabric.test.retry_and_delivery_notification";
+
+        static void compose(hg::Wiring &wiring)
+        {
+            const auto path = hg::service::path(hgf::DEFAULT_SERVICE_PATH);
+            hgf::register_service(wiring, path, hgf::FabricNotificationMode::GraphTransport);
+            hgf::publish_data(wiring, "published", hg::wire<PublishedFrameSource>(wiring));
+            auto request = hgf::notification_requests(wiring, path);
+
+            // The first report requests a retry. On the retried request, the
+            // duplicate retriable report sorts before the terminal report.
+            auto retry_feedback = hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
+            hgf::submit_notification_delivery(wiring, retry_feedback(), path);
+            retry_feedback(hg::wire<RetriableNotificationDelivery>(wiring, request));
+            auto completion_feedback =
+                hg::stdlib::feedback<hgf::FabricNotificationDelivery>(wiring);
+            hgf::submit_notification_delivery(wiring, completion_feedback(), path);
+            completion_feedback(hg::wire<CompleteNotificationAfterRetry>(wiring, request));
             static_cast<void>(
                 hg::wire<CaptureNotificationMetrics>(wiring, hgf::diagnostics(wiring, path)));
         }
@@ -1277,4 +1357,33 @@ TEST_CASE("graph notification flow retries the retained shared revision on "
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
     REQUIRE(latest.has_value());
     CHECK(hgf::decode_revision_reference(hgf::MetadataObjectKind::Latest, latest->data) == 1);
+}
+
+TEST_CASE("graph notification completion cancels an earlier retry in the same batch")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config = hgf::make_memory_fabric_config(
+        "tests/subscription/graph-notification-retry-completion");
+    observed_notification_metrics.clear();
+
+    static_cast<void>(run(hg::build_graph<RetryAndCompletionNotificationGraph>(), config,
+                          BASE_TIME, BASE_TIME + hg::TimeDelta{20}));
+
+    CHECK(observed_notification_metrics.at("transport.notification.pending") == "0");
+    CHECK(observed_notification_metrics.at("transport.notification.retried") == "1");
+    CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
+    CHECK(observed_notification_metrics.at("transport.notification.stale_reports") == "0");
+}
+
+TEST_CASE("graph notification candidate saturation uses the Fabric configuration")
+{
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    auto config =
+        hgf::make_memory_fabric_config("tests/subscription/graph-notification-capacity");
+    config.notification_candidate_limit = 1U;
+
+    CHECK_THROWS(run(hg::build_graph<SaturatedGraphNotificationPublicationGraph>(), config,
+                     BASE_TIME, BASE_TIME + hg::TimeDelta{5}));
 }

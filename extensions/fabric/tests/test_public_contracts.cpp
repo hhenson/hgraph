@@ -380,8 +380,15 @@ TEST_CASE("fabric configuration is run scoped and validates resources")
     CHECK(configured->objects);
     CHECK(configured->frames);
     CHECK(configured->notifications);
+    CHECK(configured->notification_candidate_limit ==
+          hgf::FABRIC_NOTIFICATION_CANDIDATE_LIMIT);
     hgf::clear_fabric_config(state);
     CHECK_FALSE(hgf::fabric_config(state).has_value());
+
+    auto invalid = hgf::make_memory_fabric_config("test/invalid-fabric");
+    invalid.notification_candidate_limit = 0U;
+    CHECK_THROWS_WITH(hgf::set_fabric_config(state, std::move(invalid)),
+                      "fabric notification candidate limit must be greater than zero");
 }
 
 TEST_CASE("fabric operator installer survives a registry rebuild")

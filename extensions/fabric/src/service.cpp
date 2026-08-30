@@ -700,16 +700,22 @@ namespace hgraph::fabric
                     return;
                 }
 
+                const std::size_t candidate_limit = publication.notification_candidate_limit();
                 for (auto revision : publication.advance())
                 {
                     if (candidates.contains(revision.data_id))
                     {
                         continue;
                     }
-                    if (candidates.size() >= FABRIC_NOTIFICATION_REQUEST_LIMIT)
+                    if (candidates.size() >= candidate_limit)
                     {
-                        throw std::overflow_error(
-                            "fabric graph notification candidate set is full");
+                        // This configured cap is a fatal resource bound rather than
+                        // transport backpressure. Requests have already entered the
+                        // graph and candidates may already be durable; pausing here
+                        // would only move an unbounded broker stall into publication
+                        // queues without applying sender admission.
+                        throw std::overflow_error("fabric graph notification candidate set "
+                                                  "reached its configured limit");
                     }
                     const Str data_id = revision.data_id;
                     Value value = make_data_revision(std::move(revision));
@@ -855,6 +861,7 @@ namespace hgraph::fabric
                         if (delivery.delivered)
                         {
                             active.set(false);
+                            retry_pending.set(false);
                             is_active = false;
                             completed_data_ids.push_back(delivery.data_id);
                             increment_counter(delivered_count);
@@ -881,6 +888,7 @@ namespace hgraph::fabric
                             delivery.message = "fabric notification delivery failed";
                         }
                         active.set(false);
+                        retry_pending.set(false);
                         is_active = false;
                         completed_data_ids.push_back(delivery.data_id);
                         increment_counter(failed_count);

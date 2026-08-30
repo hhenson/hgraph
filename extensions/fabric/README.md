@@ -212,6 +212,7 @@ namespace hgf = hgraph::fabric;
 namespace hgps = hgraph::persistence::store;
 
 auto config = hgf::make_memory_fabric_config("production/blue");
+config.notification_candidate_limit = 4096;
 config.objects = hgps::make_object_store(
     hgps::ObjectStoreConfig{hgps::LocalLocation{"/srv/fabric/metadata"}});
 config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
@@ -222,6 +223,12 @@ config.frames = hgps::make_frame_store(hgps::FrameStoreConfig{
 hgf::set_fabric_config(wiring.global_state(), std::move(config));
 hgf::register_service(wiring);
 ```
+
+`notification_candidate_limit` bounds durable revisions waiting for the
+graph-native notification transport. Reaching the configured bound fails the
+run explicitly; it does not silently shift an unbounded broker backlog into
+the per-data-id publication queues. Size it for the maximum notification lag
+the host is prepared to retain. The default is 1024 candidates.
 
 For S3, replace both `LocalLocation` values with independently prefixed
 `S3Location` values. Credentials use the persistence extension's ambient,

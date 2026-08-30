@@ -1156,6 +1156,15 @@ namespace hgraph::fabric::detail
                                    });
     }
 
+    std::size_t PublicationNodeState::notification_candidate_limit() const
+    {
+        if (!impl_->config.has_value())
+        {
+            throw std::logic_error("fabric publication node is not started");
+        }
+        return impl_->config->notification_candidate_limit;
+    }
+
     FabricNodeDiagnostics PublicationNodeState::diagnostics() const
     {
         std::size_t queued{};

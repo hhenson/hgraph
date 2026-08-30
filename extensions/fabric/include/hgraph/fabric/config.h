@@ -9,10 +9,13 @@
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/runtime/global_state.h>
 
+#include <cstddef>
 #include <optional>
 
 namespace hgraph::fabric
 {
+    inline constexpr std::size_t FABRIC_NOTIFICATION_CANDIDATE_LIMIT{1024U};
+
     /** Run-scoped fabric resources. Handles are owning and copyable so normal
         GlobalState copy-in/copy-out preserves one configured fabric. */
     struct FabricConfig
@@ -21,6 +24,9 @@ namespace hgraph::fabric
         persistence::store::ObjectStore objects{};
         persistence::store::FrameStore  frames{};
         Notifier                         notifications{};
+        /** Maximum durable revisions retained while graph-native notification
+            delivery is outstanding. Must be greater than zero. */
+        std::size_t notification_candidate_limit{FABRIC_NOTIFICATION_CANDIDATE_LIMIT};
     };
 
     /** Construct an isolated in-process fabric for tests and local execution. */
