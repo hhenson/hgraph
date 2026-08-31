@@ -139,6 +139,11 @@ namespace hgraph::stdlib
     /** Parse JSON text directly into an explicitly selected time-series schema.
         Each parsed value is applied as that tick's delta, so collection removals and
         structural updates follow the target type's normal delta semantics.
+
+        Being a delta, an absent member is UNCHANGED rather than removed: a bare
+        ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit
+        ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL``
+        array means that element does not tick.
         @param ts JSON text.
         @return Parsed values in the selected output schema.
         @par Python example

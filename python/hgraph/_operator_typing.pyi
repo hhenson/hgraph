@@ -2226,6 +2226,8 @@ from_data_frame_batches: _from_data_frame_batches_Operator
 class _from_json_Operator(_Protocol):
     """Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
+    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick.
+
     Parameters
     ~~~~~~~~~~
 
@@ -7690,17 +7692,13 @@ class _to_json_Operator(_Protocol):
     Accepted native overloads:
 
     - ``to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]``
-    - ``to_json(ts: TIME_SERIES_TYPE, delta: bool) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    @_overload
     def __call__(self, ts: _WiringPort | object, delta: bool = ...) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | object, delta: bool) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 to_json: _to_json_Operator

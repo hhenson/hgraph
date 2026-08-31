@@ -224,6 +224,20 @@ class _OperatorDefault:
 _OPERATOR_DEFAULT = _OperatorDefault()
 
 
+def _to_json_public_signature(ts, delta=False):
+    """The released public call shape; native overloads select value vs delta."""
+
+
+def _from_json_public_signature(ts):
+    """The released public call shape; the subscript selects the output type."""
+
+
+_PUBLIC_OPERATOR_SIGNATURES = {
+    "to_json": _to_json_public_signature,
+    "from_json": _from_json_public_signature,
+}
+
+
 def _operator_overload_signatures(name):
     try:
         raw_signatures = _hgraph.operator_overload_signatures(name)
@@ -609,6 +623,8 @@ def operator_function(name, signature=None):
     The callable's docstring always lists the complete native overload set.
     Native dispatch and subscripted type selection remain unchanged.
     """
+    if signature is None:
+        signature = _PUBLIC_OPERATOR_SIGNATURES.get(name)
     return _OperatorFunction(name, signature=signature)
 
 

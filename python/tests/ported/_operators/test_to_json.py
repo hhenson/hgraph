@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
+import inspect
 from typing import Any, Mapping, Set
 
 import pytest
@@ -20,6 +21,7 @@ from hgraph import (
     TSD,
     Removed,
     REMOVE,
+    WiringError,
     to_json_builder,
     from_json_builder,
     register_json_datetime_format,
@@ -228,6 +230,41 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     out = eval_node(to_json[tp], value, delta=True)
     assert [json.loads(o) for o in out] == [json.loads(e) for e in expected]
     assert eval_node(from_json[tp], expected) == value
+
+
+def test_json_operators_expose_the_released_public_call_shapes():
+    # ``_tp`` and from_json's ``delta`` belong to the 0.5 implementation
+    # overloads, not to the public operator contracts. The public API is the
+    # operator declaration in hgraph._operators._to_json.
+    assert str(inspect.signature(to_json)) == "(ts, delta=False)"
+    assert str(inspect.signature(from_json)) == "(ts)"
+
+    assert eval_node(to_json[TS[int]], [1, 2], True) == ['1', '2']
+    with pytest.raises(WiringError):
+        eval_node(to_json[TS[int]], [1], _tp=TS[int])
+    with pytest.raises(WiringError):
+        eval_node(from_json[TS[int]], ['1'], delta=True)
+    with pytest.raises(WiringError):
+        eval_node(from_json[TS[int]], ['1'], _tp=TS[int])
+
+
+def test_from_json_applies_a_bare_set_array_as_a_delta():
+    # release/0.5 parity: a bare array ADDS, leaving absent members alone.
+    # Treating it as a whole-set replace removed 1 and 2 on the second tick.
+    assert eval_node(from_json[TSS[int]], ['[1, 2]', '[3]']) == [{1, 2}, {3}]
+    # Removal stays available through the explicit delta form.
+    assert eval_node(
+        from_json[TSS[int]], ['[1, 2]', '{"removed": [2]}']
+    ) == [{1, 2}, {Removed(2)}]
+
+
+def test_from_json_treats_a_null_tsl_element_as_no_tick():
+    # release/0.5 parity: null means "this element has no value this tick".
+    # Parsing the array as one value rejected null against a typed element and
+    # failed the whole call.
+    assert eval_node(
+        from_json[TSL[TS[int], Size[2]]], ['[1, 2]', '[null, 9]']
+    ) == [{0: 1, 1: 2}, {1: 9}]
 
 
 def test_to_json_builder_serializes_none_mapping_value_as_null():

@@ -80,7 +80,7 @@ namespace hgraph::stdlib
         void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out);
 
         /** The inverse: parse ``cursor`` per the OUTPUT's TS shape and apply
-            (a leading '[' on TSS/TSL is a whole-value replacement). */
+            it as that shape's tick delta. */
         void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan,
                            json_fragment::Cursor &cursor);
     }  // namespace json_ts_detail
@@ -125,6 +125,11 @@ namespace hgraph::stdlib
     struct to_json_delta_impl
     {
         static constexpr auto name = "to_json";
+
+        static auto defaults()
+        {
+            return std::tuple{arg<"delta">(Bool{false})};
+        }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
@@ -180,7 +185,8 @@ namespace hgraph::stdlib
             plan.set(current);
         }
 
-        static void eval(In<"ts", TS<Str>> ts, State<json_ts_detail::TsJsonPlanState> plan,
+        static void eval(In<"ts", TS<Str>> ts,
+                         State<json_ts_detail::TsJsonPlanState> plan,
                          Out<TsVar<"O">> out)
         {
             const Str &text = ts.value();

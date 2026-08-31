@@ -770,8 +770,8 @@ whose curated signatures remain authoritative.
      - ``to_instant(value: TS[zoned_datetime]) -> TS[datetime]``
      - 1 native overload; lazy operator
    * - :ref:`to_json <python-operator-to_json>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]``
+     - 1 native overload; lazy operator
    * - :ref:`to_table <python-operator-to_table>`
      - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT``
      - 1 native overload; lazy operator
