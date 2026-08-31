@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
+import inspect
 from typing import Any, Mapping, Set
 
 import pytest
@@ -20,6 +21,7 @@ from hgraph import (
     TSD,
     Removed,
     REMOVE,
+    WiringError,
     to_json_builder,
     from_json_builder,
     register_json_datetime_format,
@@ -230,25 +232,20 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     assert eval_node(from_json[tp], expected) == value
 
 
-def test_from_json_accepts_the_0_5_call_shapes():
-    # release/0.5 declared ``from_json_generic(ts, _tp=AUTO_RESOLVE,
-    # delta=False)`` and ``to_json_generic(ts, _tp=AUTO_RESOLVE, delta=False)``,
-    # so ported code may pass either explicitly. Both spellings must keep
-    # wiring; only ``to_json``'s ``delta`` alters output.
-    assert eval_node(from_json[TS[int]], ['1', '2'], delta=True) == [1, 2]
-    assert eval_node(from_json[TS[int]], ['1', '2'], delta=False) == [1, 2]
-    assert eval_node(from_json[TS[int]], ['1', '2'], _tp=TS[int]) == [1, 2]
-    assert eval_node(to_json[TS[int]], [1, 2], _tp=TS[int]) == ['1', '2']
+def test_json_operators_expose_the_released_public_call_shapes():
+    # ``_tp`` and from_json's ``delta`` belong to the 0.5 implementation
+    # overloads, not to the public operator contracts. The public API is the
+    # operator declaration in hgraph._operators._to_json.
+    assert str(inspect.signature(to_json)) == "(ts, delta=False)"
+    assert str(inspect.signature(from_json)) == "(ts)"
 
-
-def test_json_operators_accept_a_positional_type_carrier():
-    # 0.5 declared ``_tp`` positional-or-keyword, so ported code may pass the
-    # type expression positionally - and then ``delta`` as the third argument.
-    # Without absorbing the carrier the type expression lands on the native
-    # ``delta`` scalar and the call fails to wire.
-    assert eval_node(from_json[TS[int]], ['1', '2'], TS[int]) == [1, 2]
-    assert eval_node(to_json[TS[int]], [1, 2], TS[int]) == ['1', '2']
-    assert eval_node(to_json[TS[int]], [1, 2], TS[int], True) == ['1', '2']
+    assert eval_node(to_json[TS[int]], [1, 2], True) == ['1', '2']
+    with pytest.raises(WiringError):
+        eval_node(to_json[TS[int]], [1], _tp=TS[int])
+    with pytest.raises(WiringError):
+        eval_node(from_json[TS[int]], ['1'], delta=True)
+    with pytest.raises(WiringError):
+        eval_node(from_json[TS[int]], ['1'], _tp=TS[int])
 
 
 def test_from_json_applies_a_bare_set_array_as_a_delta():

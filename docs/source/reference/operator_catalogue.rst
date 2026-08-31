@@ -2473,9 +2473,6 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TS[str]``
    JSON text.
 
-``delta`` : scalar; ``bool``
-   Accepted for release/0.5 compatibility (``from_json_generic(ts, _tp, delta=False)``). 0.5 threaded the flag through its converter tree but never branched on it, so decoding is identical either way and this does not select an overload. ``to_json``'s ``delta`` IS significant. Optional in overloads that show ``= ...``.
-
 Returns
 ~~~~~~~
 
@@ -2492,7 +2489,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_json(ts: TS[str], delta: bool = ...) -> OUT
+   from_json(ts: TS[str]) -> OUT
 
 .. _python-operator-from_table:
 
@@ -7533,7 +7530,6 @@ Accepted native overloads
 .. code-block:: text
 
    to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]
-   to_json(ts: TIME_SERIES_TYPE, delta: bool) -> TS[str]
 
 .. _python-operator-to_table:
 

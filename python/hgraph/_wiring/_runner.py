@@ -700,6 +700,13 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         scalar_positions = set()
         for i, series in enumerate(inputs):
             annotation = annotations_by_name.get(params[i].name) if i < len(params) else None
+            if annotation is inspect.Signature.empty:
+                # A curated public signature may intentionally omit Python
+                # annotations while the native registry still owns the
+                # concrete/generic input contract. Fall through to that
+                # contract instead of treating ``Signature.empty`` as a
+                # scalar annotation.
+                annotation = None
             annotation_from_operator = False
             if annotation is None and operator_annotations:
                 if i < len(operator_annotations):

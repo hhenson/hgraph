@@ -419,7 +419,7 @@ whose curated signatures remain authoritative.
      - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_json <python-operator-from_json>`
-     - ``from_json(ts: TS[str], delta: bool = ...) -> OUT``
+     - ``from_json(ts: TS[str]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_table <python-operator-from_table>`
      - ``from_table(ts: TIME_SERIES_TYPE) -> OUT``
@@ -770,8 +770,8 @@ whose curated signatures remain authoritative.
      - ``to_instant(value: TS[zoned_datetime]) -> TS[datetime]``
      - 1 native overload; lazy operator
    * - :ref:`to_json <python-operator-to_json>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]``
+     - 1 native overload; lazy operator
    * - :ref:`to_table <python-operator-to_table>`
      - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT``
      - 1 native overload; lazy operator

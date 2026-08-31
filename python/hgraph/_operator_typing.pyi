@@ -2237,9 +2237,6 @@ class _from_json_Operator(_Protocol):
     ``ts`` : time-series; ``TS[str]``
        JSON text.
 
-    ``delta`` : scalar; ``bool``
-       Accepted for release/0.5 compatibility (``from_json_generic(ts, _tp, delta=False)``). 0.5 threaded the flag through its converter tree but never branched on it, so decoding is identical either way and this does not select an overload. ``to_json``'s ``delta`` IS significant. Optional in overloads that show ``= ...``.
-
     Returns
     ~~~~~~~
 
@@ -2254,14 +2251,14 @@ class _from_json_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_json(ts: TS[str], delta: bool = ...) -> OUT``
+    - ``from_json(ts: TS[str]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | str, delta: bool = ..., _tp: _Any = ...) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 from_json: _from_json_Operator
@@ -7695,17 +7692,13 @@ class _to_json_Operator(_Protocol):
     Accepted native overloads:
 
     - ``to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]``
-    - ``to_json(ts: TIME_SERIES_TYPE, delta: bool) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    @_overload
-    def __call__(self, ts: _WiringPort | object, delta: bool = ..., _tp: _Any = ...) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | object, delta: bool, _tp: _Any = ...) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, delta: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 to_json: _to_json_Operator

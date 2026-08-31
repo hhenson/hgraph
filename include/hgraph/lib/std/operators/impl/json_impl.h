@@ -80,7 +80,7 @@ namespace hgraph::stdlib
         void write_ts_delta(const TSInputView &ts, const TsJsonPlan &plan, std::string &out);
 
         /** The inverse: parse ``cursor`` per the OUTPUT's TS shape and apply
-            (a leading '[' on TSS/TSL is a whole-value replacement). */
+            it as that shape's tick delta. */
         void apply_ts_json(const TSOutputView &out, const TsJsonPlan &plan,
                            json_fragment::Cursor &cursor);
     }  // namespace json_ts_detail
@@ -126,6 +126,11 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "to_json";
 
+        static auto defaults()
+        {
+            return std::tuple{arg<"delta">(Bool{false})};
+        }
+
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
             const auto *delta = context.scalar_as<Bool>("delta");
@@ -166,15 +171,6 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "from_json";
 
-        // release/0.5 spelled this ``from_json_generic(ts, _tp, delta=False)``.
-        // The flag is threaded through 0.5's converter tree but never branched
-        // on — decoding is identical either way — so it is accepted with 0.5's
-        // default and deliberately does not gate an overload.
-        static auto defaults()
-        {
-            return std::tuple{arg<"delta">(Bool{false})};
-        }
-
         static void start(State<json_ts_detail::TsJsonPlanState> plan, Out<TsVar<"O">> out)
         {
             plan.set(json_ts_detail::TsJsonPlanState{json_ts_detail::build_ts_json_plan(
@@ -189,13 +185,10 @@ namespace hgraph::stdlib
             plan.set(current);
         }
 
-        static void eval(In<"ts", TS<Str>> ts, Scalar<"delta", Bool> delta,
+        static void eval(In<"ts", TS<Str>> ts,
                          State<json_ts_detail::TsJsonPlanState> plan,
                          Out<TsVar<"O">> out)
         {
-            // Accepted for release/0.5 parity; 0.5 never branched on it, so
-            // decoding is identical either way.
-            static_cast<void>(delta);
             const Str &text = ts.value();
             json_fragment::Cursor cursor{std::string_view{text}, 0};
             json_ts_detail::apply_ts_json(static_cast<const TSOutputView &>(out), *plan.get().plan,

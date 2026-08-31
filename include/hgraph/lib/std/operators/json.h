@@ -145,19 +145,12 @@ namespace hgraph::stdlib
         ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL``
         array means that element does not tick.
         @param ts JSON text.
-        @param delta Accepted for release/0.5 compatibility
-               (``from_json_generic(ts, _tp, delta=False)``). 0.5 threaded the
-               flag through its converter tree but never branched on it, so
-               decoding is identical either way and this does not select an
-               overload. ``to_json``'s ``delta`` IS significant.
         @return Parsed values in the selected output schema.
         @par Python example
         @code{.py}
         prices = hg.from_json[TSD[str, TS[float]]](payload)
         @endcode */
-    struct from_json
-        : Operator<"from_json", In<"ts", TS<Str>>, Scalar<"delta", Bool>,
-                   Out<TsVar<"O">>>
+    struct from_json : Operator<"from_json", In<"ts", TS<Str>>, Out<TsVar<"O">>>
     {
     };
 }  // namespace hgraph::stdlib
