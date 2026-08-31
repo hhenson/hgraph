@@ -2208,11 +2208,31 @@ namespace hgraph
 
             std::vector<TSEndpointSchema> children;
             children.reserve(sources.size());
+            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> effective_fields;
+            effective_fields.reserve(sources.size());
+            bool specializes_signal = false;
             for (std::size_t index = 0; index < sources.size(); ++index)
             {
-                children.push_back(endpoint_for_source(input_schema->fields()[index].type, sources[index]));
+                const auto &field = input_schema->fields()[index];
+                const auto *field_schema = field.type;
+                const auto *source_schema = sources[index].schema;
+                const bool fixed_structural_signal =
+                    field_schema != nullptr && field_schema->kind == TSTypeKind::SIGNAL &&
+                    sources[index].is_structural_source() && source_schema != nullptr &&
+                    (source_schema->kind == TSTypeKind::TSB ||
+                     (source_schema->kind == TSTypeKind::TSL && source_schema->fixed_size() != 0));
+                if (fixed_structural_signal)
+                {
+                    field_schema = source_schema;
+                    specializes_signal = true;
+                }
+                children.push_back(endpoint_for_source(field_schema, sources[index]));
+                effective_fields.emplace_back(
+                    field.name != nullptr ? std::string{field.name} : std::string{}, field_schema);
             }
-            return TSEndpointSchema::non_peered(input_schema, std::move(children));
+            const auto *effective_input_schema =
+                specializes_signal ? TypeRegistry::instance().un_named_tsb(effective_fields) : input_schema;
+            return TSEndpointSchema::non_peered(effective_input_schema, std::move(children));
         }
 
         // Drop the leading ``Wiring &`` from a ``compose`` parameter tuple.
