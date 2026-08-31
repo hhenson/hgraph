@@ -315,7 +315,9 @@ def test_release_workflow_targets_supported_platforms():
     assert '- "3.12"' in test_workflow
     assert '- "3.13"' in test_workflow
     assert '- "3.14"' in test_workflow
-    assert test_workflow.count("uv run --no-sync --no-build") == 10
+    # All extension suites share one interpreter so duplicate test basenames
+    # and cross-extension lifecycle contamination are exercised in CI.
+    assert test_workflow.count("uv run --no-sync --no-build") == 6
 
 
 def test_platform_wheel_builds_use_stable_cacheable_paths():

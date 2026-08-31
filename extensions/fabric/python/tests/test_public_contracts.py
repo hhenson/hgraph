@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+import os
+import subprocess
 import sys
+import textwrap
 
 import _hgraph
 import pyarrow as pa
@@ -337,10 +339,42 @@ def test_python_explicit_dependencies_reject_arbitrary_and_duplicate_sources():
 
 
 def test_python_operator_registration_survives_registry_reset():
-    _hgraph.reset_registries()
-    wiring = _hgraph.Wiring()
-    with use_wiring(wiring):
-        hgf.register_memory_fabric_service()
-        value = hgf.subscribe_data("python/reset-input")
-        hgf.publish_data("python/reset-output", value)
-    wiring.run()
+    """Exercise installer replay without invalidating the parent test process.
+
+    ``reset_registries`` is a process-wide, test-only teardown.  Existing
+    Python annotations retain handles from the generation it destroys, so an
+    in-process reset would poison subsequently collected extension suites.
+    """
+    source = textwrap.dedent(
+        """
+        import faulthandler
+
+        faulthandler.enable()
+
+        import _hgraph
+        import hgraph_fabric as hgf
+        from hgraph.test import use_wiring
+
+        _hgraph.reset_registries()
+        wiring = _hgraph.Wiring()
+        with use_wiring(wiring):
+            hgf.register_memory_fabric_service()
+            value = hgf.subscribe_data("python/reset-input")
+            hgf.publish_data("python/reset-output", value)
+        wiring.run()
+        print("ok")
+        """
+    )
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+    result = subprocess.run(
+        [sys.executable, "-c", source],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, (
+        f"registry reset child returned {result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "ok" in result.stdout

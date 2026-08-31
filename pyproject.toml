@@ -163,6 +163,9 @@ BUILD_TESTING = "OFF"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
+# Extension suites intentionally reuse descriptive test-module basenames.
+# Import modules by path so every extension can be collected in one process.
+addopts = ["--import-mode=importlib"]
 # The repo root, so `tools.api_inventory` imports in test_api_inventory.py.
 # Without it the suite only COLLECTS under `python -m pytest` run from the
 # root, which puts the cwd on sys.path as a side effect - a plain `pytest`

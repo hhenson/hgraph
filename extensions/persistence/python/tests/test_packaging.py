@@ -116,7 +116,14 @@ def test_ci_builds_and_tests_separate_persistence_artifacts():
         "persistence-distribution-wheel-windows-latest",
     ):
         assert artifact in wheel_workflows
-    assert "python -m pytest extensions/persistence/python/tests -q" in wheel_workflows
+    test_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
+    ).read_text()
+    assert "Run extension suites together" in test_workflow
+    assert "extensions/persistence/python/tests" in test_workflow
+    assert "--import-mode=importlib" in tomllib.loads(
+        (REPOSITORY_ROOT / "pyproject.toml").read_text()
+    )["tool"]["pytest"]["ini_options"]["addopts"]
     assert "-DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON" in native_workflow
     assert "Build and test installed persistence consumer" in native_workflow
     assert "hgraph-persistence-v_" not in release_workflow

@@ -127,7 +127,11 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
         "kafka-distribution-wheel-windows-latest",
     ):
         assert artifact in wheel_workflows
-    assert "python -m pytest extensions/kafka/python/tests -q" in wheel_workflows
+    test_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
+    ).read_text()
+    assert "Run extension suites together" in test_workflow
+    assert "extensions/kafka/python/tests" in test_workflow
     assert "-DHGRAPH_BUILD_KAFKA_EXTENSION=ON" in native_workflow
     assert "Build and test installed Kafka consumer" in native_workflow
     assert "run_kafka_broker_conformance.py" in native_workflow

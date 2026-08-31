@@ -121,16 +121,15 @@ jobs:
         run: uv run --no-sync --no-build python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
       - name: Run Python compatibility suite
         run: uv run --no-sync --no-build python -m pytest python/tests -q -m "not wip"
-      - name: Run Kafka extension suite
-        run: uv run --no-sync --no-build python -m pytest extensions/kafka/python/tests -q
-      - name: Run analytics extension suite
-        run: uv run --no-sync --no-build python -m pytest extensions/analytics/python/tests -q
-      - name: Run persistence extension suite
-        run: uv run --no-sync --no-build python -m pytest extensions/persistence/python/tests -q
-      - name: Run Fabric extension suite
-        run: uv run --no-sync --no-build python -m pytest extensions/fabric/python/tests -q
-      - name: Run web extension suite
-        run: uv run --no-sync --no-build python -m pytest extensions/web/python/tests -q
+      - name: Run extension suites together
+        run: >-
+          uv run --no-sync --no-build python -m pytest
+          extensions/persistence/python/tests
+          extensions/fabric/python/tests
+          extensions/analytics/python/tests
+          extensions/kafka/python/tests
+          extensions/web/python/tests
+          -q
       - name: Build installed Python extension consumer
         if: matrix.python-version == '3.12'
         run: uv run --no-sync --no-build python tests/python_extension_consumer/check.py
