@@ -1028,6 +1028,7 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_date(CivilDate value);
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_time(CivilTime value);
     [[nodiscard]] HGRAPH_EXPORT std::string format_civil_datetime(CivilDateTime value);
+    [[nodiscard]] HGRAPH_EXPORT std::string format_zoned_datetime(const ZonedDateTime &value);
 
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const CivilDateTime &value);
     HGRAPH_EXPORT std::ostream &operator<<(std::ostream &out, const Period &value);

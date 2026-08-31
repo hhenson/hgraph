@@ -35,23 +35,6 @@ namespace hgraph::stdlib::json_tree
             return out;
         }
 
-        inline void escape_into(const Str &text, std::string &out)
-        {
-            out += '"';
-            for (const char c : text)
-            {
-                switch (c)
-                {
-                    case '"': out += "\\\""; break;
-                    case '\\': out += "\\\\"; break;
-                    case '\n': out += "\\n"; break;
-                    case '\t': out += "\\t"; break;
-                    case '\r': out += "\\r"; break;
-                    default: out += c;
-                }
-            }
-            out += '"';
-        }
     }  // namespace
 
     const ValueTypeMetaData *json_meta()
@@ -348,7 +331,7 @@ namespace hgraph::stdlib::json_tree
         }
         if (meta == scalar_descriptor<Str>::value_meta())
         {
-            escape_into(inner.checked_as<Str>(), out);
+            json_detail::append_escaped(inner.checked_as<Str>(), out);
             return;
         }
         if (meta->value_kind() == ValueTypeKind::List)
@@ -374,7 +357,7 @@ namespace hgraph::stdlib::json_tree
             {
                 if (!first) { out += ", "; }
                 first = false;
-                escape_into(key.checked_as<Str>(), out);
+                json_detail::append_escaped(key.checked_as<Str>(), out);
                 out += ": ";
                 encode(item, out);
             }
@@ -453,7 +436,7 @@ namespace hgraph::stdlib::json_tree
                 out += fmt::format("{}", static_cast<double>(element));
                 return;
             case simdjson::dom::element_type::STRING:
-                escape_into(Str{std::string_view(element)}, out);
+                json_detail::append_escaped(std::string_view(element), out);
                 return;
             case simdjson::dom::element_type::ARRAY: {
                 out += '[';
@@ -474,7 +457,7 @@ namespace hgraph::stdlib::json_tree
                 {
                     if (!first) { out += ", "; }
                     first = false;
-                    escape_into(Str{std::string_view(field.key)}, out);
+                    json_detail::append_escaped(std::string_view(field.key), out);
                     out += ": ";
                     encode_simdjson(field.value, out);
                 }

@@ -80,6 +80,19 @@ TEST_CASE("json: atomic values round-trip in the Python wire format")
     CHECK(round_trip(time_of_day(9, 30, 5)) == "\"09:30:05\"");
 }
 
+TEST_CASE("json: control characters escape as RFC 8259 requires")
+{
+    // Every character below 0x20 MUST be escaped: \b and \f have short
+    // forms, anything else falls back to \u00XX. Escaping walks runs, so a
+    // clean span either side of an escape must survive the bulk copy.
+    CHECK(round_trip(Str{"back\bspace"}) == "\"back\\bspace\"");
+    CHECK(round_trip(Str{"form\ffeed"}) == "\"form\\ffeed\"");
+    CHECK(round_trip(Str{"unit\x1f" "sep"}) == "\"unit\\u001fsep\"");
+    CHECK(round_trip(Str{std::string("nul\0byte", 8)}) == "\"nul\\u0000byte\"");
+    CHECK(round_trip(Str{"lead\ttrail"}) == "\"lead\\ttrail\"");
+    CHECK(round_trip(Str{"\x01" "\x02"}) == "\"\\u0001\\u0002\"");
+}
+
 TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
 {
     using namespace std::chrono;
@@ -704,6 +717,27 @@ TEST_CASE("dynamic json operators: decoded values encode canonically")
     CHECK_OUTPUT(eval_node<JsonDynamicEncodeGraph>(
                      values<Str>(Str{"{\"a\":1,\"b\":[true,null,\"x\"]}"})),
                  values<Str>(Str{"{\"a\": 1, \"b\": [true, null, \"x\"]}"}));
+}
+
+TEST_CASE("dynamic json operators: re-encoding escapes control characters")
+{
+    stdlib::register_standard_operators();
+    // Regression: the dynamic encoder kept its own escaper which handled only
+    // " \\ \n \t \r and emitted every other sub-0x20 byte RAW — invalid JSON
+    // per RFC 8259, and unparseable on the way back. Both encoders now share
+    // json_detail::append_escaped. Values AND keys go through it.
+    CHECK_OUTPUT(eval_node<JsonDynamicEncodeGraph>(
+                     values<Str>(Str{"{\"a\":\"x\\u0008y\"}"})),
+                 values<Str>(Str{"{\"a\": \"x\\by\"}"}));
+    CHECK_OUTPUT(eval_node<JsonDynamicEncodeGraph>(
+                     values<Str>(Str{"{\"a\":\"x\\u000cy\"}"})),
+                 values<Str>(Str{"{\"a\": \"x\\fy\"}"}));
+    CHECK_OUTPUT(eval_node<JsonDynamicEncodeGraph>(
+                     values<Str>(Str{"{\"a\":\"x\\u001fy\"}"})),
+                 values<Str>(Str{"{\"a\": \"x\\u001fy\"}"}));
+    CHECK_OUTPUT(eval_node<JsonDynamicEncodeGraph>(
+                     values<Str>(Str{"{\"k\\u0009k\":1}"})),
+                 values<Str>(Str{"{\"k\\tk\": 1}"}));
 }
 
 TEST_CASE("dynamic json operators: equality is semantic not raw string equality")

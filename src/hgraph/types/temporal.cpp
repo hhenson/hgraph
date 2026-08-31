@@ -1212,17 +1212,27 @@ namespace hgraph
         return out << value.name();
     }
 
+    std::string format_zoned_datetime(const ZonedDateTime &value)
+    {
+        const int  offset = value.offset_seconds();
+        const char sign = offset < 0 ? '-' : '+';
+        const int  magnitude = offset < 0 ? -offset : offset;
+        char       suffix[16];
+        std::snprintf(suffix, sizeof suffix, "%c%02d:%02d", sign,
+                      magnitude / 3600, (magnitude / 60) % 60);
+        std::string text = format_civil_datetime(value.civil());
+        text += suffix;
+        text += '[';
+        text += value.zone().name();
+        text += ']';
+        return text;
+    }
+
+    // Streaming delegates to the string form so the layout is stated once.
     std::ostream &operator<<(std::ostream &out,
                              const ZonedDateTime &value)
     {
-        const int offset = value.offset_seconds();
-        const char sign = offset < 0 ? '-' : '+';
-        const int magnitude = offset < 0 ? -offset : offset;
-        char suffix[16];
-        std::snprintf(suffix, sizeof suffix, "%c%02d:%02d", sign,
-                      magnitude / 3600, (magnitude / 60) % 60);
-        return out << format_civil_datetime(value.civil()) << suffix << '['
-                   << value.zone().name() << ']';
+        return out << format_zoned_datetime(value);
     }
 
     std::ostream &operator<<(std::ostream &out,
