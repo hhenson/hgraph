@@ -50,6 +50,22 @@ Useful focused commands are:
    python -m tools.parity reduce path/to/failing-recipe.json
    python -m tools.parity coverage --inventory
    python -m tools.parity catalogue
+   python -m tools.parity surface --exit-zero
+
+The ``surface`` campaign compares exported names and user-callable parameter
+names, kinds, and defaults.  A lazy export which cannot resolve because an
+optional distribution is absent is recorded against that name; it does not
+abort the rest of the audit.  ``--exit-zero`` is appropriate while reviewing
+the broad discovery report.  Remove it when the actionable set is expected to
+be empty.
+
+Call shapes which are inseparable from runtime semantics should also appear in
+the fixed differential corpus.  For example, ``json_operator_contract``
+compares the public ``to_json`` and ``from_json`` signatures and their
+multi-tick TS, TSS, TSL, and TSD behaviour in the same recipe family.  This
+prevents an internal implementation signature from being mistaken for a
+supported public call merely because candidate-only generated documentation
+is internally consistent.
 
 Upstream conformance suite
 --------------------------

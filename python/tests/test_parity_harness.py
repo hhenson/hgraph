@@ -215,6 +215,39 @@ def test_legacy_compound_scalar_json_recipe_rejects_malformed_values():
         validate_recipe(recipe)
 
 
+def test_json_operator_contract_rejects_non_public_and_malformed_cases():
+    raw = {
+        "schema_version": 1,
+        "id": "test-invalid-json-operator-contract",
+        "template": "json_operator_contract",
+        "inputs": {"value": ["[1, 2]"]},
+        "parameters": {
+            "operation": "from_json",
+            "shape": "tss",
+            "delta": True,
+        },
+        "features": ["conversion:json"],
+    }
+    with pytest.raises(RecipeError, match="non-public delta argument"):
+        validate_recipe(Recipe.from_dict(raw))
+
+    raw["parameters"]["delta"] = False
+    raw["inputs"]["value"] = ["not-json"]
+    with pytest.raises(RecipeError, match="must contain valid JSON"):
+        validate_recipe(Recipe.from_dict(raw))
+
+    raw["parameters"] = {
+        "operation": "to_json",
+        "shape": "tss",
+        "delta": True,
+    }
+    raw["inputs"]["value"] = [
+        {"$set_delta": {"added": [1], "removed": [1]}}
+    ]
+    with pytest.raises(RecipeError, match="invalid input for tss"):
+        validate_recipe(Recipe.from_dict(raw))
+
+
 def test_realtime_default_start_recipe_requires_one_boolean_probe():
     raw = {
         "schema_version": 1,

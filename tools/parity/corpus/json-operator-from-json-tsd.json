@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "json-operator-from-json-tsd",
+  "description": "TSD JSON decoding preserves keyed updates and null removal semantics across ticks.",
+  "template": "json_operator_contract",
+  "inputs": {
+    "value": [
+      "{\"a\": 1, \"b\": 2}",
+      "{\"a\": null, \"c\": 3}",
+      "{\"b\": 5}"
+    ]
+  },
+  "parameters": {
+    "operation": "from_json",
+    "shape": "tsd",
+    "delta": false
+  },
+  "features": [
+    "shape:TSD",
+    "type:int",
+    "type:str-key",
+    "direction:decode",
+    "lifecycle:keyed",
+    "lifecycle:removal"
+  ]
+}

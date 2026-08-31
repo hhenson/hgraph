@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "json-operator-from-json-ts",
+  "description": "The public from_json call shape and atomic multi-tick decoding match release/0.5.",
+  "template": "json_operator_contract",
+  "inputs": {
+    "value": ["1", null, "-2", "3"]
+  },
+  "parameters": {
+    "operation": "from_json",
+    "shape": "ts",
+    "delta": false
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "direction:decode"
+  ]
+}

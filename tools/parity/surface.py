@@ -15,8 +15,13 @@ import in the candidate.
 from __future__ import annotations
 
 import fnmatch
+import importlib
+import inspect
 import json
+import pkgutil
+import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -40,17 +45,16 @@ SURFACE_EXTRA_DEPENDENCIES: tuple[str, ...] = (
     "adbc-driver-snowflake>=1.8",
 )
 
-_PROBE = r"""
-import importlib, inspect, json, pkgutil, re, sys
-
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+
 
 def _default_repr(value):
     # Identity sentinels (``object()`` defaults) repr with a process-local
     # address; normalize so two probes of the same implementation agree.
     return _ADDRESS.sub("", repr(value))
 
-def describe_callable(obj):
+
+def _describe_callable(obj):
     try:
         signature = inspect.signature(obj)
     except (ValueError, TypeError):
@@ -60,11 +64,16 @@ def describe_callable(obj):
         params.append({
             "name": p.name,
             "kind": str(p.kind),
-            "default": _default_repr(p.default) if p.default is not inspect.Parameter.empty else None,
+            "default": (
+                _default_repr(p.default)
+                if p.default is not inspect.Parameter.empty
+                else None
+            ),
         })
     return {"signature": params}
 
-def describe_module(name):
+
+def _describe_module(name):
     try:
         module = importlib.import_module(name)
     except BaseException as error:  # noqa: BLE001 - import asymmetry IS the finding
@@ -77,14 +86,17 @@ def describe_module(name):
     for name_ in sorted(set(names)):
         try:
             obj = getattr(module, name_)
-        except AttributeError:
-            surface[name_] = {"kind": "missing-attr"}
+        except BaseException as error:  # noqa: BLE001 - a lazy export may fail
+            surface[name_] = {
+                "kind": "attribute-error",
+                "error": f"{type(error).__name__}: {error}",
+            }
             continue
         if inspect.isclass(obj):
             # The constructor IS public API: required-parameter changes must
             # surface even when the method map is unchanged.
             try:
-                constructor = describe_callable(obj)
+                constructor = _describe_callable(obj)
             except BaseException:  # noqa: BLE001
                 constructor = {"signature": None}
             methods = {}
@@ -94,22 +106,21 @@ def describe_module(name):
                 attr = inspect.getattr_static(obj, m, None)
                 if callable(attr) or isinstance(attr, (staticmethod, classmethod)):
                     try:
-                        methods[m] = describe_callable(getattr(obj, m))
+                        methods[m] = _describe_callable(getattr(obj, m))
                     except BaseException:  # noqa: BLE001
                         methods[m] = {"signature": None}
             surface[name_] = {"kind": "class", "methods": methods,
                               "constructor": constructor.get("signature")}
         elif callable(obj):
-            entry = describe_callable(obj)
+            entry = _describe_callable(obj)
             entry["kind"] = "callable"
             surface[name_] = entry
         else:
             surface[name_] = {"kind": type(obj).__name__}
     return {"surface": surface, "has_all": exported is not None}
 
-modules = ["hgraph", "hgraph.test", "hgraph.adaptors"]
 
-def _collect(package_name):
+def _collect_modules(package_name, modules):
     # Recursive discovery: nested paths (hgraph.adaptors.sql.sql_connection)
     # break independently of their parent package. Each discovered module is
     # probed via describe_module, which contains its own import guard.
@@ -121,22 +132,38 @@ def _collect(package_name):
         qualified = f"{package_name}.{info.name}"
         modules.append(qualified)
         if info.ispkg:
-            _collect(qualified)
+            _collect_modules(qualified, modules)
 
-_collect("hgraph.adaptors")
 
-print(json.dumps({name: describe_module(name) for name in sorted(set(modules))}))
-"""
+def _probe_payload():
+    modules = ["hgraph", "hgraph.test", "hgraph.adaptors"]
+    _collect_modules("hgraph.adaptors", modules)
+    return {
+        name: _describe_module(name)
+        for name in sorted(set(modules))
+    }
+
+
+def _probe_main():
+    print(json.dumps(_probe_payload()))
 
 
 def probe_surface(python: Path | str) -> dict[str, Any]:
     result = subprocess.run(
-        [str(python), "-c", _PROBE],
+        [
+            str(python),
+            "-c",
+            "from tools.parity.surface import _probe_main; _probe_main()",
+        ],
         capture_output=True,
         text=True,
         timeout=300,
-        check=True,
+        cwd=Path(__file__).resolve().parents[2],
     )
+    if result.returncode:
+        raise RuntimeError(
+            f"surface probe failed under {python}:\n{result.stderr.strip()}"
+        )
     return json.loads(result.stdout)
 
 

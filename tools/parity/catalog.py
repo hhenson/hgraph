@@ -2736,6 +2736,149 @@ def _legacy_compound_scalar_json(hg, recipe):
     return {"encoded": encoded, "decoded": decoded}
 
 
+def _validate_json_operator_contract(recipe):
+    if set(recipe.parameters) != {"operation", "shape", "delta"}:
+        raise RecipeError(
+            "json_operator_contract requires operation, shape, and delta parameters"
+        )
+    operation = recipe.parameters["operation"]
+    shape = recipe.parameters["shape"]
+    delta = recipe.parameters["delta"]
+    if operation not in {"from_json", "to_json"}:
+        raise RecipeError(
+            "json_operator_contract operation must be from_json or to_json"
+        )
+    if shape not in {"ts", "tss", "tsd", "tsl"}:
+        raise RecipeError(
+            "json_operator_contract shape must be ts, tss, tsd, or tsl"
+        )
+    if not isinstance(delta, bool):
+        raise RecipeError("json_operator_contract delta must be a boolean")
+    if operation == "from_json" and delta:
+        raise RecipeError(
+            "json_operator_contract cannot pass the non-public delta argument to from_json"
+        )
+    def is_int(value):
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    def validate_value(value, *, encoded):
+        if shape == "ts":
+            valid = is_int(value)
+        elif shape == "tss":
+            if encoded:
+                valid = isinstance(value, list) and all(is_int(item) for item in value)
+                if isinstance(value, dict):
+                    valid = (
+                        set(value) == {"added", "removed"}
+                        and all(
+                            isinstance(value[name], list)
+                            and all(is_int(item) for item in value[name])
+                            for name in ("added", "removed")
+                        )
+                    )
+            else:
+                valid = (
+                    isinstance(value, dict)
+                    and set(value) == {"$set_delta"}
+                    and isinstance(value["$set_delta"], dict)
+                    and set(value["$set_delta"]) == {"added", "removed"}
+                    and all(
+                        isinstance(value["$set_delta"][name], list)
+                        and all(is_int(item) for item in value["$set_delta"][name])
+                        for name in ("added", "removed")
+                    )
+                )
+            if valid and isinstance(value, dict):
+                delta = value if encoded else value["$set_delta"]
+                valid = not set(delta["added"]) & set(delta["removed"])
+        elif shape == "tsd":
+            valid = isinstance(value, dict) and all(
+                isinstance(key, str)
+                and (
+                    is_int(item)
+                    or (item is None if encoded else item == {"$remove": True})
+                )
+                for key, item in value.items()
+            )
+        else:
+            valid = (
+                isinstance(value, list)
+                and len(value) <= 2
+                and all(item is None or is_int(item) for item in value)
+            )
+        if not valid:
+            representation = "decoded JSON" if encoded else "input"
+            raise RecipeError(
+                f"json_operator_contract invalid {representation} for {shape}: {value!r}"
+            )
+
+    for tick in recipe.inputs["value"]:
+        if tick is None:
+            continue
+        if operation == "from_json":
+            if not isinstance(tick, str):
+                raise RecipeError(
+                    "json_operator_contract from_json values must be strings or null ticks"
+                )
+            try:
+                value = json.loads(tick)
+            except json.JSONDecodeError as error:
+                raise RecipeError(
+                    "json_operator_contract from_json values must contain valid JSON"
+                ) from error
+            validate_value(value, encoded=True)
+        else:
+            validate_value(tick, encoded=False)
+
+
+def _json_operator_contract(hg, recipe):
+    import inspect
+
+    from hgraph.test import eval_node
+
+    shape = recipe.parameters["shape"]
+    ts_type = {
+        "ts": hg.TS[int],
+        "tss": hg.TSS[int],
+        "tsd": hg.TSD[str, hg.TS[int]],
+        "tsl": hg.TSL[hg.TS[int], hg.Size[2]],
+    }[shape]
+
+    def call_shape(operator):
+        return [
+            {
+                "name": parameter.name,
+                "kind": str(parameter.kind),
+                "default": (
+                    repr(parameter.default)
+                    if parameter.default is not inspect.Parameter.empty
+                    else None
+                ),
+            }
+            for parameter in inspect.signature(operator).parameters.values()
+        ]
+
+    if recipe.parameters["operation"] == "from_json":
+        values = eval_node(
+            hg.from_json[ts_type],
+            list(recipe.inputs["value"]),
+        )
+    else:
+        values = eval_node(
+            hg.to_json[ts_type],
+            decoded_inputs(hg, recipe)["value"],
+            recipe.parameters["delta"],
+        )
+
+    return {
+        "call_shapes": {
+            "to_json": call_shape(hg.to_json),
+            "from_json": call_shape(hg.from_json),
+        },
+        "values": values,
+    }
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -3239,6 +3382,18 @@ CATALOG = {
         operators=("to_json", "from_json"),
         execute=_legacy_compound_scalar_json,
     ),
+    "json_operator_contract": TemplateSpec(
+        name="json_operator_contract",
+        required_inputs=("value",),
+        features=(
+            "conversion:json",
+            "compatibility:release-0.5",
+            "api:public-signature",
+            "lifecycle:multi-cycle",
+        ),
+        operators=("to_json", "from_json"),
+        execute=_json_operator_contract,
+    ),
     "temporal_expression": TemplateSpec(
         name="temporal_expression",
         required_inputs=None,
@@ -3386,6 +3541,8 @@ def validate_recipe(recipe):
         _validate_enum_literal_selection(recipe)
     elif recipe.template == "legacy_compound_scalar_json":
         _validate_legacy_compound_scalar_json(recipe)
+    elif recipe.template == "json_operator_contract":
+        _validate_json_operator_contract(recipe)
     elif recipe.template == "polymorphic_event_flow":
         _validate_polymorphic_event_flow(recipe)
     elif recipe.template == "polymorphic_event_map":
