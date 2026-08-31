@@ -17,7 +17,7 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
         allow_module_level=True,
     )
 
-from extensions.web.python.tests import _loopback_harness as harness
+from . import _loopback_harness as harness
 
 
 def _header(response, name):
