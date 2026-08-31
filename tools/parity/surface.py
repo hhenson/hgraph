@@ -73,50 +73,65 @@ def _describe_callable(obj):
     return {"signature": params}
 
 
+def _error_description(error):
+    return f"{type(error).__name__}: {error}"
+
+
+def _safe_describe_callable(obj):
+    try:
+        return _describe_callable(obj)
+    except Exception:  # A broken signature is surface data, not a probe failure.
+        return {"signature": None}
+
+
+def _describe_class(obj):
+    methods = {}
+    for name in sorted(member for member in dir(obj) if not member.startswith("_")):
+        attr = inspect.getattr_static(obj, name, None)
+        if callable(attr) or isinstance(attr, (staticmethod, classmethod)):
+            try:
+                method = getattr(obj, name)
+            except Exception:  # A descriptor may fail while being resolved.
+                methods[name] = {"signature": None}
+            else:
+                methods[name] = _safe_describe_callable(method)
+    return {
+        "kind": "class",
+        "methods": methods,
+        "constructor": _safe_describe_callable(obj)["signature"],
+    }
+
+
+def _describe_export(module, name):
+    try:
+        obj = getattr(module, name)
+    except Exception as error:  # Lazy optional imports are recorded per export.
+        return {
+            "kind": "attribute-error",
+            "error": _error_description(error),
+        }
+    if inspect.isclass(obj):
+        return _describe_class(obj)
+    if callable(obj):
+        return {"kind": "callable", **_describe_callable(obj)}
+    return {"kind": type(obj).__name__}
+
+
 def _describe_module(name):
     try:
         module = importlib.import_module(name)
-    except BaseException as error:  # noqa: BLE001 - import asymmetry IS the finding
-        return {"import_error": f"{type(error).__name__}: {error}"}
+    except Exception as error:  # Import asymmetry is a finding.
+        return {"import_error": _error_description(error)}
     exported = getattr(module, "__all__", None)
-    names = exported if exported is not None else [
-        n for n in dir(module) if not n.startswith("_")
-    ]
-    surface = {}
-    for name_ in sorted(set(names)):
-        try:
-            obj = getattr(module, name_)
-        except BaseException as error:  # noqa: BLE001 - a lazy export may fail
-            surface[name_] = {
-                "kind": "attribute-error",
-                "error": f"{type(error).__name__}: {error}",
-            }
-            continue
-        if inspect.isclass(obj):
-            # The constructor IS public API: required-parameter changes must
-            # surface even when the method map is unchanged.
-            try:
-                constructor = _describe_callable(obj)
-            except BaseException:  # noqa: BLE001
-                constructor = {"signature": None}
-            methods = {}
-            for m in sorted(dir(obj)):
-                if m.startswith("_"):
-                    continue
-                attr = inspect.getattr_static(obj, m, None)
-                if callable(attr) or isinstance(attr, (staticmethod, classmethod)):
-                    try:
-                        methods[m] = _describe_callable(getattr(obj, m))
-                    except BaseException:  # noqa: BLE001
-                        methods[m] = {"signature": None}
-            surface[name_] = {"kind": "class", "methods": methods,
-                              "constructor": constructor.get("signature")}
-        elif callable(obj):
-            entry = _describe_callable(obj)
-            entry["kind"] = "callable"
-            surface[name_] = entry
-        else:
-            surface[name_] = {"kind": type(obj).__name__}
+    names = (
+        exported
+        if exported is not None
+        else [member for member in dir(module) if not member.startswith("_")]
+    )
+    surface = {
+        name: _describe_export(module, name)
+        for name in sorted(set(names))
+    }
     return {"surface": surface, "has_all": exported is not None}
 
 
@@ -126,7 +141,7 @@ def _collect_modules(package_name, modules):
     # probed via describe_module, which contains its own import guard.
     try:
         package = importlib.import_module(package_name)
-    except BaseException:  # noqa: BLE001
+    except Exception:
         return
     for info in pkgutil.iter_modules(getattr(package, "__path__", [])):
         qualified = f"{package_name}.{info.name}"
@@ -212,6 +227,18 @@ def compare_surfaces(
                     "kind": "kind-mismatch",
                     "reference": r.get("kind"),
                     "candidate": c.get("kind"),
+                })
+                continue
+            if (
+                r.get("kind") == "attribute-error"
+                and r.get("error") != c.get("error")
+            ):
+                findings.append({
+                    "module": module,
+                    "name": name,
+                    "kind": "attribute-error-mismatch",
+                    "reference_error": r.get("error"),
+                    "candidate_error": c.get("error"),
                 })
                 continue
             if r.get("kind") == "callable" and _signature_key(r) != _signature_key(c):

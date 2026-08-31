@@ -228,13 +228,15 @@ def test_json_operator_contract_rejects_non_public_and_malformed_cases():
         },
         "features": ["conversion:json"],
     }
+    recipe = Recipe.from_dict(raw)
     with pytest.raises(RecipeError, match="non-public delta argument"):
-        validate_recipe(Recipe.from_dict(raw))
+        validate_recipe(recipe)
 
     raw["parameters"]["delta"] = False
     raw["inputs"]["value"] = ["not-json"]
+    recipe = Recipe.from_dict(raw)
     with pytest.raises(RecipeError, match="must contain valid JSON"):
-        validate_recipe(Recipe.from_dict(raw))
+        validate_recipe(recipe)
 
     raw["parameters"] = {
         "operation": "to_json",
@@ -244,8 +246,9 @@ def test_json_operator_contract_rejects_non_public_and_malformed_cases():
     raw["inputs"]["value"] = [
         {"$set_delta": {"added": [1], "removed": [1]}}
     ]
+    recipe = Recipe.from_dict(raw)
     with pytest.raises(RecipeError, match="invalid input for tss"):
-        validate_recipe(Recipe.from_dict(raw))
+        validate_recipe(recipe)
 
 
 def test_realtime_default_start_recipe_requires_one_boolean_probe():

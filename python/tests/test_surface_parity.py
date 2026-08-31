@@ -32,6 +32,35 @@ def test_surface_probe_records_a_failing_lazy_export(monkeypatch):
     }
 
 
+def test_surface_probe_compares_lazy_export_failure_details():
+    def module(error):
+        return {
+            "hgraph": {
+                "surface": {
+                    "optional": {
+                        "kind": "attribute-error",
+                        "error": error,
+                    }
+                },
+                "has_all": True,
+            }
+        }
+
+    missing = module("ModuleNotFoundError: optional package is not installed")
+    broken = module("RuntimeError: lazy resolver failed")
+
+    assert compare_surfaces(missing, missing)["findings"] == []
+    assert compare_surfaces(missing, broken)["findings"] == [
+        {
+            "module": "hgraph",
+            "name": "optional",
+            "kind": "attribute-error-mismatch",
+            "reference_error": "ModuleNotFoundError: optional package is not installed",
+            "candidate_error": "RuntimeError: lazy resolver failed",
+        }
+    ]
+
+
 def test_surface_probe_reports_json_public_signature_drift():
     def module(to_json, from_json):
         return {

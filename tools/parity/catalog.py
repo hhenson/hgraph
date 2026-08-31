@@ -44,6 +44,7 @@ _SCALAR_ARGUMENT_OPERATIONS = {
 _COMPARISON_OPERATIONS = {"eq", "ne", "lt", "le", "gt", "ge"}
 _DIVIDE_POLICY_OPERATIONS = {"div", "floordiv", "mod", "pow"}
 _DIVIDE_BY_ZERO_POLICIES = {"ERROR", "NAN", "INF", "NONE", "ZERO", "ONE"}
+_SET_DELTA = "$set_delta"
 
 
 @dataclass(frozen=True)
@@ -73,17 +74,19 @@ def _decode_value(hg, value):
         return hg.REMOVE
     if set(value) == {"$remove_if_exists"} and value["$remove_if_exists"] is True:
         return hg.REMOVE_IF_EXISTS
-    if set(value) == {"$set_delta"}:
-        delta = value["$set_delta"]
+    if set(value) == {_SET_DELTA}:
+        delta = value[_SET_DELTA]
         if not isinstance(delta, dict) or set(delta) != {"added", "removed"}:
-            raise RecipeError("$set_delta requires added and removed lists")
+            raise RecipeError(f"{_SET_DELTA} requires added and removed lists")
         added = [_decode_value(hg, item) for item in delta["added"]]
         removed = [_decode_value(hg, item) for item in delta["removed"]]
         overlap = set(added) & set(removed)
         if overlap:
             # Ruling 2026-07-28: added/removed must be disjoint — an element
             # in both is incorrect data, not a recipe to explore.
-            raise RecipeError(f"$set_delta added/removed overlap: {sorted(overlap)!r}")
+            raise RecipeError(
+                f"{_SET_DELTA} added/removed overlap: {sorted(overlap)!r}"
+            )
         return hg.set_delta(added=added, removed=removed)
     if set(value) == {"$frozendict"}:
         from frozendict import frozendict
@@ -2736,7 +2739,7 @@ def _legacy_compound_scalar_json(hg, recipe):
     return {"encoded": encoded, "decoded": decoded}
 
 
-def _validate_json_operator_contract(recipe):
+def _json_operator_parameters(recipe):
     if set(recipe.parameters) != {"operation", "shape", "delta"}:
         raise RecipeError(
             "json_operator_contract requires operation, shape, and delta parameters"
@@ -2758,77 +2761,102 @@ def _validate_json_operator_contract(recipe):
         raise RecipeError(
             "json_operator_contract cannot pass the non-public delta argument to from_json"
         )
-    def is_int(value):
-        return isinstance(value, int) and not isinstance(value, bool)
+    return operation, shape
 
-    def validate_value(value, *, encoded):
-        if shape == "ts":
-            valid = is_int(value)
-        elif shape == "tss":
-            if encoded:
-                valid = isinstance(value, list) and all(is_int(item) for item in value)
-                if isinstance(value, dict):
-                    valid = (
-                        set(value) == {"added", "removed"}
-                        and all(
-                            isinstance(value[name], list)
-                            and all(is_int(item) for item in value[name])
-                            for name in ("added", "removed")
-                        )
-                    )
-            else:
-                valid = (
-                    isinstance(value, dict)
-                    and set(value) == {"$set_delta"}
-                    and isinstance(value["$set_delta"], dict)
-                    and set(value["$set_delta"]) == {"added", "removed"}
-                    and all(
-                        isinstance(value["$set_delta"][name], list)
-                        and all(is_int(item) for item in value["$set_delta"][name])
-                        for name in ("added", "removed")
-                    )
-                )
-            if valid and isinstance(value, dict):
-                delta = value if encoded else value["$set_delta"]
-                valid = not set(delta["added"]) & set(delta["removed"])
-        elif shape == "tsd":
-            valid = isinstance(value, dict) and all(
-                isinstance(key, str)
-                and (
-                    is_int(item)
-                    or (item is None if encoded else item == {"$remove": True})
-                )
-                for key, item in value.items()
-            )
-        else:
-            valid = (
-                isinstance(value, list)
-                and len(value) <= 2
-                and all(item is None or is_int(item) for item in value)
-            )
-        if not valid:
-            representation = "decoded JSON" if encoded else "input"
-            raise RecipeError(
-                f"json_operator_contract invalid {representation} for {shape}: {value!r}"
-            )
+
+def _is_json_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_json_int_list(value):
+    return isinstance(value, list) and all(_is_json_int(item) for item in value)
+
+
+def _is_json_set_delta(value):
+    return (
+        isinstance(value, dict)
+        and set(value) == {"added", "removed"}
+        and all(_is_json_int_list(value[name]) for name in ("added", "removed"))
+        and not set(value["added"]) & set(value["removed"])
+    )
+
+
+def _is_json_ts_value(value, _encoded):
+    return _is_json_int(value)
+
+
+def _is_json_tss_value(value, encoded):
+    if encoded and _is_json_int_list(value):
+        return True
+    if not isinstance(value, dict):
+        return False
+    if encoded:
+        delta = value
+    elif set(value) == {_SET_DELTA}:
+        delta = value[_SET_DELTA]
+    else:
+        return False
+    return _is_json_set_delta(delta)
+
+
+def _is_json_tsd_value(value, encoded):
+    def is_item(item):
+        removal = item is None if encoded else item == {"$remove": True}
+        return _is_json_int(item) or removal
+
+    return isinstance(value, dict) and all(
+        isinstance(key, str) and is_item(item)
+        for key, item in value.items()
+    )
+
+
+def _is_json_tsl_value(value, _encoded):
+    return (
+        isinstance(value, list)
+        and len(value) <= 2
+        and all(item is None or _is_json_int(item) for item in value)
+    )
+
+
+_JSON_OPERATOR_VALUE_VALIDATORS = {
+    "ts": _is_json_ts_value,
+    "tss": _is_json_tss_value,
+    "tsd": _is_json_tsd_value,
+    "tsl": _is_json_tsl_value,
+}
+
+
+def _parse_json_operator_tick(tick):
+    if not isinstance(tick, str):
+        raise RecipeError(
+            "json_operator_contract from_json values must be strings or null ticks"
+        )
+    try:
+        return json.loads(tick)
+    except json.JSONDecodeError as error:
+        raise RecipeError(
+            "json_operator_contract from_json values must contain valid JSON"
+        ) from error
+
+
+def _validate_json_operator_value(shape, value, *, encoded):
+    if _JSON_OPERATOR_VALUE_VALIDATORS[shape](value, encoded):
+        return
+    representation = "decoded JSON" if encoded else "input"
+    raise RecipeError(
+        f"json_operator_contract invalid {representation} for {shape}: {value!r}"
+    )
+
+
+def _validate_json_operator_contract(recipe):
+    operation, shape = _json_operator_parameters(recipe)
+    encoded = operation == "from_json"
 
     for tick in recipe.inputs["value"]:
         if tick is None:
             continue
-        if operation == "from_json":
-            if not isinstance(tick, str):
-                raise RecipeError(
-                    "json_operator_contract from_json values must be strings or null ticks"
-                )
-            try:
-                value = json.loads(tick)
-            except json.JSONDecodeError as error:
-                raise RecipeError(
-                    "json_operator_contract from_json values must contain valid JSON"
-                ) from error
-            validate_value(value, encoded=True)
-        else:
-            validate_value(tick, encoded=False)
+        value = _parse_json_operator_tick(tick) if encoded else tick
+        _validate_json_operator_value(shape, value, encoded=encoded)
 
 
 def _json_operator_contract(hg, recipe):
