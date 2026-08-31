@@ -27,7 +27,7 @@ except ImportError as error:  # pragma: no cover - exercised without the wheel
         allow_module_level=True,
     )
 
-import _loopback_harness as harness
+from extensions.web.python.tests import _loopback_harness as harness
 
 
 # Annotations are resolved against this module's globals, so any type named in

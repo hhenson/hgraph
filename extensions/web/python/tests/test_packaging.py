@@ -159,7 +159,11 @@ def test_ci_builds_and_tests_separate_web_artifacts():
         "web-distribution-wheel-windows-latest",
     ):
         assert artifact in wheel_workflows
-    assert "python -m pytest extensions/web/python/tests -q" in wheel_workflows
+    test_workflow = (
+        REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
+    ).read_text()
+    assert "Run extension suites together" in test_workflow
+    assert "extensions/web/python/tests" in test_workflow
     assert "-DHGRAPH_BUILD_WEB_EXTENSION=ON" in native_workflow
     assert "Build and test installed web consumer" in native_workflow
     assert '      - "*.*.*"' in release_workflow
