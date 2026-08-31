@@ -22,6 +22,7 @@
 #include <charconv>
 #include <chrono>
 #include <cctype>
+#include <iterator>
 #include <locale>
 #include <memory>
 #include <mutex>
@@ -116,46 +117,59 @@ namespace hgraph
 
         void append_escaped(std::string_view text, std::string &out)
         {
+            // Escape by RUNS, not by character: JSON payloads are
+            // overwhelmingly clean text, so the common path is a bulk copy of
+            // the span between two escapes rather than a push_back per byte.
             out.push_back('"');
-            for (const char c : text)
+            std::size_t clean = 0;
+            for (std::size_t index = 0; index < text.size(); ++index)
             {
+                const auto       c = static_cast<unsigned char>(text[index]);
+                std::string_view escape;
+                // Only \u00XX reaches this buffer (c < 0x20), so two nibbles
+                // suffice; it stays alive until the append below consumes it.
+                char             control[6] = {'\\', 'u', '0', '0', '0', '0'};
                 switch (c)
                 {
-                    case '"': out += "\\\""; break;
-                    case '\\': out += "\\\\"; break;
-                    case '\b': out += "\\b"; break;
-                    case '\f': out += "\\f"; break;
-                    case '\n': out += "\\n"; break;
-                    case '\r': out += "\\r"; break;
-                    case '\t': out += "\\t"; break;
-                    default:
-                        if (static_cast<unsigned char>(c) < 0x20)
-                        {
-                            out += fmt::format("\\u{:04x}", static_cast<unsigned char>(c));
-                        }
-                        else
-                        {
-                            out.push_back(c);
-                        }
+                    case '"': escape = "\\\""; break;
+                    case '\\': escape = "\\\\"; break;
+                    case '\b': escape = "\\b"; break;
+                    case '\f': escape = "\\f"; break;
+                    case '\n': escape = "\\n"; break;
+                    case '\r': escape = "\\r"; break;
+                    case '\t': escape = "\\t"; break;
+                    default: {
+                        if (c >= 0x20) { continue; }
+                        constexpr char digits[] = "0123456789abcdef";
+                        control[4] = digits[(c >> 4) & 0xF];
+                        control[5] = digits[c & 0xF];
+                        escape     = std::string_view{control, sizeof control};
+                        break;
+                    }
                 }
+                out.append(text.substr(clean, index - clean));
+                out.append(escape);
+                clean = index + 1;
             }
+            out.append(text.substr(clean));
             out.push_back('"');
         }
 
         void append_date(Date value, std::string &out)
         {
-            out += fmt::format("{:04}-{:02}-{:02}", static_cast<int>(value.year()),
-                               static_cast<unsigned>(value.month()), static_cast<unsigned>(value.day()));
+            fmt::format_to(std::back_inserter(out), "{:04}-{:02}-{:02}",
+                           static_cast<int>(value.year()),
+                           static_cast<unsigned>(value.month()), static_cast<unsigned>(value.day()));
         }
 
         void append_time_of_day(std::int64_t micros_since_midnight, std::string &out)
         {
             const auto total_seconds = micros_since_midnight / 1'000'000;
             const auto micros = micros_since_midnight % 1'000'000;
-            out += fmt::format("{:02}:{:02}:{:02}", total_seconds / 3'600,
-                               (total_seconds / 60) % 60,
-                               total_seconds % 60);
-            if (micros != 0) { out += fmt::format(".{:06}", micros); }
+            fmt::format_to(std::back_inserter(out), "{:02}:{:02}:{:02}",
+                           total_seconds / 3'600, (total_seconds / 60) % 60,
+                           total_seconds % 60);
+            if (micros != 0) { fmt::format_to(std::back_inserter(out), ".{:06}", micros); }
         }
 
         // ---------------------------------------------------------------
@@ -1217,8 +1231,12 @@ namespace hgraph
             switch (self.atomic_tag)
             {
                 case AtomicTag::Bool: out += view.checked_as<Bool>() ? "true" : "false"; return;
-                case AtomicTag::Int: out += fmt::format("{}", view.checked_as<Int>()); return;
-                case AtomicTag::Float: out += fmt::format("{}", view.checked_as<Float>()); return;
+                case AtomicTag::Int:
+                    fmt::format_to(std::back_inserter(out), "{}", view.checked_as<Int>());
+                    return;
+                case AtomicTag::Float:
+                    fmt::format_to(std::back_inserter(out), "{}", view.checked_as<Float>());
+                    return;
                 case AtomicTag::Str: json_detail::append_escaped(view.checked_as<Str>(), out); return;
                 case AtomicTag::Date: {
                     out.push_back('"');
@@ -1250,21 +1268,20 @@ namespace hgraph
                     return;
                 case AtomicTag::Period: {
                     const Period value = view.checked_as<Period>();
-                    out += fmt::format(
-                        "{{\"months\": {}, \"days\": {}}}",
-                        value.total_months(), value.days());
+                    fmt::format_to(std::back_inserter(out),
+                                   "{{\"months\": {}, \"days\": {}}}",
+                                   value.total_months(), value.days());
                     return;
                 }
                 case AtomicTag::ZoneId:
                     json_detail::append_escaped(
                         view.checked_as<ZoneId>().name(), out);
                     return;
-                case AtomicTag::ZonedDateTime: {
-                    std::ostringstream text;
-                    text << view.checked_as<ZonedDateTime>();
-                    json_detail::append_escaped(text.str(), out);
+                case AtomicTag::ZonedDateTime:
+                    json_detail::append_escaped(
+                        format_zoned_datetime(view.checked_as<ZonedDateTime>()),
+                        out);
                     return;
-                }
                 case AtomicTag::InstantRange:
                     json_detail::write_range(
                         view.checked_as<InstantRange>(),

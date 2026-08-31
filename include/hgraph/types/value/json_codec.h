@@ -17,6 +17,11 @@ namespace hgraph
     {
         /** Minimal recursive-descent JSON reader; parsing is meta-directed. */
         struct Reader;
+
+        /** Append ``text`` to ``out`` as a quoted, RFC 8259-escaped JSON
+         *  string. THE one escaper: the operator encoder shares it so the
+         *  two paths cannot drift on which characters need escaping. */
+        HGRAPH_EXPORT void append_escaped(std::string_view text, std::string &out);
     }  // namespace json_detail
 
     /**
