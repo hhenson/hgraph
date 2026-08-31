@@ -466,6 +466,58 @@ namespace
         }
     };
 
+    struct FrameAttributeGraph
+    {
+        static constexpr auto name = "frame_attribute_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getattr_>(w, ts, Str{"a"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
+    struct FrameColumnGraph
+    {
+        static constexpr auto name = "frame_column_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Str{"b"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
+    struct FrameRowGraph
+    {
+        static constexpr auto name = "frame_row_graph";
+
+        static Port<TS<Row>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts,
+                                     Scalar<"index", Int> index)
+        {
+            return wire<stdlib::getitem_>(w, ts, index.value()).as<TS<Row>>();
+        }
+    };
+
+    struct FrameRowDynamicGraph
+    {
+        static constexpr auto name = "frame_row_dynamic_graph";
+
+        static Port<TS<Row>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts,
+                                     Port<TS<Int>> index)
+        {
+            return wire<stdlib::getitem_>(w, ts, index).as<TS<Row>>();
+        }
+    };
+
+    struct MissingFrameColumnGraph
+    {
+        static constexpr auto name = "missing_frame_column_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getattr_>(w, ts, Str{"missing"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
     struct UngroupKeyedFrameGraph
     {
         static constexpr auto name = "ungroup_keyed_frame_graph";
@@ -864,6 +916,32 @@ TEST_CASE("data frame operators: with_columns replaces and projects through C++ 
     INFO("actual:\n" << series[0]->table->ToString()
                        << "\nexpected:\n" << (*series_expected)->ToString());
     CHECK(series[0]->table->Equals(**series_expected));
+}
+
+TEST_CASE("data frame operators: Frame column and row access use the declared row schema")
+{
+    stdlib::register_standard_operators();
+    const auto input = frame({1, 2}, {10, 20});
+
+    auto attribute = eval_node<FrameAttributeGraph>(values<Frame>(input));
+    REQUIRE(attribute.size() == 1);
+    REQUIRE(attribute[0].has_value());
+    CHECK(attribute[0]->array->Equals(int_series({1, 2}).array));
+
+    auto column = eval_node<FrameColumnGraph>(values<Frame>(input));
+    REQUIRE(column.size() == 1);
+    REQUIRE(column[0].has_value());
+    CHECK(column[0]->array->Equals(int_series({10, 20}).array));
+
+    CHECK_OUTPUT(eval_node<FrameRowGraph>(values<Frame>(input), Int{0}),
+                 values<Value>(row_value(1, 10)));
+    CHECK_OUTPUT(eval_node<FrameRowGraph>(values<Frame>(input), Int{-1}),
+                 values<Value>(row_value(2, 20)));
+    CHECK_OUTPUT(eval_node<FrameRowDynamicGraph>(values<Frame>(input), values<Int>(0, 1)),
+                 values<Value>(row_value(1, 10), row_value(2, 20)));
+
+    REQUIRE_THROWS(eval_node<FrameRowGraph>(values<Frame>(input), Int{2}));
+    REQUIRE_THROWS(eval_node<MissingFrameColumnGraph>(values<Frame>(input)));
 }
 
 TEST_CASE("data frame operators: ungroup concatenates keyed frames and materializes keys natively")

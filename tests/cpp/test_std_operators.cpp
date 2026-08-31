@@ -173,6 +173,23 @@ namespace
         return Series{std::move(array)};
     }
 
+    [[nodiscard]] Series datetime_series(std::initializer_list<std::optional<DateTime>> values)
+    {
+        arrow::TimestampBuilder builder{
+            arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
+        for (const auto value : values)
+        {
+            const arrow::Status status = value.has_value()
+                                             ? builder.Append(value->time_since_epoch().count())
+                                             : builder.AppendNull();
+            if (!status.ok()) { throw std::runtime_error(status.ToString()); }
+        }
+        std::shared_ptr<arrow::Array> array;
+        const auto status = builder.Finish(&array);
+        if (!status.ok()) { throw std::runtime_error(status.ToString()); }
+        return Series{std::move(array)};
+    }
+
     void check_series_output(const std::vector<std::optional<Series>> &actual,
                              const std::vector<std::optional<Series>> &expected)
     {
@@ -398,6 +415,18 @@ namespace
                                       Port<TS<Int>> item)
         {
             return wire<stdlib::contains_>(w, ts, item).as<TS<Bool>>();
+        }
+    };
+
+    template <typename T, bool Min>
+    struct SeriesExtremumGraph
+    {
+        static constexpr auto name = Min ? "series_min_graph" : "series_max_graph";
+
+        static Port<TS<T>> compose(Wiring &w, Port<TS<SeriesOf<T>>> ts)
+        {
+            if constexpr (Min) { return wire<stdlib::min_>(w, ts).template as<TS<T>>(); }
+            else { return wire<stdlib::max_>(w, ts).template as<TS<T>>(); }
         }
     };
 
@@ -2870,6 +2899,27 @@ TEST_CASE("std operators: Arrow Series arithmetic and access use public typed wi
                                                                 int_series({1, 2, 3})),
                                                 values<Int>(2, 4)),
                  values<Bool>(true, false));
+    REQUIRE_THROWS(eval_node<SeriesGetItemGraph>(values<Series>(int_series({1, 2, 3})),
+                                                 values<Int>(3)));
+}
+
+TEST_CASE("std operators: Arrow Series extrema preserve element types and ignore nulls")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<SeriesExtremumGraph<Int, true>>(
+                     values<Series>(int_series({3, std::nullopt, 1}), int_series({})))),
+                 values<Int>(1, none));
+    CHECK_OUTPUT((eval_node<SeriesExtremumGraph<Int, false>>(
+                     values<Series>(int_series({3, std::nullopt, 1}),
+                                    int_series({std::nullopt})))),
+                 values<Int>(3, none));
+    CHECK_OUTPUT((eval_node<SeriesExtremumGraph<DateTime, true>>(
+                     values<Series>(datetime_series({dt(30), std::nullopt, dt(10)})))),
+                 values<DateTime>(dt(10)));
+    CHECK_OUTPUT((eval_node<SeriesExtremumGraph<DateTime, false>>(
+                     values<Series>(datetime_series({dt(30), std::nullopt, dt(10)})))),
+                 values<DateTime>(dt(30)));
 }
 
 TEST_CASE("std operators: str_ converts scalar time-series values to strings")

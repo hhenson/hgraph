@@ -1306,6 +1306,35 @@ namespace hgraph
         return names;
     }
 
+    Series frame_column(const Frame &frame, std::string_view column,
+                        const ValueTypeMetaData *element)
+    {
+        if (!frame.has_value()) { throw std::invalid_argument("table codec: cannot read an empty frame"); }
+        const auto chunked = frame.table->GetColumnByName(std::string{column});
+        if (chunked == nullptr)
+        {
+            throw std::invalid_argument(fmt::format("table codec: frame is missing column '{}'", column));
+        }
+
+        std::shared_ptr<arrow::Array> array;
+        if (chunked->num_chunks() == 0)
+        {
+            auto empty = arrow::MakeArrayOfNull(chunked->type(), 0);
+            if (!empty.ok()) { fail_status(empty.status(), "construct empty column"); }
+            array = std::move(*empty);
+        }
+        else if (chunked->num_chunks() == 1) { array = chunked->chunk(0); }
+        else
+        {
+            auto combined = arrow::Concatenate(chunked->chunks());
+            if (!combined.ok()) { fail_status(combined.status(), "concatenate chunks"); }
+            array = std::move(*combined);
+        }
+        validate_versioned_array_type(
+            *array, element, *frame.table->schema(), fmt::format("column '{}'", column));
+        return Series{std::move(array)};
+    }
+
     Value array_cell(const arrow::Array &array, const ValueTypeMetaData *leaf,
                      std::int64_t row)
     {

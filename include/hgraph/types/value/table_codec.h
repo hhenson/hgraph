@@ -3,6 +3,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/frame.h>
+#include <hgraph/types/series.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_view.h>
@@ -216,6 +217,14 @@ namespace hgraph
 
     /** The frame's own column names, in schema order. */
     [[nodiscard]] HGRAPH_EXPORT std::vector<std::string> frame_column_names(const Frame &frame);
+
+    /**
+     * Project one column by name as an Arrow-backed Series. The physical
+     * Arrow type is validated against ``element`` and multi-chunk columns are
+     * combined into the Series' single-array representation.
+     */
+    [[nodiscard]] HGRAPH_EXPORT Series frame_column(const Frame &frame, std::string_view column,
+                                                    const ValueTypeMetaData *element);
 
     /**
      * Read one typed scalar from an Arrow array. An Arrow null yields an
