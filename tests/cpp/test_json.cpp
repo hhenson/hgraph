@@ -375,6 +375,42 @@ TEST_CASE("json: a run-bound polymorphic converter owns its complete plan")
     CHECK(type_system_lock_count() == before);
 }
 
+TEST_CASE("json: ad-hoc binding captures polymorphism outside a graph scope")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *base = registry.bundle(
+        "tests.adhoc_bound_json", "Base", {{"id", integer}}, {}, true);
+    const auto *child = registry.bundle(
+        "tests.adhoc_bound_json", "Child",
+        {{"id", integer}, {"quantity", integer}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+
+    Value escaped;
+    {
+        TypeRealizationScope scope{realization.get()};
+        const auto graph_converter = bind_json_converter(base);
+        escaped = from_json_string(
+            graph_converter,
+            R"({"__type__": "tests.adhoc_bound_json::Child", "id": 1, "quantity": 2})");
+    }
+    REQUIRE(active_type_realization() == nullptr);
+    REQUIRE(escaped.view().concrete().schema() == child);
+
+    const auto ad_hoc_converter = bind_json_converter(base);
+    const auto before = type_system_lock_count();
+    std::string encoded;
+    ad_hoc_converter.write(escaped.view(), encoded);
+    CHECK(encoded.find(
+              R"("__type__": "tests.adhoc_bound_json::Child")") !=
+          std::string::npos);
+    CHECK(encoded.find(R"("quantity": 2)") != std::string::npos);
+
+    const Value decoded = from_json_string(ad_hoc_converter, encoded);
+    CHECK(decoded.view().concrete().schema() == child);
+    CHECK(type_system_lock_count() == before);
+}
+
 TEST_CASE("json: unset bundle fields are omitted on write and null on read")
 {
     auto &registry = TypeRegistry::instance();

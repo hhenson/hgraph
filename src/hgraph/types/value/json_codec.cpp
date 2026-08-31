@@ -2284,8 +2284,12 @@ namespace hgraph
                 "json: cannot bind a null value schema");
         }
         const auto *active = active_type_realization();
+        auto realization =
+            active != nullptr
+                ? active->shared_from_this()
+                : TypeRealizationSnapshot::capture(TypeRegistry::instance());
         auto impl = std::make_shared<BoundJsonConverter::Impl>(
-            active != nullptr ? active->shared_from_this() : nullptr);
+            std::move(realization));
         impl->root = impl->build(meta, false);
         return BoundJsonConverter{std::move(impl)};
     }

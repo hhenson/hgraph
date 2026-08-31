@@ -3,6 +3,7 @@
 #include <hgraph/persistence/value_codec.h>
 #include <hgraph/persistence/value_store.h>
 
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/static_schema.h>
@@ -356,6 +357,37 @@ TEST_CASE("bound codecs reject schema confusion in both directions")
                       .decode = &wrong_schema_decode}};
     const auto bound = wrong.bind(record_meta());
     CHECK_THROWS_AS(bound.decode({}), std::invalid_argument);
+}
+
+TEST_CASE("value codec ad-hoc calls preserve escaped polymorphic values")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *base = registry.bundle(
+        "tests.value_codec_polymorphic", "Base", {{"id", integer}}, {}, true);
+    const auto *child = registry.bundle(
+        "tests.value_codec_polymorphic", "Child",
+        {{"id", integer}, {"quantity", integer}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+
+    Value escaped;
+    {
+        TypeRealizationScope scope{realization.get()};
+        escaped = from_json_string(
+            bind_json_converter(base),
+            R"({"__type__": "tests.value_codec_polymorphic::Child", "id": 1, "quantity": 2})");
+    }
+    REQUIRE(escaped.view().concrete().schema() == child);
+
+    ObjectBytes encoded;
+    const auto codec = value_codec(JSON_VALUE_CODEC);
+    codec.encode(escaped.view(), encoded);
+    const auto text = as_text(encoded);
+    CHECK(text.find(
+              R"("__type__": "tests.value_codec_polymorphic::Child")") !=
+          std::string::npos);
+    CHECK(text.find(R"("quantity": 2)") != std::string::npos);
+    CHECK(codec.decode(base, encoded).view().concrete().schema() == child);
 }
 
 TEST_CASE("value codec registry: names are listed and re-registration is idempotent")

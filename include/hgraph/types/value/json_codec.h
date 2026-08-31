@@ -6,9 +6,9 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_view.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
-#include <memory>
 #include <vector>
 
 namespace hgraph
@@ -88,13 +88,12 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT const JsonConverter &json_converter(const ValueTypeMetaData *meta);
 
     /**
-     * A JSON conversion plan bound to the active graph type-realisation
-     * snapshot. Construction may consult type registries and the snapshot;
-     * read/write perform no schema lookup and take no type-system or
-     * realisation lock. The plan owns its converter tree and retains the
-     * realisation snapshot backing graph-local bindings; canonical metadata
-     * remains registry-scoped. The plan is intended to live in run-local
-     * node/service state.
+     * A JSON conversion plan bound to a type-realisation snapshot.
+     * Construction may consult type registries and the snapshot; read/write
+     * perform no schema lookup and take no type-system or realisation lock.
+     * The plan owns its converter tree and retains the snapshot backing its
+     * bindings; canonical metadata remains registry-scoped. Evaluation code
+     * keeps it in run-local node/service state.
      */
     class HGRAPH_CLASS_EXPORT BoundJsonConverter final
     {
@@ -118,12 +117,14 @@ namespace hgraph
 
         std::shared_ptr<const Impl> impl_{};
 
-        friend BoundJsonConverter bind_json_converter(const ValueTypeMetaData *meta);
+        friend HGRAPH_EXPORT BoundJsonConverter bind_json_converter(const ValueTypeMetaData *meta);
     };
 
-    /** Resolve and own a complete run-local conversion plan for ``meta``. */
-    [[nodiscard]] HGRAPH_EXPORT BoundJsonConverter
-    bind_json_converter(const ValueTypeMetaData *meta);
+    /** Resolve and own a complete conversion plan for ``meta``. The active
+        graph realisation is retained when present; ad-hoc callers outside a
+        graph capture the current hierarchy so polymorphic dispatch remains
+        complete. */
+    [[nodiscard]] HGRAPH_EXPORT BoundJsonConverter bind_json_converter(const ValueTypeMetaData *meta);
 
     /** Clear the interned converters (registry reset — see registry_reset.h). */
     HGRAPH_EXPORT void clear_json_converters() noexcept;
