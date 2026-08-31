@@ -4,7 +4,9 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/temporal.h>
@@ -298,6 +300,117 @@ TEST_CASE("json: bundles serialize as objects; unknown fields are skipped on rea
     CHECK(back.view().as_bundle().at(1).checked_as<Str>() == Str{"here"});
 }
 
+TEST_CASE("json: a bound structural converter decodes without type-system locks")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *str_meta = registry.register_scalar<Str>("str");
+    const auto *datetime_meta =
+        registry.register_scalar<DateTime>("datetime");
+    const auto *items_meta = registry.list(int_meta);
+    const auto *tags_meta = registry.set(int_meta);
+    const auto *counts_meta = registry.map(str_meta, int_meta);
+    const auto *bundle_meta = registry.un_named_bundle(
+        {{"count", int_meta},
+         {"label", str_meta},
+         {"as_of", datetime_meta},
+         {"items", items_meta},
+         {"tags", tags_meta},
+         {"counts", counts_meta}});
+    const auto converter = bind_json_converter(bundle_meta);
+
+    const auto before = type_system_lock_count();
+    for (int i = 0; i < 64; ++i)
+    {
+        const Value decoded = from_json_string(
+            converter,
+            R"({"count": 5, "label": "ready", "as_of": "2024-06-13T10:15:30.123456+00:00", "items": [1, 2, 3], "tags": [2, 4], "counts": {"left": 7}})");
+        const auto bundle = decoded.view().as_bundle();
+        CHECK(bundle.at("count").checked_as<Int>() == Int{5});
+        CHECK(bundle.at("label").checked_as<Str>() == Str{"ready"});
+        CHECK(bundle.at("as_of").checked_as<DateTime>() ==
+              utc_instant(2024, 6, 13, 10, 15, 30, 123'456));
+        const auto items = bundle.at("items").as_list();
+        REQUIRE(items.size() == 3);
+        CHECK(items.at(2).checked_as<Int>() == Int{3});
+        CHECK(bundle.at("tags").as_set().size() == 2);
+        CHECK(bundle.at("counts").as_map().size() == 1);
+    }
+    CHECK(type_system_lock_count() == before);
+}
+
+TEST_CASE("json: a run-bound polymorphic converter owns its complete plan")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *base = registry.bundle(
+        "tests.bound_json", "Base", {{"id", integer}}, {}, true);
+    const auto *child = registry.bundle(
+        "tests.bound_json", "Child",
+        {{"id", integer}, {"quantity", integer}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+
+    BoundJsonConverter converter;
+    {
+        TypeRealizationScope scope{realization.get()};
+        converter = bind_json_converter(base);
+    }
+    const ValueTypeRef expected_binding = realization->type_for(base);
+
+    const auto before = type_system_lock_count();
+    for (int i = 0; i < 64; ++i)
+    {
+        const Value decoded = from_json_string(
+            converter,
+            R"({"__type__": "tests.bound_json::Child", "id": 1, "quantity": 2})");
+        REQUIRE(decoded.binding() == expected_binding);
+        REQUIRE(decoded.view().concrete().schema() == child);
+
+        std::string encoded;
+        converter.write(decoded.view(), encoded);
+        CHECK(encoded.find(
+                  R"("__type__": "tests.bound_json::Child")") !=
+              std::string::npos);
+    }
+    CHECK(type_system_lock_count() == before);
+}
+
+TEST_CASE("json: ad-hoc binding captures polymorphism outside a graph scope")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *base = registry.bundle(
+        "tests.adhoc_bound_json", "Base", {{"id", integer}}, {}, true);
+    const auto *child = registry.bundle(
+        "tests.adhoc_bound_json", "Child",
+        {{"id", integer}, {"quantity", integer}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+
+    Value escaped;
+    {
+        TypeRealizationScope scope{realization.get()};
+        const auto graph_converter = bind_json_converter(base);
+        escaped = from_json_string(
+            graph_converter,
+            R"({"__type__": "tests.adhoc_bound_json::Child", "id": 1, "quantity": 2})");
+    }
+    REQUIRE(active_type_realization() == nullptr);
+    REQUIRE(escaped.view().concrete().schema() == child);
+
+    const auto ad_hoc_converter = bind_json_converter(base);
+    const auto before = type_system_lock_count();
+    std::string encoded;
+    ad_hoc_converter.write(escaped.view(), encoded);
+    CHECK(encoded.find(
+              R"("__type__": "tests.adhoc_bound_json::Child")") !=
+          std::string::npos);
+    CHECK(encoded.find(R"("quantity": 2)") != std::string::npos);
+
+    const Value decoded = from_json_string(ad_hoc_converter, encoded);
+    CHECK(decoded.view().concrete().schema() == child);
+    CHECK(type_system_lock_count() == before);
+}
+
 TEST_CASE("json: unset bundle fields are omitted on write and null on read")
 {
     auto &registry = TypeRegistry::instance();
@@ -339,6 +452,19 @@ namespace
         {
             return wire<stdlib::from_json, TS<DateTime>>(w, ts)
                 .as<TS<DateTime>>();
+        }
+    };
+
+    struct FromJsonFixedListGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "from_json_fixed_list_graph";
+
+        static Port<TSL<TS<Int>, 2>> compose(Wiring &w,
+                                              Port<TS<Str>> ts)
+        {
+            return wire<stdlib::from_json, TSL<TS<Int>, 2>>(w, ts)
+                .as<TSL<TS<Int>, 2>>();
         }
     };
 
@@ -532,6 +658,15 @@ TEST_CASE("json operators: from_json parses into the resolved output type")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<FromJsonGraph>(values<Str>(Str{"3"}, none, Str{"-9"})),
                  values<Int>(3, none, -9));
+}
+
+TEST_CASE("json operators: from_json converts compact JSON arrays into fixed TSL storage")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<FromJsonFixedListGraph>(
+            values<Str>(Str{"[1, 2]"})),
+        values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}})));
 }
 
 TEST_CASE("json operators: temporal parsing uses the shared native format registry")

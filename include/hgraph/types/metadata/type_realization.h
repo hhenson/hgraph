@@ -67,6 +67,7 @@ namespace hgraph
      * Later registrations cannot change its alternatives or storage size.
      */
     class HGRAPH_CLASS_EXPORT TypeRealizationSnapshot
+        : public std::enable_shared_from_this<TypeRealizationSnapshot>
     {
       public:
         [[nodiscard]] static std::shared_ptr<const TypeRealizationSnapshot>

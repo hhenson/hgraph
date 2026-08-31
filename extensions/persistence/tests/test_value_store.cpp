@@ -3,6 +3,7 @@
 #include <hgraph/persistence/value_codec.h>
 #include <hgraph/persistence/value_store.h>
 
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/static_schema.h>
@@ -61,18 +62,18 @@ namespace
     /** A second codec, so "pluggable" is exercised rather than asserted. It
         stores the JSON form reversed, which is enough to prove the store
         dispatches on the recorded name rather than assuming a format. */
-    const void *reversing_bind(void *, const ValueTypeMetaData *schema)
+    ValueCodecBinding reversing_bind(void *, const ValueTypeMetaData *schema)
     {
-        // Same binding the json codec performs: resolve the interned converter
-        // once so encode/decode take no lock.
-        return &json_converter(schema);
+        auto binding = std::make_shared<BoundJsonConverter>(
+            bind_json_converter(schema));
+        return ValueCodecBinding{binding, binding.get()};
     }
 
     void reversing_encode(void *, const void *bound, const ValueView &value,
                           ObjectBytes &out)
     {
         std::string text;
-        static_cast<const JsonConverter *>(bound)->write(value, text);
+        static_cast<const BoundJsonConverter *>(bound)->write(value, text);
         for (auto character = text.rbegin(); character != text.rend(); ++character)
         {
             out.push_back(static_cast<std::byte>(*character));
@@ -88,7 +89,34 @@ namespace
         {
             text.push_back(std::to_integer<char>(*byte));
         }
-        return from_json_string(*static_cast<const JsonConverter *>(bound), text);
+        return from_json_string(
+            *static_cast<const BoundJsonConverter *>(bound), text);
+    }
+
+    Value wrong_schema_decode(void *, const void *, std::span<const std::byte>)
+    {
+        return Value{Str{"wrong schema"}};
+    }
+
+    struct OwnedBindingPlan
+    {
+        BoundJsonConverter converter{};
+        std::shared_ptr<int> lifetime{};
+    };
+
+    struct OwnedBindingContext
+    {
+        std::weak_ptr<int> last_binding{};
+    };
+
+    ValueCodecBinding owned_binding_bind(void *raw_context,
+                                         const ValueTypeMetaData *schema)
+    {
+        auto token = std::make_shared<int>(1);
+        static_cast<OwnedBindingContext *>(raw_context)->last_binding = token;
+        auto plan = std::make_shared<OwnedBindingPlan>(
+            OwnedBindingPlan{bind_json_converter(schema), std::move(token)});
+        return ValueCodecBinding{plan, &plan->converter};
     }
 
     void register_reversing_codec()
@@ -237,11 +265,129 @@ TEST_CASE("value store: compare_exchange forwards the store's version token")
 
     const auto created = store.compare_exchange("records/cas", first.view(), std::nullopt);
     REQUIRE(created.exchanged);
+    REQUIRE(created.current.has_value());
+    CHECK(created.current->value.view().equals(first.view()));
 
     // A stale expectation loses, and the winner's value is unchanged.
     const auto stale = store.compare_exchange("records/cas", second.view(), "not-the-token");
     CHECK_FALSE(stale.exchanged);
-    CHECK(store.read("records/cas", record_meta()).view().equals(first.view()));
+    REQUIRE(stale.current.has_value());
+    CHECK(stale.current->value.view().equals(first.view()));
+}
+
+TEST_CASE("bound value store keeps byte storage behind its typed contract")
+{
+    const auto store = memory_store();
+    const auto bound = store.bind_schema(record_meta());
+    const Value first = record_value("alpha", 1, "BOM");
+    const Value second = record_value("alpha", 2, "BOM");
+
+    const auto created = bound.compare_exchange("records/typed-cas", first.view(),
+                                                std::nullopt);
+    REQUIRE(created.exchanged);
+    REQUIRE(created.current.has_value());
+    CHECK(created.current->value.view().equals(first.view()));
+
+    const auto stale = bound.compare_exchange("records/typed-cas", second.view(),
+                                              "not-the-token");
+    REQUIRE_FALSE(stale.exchanged);
+    REQUIRE(stale.current.has_value());
+    CHECK(stale.current->value.view().equals(first.view()));
+    CHECK(bound.read("records/typed-cas").view().equals(first.view()));
+}
+
+TEST_CASE("bound codecs retain implementation context and reset moved-from handles")
+{
+    auto context = std::make_shared<int>(7);
+    std::weak_ptr<int> lifetime = context;
+    ValueCodec codec{
+        "owned-test", context,
+        ValueCodecOps{.bind = &reversing_bind,
+                      .encode = &reversing_encode,
+                      .decode = &reversing_decode}};
+    context.reset();
+
+    auto bound = codec.bind(record_meta());
+    codec = {};
+    REQUIRE_FALSE(lifetime.expired());
+
+    auto moved = std::move(bound);
+    CHECK_FALSE(bound);
+    CHECK_THROWS_AS(bound.encode(record_value("x", 1, "Y").view()),
+                    std::logic_error);
+    CHECK(moved.decode(moved.encode(record_value("x", 1, "Y").view()))
+              .view()
+              .equals(record_value("x", 1, "Y").view()));
+
+    moved = {};
+    CHECK(lifetime.expired());
+}
+
+TEST_CASE("bound codecs retain schema-binding ownership")
+{
+    auto context = std::make_shared<OwnedBindingContext>();
+    ValueCodec codec{
+        "owned-binding", context,
+        ValueCodecOps{.bind = &owned_binding_bind,
+                      .encode = &reversing_encode,
+                      .decode = &reversing_decode}};
+
+    auto bound = codec.bind(record_meta());
+    REQUIRE_FALSE(context->last_binding.expired());
+    codec = {};
+    REQUIRE_FALSE(context->last_binding.expired());
+    CHECK(bound.decode(bound.encode(record_value("x", 1, "Y").view()))
+              .view()
+              .equals(record_value("x", 1, "Y").view()));
+
+    bound = {};
+    CHECK(context->last_binding.expired());
+}
+
+TEST_CASE("bound codecs reject schema confusion in both directions")
+{
+    const auto json = value_codec(JSON_VALUE_CODEC).bind(record_meta());
+    CHECK_THROWS_AS(json.encode(Value{Str{"not a record"}}.view()),
+                    std::invalid_argument);
+
+    ValueCodec wrong{
+        "wrong-schema", nullptr,
+        ValueCodecOps{.bind = &reversing_bind,
+                      .encode = &reversing_encode,
+                      .decode = &wrong_schema_decode}};
+    const auto bound = wrong.bind(record_meta());
+    CHECK_THROWS_AS(bound.decode({}), std::invalid_argument);
+}
+
+TEST_CASE("value codec ad-hoc calls preserve escaped polymorphic values")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *base = registry.bundle(
+        "tests.value_codec_polymorphic", "Base", {{"id", integer}}, {}, true);
+    const auto *child = registry.bundle(
+        "tests.value_codec_polymorphic", "Child",
+        {{"id", integer}, {"quantity", integer}}, {base});
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+
+    Value escaped;
+    {
+        TypeRealizationScope scope{realization.get()};
+        escaped = from_json_string(
+            bind_json_converter(base),
+            R"({"__type__": "tests.value_codec_polymorphic::Child", "id": 1, "quantity": 2})");
+    }
+    REQUIRE(escaped.view().concrete().schema() == child);
+
+    ObjectBytes encoded;
+    const auto codec = value_codec(JSON_VALUE_CODEC);
+    codec.encode(escaped.view(), encoded);
+    const auto text = as_text(encoded);
+    CHECK(text.find(
+              R"("__type__": "tests.value_codec_polymorphic::Child")") !=
+          std::string::npos);
+    CHECK(text.find(R"("quantity": 2)") != std::string::npos);
+    CHECK(codec.decode(base, encoded).view().concrete().schema() == child);
 }
 
 TEST_CASE("value codec registry: names are listed and re-registration is idempotent")
@@ -332,11 +478,11 @@ TEST_CASE("value store: the default codec is not looked up per call")
     // exactly the registry traffic this store avoids -- the difference, not an
     // absolute count, is the honest assertion.
     //
-    // Both codecs are warmed first: the interned JsonConverter is composed on
+    // Both codecs are warmed first: their run-bound JSON plans are composed on
     // first sight of a schema, and that one-off cost would otherwise swamp the
-    // measurement. Neither count is zero afterwards, because
-    // to_json_string/from_json_string resolve the converter per value and lock
-    // to do it -- the json codec's cost, not the store's, noted in RFC 0030.
+    // measurement. Neither count is zero afterwards because these unbound
+    // convenience calls deliberately bind a fresh schema plan per value; that
+    // is why evaluation code retains BoundValueStore instead.
     register_reversing_codec();
     const auto  store = memory_store();
     const Value written = record_value("alpha", 7, "BOM");

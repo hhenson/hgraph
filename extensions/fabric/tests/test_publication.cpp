@@ -1,6 +1,11 @@
 #include <hgraph/fabric/fabric.h>
 
+#include "../src/impl/metadata_binding.h"
+
+#include <hgraph/persistence/value_store.h>
+
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/value/json_codec.h>
 
 #include <hgraph/persistence/frame_store.h>
 
@@ -14,6 +19,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -28,6 +34,12 @@ namespace
     constexpr hg::DateTime TIME_1{hg::TimeDelta{1'767'323'045'006'007}};
     constexpr hg::DateTime TIME_2{hg::TimeDelta{1'767'323'045'006'007}};
     constexpr hg::DateTime TIME_3{hg::TimeDelta{1'767'323'045'006'008}};
+
+    [[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config)
+    {
+        return hgps::make_value_store({.objects = config.objects,
+                                       .codec = config.metadata_codec});
+    }
 
     [[nodiscard]] hg::Frame frame(std::int64_t value,
                                   std::string field_name = "value")
@@ -81,7 +93,8 @@ namespace
         const auto stored = config.objects.get(
             hgf::revision_key(config.prefix, data_id, revision));
         REQUIRE(stored.has_value());
-        return hgf::data_revision_input(config.values.decode(hgf::data_revision_meta(), stored->data).view());
+        return hgf::data_revision_input(
+            metadata_store(config).decode(hgf::data_revision_meta(), stored->data).view());
     }
 
     [[nodiscard]] hgf::RevisionId stored_latest(
@@ -90,7 +103,9 @@ namespace
         const auto stored =
             config.objects.get(hgf::latest_key(config.prefix, data_id));
         REQUIRE(stored.has_value());
-        return hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, stored->data);
+        return hgf::revision_reference_value(
+            metadata_store(config).bind(hgf::revision_reference_meta()),
+            hgf::MetadataObjectKind::Latest, stored->data);
     }
 
     struct ControlledDelivery
@@ -154,6 +169,46 @@ namespace
             [](void *) {},
         };
         return ops;
+    }
+
+    hgps::ValueCodecBinding oversized_metadata_bind(
+        void *, const hg::ValueTypeMetaData *schema)
+    {
+        auto binding = std::make_shared<hg::BoundJsonConverter>(
+            hg::bind_json_converter(schema));
+        return hgps::ValueCodecBinding{binding, binding.get()};
+    }
+
+    void oversized_metadata_encode(
+        void *, const void *bound, const hg::ValueView &value,
+        hgps::ObjectBytes &out)
+    {
+        std::string text;
+        static_cast<const hg::BoundJsonConverter *>(bound)->write(value, text);
+        const auto bytes =
+            std::as_bytes(std::span{text.data(), text.size()});
+        out.insert(out.end(), bytes.begin(), bytes.end());
+        out.resize(hgf::MAX_METADATA_BYTES + 1U);
+    }
+
+    hg::Value oversized_metadata_decode(
+        void *, const void *bound, std::span<const std::byte> encoded)
+    {
+        return hg::from_json_string(
+            *static_cast<const hg::BoundJsonConverter *>(bound),
+            std::string_view{
+                reinterpret_cast<const char *>(encoded.data()),
+                encoded.size()});
+    }
+
+    void register_oversized_metadata_codec()
+    {
+        hgps::register_value_codec(
+            "test-fabric-oversized", nullptr,
+            hgps::ValueCodecOps{
+                .bind = &oversized_metadata_bind,
+                .encode = &oversized_metadata_encode,
+                .decode = &oversized_metadata_decode});
     }
 }  // namespace
 
@@ -231,7 +286,8 @@ TEST_CASE("publication makes the accepted revision durable before advertising it
     const auto notice = notices.try_pop();
     REQUIRE(notice.has_value());
     CHECK(notice->data_id == "result");
-    CHECK(hgf::data_revision_input(config.values.decode(hgf::data_revision_meta(), notice->revision).view()) ==
+    CHECK(hgf::data_revision_input(metadata_store(config).decode(
+                                      hgf::data_revision_meta(), notice->revision).view()) ==
           *candidate);
     CHECK(machine.advance() ==
           hgf::PublicationState::NotificationAcknowledged);
@@ -379,7 +435,8 @@ TEST_CASE("publication races are first-writer-wins and losers never become the n
         const auto notice = notices.try_pop();
         REQUIRE(notice);
         CHECK(hgf::data_revision_input(
-                  config.values.decode(hgf::data_revision_meta(), notice->revision).view()) ==
+                  metadata_store(config).decode(
+                      hgf::data_revision_meta(), notice->revision).view()) ==
               *first.candidate_revision());
     }
 
@@ -453,7 +510,9 @@ TEST_CASE("startup repairs contiguous revision slots and stale derived indexes")
         REQUIRE(current);
         const auto stale = config.objects.compare_exchange_ref(
             key, current->version_token,
-            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::Latest, 1));
+            hgf::encode_reference(metadata_store(config).bind(
+                                      hgf::revision_reference_meta()),
+                                  hgf::MetadataObjectKind::Latest, 1));
         REQUIRE(stale.exchanged);
 
         hgf::PublisherStateMachine recovered{config, "result"};
@@ -529,7 +588,7 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
         });
         REQUIRE(config.objects.put_immutable(
                     hgf::revision_key(config.prefix, "result", 1),
-                    config.values.encode(value.view()))
+                    metadata_store(config).encode(value.view()))
                     .status == hgps::ImmutableWriteStatus::Created);
         hgf::PublisherStateMachine machine{config, "result"};
         machine.begin(inputs_only({}));
@@ -553,7 +612,7 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
         });
         REQUIRE(config.objects.put_immutable(
                     hgf::revision_key(config.prefix, "result", 2),
-                    config.values.encode(value.view()))
+                    metadata_store(config).encode(value.view()))
                     .status == hgps::ImmutableWriteStatus::Created);
         hgf::PublisherStateMachine machine{config, "result"};
         machine.begin(inputs_only({}));
@@ -565,73 +624,97 @@ TEST_CASE("Frame failure and corrupt or non-contiguous histories never expose a 
     }
 }
 
-TEST_CASE("the codec a wired fabric carries resolves nothing per value")
+TEST_CASE("run-bound Fabric metadata performs no type-system lookup per value")
 {
-    // The enforceable form of the single-threaded evaluation ruling: every
-    // type-system mutex is counted, so a codec bound at wiring time must leave
-    // the counter untouched no matter how many values go through it.
-    // bind_metadata_codecs resolves the json converter once, in the
-    // configuration path; before that, to_json_string resolved it per value and
-    // locked to do it.
-    //
-    // This asserts the codec's contribution only. A whole publication still
-    // takes locks -- roughly 300 at the time of writing, down from 910 -- and
-    // those come from value construction and field reads (bundle plan lookup,
-    // checked_as per field) rather than from serialization. Removing them needs
-    // the same bind-at-wiring-time treatment applied to value plans, which is
-    // core-level and tracked separately; pinning a whole-publication number
-    // here would be a brittle proxy for a property this test can state exactly.
     auto config = hgf::make_memory_fabric_config("tests/fabric");
-    const hg::Value revision = hgf::make_data_revision(hgf::DataRevisionInput{
+    const hgf::detail::FabricMetadataBinding metadata{config};
+    const auto &values = metadata.values();
+    const auto &revisions = metadata.revisions();
+    const auto &references = metadata.references();
+    const hg::Value revision = values.make_data_revision(hgf::DataRevisionInput{
         .data_id = "result", .revision = 1, .output_version = 1,
         .as_of = hg::MIN_ST});
-
-    // Warm once: the converter is composed on first sight of the schema.
-    static_cast<void>(config.revision_codec.encode(revision.view()));
+    const auto encoded = revisions.encode(revision.view());
 
     const auto before = hgraph::type_system_lock_count();
     for (int index = 0; index < 64; ++index)
     {
-        static_cast<void>(config.revision_codec.encode(revision.view()));
+        const auto build_before = hgraph::type_system_lock_count();
+        hg::Value built = values.make_data_revision(hgf::DataRevisionInput{
+            .data_id = "result", .revision = index + 1,
+            .output_version = index + 1, .as_of = hg::MIN_ST});
+        CHECK(hgraph::type_system_lock_count() == build_before);
+        const auto input_before = hgraph::type_system_lock_count();
+        static_cast<void>(values.data_revision_input(built.view()));
+        CHECK(hgraph::type_system_lock_count() == input_before);
+        const auto encode_before = hgraph::type_system_lock_count();
+        static_cast<void>(revisions.encode(built.view()));
+        CHECK(hgraph::type_system_lock_count() == encode_before);
+        const auto decode_before = hgraph::type_system_lock_count();
+        static_cast<void>(revisions.decode(encoded));
+        CHECK(hgraph::type_system_lock_count() == decode_before);
+        const auto reference_before = hgraph::type_system_lock_count();
+        hg::Value reference = values.make_revision_reference(
+            hgf::MetadataObjectKind::Latest, index + 1);
+        const auto reference_bytes = references.encode(reference.view());
+        static_cast<void>(values.revision_reference_id(
+            references.decode(reference_bytes).view(),
+            hgf::MetadataObjectKind::Latest));
+        CHECK(hgraph::type_system_lock_count() == reference_before);
     }
     CHECK(hgraph::type_system_lock_count() == before);
 }
 
-TEST_CASE("diagnostic: where publication still locks", "[.diagnostic]")
+TEST_CASE("steady-state publication performs no type-system lookup")
 {
     auto config = hgf::make_memory_fabric_config("tests/fabric");
+    hgf::PublisherStateMachine publisher{config, "result"};
+    publisher.begin(output(7));
+    REQUIRE(drive(publisher) == hgf::PublicationState::Published);
+
+    auto next = output(8, TIME_3 + hg::TimeDelta{10});
+    const auto before = hgraph::type_system_lock_count();
+    publisher.begin(std::move(next));
+    REQUIRE(drive(publisher) == hgf::PublicationState::Published);
+    CHECK(hgraph::type_system_lock_count() == before);
+}
+
+TEST_CASE("run-bound Fabric stores enforce the metadata byte limit")
+{
+    SECTION("durable writes reject an oversized codec result")
     {
-        hgf::PublisherStateMachine warmup{config, "warm"};
-        warmup.begin(output(7));
-        while (warmup.advance() != hgf::PublicationState::Published) {}
+        register_oversized_metadata_codec();
+        auto config = hgf::make_memory_fabric_config(
+            "tests/fabric/metadata-limit/write");
+        config.metadata_codec = "test-fabric-oversized";
+        hgf::PublisherStateMachine publisher{config, "result"};
+        publisher.begin(output(7));
+
+        CHECK_THROWS_WITH(
+            [&] {
+                for (int step = 0; step < 16; ++step)
+                {
+                    publisher.advance();
+                }
+            }(),
+            "fabric metadata exceeds 16 MiB");
+        CHECK_FALSE(config.objects.get(
+            hgf::revision_key(config.prefix, "result", 1)));
     }
-    const hgf::DataRevisionInput input{
-        .data_id = "probe", .revision = 1, .output_version = 1,
-        .as_of = hg::MIN_ST};
 
-    auto measure = [](auto &&fn) {
-        const auto before = hgraph::type_system_lock_count();
-        fn();
-        return hgraph::type_system_lock_count() - before;
-    };
+    SECTION("durable reads reject oversized objects before decoding")
+    {
+        auto config = hgf::make_memory_fabric_config(
+            "tests/fabric/metadata-limit/read");
+        hgps::ObjectBytes oversized(hgf::MAX_METADATA_BYTES + 1U);
+        REQUIRE(config.objects.put_immutable(
+                    hgf::revision_key(config.prefix, "result", 1),
+                    oversized)
+                    .status == hgps::ImmutableWriteStatus::Created);
+        hgf::PublisherStateMachine publisher{config, "result"};
+        publisher.begin(inputs_only({}));
 
-    hg::Value revision = hgf::make_data_revision(input);
-    const auto build = measure([&] { static_cast<void>(hgf::make_data_revision(input)); });
-    const auto encode = measure([&] {
-        static_cast<void>(config.revision_codec.encode(revision.view()));
-    });
-    const auto encoded = config.revision_codec.encode(revision.view());
-    const auto decode = measure([&] {
-        static_cast<void>(config.revision_codec.decode(encoded));
-    });
-    const auto to_input = measure([&] {
-        static_cast<void>(hgf::data_revision_input(revision.view()));
-    });
-    const auto reference = measure([&] {
-        static_cast<void>(hgf::encode_reference(config.reference_codec,
-                                                hgf::MetadataObjectKind::Latest, 1));
-    });
-    WARN("make_data_revision=" << build << " encode=" << encode
-         << " decode=" << decode << " data_revision_input=" << to_input
-         << " encode_reference=" << reference);
+        CHECK_THROWS_WITH(publisher.advance(),
+                          "fabric metadata exceeds 16 MiB");
+    }
 }

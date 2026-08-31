@@ -16,6 +16,10 @@
 #include <vector>
 
 namespace hgraph::fabric {
+namespace detail {
+struct BoundConsistencyFactory;
+}  // namespace detail
+
 /** Outcome of resolving one independent RFC 0026 consistency forest. */
 enum class ResolutionStatus : std::uint8_t {
   Ready,
@@ -171,6 +175,10 @@ public:
 
 private:
   struct Impl;
+  friend struct detail::BoundConsistencyFactory;
+
+  explicit ConsistencyResolver(std::unique_ptr<Impl> impl) noexcept;
+
   std::unique_ptr<Impl> impl_;
 };
 
@@ -222,6 +230,10 @@ public:
 
 private:
   struct Impl;
+  friend struct detail::BoundConsistencyFactory;
+
+  explicit ConsistencyCoordinator(std::unique_ptr<Impl> impl) noexcept;
+
   std::unique_ptr<Impl> impl_;
 };
 } // namespace hgraph::fabric

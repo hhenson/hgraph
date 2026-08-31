@@ -1,4 +1,5 @@
 #include "impl/service_state.h"
+#include "impl/metadata_binding.h"
 
 #include <hgraph/fabric/config.h>
 #include <hgraph/fabric/keys.h>
@@ -164,9 +165,13 @@ namespace hgraph::fabric::detail
             std::set<Str, IdLess> observed{};
             ResolutionMetrics metrics{};
 
-            ResolutionCore(FabricConfig configured, std::vector<Str> configured_roots)
+            ResolutionCore(FabricConfig configured,
+                           std::vector<Str> configured_roots,
+                           FabricMetadataBinding metadata_binding)
                 : config(std::move(configured)), roots(std::move(configured_roots)),
-                  coordinator(config, roots), observed(roots.begin(), roots.end())
+                  coordinator(BoundConsistencyFactory::coordinator(
+                      config, roots, std::move(metadata_binding))),
+                  observed(roots.begin(), roots.end())
             {
             }
 
@@ -279,7 +284,9 @@ namespace hgraph::fabric::detail
             std::optional<DateTime> cursor{};
             std::map<Str, std::vector<DateTime>, IdLess> histories{};
 
-            void configure(const FabricConfig &configured, std::vector<SubscriptionSpec> requested)
+            void configure(const FabricConfig &configured,
+                           const FabricMetadataBinding &metadata_binding,
+                           std::vector<SubscriptionSpec> requested)
             {
                 requested = canonical_subscriptions(std::move(requested));
                 if (requested == subscriptions && core)
@@ -291,7 +298,9 @@ namespace hgraph::fabric::detail
                 histories.clear();
                 core = subscriptions.empty()
                            ? nullptr
-                           : std::make_unique<ResolutionCore>(config, roots_of(subscriptions));
+                           : std::make_unique<ResolutionCore>(
+                                 config, roots_of(subscriptions),
+                                 metadata_binding);
                 cursor = core ? std::optional<DateTime>{start_time} : std::nullopt;
             }
 
@@ -404,7 +413,9 @@ namespace hgraph::fabric::detail
             std::map<Str, RevisionId, IdLess> admitted{};
             bool startup{true};
 
-            void configure(const FabricConfig &configured, std::vector<SubscriptionSpec> requested)
+            void configure(const FabricConfig &configured,
+                           const FabricMetadataBinding &metadata_binding,
+                           std::vector<SubscriptionSpec> requested)
             {
                 requested = canonical_subscriptions(std::move(requested));
                 if (requested == subscriptions && core)
@@ -415,7 +426,9 @@ namespace hgraph::fabric::detail
                 subscriptions = std::move(requested);
                 core = subscriptions.empty()
                            ? nullptr
-                           : std::make_unique<ResolutionCore>(config, roots_of(subscriptions));
+                           : std::make_unique<ResolutionCore>(
+                                 config, roots_of(subscriptions),
+                                 metadata_binding);
                 notice_cache.clear();
                 admitted.clear();
                 startup = true;
@@ -666,6 +679,7 @@ namespace hgraph::fabric::detail
     struct ReplayNodeState::Impl
     {
         std::optional<FabricConfig> config{};
+        std::optional<FabricMetadataBinding> metadata_binding{};
         std::vector<SubscriptionSpec> planned{};
         ReplaySession session{};
         DiagnosticState diagnostics{};
@@ -683,7 +697,11 @@ namespace hgraph::fabric::detail
         {
             throw std::logic_error("fabric replay node started twice");
         }
-        impl_->config = checked_config(std::move(config));
+        FabricConfig checked = checked_config(std::move(config));
+        FabricMetadataBinding metadata_binding{checked};
+        diagnostic_values_.bind();
+        impl_->config = std::move(checked);
+        impl_->metadata_binding.emplace(std::move(metadata_binding));
         impl_->planned = std::move(planned);
         impl_->session.start_time = start_time;
         impl_->session.end_time = end_time;
@@ -694,7 +712,9 @@ namespace hgraph::fabric::detail
         impl_->session = {};
         impl_->diagnostics = {};
         impl_->planned.clear();
+        impl_->metadata_binding.reset();
         impl_->config.reset();
+        diagnostic_values_.reset();
     }
 
     std::optional<DeliveryBatch> ReplayNodeState::evaluate_planned(DateTime now,
@@ -714,8 +734,10 @@ namespace hgraph::fabric::detail
         return with_failure_diagnostic(impl_->diagnostics, "store", "replay",
                                        [&]
                                        {
-                                           impl_->session.configure(*impl_->config,
-                                                                    std::move(subscriptions));
+                                           impl_->session.configure(
+                                               *impl_->config,
+                                               *impl_->metadata_binding,
+                                               std::move(subscriptions));
                                            return impl_->session.evaluate(now, scheduler);
                                        });
     }
@@ -730,6 +752,7 @@ namespace hgraph::fabric::detail
     struct LiveNodeState::Impl
     {
         std::optional<FabricConfig> config{};
+        std::optional<FabricMetadataBinding> metadata_binding{};
         std::vector<SubscriptionSpec> planned{};
         LiveSession session{};
         DiagnosticState diagnostics{};
@@ -746,7 +769,11 @@ namespace hgraph::fabric::detail
         {
             throw std::logic_error("fabric live node started twice");
         }
-        impl_->config = checked_config(std::move(config));
+        FabricConfig checked = checked_config(std::move(config));
+        FabricMetadataBinding metadata_binding{checked};
+        diagnostic_values_.bind();
+        impl_->config = std::move(checked);
+        impl_->metadata_binding.emplace(std::move(metadata_binding));
         impl_->planned = std::move(planned);
     }
 
@@ -755,7 +782,9 @@ namespace hgraph::fabric::detail
         impl_->session = {};
         impl_->diagnostics = {};
         impl_->planned.clear();
+        impl_->metadata_binding.reset();
         impl_->config.reset();
+        diagnostic_values_.reset();
     }
 
     std::optional<DeliveryBatch>
@@ -777,9 +806,21 @@ namespace hgraph::fabric::detail
             impl_->diagnostics, "fabric", "live",
             [&]
             {
-                impl_->session.configure(*impl_->config, std::move(subscriptions));
+                impl_->session.configure(*impl_->config,
+                                         *impl_->metadata_binding,
+                                         std::move(subscriptions));
                 return impl_->session.evaluate(std::move(revisions), now, reconcile);
             });
+    }
+
+    DataRevisionInput LiveNodeState::decode_revision(ValueView revision) const
+    {
+        if (!impl_->metadata_binding.has_value())
+        {
+            throw std::logic_error("fabric live node is not started");
+        }
+        return impl_->metadata_binding->values().data_revision_input(
+            std::move(revision));
     }
 
     FabricNodeDiagnostics LiveNodeState::diagnostics() const
@@ -797,6 +838,7 @@ namespace hgraph::fabric::detail
     struct PublicationNodeState::Impl
     {
         std::optional<FabricConfig> config{};
+        std::optional<FabricMetadataBinding> metadata_binding{};
         std::map<Str, std::unique_ptr<PublisherStateMachine>, IdLess> publishers{};
         std::map<Str, std::deque<PublicationRequestInput>, IdLess> queues{};
         std::map<Str, RevisionId, IdLess> advertised{};
@@ -822,9 +864,17 @@ namespace hgraph::fabric::detail
             auto machine = publishers.find(data_id);
             if (machine == publishers.end())
             {
+                if (!metadata_binding.has_value())
+                {
+                    throw std::logic_error(
+                        "fabric publication metadata is not bound");
+                }
                 machine = publishers
-                              .emplace(Str{data_id}, std::make_unique<PublisherStateMachine>(
-                                                         configured(), Str{data_id}))
+                              .emplace(
+                                  Str{data_id},
+                                  BoundPublisherFactory::publisher(
+                                      configured(), Str{data_id},
+                                      *metadata_binding))
                               .first;
             }
             if (!publication_terminal(machine->second->state()) &&
@@ -855,7 +905,11 @@ namespace hgraph::fabric::detail
         {
             throw std::logic_error("fabric publication node started twice");
         }
-        impl_->config = checked_config(std::move(config));
+        FabricConfig checked = checked_config(std::move(config));
+        FabricMetadataBinding metadata_binding{checked};
+        diagnostic_values_.bind();
+        impl_->config = std::move(checked);
+        impl_->metadata_binding.emplace(std::move(metadata_binding));
         impl_->graph_notifications = graph_notifications;
     }
 
@@ -865,8 +919,10 @@ namespace hgraph::fabric::detail
         impl_->queues.clear();
         impl_->advertised.clear();
         impl_->diagnostics = {};
+        impl_->metadata_binding.reset();
         impl_->config.reset();
         impl_->graph_notifications = false;
+        diagnostic_values_.reset();
     }
 
     void PublicationNodeState::enqueue(PublicationRequestInput request)
@@ -939,6 +995,16 @@ namespace hgraph::fabric::detail
             impl_->begin_next(data_id);
         }
         return accepted;
+    }
+
+    Value PublicationNodeState::make_revision(DataRevisionInput revision) const
+    {
+        if (!impl_->metadata_binding.has_value())
+        {
+            throw std::logic_error("fabric publication node is not started");
+        }
+        return impl_->metadata_binding->values().make_data_revision(
+            std::move(revision));
     }
 
     void PublicationNodeState::complete(NotificationDeliveryInput delivery)

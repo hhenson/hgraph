@@ -1,4 +1,6 @@
 #include <hgraph/fabric/fabric.h>
+
+#include <hgraph/persistence/value_store.h>
 #if defined(HGRAPH_FABRIC_CONSUMER_HAS_KAFKA)
 #include <hgraph/fabric/kafka.h>
 #include <hgraph/kafka/value_builders.h>
@@ -58,13 +60,16 @@ int main()
         .dependencies = {{"installed/input", 3}},
         .as_of = hg::MIN_ST,
     });
-    // Metadata is a declared value schema through the configured store, and
-    // the codecs are bound with that configuration at wiring time, so nothing
-    // on an evaluation path resolves a codec per value (RFC 0030). An
-    // installed consumer gets both without writing a codec.
+    // Metadata is a declared value schema through a store assembled from the
+    // Fabric object resource and codec policy. Run-local code binds this store
+    // once; an installed consumer gets the same contract without a codec of
+    // its own.
+    const auto values = hg::persistence::store::make_value_store(
+        {.objects = config->objects, .codec = config->metadata_codec});
+    const auto revision_codec = values.bind(hgf::data_revision_meta());
     const auto encoded =
-        hgf::encode_data_revision(config->revision_codec, revision.view());
-    const auto decoded = hgf::decode_data_revision(config->revision_codec, encoded);
+        hgf::encode_data_revision(revision_codec, revision.view());
+    const auto decoded = hgf::decode_data_revision(revision_codec, encoded);
     if (hgf::data_revision_input(decoded.view()) !=
         hgf::data_revision_input(revision.view()))
     {

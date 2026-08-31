@@ -4,6 +4,8 @@
 #include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/value_builders.h>
 
+#include "impl/metadata_binding.h"
+
 #include <arrow/table.h>
 
 #include <algorithm>
@@ -18,8 +20,6 @@ namespace hgraph::fabric
     namespace
     {
         using persistence::store::ImmutableWriteStatus;
-        using persistence::store::ObjectBytes;
-        using persistence::store::StoredObject;
 
         [[nodiscard]] bool same_schema(const Frame &frame,
                                        const std::shared_ptr<arrow::Schema> &schema)
@@ -89,44 +89,41 @@ namespace hgraph::fabric
     struct PublisherStateMachine::Impl
     {
         FabricConfig config;
+        detail::FabricMetadataBinding metadata_binding;
         Str          data_id;
         PublicationState state{PublicationState::Idle};
         PublicationInput input{};
         std::optional<DataRevisionInput> accepted{};
         std::optional<DataRevisionInput> candidate{};
-        ObjectBytes candidate_bytes{};
+        Value candidate_value{};
         /** The notification is a message, not a stored object, so it is
             encoded with the transport codec rather than the store's. Sharing
             one buffer would break any store configured with a non-json codec:
             the revision commits and the indexes advance, then the notifier
             fails decoding its own payload. */
-        ObjectBytes notification_bytes{};
+        persistence::store::ObjectBytes notification_bytes{};
         NotificationDelivery delivery{};
         std::shared_ptr<arrow::Schema> fixed_schema{};
 
-        Impl(FabricConfig configured, Str id)
-            : config(std::move(configured)), data_id(std::move(id))
+        Impl(FabricConfig configured, Str id,
+             detail::FabricMetadataBinding binding)
+            : config(std::move(configured)),
+              metadata_binding(std::move(binding)), data_id(std::move(id))
         {
-            require_valid_config(config);
             require_data_id(data_id);
-        }
-
-        [[nodiscard]] std::optional<StoredObject> metadata(std::string_view key) const
-        {
-            return config.objects.get(key);
         }
 
         [[nodiscard]] DataRevisionInput decode_slot(RevisionId revision) const
         {
-            const auto object = metadata(revision_key(config.prefix, data_id, revision));
-            if (!object.has_value())
+            const auto value = metadata_binding.revisions().try_read(
+                revision_key(config.prefix, data_id, revision));
+            if (!value.has_value())
             {
                 throw std::runtime_error("fabric accepted revision slot is missing: " +
                                          data_id + ":" + std::to_string(revision));
             }
             DataRevisionInput decoded =
-                data_revision_input(
-                    decode_data_revision(config.revision_codec, object->data).view());
+                metadata_binding.values().data_revision_input(value->view());
             if (decoded.data_id != data_id || decoded.revision != revision)
             {
                 throw std::runtime_error(
@@ -191,9 +188,10 @@ namespace hgraph::fabric
 
         void repair_as_of(const DataRevisionInput &revision) const
         {
-            const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::AsOf, revision.revision);
-            const auto result = config.objects.put_immutable(
-                as_of_key(config.prefix, data_id, revision.as_of), desired);
+            Value desired = metadata_binding.values().make_revision_reference(
+                MetadataObjectKind::AsOf, revision.revision);
+            const auto result = metadata_binding.references().write(
+                as_of_key(config.prefix, data_id, revision.as_of), desired.view());
             if (result.status == ImmutableWriteStatus::Conflict)
             {
                 throw std::runtime_error(
@@ -203,32 +201,40 @@ namespace hgraph::fabric
 
         [[nodiscard]] std::optional<RevisionId> latest_revision() const
         {
-            const auto current = metadata(latest_key(config.prefix, data_id));
+            const auto current = metadata_binding.references().try_read(
+                latest_key(config.prefix, data_id));
             if (!current.has_value()) { return std::nullopt; }
-            return revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, current->data);
+            return metadata_binding.values().revision_reference_id(
+                current->view(), MetadataObjectKind::Latest);
         }
 
         void advance_latest(RevisionId target) const
         {
             const std::string key = latest_key(config.prefix, data_id);
-            const ObjectBytes desired = encode_reference(config.reference_codec, MetadataObjectKind::Latest, target);
+            Value desired = metadata_binding.values().make_revision_reference(
+                MetadataObjectKind::Latest, target);
             for (;;)
             {
-                const auto current = metadata(key);
+                const auto current =
+                    metadata_binding.references().try_read_versioned(key);
                 if (current.has_value())
                 {
-                    const RevisionId current_revision = revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, current->data);
+                    const RevisionId current_revision =
+                        metadata_binding.values().revision_reference_id(
+                            current->value.view(), MetadataObjectKind::Latest);
                     if (current_revision >= target) { return; }
                 }
-                const auto result = config.objects.compare_exchange_ref(
+                const auto result = metadata_binding.references().compare_exchange(
                     key,
+                    desired.view(),
                     current.has_value()
                         ? std::optional<std::string_view>{current->version_token}
-                        : std::nullopt,
-                    desired);
+                        : std::nullopt);
                 if (result.exchanged) { return; }
                 if (!result.current.has_value()) { continue; }
-                const RevisionId winner = revision_reference_value(config.reference_codec, MetadataObjectKind::Latest, result.current->data);
+                const RevisionId winner =
+                    metadata_binding.values().revision_reference_id(
+                        result.current->value.view(), MetadataObjectKind::Latest);
                 if (winner >= target) { return; }
             }
         }
@@ -277,12 +283,11 @@ namespace hgraph::fabric
 
             for (;;)
             {
-                const auto object =
-                    metadata(revision_key(config.prefix, data_id, next));
-                if (!object.has_value()) { break; }
+                const auto value = metadata_binding.revisions().try_read(
+                    revision_key(config.prefix, data_id, next));
+                if (!value.has_value()) { break; }
                 DataRevisionInput revision =
-                    data_revision_input(
-                    decode_data_revision(config.revision_codec, object->data).view());
+                    metadata_binding.values().data_revision_input(value->view());
                 if (revision.data_id != data_id || revision.revision != next)
                 {
                     throw std::runtime_error(
@@ -376,17 +381,17 @@ namespace hgraph::fabric
                         ? std::optional<DateTime>{accepted->as_of}
                         : std::nullopt),
             };
-            Value canonical = make_data_revision(std::move(proposed));
-            candidate = data_revision_input(canonical.view());
-            candidate_bytes = encode_data_revision(config.revision_codec, canonical.view());
-            notification_bytes.clear();
-            config.notification_revision_codec.encode(canonical.view(), notification_bytes);
-            require_metadata_within_limit(notification_bytes.size());
+            candidate_value =
+                metadata_binding.values().make_data_revision(std::move(proposed));
+            candidate = metadata_binding.values().data_revision_input(
+                candidate_value.view());
+            notification_bytes =
+                metadata_binding.encode_transport(candidate_value.view());
 
             if (!input.output.has_value() && same_tuple(*candidate, *accepted))
             {
                 candidate.reset();
-                candidate_bytes.clear();
+                candidate_value = {};
                 notification_bytes.clear();
                 state = PublicationState::Unchanged;
                 return;
@@ -425,9 +430,9 @@ namespace hgraph::fabric
 
         void commit_revision()
         {
-            const auto result = config.objects.put_immutable(
+            const auto result = metadata_binding.revisions().write(
                 revision_key(config.prefix, data_id, candidate->revision),
-                candidate_bytes);
+                candidate_value.view());
             if (result.status == ImmutableWriteStatus::Conflict)
             {
                 DataRevisionInput winner = decode_slot(candidate->revision);
@@ -480,8 +485,29 @@ namespace hgraph::fabric
     };
 
     PublisherStateMachine::PublisherStateMachine(FabricConfig config, Str data_id)
-        : impl_(std::make_unique<Impl>(std::move(config), std::move(data_id)))
     {
+        require_valid_config(config);
+        detail::FabricMetadataBinding metadata_binding{config};
+        impl_ = std::make_unique<Impl>(std::move(config), std::move(data_id),
+                                      std::move(metadata_binding));
+    }
+
+    PublisherStateMachine::PublisherStateMachine(
+        std::unique_ptr<Impl> impl) noexcept
+        : impl_(std::move(impl))
+    {
+    }
+
+    std::unique_ptr<PublisherStateMachine>
+    detail::BoundPublisherFactory::publisher(
+        FabricConfig config, Str data_id,
+        FabricMetadataBinding metadata_binding)
+    {
+        auto impl = std::make_unique<PublisherStateMachine::Impl>(
+            std::move(config), std::move(data_id),
+            std::move(metadata_binding));
+        return std::unique_ptr<PublisherStateMachine>{
+            new PublisherStateMachine{std::move(impl)}};
     }
 
     PublisherStateMachine::~PublisherStateMachine() = default;
@@ -499,7 +525,7 @@ namespace hgraph::fabric
         }
         impl_->input = std::move(input);
         impl_->candidate.reset();
-        impl_->candidate_bytes.clear();
+        impl_->candidate_value = {};
         impl_->notification_bytes.clear();
         impl_->delivery.reset();
         impl_->state = PublicationState::Preparing;

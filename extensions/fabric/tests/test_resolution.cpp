@@ -1,5 +1,11 @@
 #include <hgraph/fabric/fabric.h>
 
+#include <hgraph/persistence/value_store.h>
+
+#include "../src/impl/metadata_binding.h"
+
+#include <hgraph/types/utils/counted_mutex.h>
+
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/table.h>
@@ -20,6 +26,11 @@ namespace hgf = hgraph::fabric;
 namespace hgps = hgraph::persistence::store;
 
 constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
+
+[[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config) {
+  return hgps::make_value_store(
+      {.objects = config.objects, .codec = config.metadata_codec});
+}
 
 [[nodiscard]] hg::Frame frame(std::int64_t value, std::string field = "value") {
   arrow::Int64Builder builder;
@@ -53,7 +64,7 @@ void seed(const hgf::FabricConfig &config, std::string data_id,
   REQUIRE(config.objects
               .put_immutable(hgf::revision_key(config.prefix, decoded.data_id,
                                                decoded.revision),
-                             config.values.encode(value.view()))
+                             metadata_store(config).encode(value.view()))
               .status == hgps::ImmutableWriteStatus::Created);
 }
 
@@ -104,11 +115,15 @@ TEST_CASE("resolver reproduces the RFC D1 D2 D3 bootstrap cut") {
 
   const auto latest = config.objects.get(hgf::latest_key(config.prefix, "D1"));
   REQUIRE(latest.has_value());
-  CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 3);
+  CHECK(hgf::revision_reference_value(
+            metadata_store(config).bind(hgf::revision_reference_meta()),
+            hgf::MetadataObjectKind::Latest, latest->data) == 3);
   const auto as_of = config.objects.get(
       hgf::as_of_key(config.prefix, "D1", BASE_TIME + hg::TimeDelta{3}));
   REQUIRE(as_of.has_value());
-  CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::AsOf, as_of->data) == 3);
+  CHECK(hgf::revision_reference_value(
+            metadata_store(config).bind(hgf::revision_reference_meta()),
+            hgf::MetadataObjectKind::AsOf, as_of->data) == 3);
 }
 
 TEST_CASE(
@@ -331,4 +346,17 @@ TEST_CASE(
   CHECK(warm.metrics.output_index_hits >= static_cast<std::uint64_t>(count));
   CHECK(warm.metrics.maximum_backtracking_depth >= 3);
   CHECK(warm.metrics.average_backtracking_depth() > 0.0);
+}
+
+TEST_CASE("dynamic coordinator state copies the node's run binding") {
+  auto config =
+      hgf::make_memory_fabric_config("tests/resolution/run-binding");
+  hgf::detail::FabricMetadataBinding binding{config};
+
+  const auto before = hg::type_system_lock_count();
+  auto coordinator = hgf::detail::BoundConsistencyFactory::coordinator(
+      config, {"A"}, binding);
+  CHECK(hg::type_system_lock_count() == before);
+  CHECK(coordinator.resolve().forests.front().status ==
+        hgf::ResolutionStatus::Pending);
 }

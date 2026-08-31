@@ -1,5 +1,7 @@
 #include <hgraph/fabric/fabric.h>
 
+#include <hgraph/persistence/value_store.h>
+
 #include <hgraph/persistence/frame_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/persistence/store_location.h>
@@ -95,6 +97,12 @@ class TempFabricStore
     const auto values = std::static_pointer_cast<arrow::Int64Array>(
         value.table->column(0)->chunk(0));
     return values->Value(0);
+}
+
+[[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config)
+{
+    return hgps::make_value_store({.objects = config.objects,
+                                   .codec = config.metadata_codec});
 }
 
 [[nodiscard]] hgf::FabricConfig config_for(
@@ -328,12 +336,14 @@ TEST_CASE("local Fabric publication has one accepted winner across processes")
     auto config = local_config(store, hgps::Format::ArrowIpc);
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "race"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+    CHECK(hgf::revision_reference_value(
+              metadata_store(config).bind(hgf::revision_reference_meta()),
+              hgf::MetadataObjectKind::Latest, latest->data) == 1);
     const auto stored = config.objects.get(
         hgf::revision_key(config.prefix, "race", 1));
     REQUIRE(stored.has_value());
     const auto winner = hgf::data_revision_input(
-        config.values.decode(hgf::data_revision_meta(), stored->data).view());
+        metadata_store(config).decode(hgf::data_revision_meta(), stored->data).view());
     CHECK(config.frames.contains(hgf::data_version_key(
         config.prefix, "race", winner.output_version)));
 }

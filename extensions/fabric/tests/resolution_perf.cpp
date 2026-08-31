@@ -1,5 +1,7 @@
 #include <hgraph/fabric/fabric.h>
 
+#include <hgraph/persistence/value_store.h>
+
 #include <arrow/builder.h>
 #include <arrow/io/api.h>
 #include <arrow/ipc/api.h>
@@ -91,9 +93,11 @@ void seed(const hgf::FabricConfig &config,
     config.frames.write(frame_key, scalar_frame(input.output_version));
   }
   auto value = hgf::make_data_revision(input);
+  const auto metadata = hgps::make_value_store(
+      {.objects = config.objects, .codec = config.metadata_codec});
   const auto result = config.objects.put_immutable(
       hgf::revision_key(config.prefix, input.data_id, input.revision),
-      config.values.encode(value.view()));
+      metadata.encode(value.view()));
   if (result.status != hgps::ImmutableWriteStatus::Created) {
     throw std::runtime_error("failed to seed resolver benchmark");
   }

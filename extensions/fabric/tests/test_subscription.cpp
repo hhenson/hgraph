@@ -2,6 +2,8 @@
 
 #include "../src/impl/service_state.h"
 
+#include <hgraph/persistence/value_store.h>
+
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/registration.h>
@@ -9,6 +11,8 @@
 #include <hgraph/runtime/logger.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/registry_reset.h>
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
@@ -36,6 +40,12 @@ namespace
     namespace hgps = hgraph::persistence::store;
 
     constexpr hg::DateTime BASE_TIME{hg::TimeDelta{1'800'000'000'000'000}};
+
+    [[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config)
+    {
+        return hgps::make_value_store({.objects = config.objects,
+                                       .codec = config.metadata_codec});
+    }
 
     std::vector<std::pair<hg::DateTime, std::int64_t>> observed_frames{};
     std::vector<std::tuple<hg::DateTime, hg::Str, std::int64_t>> observed_tagged_frames{};
@@ -214,24 +224,28 @@ namespace
         {
             config.frames.write(data_key, frame(output_version));
         }
-        hg::Value value = hgf::make_data_revision(hgf::DataRevisionInput{
+        const hgf::detail::FabricMetadataValueBinding metadata_values;
+        hg::Value value = metadata_values.make_data_revision(hgf::DataRevisionInput{
             .data_id = std::move(data_id),
             .revision = revision,
             .output_version = output_version,
             .dependencies = std::move(dependencies),
             .as_of = as_of,
         });
-        const hgf::DataRevisionInput decoded = hgf::data_revision_input(value.view());
+        const hgf::DataRevisionInput decoded =
+            metadata_values.data_revision_input(value.view());
         const auto revision_result = config.objects.put_immutable(
             hgf::revision_key(config.prefix, decoded.data_id, revision),
-            config.values.encode(value.view()));
+            metadata_store(config).encode(value.view()));
         if (revision_result.status == hgps::ImmutableWriteStatus::Conflict)
         {
             throw std::runtime_error("test revision conflicted");
         }
         const auto as_of_result = config.objects.put_immutable(
             hgf::as_of_key(config.prefix, decoded.data_id, as_of),
-            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::AsOf, revision));
+            hgf::encode_reference(metadata_store(config).bind(
+                                      hgf::revision_reference_meta()),
+                                  hgf::MetadataObjectKind::AsOf, revision));
         if (as_of_result.status == hgps::ImmutableWriteStatus::Conflict)
         {
             throw std::runtime_error("test as-of index conflicted");
@@ -242,7 +256,9 @@ namespace
             latest_key,
             current.has_value() ? std::optional<std::string_view>{current->version_token}
                                 : std::nullopt,
-            hgf::encode_reference(config.reference_codec, hgf::MetadataObjectKind::Latest, revision));
+            hgf::encode_reference(metadata_store(config).bind(
+                                      hgf::revision_reference_meta()),
+                                  hgf::MetadataObjectKind::Latest, revision));
         if (!latest.exchanged)
         {
             throw std::runtime_error("test latest index update lost a race");
@@ -1056,12 +1072,15 @@ TEST_CASE("publish_data routes through the singleton service publication state")
 
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+    CHECK(hgf::revision_reference_value(
+              metadata_store(config).bind(hgf::revision_reference_meta()),
+              hgf::MetadataObjectKind::Latest, latest->data) == 1);
     const auto revision_object =
         config.objects.get(hgf::revision_key(config.prefix, "published", 1));
     REQUIRE(revision_object.has_value());
     const auto revision =
-        hgf::data_revision_input(config.values.decode(hgf::data_revision_meta(), revision_object->data).view());
+        hgf::data_revision_input(metadata_store(config).decode(
+            hgf::data_revision_meta(), revision_object->data).view());
     const auto stored = config.frames.read(
         hgf::data_version_key(config.prefix, "published", revision.output_version));
     REQUIRE(stored.has_value());
@@ -1279,6 +1298,51 @@ TEST_CASE("stalled service queues apply backpressure or enforce hard bounds")
     }
 }
 
+TEST_CASE("publication node creates keyed publisher state from its run binding")
+{
+    auto config =
+        hgf::make_memory_fabric_config("tests/subscription/run-binding");
+    hgf::detail::PublicationNodeState state;
+    state.start(config, false);
+
+    const auto before = hg::type_system_lock_count();
+    state.enqueue(hgf::detail::PublicationRequestInput{
+        .data_id = "first-key", .output = frame(1)});
+    CHECK(hg::type_system_lock_count() == before);
+    state.stop();
+
+    hg::reset_all_registries();
+    hg::stdlib::register_standard_operators();
+    hgf::register_fabric_operators();
+    state.start(config, false);
+    const auto after_restart = hg::type_system_lock_count();
+    state.enqueue(hgf::detail::PublicationRequestInput{
+        .data_id = "after-reset", .output = frame(2)});
+    CHECK(hg::type_system_lock_count() == after_restart);
+    state.stop();
+}
+
+TEST_CASE("fabric service diagnostic values use node-owned bindings")
+{
+    hgf::detail::DiagnosticValueState values;
+    values.bind();
+    const auto before = hg::type_system_lock_count();
+    for (hg::Int occurrence = 1; occurrence <= 64; ++occurrence)
+    {
+        const hg::Value event = values.make_event(
+            {.component = "fabric",
+             .category = "test",
+             .message = "bound",
+             .retriable = false,
+             .fatal = false,
+             .occurrences = occurrence});
+        CHECK(event.view().as_bundle().at("occurrences").checked_as<hg::Int>() ==
+              occurrence);
+    }
+    CHECK(hg::type_system_lock_count() == before);
+    values.reset();
+}
+
 TEST_CASE("graph notification flow retries the retained shared revision on "
           "explicit edges")
 {
@@ -1298,7 +1362,9 @@ TEST_CASE("graph notification flow retries the retained shared revision on "
     CHECK(observed_notification_metrics.at("transport.notification.delivered") == "1");
     const auto latest = config.objects.get(hgf::latest_key(config.prefix, "published"));
     REQUIRE(latest.has_value());
-    CHECK(hgf::revision_reference_value(config.reference_codec, hgf::MetadataObjectKind::Latest, latest->data) == 1);
+    CHECK(hgf::revision_reference_value(
+              metadata_store(config).bind(hgf::revision_reference_meta()),
+              hgf::MetadataObjectKind::Latest, latest->data) == 1);
 }
 
 TEST_CASE("a success clears retry state when duplicate reports arrive first")

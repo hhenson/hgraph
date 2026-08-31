@@ -46,20 +46,19 @@ namespace hgraph::fabric
         {
             const auto element = ValuePlanFactory::instance().type_for(
                 scalar_descriptor<Element>::value_meta());
-            const auto tuple = ValuePlanFactory::instance().type_for(
-                scalar_descriptor<HomogeneousTuple<Element>>::value_meta());
-            if (!element || !tuple)
+            const auto *tuple =
+                scalar_descriptor<HomogeneousTuple<Element>>::value_meta();
+            if (!element || tuple == nullptr)
             {
                 throw std::logic_error(
                     "fabric dependency-plan tuple schema did not resolve");
             }
-            ListBuilder builder{element};
+            ListBuilder builder{element, *tuple};
             for (auto &value : values)
             {
-                builder.push_back_copy(value.view().data());
+                builder.push_back(value.view());
             }
-            ListStorage storage = builder.build_storage();
-            return Value{tuple, &storage};
+            return builder.build();
         }
 
         [[nodiscard]] Value strings(const std::vector<Str> &values)

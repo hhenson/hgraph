@@ -2,11 +2,14 @@
 #define HGRAPH_FABRIC_IMPL_SERVICE_STATE_H
 
 #include <hgraph/fabric/publication.h>
+#include <hgraph/fabric/metadata_codec.h>
 #include <hgraph/fabric/resolution.h>
 #include <hgraph/fabric/service.h>
 
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/static_node.h>
+
+#include "metadata_value_binding.h"
 
 #include <compare>
 #include <cstdint>
@@ -14,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -67,6 +71,53 @@ namespace hgraph::fabric::detail
 
         friend bool operator==(const TransportControlInput &,
                                const TransportControlInput &) = default;
+    };
+
+    /** Metadata schema plans retained by graph nodes which directly inspect or
+        construct Shared<DataRevision> values. */
+    struct RevisionValueState
+    {
+        std::optional<FabricMetadataValueBinding> binding{};
+
+        void bind() { binding.emplace(); }
+        void reset() noexcept { binding.reset(); }
+
+        [[nodiscard]] const FabricMetadataValueBinding &values() const
+        {
+            if (!binding.has_value())
+            {
+                throw std::logic_error(
+                    "fabric revision value state is not bound");
+            }
+            return *binding;
+        }
+    };
+
+    /** Scalar value plans used to publish diagnostic events. Bound in node
+        start, reset in stop, and never resolved during evaluation. */
+    class DiagnosticValueState final
+    {
+      public:
+        DiagnosticValueState() = default;
+
+        void bind();
+        void reset() noexcept;
+
+        [[nodiscard]] Value make_event(
+            const FabricDiagnosticEventInput &event) const;
+
+      private:
+        ValueTypeRef str_type_{};
+        ValueTypeRef bool_type_{};
+        ValueTypeRef int_type_{};
+        ValueTypeRef event_type_{};
+    };
+
+    /** Run-local resources for the synchronous graph load node. */
+    struct LoadNodeState
+    {
+        std::optional<FabricConfig> config{};
+        DiagnosticValueState diagnostic_values{};
     };
 
     struct FabricWiringPlan
@@ -139,8 +190,13 @@ namespace hgraph::fabric::detail
         [[nodiscard]] std::optional<DeliveryBatch> evaluate_planned(DateTime now,
                                                                     NodeScheduler scheduler);
         [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
+        [[nodiscard]] const DiagnosticValueState &diagnostic_values() const noexcept
+        {
+            return diagnostic_values_;
+        }
 
       private:
+        DiagnosticValueState diagnostic_values_{};
         struct Impl;
         std::unique_ptr<Impl> impl_{};
     };
@@ -165,9 +221,15 @@ namespace hgraph::fabric::detail
         [[nodiscard]] std::optional<DeliveryBatch>
         evaluate_planned(std::vector<DataRevisionInput> revisions, DateTime now,
                          bool reconcile = false);
+        [[nodiscard]] DataRevisionInput decode_revision(ValueView revision) const;
         [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
+        [[nodiscard]] const DiagnosticValueState &diagnostic_values() const noexcept
+        {
+            return diagnostic_values_;
+        }
 
       private:
+        DiagnosticValueState diagnostic_values_{};
         struct Impl;
         std::unique_ptr<Impl> impl_{};
     };
@@ -191,12 +253,18 @@ namespace hgraph::fabric::detail
         [[nodiscard]] std::vector<DataRevisionInput>
         advance(std::size_t notification_capacity =
                     std::numeric_limits<std::size_t>::max());
+        [[nodiscard]] Value make_revision(DataRevisionInput revision) const;
         void complete(NotificationDeliveryInput delivery);
         [[nodiscard]] bool work_pending() const noexcept;
         [[nodiscard]] std::size_t notification_request_limit() const;
         [[nodiscard]] FabricNodeDiagnostics diagnostics() const;
+        [[nodiscard]] const DiagnosticValueState &diagnostic_values() const noexcept
+        {
+            return diagnostic_values_;
+        }
 
       private:
+        DiagnosticValueState diagnostic_values_{};
         struct Impl;
         std::unique_ptr<Impl> impl_{};
     };
@@ -239,6 +307,24 @@ namespace hgraph::static_schema_detail
     template <> struct scalar_name<fabric::detail::FabricWiringPlanHandle>
     {
         static constexpr std::string_view value{"hgraph.fabric.internal::WiringPlanHandle"};
+    };
+
+    template <> struct scalar_name<fabric::detail::RevisionValueState>
+    {
+        static constexpr std::string_view value{
+            "hgraph.fabric.internal::RevisionValueState"};
+    };
+
+    template <> struct scalar_name<fabric::detail::DiagnosticValueState>
+    {
+        static constexpr std::string_view value{
+            "hgraph.fabric.internal::DiagnosticValueState"};
+    };
+
+    template <> struct scalar_name<fabric::detail::LoadNodeState>
+    {
+        static constexpr std::string_view value{
+            "hgraph.fabric.internal::LoadNodeState"};
     };
 
 } // namespace hgraph::static_schema_detail

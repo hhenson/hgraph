@@ -71,13 +71,22 @@ context. It is registered under a stable name.
 
 .. code-block:: cpp
 
+    struct ValueCodecBinding
+    {
+        std::shared_ptr<const void> owner;
+        const void *handle;
+    };
+
     struct ValueCodecOps
     {
-        /** Encode ``value`` onto ``out``. */
-        void (*encode)(void *context, const ValueView &value, ObjectBytes &out);
+        /** Resolve all schema-dependent state before evaluation. */
+        ValueCodecBinding (*bind)(void *context,
+                                  const ValueTypeMetaData *schema);
 
-        /** Decode ``encoded`` as ``schema``. */
-        Value (*decode)(void *context, const ValueTypeMetaData *schema,
+        /** Encode and decode through the bound schema handle. */
+        void (*encode)(void *context, const void *bound,
+                       const ValueView &value, ObjectBytes &out);
+        Value (*decode)(void *context, const void *bound,
                         std::span<const std::byte> encoded);
     };
 
@@ -92,29 +101,53 @@ registry, and only an explicit per-call override looks one up by name.
 
 **Binding: everything schema-dependent is resolved once.** ``ValueCodecOps``
 has three entry points, not two. ``bind`` takes a schema and returns an opaque
-handle the codec owns; ``encode`` and ``decode`` take that handle and must do no
-lookup, take no lock, and touch no registry. The json codec resolves the
-interned ``JsonConverter`` in ``bind`` — ``json_converter()`` locks, and its own
-documentation states the contract this follows: "nodes resolve their converter
-in ``start`` and carry it in node State".
+owner/handle pair; ``encode`` and ``decode`` take that handle and must do no
+schema-plan lookup and touch no type or realisation registry. The JSON codec
+builds an owned ``BoundJsonConverter`` in ``bind``.  That plan captures the
+active run's value
+bindings, hierarchy alternatives, and immutable parser configuration, so its
+read and write operations do not fall back to the interned-converter or graph
+realisation registries.
 
-A caller on the evaluation path binds at **wiring time** and carries the
-resulting ``BoundValueCodec``, which holds no ``shared_ptr`` and performs no
-lookup. Fabric binds in its configuration path (``bind_metadata_codecs``), which
-is where a run's resources are already assembled; its Kafka nodes bind in
-``start`` and hold the handle in node State. The unbound convenience calls on
-``ValueCodec`` and ``ValueStore`` bind per call and are for build-time and
-ad-hoc use only.
+A caller on the evaluation path binds while constructing **run-local
+node/service state**, before evaluation, and carries the resulting
+``BoundValueCodec``.  The binding retains the codec's erased
+``shared_ptr<void>`` implementation context, its schema, and the explicit
+erased owner/handle pair returned by ``bind``.  Retaining both owners is
+required: a custom codec may return a context-owned handle, while the built-in
+JSON codec returns an owned run-bound plan.  Encode and decode perform no
+schema or realisation lookup, validate the schema in both directions, and
+default or moved-from handles dispatch through a canonical throwing ops table
+rather than a nullable one.
+
+Reusable ``FabricConfig`` deliberately carries no bound handles.  It contains
+one authoritative ``ObjectStore`` and the metadata codec name; a Fabric node
+assembles a run-local ``ValueStore`` and private bounded revision/reference
+handles in ``start``.  The concrete Fabric value-plan binding stays behind the
+extension's ``impl`` boundary.  Keyed publisher and consistency state created
+later during evaluation copy that run binding instead of resolving another
+one.  Kafka nodes have no Fabric configuration, so they bind the transport codec in
+``start`` and retain it in node ``State``.  The notifier remains an opaque
+bounded transport and performs no semantic decode outside the graph.  The
+unbound convenience calls on ``ValueCodec`` and ``ValueStore`` bind per call
+and are for build-time and ad-hoc use only.
 
 This is enforced rather than asserted: every type-system mutex is a counted
-``TypeSystemMutex``, so a test drives 64 encodes through a wired fabric's codec
-and requires ``type_system_lock_count()`` to be unchanged.
+``TypeSystemMutex``.  Tests drive 64 complete Fabric metadata build, extract,
+encode and decode cycles, including structural list materialisation, and
+require ``type_system_lock_count()`` to be unchanged.  Separate regressions
+cover a whole steady-state publication and creation of new keyed publisher and
+consistency state after node start.  The core JSON binding participates in the
+same contract: it owns a converter tree with pre-resolved ``ValueTypeRef``
+bindings, parser configuration, and polymorphic discriminator alternatives.
+The bound reader and writer therefore do not consult the type registry,
+converter registry, or graph realisation snapshot during evaluation.
 
-A binding is invalidated by a registry reset, which frees the interned state it
-points at — exactly as it invalidates a node's captured converter. That is why
-binding belongs with graph construction and never in a process-lifetime static.
-The constraint is real: caching a bound codec in a function-local static crashed
-the Fabric suite with a bus error the first time it was written.
+A binding is invalidated by a registry reset, which frees canonical metadata it
+retains — exactly as it invalidates the bindings captured by ordinary nodes.
+That is why binding belongs with one graph run and never in reusable
+configuration or a process-lifetime static.  Ownership regressions explicitly
+exercise binding teardown rather than relying on this lifetime rule as prose.
 
 Selection
 ---------
@@ -126,6 +159,13 @@ The codec is **configuration**, at two levels:
   ``try_read``, ``try_read_versioned`` and ``compare_exchange``, which is what
   makes a mixed store possible -- small metadata as JSON beside a large record
   in a binary format -- without splitting the store.
+
+Fabric exposes only the store-level choice as ``FabricConfig::metadata_codec``.
+Its ``ObjectStore`` remains the sole metadata backend; the typed run binding is
+derived from those two reusable configuration fields.  A separately supplied
+``ValueStore`` would carry its own ``ObjectStore`` and permit revisions and
+indexes to be written to a different backend from the one used for listings,
+so that ambiguous configuration is intentionally not representable.
 
 It is never inferred. A read decodes with the codec the caller configured or
 named, so reading an object with a codec it was not written with is a
@@ -187,13 +227,22 @@ Store contract
         try_read_versioned(std::string_view key, const ValueTypeMetaData *schema,
                            std::optional<std::string_view> codec = {}) const;
 
-        [[nodiscard]] CompareExchangeResult
+        [[nodiscard]] ValueCompareExchangeResult
         compare_exchange(std::string_view key, const ValueView &value,
                          std::optional<std::string_view> expected_version,
                          std::optional<std::string_view> codec = {}) const;
+
+        [[nodiscard]] BoundValueStore
+        bind_schema(const ValueTypeMetaData *schema,
+                    std::optional<std::string_view> codec = {}) const;
     };
 
-``compare_exchange`` forwards the object store's version token unchanged.
+``BoundValueStore`` fixes the backend, codec and schema together for one run.
+Its reads, writes and compare/exchange results are typed; even a losing
+compare/exchange decodes the winning ``StoredValue`` through the same binding,
+so graph code never drops to ``ObjectStore`` bytes.  The unbound convenience
+form derives the binding from the candidate value's schema and returns the same
+typed result.  Both forms forward the object store's version token unchanged.
 Concurrency control stays a storage property; this store adds none.
 
 Non-goals
@@ -273,8 +322,12 @@ Each step is independently reviewable and leaves the tree green.
    ``compare_exchange``, and keys passed through verbatim. Tests covering a
    mixed-codec store, an unknown codec name failing closed, and a local-backend
    object read back off disk as a json file.
-3. Fabric writes and reads through ``ValueStore``; ``metadata_codec.{h,cpp}``
-   deleted outright.
+3. Fabric writes and reads through private run-bound typed-store handles.  Their
+   wrapper preserves Fabric's 16 MiB aggregate limit on every durable read,
+   write and compare/exchange result without putting a domain policy into
+   generic ``BoundValueStore``.  The former hand-written binary serializer is
+   deleted; ``metadata_codec`` remains only as the declared-schema validation
+   and transport-codec surface.
 4. Generic key primitives moved beside ``require_valid_key()``; Fabric keeps its
    key layout.
 
