@@ -15,8 +15,13 @@ import in the candidate.
 from __future__ import annotations
 
 import fnmatch
+import importlib
+import inspect
 import json
+import pkgutil
+import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -40,17 +45,16 @@ SURFACE_EXTRA_DEPENDENCIES: tuple[str, ...] = (
     "adbc-driver-snowflake>=1.8",
 )
 
-_PROBE = r"""
-import importlib, inspect, json, pkgutil, re, sys
-
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+
 
 def _default_repr(value):
     # Identity sentinels (``object()`` defaults) repr with a process-local
     # address; normalize so two probes of the same implementation agree.
     return _ADDRESS.sub("", repr(value))
 
-def describe_callable(obj):
+
+def _describe_callable(obj):
     try:
         signature = inspect.signature(obj)
     except (ValueError, TypeError):
@@ -60,83 +64,121 @@ def describe_callable(obj):
         params.append({
             "name": p.name,
             "kind": str(p.kind),
-            "default": _default_repr(p.default) if p.default is not inspect.Parameter.empty else None,
+            "default": (
+                _default_repr(p.default)
+                if p.default is not inspect.Parameter.empty
+                else None
+            ),
         })
     return {"signature": params}
 
-def describe_module(name):
+
+def _error_description(error):
+    return f"{type(error).__name__}: {error}"
+
+
+def _safe_describe_callable(obj):
+    try:
+        return _describe_callable(obj)
+    except Exception:  # A broken signature is surface data, not a probe failure.
+        return {"signature": None}
+
+
+def _describe_class(obj):
+    methods = {}
+    for name in sorted(member for member in dir(obj) if not member.startswith("_")):
+        attr = inspect.getattr_static(obj, name, None)
+        if callable(attr) or isinstance(attr, (staticmethod, classmethod)):
+            try:
+                method = getattr(obj, name)
+            except Exception:  # A descriptor may fail while being resolved.
+                methods[name] = {"signature": None}
+            else:
+                methods[name] = _safe_describe_callable(method)
+    return {
+        "kind": "class",
+        "methods": methods,
+        "constructor": _safe_describe_callable(obj)["signature"],
+    }
+
+
+def _describe_export(module, name):
+    try:
+        obj = getattr(module, name)
+    except Exception as error:  # Lazy optional imports are recorded per export.
+        return {
+            "kind": "attribute-error",
+            "error": _error_description(error),
+        }
+    if inspect.isclass(obj):
+        return _describe_class(obj)
+    if callable(obj):
+        return {"kind": "callable", **_describe_callable(obj)}
+    return {"kind": type(obj).__name__}
+
+
+def _describe_module(name):
     try:
         module = importlib.import_module(name)
-    except BaseException as error:  # noqa: BLE001 - import asymmetry IS the finding
-        return {"import_error": f"{type(error).__name__}: {error}"}
+    except Exception as error:  # Import asymmetry is a finding.
+        return {"import_error": _error_description(error)}
     exported = getattr(module, "__all__", None)
-    names = exported if exported is not None else [
-        n for n in dir(module) if not n.startswith("_")
-    ]
-    surface = {}
-    for name_ in sorted(set(names)):
-        try:
-            obj = getattr(module, name_)
-        except AttributeError:
-            surface[name_] = {"kind": "missing-attr"}
-            continue
-        if inspect.isclass(obj):
-            # The constructor IS public API: required-parameter changes must
-            # surface even when the method map is unchanged.
-            try:
-                constructor = describe_callable(obj)
-            except BaseException:  # noqa: BLE001
-                constructor = {"signature": None}
-            methods = {}
-            for m in sorted(dir(obj)):
-                if m.startswith("_"):
-                    continue
-                attr = inspect.getattr_static(obj, m, None)
-                if callable(attr) or isinstance(attr, (staticmethod, classmethod)):
-                    try:
-                        methods[m] = describe_callable(getattr(obj, m))
-                    except BaseException:  # noqa: BLE001
-                        methods[m] = {"signature": None}
-            surface[name_] = {"kind": "class", "methods": methods,
-                              "constructor": constructor.get("signature")}
-        elif callable(obj):
-            entry = describe_callable(obj)
-            entry["kind"] = "callable"
-            surface[name_] = entry
-        else:
-            surface[name_] = {"kind": type(obj).__name__}
+    names = (
+        exported
+        if exported is not None
+        else [member for member in dir(module) if not member.startswith("_")]
+    )
+    surface = {
+        name: _describe_export(module, name)
+        for name in sorted(set(names))
+    }
     return {"surface": surface, "has_all": exported is not None}
 
-modules = ["hgraph", "hgraph.test", "hgraph.adaptors"]
 
-def _collect(package_name):
+def _collect_modules(package_name, modules):
     # Recursive discovery: nested paths (hgraph.adaptors.sql.sql_connection)
     # break independently of their parent package. Each discovered module is
     # probed via describe_module, which contains its own import guard.
     try:
         package = importlib.import_module(package_name)
-    except BaseException:  # noqa: BLE001
+    except Exception:
         return
     for info in pkgutil.iter_modules(getattr(package, "__path__", [])):
         qualified = f"{package_name}.{info.name}"
         modules.append(qualified)
         if info.ispkg:
-            _collect(qualified)
+            _collect_modules(qualified, modules)
 
-_collect("hgraph.adaptors")
 
-print(json.dumps({name: describe_module(name) for name in sorted(set(modules))}))
-"""
+def _probe_payload():
+    modules = ["hgraph", "hgraph.test", "hgraph.adaptors"]
+    _collect_modules("hgraph.adaptors", modules)
+    return {
+        name: _describe_module(name)
+        for name in sorted(set(modules))
+    }
+
+
+def _probe_main():
+    print(json.dumps(_probe_payload()))
 
 
 def probe_surface(python: Path | str) -> dict[str, Any]:
     result = subprocess.run(
-        [str(python), "-c", _PROBE],
+        [
+            str(python),
+            "-c",
+            "from tools.parity.surface import _probe_main; _probe_main()",
+        ],
         capture_output=True,
         text=True,
         timeout=300,
-        check=True,
+        cwd=Path(__file__).resolve().parents[2],
     )
+    if result.returncode:
+        raise RuntimeError(
+            f"surface probe failed under {python}:\n{result.stderr.strip()}"
+        )
     return json.loads(result.stdout)
 
 
@@ -185,6 +227,18 @@ def compare_surfaces(
                     "kind": "kind-mismatch",
                     "reference": r.get("kind"),
                     "candidate": c.get("kind"),
+                })
+                continue
+            if (
+                r.get("kind") == "attribute-error"
+                and r.get("error") != c.get("error")
+            ):
+                findings.append({
+                    "module": module,
+                    "name": name,
+                    "kind": "attribute-error-mismatch",
+                    "reference_error": r.get("error"),
+                    "candidate_error": c.get("error"),
                 })
                 continue
             if r.get("kind") == "callable" and _signature_key(r) != _signature_key(c):

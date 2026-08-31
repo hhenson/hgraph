@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "json-operator-to-json-ts",
+  "description": "The public to_json call shape and positional delta flag match release/0.5 for atomic ticks.",
+  "template": "json_operator_contract",
+  "inputs": {
+    "value": [1, null, -2, 3]
+  },
+  "parameters": {
+    "operation": "to_json",
+    "shape": "ts",
+    "delta": true
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "direction:encode",
+    "mode:delta"
+  ]
+}
