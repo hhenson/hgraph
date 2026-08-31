@@ -101,6 +101,11 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``datepart`` — truncate a datetime to midnight while retaining datetime type. */
+    struct datepart : Operator<"datepart", In<"ts", TS<DateTime>>, Out<TS<DateTime>>>
+    {
+    };
+
     /** ``timestamp`` — FRACTIONAL seconds since the Unix epoch (Python's
         ``datetime.timestamp()`` returns a float). hgraph datetimes are UTC
         by convention, so this is the UTC epoch count (upstream's naive

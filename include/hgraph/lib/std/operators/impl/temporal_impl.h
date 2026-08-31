@@ -602,6 +602,14 @@ namespace hgraph::stdlib
         }
     };
 
+    struct datepart_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<DateTime>> out)
+        {
+            out.set(std::chrono::floor<std::chrono::days>(ts.value()));
+        }
+    };
+
     struct timestamp_datetime_impl
     {
         static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Float>> out)

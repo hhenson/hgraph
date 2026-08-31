@@ -35,6 +35,7 @@ namespace hgraph::stdlib
         register_overload<minute, minute_datetime_impl>();
         register_overload<second, second_datetime_impl>();
         register_overload<microsecond, microsecond_datetime_impl>();
+        register_overload<datepart, datepart_datetime_impl>();
         register_overload<timestamp, timestamp_datetime_impl>();
         register_overload<hour, hour_time_impl>();
         register_overload<minute, minute_time_impl>();

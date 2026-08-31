@@ -1209,6 +1209,42 @@ Accepted native overloads
 
    convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]
 
+.. _python-operator-datepart:
+
+``datepart``
+------------
+
+``datepart`` — truncate a datetime to midnight while retaining datetime type.
+
+Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[datetime]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.datepart(ts)
+
+Accepted native overloads
+
+.. code-block:: text
+
+   datepart(ts: TS[datetime]) -> TS[datetime]
+
 .. _python-operator-day:
 
 ``day``

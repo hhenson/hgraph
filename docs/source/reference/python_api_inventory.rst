@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 212
    * - Public operator groups
-     - 187
+     - 188
    * - Public submodules
      - 18
 
@@ -330,6 +330,9 @@ whose curated signatures remain authoritative.
      - 24 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
+     - 1 native overload; lazy operator
+   * - :ref:`datepart <python-operator-datepart>`
+     - ``datepart(ts: TS[datetime]) -> TS[datetime]``
      - 1 native overload; lazy operator
    * - :ref:`day <python-operator-day>`
      - ``2 overloads``

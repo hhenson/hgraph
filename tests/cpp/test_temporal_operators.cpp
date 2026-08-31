@@ -65,6 +65,22 @@ TEST_CASE("temporal graph operators use checked arithmetic and wiring-time polic
         std::exception);
 }
 
+TEST_CASE("datepart truncates datetime values to midnight")
+{
+    hgraph::stdlib::register_standard_operators();
+    const DateTime before_epoch =
+        DateTime{sys_days{date(1969, 12, 31)}} + hours{23};
+    const DateTime after_epoch =
+        DateTime{sys_days{date(2024, 11, 1)}} + hours{15} +
+        minutes{42} + microseconds{123456};
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::datepart>(
+            values<DateTime>(before_epoch, after_epoch)),
+        values<DateTime>(DateTime{sys_days{date(1969, 12, 31)}},
+                         DateTime{sys_days{date(2024, 11, 1)}}));
+}
+
 TEST_CASE("temporal zone graph operators resolve through GlobalState")
 {
     hgraph::stdlib::register_standard_operators();

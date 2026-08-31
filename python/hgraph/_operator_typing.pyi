@@ -1067,6 +1067,44 @@ class _convert_zone_Operator(_Protocol):
 
 convert_zone: _convert_zone_Operator
 
+class _datepart_Operator(_Protocol):
+    """``datepart`` — truncate a datetime to midnight while retaining datetime type.
+
+    Parameters
+    ~~~~~~~~~~
+
+    Time-series inputs are live graph edges. Wiring-time scalar choices
+    are fixed when the graph is built.
+
+    ``ts`` : time-series; ``TS[datetime]``
+       The primary time-series input.
+
+    Returns
+    ~~~~~~~
+
+    A wired output with one of the overload-selected shapes: ``TS[datetime]``.
+
+    Python example
+    ~~~~~~~~~~~~~~
+
+    .. code-block:: python
+
+       result = hg.datepart(ts)
+
+    Accepted native overloads:
+
+    - ``datepart(ts: TS[datetime]) -> TS[datetime]``
+
+    Time-series parameters accept wiring ports and compatible plain
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
+
+    def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
+    def __getitem__(self, item: _Any, /) -> _Self: ...
+
+datepart: _datepart_Operator
+
 class _day_Operator(_Protocol):
     """``day`` — the day-of-month attribute of a date or datetime.
 
@@ -8422,6 +8460,7 @@ __all__ = (
     "const",
     "contains_",
     "convert_zone",
+    "datepart",
     "day",
     "day_of_month",
     "days",
