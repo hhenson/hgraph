@@ -1199,6 +1199,15 @@ def _python_signature_variants(overload: dict[str, Any]) -> tuple[dict[str, Any]
     return positional, keyword_suffix
 
 
+# release/0.5 keywords accepted at the Python wiring boundary and absorbed
+# before native dispatch (see _OperatorFunction._normalise_json_arguments), so
+# they never appear in a native signature. Ported code still passes them, and a
+# type checker must not reject a call the runtime supports.
+_COMPATIBILITY_PARAMETERS = {
+    "to_json": "_tp: _Any = ...",
+    "from_json": "_tp: _Any = ...",
+}
+
 def _render_stub_signature(overload: dict[str, Any]) -> str:
     parameters = list(overload["parameters"])
     variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
@@ -1301,7 +1310,11 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
         if not stub_overloads:
             lines.append("    def __call__(self, *args: object, **kwargs: object) -> _WiringPort | None: ...")
         else:
+            compatibility = _COMPATIBILITY_PARAMETERS.get(operator["name"])
             for parameters, output in stub_overloads:
+                if compatibility:
+                    parameters = (f"{parameters}, {compatibility}" if parameters
+                                  else compatibility)
                 if len(stub_overloads) > 1:
                     lines.append("    @_overload")
                 separator = ", " if parameters else ""

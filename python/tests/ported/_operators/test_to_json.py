@@ -241,6 +241,16 @@ def test_from_json_accepts_the_0_5_call_shapes():
     assert eval_node(to_json[TS[int]], [1, 2], _tp=TS[int]) == ['1', '2']
 
 
+def test_json_operators_accept_a_positional_type_carrier():
+    # 0.5 declared ``_tp`` positional-or-keyword, so ported code may pass the
+    # type expression positionally - and then ``delta`` as the third argument.
+    # Without absorbing the carrier the type expression lands on the native
+    # ``delta`` scalar and the call fails to wire.
+    assert eval_node(from_json[TS[int]], ['1', '2'], TS[int]) == [1, 2]
+    assert eval_node(to_json[TS[int]], [1, 2], TS[int]) == ['1', '2']
+    assert eval_node(to_json[TS[int]], [1, 2], TS[int], True) == ['1', '2']
+
+
 def test_from_json_applies_a_bare_set_array_as_a_delta():
     # release/0.5 parity: a bare array ADDS, leaving absent members alone.
     # Treating it as a whole-set replace removed 1 and 2 on the second tick.

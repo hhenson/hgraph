@@ -608,13 +608,31 @@ class _OperatorFunction:
         than missing, and is absorbed here instead of being reintroduced as a
         native scalar.
 
-        ``delta`` is NOT handled here: it is a real native scalar on both
-        operators, so it passes straight through to dispatch.
+        0.5 declared ``_tp`` as an ordinary positional-or-keyword parameter, so
+        it arrives either way: ``from_json(ts, TS[int])`` and
+        ``to_json(ts, TS[int], True)`` are both legal there. Dropping the
+        positional carrier shifts 0.5's third argument onto the native
+        ``delta`` scalar, which is where it belongs.
+
+        ``delta`` is otherwise NOT handled here: it is a real native scalar on
+        both operators and passes straight through to dispatch.
         """
-        if self.__name__ not in ("to_json", "from_json") or "_tp" not in kwargs:
+        if self.__name__ not in ("to_json", "from_json"):
+            return args, kwargs
+        requested = None
+        carried = False
+        if len(args) >= 2 and isinstance(args[1], _TsExpr):
+            # Positional ``_tp``; anything after it was 0.5's ``delta``.
+            requested = args[1]
+            carried = True
+            args = (args[0], *args[2:])
+        if "_tp" in kwargs:
+            requested = kwargs["_tp"]
+            carried = True
+        if not carried:
             return args, kwargs
         kwargs = dict(kwargs)
-        requested = kwargs.pop("_tp")
+        kwargs.pop("_tp", None)
         # A subscript (``from_json[TS[int]]``) is the primary selection and
         # keeps precedence; ``_tp`` only supplies a type nothing else did.
         if (self.__name__ == "from_json" and requested is not None
