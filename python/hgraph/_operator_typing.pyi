@@ -2226,6 +2226,8 @@ from_data_frame_batches: _from_data_frame_batches_Operator
 class _from_json_Operator(_Protocol):
     """Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
+    Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick.
+
     Parameters
     ~~~~~~~~~~
 
@@ -2234,6 +2236,9 @@ class _from_json_Operator(_Protocol):
 
     ``ts`` : time-series; ``TS[str]``
        JSON text.
+
+    ``delta`` : scalar; ``bool``
+       Accepted for release/0.5 compatibility (``from_json_generic(ts, _tp, delta=False)``). 0.5 threaded the flag through its converter tree but never branched on it, so decoding is identical either way and this does not select an overload. ``to_json``'s ``delta`` IS significant. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -2249,14 +2254,14 @@ class _from_json_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_json(ts: TS[str]) -> OUT``
+    - ``from_json(ts: TS[str], delta: bool = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | str) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | str, delta: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 from_json: _from_json_Operator

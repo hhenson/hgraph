@@ -481,6 +481,16 @@ namespace
         }
     };
 
+    struct FromJsonSetGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "from_json_set_graph";
+
+        static Port<TSS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::from_json, TSS<Int>>(w, ts).as<TSS<Int>>();
+        }
+    };
+
     struct JsonRoundTripGraph
     {
         [[maybe_unused]] static constexpr auto name = "json_round_trip_graph";
@@ -680,6 +690,36 @@ TEST_CASE("json operators: from_json converts compact JSON arrays into fixed TSL
         eval_node<FromJsonFixedListGraph>(
             values<Str>(Str{"[1, 2]"})),
         values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}})));
+}
+
+TEST_CASE("json operators: a bare TSS array adds without removing")
+{
+    // release/0.5 parity: from_json applies the payload as a DELTA, so a bare
+    // array ADDS its members and leaves absent members alone. Applying it as a
+    // whole-set replace silently dropped membership between ticks - 1 and 2
+    // were removed on the second tick.
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<FromJsonSetGraph>(values<Str>(Str{"[1, 2]"}, Str{"[3]"})),
+        values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {})));
+    // Removal stays available through the explicit delta form.
+    CHECK_OUTPUT(
+        eval_node<FromJsonSetGraph>(
+            values<Str>(Str{"[1, 2]"}, Str{"{\"removed\": [2]}"})),
+        values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({}, {2})));
+}
+
+TEST_CASE("json operators: a null TSL element does not tick")
+{
+    // release/0.5 parity: null means "this element has no value this tick".
+    // Parsing the array as one value rejected null against a typed element, so
+    // the whole call failed rather than ticking element 1 alone.
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<FromJsonFixedListGraph>(
+            values<Str>(Str{"[1, 2]"}, Str{"[null, 9]"})),
+        values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      list_delta<TS<Int>>({{1, 9}})));
 }
 
 TEST_CASE("json operators: temporal parsing uses the shared native format registry")

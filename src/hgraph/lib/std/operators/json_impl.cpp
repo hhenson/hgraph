@@ -912,10 +912,23 @@ namespace hgraph::stdlib
                 [&](TSSOutputView set) {
                     if (json_fragment::peek(cursor) == '[')
                     {
-                        // A bare array replaces the whole membership.
-                        const Value parsed = json_fragment::parse_value(
-                            plan.value, cursor);
-                        apply_current_value(set.base(), parsed.view());
+                        // A bare array ADDS its members (release/0.5 parity):
+                        // it is a delta, not a whole-set replace, so members
+                        // absent from the payload are left alone. The explicit
+                        // {"added": [...], "removed": [...]} form below is the
+                        // only way to remove.
+                        static_cast<void>(json_fragment::consume(cursor, '['));
+                        auto additions = set.begin_mutation(set.evaluation_time());
+                        if (json_fragment::consume(cursor, ']')) { return; }
+                        while (true)
+                        {
+                            const Value value =
+                                json_fragment::parse_value(plan.element, cursor);
+                            static_cast<void>(additions.add(value.view()));
+                            if (json_fragment::consume(cursor, ',')) { continue; }
+                            if (json_fragment::consume(cursor, ']')) { break; }
+                            json_fragment::fail(cursor, "expected ',' or ']' in a TSS array");
+                        }
                         return;
                     }
                     if (!json_fragment::consume(cursor, '{'))
@@ -952,9 +965,26 @@ namespace hgraph::stdlib
                 [&](TSLOutputView list) {
                     if (json_fragment::peek(cursor) == '[')
                     {
-                        const Value parsed = json_fragment::parse_value(
-                            plan.value, cursor);
-                        apply_current_value(list.base(), parsed.view());
+                        // Element-wise, because a null means "this element does
+                        // not tick" (release/0.5 parity). Parsing the array as
+                        // one value cannot express that: the whole-array
+                        // converter rejects null against a typed element.
+                        static_cast<void>(json_fragment::consume(cursor, '['));
+                        if (json_fragment::consume(cursor, ']')) { return; }
+                        for (std::size_t index = 0;; ++index)
+                        {
+                            if (index >= list.size())
+                            {
+                                json_fragment::fail(cursor, "too many elements for a TSL");
+                            }
+                            if (!json_fragment::consume_null(cursor))
+                            {
+                                apply_ts_json(list.at(index), *plan.children[0], cursor);
+                            }
+                            if (json_fragment::consume(cursor, ',')) { continue; }
+                            if (json_fragment::consume(cursor, ']')) { break; }
+                            json_fragment::fail(cursor, "expected ',' or ']' in a TSL array");
+                        }
                         return;
                     }
                     // The index-object form IS the canonical TSL delta (an

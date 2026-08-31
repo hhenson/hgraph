@@ -2460,6 +2460,8 @@ Accepted native overloads
 
 Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
+Being a delta, an absent member is UNCHANGED rather than removed: a bare ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL`` array means that element does not tick.
+
 Python exposure: lazy native operator proxy.
 
 Parameters
@@ -2470,6 +2472,9 @@ are fixed when the graph is built.
 
 ``ts`` : time-series; ``TS[str]``
    JSON text.
+
+``delta`` : scalar; ``bool``
+   Accepted for release/0.5 compatibility (``from_json_generic(ts, _tp, delta=False)``). 0.5 threaded the flag through its converter tree but never branched on it, so decoding is identical either way and this does not select an overload. ``to_json``'s ``delta`` IS significant. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -2487,7 +2492,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_json(ts: TS[str]) -> OUT
+   from_json(ts: TS[str], delta: bool = ...) -> OUT
 
 .. _python-operator-from_table:
 

@@ -230,6 +230,36 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     assert eval_node(from_json[tp], expected) == value
 
 
+def test_from_json_accepts_the_0_5_call_shapes():
+    # release/0.5 declared ``from_json_generic(ts, _tp=AUTO_RESOLVE,
+    # delta=False)`` and ``to_json_generic(ts, _tp=AUTO_RESOLVE, delta=False)``,
+    # so ported code may pass either explicitly. Both spellings must keep
+    # wiring; only ``to_json``'s ``delta`` alters output.
+    assert eval_node(from_json[TS[int]], ['1', '2'], delta=True) == [1, 2]
+    assert eval_node(from_json[TS[int]], ['1', '2'], delta=False) == [1, 2]
+    assert eval_node(from_json[TS[int]], ['1', '2'], _tp=TS[int]) == [1, 2]
+    assert eval_node(to_json[TS[int]], [1, 2], _tp=TS[int]) == ['1', '2']
+
+
+def test_from_json_applies_a_bare_set_array_as_a_delta():
+    # release/0.5 parity: a bare array ADDS, leaving absent members alone.
+    # Treating it as a whole-set replace removed 1 and 2 on the second tick.
+    assert eval_node(from_json[TSS[int]], ['[1, 2]', '[3]']) == [{1, 2}, {3}]
+    # Removal stays available through the explicit delta form.
+    assert eval_node(
+        from_json[TSS[int]], ['[1, 2]', '{"removed": [2]}']
+    ) == [{1, 2}, {Removed(2)}]
+
+
+def test_from_json_treats_a_null_tsl_element_as_no_tick():
+    # release/0.5 parity: null means "this element has no value this tick".
+    # Parsing the array as one value rejected null against a typed element and
+    # failed the whole call.
+    assert eval_node(
+        from_json[TSL[TS[int], Size[2]]], ['[1, 2]', '[null, 9]']
+    ) == [{0: 1, 1: 2}, {1: 9}]
+
+
 def test_to_json_builder_serializes_none_mapping_value_as_null():
     expected = MyNullableMappingCS(data={"Key": None})
 
