@@ -36,9 +36,10 @@ wheel installs only `hgraph_web`; it never contributes files to the core
 
 ## Status
 
-This is the packaging and public-header skeleton. The authoring surface —
-schemas, service interfaces, decorators, and codec helpers — lands with the
-service implementation; see the implementation plan in RFC 0024.
+The HTTP/1.1, HTTP/2 client, and WebSocket service implementations, schemas,
+service interfaces, endpoint decorators, and codec helpers are available.
+Runnable HTTP server/client and WebSocket loopback examples are in
+[`python/examples`](python/examples/README.md).
 
 ## Build and test
 

@@ -32,5 +32,9 @@ newer at the final link.
 
 Installing and importing `hgraph_persistence` registers the
 `"hgraph.persistence.frame"` backend with the shared hgraph runtime;
-selecting that backend (`set_record_replay_model`) activates it from
+selecting that backend (`set_record_replay_config`) activates it from
 unchanged `hgraph` imports.
+
+Runnable Python examples for direct record/replay, transparent component
+modes, and keyed time-series storage are in
+[`python/examples`](python/examples/README.md).
