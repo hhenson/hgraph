@@ -24,6 +24,8 @@ namespace
     using namespace hgraph::testing;
 
     using Row = Bundle<"tests.data_frame::Row", Field<"a", Int>, Field<"b", Int>>;
+    using FixedRows = Tuple<Row, Row>;
+    using MixedFixedRows = Tuple<Row, Int>;
     using FrameMetaDetails = Bundle<"tests.data_frame::FrameMetaDetails",
                                     Field<"desk", Str>>;
     using FrameMeta = Bundle<"tests.data_frame::FrameMeta",
@@ -107,6 +109,24 @@ namespace
         if (a.has_value()) { builder.set(0, Value{*a}); }
         if (b.has_value()) { builder.set(1, Value{*b}); }
         return builder.build();
+    }
+
+    [[nodiscard]] Value fixed_rows(Int first_a, Int first_b, Int second_a, Int second_b)
+    {
+        const auto binding = ValuePlanFactory::instance().type_for(
+            scalar_descriptor<FixedRows>::value_meta());
+        Value value{binding};
+        auto  tuple = value.as_tuple().begin_mutation();
+        const std::array<Value, 2> rows{
+            row_value(first_a, first_b), row_value(second_a, second_b)};
+        for (std::size_t index = 0; index < rows.size(); ++index)
+        {
+            auto destination = tuple.at(index);
+            destination.binding().ops_ref().copy_assign_from(
+                destination.binding(), destination.mutable_data(),
+                rows[index].binding(), rows[index].view().data());
+        }
+        return value;
     }
 
     [[nodiscard]] Value metadata_value(Int revision)
@@ -285,6 +305,26 @@ namespace
                                               Scalar<"descending", Bool> descending)
         {
             return wire<stdlib::sorted_>(w, ts, by, descending).as<TS<FrameOf<Row>>>();
+        }
+    };
+
+    struct ConvertFixedTupleFrameGraph
+    {
+        static constexpr auto name = "convert_fixed_tuple_frame_graph";
+
+        static Port<TS<FrameOf<Row>>> compose(Wiring &w, Port<TS<FixedRows>> ts)
+        {
+            return wire<stdlib::convert, TS<FrameOf<Row>>>(w, ts);
+        }
+    };
+
+    struct ConvertMixedFixedTupleFrameGraph
+    {
+        static constexpr auto name = "convert_mixed_fixed_tuple_frame_graph";
+
+        static Port<TS<FrameOf<Row>>> compose(Wiring &w, Port<TS<MixedFixedRows>> ts)
+        {
+            return wire<stdlib::convert, TS<FrameOf<Row>>>(w, ts);
         }
     };
 
@@ -548,6 +588,21 @@ TEST_CASE("data frame operators: sorted_ orders rows through the native wiring p
     REQUIRE(result.size() == 1);
     REQUIRE(result[0].has_value());
     CHECK(equals(*result[0], expected));
+}
+
+TEST_CASE("data frame operators: convert fixed tuple of compound scalars to rows")
+{
+    stdlib::register_standard_operators();
+    const auto result = eval_node<ConvertFixedTupleFrameGraph>(
+        values<Value>(fixed_rows(1, 10, 2, 20)));
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(equals(*result[0], frame({1, 2}, {10, 20})));
+
+    CHECK_THROWS_AS(
+        (void)eval_node<ConvertMixedFixedTupleFrameGraph>(values<Value>()),
+        OperatorRequirementsError);
 }
 
 TEST_CASE("data frame operators: Arrow schema metadata survives row-preserving operations")

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "coverage-fixed-tuple-frame",
+  "description": "A fixed homogeneous tuple of CompoundScalar rows converts to a Frame on every tick.",
+  "template": "polymorphic_event_flow",
+  "inputs": {
+    "events": [
+      {
+        "kind": "heartbeat",
+        "event_id": "heartbeat-1"
+      },
+      {
+        "kind": "create",
+        "event_id": "create-1",
+        "order_id": "order-1",
+        "quantity": 10
+      },
+      {
+        "kind": "cancel",
+        "event_id": "cancel-1",
+        "order_id": "order-1",
+        "reason": "risk"
+      },
+      {
+        "kind": "create",
+        "event_id": "create-2",
+        "order_id": "order-2",
+        "quantity": 20
+      }
+    ],
+    "trigger": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "key": [
+      "heartbeat",
+      "order-1",
+      "order-1",
+      "order-2"
+    ]
+  },
+  "parameters": {
+    "operation": "fixed_tuple_frame"
+  },
+  "features": [
+    "type:CompoundScalar",
+    "shape:fixed-tuple",
+    "domain:frame-surface",
+    "polymorphic-operation:fixed_tuple_frame"
+  ]
+}
