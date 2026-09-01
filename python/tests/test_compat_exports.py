@@ -135,10 +135,19 @@ def test_get_context_missing():
         eval_node(g2, [1])
 
 
-def test_tsw_out_maps_to_tsw():
+def test_tsw_out_and_single_size_shorthand_map_to_tsw():
+    from datetime import timedelta
+
     from hgraph import TSW, WindowSize
 
     assert hg.TSW_OUT[int, WindowSize[3]] == TSW[int, WindowSize[3]]
+    assert TSW[int, WindowSize[3]] == TSW[int, WindowSize[3], WindowSize[3]]
+    assert TSW[int, WindowSize[3]] != TSW[int, WindowSize[3], WindowSize[2]]
+    assert TSW[int, WindowSize[timedelta(seconds=3)]] == TSW[
+        int,
+        WindowSize[timedelta(seconds=3)],
+        WindowSize[timedelta(seconds=3)],
+    ]
 
 
 def test_collection_output_annotations_map_to_input_shapes():

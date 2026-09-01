@@ -80,8 +80,9 @@ runtime — they exist purely to drive the descriptor traits.
     Time-series list of ``T`` (a static-schema time-series type).
     ``N == 0`` is the dynamic form; ``N > 0`` is fixed-size.
 
-``TSW<T, period, min_period = 0>``
-    Tick-based sliding window. (Duration-based windows are not yet
+``TSW<T, period, min_period = period>``
+    Tick-based sliding window. In the one-size shorthand the minimum
+    period equals the maximum period. (Duration-based windows are not yet
     expressible as a compile-time type; use the runtime registry for
     that case.)
 
