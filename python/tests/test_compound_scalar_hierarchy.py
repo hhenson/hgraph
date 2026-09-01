@@ -1513,6 +1513,46 @@ def test_time_series_schema_to_scalar_schema_supports_windows():
     assert scalar(tick=7, duration="seven").duration == "seven"
 
 
+@pytest.mark.parametrize(
+    "scalar_container",
+    (
+        lambda schema: schema,
+        lambda schema: tuple[schema],
+        lambda schema: tuple[schema, ...],
+        lambda schema: frozenset[schema],
+        lambda schema: dict[str, schema],
+    ),
+)
+def test_time_series_schema_is_not_a_scalar_type(scalar_container):
+    class Bundle(TimeSeriesSchema):
+        number: TS[int]
+
+    with pytest.raises(
+        TypeError,
+        match=(
+            r"TimeSeriesSchema Bundle describes a live TSB and cannot be used "
+            r"as a scalar type"
+        ),
+    ):
+        TS[scalar_container(Bundle)]
+
+
+def test_time_series_schema_explicit_live_and_full_value_forms_remain_supported():
+    class Bundle(TimeSeriesSchema):
+        number: TS[int]
+
+    class OuterBundle(TimeSeriesSchema):
+        nested: TSB[Bundle]
+
+    scalar = Bundle.to_scalar_schema()
+    outer_scalar = OuterBundle.to_scalar_schema()
+
+    assert TSB[Bundle].handle.is_tsb
+    assert TS[scalar].handle.is_ts
+    assert TS[tuple[scalar, ...]].handle.is_ts
+    assert outer_scalar.__annotations__ == {"nested": scalar}
+
+
 def test_recursive_base_reference_inside_container_uses_owned_storage():
     @dataclass(frozen=True)
     class Base(CompoundScalar, namespace="tests.container_recursion", abstract=True):

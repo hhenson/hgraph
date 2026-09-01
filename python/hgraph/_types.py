@@ -1525,7 +1525,22 @@ def resolve_type_alias(annotation):
 
 
 def _value_type(scalar):
+    import typing
+
     scalar = resolve_type_alias(scalar)
+    time_series_schema = globals().get("TimeSeriesSchema")
+    scalar_origin = typing.get_origin(scalar) or scalar
+    if (
+        isinstance(time_series_schema, type)
+        and isinstance(scalar_origin, type)
+        and issubclass(scalar_origin, time_series_schema)
+    ):
+        schema_name = scalar_origin.__name__
+        raise TypeError(
+            f"TimeSeriesSchema {schema_name} describes a live TSB and cannot "
+            "be used as a scalar type; use TSB[Schema] for the live bundle "
+            "or Schema.to_scalar_schema() for its full-value scalar"
+        )
     if isinstance(scalar, _hgraph.ValueType):
         return scalar
     if isinstance(scalar, _SharedType):
@@ -1601,7 +1616,6 @@ def _value_type(scalar):
     # typing generics: tuple[X, ...] / tuple[A, B] / frozenset[X] / dict[K, V]
     import collections.abc as _abc
     import enum as _enum
-    import typing
 
     origin = typing.get_origin(scalar)
     if scalar in (typing.Callable, _abc.Callable) or origin is _abc.Callable:
