@@ -146,9 +146,11 @@ namespace hgraph::stdlib
                                         const ValueView &on, std::string_view how,
                                         std::string_view suffix);
         [[nodiscard]] Frame filter_frame_by_bundle(const Frame &frame,
-                                                   TSInputView &predicate);
+                                                   TSInputView &predicate,
+                                                   const ValueTypeMetaData *row);
         [[nodiscard]] Frame filter_frame_by_value(const Frame &frame,
-                                                  const ValueView &predicate);
+                                                  const ValueView &predicate,
+                                                  const ValueTypeMetaData *row);
         [[nodiscard]] const ValueTypeMetaData *resolve_ungroup_row(
             const TSValueTypeMetaData *ts, const ValueView *key_col);
         [[nodiscard]] Frame ungroup_frames(TSInputView &ts, const ValueView *key_col,
@@ -606,7 +608,8 @@ namespace hgraph::stdlib
                          Out<TS<FrameOf<ScalarVar<"R">>>> out)
         {
             auto &erased = const_cast<TSInputView &>(predicate.base());
-            out.set(data_frame_detail::filter_frame_by_bundle(ts.value(), erased));
+            out.set(data_frame_detail::filter_frame_by_bundle(
+                ts.value(), erased, ts.base().schema()->value_schema->element_type));
         }
     };
 
@@ -625,8 +628,9 @@ namespace hgraph::stdlib
                          In<"predicate", TS<ScalarVar<"P">>> predicate,
                          Out<TS<FrameOf<ScalarVar<"R">>>> out)
         {
-            out.set(data_frame_detail::filter_frame_by_value(ts.value(),
-                                                             predicate.base().value()));
+            out.set(data_frame_detail::filter_frame_by_value(
+                ts.value(), predicate.base().value(),
+                ts.base().schema()->value_schema->element_type));
         }
     };
 
@@ -799,7 +803,8 @@ namespace hgraph::stdlib
                          Out<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>> out)
         {
             auto &erased = const_cast<TSInputView &>(predicate.base());
-            out.set(data_frame_detail::filter_frame_by_bundle(ts.value(), erased));
+            out.set(data_frame_detail::filter_frame_by_bundle(
+                ts.value(), erased, ts.base().schema()->value_schema->element_type));
         }
     };
 
@@ -818,7 +823,9 @@ namespace hgraph::stdlib
                          In<"predicate", TS<ScalarVar<"P">>> predicate,
                          Out<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>> out)
         {
-            out.set(data_frame_detail::filter_frame_by_value(ts.value(), predicate.base().value()));
+            out.set(data_frame_detail::filter_frame_by_value(
+                ts.value(), predicate.base().value(),
+                ts.base().schema()->value_schema->element_type));
         }
     };
 

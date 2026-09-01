@@ -1169,8 +1169,24 @@ namespace hgraph::stdlib
                 ValueView                value;
             };
 
+            [[nodiscard]] const ValueTypeMetaData *row_field(
+                const ValueTypeMetaData *row, std::string_view name)
+            {
+                if (row == nullptr || row->value_kind() != ValueTypeKind::Bundle)
+                {
+                    return nullptr;
+                }
+                for (std::size_t index = 0; index < row->field_count; ++index)
+                {
+                    const auto &field = row->fields[index];
+                    if (field.name != nullptr && name == field.name) { return field.type; }
+                }
+                return nullptr;
+            }
+
             [[nodiscard]] Frame filter_with_predicates(
-                const Frame &frame, std::span<const FramePredicate> predicates)
+                const Frame &frame, std::span<const FramePredicate> predicates,
+                const ValueTypeMetaData *row)
             {
                 if (!frame.has_value() || predicates.empty()) { return frame; }
 
@@ -1184,9 +1200,17 @@ namespace hgraph::stdlib
                         throw std::invalid_argument(
                             "filter_frame: frame has no column named '" + predicate.name + "'");
                     }
+                    const auto *field = row_field(row, predicate.name);
+                    if (field == nullptr || field != predicate.meta)
+                    {
+                        throw std::invalid_argument(
+                            "filter_frame: predicate type does not match declared field '" +
+                            predicate.name + "'");
+                    }
+                    auto scalar = arrow_scalar_for_type(
+                        predicate.value, field, column->type(), frame.table->schema().get());
                     auto equal = arrow::compute::CallFunction(
-                        "equal", {arrow::Datum{column},
-                                  arrow_scalar(predicate.value, predicate.meta)});
+                        "equal", {arrow::Datum{column}, std::move(scalar)});
                     if (!equal.ok())
                     {
                         throw std::runtime_error("filter_frame: Arrow comparison failed: " +
@@ -1221,7 +1245,8 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
-        Frame filter_frame_by_bundle(const Frame &frame, TSInputView &predicate)
+        Frame filter_frame_by_bundle(const Frame &frame, TSInputView &predicate,
+                                     const ValueTypeMetaData *row)
         {
             if (predicate.schema()->kind != TSTypeKind::TSB)
             {
@@ -1243,10 +1268,11 @@ namespace hgraph::stdlib
                 predicates.push_back(FramePredicate{
                     field.name != nullptr ? field.name : "", meta, child.value()});
             }
-            return filter_with_predicates(frame, predicates);
+            return filter_with_predicates(frame, predicates, row);
         }
 
-        Frame filter_frame_by_value(const Frame &frame, const ValueView &predicate)
+        Frame filter_frame_by_value(const Frame &frame, const ValueView &predicate,
+                                    const ValueTypeMetaData *row)
         {
             if (predicate.schema() == nullptr ||
                 predicate.schema()->value_kind() != ValueTypeKind::Bundle)
@@ -1270,7 +1296,7 @@ namespace hgraph::stdlib
                     field.name != nullptr ? field.name : "", field.type,
                     ValueView{child.binding(), child.data()}});
             }
-            return filter_with_predicates(frame, predicates);
+            return filter_with_predicates(frame, predicates, row);
         }
 
         namespace

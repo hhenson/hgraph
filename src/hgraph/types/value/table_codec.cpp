@@ -8,6 +8,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <arrow/api.h>
+#include <arrow/compute/api.h>
 
 #include <fmt/format.h>
 
@@ -666,12 +667,11 @@ namespace hgraph
                                                                                       : std::string_view{"?"}));
         }
 
-        void validate_array_type(const arrow::Array &array,
-                                 const ValueTypeMetaData *leaf,
-                                 std::string_view source)
+        void validate_data_type(const std::shared_ptr<arrow::DataType> &actual,
+                                const ValueTypeMetaData *leaf,
+                                std::string_view source)
         {
             const LeafOps ops = leaf_ops_for(leaf);
-            const auto actual = array.type();
             const auto integer_compatible = [&] {
                 if (leaf != scalar_descriptor<Int>::value_meta()) { return false; }
                 switch (actual->id())
@@ -711,6 +711,13 @@ namespace hgraph
                         ? leaf->name()
                         : std::string_view{"?"}));
             }
+        }
+
+        void validate_array_type(const arrow::Array &array,
+                                 const ValueTypeMetaData *leaf,
+                                 std::string_view source)
+        {
+            validate_data_type(array.type(), leaf, source);
         }
 
         [[nodiscard]] bool temporal_version_two(
@@ -1363,6 +1370,34 @@ namespace hgraph
         auto scalar = array->GetScalar(0);
         if (!scalar.ok()) { fail_status(scalar.status(), "read encoded scalar"); }
         return arrow::Datum{std::move(*scalar)};
+    }
+
+    arrow::Datum arrow_scalar_for_type(
+        const ValueView &value, const ValueTypeMetaData *leaf,
+        const std::shared_ptr<arrow::DataType> &physical_type,
+        const arrow::Schema *schema)
+    {
+        if (physical_type == nullptr)
+        {
+            throw std::invalid_argument("table codec: scalar target has no Arrow type");
+        }
+        validate_data_type(physical_type, leaf, "scalar target");
+        if (schema != nullptr && leaf == scalar_descriptor<DateTime>::value_meta() &&
+            temporal_version_two(*schema))
+        {
+            const auto &timestamp = static_cast<const arrow::TimestampType &>(*physical_type);
+            if (timestamp.timezone() != "UTC")
+            {
+                throw std::invalid_argument(
+                    "table codec: version-2 Instant scalar target must use UTC");
+            }
+        }
+
+        arrow::Datum scalar = arrow_scalar(value, leaf);
+        if (scalar.type()->Equals(physical_type)) { return scalar; }
+        auto cast = arrow::compute::Cast(scalar, physical_type);
+        if (!cast.ok()) { fail_status(cast.status(), "cast encoded scalar"); }
+        return std::move(*cast);
     }
 
     Value frame_cell(const Frame &frame, std::string_view column, const ValueTypeMetaData *leaf,

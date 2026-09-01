@@ -34,6 +34,12 @@ namespace
     using JoinedRow = Bundle<"tests.data_frame::JoinedRow", Field<"a", Int>,
                              Field<"b", Int>, Field<"b_right", Int>>;
     using PredicateTSB = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
+    using InstantRow = Bundle<"tests.data_frame::InstantRow",
+                              Field<"timestamp", DateTime>, Field<"value", Int>>;
+    using InstantPredicateTSB = UnNamedTSB<Field<"timestamp", TS<DateTime>>>;
+    using CivilRow = Bundle<"tests.data_frame::CivilRow",
+                            Field<"timestamp", CivilDateTime>, Field<"value", Int>>;
+    using CivilPredicateTSB = UnNamedTSB<Field<"timestamp", TS<CivilDateTime>>>;
     using BColumnTSB = UnNamedTSB<Field<"b", TS<Int>>>;
     using CColumnTSB = UnNamedTSB<Field<"c", TS<Int>>>;
     using CSeriesColumnTSB = UnNamedTSB<Field<"c", TS<SeriesOf<Int>>>>;
@@ -183,6 +189,26 @@ namespace
         std::shared_ptr<arrow::Array> array;
         require_arrow(builder.Finish(&array));
         return Series{std::move(array)};
+    }
+
+    [[nodiscard]] Frame temporal_frame(
+        const std::shared_ptr<arrow::DataType> &type,
+        std::vector<std::int64_t> timestamps, std::vector<std::int64_t> values,
+        std::shared_ptr<arrow::KeyValueMetadata> metadata = nullptr)
+    {
+        arrow::TimestampBuilder timestamp_builder{type, arrow::default_memory_pool()};
+        arrow::Int64Builder value_builder;
+        require_arrow(timestamp_builder.AppendValues(timestamps));
+        require_arrow(value_builder.AppendValues(values));
+        std::shared_ptr<arrow::Array> timestamp_array;
+        std::shared_ptr<arrow::Array> value_array;
+        require_arrow(timestamp_builder.Finish(&timestamp_array));
+        require_arrow(value_builder.Finish(&value_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("timestamp", type),
+                           arrow::field("value", arrow::int64())},
+                          std::move(metadata)),
+            {std::move(timestamp_array), std::move(value_array)})};
     }
 
     [[nodiscard]] Frame array_frame(DateTime when)
@@ -411,6 +437,48 @@ namespace
         {
             return wire<stdlib::data_frame::filter_cs>(
                 w, ts, predicate).as<TS<FrameOf<Row>>>();
+        }
+    };
+
+    struct FilterInstantFrameGraph
+    {
+        static constexpr auto name = "filter_instant_frame_graph";
+
+        static Port<TS<FrameOf<InstantRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<InstantRow>>> ts,
+            Port<TS<DateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<InstantPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<InstantRow>>>();
+        }
+    };
+
+    struct FilterCivilFrameGraph
+    {
+        static constexpr auto name = "filter_civil_frame_graph";
+
+        static Port<TS<FrameOf<CivilRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<CivilRow>>> ts,
+            Port<TS<CivilDateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<CivilPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<CivilRow>>>();
+        }
+    };
+
+    struct FilterInstantWithCivilPredicateGraph
+    {
+        static constexpr auto name = "filter_instant_with_civil_predicate_graph";
+
+        static Port<TS<FrameOf<InstantRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<InstantRow>>> ts,
+            Port<TS<CivilDateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<CivilPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<InstantRow>>>();
         }
     };
 
@@ -813,6 +881,60 @@ TEST_CASE("data frame operators: structural and compound predicates filter nativ
     REQUIRE(compound.size() == 1);
     REQUIRE(compound[0].has_value());
     CHECK(equals(*compound[0], frame({2}, {20})));
+}
+
+TEST_CASE("data frame operators: temporal predicates preserve instant and civil semantics")
+{
+    stdlib::register_standard_operators();
+
+    // The two UTC instants are the two occurrences of 01:30 during the
+    // 2024-11-03 New York DST fold. Legacy frames present both as naive UTC
+    // epoch values; filtering must keep them distinct.
+    constexpr std::int64_t fold_early = 1730611800000000;
+    constexpr std::int64_t fold_late = 1730615400000000;
+    const auto naive_timestamp = arrow::timestamp(arrow::TimeUnit::MICRO);
+    const auto instants = temporal_frame(
+        naive_timestamp, {fold_early, fold_late}, {1, 2});
+    const auto instant_results = eval_node<FilterInstantFrameGraph>(
+        values<Frame>(instants, instants),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}},
+                         DateTime{std::chrono::microseconds{fold_late}}));
+    REQUIRE(instant_results.size() == 2);
+    REQUIRE(instant_results[0].has_value());
+    REQUIRE(instant_results[1].has_value());
+    CHECK(equals(*instant_results[0],
+                 temporal_frame(naive_timestamp, {fold_early}, {1})));
+    CHECK(equals(*instant_results[1],
+                 temporal_frame(naive_timestamp, {fold_late}, {2})));
+
+    constexpr std::int64_t civil_wall_time = 1730597400000000;
+    const auto civil = temporal_frame(naive_timestamp, {civil_wall_time}, {3});
+    const auto civil_results = eval_node<FilterCivilFrameGraph>(
+        values<Frame>(civil),
+        values<CivilDateTime>(
+            CivilDateTime::from_epoch_microseconds(civil_wall_time)));
+    REQUIRE(civil_results.size() == 1);
+    REQUIRE(civil_results[0].has_value());
+    CHECK(equals(*civil_results[0], civil));
+
+    const auto named_zone = temporal_frame(
+        arrow::timestamp(arrow::TimeUnit::MICRO, "America/New_York"),
+        {fold_early}, {1});
+    CHECK_THROWS(eval_node<FilterInstantFrameGraph>(
+        values<Frame>(named_zone),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}})));
+
+    const auto invalid_v2 = temporal_frame(
+        naive_timestamp, {fold_early}, {1},
+        arrow::key_value_metadata({"hgraph.temporal.version"}, {"2"}));
+    CHECK_THROWS(eval_node<FilterInstantFrameGraph>(
+        values<Frame>(invalid_v2),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}})));
+
+    CHECK_THROWS(eval_node<FilterInstantWithCivilPredicateGraph>(
+        values<Frame>(instants),
+        values<CivilDateTime>(
+            CivilDateTime::from_epoch_microseconds(fold_early))));
 }
 
 TEST_CASE("data frame operators: from_data_frame preserves shaped array bindings")

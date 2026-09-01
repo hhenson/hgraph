@@ -240,6 +240,14 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT arrow::Datum arrow_scalar(
         const ValueView &value, const ValueTypeMetaData *leaf);
 
+    /** Encode a scalar and safely adapt it to one codec-compatible physical
+        Arrow type. ``schema`` enforces temporal-version metadata when the
+        scalar belongs to a Frame; omit it for a standalone Series. */
+    [[nodiscard]] HGRAPH_EXPORT arrow::Datum arrow_scalar_for_type(
+        const ValueView &value, const ValueTypeMetaData *leaf,
+        const std::shared_ptr<arrow::DataType> &physical_type,
+        const arrow::Schema *schema = nullptr);
+
     /**
      * Read one cell by column NAME at ``row``, typed by ``leaf`` (an atomic
      * scalar meta). An Arrow null yields an empty ``Value``; a missing

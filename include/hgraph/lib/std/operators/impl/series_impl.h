@@ -413,17 +413,9 @@ namespace hgraph::stdlib
             if (!series.has_value()) { out.set(false); return; }
             // is_in(item, value_set=series) -> is the item a member.
             arrow::compute::SetLookupOptions options{arrow::Datum{series.array}};
-            auto item_datum = arrow_scalar(item.base().value(), ts.base().schema()->value_schema->element_type);
-            if (!item_datum.type()->Equals(series.array->type()))
-            {
-                auto cast = arrow::compute::Cast(item_datum, series.array->type());
-                if (!cast.ok())
-                {
-                    throw std::runtime_error("arrow Series membership item cast failed: " +
-                                             cast.status().ToString());
-                }
-                item_datum = std::move(*cast);
-            }
+            auto item_datum = arrow_scalar_for_type(
+                item.base().value(), ts.base().schema()->value_schema->element_type,
+                series.array->type());
             auto found = arrow::compute::CallFunction("is_in", {item_datum}, &options);
             if (!found.ok()) { throw std::runtime_error("arrow is_in failed: " + found.status().ToString()); }
             out.set(std::static_pointer_cast<arrow::BooleanScalar>(found->scalar())->value);
