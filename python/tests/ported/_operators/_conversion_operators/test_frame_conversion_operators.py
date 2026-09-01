@@ -108,7 +108,7 @@ def test_convert_cs_frame():
 
     @graph
     def g(ts: TS[ABStruct]) -> TS[Frame[ABStruct]]:
-        return convert[TS[Frame[ABStruct]]](ts)
+        return convert[TS[Frame]](ts)
 
     frame = pa.table({"a": [1], "b": ["1"]})
     assert eval_node(g, ts=ABStruct(1, "1"))[-1].equals(frame)

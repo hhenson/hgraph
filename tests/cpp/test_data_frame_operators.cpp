@@ -308,6 +308,16 @@ namespace
         }
     };
 
+    struct ConvertCompoundFrameGraph
+    {
+        static constexpr auto name = "convert_compound_frame_graph";
+
+        static Port<TS<FrameOf<Row>>> compose(Wiring &w, Port<TS<Row>> ts)
+        {
+            return wire<stdlib::convert, TS<FrameOf<Row>>>(w, ts);
+        }
+    };
+
     struct ConvertFixedTupleFrameGraph
     {
         static constexpr auto name = "convert_fixed_tuple_frame_graph";
@@ -590,9 +600,16 @@ TEST_CASE("data frame operators: sorted_ orders rows through the native wiring p
     CHECK(equals(*result[0], expected));
 }
 
-TEST_CASE("data frame operators: convert fixed tuple of compound scalars to rows")
+TEST_CASE("data frame operators: convert compound scalars to rows")
 {
     stdlib::register_standard_operators();
+    const auto single = eval_node<ConvertCompoundFrameGraph>(
+        values<Value>(row_value(1, 10)));
+
+    REQUIRE(single.size() == 1);
+    REQUIRE(single[0].has_value());
+    CHECK(equals(*single[0], frame({1}, {10})));
+
     const auto result = eval_node<ConvertFixedTupleFrameGraph>(
         values<Value>(fixed_rows(1, 10, 2, 20)));
 
