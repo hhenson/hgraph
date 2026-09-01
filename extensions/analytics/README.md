@@ -9,6 +9,8 @@ analytical family migrated from core—`diff`, `count`, `clip`, `ewma`, and
 
 For installation, semantics, and Python/C++ usage patterns, see the
 [analytics user guide](https://github.com/hhenson/hgraph/blob/main/docs/source/user_guide/analytics.rst).
+Runnable examples covering scalar pipelines, rolling windows, and shaped-array
+analytics are in [`python/examples`](python/examples/README.md).
 
 ```python
 import hgraph as hg
