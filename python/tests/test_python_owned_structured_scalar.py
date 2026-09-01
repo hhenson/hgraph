@@ -334,6 +334,43 @@ def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
     ]
 
 
+def test_computed_python_owned_bundle_projects_nested_polymorphic_field():
+    @dataclass(frozen=True)
+    class Detail:
+        code: str
+
+    @dataclass(frozen=True)
+    class VenueDetail(Detail):
+        venue: str
+
+    @dataclass(frozen=True)
+    class Item:
+        detail: Detail
+
+    @dataclass(frozen=True)
+    class RankedItem(Item):
+        rank: int
+
+    @dataclass(frozen=True)
+    class Container:
+        item: Item
+
+    for tp in (Detail, VenueDetail, Item, RankedItem, Container):
+        _value_type(tp)
+
+    expected = RankedItem(detail=VenueDetail(code="power", venue="EEX"), rank=1)
+
+    @compute_node
+    def source(trigger: TS[bool]) -> TS[Container]:
+        return Container(item=expected)
+
+    @graph
+    def app(trigger: TS[bool]) -> TS[Item]:
+        return getattr_[SCALAR:Item](source(trigger), "item")
+
+    assert eval_node(app, [True]) == [expected]
+
+
 def test_covariant_python_owned_field_reuses_inherited_native_schema():
     @dataclass(frozen=True)
     class Instrument:
