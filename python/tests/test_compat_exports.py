@@ -150,6 +150,20 @@ def test_tsw_out_and_single_size_shorthand_map_to_tsw():
     ]
 
 
+def test_generic_tsw_preserves_an_explicit_minimum():
+    from hgraph import SCALAR, TSW, WindowSize
+
+    single_size = TSW[SCALAR, WindowSize[3]]
+    explicit_minimum = TSW[SCALAR, WindowSize[3], WindowSize[0]]
+    exact_window = TSW[int, WindowSize[3], WindowSize[3]]
+    optional_window = TSW[int, WindowSize[3], WindowSize[0]]
+
+    assert _hgraph.ResolutionScope().match(single_size.pattern, exact_window.handle)
+    assert not _hgraph.ResolutionScope().match(single_size.pattern, optional_window.handle)
+    assert _hgraph.ResolutionScope().match(explicit_minimum.pattern, optional_window.handle)
+    assert not _hgraph.ResolutionScope().match(explicit_minimum.pattern, exact_window.handle)
+
+
 def test_collection_output_annotations_map_to_input_shapes():
     assert hg.TSD_OUT[str, TS[int]] == hg.TSD[str, TS[int]]
     assert hg.TSS_OUT[str] == hg.TSS[str]
