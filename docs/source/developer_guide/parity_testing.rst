@@ -307,9 +307,10 @@ and extending as new regressions are identified:
   Its first differential replays surfaced issues #94 and #95.
 - ``polymorphic_event_flow`` changes concrete Python ``CompoundScalar`` leaves
   behind one public base while exercising compute nodes, ``emit``, feedback,
-  tuple/set/mapping conversion, ``collect``/``values_``, ``batch``, ``window``,
-  JSON round trips, and in-memory component recording.  The base is consumed
-  before extension leaves are declared, matching normal package import order.
+  tuple/set/mapping conversion, fixed tuple-to-Frame conversion,
+  ``collect``/``values_``, ``batch``, ``window``, JSON round trips, and
+  in-memory component recording.  The base is consumed before extension
+  leaves are declared, matching normal package import order.
 - ``polymorphic_event_map`` combines the same changing event hierarchy with
   keyed child creation/removal, mapped ``emit`` and feedback, and an outer
   keyed ``emit``.  This permanently covers the production failure sequence

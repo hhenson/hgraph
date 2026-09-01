@@ -1658,8 +1658,8 @@ namespace hgraph::stdlib
         {
             auto        plan  = std::make_unique<ToFramePlan>();
             const auto *value = ts.schema()->value_schema;
-            const auto *element =
-                value->value_kind() == ValueTypeKind::List ? value->element_type : value;
+            const auto *tuple_element = tuple_element_schema(value);
+            const auto *element       = tuple_element != nullptr ? tuple_element : value;
             if (element == nullptr || element->value_kind() != ValueTypeKind::Bundle)
             {
                 throw std::invalid_argument("convert: value to Frame needs a compound payload");
@@ -1709,10 +1709,13 @@ namespace hgraph::stdlib
         {
             std::vector<Value> rows;
             const ValueView    value = ts.value();
-            if (value.schema()->value_kind() == ValueTypeKind::List)
+            const auto         kind  = value.schema()->value_kind();
+            if (kind == ValueTypeKind::List || kind == ValueTypeKind::Tuple)
             {
-                auto list = value.as_list();
-                for (ValueView element : list) { rows.push_back(value_row(plan, element)); }
+                for (ValueView element : value.as_indexed_view())
+                {
+                    rows.push_back(value_row(plan, element));
+                }
             }
             else { rows.push_back(value_row(plan, value)); }
             publish_frame(plan, std::move(rows), out);

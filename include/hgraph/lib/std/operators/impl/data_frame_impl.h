@@ -937,7 +937,7 @@ namespace hgraph::stdlib
     };
 
     /** ``convert[TS[Frame[X]]](ts)`` over a compound (one row per tick) or a
-        tuple of compounds (one row per element). */
+        homogeneous tuple of compounds (one row per element). */
     struct convert_value_to_frame_impl
     {
         static constexpr auto name = "convert_value_to_frame";
@@ -952,8 +952,8 @@ namespace hgraph::stdlib
             }
             const auto *value = in->value_schema;
             if (value->value_kind() == ValueTypeKind::Bundle) { return true; }
-            return value->value_kind() == ValueTypeKind::List && value->element_type != nullptr &&
-                   value->element_type->value_kind() == ValueTypeKind::Bundle;
+            const auto *element = tuple_element_schema(value);
+            return element != nullptr && element->value_kind() == ValueTypeKind::Bundle;
         }
 
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,

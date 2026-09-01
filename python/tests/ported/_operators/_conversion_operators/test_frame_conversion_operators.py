@@ -14,7 +14,7 @@ import pyarrow as pa
 import pytest
 from frozendict import frozendict
 
-from hgraph import CompoundScalar, TS, TSD, convert, Frame, graph, combine
+from hgraph import CompoundScalar, TS, TSD, WiringError, convert, Frame, graph, combine
 from hgraph.test import eval_node
 
 
@@ -108,7 +108,7 @@ def test_convert_cs_frame():
 
     @graph
     def g(ts: TS[ABStruct]) -> TS[Frame[ABStruct]]:
-        return convert[TS[Frame[ABStruct]]](ts)
+        return convert[TS[Frame]](ts)
 
     frame = pa.table({"a": [1], "b": ["1"]})
     assert eval_node(g, ts=ABStruct(1, "1"))[-1].equals(frame)
@@ -126,3 +126,31 @@ def test_convert_tuple_to_frame():
 
     frame = pa.table({"a": [1, 2], "b": ["1", "2"]})
     assert eval_node(g, ts=[(ABStruct(1, "1"), ABStruct(2, "2"))])[-1].equals(frame)
+
+
+def test_convert_fixed_tuple_to_frame():
+    @dataclass
+    class ABStruct(CompoundScalar):
+        a: int
+        b: str
+
+    @graph
+    def g(ts: TS[Tuple[ABStruct, ABStruct]]) -> TS[Frame[ABStruct]]:
+        return convert[TS[Frame]](ts)
+
+    frame = pa.table({"a": [1, 2], "b": ["1", "2"]})
+    assert eval_node(g, ts=[(ABStruct(1, "1"), ABStruct(2, "2"))])[-1].equals(frame)
+
+
+def test_convert_mixed_fixed_tuple_to_frame_is_rejected():
+    @dataclass
+    class ABStruct(CompoundScalar):
+        a: int
+        b: str
+
+    @graph
+    def g(ts: TS[Tuple[ABStruct, int]]) -> TS[Frame[ABStruct]]:
+        return convert[TS[Frame]](ts)
+
+    with pytest.raises(WiringError):
+        eval_node(g, ts=[(ABStruct(1, "1"), 2)])

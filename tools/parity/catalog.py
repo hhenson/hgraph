@@ -1677,6 +1677,7 @@ _POLYMORPHIC_EVENT_OPERATIONS = (
     "feedback",
     "feedback_default",
     "tuple",
+    "fixed_tuple_frame",
     "set",
     "mapping",
     "collect_values",
@@ -1915,6 +1916,7 @@ def _polymorphic_event_model(hg):
 
 
 def _polymorphic_event_flow(hg, recipe):
+    from dataclasses import dataclass
     from typing import Mapping, Set
 
     from hgraph.test import eval_node
@@ -1925,6 +1927,10 @@ def _polymorphic_event_flow(hg, recipe):
     triggers = list(recipe.inputs["trigger"])
     keys = list(recipe.inputs["key"])
     end_time = hg.MIN_ST + (recipe.tick_count + 4) * hg.MIN_TD
+
+    @dataclass(frozen=True)
+    class FrameRow(hg.CompoundScalar):
+        event_id: str
 
     @hg.compute_node
     def singleton(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
@@ -1953,6 +1959,24 @@ def _polymorphic_event_flow(hg, recipe):
     @hg.graph
     def singleton_tuple(value: hg.TS[Event]) -> hg.TS[tuple[Event, ...]]:
         return hg.convert[hg.TS[tuple[Event, ...]]](value)
+
+    @hg.compute_node
+    def fixed_rows(value: hg.TS[Event]) -> hg.TS[tuple[FrameRow, FrameRow]]:
+        row = FrameRow(event_id=value.value.event_id)
+        return row, row
+
+    @hg.compute_node
+    def frame_event_ids(
+        value: hg.TS[hg.Frame[FrameRow]],
+    ) -> hg.TS[tuple[str, ...]]:
+        frame = value.value
+        rows = frame.to_dicts() if hasattr(frame, "to_dicts") else frame.to_pylist()
+        return tuple(row["event_id"] for row in rows)
+
+    @hg.graph
+    def fixed_tuple_frame(value: hg.TS[Event]) -> hg.TS[tuple[str, ...]]:
+        frame = hg.convert[hg.TS[hg.Frame[FrameRow]]](fixed_rows(value))
+        return frame_event_ids(frame)
 
     @hg.graph
     def singleton_set(value: hg.TS[Event]) -> hg.TS[Set[Event]]:
@@ -1991,6 +2015,7 @@ def _polymorphic_event_flow(hg, recipe):
         "feedback": delayed,
         "feedback_default": delayed_from_default,
         "tuple": singleton_tuple,
+        "fixed_tuple_frame": fixed_tuple_frame,
         "set": singleton_set,
         "window": windowed,
         "json_round_trip": json_round_trip,

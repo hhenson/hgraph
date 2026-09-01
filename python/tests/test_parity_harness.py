@@ -500,6 +500,7 @@ def test_generator_covers_realistic_python_structural_and_polymorphic_workflows(
         "feedback",
         "feedback_default",
         "tuple",
+        "fixed_tuple_frame",
         "set",
         "mapping",
         "collect_values",
