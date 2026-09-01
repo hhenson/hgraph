@@ -39,6 +39,13 @@ template <typename View>
           "Nested graph path requires a typed time-series view");
     }
     if constexpr (std::is_same_v<View, TSOutputView>) {
+      if (view.schema()->kind == TSTypeKind::REF) {
+        // Boundary paths describe the value seen by the child graph. Resolve
+        // the physical REF endpoint before applying a structural projection.
+        const auto *target =
+            TypeRegistry::instance().dereference(view.schema());
+        view = view.binding_for(*target).view(view.evaluation_time());
+      }
       if (component == ts_key_set_path_component) {
         view = view.as_dict().key_set();
         continue;

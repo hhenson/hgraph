@@ -408,6 +408,35 @@ namespace
         }
     };
 
+    using ReduceProjectedDictBundle =
+        TSB<"ReduceProjectedDictBundle", Field<"values", TSD<Int, TS<Int>>>>;
+
+    struct WrapReduceProjectedDict
+    {
+        static constexpr auto name = "wrap_reduce_projected_dict";
+
+        static Port<ReduceProjectedDictBundle> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> values)
+        {
+            return stdlib::to_tsb<ReduceProjectedDictBundle>(w, values);
+        }
+    };
+
+    struct ReduceProjectedMappedDicts
+    {
+        static constexpr auto name = "reduce_projected_mapped_dicts";
+
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TSD<Int, TS<Int>>>> values)
+        {
+            auto mapped = wire<stdlib::map_, TSD<Str, ReduceProjectedDictBundle>>(
+                w, fn<WrapReduceProjectedDict>(), values);
+            auto projected = wire<stdlib::getattr_>(w, mapped, Str{"values"});
+            return wire<stdlib::reduce_>(w, fn<MergeIntDicts>(), projected)
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
     struct ReduceNestedIntDicts
     {
         static constexpr auto name = "reduce_nested_int_dicts";
@@ -1005,6 +1034,20 @@ TEST_CASE("reduce over TSD: a collection combiner wires a three-argument map")
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 6}}),
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 7}, {3, 3}}),
                       dict_delta<Int, TS<Int>>({{2, 6}}, {3})));
+}
+
+TEST_CASE("reduce over TSD: mapped bundle collection projections expose key sets to the combiner")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<ReduceProjectedMappedDicts>(values<Value>(
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"a"s, dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}})},
+                 {"b"s, dict_delta<Int, TS<Int>>({{1, 3}, {2, 4}})}})))),
+        values<Value>(dict_delta<Int, TS<Int>>({{1, 4}, {2, 6}})));
 }
 
 TEST_CASE("reduce over TSD: compacting a generic map combiner samples surviving leaves")
