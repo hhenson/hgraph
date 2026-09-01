@@ -408,13 +408,14 @@ namespace
         }
     };
 
+    template <typename T>
     struct SeriesContainsGraph
     {
         static constexpr auto name = "series_contains_graph";
-        static Port<TS<Bool>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> ts,
-                                      Port<TS<Int>> item)
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<SeriesOf<T>>> ts,
+                                      Port<TS<T>> item)
         {
-            return wire<stdlib::contains_>(w, ts, item).as<TS<Bool>>();
+            return wire<stdlib::contains_>(w, ts, item).template as<TS<Bool>>();
         }
     };
 
@@ -2895,9 +2896,14 @@ TEST_CASE("std operators: Arrow Series arithmetic and access use public typed wi
     CHECK_OUTPUT(eval_node<SeriesGetItemGraph>(values<Series>(int_series({1, 2, 3})),
                                                values<Int>(2)),
                  values<Int>(3));
-    CHECK_OUTPUT(eval_node<SeriesContainsGraph>(values<Series>(int_series({1, 2, 3}),
-                                                                int_series({1, 2, 3})),
-                                                values<Int>(2, 4)),
+    CHECK_OUTPUT(eval_node<SeriesContainsGraph<Int>>(values<Series>(int_series({1, 2, 3}),
+                                                                     int_series({1, 2, 3})),
+                                                     values<Int>(2, 4)),
+                 values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<SeriesContainsGraph<DateTime>>(
+                     values<Series>(datetime_series({dt(10), std::nullopt, dt(30)}),
+                                    datetime_series({dt(10), std::nullopt, dt(30)})),
+                     values<DateTime>(dt(30), dt(20))),
                  values<Bool>(true, false));
     REQUIRE_THROWS(eval_node<SeriesGetItemGraph>(values<Series>(int_series({1, 2, 3})),
                                                  values<Int>(3)));

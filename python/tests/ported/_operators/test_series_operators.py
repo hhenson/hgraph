@@ -352,3 +352,18 @@ def test_series_contains():
 
     results = eval_node(g, [pa.array([4, 3, 3])], [3, 6, 4])
     assert results == [True, False, True]
+
+
+def test_series_contains_datetime_with_timezone_free_arrow_values():
+    @graph
+    def g(lhs: TS[Series[datetime]], rhs: TS[datetime]) -> TS[bool]:
+        return contains_(lhs, rhs)
+
+    first = datetime(2024, 1, 2, 3, 4, 5)
+    second = datetime(2025, 6, 7, 8, 9, 10)
+    results = eval_node(
+        g,
+        [pa.array([first, second]), pa.array([first, second])],
+        [second, datetime(2026, 1, 1)],
+    )
+    assert results == [True, False]

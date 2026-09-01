@@ -401,7 +401,10 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return series_impl_detail::is_series_arg(context, 0);
+            const auto *series = time_series_schema_at_as<AnyTS>(context, 0);
+            const auto *item = time_series_schema_at_as<AnyTS>(context, 1);
+            return series != nullptr && series_impl_detail::is_series_value(series->value_schema) &&
+                   item != nullptr && item->value_schema == series->value_schema->element_type;
         }
 
         static void eval(In<"ts", TS<ScalarVar<"S">>> ts, In<"item", TS<ScalarVar<"I">>> item, Out<TS<Bool>> out)
@@ -410,7 +413,17 @@ namespace hgraph::stdlib
             if (!series.has_value()) { out.set(false); return; }
             // is_in(item, value_set=series) -> is the item a member.
             arrow::compute::SetLookupOptions options{arrow::Datum{series.array}};
-            auto item_datum = series_impl_detail::operand_datum(item);
+            auto item_datum = arrow_scalar(item.base().value(), ts.base().schema()->value_schema->element_type);
+            if (!item_datum.type()->Equals(series.array->type()))
+            {
+                auto cast = arrow::compute::Cast(item_datum, series.array->type());
+                if (!cast.ok())
+                {
+                    throw std::runtime_error("arrow Series membership item cast failed: " +
+                                             cast.status().ToString());
+                }
+                item_datum = std::move(*cast);
+            }
             auto found = arrow::compute::CallFunction("is_in", {item_datum}, &options);
             if (!found.ok()) { throw std::runtime_error("arrow is_in failed: " + found.status().ToString()); }
             out.set(std::static_pointer_cast<arrow::BooleanScalar>(found->scalar())->value);
