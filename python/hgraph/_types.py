@@ -2379,7 +2379,9 @@ class _TSWMeta(type):
         # int sizes -> a tick window, timedelta sizes -> a duration window,
         # a WINDOW_SIZE / WINDOW_SIZE_MIN sentinel anywhere -> the generic
         # window pattern (sizes resolve from the wired port). The bare form
-        # carries period 0 (supplied at to_window time).
+        # carries period 0 (supplied at to_window time). A single concrete
+        # size means both the maximum and minimum, matching hgraph's TSW
+        # shorthand and to_window(ts, period) default.
         items = item if isinstance(item, tuple) else (item,)
         value, sizes = items[0], items[1:]
         label = f"TSW[{item!r}]"
@@ -2393,18 +2395,31 @@ class _TSWMeta(type):
                 pattern=_hgraph.type_pattern_tsw(element),
                 variables=_type_variables_of(items),
             )
+        resolved_sizes = (sizes[0], sizes[0]) if len(sizes) == 1 else sizes
         try:
             value_type = _value_type(value)
         except _GenericType as e:
-            period = int(sizes[0]) if sizes and isinstance(sizes[0], int) else 0
-            pattern = (_hgraph.type_pattern_tsw(e.pattern, period)
-                       if period > 0 else _hgraph.type_pattern_tsw(e.pattern))
+            period = (
+                int(resolved_sizes[0])
+                if resolved_sizes and isinstance(resolved_sizes[0], int)
+                else 0
+            )
+            min_period = (
+                int(resolved_sizes[1])
+                if len(resolved_sizes) > 1 and isinstance(resolved_sizes[1], int)
+                else 0
+            )
+            pattern = (
+                _hgraph.type_pattern_tsw(e.pattern, period, min_period)
+                if period > 0
+                else _hgraph.type_pattern_tsw(e.pattern)
+            )
             return _GenericTsExpr(
                 label, pattern=pattern, variables=_type_variables_of(items)
             )
-        if any(isinstance(size, datetime.timedelta) for size in sizes):
-            return _TsExpr(_hgraph.tsw_duration(value_type, *sizes), label)
-        return _TsExpr(_hgraph.tsw(value_type, *(sizes or (0,))), label)
+        if any(isinstance(size, datetime.timedelta) for size in resolved_sizes):
+            return _TsExpr(_hgraph.tsw_duration(value_type, *resolved_sizes), label)
+        return _TsExpr(_hgraph.tsw(value_type, *(resolved_sizes or (0,))), label)
 
 
 class TSW(metaclass=_TSWMeta):

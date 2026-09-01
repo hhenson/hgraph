@@ -126,7 +126,8 @@ TEST_CASE("static_schema: TSW<T, period, min_period> descriptor matches registry
 
     const auto *float_meta = registry.value_type("float");
     REQUIRE(schema_descriptor<TSW<Float, 10, 3>>::ts_meta() == registry.tsw(float_meta, 10, 3));
-    REQUIRE(schema_descriptor<TSW<Float, 5>>::ts_meta() == registry.tsw(float_meta, 5, 0));
+    STATIC_REQUIRE(std::same_as<TSW<Float, 5>, TSW<Float, 5, 5>>);
+    REQUIRE(schema_descriptor<TSW<Float, 5>>::ts_meta() == registry.tsw(float_meta, 5, 5));
     REQUIRE_FALSE(schema_descriptor<TSWAny<ScalarVar<"T">>>::is_concrete());
     REQUIRE(schema_descriptor<TSWAny<ScalarVar<"T">>>::ts_meta() == nullptr);
 }

@@ -135,10 +135,33 @@ def test_get_context_missing():
         eval_node(g2, [1])
 
 
-def test_tsw_out_maps_to_tsw():
+def test_tsw_out_and_single_size_shorthand_map_to_tsw():
+    from datetime import timedelta
+
     from hgraph import TSW, WindowSize
 
     assert hg.TSW_OUT[int, WindowSize[3]] == TSW[int, WindowSize[3]]
+    assert TSW[int, WindowSize[3]] == TSW[int, WindowSize[3], WindowSize[3]]
+    assert TSW[int, WindowSize[3]] != TSW[int, WindowSize[3], WindowSize[2]]
+    assert TSW[int, WindowSize[timedelta(seconds=3)]] == TSW[
+        int,
+        WindowSize[timedelta(seconds=3)],
+        WindowSize[timedelta(seconds=3)],
+    ]
+
+
+def test_generic_tsw_preserves_an_explicit_minimum():
+    from hgraph import SCALAR, TSW, WindowSize
+
+    single_size = TSW[SCALAR, WindowSize[3]]
+    explicit_minimum = TSW[SCALAR, WindowSize[3], WindowSize[0]]
+    exact_window = TSW[int, WindowSize[3], WindowSize[3]]
+    optional_window = TSW[int, WindowSize[3], WindowSize[0]]
+
+    assert _hgraph.ResolutionScope().match(single_size.pattern, exact_window.handle)
+    assert not _hgraph.ResolutionScope().match(single_size.pattern, optional_window.handle)
+    assert _hgraph.ResolutionScope().match(explicit_minimum.pattern, optional_window.handle)
+    assert not _hgraph.ResolutionScope().match(explicit_minimum.pattern, exact_window.handle)
 
 
 def test_collection_output_annotations_map_to_input_shapes():

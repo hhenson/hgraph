@@ -44,6 +44,11 @@ cannot express directly. ``Frame`` and ``Array`` are native scalar schemas for
 Arrow tables and shaped numeric arrays. See :doc:`../user_guide/data_and_analytics`
 for their storage and conversion rules.
 
+For ``TSW``, one size supplies both the maximum and minimum window period:
+``TSW[int, WindowSize[3]]`` is the same type as
+``TSW[int, WindowSize[3], WindowSize[3]]``. Supply the third parameter only
+when the window should become valid before it reaches its maximum size.
+
 Named scalar and bundle schemas
 -------------------------------
 

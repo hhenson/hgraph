@@ -131,9 +131,10 @@ namespace hgraph
      * Tick-based sliding window; equivalent to runtime ``TSW`` constructed
      * via ``tsw(value_type, period, min_period)``. Duration-based windows
      * are not yet expressible as a compile-time type — use the runtime
-     * registry for that case.
+     * registry for that case. Omitting ``MinPeriod`` makes it equal to
+     * ``Period``.
      */
-    template <typename TValue, std::size_t Period, std::size_t MinPeriod = 0>
+    template <typename TValue, std::size_t Period, std::size_t MinPeriod = Period>
     struct TSW
     {
         using value_type                      = TValue;
