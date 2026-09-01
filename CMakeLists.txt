@@ -75,6 +75,7 @@ option(HGRAPH_BUILD_ANALYTICS_EXTENSION "Build the first-party analytics extensi
 option(HGRAPH_BUILD_WEB_EXTENSION "Build the first-party web extension" OFF)
 option(HGRAPH_BUILD_PERSISTENCE_EXTENSION "Build the first-party persistence extension" OFF)
 option(HGRAPH_BUILD_FABRIC_EXTENSION "Build the first-party versioned dataflow fabric extension" OFF)
+option(HGRAPH_BUILD_LANGUAGE "Build the experimental hgraph language toolchain" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -818,6 +819,10 @@ if(HGRAPH_BUILD_FABRIC_EXTENSION)
             "HGRAPH_BUILD_FABRIC_EXTENSION requires HGRAPH_BUILD_PERSISTENCE_EXTENSION=ON")
     endif()
     add_subdirectory(extensions/fabric)
+endif()
+
+if(HGRAPH_BUILD_LANGUAGE)
+    add_subdirectory(language)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")
