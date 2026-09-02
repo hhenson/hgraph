@@ -62,8 +62,8 @@ subscription_envelope(const KafkaTransportBindings &bindings, Value key,
 }
 
 [[nodiscard]] Value event_envelope(const KafkaTransportBindings &bindings,
-                                   Value event, Bool stop_graph) {
-  return service_transport_event(bindings, std::move(event), stop_graph);
+                                   Value event) {
+  return service_transport_event(bindings, std::move(event));
 }
 
 [[nodiscard]] bool present(const ValueView &value) noexcept {
@@ -107,11 +107,9 @@ struct RuntimeConfig {
   std::size_t ingress_records{};
   std::size_t outbound_records{};
   KafkaOverflowAction inbound_overflow{KafkaOverflowAction::Fail};
-  KafkaFailurePolicy consumer_failure_policy{KafkaFailurePolicy::Report};
   KafkaOverflowAction outbound_overflow{KafkaOverflowAction::Stage};
   KafkaOverflowAction stage_overflow{KafkaOverflowAction::Fail};
   std::chrono::milliseconds shutdown_drain_timeout{5'000};
-  KafkaFailurePolicy producer_failure_policy{KafkaFailurePolicy::Report};
 };
 
 [[nodiscard]] std::size_t positive_limit(ValueView field,
@@ -151,8 +149,6 @@ struct RuntimeConfig {
                                            "outbound record limit");
   result.inbound_overflow =
       consumer.at("inbound_overflow").checked_as<KafkaOverflowAction>();
-  result.consumer_failure_policy =
-      consumer.at("failure_policy").checked_as<KafkaFailurePolicy>();
   result.outbound_overflow =
       producer.at("overflow").checked_as<KafkaOverflowAction>();
   result.stage_overflow =
@@ -165,8 +161,6 @@ struct RuntimeConfig {
   }
   result.shutdown_drain_timeout =
       std::chrono::milliseconds{shutdown_drain_timeout_ms};
-  result.producer_failure_policy =
-      producer.at("failure_policy").checked_as<KafkaFailurePolicy>();
   if (result.bootstrap_servers.empty()) {
     throw std::invalid_argument("Kafka service requires bootstrap servers");
   }
@@ -832,8 +826,6 @@ public:
                 ? config_.stage_overflow
                 : config_.outbound_overflow;
         const bool dropped = action == KafkaOverflowAction::Drop;
-        const bool stop_graph = !dropped && config_.producer_failure_policy ==
-                                                KafkaFailurePolicy::StopGraph;
         emit_delivery(
             request_id,
             make_delivery_report(parsed.user_token, sequence, parsed.topic,
@@ -848,7 +840,7 @@ public:
                    dropped ? Str{"outbound record was dropped because the "
                                  "staging queue is full"}
                            : Str{"outbound staging queue is full"},
-                   {}, parsed.user_token, stop_graph);
+                   {}, parsed.user_token);
         return;
       }
       producer_queue_.push_back(std::move(parsed));
@@ -985,15 +977,14 @@ public:
 
   void emit_event(KafkaSeverity severity, Str component, Str category,
                   Int error_code, Bool retriable, Bool fatal, Str message,
-                  Str subscription_identity = {}, Str publisher_identity = {},
-                  Bool stop_graph = false) noexcept {
+                  Str subscription_identity = {},
+                  Str publisher_identity = {}) noexcept {
     try {
       Value event = make_event(
           severity, std::move(component), std::move(category), path_,
           std::move(message), error_code, retriable, fatal,
           std::move(subscription_identity), std::move(publisher_identity));
-      static_cast<void>(
-          output_(event_envelope(bindings_, std::move(event), stop_graph)));
+      static_cast<void>(output_(event_envelope(bindings_, std::move(event))));
     } catch (...) {
     }
   }
@@ -1048,9 +1039,7 @@ private:
         opaque->runtime->emit_event(
             fatal ? KafkaSeverity::Fatal : KafkaSeverity::Error,
             Str{"producer"}, Str{"delivery"}, static_cast<Int>(message->err),
-            retriable, fatal, error_message, {}, opaque->user_token,
-            !retriable && opaque->runtime->config().producer_failure_policy ==
-                              KafkaFailurePolicy::StopGraph);
+            retriable, fatal, error_message, {}, opaque->user_token);
       }
     } catch (...) {
     }
@@ -1068,10 +1057,7 @@ private:
         Str{"producer"}, Str{"client_error"}, static_cast<Int>(error),
         retriable_error(static_cast<rd_kafka_resp_err_t>(error)),
         error == RD_KAFKA_RESP_ERR__FATAL,
-        Str{rd_kafka_err2str(static_cast<rd_kafka_resp_err_t>(error))}, {}, {},
-        error == RD_KAFKA_RESP_ERR__FATAL &&
-            runtime->config().producer_failure_policy ==
-                KafkaFailurePolicy::StopGraph);
+        Str{rd_kafka_err2str(static_cast<rd_kafka_resp_err_t>(error))});
   }
 
   void create_producer() {
@@ -1156,9 +1142,7 @@ private:
         }
         emit_event(KafkaSeverity::Fatal, Str{"producer"}, Str{"worker"}, 0,
                    false, true, exception.what(), {},
-                   record.has_value() ? record->user_token : Str{},
-                   config_.producer_failure_policy ==
-                       KafkaFailurePolicy::StopGraph);
+                   record.has_value() ? record->user_token : Str{});
         producer_stopping_ = true;
       }
     }
@@ -1170,8 +1154,7 @@ private:
       emit_event(
           KafkaSeverity::Error, Str{"producer"}, Str{"shutdown_timeout"},
           flush_error, true, false,
-          Str{"Kafka producer did not drain before the shutdown timeout"}, {},
-          {}, config_.producer_failure_policy == KafkaFailurePolicy::StopGraph);
+          Str{"Kafka producer did not drain before the shutdown timeout"});
     }
   }
 
@@ -1201,8 +1184,7 @@ private:
                           Str{rd_kafka_err2str(error)}));
         emit_event(
             KafkaSeverity::Error, Str{"producer"}, Str{"header"}, error, false,
-            false, Str{rd_kafka_err2str(error)}, {}, record.user_token,
-            config_.producer_failure_policy == KafkaFailurePolicy::StopGraph);
+            false, Str{rd_kafka_err2str(error)}, {}, record.user_token);
         return true;
       }
     }
@@ -1283,9 +1265,7 @@ private:
                error, retriable, fatal,
                dropped ? Str{"outbound record was dropped"}
                        : Str{rd_kafka_err2str(error)},
-               {}, record.user_token,
-               !dropped && config_.producer_failure_policy ==
-                               KafkaFailurePolicy::StopGraph);
+               {}, record.user_token);
     return true;
   }
 
@@ -1414,9 +1394,7 @@ void ConsumerSession::rebalance_callback(
     session->complete_preload(exception.what());
     session->owner_.emit_event(
         KafkaSeverity::Error, Str{"consumer"}, Str{"rebalance"}, error, true,
-        false, exception.what(), session->spec_.identity, {},
-        session->owner_.config().consumer_failure_policy ==
-            KafkaFailurePolicy::StopGraph);
+        false, exception.what(), session->spec_.identity);
   }
 }
 
@@ -1433,10 +1411,7 @@ void ConsumerSession::error_callback(rd_kafka_t *, int error, const char *,
                                         : KafkaSeverity::Error,
       Str{"consumer"}, Str{"client_error"}, error, retriable,
       error == RD_KAFKA_RESP_ERR__FATAL, Str{rd_kafka_err2str(kafka_error)},
-      session->spec_.identity, {},
-      error == RD_KAFKA_RESP_ERR__FATAL &&
-          session->owner_.config().consumer_failure_policy ==
-              KafkaFailurePolicy::StopGraph);
+      session->spec_.identity);
   if (retriable && session->uses_manual_assignment()) {
     session->reconnect_requested_.store(true, std::memory_order_release);
   }
@@ -1620,9 +1595,7 @@ void ConsumerSession::run() noexcept {
       rd_kafka_destroy(consumer);
     }
     owner_.emit_event(KafkaSeverity::Error, Str{"consumer"}, Str{"lifecycle"},
-                      0, false, false, exception.what(), spec_.identity, {},
-                      owner_.config().consumer_failure_policy ==
-                          KafkaFailurePolicy::StopGraph);
+                      0, false, false, exception.what(), spec_.identity);
     complete_preload(exception.what());
     emit_state(KafkaSubscriptionState::Failed);
   }
@@ -1634,9 +1607,7 @@ void ConsumerSession::handle_poll_error(rd_kafka_resp_err_t error,
   const bool fatal = !retriable;
   owner_.emit_event(fatal ? KafkaSeverity::Fatal : KafkaSeverity::Error,
                     Str{"consumer"}, Str{"poll"}, error, retriable, fatal,
-                    Str{message}, spec_.identity, {},
-                    fatal && owner_.config().consumer_failure_policy ==
-                                 KafkaFailurePolicy::StopGraph);
+                    Str{message}, spec_.identity);
   if (fatal) {
     failed_ = true;
     stopping_ = true;
@@ -2171,9 +2142,7 @@ void ConsumerSession::buffer_recovery_record(BufferedRecord record) {
                     dropped ? Str{"Kafka recovery record was dropped because "
                                   "the bounded replay buffer is full"}
                             : Str{"bounded Kafka recovery buffer is full"},
-                    spec_.identity, {},
-                    !dropped && owner_.config().consumer_failure_policy ==
-                                    KafkaFailurePolicy::StopGraph);
+                    spec_.identity);
   if (!dropped) {
     failed_ = true;
     stopping_ = true;

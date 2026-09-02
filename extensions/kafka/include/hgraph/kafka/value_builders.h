@@ -42,11 +42,9 @@ namespace hgraph::kafka
         ServiceConfigBuilder &ingress_limit(Int records);
         ServiceConfigBuilder &outbound_limit(Int records);
         ServiceConfigBuilder &inbound_overflow(KafkaOverflowAction value);
-        ServiceConfigBuilder &consumer_failure_policy(KafkaFailurePolicy value);
         ServiceConfigBuilder &outbound_overflow(KafkaOverflowAction value,
                                                 KafkaOverflowAction stage_full = KafkaOverflowAction::Fail);
         ServiceConfigBuilder &shutdown_drain_timeout(std::chrono::milliseconds value);
-        ServiceConfigBuilder &producer_failure_policy(KafkaFailurePolicy value);
         ServiceConfigBuilder &common_option(Str name, Str value);
         ServiceConfigBuilder &consumer_option(Str name, Str value);
         ServiceConfigBuilder &producer_option(Str name, Str value);
@@ -67,11 +65,9 @@ namespace hgraph::kafka
         std::vector<KafkaOptionInput> consumer_options_{};
         std::vector<KafkaOptionInput> producer_options_{};
         KafkaOverflowAction           inbound_overflow_{KafkaOverflowAction::Fail};
-        KafkaFailurePolicy            consumer_failure_policy_{KafkaFailurePolicy::Report};
         KafkaOverflowAction           outbound_overflow_{KafkaOverflowAction::Stage};
         KafkaOverflowAction           stage_overflow_{KafkaOverflowAction::Fail};
         Int                           shutdown_drain_timeout_ms_{5'000};
-        KafkaFailurePolicy            producer_failure_policy_{KafkaFailurePolicy::Report};
     };
 
     [[nodiscard]] HGRAPH_KAFKA_EXPORT ServiceConfigBuilder service_config();
@@ -128,11 +124,10 @@ namespace hgraph::kafka
         Int outbound_record_limit = 10'000,
         std::vector<KafkaOptionInput> common_options = {}, std::vector<KafkaOptionInput> consumer_options = {},
         std::vector<KafkaOptionInput> producer_options = {}, KafkaOverflowAction inbound_overflow = KafkaOverflowAction::Fail,
-        KafkaFailurePolicy  consumer_failure_policy = KafkaFailurePolicy::Report,
-        KafkaOverflowAction outbound_overflow       = KafkaOverflowAction::Stage,
+        KafkaOverflowAction outbound_overflow = KafkaOverflowAction::Stage,
         KafkaOverflowAction stage_overflow = KafkaOverflowAction::Fail, Int shutdown_drain_timeout_ms = 5'000,
-        KafkaFailurePolicy producer_failure_policy = KafkaFailurePolicy::Report, Str producer_acknowledgements = "all",
-        Int producer_retries = 2'147'483'647, Int producer_linger_ms = 5, Int producer_batch_record_limit = 1'000);
+        Str producer_acknowledgements = "all", Int producer_retries = 2'147'483'647, Int producer_linger_ms = 5,
+        Int producer_batch_record_limit = 1'000);
 
     [[nodiscard]] HGRAPH_KAFKA_EXPORT Value make_subscription_key(
         std::vector<Str> topics, Str group_id, Str start_position = "committed:earliest", Str stop_position = "unbounded",

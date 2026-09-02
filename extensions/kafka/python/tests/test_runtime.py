@@ -692,7 +692,9 @@ def test_legacy_live_only_subscriber_does_not_receive_history() -> None:
     assert observed == [b"live"]
 
 
-def test_legacy_permanent_consumer_failure_stops_the_graph() -> None:
+def test_legacy_permanent_consumer_failure_is_reported_without_stopping_graph(
+    caplog,
+) -> None:
     cluster = MockCluster()
     cluster.create_topic("legacy-consumer-failure")
     cluster.fail_next_fetch(MockConsumeError.PERMANENT, 10)
@@ -710,16 +712,21 @@ def test_legacy_permanent_consumer_failure_stops_the_graph() -> None:
             }
         )
         subscriber()
-        kafka.kafka_events(path="legacy")
 
     started = time.monotonic()
     hg.run_graph(
         app,
         run_mode=hg.EvaluationMode.REAL_TIME,
-        end_time=hg.utc_now() + timedelta(seconds=5),
+        end_time=hg.utc_now() + timedelta(seconds=3),
     )
+    logged = caplog.text
 
-    assert time.monotonic() - started < 2.0
+    assert time.monotonic() - started >= 2.5
+    assert "Kafka event: severity=Fatal" in logged
+    assert "service_path=legacy" in logged
+    assert "component=consumer" in logged
+    assert "category=poll" in logged
+    assert "topic authorization failed" in logged.lower()
 
 
 def test_legacy_replaying_publisher_is_bounded_to_its_start_snapshot(monkeypatch) -> None:

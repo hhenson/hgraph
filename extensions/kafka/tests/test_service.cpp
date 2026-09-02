@@ -8,10 +8,13 @@
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/logger.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/util/environment.h>
 #include <hgraph/util/scope.h>
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include "../src/detail/service_transport.h"
 
@@ -180,6 +183,49 @@ void test_delivery_burst_unrolls_repeated_request_ids() {
   };
   require(sequence_at(0) == Int{1} && sequence_at(1) == Int{2},
           "same-id delivery reports were conflated or reordered");
+}
+
+void test_reported_event_logs_complete_reason() {
+  auto previous_logger = log::shared_logger();
+  auto sink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(8);
+  auto logger =
+      std::make_shared<spdlog::logger>("hgraph-kafka-diagnostic-test", sink);
+  logger->set_pattern("%v");
+  log::set_logger(std::move(logger));
+  const auto restore_logger =
+      make_scope_exit([previous_logger] { log::set_logger(previous_logger); });
+
+  const auto bindings = kafka::detail::make_transport_bindings();
+  Value diagnostic = make_event(
+      KafkaSeverity::Fatal, Str{"consumer"}, Str{"poll"}, Str{"legacy"},
+      Str{"Broker: Topic authorization failed"}, Int{29}, false, true,
+      Str{"legacy:live:orders"});
+  Value transport = kafka::detail::service_transport_event(
+      *bindings.value, std::move(diagnostic));
+
+  std::vector<std::optional<Value>> input;
+  input.emplace_back(std::move(transport));
+  const auto output =
+      eval_node<kafka::detail::EventProjectionGraph>(input);
+  require(output.size() == 1 && output[0].has_value(),
+          "reported Kafka event was not published");
+
+  std::string rendered;
+  for (const auto &line : sink->last_formatted()) {
+    rendered += line;
+  }
+  require(rendered.find("Kafka event: severity=Fatal") != std::string::npos &&
+              rendered.find("service_path=legacy") != std::string::npos &&
+              rendered.find("component=consumer") != std::string::npos &&
+              rendered.find("category=poll") != std::string::npos &&
+              rendered.find("error_code=29") != std::string::npos &&
+              rendered.find("retriable=false") != std::string::npos &&
+              rendered.find("fatal=true") != std::string::npos &&
+              rendered.find("subscription_identity=legacy:live:orders") !=
+                  std::string::npos &&
+              rendered.find("Broker: Topic authorization failed") !=
+                  std::string::npos,
+          "reported Kafka event log did not preserve the failure diagnostic");
 }
 
 void test_mixed_burst_stops_at_first_output_collision() {
@@ -363,13 +409,14 @@ template <typename Fn> void require_failure(Fn &&fn, std::string message) {
 
 template <typename Schema, typename Tag>
 void capture_value(Wiring &w, Port<Schema> port, Value &observed,
-                   std::size_t &count) {
+                   std::size_t &count, bool request_stop = true) {
   const auto *input_ts = ts_type<Schema>();
   const auto *input_schema = single_input_schema(*input_ts);
   const std::array inputs{port.erased()};
   w.add_unique_node(
       std::type_index(typeid(Tag)),
-      recording_value_sink(*input_schema, *input_ts, observed, count),
+      recording_value_sink(*input_schema, *input_ts, observed, count,
+                           request_stop),
       std::span<const WiringPortRef>{inputs}, Value{});
 }
 
@@ -925,6 +972,21 @@ struct BoundedSubscriptionGraph {
         wire<BoundedSubscriptionCapture>(w, subscribe(w, path, key)));
     capture_value<TS<KafkaEvent>, BoundedEventCaptureTag>(
         w, events(w, path), bounded_event, bounded_event_count);
+  }
+};
+
+struct NonStoppingFailureGraph {
+  static constexpr auto name = "kafka_non_stopping_failure_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("production-non-stopping-failure");
+    register_service(w, path, production_config.clone());
+    auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, subscription_key.clone());
+    static_cast<void>(
+        wire<BoundedSubscriptionCapture>(w, subscribe(w, path, key)));
+    capture_value<TS<KafkaEvent>, BoundedEventCaptureTag>(
+        w, events(w, path), bounded_event, bounded_event_count, false);
   }
 };
 
@@ -2092,7 +2154,7 @@ void test_graph_lifetime_stop_remains_live_in_real_time() {
   initialize_values();
 }
 
-void test_permanent_consumer_failure_stops_the_graph() {
+void test_permanent_consumer_failure_reports_without_stopping_graph() {
   MockCluster cluster;
   cluster.create_topic(Str{"native-consumer-failure"});
   cluster.fail_next_fetch(MockConsumeError::Permanent, 10);
@@ -2101,7 +2163,6 @@ void test_permanent_consumer_failure_stops_the_graph() {
       hgraph::kafka::service_config()
           .bootstrap_servers({cluster.bootstrap_servers()})
           .client_id(Str{"native-consumer-failure"})
-          .consumer_failure_policy(KafkaFailurePolicy::StopGraph)
           .build();
   subscription_key = make_subscription_key(
       {Str{"native-consumer-failure"}}, Str{"native-consumer-failure-group"},
@@ -2111,14 +2172,14 @@ void test_permanent_consumer_failure_stops_the_graph() {
   bounded_event_count = 0;
 
   const auto started = std::chrono::steady_clock::now();
-  auto executor =
-      start_realtime(build_realtime_graph<BoundedSubscriptionGraph>());
+  auto executor = start_realtime(
+      build_realtime_graph<NonStoppingFailureGraph>(), TimeDelta{3'000'000});
   auto view = executor.view();
   AsyncGraphExecutorRun runner{view};
   runner.join();
 
-  require(std::chrono::steady_clock::now() - started < 2s,
-          "permanent Kafka consumer failure did not stop the graph");
+  require(std::chrono::steady_clock::now() - started >= 2500ms,
+          "permanent Kafka consumer failure stopped the graph");
   require(bounded_event_count != 0,
           "permanent Kafka consumer failure did not publish an event");
   require(bundle_string(bounded_event, "category") == Str{"poll"},
@@ -3067,6 +3128,7 @@ int main() {
     test_transport_sender_handles_graph_teardown();
     test_subscription_transport_retains_one_shared_record();
     test_delivery_burst_unrolls_repeated_request_ids();
+    test_reported_event_logs_complete_reason();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     initialize_values();
     test_mixed_burst_stops_at_first_output_collision();
@@ -3090,7 +3152,7 @@ int main() {
     test_librdkafka_delivery_failures_are_typed();
     test_librdkafka_subscription_path();
     test_graph_lifetime_stop_remains_live_in_real_time();
-    test_permanent_consumer_failure_stops_the_graph();
+    test_permanent_consumer_failure_reports_without_stopping_graph();
     test_typed_explicit_partition_boundaries();
     test_latest_snapshot_is_empty();
     test_timestamp_and_graph_start_positions();

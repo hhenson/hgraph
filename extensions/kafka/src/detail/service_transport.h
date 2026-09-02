@@ -5,6 +5,7 @@
 
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/higher_order.h>
+#include <hgraph/runtime/logger.h>
 #include <hgraph/runtime/push_source_node.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
@@ -57,8 +58,7 @@ using KafkaTransportEvent =
            Field<"state", KafkaSubscriptionState>,
            Field<"evaluation_time", DateTime>, Field<"removed", Bool>,
            Field<"recovery", Bool>, Field<"request_id", Int>,
-           Field<"report", KafkaDeliveryReport>, Field<"event", KafkaEvent>,
-           Field<"stop_graph", Bool>>;
+           Field<"report", KafkaDeliveryReport>, Field<"event", KafkaEvent>>;
 using KafkaTransportEventBatch = HomogeneousTuple<KafkaTransportEvent>;
 using KafkaTransportStreams = TSB<
     "hgraph.kafka.internal::KafkaTransportStreams",
@@ -204,11 +204,9 @@ delivery_transport_event(const KafkaTransportBindings &bindings, Int request_id,
 }
 
 [[nodiscard]] inline Value
-service_transport_event(const KafkaTransportBindings &bindings, Value event,
-                        Bool stop_graph = false) {
+service_transport_event(const KafkaTransportBindings &bindings, Value event) {
   return transport_event(bindings, KafkaTransportEventKind::Event,
-                         {{"event", std::move(event)},
-                          {"stop_graph", transport_atomic(stop_graph)}});
+                         {{"event", std::move(event)}});
 }
 
 /** Splits one ordered Kafka burst into graph-visible service lanes. Runtime
@@ -255,8 +253,7 @@ struct KafkaTransportEmitNode {
             std::string_view{"record"}, std::string_view{"cursor"},
             std::string_view{"state"}, std::string_view{"removed"},
             std::string_view{"recovery"}, std::string_view{"request_id"},
-            std::string_view{"report"}, std::string_view{"event"},
-            std::string_view{"stop_graph"}}) {
+            std::string_view{"report"}, std::string_view{"event"}}) {
         const auto field = fields.at(name);
         if (field.data() != nullptr) {
           builder.set(name, field.clone());
@@ -460,18 +457,56 @@ struct DeliveryProjectionGraph {
   }
 };
 
-/** Projects one scalar service event and applies stop policy on graph. */
+/** Projects one scalar service event. */
 struct EventProjectionNode {
   static constexpr auto name = "kafka_event_projection";
 
   static void eval(In<"event", TS<KafkaTransportEvent>> event,
-                   EngineControlView engine, Out<TS<KafkaEvent>> out) {
-    const auto fields = event.base().value().as_bundle();
-    out.apply(fields.at("event"));
-    const auto stop_graph = fields.at("stop_graph");
-    if (stop_graph.data() != nullptr && stop_graph.checked_as<Bool>()) {
-      engine.request_stop();
+                   Out<TS<KafkaEvent>> out) {
+    out.apply(event.base().value().as_bundle().at("event"));
+  }
+};
+
+/** Terminal diagnostic flow: every Kafka event is logged at its declared
+ *  severity whether or not a client subscribes to the public event output. */
+struct EventDiagnosticSink {
+  static constexpr auto name = "kafka_event_diagnostic_sink";
+
+  static void eval(In<"diagnostic", TS<KafkaEvent>> diagnostic,
+                   LoggerView log) {
+    const auto kafka_event = diagnostic.base().value().as_bundle();
+    const auto severity =
+        kafka_event.at("severity").checked_as<KafkaSeverity>();
+    const int log_level = static_cast<int>(severity) + 1;
+    if (log.should_log(log_level)) {
+      log.log(log_level,
+              fmt::format(
+                  "Kafka event: severity={} service_path={} "
+                  "component={} category={} error_code={} retriable={} "
+                  "fatal={} subscription_identity={} publisher_identity={} "
+                  "message={}",
+                  enum_name(severity),
+                  kafka_event.at("service_path").checked_as<Str>(),
+                  kafka_event.at("component").checked_as<Str>(),
+                  kafka_event.at("category").checked_as<Str>(),
+                  kafka_event.at("error_code").checked_as<Int>(),
+                  kafka_event.at("retriable").checked_as<Bool>(),
+                  kafka_event.at("fatal").checked_as<Bool>(),
+                  kafka_event.at("subscription_identity").checked_as<Str>(),
+                  kafka_event.at("publisher_identity").checked_as<Str>(),
+                  kafka_event.at("message").checked_as<Str>()));
     }
+  }
+};
+
+struct EventProjectionGraph {
+  static constexpr auto name = "kafka_event_projection_graph";
+
+  static Port<TS<KafkaEvent>>
+  compose(Wiring &w, Port<TS<KafkaTransportEvent>> event) {
+    auto diagnostic = wire<EventProjectionNode>(w, event).as<TS<KafkaEvent>>();
+    static_cast<void>(wire<EventDiagnosticSink>(w, diagnostic));
+    return diagnostic;
   }
 };
 
@@ -500,7 +535,7 @@ wire_service_outputs(Wiring &w, Port<TS<KafkaTransportEventBatch>> transport,
       wire<stdlib::map_, TSD<Int, TS<KafkaDeliveryReport>>>(
           w, fn<DeliveryProjectionGraph>(), deliveries)
           .template as<TSD<Int, TS<KafkaDeliveryReport>>>(),
-      wire<EventProjectionNode>(w, events).template as<TS<KafkaEvent>>(),
+      wire<EventProjectionGraph>(w, events).template as<TS<KafkaEvent>>(),
   };
 }
 

@@ -129,11 +129,6 @@ NB_MODULE(_hgraph_kafka, module) {
           .value("DROP", KafkaOverflowAction::Drop)
           .value("STAGE", KafkaOverflowAction::Stage);
 
-  auto failure_policy =
-      nb::enum_<KafkaFailurePolicy>(module, "KafkaFailurePolicy")
-          .value("REPORT", KafkaFailurePolicy::Report)
-          .value("STOP_GRAPH", KafkaFailurePolicy::StopGraph);
-
   // Keyed installer (RFC 0025 checkpoint 3): the extension's ENTIRE
   // registration — native types, operator overloads, AND the python
   // scalar associations (the captured class handles) — so a registry
@@ -156,7 +151,6 @@ NB_MODULE(_hgraph_kafka, module) {
         python_bridge::register_native_scalar_type<KafkaRecoveryClock>(recovery_clock);
         python_bridge::register_native_scalar_type<KafkaMergePolicy>(merge_policy);
         python_bridge::register_native_scalar_type<KafkaOverflowAction>(overflow_action);
-        python_bridge::register_native_scalar_type<KafkaFailurePolicy>(failure_policy);
       });
   hgraph::OperatorRegistry::instance().run_installers();
 

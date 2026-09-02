@@ -349,7 +349,7 @@ Configuration, flow control, and failures
 
 ``KafkaServiceConfig`` has separate connection, consumer-default, and
 producer sections.  The defaults are suitable for a local broker, but
-production applications should make their record limits, failure policy, and
+production applications should make their record limits and
 librdkafka options explicit.  Options are immutable ``KafkaOption`` pairs;
 keep secrets out of source control and supply the appropriate Kafka security
 options through deployment configuration.
@@ -368,7 +368,6 @@ options through deployment configuration.
        consumer_defaults=kafka.KafkaConsumerDefaults(
            ingress_record_limit=20_000,
            inbound_overflow=kafka.KafkaOverflowAction.FAIL,
-           failure_policy=kafka.KafkaFailurePolicy.STOP_GRAPH,
        ),
        producer=kafka.KafkaProducerOptions(
            idempotent=True,
@@ -377,7 +376,6 @@ options through deployment configuration.
            outbound_record_limit=20_000,
            overflow=kafka.KafkaOverflowAction.STAGE,
            stage_overflow=kafka.KafkaOverflowAction.FAIL,
-           failure_policy=kafka.KafkaFailurePolicy.STOP_GRAPH,
        ),
    )
 
@@ -386,10 +384,16 @@ real-time ingress uses the service's standard unbounded burst push source and
 has no byte-capacity setting.  Recovery overflow may ``FAIL`` or ``DROP``; it
 cannot stage.  Outbound overflow may ``FAIL``, ``DROP``, or ``STAGE`` in a
 record-counted queue, whose own overflow action must be ``FAIL`` or ``DROP``.
-A failure policy of ``REPORT``
-keeps the graph running and reports the problem as ``KafkaEvent`` or a delivery
-report; ``STOP_GRAPH`` requests an orderly graph stop.  Choose it according to
-whether your application can safely continue after that failure.
+Kafka operational failures never request an engine stop.  They flow through
+``kafka_events`` as ``KafkaEvent`` values and, for publication failures, the
+corresponding delivery reports.  Every ``KafkaEvent`` is also written to the
+run logger at its declared severity with the complete sanitized diagnostic,
+including the service path, component, category, error code, retry/fatal
+flags, subscription or publisher identity, and broker message.  Unknown
+topics, authorization failures, and broker failures are therefore visible in
+the engine log even when no client subscribes to ``kafka_events``.  The
+application remains responsible for deciding whether a particular diagnostic
+should stop its own graph.
 
 Idempotent production requires ``acknowledgements="all"`` (``"-1"`` is also
 accepted).  These are Kafka producer mechanisms, not an end-to-end processing
@@ -464,6 +468,8 @@ Existing imports from ``hgraph.adaptors.kafka`` continue to work when
 ``message_subscriber``, and ``register_kafka_adaptor`` are compatibility
 wrappers over this native service.  They retain historical constraints such as
 one publisher per topic and their reduced message/header shape.
+Consumer failures use the same ``KafkaEvent`` diagnostic flow, so a topic or
+broker problem is logged and the engine continues running.
 
 Prefer the new API for new work.  It makes topic selection, replay boundaries,
 commit timing, failure handling, and delivery reports explicit; it also keeps
