@@ -494,6 +494,46 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.bundle_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *animal = registry.bundle(
+        "tests.operator.frame", "Animal", {{"id", integer}}, {}, true);
+    const auto *dog = registry.bundle(
+        "tests.operator.frame", "Dog",
+        {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+    const auto *puppy = registry.bundle(
+        "tests.operator.frame", "Puppy",
+        {{"id", integer}, {"barks", registry.value_type("bool")},
+         {"young", registry.value_type("bool")}},
+        {dog});
+
+    const auto register_candidate = [&](const ValueTypeMetaData *row,
+                                        std::string label) {
+        OperatorImpl impl;
+        impl.name = "frame_nominal_overload";
+        impl.label = std::move(label);
+        impl.params.push_back(ParamPattern{
+            .kind = ParamPattern::Kind::Input,
+            .name = "value",
+            .ts = TypePattern::ts(ScalarPattern::frame(
+                ScalarPattern::concrete(row))),
+        });
+        impl.rank = operator_dispatch_detail::operator_rank(impl.params);
+        OperatorRegistry::instance().register_overload(std::move(impl));
+    };
+    register_candidate(animal, "animal");
+    register_candidate(dog, "dog");
+
+    std::array<WiringArg, 1> args{
+        ts_arg(registry.ts(registry.frame(puppy)))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "frame_nominal_overload", std::span<const WiringArg>{args}, false);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "dog");
+}
+
 TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and conversion")
 {
     auto &registry = TypeRegistry::instance();

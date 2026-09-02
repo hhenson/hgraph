@@ -164,15 +164,16 @@ namespace hgraph
         constexpr int variadic_pack_fixed_input_penalty = 100'000'000;
 
         [[nodiscard]] int input_adaptation_rank(const TypePattern &pattern,
-                                                const TSValueTypeMetaData *concrete)
+                                                const TSValueTypeMetaData *concrete,
+                                                const ResolutionMap &map)
         {
-            if (pattern.kind != TypePattern::Kind::Concrete || pattern.meta == nullptr || concrete == nullptr)
+            if (concrete == nullptr)
             {
                 return 0;
             }
 
             TypeRegistry &registry = TypeRegistry::instance();
-            const auto *expected = registry.dereference(pattern.meta);
+            const auto *expected = registry.dereference(ts_pattern_resolve(pattern, map));
             const auto *actual = registry.dereference(concrete);
             if (expected == nullptr || actual == nullptr ||
                 time_series_schema_equivalent(expected, actual) ||
@@ -437,7 +438,7 @@ namespace hgraph
                     }
                     if (arg.kind == WiringArg::Kind::TimeSeries)
                     {
-                        rank_adjustment += input_adaptation_rank(param.ts, arg.port.schema);
+                        rank_adjustment += input_adaptation_rank(param.ts, arg.port.schema, map);
                     }
                     continue;
                 }
@@ -460,7 +461,7 @@ namespace hgraph
                                               ts_pattern_to_string(param.ts));
                             return false;
                         }
-                        rank_adjustment += input_adaptation_rank(param.ts, arg.port.schema);
+                        rank_adjustment += input_adaptation_rank(param.ts, arg.port.schema, map);
                     }
                     else
                     {

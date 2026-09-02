@@ -83,6 +83,20 @@ namespace hgraph
             const ValueTypeMetaData *concrete,
             ResolutionMap &map)
         {
+            if (pattern.kind == ScalarPattern::Kind::Frame)
+            {
+                auto &registry = TypeRegistry::instance();
+                if (!registry.is_frame(concrete) || concrete->element_type == nullptr ||
+                    pattern.children.empty() || pattern.children.size() > 2 ||
+                    !input_scalar_pattern_match(pattern.children[0], concrete->element_type, map))
+                {
+                    return false;
+                }
+                return pattern.children.size() == 1
+                           ? concrete->key_type == nullptr
+                           : concrete->key_type != nullptr &&
+                                 scalar_pattern_match(pattern.children[1], concrete->key_type, map);
+            }
             if (pattern.kind == ScalarPattern::Kind::Concrete)
             {
                 return TypeRegistry::instance().value_is_a(concrete, pattern.meta);

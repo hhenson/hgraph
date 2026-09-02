@@ -3,17 +3,20 @@ import inspect
 from dataclasses import dataclass
 from typing import Type, Union
 
+import polars as pl
 import pytest
 
 from hgraph import (
     AUTO_RESOLVE,
     OUT,
     CompoundScalar,
+    Frame,
     TS,
     TSB,
     TSD,
     MIN_TD,
     TimeSeriesSchema,
+    WiringError,
     combine,
     compute_node,
     const,
@@ -505,6 +508,56 @@ def test_compound_scalar_dispatch_accepts_statically_narrower_input():
         return sound(animal)
 
     assert eval_node(app, [Dog()]) == ["woof"]
+
+
+def test_frame_dispatch_accepts_and_ranks_statically_narrower_rows():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar):
+        name: str
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        breed: str
+
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar):
+        name: str
+
+    @operator
+    def accepts_animals(frame: TS[Frame[Animal]]) -> TS[str]: ...
+
+    @compute_node(overloads=accepts_animals)
+    def accepts_animal_frame(frame: TS[Frame[Animal]]) -> TS[str]:
+        return "animal"
+
+    @operator
+    def classify_animals(frame: TS[Frame[Animal]]) -> TS[str]: ...
+
+    @compute_node(overloads=classify_animals)
+    def classify_animal_frame(frame: TS[Frame[Animal]]) -> TS[str]:
+        return "animal"
+
+    @compute_node(overloads=classify_animals)
+    def classify_dog_frame(frame: TS[Frame[Dog]]) -> TS[str]:
+        return "dog"
+
+    @graph
+    def accept_dogs(frame: TS[Frame[Dog]]) -> TS[str]:
+        return accepts_animals(frame)
+
+    @graph
+    def classify_dogs(frame: TS[Frame[Dog]]) -> TS[str]:
+        return classify_animals(frame)
+
+    @graph
+    def reject_instruments(frame: TS[Frame[Instrument]]) -> TS[str]:
+        return accepts_animals(frame)
+
+    dogs = pl.DataFrame({"name": ["Fido"], "breed": ["collie"]})
+    assert eval_node(accept_dogs, [dogs]) == ["animal"]
+    assert eval_node(classify_dogs, [dogs]) == ["dog"]
+    with pytest.raises(WiringError, match="does not match TS\\[frame"):
+        eval_node(reject_instruments, [pl.DataFrame({"name": ["swap"]})])
 
 
 def test_dispatch_preserves_python_structured_parent_through_multiple_inheritance():

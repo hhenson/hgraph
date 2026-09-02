@@ -362,6 +362,40 @@ TEST_CASE("TypeRegistry gives opaque Any-storage values nominal inheritance") {
       std::invalid_argument);
 }
 
+TEST_CASE("TypeRegistry propagates nominal row covariance through Frame") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  const auto *animal = registry.bundle(
+      "tests.frame_covariance", "Animal", {{"id", integer}}, {}, true);
+  const auto *dog = registry.bundle(
+      "tests.frame_covariance", "Dog",
+      {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+  const auto *puppy = registry.bundle(
+      "tests.frame_covariance", "Puppy",
+      {{"id", integer}, {"barks", registry.value_type("bool")},
+       {"young", registry.value_type("bool")}},
+      {dog});
+  const auto *instrument = registry.bundle(
+      "tests.frame_covariance", "Instrument", {{"id", integer}});
+  const auto *metadata = registry.bundle(
+      "tests.frame_covariance", "Metadata", {{"version", integer}});
+
+  const auto *animal_frame = registry.frame(animal);
+  const auto *dog_frame = registry.frame(dog);
+  const auto *puppy_frame = registry.frame(puppy);
+
+  CHECK(registry.value_is_a(puppy_frame, dog_frame));
+  CHECK(registry.value_is_a(puppy_frame, animal_frame));
+  CHECK_FALSE(registry.value_is_a(animal_frame, dog_frame));
+  CHECK_FALSE(registry.value_is_a(registry.frame(instrument), animal_frame));
+  CHECK_FALSE(registry.value_is_a(registry.frame(puppy, metadata), animal_frame));
+  CHECK(registry.value_inheritance_distance(puppy_frame, dog_frame) == 1);
+  CHECK(registry.value_inheritance_distance(puppy_frame, animal_frame) == 2);
+}
+
 TEST_CASE("self-recursive Bundles store one inline owner pointer and allocate "
           "on demand") {
   using namespace hgraph;
