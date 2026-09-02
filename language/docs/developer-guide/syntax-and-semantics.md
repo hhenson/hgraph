@@ -188,7 +188,7 @@ Expression precedence is:
 | Comparison | `<`, `<=`, `>`, `>=` |
 | Equality | `==`, `!=` |
 | Boolean AND | `&&` |
-| Boolean OR | `||` |
+| Boolean OR | `\|\|` |
 
 Calls use positional arguments followed by named arguments:
 
@@ -241,6 +241,9 @@ Metadata is expressed with functions:
 ```hgl
 modified(value)
 valid(value)
+modified(bid, ask)
+valid(bid, ask)
+all_valid(book)
 delta(value)
 ```
 
@@ -249,13 +252,19 @@ intrinsic declarations. Source member spellings such as `value.modified`,
 `value.valid`, and `value.value` are not part of the language.
 
 In a runtime function, `modified` and `valid` inspect evaluator-local endpoint
-metadata rather than construct Boolean time series. The first-slice form
-`modified(a, b)` means that any listed input was modified. Multiple validity
-requirements use ordinary Boolean operators. The compiler may consume these
-calls while deriving node input policies, so they need not remain as runtime
-calls in generated C++.
+metadata rather than construct Boolean time series. Both require at least one
+argument and fold over their arguments with complementary rules:
 
-Structural aggregation rules and the result shape of `delta` remain open.
+```text
+modified(a, b, c) = modified(a) || modified(b) || modified(c)
+valid(a, b, c)    = valid(a) && valid(b) && valid(c)
+```
+
+The compiler may consume these calls while deriving node input policies, so
+they need not remain as runtime calls in generated C++. `valid(value)` tests
+the top-level endpoint even when the endpoint is structural or a collection;
+recursive child validity is expressed separately as `all_valid(value)`. The
+result shape of `delta` remains open.
 
 ## Function classification boundary
 

@@ -287,7 +287,7 @@ Collection output supports incremental mutation:
 fn latest_by_key(key: str, value: f64) -> map<str, f64> {
     inject out
 
-    when modified(value) && valid(key) && valid(value) {
+    when modified(value) && valid(key, value) {
         out[key] = value
     }
 }

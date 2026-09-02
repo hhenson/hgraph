@@ -106,7 +106,7 @@ The prelude binds familiar tokens to standard operator contracts:
 | Comparison | `<`, `<=`, `>`, `>=` |
 | Equality | `==`, `!=` |
 | Boolean AND | `&&` |
-| Boolean OR | `||` |
+| Boolean OR | `\|\|` |
 
 Expression syntax is not a second operator implementation path.
 
@@ -117,15 +117,24 @@ Temporal metadata uses functions rather than endpoint members:
 ```hgl
 modified(value)
 valid(value)
+modified(bid, ask)
+valid(bid, ask)
+all_valid(book)
 delta(value)
 ```
 
 Source does not expose `value.modified`, `value.valid`, or `value.value`.
 In a runtime `when` predicate, `modified(value)` and `valid(value)` inspect the
-input endpoint while ordinary expressions read its current payload. The
-compiler uses metadata predicates to derive node activation and validity
-policies where possible. Exact aggregation rules for structural inputs and the
-shape of `delta(value)` remain open.
+input endpoint while ordinary expressions read its current payload. Both
+predicates accept one or more arguments: `modified(a, b, c)` is true when any
+argument was modified, while `valid(a, b, c)` is true only when every argument
+is valid. Calls without arguments are invalid.
+
+For a structural or collection input, `valid(value)` tests the validity of the
+endpoint itself rather than recursively requiring every child to be valid.
+Recursive child validity uses the distinct `all_valid(value)` predicate. The
+compiler uses these metadata predicates to derive node activation and validity
+policies where possible. The shape of `delta(value)` remains open.
 
 The same metadata functions apply to explicitly injected output:
 

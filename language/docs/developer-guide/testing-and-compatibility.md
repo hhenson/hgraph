@@ -56,6 +56,9 @@ Tests for the provisional source rule must prove:
 Runtime semantic tests additionally cover:
 
 - `modified(a, b)` activating when either input changes;
+- `valid(a, b)` requiring both inputs to be valid;
+- rejection of zero-argument `modified()` and `valid()` calls;
+- top-level `valid(value)` versus recursive `all_valid(value)` semantics;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;
 - activation union and common validity admission across ordered handlers;

@@ -180,11 +180,11 @@ to all handlers as the most permissive safe node-level policy. It lowers each
 remaining predicate to a C++ `if` in source order. Later handlers observe state
 and output changes made by earlier handlers.
 
-`modified(a, b)` is true when any listed input was modified. Multiple validity
-requirements are composed with ordinary Boolean operators. The compiler
-converts activation and validity predicates into hgraph input metadata whenever
-they are statically representable. Only residual conditions remain in the
-per-tick body.
+`modified(a, b, ...)` is true when any listed input was modified, while
+`valid(a, b, ...)` is true only when every listed input is valid. Both require
+at least one argument. The compiler converts activation and validity predicates
+into hgraph input metadata whenever they are statically representable. Only
+residual conditions remain in the per-tick body.
 
 In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation
@@ -228,14 +228,18 @@ Metadata uses function syntax:
 ```hgl
 modified(value)
 valid(value)
+modified(bid, ask)
+valid(bid, ask)
+all_valid(book)
 delta(value)
 ```
 
 The language does not expose `value.modified`, `value.valid`, or `value.value`.
 `modified` and `valid` are evaluator-local metadata in runtime functions. The
 compiler may consume them as activation and admission policy rather than
-materializing Boolean time series. Structural aggregation and `delta` result
-shapes still require design.
+materializing Boolean time series. `valid(value)` tests top-level endpoint
+validity; recursive child validity is a distinct operation named
+`all_valid(value)`. The `delta` result shape remains open.
 
 ## Native boundary
 

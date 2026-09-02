@@ -93,8 +93,16 @@ Temporal metadata uses function syntax rather than endpoint properties:
 ```hgl
 modified(price)
 valid(price)
+modified(bid, ask)
+valid(bid, ask)
+all_valid(book)
 delta(positions)
 ```
+
+`modified(a, b, ...)` is true when any argument changed. `valid(a, b, ...)` is
+true only when every argument is valid. `valid(value)` tests the endpoint
+itself; use `all_valid(value)` when every child of a structural or collection
+endpoint must also be valid.
 
 An ordinary body such as `maybe_smooth` runs at wiring time and composes
 operators. Runtime-only declarations and blocks instead implement one generated
