@@ -794,8 +794,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`ungroup <python-operator-ungroup>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - :ref:`union <python-operator-union>`
      - ``union(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator

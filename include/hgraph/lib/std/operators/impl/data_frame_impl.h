@@ -654,7 +654,9 @@ namespace hgraph::stdlib
                    data_frame_detail::ts_value_is_frame(ts->element_ts());
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts,
+        static void eval(
+            In<"ts", TSD<ScalarVar<"K">,
+                         TS<FrameOf<ScalarVar<"R">>>>> ts,
                          Out<TS<FrameOf<ScalarVar<"O">>>> out)
         {
             auto &erased = const_cast<TSInputView &>(ts.base());
@@ -687,7 +689,9 @@ namespace hgraph::stdlib
                    data_frame_detail::ts_value_is_frame(ts->element_ts());
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts,
+        static void eval(
+            In<"ts", TSD<ScalarVar<"K">,
+                         TS<FrameOf<ScalarVar<"R">>>>> ts,
                          Scalar<"key_col", ScalarVar<"C">> key_col,
                          Out<TS<FrameOf<ScalarVar<"O">>>> out)
         {

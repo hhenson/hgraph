@@ -7843,10 +7843,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSD[K, TS[Frame[SCALAR]]]``, ``TIME_SERIES_TYPE``
    Keyed collection of same-schema frames.
 
-``key_col`` : scalar; ``SCALAR``
+``key_col`` : scalar; ``SCALAR_1``
    The key col value used by the selected overload.
 
 Returns
@@ -7865,8 +7865,9 @@ Accepted native overloads
 
 .. code-block:: text
 
+   ungroup(ts: TSD[K, TS[Frame[SCALAR]]]) -> TS[Frame[OUT]]
+   ungroup(ts: TSD[K, TS[Frame[SCALAR]]], key_col: SCALAR_1) -> TS[Frame[OUT]]
    ungroup(ts: TIME_SERIES_TYPE) -> TS[Frame[OUT]]
-   ungroup(ts: TIME_SERIES_TYPE, key_col: SCALAR) -> TS[Frame[OUT]]
 
 .. _python-operator-union:
 

@@ -43,6 +43,7 @@ namespace
     using BColumnTSB = UnNamedTSB<Field<"b", TS<Int>>>;
     using CColumnTSB = UnNamedTSB<Field<"c", TS<Int>>>;
     using CSeriesColumnTSB = UnNamedTSB<Field<"c", TS<SeriesOf<Int>>>>;
+    using FrameBundleTSB = UnNamedTSB<Field<"frame", TS<FrameOf<Row>>>>;
     using ProjectedRow = Bundle<"tests.data_frame::ProjectedRow", Field<"a", Int>,
                                 Field<"c", Int>>;
     using KeyedRow = Bundle<"tests.data_frame::KeyedRow", Field<"a", Int>,
@@ -598,6 +599,20 @@ namespace
         }
     };
 
+    struct UngroupProjectedFrameGraph
+    {
+        static constexpr auto name = "ungroup_projected_frame_graph";
+
+        static Port<TS<FrameOf<KeyedRow>>> compose(
+            Wiring &w, Port<TSD<Str, FrameBundleTSB>> ts)
+        {
+            auto projected = wire<stdlib::getattr_>(w, ts, Str{"frame"})
+                                 .as<TSD<Str, REF<TS<FrameOf<Row>>>>>();
+            return wire<stdlib::data_frame::ungroup_with_keys,
+                        TS<FrameOf<KeyedRow>>>(w, projected, Str{"key"});
+        }
+    };
+
     struct SelectScalarRefDict
     {
         static constexpr auto name = "select_scalar_ref_dict";
@@ -1083,6 +1098,23 @@ TEST_CASE("data frame operators: ungroup concatenates keyed frames and materiali
     REQUIRE(keyed.size() == 1);
     REQUIRE(keyed[0].has_value());
     CHECK(equals(*keyed[0],
+                 keyed_frame({1, 2, 3}, {10, 20, 30},
+                             {"one", "one", "two"})));
+}
+
+TEST_CASE("data frame operators: ungroup dereferences projected TSD bundle fields")
+{
+    stdlib::register_standard_operators();
+    const auto one = frame({1, 2}, {10, 20});
+    const auto two = frame({3}, {30});
+    const auto input = values<Value>(dict_delta<Str, FrameBundleTSB>(
+        {{Str{"one"}, tsb_delta<FrameBundleTSB>(one)},
+         {Str{"two"}, tsb_delta<FrameBundleTSB>(two)}}));
+
+    const auto result = eval_node<UngroupProjectedFrameGraph>(input);
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(equals(*result[0],
                  keyed_frame({1, 2, 3}, {10, 20, 30},
                              {"one", "one", "two"})));
 }
