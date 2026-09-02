@@ -19,8 +19,8 @@ A native package that supports the language supplies a descriptor containing:
 
 - canonical language module name and version;
 - compatible hgraph SDK and descriptor-format versions;
-- public function contracts, implementation kinds, canonical types, and
-  schema declarations;
+- public function and nominal operator contracts, implementation candidates,
+  implementation kinds, canonical types, and schema declarations;
 - the C++ headers required by generated code;
 - CMake package names and imported targets;
 - explicit type and operator registration entry points;
@@ -44,18 +44,30 @@ such a predicate.
 
 ## Import and build resolution
 
-For a declaration such as:
+Selective imports introduce declarations as unqualified local names:
 
 ```text
 use hgraph.analytics::{rolling_mean}
 ```
 
-the compiler:
+A module alias introduces only a namespace:
+
+```text
+use hgraph.analytics as analytics
+
+analytics::rolling_mean(price, 20)
+```
+
+There are no wildcard imports. Aliasing permits two modules to expose the same
+short declaration name without conflating their nominal identities.
+
+For either form, the compiler:
 
 1. locates the `hgraph.analytics` descriptor through the package search path;
 2. checks its hgraph and language compatibility constraints;
 3. adds its public declarations to name and type resolution;
-4. delegates imported operator selection to the hgraph resolver;
+4. delegates candidate selection for each resolved nominal operator to the
+   hgraph resolver;
 5. records required headers, packages, targets, and registration hooks in the
    generated build manifest.
 
@@ -63,22 +75,63 @@ Generated code includes only selected module headers and links only selected
 module targets. Registration is explicit and deterministic; modules do not
 depend on static initialization.
 
+## Nominal operator binding
+
+An operator's canonical identity is its defining module plus declaration name.
+Two modules may define `my_op`, but those definitions describe distinct
+protocol-like contracts and own distinct implementation sets.
+
+A same-named `fn` becomes an implementation of an operator only when its module
+declares that operator locally or selectively imports exactly one such operator
+into the local scope:
+
+```hgl
+module my.implementation
+
+use my.contracts::{my_op}
+
+fn my_op(value: f64) -> f64 =>
+    value
+```
+
+The uniqueness rule applies per local short name. Two selective imports that
+would bind different nominal operators as `my_op` are rejected during import
+resolution. An aliased module does not create an implementation binding, so
+other definitions remain callable through qualified names such as
+`other::my_op(...)`.
+
+The semantic IR records the canonical operator identity on every implementation
+candidate and operator call. It never reconstructs that identity later from a
+short string. A descriptor for a native package maps the canonical language
+identity to its public C++ marker and registration hook. Source-defined
+operators receive deterministic generated marker identities.
+
 ## One operator resolver
 
-The compiler owns language type checking but does not own a second hgraph
-overload algorithm. Imported operator calls are presented to a compiler bridge
-over hgraph's `TypePattern`, `ResolutionMap`, and operator registry. The bridge
-returns the selected candidate, resolved output schema, and rejected-candidate
-diagnostics.
+The compiler owns language name resolution and type checking but does not own a
+second hgraph overload algorithm. Name resolution first chooses exactly one
+nominal operator. The candidates registered for that identity are then
+presented to a compiler bridge over hgraph's `TypePattern`, `ResolutionMap`, and
+operator registry. The bridge returns the selected candidate, resolved output
+schema, and rejected-candidate diagnostics.
 
 Generated C++ makes the corresponding public operator wiring call. Both paths
 therefore consume the same registrations and matching rules. A mismatch between
 compiler prediction and generated wiring is a compiler defect and belongs in a
 cross-mode regression test.
 
-User-defined functions have exact typed declarations in the compilation unit.
-Their source syntax determines their implementation kind; they do not need
-registry dispatch unless a later feature registers them as overloads.
+User-defined functions without a local operator binding retain exact typed
+declarations and do not form overload sets. Same-named functions with an
+operator binding are registered as that operator's candidates. Their source
+bodies still determine whether each candidate lowers as composition or a
+runtime node.
+
+Namespace resolution is not candidate ranking. Different nominal operators
+with the same short name never share a candidate set. Within one selected
+operator, hgraph specificity rules choose the best implementation and an
+equal-ranked overlap remains an ambiguity error. Declaration and registration
+order never break the tie. Cross-module coherence rules for overlapping source
+implementations remain to be designed.
 
 ## Native adaptor boundary
 

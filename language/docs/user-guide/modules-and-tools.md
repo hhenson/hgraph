@@ -17,22 +17,77 @@ accepts one source file per compilation unit.
 
 ## Importing declarations
 
-`use` imports an explicit set of public declarations:
+`use` can import an explicit set of public declarations into the local scope:
 
 ```hgl
 use hgraph.std::{if_then_else}
 use hgraph.analytics::{rolling_mean, zscore}
 ```
 
-The first slice has no wildcard imports or aliases. Canonical scalar and
-container types, temporal-shape rules, `atomic<T>`, and expression operator
-bindings come from the implicit hgraph prelude. Everything else must be
-imported or declared locally.
+Alternatively, a module alias creates a namespace without adding its
+declarations as unqualified names:
+
+```hgl
+use my.analytics as analytics
+
+analytics::zscore(prices)
+```
+
+There are no wildcard imports. Canonical scalar and container types,
+temporal-shape rules, `atomic<T>`, and expression operator bindings come from
+the implicit hgraph prelude. Everything else must be imported, reached through
+a module alias, or declared locally.
+
+## Operator identity and implementation imports
+
+An operator is identified by its defining module and name, not by its short
+name alone. The canonical identities `market.pricing::value` and
+`risk.pricing::value` therefore denote distinct contracts. Canonical identities
+appear in diagnostics and metadata; source calls qualify through a local module
+alias rather than spelling a dotted module path as an expression.
+
+An implementation module binds same-named `fn` definitions to a local operator
+declaration or to exactly one operator brought into local scope by a selective
+import:
+
+```hgl
+module market.pricing_impl
+
+use market.pricing::{value}
+
+fn value(input: f64) -> f64 =>
+    input
+```
+
+The uniqueness rule applies per local short name. Selectively importing two
+different operator definitions as `value` is an import error before function
+checking. A module alias does not establish an implementation binding, so an
+implementation module may still use other same-named operators explicitly:
+
+```hgl
+module market.pricing_impl
+
+use market.pricing::{value}
+use risk.pricing as risk
+
+fn value(input: f64) -> f64 =>
+    input
+
+fn compare(input: f64) -> bool =>
+    value(input) == risk::value(input)
+```
+
+At a call site, name resolution selects the nominal operator first. Hgraph's
+resolver then considers only implementations registered for that operator.
+Namespace qualification therefore resolves collisions between different
+operator definitions; it does not break a tie between implementations of one
+operator. Equal-ranked implementations within one selected operator remain an
+ambiguity error.
 
 Each import is checked against a language module descriptor. A descriptor
-contains typed declarations, versions, required public headers, CMake package
-and target names, and registration entry points. It does not grant access to
-arbitrary symbols in a library.
+contains typed declarations, nominal operator identities, versions, required
+public headers, CMake package and target names, and registration entry points.
+It does not grant access to arbitrary symbols in a library.
 
 ## Native adaptors stay native
 

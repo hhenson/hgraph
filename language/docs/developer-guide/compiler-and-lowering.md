@@ -7,7 +7,8 @@ All execution modes share one pipeline:
 ```text
 source
   -> tokens and syntax AST
-  -> names and canonical value types
+  -> modules, nominal names, and canonical value types
+  -> generic binding and operator conformance
   -> recursive temporal shape expansion
   -> function classification
   -> phase-checked typed HIR
@@ -44,6 +45,7 @@ filesystem paths through the AST.
 Parsing produces `UnclassifiedFn` for both named and anonymous functions. Its
 signature stores:
 
+- type and `const` generic parameters;
 - temporal parameters with canonical source types;
 - `const` parameters with canonical value types and defaults;
 - optional temporal result type;
@@ -53,6 +55,12 @@ signature stores:
 
 Temporal shape expansion annotates parameters and results with their hgraph
 schemas but does not choose graph or node lowering.
+
+A parsed `operator` is represented separately as a bodyless `OperatorContract`
+with a canonical `(module, name)` identity, generic signature, public parameter
+roles, defaults, result relationship, and source range. Name resolution marks a
+same-named `UnclassifiedFn` as an implementation of that identity only when a
+unique local or selectively imported operator binding exists.
 
 ## Function classification
 
@@ -73,9 +81,9 @@ The classifier must:
 - preserve one classification across check, REPL, run, and build;
 - never infer kind from C++ compiler behavior or registry candidate order.
 
-Imported functions are different: their module descriptors provide a contract,
-and hgraph's resolver selects a registered implementation that may be a graph
-or native node without exposing that choice at the call site.
+Operator implementations are registered after classification. Hgraph's
+resolver may select either a graph or native-node candidate without exposing
+that choice at the call site.
 
 ## Canonical type lowering
 
@@ -90,6 +98,12 @@ datetime
 
 set<str>
   -> TSS<Str>
+
+rolling<f64, 20>
+  -> TSW<Float, 20, 20>
+
+rolling<f64, 20, 5>
+  -> TSW<Float, 20, 5>
 
 map<str, f64>
   -> keyed hgraph structure with TS<Float> values
@@ -107,6 +121,24 @@ const window: i64
 `atomic` is erased from the canonical payload after it establishes the endpoint
 boundary. It remains in source-level type identity and diagnostics where the
 distinction from a structural value matters.
+
+`rolling` is not erased. It establishes a TSW endpoint whose resolved maximum
+and minimum tick counts participate in schema identity. The compiler
+normalizes an omitted minimum to the maximum, validates both values before
+lowering, and rejects `atomic<rolling<...>>` and `const` rolling values.
+
+Plain generic parameters lower to hgraph type-pattern variables at operator
+and candidate boundaries. `const` generics that shape a rolling type must bind
+through the same hgraph resolution record rather than a compiler-only side
+table. Repeated variables must unify, and the resolved candidate must contain
+no unbound type or size required by its inputs or output.
+
+The current public hgraph type pattern represents TSW sizes as either concrete
+values or one wildcard over the complete window shape. It does not yet bind
+named maximum and minimum size variables. Generic
+`rolling<T, max_size, min_size>` lowering therefore requires a public TSW
+size-pattern extension integrated with `ResolutionMap`; the compiler must not
+approximate this with private matching logic.
 
 `let` and `var` lower to scoped native locals. `let` is immutable in the typed
 HIR. `var` admits assignment but does not allocate node state. In composition
@@ -332,10 +364,17 @@ a first-class public hgraph view API before code generation lands. The compiler
 must not reach into private TSData operation tables or reconstruct structural
 deltas independently.
 
-## Imported function bridge
+## Nominal operator bridge
 
-The compiler resolves a source call by supplying hgraph with expanded temporal
-schemas, `const` values, and ordered/named arguments. The shared bridge owns:
+Source name resolution produces a canonical `OperatorId` before candidate
+matching. A selective import can introduce one operator identity under an
+unqualified short name; a module alias resolves a qualified call such as
+`analytics::rolling_mean`. Distinct identities never contribute candidates to
+one another even when their short names are equal.
+
+The compiler resolves an operator call by supplying hgraph with that identity,
+expanded temporal schemas, `const` values, generic bindings, and ordered/named
+arguments. The shared bridge owns:
 
 - argument normalization and defaults;
 - `TypePattern` matching and output resolution;
@@ -348,10 +387,18 @@ The compiler may cache deterministic results but must not copy the matching
 algorithm. Generated C++ dispatches through the public marker again so
 descriptor or registry drift becomes an error.
 
+A source-defined operator lowers to a deterministic generated C++ marker. Each
+compatible same-named `fn` lowers to an explicitly registered graph or node
+candidate according to its classified body. An ordinary `fn` without an
+operator binding lowers as an exact callable and is not placed in a registry.
+The generated marker or descriptor mapping must preserve the full nominal
+identity rather than using an unqualified registry string that could collide
+with another module.
+
 ## Module descriptors and build manifests
 
-A descriptor exposes source-level function contracts and implementation
-metadata, plus:
+A descriptor exposes source-level function contracts, nominal operator
+identities, candidate-to-operator bindings, and implementation metadata, plus:
 
 - canonical module and compatibility versions;
 - canonical types and their hgraph schemas;

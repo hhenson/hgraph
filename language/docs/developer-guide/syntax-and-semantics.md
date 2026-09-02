@@ -25,15 +25,15 @@ statement terminators or parameter separators.
 The hard reserved words for the current design surface are:
 
 ```text
-module use fn const let var state inject return if else
+module use as operator fn const let var state inject return if else
 start when stop for
 true false
 bool i64 f64 str datetime
 ```
 
-`atomic`, `tuple`, `list`, `set`, and `map` are contextual type keywords.
-Outside a type position, the same spelling can resolve to a function, as in
-`map(values, fn(value) => value * 2.0)`. `out` and the names of other
+`atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
+keywords. Outside a type position, the same spelling can resolve to a function,
+as in `map(values, fn(value) => value * 2.0)`. `out` and the names of other
 injectables are contextual names resolved only by an `inject` declaration.
 
 ## Compilation-unit grammar
@@ -48,12 +48,26 @@ source_file     = module_decl, NL,
 
 module_decl     = "module", module_path;
 module_path     = identifier, { ".", identifier };
+qualified_name  = identifier, "::", identifier;
 
-use_decl        = "use", module_path, "::", import_set;
+use_decl        = "use", module_path,
+                  ( "::", import_set | "as", identifier );
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
-declaration     = function_decl;
-function_decl   = "fn", identifier, function_signature, function_body;
+declaration     = operator_decl | function_decl;
+operator_decl   = "operator", identifier, [ generic_parameters ],
+                  function_signature;
+function_decl   = "fn", identifier, [ generic_parameters ],
+                  function_signature, function_body;
+
+generic_parameters
+                = "<", generic_parameter,
+                  { ",", generic_parameter }, [ "," ], ">";
+generic_parameter
+                = type_parameter | const_generic_parameter;
+type_parameter  = identifier;
+const_generic_parameter
+                = "const", identifier, ":", value_type;
 
 function_signature
                 = "(", [ parameters ], ")", [ "->", type ];
@@ -68,9 +82,11 @@ function_body   = ( "=>", expression ) | block;
 const_expression = expression;
 ```
 
-A function with no return arrow is outputless. A temporal parameter cannot
-have a default in the agreed slice. `const` is a parameter modifier, not a
-general variable qualifier.
+A function or operator signature with no return arrow is outputless. An
+`operator` declaration ends at the newline after its signature and cannot have
+a body. A temporal parameter cannot have a default in the agreed slice.
+`const` marks wiring-time function parameters and wiring-time generic values;
+it is not a general local-variable qualifier.
 
 ## Anonymous functions
 
@@ -95,6 +111,7 @@ type            = scalar_type
                 | list_type
                 | set_type
                 | map_type
+                | rolling_type
                 | identifier
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
@@ -108,6 +125,9 @@ tuple_type      = "tuple", "<", type, { ",", type }, ">";
 list_type       = "list", "<", type, ">";
 set_type        = "set", "<", value_type, ">";
 map_type        = "map", "<", value_type, ",", type, ">";
+rolling_type    = "rolling", "<", value_type, ",",
+                  const_expression,
+                  [ ",", const_expression ], ">";
 value_tuple_type = "tuple", "<", value_type,
                    { ",", value_type }, ">";
 value_list_type = "list", "<", value_type, ">";
@@ -122,8 +142,76 @@ temporalized:
 map<str, atomic<tuple<f64, f64>>>
 ```
 
-`value_type` excludes `atomic` and is used for `const` parameters and atomic
-payloads. `type` allows atomic boundaries recursively inside structural values.
+`value_type` excludes `atomic` and `rolling` and is used for `const` parameters
+and atomic payloads. `type` allows atomic boundaries recursively inside
+structural values. `rolling` is already a temporal endpoint shape and therefore
+cannot appear under `atomic` or in a `const` parameter.
+
+The first rolling-window form uses positive tick-count `i64` sizes:
+
+```hgl
+rolling<f64, 20>
+rolling<f64, 20, 5>
+```
+
+Omitting the third argument normalizes the minimum size to the maximum size.
+The minimum cannot exceed the maximum, and both resolved values participate in
+type identity. Size arguments must be constant expressions formed from literals
+or in-scope `const` generics and cannot depend on temporal values.
+Duration-window arguments remain a separate design question.
+
+## Generics and nominal operator binding
+
+A plain generic parameter binds a source type. A `const` generic parameter
+binds a wiring-time value and may appear in a type-shaping position such as a
+rolling-window size. Generic scope covers the declaration signature and an
+`fn` body. Repeated uses require an equivalent type or equal constant value.
+
+Every generic needed by a selected implementation must resolve from input
+arguments, expected output, explicit generic arguments, or a future declared
+default. Unresolved or inconsistently rebound generics are type diagnostics.
+The initial syntax for explicit generic arguments, generic defaults, and
+constraints remains open; the AST and semantic model must not assume they are
+type parameters only.
+
+An `operator` declaration introduces a nominal, bodyless callable contract. Its
+identity is `(defining module, declaration name)`, not its short name. The
+contract owns public parameter names and order, temporal-versus-`const` roles,
+defaults, and generic input/output relationships.
+
+A same-named `fn` is an implementation candidate when exactly one matching
+operator binding exists in the module's unqualified declaration scope. That
+binding is either a locally declared operator or an operator introduced by a
+selective import:
+
+```hgl
+use my.contracts::{my_op}
+
+fn my_op(value: f64) -> f64 => value
+```
+
+The implementation signature must be a compatible specialization of the
+contract. It may introduce its own generics, but cannot change the contract's
+public argument roles. Its body still passes through ordinary function
+classification and may lower to either graph composition or one runtime node.
+
+A module alias creates only a namespace:
+
+```hgl
+use my.contracts as mc
+
+mc::my_op(value)
+```
+
+It does not introduce `my_op` as an unqualified name and cannot bind a local
+`fn my_op`. Two selective imports that introduce different nominal operators
+under the same local short name are rejected before implementation binding.
+Multiple aliased modules may expose the same short operator name because each
+qualified reference resolves directly to one nominal identity.
+
+When no matching operator is locally declared or selectively imported, a named
+`fn` is an ordinary exact function. Repeating an ordinary function name does
+not implicitly create an overload family.
 
 ## Blocks and expressions
 
@@ -212,7 +300,13 @@ Calls use positional arguments followed by named arguments:
 ```hgl
 rolling_mean(value, window)
 rolling_mean(value, period: window)
+analytics::rolling_mean(value, period: window)
 ```
+
+A qualified callee begins with an alias introduced by `use module.path as
+alias` and uses `::` between namespace and declaration names. Dots remain the
+syntax of canonical module paths in `module` and `use` declarations; they are
+not expression member access.
 
 Duplicate names, unknown names, positional arguments after named arguments,
 and missing required arguments are source diagnostics.
@@ -241,6 +335,10 @@ temporalize(set<T>)
 temporalize(map<K, V>)
     = keyed temporal map with canonical key K
       and temporalize(V) values
+
+temporalize(rolling<T, Max, Min>)
+    = hgraph TSW endpoint carrying canonical T values
+      with resolved tick sizes Max and Min
 
 temporalize(record fields)
     = structural bundle of temporalized fields
@@ -446,11 +544,17 @@ The classifier applies to named and anonymous functions wherever their body
 grammar admits runtime constructs. The first concise anonymous-function slice
 has no runtime block and therefore produces composition helpers only.
 
-## Imported function resolution
+## Operator resolution
 
-An imported name is a function contract. The compiler passes resolved temporal
-shapes, canonical `const` values, and source call arguments to hgraph's
-operator resolver. The result includes:
+Every operator call carries a resolved nominal identity before overload
+matching begins. An unqualified call obtains that identity from a local
+declaration or one selective import. A qualified call obtains it from its
+module alias. Operators with equal short names but different defining modules
+never share a candidate set.
+
+The compiler passes that identity, resolved temporal shapes, canonical `const`
+values, generic bindings, and source call arguments to hgraph's operator
+resolver. The result includes:
 
 - selected candidate identity and implementation kind;
 - normalized positional and named arguments;
@@ -460,6 +564,14 @@ operator resolver. The result includes:
 
 The language compiler must not copy hgraph's ranking algorithm or use source
 syntax to expose graph-versus-node implementation details at call sites.
+Concrete and constrained candidates may outrank broader generic candidates
+under hgraph's normal rules. Equal-ranked candidates within the selected
+operator are an ambiguity error; source order, import order, and registration
+order do not break the tie.
+
+The typed HIR records whether a named `fn` is an exact ordinary function or an
+implementation of a canonical operator identity. A later import cannot silently
+reinterpret an already resolved ordinary function as an operator candidate.
 
 ## AST requirements
 
@@ -469,7 +581,11 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - literal spelling;
 - positional and named argument order;
 - `const` on parameters;
+- type and `const` generic parameters;
 - `atomic` boundaries in types;
+- rolling-window size arguments and omitted minimum-size syntax;
+- nominal operator declarations and implementation bindings;
+- selective imports, module aliases, and qualified references;
 - `let` versus `var` local mutability;
 - concise versus block function bodies;
 - tail expressions and explicit returns;
@@ -479,8 +595,8 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - complete and projected output assignments;
 - explicit versus context-inferred anonymous types.
 
-Parser recovery should synchronize at closing braces, `fn`, and top-level
-newlines.
+Parser recovery should synchronize at closing braces, `operator`, `fn`, and
+top-level newlines.
 
 ## Diagnostics
 
@@ -500,6 +616,9 @@ operator: '+' has no hgraph overload for f64 and str
 phase: runtime collection iterator cannot be stored in 'saved'
 type: predicate for 'items' must accept (key, value) and return bool
 module: hgraph.analytics does not export 'rolling_mean'
+module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
+operator: function 'value' is not compatible with market.pricing::value
+type: rolling minimum size 25 exceeds maximum size 20
 ```
 
 No-match and ambiguity diagnostics attach hgraph's candidate rejection reasons.
@@ -512,9 +631,12 @@ Before code generation, an RFC must also define:
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
 - tuple-to-hgraph structural mapping;
+- generic constraints, explicit generic arguments, generic defaults,
+  output-directed inference, and overlapping-implementation coherence;
 - general anonymous capture and type inference beyond inline iterator
   predicates;
 - callable scalar kernels inside runtime functions;
 - remaining recursive metadata and `delta` result shapes;
+- duration rolling-window syntax and rolling-window iteration;
 - ephemeral caches, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior.

@@ -18,9 +18,9 @@ not imply an implemented compatibility promise.
 
 1. [Architecture](design/architecture.md) — ownership, compiler pipeline, and
    execution modes.
-2. [Language model](design/language-model.md) — functions, canonical temporal
-   types, runtime state, injectables, lifecycle, activation, output, and syntax
-   decisions.
+2. [Language model](design/language-model.md) — functions, nominal operators,
+   generics, canonical and rolling temporal types, runtime state, lifecycle,
+   activation, output, and syntax decisions.
 3. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable without exposing a general FFI.
 4. [Roadmap](design/roadmap.md) — vertical slices and their acceptance gates.

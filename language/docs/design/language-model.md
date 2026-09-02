@@ -1,6 +1,6 @@
 # Language model
 
-Status: agreed syntax foundation; provisional runtime-function semantics
+Status: agreed syntax foundation; provisional generic and runtime semantics
 
 The [User Guide](../user-guide/README.md) is authoritative for observable
 source behavior. The
@@ -20,7 +20,10 @@ The bespoke behavior is semantic:
 - `let` and `var` distinguish immutable and mutable lexical bindings;
 - canonical types recursively describe hgraph temporal structures;
 - `atomic<T>` stops recursive temporalization;
-- function calls resolve through hgraph contracts and overloads;
+- `rolling<T, max_size[, min_size]>` describes a typed rolling window;
+- bodyless nominal `operator` declarations define generic callable contracts;
+- compatible `fn` declarations supply operator implementations;
+- name resolution selects an operator before hgraph ranks its implementations;
 - runtime collection traversal uses borrowed, non-escaping iterators;
 - ordinary `fn` bodies compose wiring, while node-only declarations and blocks
   classify a body as runtime evaluation for a generated node.
@@ -53,7 +56,8 @@ There are no `graph` or `node` declaration keywords, no temporal wrapper on
 The agreed declaration forms are:
 
 - `module` for a compilation and import unit;
-- `use` for explicit typed imports;
+- `use` for selective imports and aliased module namespaces;
+- `operator` for a bodyless nominal generic contract;
 - `fn` for named functions;
 - anonymous `fn(...) => expression` values.
 
@@ -63,10 +67,8 @@ evaluations. Persistent mutable data is declared with `state`; fixed
 caller-supplied wiring policy is declared with a `const` parameter.
 
 An `fn` may use a concise expression body or a brace-delimited block with a
-tail expression. An outputless function omits its return arrow.
-
-Whether the language later admits user-defined overload families remains open.
-Imported names already represent implementation-neutral function contracts.
+tail expression. An outputless function omits its return arrow. An `operator`
+ends with its signature and never has a body.
 
 ## Parameters and results
 
@@ -88,10 +90,53 @@ const settings: map<str, str>
 Function results are temporal unless the function is outputless. No syntax for
 a returned wiring scalar has been agreed.
 
+## Generics and nominal operators
+
+Generic parameters follow an `operator` or `fn` name. Plain parameters bind
+source types. Parameters prefixed with `const` bind wiring-time values that may
+shape a type:
+
+```hgl
+operator summarize<
+    T,
+    const max_size: i64,
+    const min_size: i64
+>(window: rolling<T, max_size, min_size>) -> T
+```
+
+A repeated generic name denotes one consistent binding. Every generic required
+by a selected candidate must resolve from inputs, expected output, explicit
+generic arguments, or defaults. Constraint syntax and complete inference rules
+remain open, but generic matching must lower to hgraph `TypePattern` and
+`ResolutionMap` rather than a language-local matcher.
+
+An operator is a nominal contract analogous to a Rust trait or Swift protocol,
+while retaining a function-shaped source declaration. Its identity is the
+defining module plus name. The contract owns the public parameter names,
+temporal-versus-`const` roles, defaults, and generic input/output relationships.
+It contains no graph or runtime implementation.
+
+A same-named `fn` binds to a local operator or to exactly one operator brought
+into local scope by a selective import. The function signature must be a
+compatible specialization of the contract and may itself be generic. Its body
+is classified through the ordinary composition-versus-runtime rules.
+
+Two operator contracts with the same short name but different defining modules
+are unrelated. A namespace import such as `use my.module as mm` permits an
+explicit `mm::my_op(...)` call without introducing `my_op` as an unqualified
+implementation binding. Selectively importing two different operator
+definitions under one local short name is an import error.
+
+This separates two decisions. Language name resolution first selects one
+nominal operator. Hgraph overload resolution then ranks only the implementation
+candidates registered for that operator. An equal-ranked overlap within one
+operator remains an ambiguity error; namespace selection is not an overload
+tie-break.
+
 ## Canonical temporal types
 
 Source types describe values and structures without spelling hgraph's `TS`,
-`TSB`, `TSL`, `TSS`, or `TSD` wrappers.
+`TSB`, `TSL`, `TSS`, `TSD`, or `TSW` wrappers.
 
 Temporalization proceeds recursively:
 
@@ -101,6 +146,7 @@ Temporalization proceeds recursively:
 - lists become structural time-series lists;
 - sets become set-valued time series;
 - maps become keyed temporal maps;
+- rolling windows become typed hgraph `TSW` endpoints;
 - records become structural bundles;
 - `atomic<T>` becomes one endpoint carrying the complete canonical `T` value.
 
@@ -116,10 +162,19 @@ map<str, atomic<tuple<f64, f64>>> // keyed atomic tuple values
 
 set<str>                          // set-valued time series
 atomic<set<str>>                  // stream of complete set snapshots
+
+rolling<f64, 20>                 // maximum and minimum size are both 20
+rolling<f64, 20, 5>              // maximum 20, valid from 5 values
 ```
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
 atomicity describes a runtime temporal boundary.
+
+`rolling<T, max_size, min_size>` is inherently temporal rather than a canonical
+scalar container. Its sizes are positive wiring-time `i64` values, omission of
+`min_size` currently normalizes it to `max_size`, and both resolved sizes form
+part of the type identity. Duration-window syntax and rolling-window iteration
+remain open.
 
 Every expanded type must map to an existing public hgraph schema. Heterogeneous
 tuple mapping remains an open detail.
@@ -127,8 +182,9 @@ tuple mapping remains an open detail.
 ## Function abstraction
 
 `fn` intentionally hides hgraph implementation category from ordinary source
-syntax. Imported calls already behave this way: a registry may select a graph
-overload or native node overload under the same function contract.
+syntax. Operator calls behave this way too: after language name resolution
+selects a nominal contract, hgraph may select a graph implementation or native
+node implementation belonging to that contract.
 
 For user functions, the current proposed classification rule is syntactic. A
 body without node-only constructs is a composition function. The presence of
@@ -141,7 +197,7 @@ any of these constructs makes the complete body a runtime function:
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
-an imported call.
+a called operator.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
@@ -222,9 +278,22 @@ rolling_mean(value, window)
 rolling_mean(value, period: window)
 ```
 
-Imported calls use hgraph's candidate registry, type patterns, defaults,
+Operator calls use hgraph's candidate registry, type patterns, defaults,
 normalization, ranking, and rejection diagnostics. The implementation kind
-selected by the registry is not visible in call syntax.
+selected by the registry is not visible in call syntax. The source name has
+already resolved to one nominal operator identity before candidate matching.
+
+Selective imports introduce unqualified operator names and establish which
+contract same-named implementation functions bind. Module aliases create
+qualified namespaces instead:
+
+```hgl
+use market.pricing::{value}
+use risk.pricing as risk
+
+value(trade)
+risk::value(trade)
+```
 
 The implicit prelude maps arithmetic, comparison, equality, Boolean, indexing,
 and other admitted expression syntax to standard function contracts. Infix and
@@ -315,8 +384,10 @@ Later decisions must define:
 - NaN comparison;
 - tuple-to-hgraph structural mapping;
 - record declarations;
-- general anonymous capture and generic type inference beyond inline runtime
-  collection predicates;
+- generic constraints, explicit generic arguments, output-directed inference,
+  and overlapping-implementation coherence;
+- general anonymous capture beyond inline runtime collection predicates;
+- duration rolling-window syntax and rolling-window iteration;
 - structural temporal metadata and delta result shapes;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 

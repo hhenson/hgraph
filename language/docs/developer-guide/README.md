@@ -10,9 +10,10 @@ for hgraph, not a second runtime.
 ## Guide map
 
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
-   `const` parameters, lexical bindings, canonical types, recursive
-   temporalization, `atomic<T>`, metadata, and collection iteration, plus
-   provisional state, injectable, lifecycle, activation, and output semantics.
+   bodyless nominal `operator` contracts, generics, module aliases, `const`
+   parameters, lexical bindings, canonical and rolling types, recursive
+   temporalization, metadata, and collection iteration, plus provisional state,
+   injectable, lifecycle, activation, and output semantics.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
    pipeline, function classification, public SDK lowering,
    source mapping, and build manifests.
@@ -42,20 +43,26 @@ surface.
 
 ## Current invariants
 
-- `fn` is the only user-facing callable declaration.
+- `fn` is the only implementation declaration; `operator` declares a bodyless
+  nominal callable contract.
 - Ordinary parameters and results use canonical recursively temporal types.
 - `atomic<T>` stops recursive temporalization at `T`.
+- `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
+  wiring-time values and part of its type identity.
 - `const` parameters are wiring-time values and use their canonical value type
   directly.
 - `let` locals are immutable; `var` locals are mutable but lexical and
   evaluation-local rather than recordable state.
-- Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, or `TSD` wrappers.
+- Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, `TSD`, or `TSW`
+  wrappers.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
 - Runtime collection traversal uses `keys`, `values`, and `items` with optional
   built-in, named, or inline predicates; its borrowed iterators cannot escape an
   evaluation.
-- Imported calls use hgraph's registry, normalization, ranking, and candidate
-  diagnostics.
+- Selective imports establish unqualified operator bindings; module aliases
+  provide qualified names such as `mm::my_op` without binding implementations.
+- Name resolution selects one nominal operator identity before hgraph performs
+  candidate normalization, ranking, and diagnostics.
 - A body without runtime-only constructs is classified as composition;
   `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
   classifies the complete `fn` as a runtime node.

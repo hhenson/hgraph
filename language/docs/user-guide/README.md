@@ -12,9 +12,11 @@ source calls reach hgraph.
 
 1. [Language tour](language-tour.md) introduces a complete module.
 2. [Functions](functions.md) covers composition and runtime functions,
-   parameters, state, injectables, lifecycle, activation, and output.
+   generics, operator contracts, state, injectables, lifecycle, activation,
+   and output.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
-   types, the `atomic<T>` boundary, metadata, and runtime collection traversal.
+   types, rolling windows, the `atomic<T>` boundary, metadata, and runtime
+   collection traversal.
 4. [Modules and tools](modules-and-tools.md) covers native modules, `check`,
    `run`, `build`, and the REPL.
 
@@ -24,8 +26,10 @@ programs.
 
 ## Current language shape
 
-The source language presents one callable abstraction: `fn`. It does not ask
-authors to declare a `graph` or `node`.
+The source language uses `fn` for every implementation and does not ask authors
+to declare a `graph` or `node`. A bodyless `operator` declares a nominal,
+generic callable contract whose implementations are supplied by compatible
+same-named `fn` definitions.
 
 ```hgl
 fn midpoint(

@@ -1,7 +1,9 @@
 # Functions
 
-`fn` is the only user-facing function declaration. Source does not label a
-definition as a graph or node.
+`fn` is the only user-facing implementation declaration. Source does not label
+an implementation as a graph or node. A bodyless `operator` declaration names
+a generic callable contract whose implementations are supplied by `fn`
+definitions.
 
 ## Named functions
 
@@ -63,6 +65,63 @@ const settings: map<str, f64>
 
 Because a `const` parameter is not temporal, `const value: atomic<T>` is
 invalid.
+
+## Generic functions and operators
+
+Generic parameters follow a function or operator name. A plain generic
+parameter binds a source type; a `const` generic parameter binds a wiring-time
+value that may participate in a type:
+
+```hgl
+operator summarize<
+    T,
+    const max_size: i64,
+    const min_size: i64
+>(window: rolling<T, max_size, min_size>) -> T
+```
+
+Repeated use of a generic name requires one consistent binding. In this
+example, `T` is the rolling-window element type and both size parameters are
+part of the concrete window type. Every generic used by a selected
+implementation must resolve from call arguments, expected output, an explicit
+generic argument, or a declared default. The detailed inference and generic
+constraint syntax remain provisional.
+
+An `operator` is a nominal contract, similar in role to a Rust trait or Swift
+protocol. It declares a call shape and generic relationships but has no body:
+
+```hgl
+operator combine<T>(lhs: T, rhs: T) -> T
+```
+
+The contract owns its parameter names, temporal-versus-`const` roles, defaults,
+and result relationship. A same-named `fn` in an implementation-binding scope
+contributes a compatible implementation candidate:
+
+```hgl
+fn combine(lhs: f64, rhs: f64) -> f64 =>
+    lhs + rhs
+
+fn combine(lhs: i64, rhs: i64) -> i64 =>
+    lhs + rhs
+```
+
+An implementation may be concrete or generic, but it must specialize the
+operator contract rather than change its public argument roles. Its body is
+classified normally: an ordinary body becomes graph composition, while
+node-only constructs make that candidate a runtime implementation.
+
+Operator identity is nominal and includes its defining module. Two modules may
+therefore declare unrelated operators with the same short name. Name and import
+resolution first select one operator contract; only then does hgraph rank the
+implementations belonging to that contract. Concrete or otherwise more
+specific candidates win according to hgraph's resolver. Equal-ranked matching
+candidates are an ambiguity error, never a declaration-order choice.
+
+If no local or selectively imported operator has the function's name, `fn`
+declares an ordinary function. Ordinary functions do not form an overload set
+merely by repeating their name. See [Modules and tools](modules-and-tools.md)
+for implementation imports and qualified operator calls.
 
 ## Anonymous functions
 
@@ -309,6 +368,6 @@ only to customize activation, validity, or ordered conditional handling.
 The exact conditional-expression spelling, structural metadata aggregation,
 ephemeral cache syntax, and calls between runtime functions remain provisional.
 
-Imported functions are already implementation-neutral: hgraph's overload
-registry may select a graph or native node implementation without changing the
-call site.
+Operator calls are implementation-neutral: after source name resolution chooses
+one nominal contract, hgraph's overload registry may select a graph or native
+node implementation without changing the call site.

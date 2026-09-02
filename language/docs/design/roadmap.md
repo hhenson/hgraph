@@ -29,9 +29,12 @@ Acceptance:
 Deliverables:
 
 - lexer, parser, source manager, and structured diagnostics;
-- `module`, `use`, named `fn`, and anonymous `fn` syntax;
+- `module`, selective and aliased `use`, bodyless `operator`, named `fn`, and
+  anonymous `fn` syntax;
 - `bool`, `i64`, `f64`, `str`, `datetime`, tuple, list, set, map, and
-  `atomic<T>` types;
+  `atomic<T>` types, plus tick-count `rolling<T, max_size[, min_size]>`;
+- type and `const` generic declarations, nominal operator identities, and
+  same-named function implementation binding;
 - `const` wiring parameters and recursive temporal-shape expansion;
 - immutable `let`, mutable lexical `var`, and runtime collection `for` loops;
 - provisional runtime classification from `state`, `inject`, lifecycle, and
@@ -50,6 +53,8 @@ Acceptance:
 - parser and diagnostic snapshot tests cover valid and invalid programs;
 - ambiguous function-kind syntax fails before lowering;
 - canonical and atomic shapes map to public hgraph schemas;
+- nominal operator identities and generic rolling-window size bindings survive
+  into typed IR, while concrete rolling windows map to hgraph schemas;
 - all AST and IR nodes retain precise source ranges;
 - malformed input recovers sufficiently to report multiple useful errors.
 
@@ -62,7 +67,10 @@ Deliverables:
 - public-view lowering for metadata and collection iteration, including native
   delta ranges and heterogeneous TSB expansion;
 - hgraph kernel module descriptor;
-- imported operator resolution through the hgraph resolver;
+- source and imported nominal operator resolution through the hgraph resolver;
+- generated markers and explicit registration for source-defined operator
+  implementations;
+- public hgraph TSW patterns that bind named maximum and minimum size generics;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
 
@@ -72,6 +80,8 @@ Acceptance:
 - classified function behavior is asserted through public hgraph evaluation
   APIs;
 - generated code uses no private hgraph headers or runtime internals;
+- named rolling-window size generics bind and resolve through public hgraph
+  patterns;
 - no-match and ambiguity diagnostics retain hgraph candidate reasons;
 - generated output is deterministic for identical inputs.
 
@@ -102,7 +112,9 @@ Candidates, in risk order:
 - explicit ephemeral cache semantics;
 - additional lifecycle capabilities and output access;
 - higher-order functions and runtime control flow;
-- generic declarations and user-defined operator overloads;
+- generic constraints, explicit generic arguments, output-directed inference,
+  and cross-module implementation coherence;
+- duration rolling windows and their runtime iteration surface;
 - incremental compilation or a JIT backend.
 
 Each capability must map to a first-class public C++ hgraph path and have

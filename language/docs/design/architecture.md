@@ -16,6 +16,8 @@ the directory into a separate repository without changing hgraph core.
 
 - Express typed functions that lower to hgraph graphs or nodes and call
   registered operators.
+- Express nominal generic operator contracts whose `fn` implementations reuse
+  hgraph candidate matching and ranking.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
@@ -100,9 +102,10 @@ All execution modes share one pipeline:
 source
   -> lexer and parser
   -> name and module resolution
+  -> nominal operator binding and generic resolution
   -> canonical type resolution and temporal shape expansion
   -> function classification
-  -> phase/effect checking and imported operator resolution
+  -> phase/effect checking and operator candidate resolution
   -> typed high-level IR
   -> hgraph semantic IR
   -> C++ source and build manifest
@@ -111,9 +114,11 @@ source
 ```
 
 The frontend owns language diagnostics, lexical scope, canonical types,
-function classification, phase rules, and type checking. Imported hgraph
-operator selection delegates to the hgraph resolver; the language project must
-not clone its candidate matching or ranking rules.
+function classification, phase rules, type checking, and selection of a
+nominal operator identity through local declarations, selective imports, or
+qualified module aliases. Candidate selection within that identity delegates
+to the hgraph resolver; the language project must not clone its matching or
+ranking rules.
 
 The hgraph semantic IR is backend-neutral in representation but hgraph-specific
 in meaning. It distinguishes wiring operations from evaluation operations and
@@ -125,6 +130,8 @@ The first backend emits only public SDK constructs:
 
 - Functions classified as composition become graph structs with `compose`
   methods and typed `Port` and `Scalar` parameters.
+- Source `operator` declarations become deterministic nominal C++ markers;
+  bound `fn` implementations register explicitly against those markers.
 - Composition calls become public `wire` and operator-dispatch calls.
 - Functions classified as runtime primitives become empty structs with typed
   static hooks.

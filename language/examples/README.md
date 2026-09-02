@@ -14,6 +14,9 @@ executable tests.
 - [`collection-views.hgl`](collection-views.hgl) demonstrates dual-phase
   `key_set`, runtime `keys`/`values`/`items`, built-in and inline predicates,
   `last_modified`, and mutable lexical `var`.
+- [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
+  nominal bodyless `operator`, a generic `fn` implementation, const-generic
+  rolling-window sizes, and the default minimum window size.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
   maps with an atomic tuple and uses an anonymous `fn`.
 

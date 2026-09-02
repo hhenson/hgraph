@@ -7,11 +7,14 @@ Parser-only milestones remain intermediate progress.
 
 Snapshots cover:
 
-- `fn` declarations and anonymous functions;
+- bodyless `operator`, named `fn`, and anonymous `fn` declarations;
+- type and `const` generic parameter lists;
+- selective imports, module aliases, and `alias::declaration` references;
 - concise and block bodies;
 - `let` and `var` declarations, assignment, and `for` iteration patterns;
 - `const` parameters and defaults;
-- `atomic<T>`, `set<T>`, `datetime`, and nested canonical types;
+- `atomic<T>`, `set<T>`, `rolling<T, max_size[, min_size]>`, `datetime`, and
+  nested canonical types;
 - contextual type keywords used as callable names, especially `map`;
 - calls, indexing, named arguments, and expression precedence;
 - tail expressions and explicit returns;
@@ -34,7 +37,9 @@ Table-driven tests cover recursive expansion:
 - atomic values nested inside structures;
 - invalid `const atomic<T>` parameters;
 - unsupported map keys and heterogeneous tuple mappings;
-- descriptor round trips to public hgraph schemas.
+- descriptor round trips to public hgraph schemas;
+- rolling-window default minimum normalization, size validation, generic size
+  binding, and exact TSW schema identity.
 
 Type diagnostics show both the canonical source type and expanded temporal
 shape when that distinction explains the error.
@@ -93,12 +98,25 @@ Local-binding tests distinguish immutable `let`, mutable `var`, and persistent
 
 Use a deterministic fixture and the real hgraph standard registry to cover:
 
+- nominal operator identity by defining module and declaration name;
+- a same-named `fn` binding to a local operator or the one selectively imported
+  operator;
+- rejection when two selective imports introduce different operators under one
+  short name;
+- two aliased modules exposing the same short operator name and resolving
+  independently through qualified calls;
+- aliased modules not creating implementation bindings;
+- ordinary functions remaining exact when no operator binding exists;
+- compatible concrete and generic implementation signatures, including type
+  and rolling-size variables;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;
 - canonical source types expanded to matching hgraph schemas;
 - `const` values participating in candidate selection;
 - output schema inference;
 - composition-time `key_set` resolving through the standard key projection;
 - candidate ranking and rejection reasons;
+- equal-ranked implementations of one operator remaining ambiguous regardless
+  of declaration, import, or registration order;
 - compiler prediction versus generated dispatch;
 - descriptor/registry fingerprint mismatch.
 

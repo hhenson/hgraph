@@ -51,6 +51,57 @@ The compiler resolves imported contracts through hgraph's overload registry.
 The call site does not spell whether a selected implementation is a native
 node or a graph composition.
 
+## Operator contracts and module namespaces
+
+A bodyless `operator` defines a nominal generic contract. Compatible
+same-named `fn` declarations provide implementations:
+
+```hgl
+operator combine<T>(lhs: T, rhs: T) -> T
+
+fn combine(lhs: f64, rhs: f64) -> f64 =>
+    lhs + rhs
+```
+
+An implementation module selects an externally defined operator with a
+selective import such as `use my.contracts::{combine}`. Exactly one operator
+definition may occupy that unqualified binding. A module alias instead keeps
+the namespace explicit and does not bind local implementations:
+
+```hgl
+use market.pricing as market
+use risk.pricing as risk
+
+market::value(trade)
+risk::value(trade)
+```
+
+Name resolution chooses the nominal operator before hgraph ranks its
+implementations, so equal short names in different modules do not compete.
+
+Generic `const` parameters can shape rolling-window types:
+
+```hgl
+operator preserve_window<
+    T,
+    const max_size: i64,
+    const min_size: i64
+>(window: rolling<T, max_size, min_size>)
+    -> rolling<T, max_size, min_size>
+
+fn preserve_window<
+    T,
+    const max_size: i64,
+    const min_size: i64
+>(window: rolling<T, max_size, min_size>)
+    -> rolling<T, max_size, min_size> =>
+    window
+```
+
+`rolling<f64, 20>` omits the optional minimum size and currently means the
+same maximum and minimum size. `rolling<f64, 20, 5>` becomes valid from five
+values while retaining at most twenty.
+
 ## Anonymous functions
 
 The same `fn` keyword introduces a concise anonymous function:

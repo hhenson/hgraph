@@ -2,7 +2,7 @@
 
 Source types describe canonical values and structures. Temporal context is
 supplied by the function signature, so authors do not write `ts`, `tsb`,
-`tsl`, `tss`, or `tsd` wrappers.
+`tsl`, `tss`, `tsd`, or `tsw` wrappers.
 
 ## Scalar value types
 
@@ -36,10 +36,44 @@ recursively:
 | `list<f64>` | Structural list of temporal `f64` values |
 | `set<str>` | Set-valued time series of `str` members |
 | `map<str, f64>` | Keyed temporal map from `str` to temporal `f64` |
+| `rolling<f64, 20, 5>` | Rolling window of at most 20 `f64` values, valid from 5 values |
 | a record type | Structural bundle whose fields are temporal |
 
 The exact hgraph schema chosen for heterogeneous tuples is still open, but it
 must be an existing public hgraph shape rather than a parallel runtime type.
+
+## Rolling windows
+
+`rolling<T, max_size, min_size>` describes a tick-count rolling-window time
+series. The minimum size is optional at a use site:
+
+```hgl
+rolling<f64, 20>
+rolling<f64, 20, 5>
+```
+
+The square brackets in the descriptive form
+`rolling<T, max_size[, min_size]>` mean “optional”; they are not source
+punctuation. Omitting `min_size` currently means `min_size = max_size`, so the
+first form becomes valid when it contains 20 values. Both sizes are positive
+wiring-time `i64` values, `min_size` cannot exceed `max_size`, and the resolved
+sizes are part of the type identity.
+
+`rolling` is itself a temporal type constructor and maps to hgraph's `TSW`
+schema. It is not a canonical scalar container, so it cannot appear beneath
+`atomic` or as the type of a `const` value. Its element argument is a canonical
+value type.
+
+Generic functions and operators may bind the element type and sizes:
+
+```hgl
+rolling<T, max_size, min_size>
+```
+
+Here `T` is a declared type parameter and `max_size` and `min_size` are declared
+`const` generic parameters. Duration-window spelling and the way rolling
+windows participate in `values` or `items` iteration remain open; the current
+collection-iterator table does not implicitly include them.
 
 ## Atomic boundaries
 
