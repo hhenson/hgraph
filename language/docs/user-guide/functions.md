@@ -17,8 +17,8 @@ fn double(value: f64) -> f64 =>
     value * 2.0
 ```
 
-Parameters and `let` bindings are immutable. `let` introduces an inferred
-local:
+Parameters are immutable. `let` introduces an immutable local and `var`
+introduces a mutable local; either may use an inferred type:
 
 ```hgl
 fn smooth(
@@ -81,9 +81,12 @@ reduce(
 )
 ```
 
-An anonymous function closes over immutable locals and `const` parameters.
-Capture of temporal values and the resulting hgraph binding rules remain to be
-specified with higher-order function semantics.
+An anonymous function closes over readable locals and `const` parameters.
+Whether a general anonymous function may mutate a captured `var`, and the
+binding rules for captured temporal values, remain to be specified with
+higher-order function semantics. Runtime iterator predicates are the narrower
+case already defined: they may capture a `var` for reading but are pure and
+cannot mutate it.
 
 ## Outputless functions
 
@@ -115,8 +118,8 @@ The body runs while hgraph is wired. Its operators and calls compose existing
 contracts. The function itself flattens into the resulting primitive nodes and
 does not remain as a runtime evaluation object.
 
-A function containing `state`, `inject`, `start`, `when`, or `stop` describes
-runtime evaluation and is compiled as one node:
+A function containing `state`, `inject`, `start`, `when`, `stop`, or a runtime
+collection iterator describes runtime evaluation and is compiled as one node:
 
 ```hgl
 fn add_when_ready(a: f64, b: f64) -> f64 {
@@ -164,9 +167,10 @@ function are aggregated into one typed state value. Initializers run during
 node startup and do not overwrite state restored for record/replay. State that
 affects later ticks is recordable by default.
 
-`let` remains an immutable lexical binding. A `let` inside `when` exists only
-for that evaluation; it does not become persistent merely because it appears
-in a runtime function.
+`let` is an immutable lexical binding and `var` is a mutable lexical binding.
+Either one declared inside `when` exists only for that evaluation; `var` does
+not become persistent merely because it is mutable. Use `state` whenever the
+next evaluation must observe the value.
 
 ## Injectables
 

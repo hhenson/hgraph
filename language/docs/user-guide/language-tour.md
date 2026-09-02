@@ -96,6 +96,7 @@ valid(price)
 modified(bid, ask)
 valid(bid, ask)
 all_valid(book)
+last_modified(price)
 delta(positions)
 ```
 
@@ -103,6 +104,34 @@ delta(positions)
 true only when every argument is valid. `valid(value)` tests the endpoint
 itself; use `all_valid(value)` when every child of a structural or collection
 endpoint must also be valid.
+
+Runtime collection traversal uses `keys`, `values`, and `items`. An optional
+built-in, named, or inline predicate filters the traversal without changing
+those base names:
+
+```hgl
+for key, value in items(book, modified) {
+    consume(key, value)
+}
+
+for key, value in items(
+    book,
+    fn(key, value) =>
+        valid(value) && last_modified(value) > some_time
+) {
+    consume(key, value)
+}
+
+for symbol in values(symbols, added) {
+    subscribe(symbol)
+}
+```
+
+`key_set(book)` is different from `keys(book)`: `key_set` is available in both
+composition and runtime functions and produces the set-shaped key view, while
+`keys`, `values`, and `items` are evaluation-local iterators. Temporal lists use
+`values` for value-only traversal and `items` for `(i64, value)` traversal;
+there is no separate `elements` spelling.
 
 An ordinary body such as `maybe_smooth` runs at wiring time and composes
 operators. Runtime-only declarations and blocks instead implement one generated

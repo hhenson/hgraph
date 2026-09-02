@@ -11,6 +11,9 @@ executable tests.
 - [`stateful-node.hgl`](stateful-node.hgl) demonstrates aggregate state,
   grouped injectables, lifecycle blocks, ordered handlers, previous output,
   and incremental collection output.
+- [`collection-views.hgl`](collection-views.hgl) demonstrates dual-phase
+  `key_set`, runtime `keys`/`values`/`items`, built-in and inline predicates,
+  `last_modified`, and mutable lexical `var`.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
   maps with an atomic tuple and uses an anonymous `fn`.
 

@@ -25,14 +25,14 @@ statement terminators or parameter separators.
 The hard reserved words for the current design surface are:
 
 ```text
-module use fn const let state inject return if else
-start when stop
+module use fn const let var state inject return if else
+start when stop for
 true false
-bool i64 f64 str
+bool i64 f64 str datetime
 ```
 
-`atomic`, `tuple`, `list`, and `map` are contextual type keywords. Outside a
-type position, the same spelling can resolve to a function, as in
+`atomic`, `tuple`, `list`, `set`, and `map` are contextual type keywords.
+Outside a type position, the same spelling can resolve to a function, as in
 `map(values, fn(value) => value * 2.0)`. `out` and the names of other
 injectables are contextual names resolved only by an `inject` declaration.
 
@@ -93,17 +93,20 @@ generic inference rules remain open.
 type            = scalar_type
                 | tuple_type
                 | list_type
+                | set_type
                 | map_type
                 | identifier
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
                 | value_tuple_type
                 | value_list_type
+                | set_type
                 | value_map_type
                 | identifier;
-scalar_type     = "bool" | "i64" | "f64" | "str";
+scalar_type     = "bool" | "i64" | "f64" | "str" | "datetime";
 tuple_type      = "tuple", "<", type, { ",", type }, ">";
 list_type       = "list", "<", type, ">";
+set_type        = "set", "<", value_type, ">";
 map_type        = "map", "<", value_type, ",", type, ">";
 value_tuple_type = "tuple", "<", value_type,
                    { ",", value_type }, ">";
@@ -124,8 +127,8 @@ payloads. `type` allows atomic boundaries recursively inside structural values.
 
 ## Blocks and expressions
 
-A composition block contains `let` bindings, calls, conditionals, explicit
-`return`, and a possible final expression:
+A composition block contains lexical `let` and `var` bindings, calls,
+conditionals, explicit `return`, and a possible final expression:
 
 ```hgl
 fn smooth(value: f64, const window: i64) -> f64 {
@@ -144,16 +147,22 @@ The parser records block structure, tail expressions, and explicit returns
 without assigning graph or node semantics. Control-flow restrictions belong
 after function classification.
 
-Runtime function bodies additionally admit function-level state, injectable,
-lifecycle, and activation forms:
+Blocks admit lexical declarations and `for` statements. Runtime function
+bodies additionally admit function-level state, injectable, lifecycle, and
+activation forms:
 
 ```ebnf
+local_decl     = ( "let" | "var" ), identifier, [ ":", type ],
+                 "=", expression;
 state_decl     = "state", identifier, [ ":", value_type ],
                  "=", expression;
 inject_decl    = "inject", identifier,
                  { ",", identifier }, [ "," ];
 lifecycle_block = ( "start" | "stop" ), block;
 when_statement = "when", expression, block;
+for_statement  = "for", iteration_pattern, "in", expression, block;
+iteration_pattern
+               = identifier | identifier, ",", identifier;
 mutation_statement
                = place, assignment_operator, expression;
 place          = identifier,
@@ -173,9 +182,17 @@ not terminate it. Duplicate injectable names are rejected after name
 resolution.
 
 Mutation statements are restricted to declared `state` variables, injected
-`out`, and their writable projections. Parameters and `let` bindings remain
-immutable. Compound assignment reads the previous value and therefore follows
-the same validity rules as an explicit read followed by assignment.
+`out`, declared `var` bindings, and their writable projections. Parameters,
+`let` bindings, and `for` bindings remain immutable. Compound assignment reads
+the previous value and therefore follows the same validity rules as an explicit
+read followed by assignment.
+
+`let` and `var` are lexical declarations and both require an initializer in the
+first slice. In a `CompositionFn`, their initializer may produce a scalar or a
+port handle; assigning a `var` only changes that local handle. In a `RuntimeFn`,
+they hold canonical scalar values local to the executing block. Runtime `var`
+storage is recreated on every block execution and is never added to the
+function's recordable state. A value that crosses evaluations must use `state`.
 
 Expression precedence is:
 
@@ -209,11 +226,17 @@ context:
 temporalize(bool | i64 | f64 | str)
     = atomic hgraph endpoint carrying that scalar
 
+temporalize(datetime)
+    = atomic hgraph endpoint carrying an engine timestamp
+
 temporalize(tuple<T...>)
     = structural tuple of temporalize(T) children
 
 temporalize(list<T>)
     = structural list of temporalize(T) children
+
+temporalize(set<T>)
+    = set-valued hgraph endpoint carrying canonical T members
 
 temporalize(map<K, V>)
     = keyed temporal map with canonical key K
@@ -244,6 +267,7 @@ valid(value)
 modified(bid, ask)
 valid(bid, ask)
 all_valid(book)
+last_modified(value)
 delta(value)
 ```
 
@@ -266,6 +290,75 @@ the top-level endpoint even when the endpoint is structural or a collection;
 recursive child validity is expressed separately as `all_valid(value)`. The
 result shape of `delta` remains open.
 
+`last_modified(value)` is a runtime metadata operation returning `datetime`.
+It lowers to the endpoint's public `last_modified_time` view and does not
+construct another time series. Its result before the endpoint's first
+modification follows hgraph's native endpoint contract.
+
+## Runtime collection traversal
+
+`key_set(tsd)` is phase-polymorphic. In a `CompositionFn` it resolves to the
+registered live TSS projection and has temporal source type `set<K>`. In a
+`RuntimeFn` it produces an evaluation-local borrowed set view over the current
+TSD key set.
+
+`keys`, `values`, and `items` produce runtime-only iterator types. They accept
+the collection followed by an optional predicate:
+
+```ebnf
+collection_iterator
+               = ( "keys" | "values" | "items" ), "(", expression,
+                 [ ",", expression ], ")";
+```
+
+The calls are parsed as ordinary call expressions. The grammar above records
+their checked intrinsic shapes rather than adding special parser nodes. A
+runtime collection iterator is a node-only construct and therefore classifies
+its containing function as `RuntimeFn`. The iterator must be consumed directly
+by `for`; it is neither a canonical value nor a temporal port and cannot escape
+the current evaluation.
+
+Traversal and built-in delta-predicate support is:
+
+| Runtime shape | Traversals | Delta predicates |
+| --- | --- | --- |
+| TSB | `keys`, `values`, `items` | `modified` for values/items |
+| TSD | `keys`, `values`, `items` | `added`, `modified`, `removed` |
+| fixed TSL | `values`, `items` | `modified` |
+| unbounded TSL | `values`, `items` | `added`, `modified`, `removed` |
+| TSS | `values` | `added`, `removed` |
+
+`items` yields two bindings. TSB yields `str` field names and the corresponding
+field bindings; TSD yields its canonical key type and value-child bindings;
+TSL yields `i64` indices and element-child bindings. `keys` and TSS membership
+iteration yield scalar values. Other value bindings retain their child endpoint
+identity so metadata calls continue to work inside the predicate and loop body.
+
+A predicate may be a built-in name, a compatible named function, or an inline
+concise `fn`. It is invoked with one argument for `keys` and `values`, or two
+arguments for `items`, and must produce a runtime Boolean scalar. A bare
+metadata predicate is resolved contextually against the iterator entry. For
+example, `items(tsd, modified)` selects modified entries; it does not mean
+`modified(key, value)`. `added` and `removed` likewise inspect membership-slot
+provenance.
+
+```hgl
+items(book, fn(key, value) =>
+    valid(value) && last_modified(value) > some_time)
+```
+
+Predicates are phase-checked into their containing runtime function. A known
+source predicate is inlined or emitted as a direct static call; it is not
+materialized as an allocated callable value. Captures obey ordinary runtime
+validity rules. Predicates are pure: mutation of `var`, `state`, or `out`, and
+calls with runtime effects, are rejected.
+
+For a heterogeneous TSB, traversal is statically expanded in schema order. The
+predicate and loop body must type-check for every selected field; the compiler
+must not erase heterogeneous children into a dynamic language value. TSL items
+are traversed in ascending index order. TSB fields use schema order. TSD and TSS
+iteration preserve the native hgraph view order and do not promise sorting.
+
 ## Function classification boundary
 
 After parsing, name resolution, and canonical type-shape resolution, each
@@ -279,9 +372,9 @@ determine whether its body describes:
 The current provisional classifier applies these rules:
 
 1. A body containing no node-only construct becomes `CompositionFn`.
-2. The presence of `state`, `inject`, `start`, `when`, or `stop` makes the
-   complete function a `RuntimeFn`, even when nested syntax is later rejected
-   by phase checking.
+2. The presence of `state`, `inject`, `start`, `when`, `stop`, or a runtime
+   collection iterator makes the complete function a `RuntimeFn`, even when
+   nested syntax is later rejected by phase checking.
 3. A body that mixes wiring-only and runtime-only constructs is rejected.
 
 Classification is based on resolved source syntax. It must not be guessed
@@ -291,8 +384,8 @@ changed between scripted and AOT modes.
 After classification, phase and effect checking gives identifiers different
 meanings in the two phases. A temporal parameter is a port in a composition
 body. In a runtime expression it denotes the current admitted payload, while
-`modified(parameter)`, `valid(parameter)`, and `delta(parameter)` retain access
-to its endpoint metadata.
+`modified(parameter)`, `valid(parameter)`, `last_modified(parameter)`, and
+`delta(parameter)` retain access to its endpoint metadata.
 
 Runtime validity checking is flow-sensitive. A payload read is valid when the
 input is statically admitted by the outer `when` predicate or the read is
@@ -377,10 +470,12 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - positional and named argument order;
 - `const` on parameters;
 - `atomic` boundaries in types;
+- `let` versus `var` local mutability;
 - concise versus block function bodies;
 - tail expressions and explicit returns;
 - state and grouped inject declarations;
 - `start`, ordered `when`, and `stop` blocks;
+- collection traversal calls, predicate arguments, and `for` patterns;
 - complete and projected output assignments;
 - explicit versus context-inferred anonymous types.
 
@@ -402,6 +497,8 @@ function-kind: wiring operation is not available inside a runtime function
 injectable: 'out' requires a function output
 phase: 'out' is not available during stop
 operator: '+' has no hgraph overload for f64 and str
+phase: runtime collection iterator cannot be stored in 'saved'
+type: predicate for 'items' must accept (key, value) and return bool
 module: hgraph.analytics does not export 'rolling_mean'
 ```
 
@@ -415,8 +512,9 @@ Before code generation, an RFC must also define:
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
 - tuple-to-hgraph structural mapping;
-- anonymous capture and type inference;
+- general anonymous capture and type inference beyond inline iterator
+  predicates;
 - callable scalar kernels inside runtime functions;
-- structural `modified`, `valid`, and `delta` behavior;
+- remaining recursive metadata and `delta` result shapes;
 - ephemeral caches, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior.

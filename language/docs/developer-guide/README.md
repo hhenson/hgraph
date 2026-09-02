@@ -10,9 +10,9 @@ for hgraph, not a second runtime.
 ## Guide map
 
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
-   `const` parameters, canonical types, recursive temporalization, and
-   `atomic<T>`, plus provisional state, injectable, lifecycle, activation, and
-   output semantics.
+   `const` parameters, lexical bindings, canonical types, recursive
+   temporalization, `atomic<T>`, metadata, and collection iteration, plus
+   provisional state, injectable, lifecycle, activation, and output semantics.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
    pipeline, function classification, public SDK lowering,
    source mapping, and build manifests.
@@ -47,13 +47,18 @@ surface.
 - `atomic<T>` stops recursive temporalization at `T`.
 - `const` parameters are wiring-time values and use their canonical value type
   directly.
-- Source does not spell hgraph `TS`, `TSB`, `TSL`, or `TSD` wrappers.
+- `let` locals are immutable; `var` locals are mutable but lexical and
+  evaluation-local rather than recordable state.
+- Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, or `TSD` wrappers.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
+- Runtime collection traversal uses `keys`, `values`, and `items` with optional
+  built-in, named, or inline predicates; its borrowed iterators cannot escape an
+  evaluation.
 - Imported calls use hgraph's registry, normalization, ranking, and candidate
   diagnostics.
 - A body without runtime-only constructs is classified as composition;
-  `state`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
-  a runtime node.
+  `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
+  classifies the complete `fn` as a runtime node.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
 - State declarations aggregate into one recordable state value; grouped

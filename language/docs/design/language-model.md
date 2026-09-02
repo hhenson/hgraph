@@ -17,9 +17,11 @@ The bespoke behavior is semantic:
 
 - ordinary parameters are temporal;
 - `const` parameters are fixed wiring-time values;
+- `let` and `var` distinguish immutable and mutable lexical bindings;
 - canonical types recursively describe hgraph temporal structures;
 - `atomic<T>` stops recursive temporalization;
 - function calls resolve through hgraph contracts and overloads;
+- runtime collection traversal uses borrowed, non-escaping iterators;
 - ordinary `fn` bodies compose wiring, while node-only declarations and blocks
   classify a body as runtime evaluation for a generated node.
 
@@ -55,6 +57,11 @@ The agreed declaration forms are:
 - `fn` for named functions;
 - anonymous `fn(...) => expression` values.
 
+Within a function body, `let` introduces an immutable lexical binding and
+`var` introduces a mutable lexical binding. Neither persists between runtime
+evaluations. Persistent mutable data is declared with `state`; fixed
+caller-supplied wiring policy is declared with a `const` parameter.
+
 An `fn` may use a concise expression body or a brace-delimited block with a
 tail expression. An outputless function omits its return arrow.
 
@@ -84,13 +91,15 @@ a returned wiring scalar has been agreed.
 ## Canonical temporal types
 
 Source types describe values and structures without spelling hgraph's `TS`,
-`TSB`, `TSL`, or `TSD` wrappers.
+`TSB`, `TSL`, `TSS`, or `TSD` wrappers.
 
 Temporalization proceeds recursively:
 
 - scalar leaves such as `f64` become atomic endpoints;
+- `datetime` becomes an atomic hgraph engine timestamp;
 - tuples become structural tuples of temporal children;
 - lists become structural time-series lists;
+- sets become set-valued time series;
 - maps become keyed temporal maps;
 - records become structural bundles;
 - `atomic<T>` becomes one endpoint carrying the complete canonical `T` value.
@@ -104,6 +113,9 @@ atomic<tuple<f64, f64>>           // one tuple-valued endpoint
 map<str, f64>                     // keyed temporal map
 atomic<map<str, f64>>             // stream of complete map snapshots
 map<str, atomic<tuple<f64, f64>>> // keyed atomic tuple values
+
+set<str>                          // set-valued time series
+atomic<set<str>>                  // stream of complete set snapshots
 ```
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
@@ -125,6 +137,7 @@ any of these constructs makes the complete body a runtime function:
 - a `state` declaration;
 - an `inject` declaration;
 - a `start`, `when`, or `stop` block.
+- a runtime `keys`, `values`, or `items` iterator.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
@@ -231,6 +244,7 @@ valid(value)
 modified(bid, ask)
 valid(bid, ask)
 all_valid(book)
+last_modified(value)
 delta(value)
 ```
 
@@ -239,7 +253,46 @@ The language does not expose `value.modified`, `value.valid`, or `value.value`.
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
 validity; recursive child validity is a distinct operation named
-`all_valid(value)`. The `delta` result shape remains open.
+`all_valid(value)`. In runtime evaluation, `last_modified(value)` returns the
+endpoint's native `last_modified_time` as `datetime`. The `delta` result shape
+remains open.
+
+## Collection traversal
+
+The collection surface separates a materialized temporal view from borrowed
+runtime iteration. `key_set(tsd)` is available in both phases: composition
+produces the live TSS key projection, while runtime evaluation exposes the
+current borrowed set view. The calls `keys(value)`, `values(value)`, and
+`items(value)` produce evaluation-local iterators and therefore make their
+containing function a runtime function.
+
+`values` is the common value-only spelling for TSB, TSD, TSL, and TSS; there is
+no `elements` alias. `items` yields `(field, value)` for TSB, `(key, value)` for
+TSD, and `(i64, value)` for TSL. `keys` applies only to TSB and TSD.
+
+Every traversal accepts an optional predicate:
+
+```hgl
+items(book, modified)
+values(symbols, added)
+keys(book, removed)
+items(book, fn(key, value) => last_modified(value) > some_time)
+```
+
+The built-in `added`, `modified`, and `removed` predicate names select native
+delta ranges. TSD and unbounded TSL support all three; TSB and fixed TSL support
+`modified`; TSS supports `added` and `removed`. A compatible named function or
+concise inline `fn` describes an arbitrary predicate over the yielded bindings.
+It is phase-checked into the loop rather than becoming a stored runtime
+callable.
+
+Iterator bindings retain the native child or membership-slot provenance needed
+by `valid`, `modified`, `added`, `removed`, and `last_modified`, while ordinary
+expressions see their scalar payload. Iterators cannot escape an evaluation or
+be represented as state, output, or a public function result.
+
+Inline iterator predicates are pure. They may capture readable surrounding
+bindings but cannot mutate `var`, `state`, or `out`, or invoke runtime effects.
 
 ## Native boundary
 
@@ -262,7 +315,8 @@ Later decisions must define:
 - NaN comparison;
 - tuple-to-hgraph structural mapping;
 - record declarations;
-- anonymous capture and generic type inference;
+- general anonymous capture and generic type inference beyond inline runtime
+  collection predicates;
 - structural temporal metadata and delta result shapes;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 

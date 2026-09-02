@@ -60,8 +60,8 @@ The classifier consumes resolved syntax and assigns `CompositionFn` or
 `RuntimeFn`:
 
 - no runtime-only construct produces `CompositionFn`;
-- the presence of `state`, `inject`, `start`, `when`, or `stop` produces
-  `RuntimeFn` for the complete body;
+- the presence of `state`, `inject`, `start`, `when`, `stop`, or a runtime
+  collection iterator produces `RuntimeFn` for the complete body;
 - a runtime function with invalid declaration order, duplicate lifecycle
   blocks, unsupported capabilities, or mixed phases is rejected.
 
@@ -85,6 +85,12 @@ The type-shape layer recursively maps source types:
 f64
   -> atomic TS<Float> leaf
 
+datetime
+  -> atomic TS<DateTime> leaf
+
+set<str>
+  -> TSS<Str>
+
 map<str, f64>
   -> keyed hgraph structure with TS<Float> values
 
@@ -101,6 +107,12 @@ const window: i64
 `atomic` is erased from the canonical payload after it establishes the endpoint
 boundary. It remains in source-level type identity and diagnostics where the
 distinction from a structural value matters.
+
+`let` and `var` lower to scoped native locals. `let` is immutable in the typed
+HIR. `var` admits assignment but does not allocate node state. In composition
+code a local may hold a scalar or port handle; in runtime code it holds a
+canonical scalar or borrowed view. Only `state` lowers through a recordable
+state selector.
 
 ## Composition lowering
 
@@ -263,6 +275,62 @@ contract is designed.
 
 Output access during lifecycle hooks, ephemeral caches, and generated sink
 behavior remain future source-design work.
+
+## Metadata and collection-view lowering
+
+Runtime `last_modified(value)` lowers directly to the endpoint view's public
+`last_modified_time()` operation and produces a canonical `datetime` scalar.
+It does not wire hgraph's similarly named temporal operator from inside an
+evaluation hook.
+
+`key_set(tsd)` has two phase-specific lowerings behind one source contract. A
+composition call dispatches the standard key projection with a TSS output
+shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
+view. Both paths use public hgraph APIs.
+
+The typed HIR represents `keys`, `values`, and `items` as borrowed
+`RuntimeIterator` values carrying:
+
+- the source collection and concrete hgraph shape;
+- yielded binding types and endpoint or membership-slot provenance;
+- an optional built-in, named, or inline predicate;
+- a lifetime fixed to the current evaluation.
+
+The iterator type is compiler-internal. It is valid only as the source of a
+`for` loop and has no scalar schema, time-series schema, state representation,
+or callable ABI.
+
+Recognized metadata predicates select the matching public native range
+directly. This includes the delta predicates and other filters such as
+`valid`. For example:
+
+```text
+items(tsd, modified)  -> tsd.modified_items()
+keys(tsd, removed)    -> tsd.removed_keys()
+values(tsd, added)    -> tsd.added_values()
+values(tss, added)    -> tss.added_values()
+items(tsl, modified)  -> tsl.modified_items()
+values(tsd, valid)    -> tsd.valid_values()
+```
+
+A general predicate initially lowers to the unfiltered range plus a native
+`if`. Predicate analysis may extract a leading built-in metadata condition and
+select a narrower native range, leaving the residual expression in the loop.
+This is the iterator counterpart of decomposing a `when` condition into native
+admission metadata and residual evaluation logic. A known source predicate is
+inlined or emitted as a direct call; the generated loop does not allocate a
+callable object.
+
+TSB traversal is statically expanded in schema order so each heterogeneous
+child retains its concrete type. The predicate and body are instantiated and
+checked for each field. TSL traversal uses ascending indices, converting the
+native index to checked `i64`. TSD and TSS retain native view order.
+
+The current public TSL input view exposes modified ranges but not the requested
+added and removed ranges for an unbounded TSL. That language surface requires
+a first-class public hgraph view API before code generation lands. The compiler
+must not reach into private TSData operation tables or reconstruct structural
+deltas independently.
 
 ## Imported function bridge
 

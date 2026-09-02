@@ -14,7 +14,7 @@ source calls reach hgraph.
 2. [Functions](functions.md) covers composition and runtime functions,
    parameters, state, injectables, lifecycle, activation, and output.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
-   types and the `atomic<T>` boundary.
+   types, the `atomic<T>` boundary, metadata, and runtime collection traversal.
 4. [Modules and tools](modules-and-tools.md) covers native modules, `check`,
    `run`, `build`, and the REPL.
 
@@ -45,11 +45,15 @@ fn smooth(
 }
 ```
 
+Within a body, `let` introduces an immutable local and `var` introduces a
+mutable local. Runtime `var` values last only for the current block execution;
+persistent values use `state`.
+
 The current design classifies a function from the constructs used in its body:
 
 - an ordinary expression body describes wiring composition;
-- `state`, `inject`, `start`, `when`, or `stop` makes the complete function a
-  runtime implementation compiled as one node.
+- `state`, `inject`, `start`, `when`, `stop`, or runtime collection traversal
+  makes the complete function a runtime implementation compiled as one node.
 
 Runtime functions use ordinary `return` to produce an output tick. They may
 request direct output access alongside other runtime capabilities:

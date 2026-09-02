@@ -69,10 +69,10 @@ backend phases:
 | Imported adaptor or service | Native C++ | Own callbacks, threads, queues, protocols, and resources through hgraph lifecycle contracts | Expose unrestricted native execution to language source |
 
 The current provisional rule classifies an ordinary body as composition. A
-`state` or `inject` declaration, or a `start`, `when`, or `stop` block,
-classifies the complete function as runtime evaluation. Composition bodies
-flatten through hgraph wiring, while runtime bodies lower to typed static C++
-hooks whose instance data uses hgraph selectors and plans.
+`state` or `inject` declaration, a `start`, `when`, or `stop` block, or runtime
+collection iteration classifies the complete function as runtime evaluation.
+Composition bodies flatten through hgraph wiring, while runtime bodies lower
+to typed static C++ hooks whose instance data uses hgraph selectors and plans.
 
 Function-level state declarations aggregate into one typed state value.
 Function-level inject declarations request an approved, comma-separated set of
@@ -80,6 +80,10 @@ runtime capabilities without changing the public call signature. Lifecycle
 and evaluation hooks request only the selectors they use. Direct output access
 is explicit through `inject out`; ordinary output remains available through
 terminating `return value` statements.
+
+Lexical `let` bindings are immutable and lexical `var` bindings are mutable.
+Neither becomes node state. Runtime collection iterators are borrowed views
+confined to one evaluation and lower only through public hgraph view APIs.
 
 The performance distinction is between the runtime topology produced by the
 two paths. A graph definition itself flattens and does not remain as an

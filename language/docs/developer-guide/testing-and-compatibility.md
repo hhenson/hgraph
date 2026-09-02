@@ -9,8 +9,9 @@ Snapshots cover:
 
 - `fn` declarations and anonymous functions;
 - concise and block bodies;
+- `let` and `var` declarations, assignment, and `for` iteration patterns;
 - `const` parameters and defaults;
-- `atomic<T>` and nested canonical types;
+- `atomic<T>`, `set<T>`, `datetime`, and nested canonical types;
 - contextual type keywords used as callable names, especially `map`;
 - calls, indexing, named arguments, and expression precedence;
 - tail expressions and explicit returns;
@@ -28,7 +29,7 @@ unless a later RFC deliberately reintroduces one.
 Table-driven tests cover recursive expansion:
 
 - scalar leaves;
-- tuples, lists, maps, and records;
+- tuples, lists, sets, maps, and records;
 - atomic container snapshots;
 - atomic values nested inside structures;
 - invalid `const atomic<T>` parameters;
@@ -43,14 +44,14 @@ shape when that distinction explains the error.
 Tests for the provisional source rule must prove:
 
 - a body without node-only syntax becomes `CompositionFn`;
-- `state`, `inject`, `start`, `when`, or `stop` classifies the complete body as
-  `RuntimeFn`;
+- `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
+  classifies the complete body as `RuntimeFn`;
 - ambiguous or mixed forms fail with a `function-kind` diagnostic;
 - declarations and lifecycle blocks obey their function-level ordering and
   cardinality rules;
 - classification precedes kind-specific phase/effect checking;
-- concise anonymous functions remain composition-only until their runtime body
-  grammar is designed;
+- concise anonymous functions remain composition-only except when checked and
+  inlined as runtime collection predicates;
 - check, REPL, run, and build classify identical source identically.
 
 Runtime semantic tests additionally cover:
@@ -69,6 +70,25 @@ Runtime semantic tests additionally cover:
   collection deltas;
 - invalid payload/output reads and incompatible output types.
 
+Collection-view semantic tests additionally cover:
+
+- phase-specific `key_set(tsd)` results in composition and runtime functions;
+- `keys`, `values`, and `items` result arity and types for TSB, TSD, TSL, and
+  TSS, including `i64` TSL indices;
+- the absence of an `elements` alias;
+- built-in `added`, `modified`, and `removed` predicates for every supported
+  structure/traversal pair, plus diagnostics for unsupported pairs;
+- built-in, named, and inline predicates, captures, short-circuit validity,
+  and `last_modified`;
+- rejection of predicate effects and iterator escape through locals, state,
+  output, return, or captures;
+- heterogeneous TSB static expansion and per-field diagnostics;
+- fixed and unbounded TSL behavior, including native added/removed delta ranges;
+- direct native filtered-range lowering versus generic loop-and-`if` behavior.
+
+Local-binding tests distinguish immutable `let`, mutable `var`, and persistent
+`state`, and prove that a runtime `var` is reinitialized for each execution.
+
 ## Operator resolution
 
 Use a deterministic fixture and the real hgraph standard registry to cover:
@@ -77,6 +97,7 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - canonical source types expanded to matching hgraph schemas;
 - `const` values participating in candidate selection;
 - output schema inference;
+- composition-time `key_set` resolving through the standard key projection;
 - candidate ranking and rejection reasons;
 - compiler prediction versus generated dispatch;
 - descriptor/registry fingerprint mismatch.

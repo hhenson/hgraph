@@ -30,12 +30,16 @@ Deliverables:
 
 - lexer, parser, source manager, and structured diagnostics;
 - `module`, `use`, named `fn`, and anonymous `fn` syntax;
-- `bool`, `i64`, `f64`, `str`, tuple, list, map, and `atomic<T>` types;
+- `bool`, `i64`, `f64`, `str`, `datetime`, tuple, list, set, map, and
+  `atomic<T>` types;
 - `const` wiring parameters and recursive temporal-shape expansion;
+- immutable `let`, mutable lexical `var`, and runtime collection `for` loops;
 - provisional runtime classification from `state`, `inject`, lifecycle, and
   `when` syntax, including mixed-form diagnostics;
 - grouped inject declarations, ordered activation blocks, state aggregation,
   and output access grammar;
+- `key_set`, `keys`, `values`, and `items`, including built-in, named, and
+  inline traversal predicates;
 - name resolution and kind-specific phase checking;
 - a textual typed-IR dump for tests and tooling;
 - `hgl check`;
@@ -55,6 +59,8 @@ Deliverables:
 
 - C++ lowering for composition functions and runtime functions with aggregate
   state, approved injectables, lifecycle hooks, ordered activation, and output;
+- public-view lowering for metadata and collection iteration, including native
+  delta ranges and heterogeneous TSB expansion;
 - hgraph kernel module descriptor;
 - imported operator resolution through the hgraph resolver;
 - generated CMake build manifest and source mapping;
