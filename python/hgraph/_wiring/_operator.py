@@ -28,7 +28,7 @@ def _is_hidden_node_parameter(parameter):
         or annotation in _INJECTABLE_MARKERS
         or isinstance(
             annotation,
-            (_ContextExpr, _StateExpr, _RecordableStateExpr),
+            (_StateExpr, _RecordableStateExpr),
         )
     )
 
@@ -284,8 +284,20 @@ def _overload_wire_trampoline(impl):
                 call_args = values
             else:
                 call_args = []
-                for parameter, value in zip(call_parameters, values):
-                    if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+                values_iter = iter(values)
+                hidden_parameter_seen = False
+                for parameter in signature.parameters.values():
+                    if parameter.kind is inspect.Parameter.VAR_KEYWORD:
+                        continue
+                    if _is_hidden_node_parameter(parameter):
+                        hidden_parameter_seen = True
+                        continue
+                    value = next(values_iter)
+                    if isinstance(parameter.annotation, _ContextExpr) and value is None:
+                        hidden_parameter_seen = True
+                        continue
+                    if (hidden_parameter_seen or
+                            parameter.kind is inspect.Parameter.KEYWORD_ONLY):
                         call_kwargs[parameter.name] = value
                     else:
                         call_args.append(value)
@@ -377,6 +389,8 @@ def _register_overload(target, impl, requires=None):
                     f"operator overload union for '{parameter.name}' must contain only "
                     "time-series annotations"
                 ) from error
+        elif isinstance(annotation, _ContextExpr):
+            patterns = (_pattern_of(annotation.ts),)
         else:
             try:
                 patterns = (_pattern_of(annotation),)
@@ -400,11 +414,12 @@ def _register_overload(target, impl, requires=None):
                 and isinstance(parameter.default, (_TypeVarSentinel, typing.TypeVar))):
             type_carriers.append(
                 (parameter.name, parameter.default, annotation_args[0]))
-        if parameter.default is inspect.Parameter.empty:
+        parameter_default = None if isinstance(annotation, _ContextExpr) else parameter.default
+        if parameter_default is inspect.Parameter.empty:
             param_options.append(tuple((parameter.name, pattern) for pattern in patterns))
         else:
             param_options.append(
-                tuple((parameter.name, pattern, parameter.default) for pattern in patterns)
+                tuple((parameter.name, pattern, parameter_default) for pattern in patterns)
             )
     if name == "mesh_" and "__name__" not in sig.parameters:
         # ``mesh_`` supplies its scope name as a private native control. It is
