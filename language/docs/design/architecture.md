@@ -4,8 +4,8 @@ Status: initial design
 
 ## Purpose
 
-The hgraph language is a domain-specific authoring language for typed hgraph
-graphs and nodes. It gives graph authors a compact, learnable surface while
+The hgraph language is a domain-specific authoring language for typed
+functions over hgraph. It gives authors a compact, learnable surface while
 preserving the C++ hgraph runtime as the source of truth.
 
 The project is hosted beside hgraph while the design matures, but it is an
@@ -14,7 +14,8 @@ the directory into a separate repository without changing hgraph core.
 
 ## Goals
 
-- Express composable graphs, compute nodes, and calls to registered operators.
+- Express typed functions that lower to hgraph graphs or nodes and call
+  registered operators.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
@@ -27,7 +28,7 @@ the directory into a separate repository without changing hgraph core.
 ## Non-goals
 
 - A general-purpose systems language.
-- A general C or C++ FFI available to graph authors.
+- A general C or C++ FFI available to language authors.
 - Defining transports, push adaptors, callbacks, threads, or external resource
   ownership in language source.
 - A second graph runtime, scheduler, type resolver, or operator dispatcher.
@@ -57,19 +58,35 @@ are selected by imports in a program or package manifest.
 
 ## Semantic phases
 
-The language has two user-code execution phases and one native integration
-boundary:
+Source uses one `fn` declaration rather than exposing graph and node keywords.
+A function-classification stage maps explicit source syntax to hgraph's
+backend phases:
 
-| Construct | Phase | May do | Must not do |
+| Backend kind | Phase | May do | Must not do |
 | --- | --- | --- | --- |
-| `graph` | Wiring | Compose nodes and graphs, pass ports, inspect scalar build parameters, select fixed topology | Read time-series values, keep runtime state, perform runtime side effects |
-| `node` | Evaluation | Read input views, update declared state, emit a tick | Add graph topology, resolve overloads, acquire arbitrary external resources |
-| imported adaptor or service | Native C++ | Own callbacks, threads, queues, protocols, and resources through hgraph lifecycle contracts | Expose unrestricted native execution to language source |
+| Composition | Wiring | Compose functions, pass ports, inspect `const` values, select fixed topology | Read current time-series values, keep runtime state, perform runtime side effects |
+| Compute or sink | Evaluation | Read admitted runtime inputs, update declared state, produce the contracted tick or side effect | Add topology, resolve overloads, acquire arbitrary external resources |
+| Imported adaptor or service | Native C++ | Own callbacks, threads, queues, protocols, and resources through hgraph lifecycle contracts | Expose unrestricted native execution to language source |
 
-Graph bodies flatten through hgraph wiring. They are not runtime evaluation
-objects. Node bodies lower to typed static C++ node hooks; their implementation
-objects remain empty and instance data is represented by hgraph selectors and
-plans.
+The current provisional rule classifies an ordinary body as composition. A
+`state` or `inject` declaration, or a `start`, `when`, or `stop` block,
+classifies the complete function as runtime evaluation. Composition bodies
+flatten through hgraph wiring, while runtime bodies lower to typed static C++
+hooks whose instance data uses hgraph selectors and plans.
+
+Function-level state declarations aggregate into one typed state value.
+Function-level inject declarations request an approved, comma-separated set of
+runtime capabilities without changing the public call signature. Lifecycle
+and evaluation hooks request only the selectors they use. Direct output access
+is explicit through `inject out`; ordinary output remains available through
+terminating `return value` statements.
+
+The performance distinction is between the runtime topology produced by the
+two paths. A graph definition itself flattens and does not remain as an
+evaluation object. A generated runtime function can nevertheless fuse several
+scalar operations into one node, eliminating intermediate primitive nodes,
+bindings, scheduling, and change tracking when those intermediate ticks are
+not part of the desired semantics.
 
 ## Compiler pipeline
 
@@ -79,8 +96,9 @@ All execution modes share one pipeline:
 source
   -> lexer and parser
   -> name and module resolution
-  -> phase and effect checking
-  -> type checking and imported operator resolution
+  -> canonical type resolution and temporal shape expansion
+  -> function classification
+  -> phase/effect checking and imported operator resolution
   -> typed high-level IR
   -> hgraph semantic IR
   -> C++ source and build manifest
@@ -88,9 +106,10 @@ source
   -> hgraph runtime
 ```
 
-The frontend owns language diagnostics, lexical scope, phase rules, and type
-checking. Imported hgraph operator selection delegates to the hgraph resolver;
-the language project must not clone its candidate matching or ranking rules.
+The frontend owns language diagnostics, lexical scope, canonical types,
+function classification, phase rules, and type checking. Imported hgraph
+operator selection delegates to the hgraph resolver; the language project must
+not clone its candidate matching or ranking rules.
 
 The hgraph semantic IR is backend-neutral in representation but hgraph-specific
 in meaning. It distinguishes wiring operations from evaluation operations and
@@ -100,11 +119,12 @@ retains source ranges for every declaration and expression.
 
 The first backend emits only public SDK constructs:
 
-- Graph declarations become graph structs with `compose` methods and typed
-  `Port` and `Scalar` parameters.
-- Graph calls become public `wire` and operator-dispatch calls.
-- Compute nodes become empty structs with typed static `eval` hooks.
-- Node lifecycle and state become the corresponding hgraph selectors and
+- Functions classified as composition become graph structs with `compose`
+  methods and typed `Port` and `Scalar` parameters.
+- Composition calls become public `wire` and operator-dispatch calls.
+- Functions classified as runtime primitives become empty structs with typed
+  static hooks.
+- Runtime lifecycle and state become the corresponding hgraph selectors and
   hooks.
 - Imported modules contribute public headers, CMake packages and targets, and
   explicit registration calls.
@@ -139,7 +159,9 @@ the default interactive engine.
 The initial project owns:
 
 - `src/` for the command and later compiler components;
-- `docs/` for architecture and language design records;
+- `docs/user-guide/` for observable language behavior and examples;
+- `docs/developer-guide/` for grammar, lowering, tooling, and testing;
+- `docs/design/` for architecture and language design records;
 - `examples/` for provisional and later executable language programs;
 - `tests/` for compiler, diagnostic, generated-code, and parity coverage.
 

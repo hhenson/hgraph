@@ -8,9 +8,10 @@ Hgraph and its native extensions provide the capabilities from which language
 programs compose applications. A language module is a typed, enumerable view
 of one such package. It is not a general foreign-function interface.
 
-The compiler has one mandatory module for the hgraph kernel. Analytics,
-persistence, Kafka, web, fabric, and downstream packages remain optional. An
-import adds only the dependency owned by that module.
+The compiler has one mandatory module for the hgraph kernel. Its implicit
+prelude supplies canonical types, temporal-shape mappings, `atomic<T>`, and the
+standard operator bindings used by expression syntax. Analytics, persistence,
+Kafka, web, fabric, and downstream packages remain optional.
 
 ## Module contents
 
@@ -18,16 +19,28 @@ A native package that supports the language supplies a descriptor containing:
 
 - canonical language module name and version;
 - compatible hgraph SDK and descriptor-format versions;
-- public graph, node, operator, scalar, and schema declarations;
+- public function contracts, implementation kinds, canonical types, and
+  schema declarations;
 - the C++ headers required by generated code;
 - CMake package names and imported targets;
 - explicit type and operator registration entry points;
 - optional documentation and source links for diagnostics and tooling.
 
+The kernel descriptor additionally maps language operator tokens such as `+`
+and `==` to public hgraph operator markers. This is a syntax binding into the
+same registry, not a compiler-owned implementation.
+
 The descriptor contains declarations and build metadata, not executable user
 code. The exact serialization format remains open. A checked-in textual
 interface plus a small manifest is preferred for the first implementation
 because it is reviewable and available before native code is loaded.
+
+One descriptor question must be resolved before imported operator checking:
+some native candidates have scalar-dependent `requires` predicates. The
+descriptor must either express those constraints declaratively for hgraph's
+shared resolver or identify a controlled resolver helper that evaluates them
+outside the compiler process. `hgl check` must not approximate or silently omit
+such a predicate.
 
 ## Import and build resolution
 
@@ -63,16 +76,16 @@ therefore consume the same registrations and matching rules. A mismatch between
 compiler prediction and generated wiring is a compiler defect and belongs in a
 cross-mode regression test.
 
-User-defined nodes and graphs have exact typed declarations in the compilation
-unit and do not need registry dispatch unless a later language feature
-explicitly registers them as operator overloads.
+User-defined functions have exact typed declarations in the compilation unit.
+Their source syntax determines their implementation kind; they do not need
+registry dispatch unless a later feature registers them as overloads.
 
 ## Native adaptor boundary
 
 Push adaptors, services, and external-resource sinks are implemented in C++.
-Their module declarations may expose graph-safe constructors or operator calls,
-but language source cannot provide callbacks, queue storage, thread ownership,
-or arbitrary lifecycle hooks to them.
+Their module declarations expose typed function contracts, but language source
+cannot provide callbacks, queue storage, thread ownership, or arbitrary
+lifecycle hooks to them.
 
 An imported adaptor owns:
 
@@ -82,16 +95,16 @@ An imported adaptor owns:
 - simulation versus real-time wiring;
 - protocol acknowledgement and teardown.
 
-The language graph supplies typed ports and wiring-time policy values. Dynamic
-behavior is represented by time-series inputs and explicit hgraph runtime
-operators, not by escaping to native code.
+The language function supplies temporal arguments and `const` policy values.
+Dynamic behavior is represented by temporal inputs and explicit hgraph runtime
+functions, not by escaping to native code.
 
 ## Package manifest
 
 A language application will eventually carry a manifest which records:
 
 - package name and language edition;
-- source roots and entry graph;
+- source roots and entry function;
 - direct language module dependencies and version constraints;
 - build profiles and target platforms;
 - explicitly selected runtime mode and deployment packaging.

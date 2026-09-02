@@ -2,9 +2,9 @@
 
 This directory hosts the experimental hgraph language toolchain. It is a
 parallel project which consumes the public hgraph C++ SDK; hgraph core does not
-depend on it. The language is intended for user-authored graphs and nodes, not
-for implementing transports, threads, callbacks, or arbitrary native
-extensions.
+depend on it. The language is intended for user-authored typed functions over
+hgraph, not for implementing transports, threads, callbacks, or arbitrary
+native extensions.
 
 The first backend will transpile typed language programs to public hgraph C++
 authoring APIs. Scripted execution, the REPL, and production builds will share
@@ -33,7 +33,16 @@ cmake --build build-language
 ctest --test-dir build-language
 ```
 
-## Design records
+## Documentation
+
+- [User Guide](docs/user-guide/README.md)
+- [Developer Guide](docs/developer-guide/README.md)
+
+The guides develop the first syntax and examples from both sides of the
+contract: what an author writes and observes, and how the compiler classifies
+and preserves those semantics through hgraph's public C++ APIs.
+
+### Design records
 
 - [Architecture](docs/design/architecture.md)
 - [Language model](docs/design/language-model.md)

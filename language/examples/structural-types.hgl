@@ -1,0 +1,20 @@
+// Canonical containers are temporal structures unless atomic stops recursion.
+
+module examples.structural_types
+
+use hgraph.std::{map}
+
+fn notionals(
+    prices: map<str, f64>,
+    quantities: map<str, i64>
+) -> map<str, f64> =>
+    map(
+        prices,
+        quantities,
+        fn(price, quantity) => price * quantity
+    )
+
+fn atomic_midpoint(
+    tob: atomic<tuple<f64, f64>>
+) -> f64 =>
+    (tob[0] + tob[1]) / 2.0

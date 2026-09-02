@@ -1,181 +1,266 @@
 # Language model
 
-Status: initial design; syntax is provisional
+Status: agreed syntax foundation; provisional runtime-function semantics
+
+The [User Guide](../user-guide/README.md) is authoritative for observable
+source behavior. The
+[Developer Guide](../developer-guide/syntax-and-semantics.md) records the
+proposed grammar and compiler boundaries.
 
 ## Design principles
 
 The language should feel familiar to Python, Rust, and Swift users without
-copying any one language. Braces make phase bodies and generated source ranges
-unambiguous. Type arguments use angle brackets. Named arguments are part of the
-ordinary call syntax.
+copying any one language. Ordinary functions, calls, braces, expressions,
+named arguments, and canonical collection types carry most of the syntax.
 
-The bespoke part is semantic rather than decorative: `graph`, `node`, `emit`,
-time-series types, wiring scalars, and imported operators have meanings that
-ordinary general-purpose functions do not.
+The bespoke behavior is semantic:
+
+- ordinary parameters are temporal;
+- `const` parameters are fixed wiring-time values;
+- canonical types recursively describe hgraph temporal structures;
+- `atomic<T>` stops recursive temporalization;
+- function calls resolve through hgraph contracts and overloads;
+- ordinary `fn` bodies compose wiring, while node-only declarations and blocks
+  classify a body as runtime evaluation for a generated node.
 
 ## Illustrative program
 
-```text
-module prices
+```hgl
+module examples.prices
 
 use hgraph.analytics::{rolling_mean}
 
-node midpoint(bid: ts<f64>, ask: ts<f64>) -> ts<f64> {
-    when bid.valid && ask.valid {
-        emit (bid.value + ask.value) / 2.0
-    }
-}
+fn midpoint(
+    tob: atomic<tuple<f64, f64>>
+) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
 
-graph smooth(
-    bid: ts<f64>,
-    ask: ts<f64>;
-    window: i64 = 20
-) -> ts<f64> {
-    let mid = midpoint(bid, ask)
-    return rolling_mean(mid, period: window)
+fn smooth(
+    tob: atomic<tuple<f64, f64>>,
+    const window: i64 = 20
+) -> f64 {
+    rolling_mean(midpoint(tob), window)
 }
 ```
 
-The semicolon in a graph signature separates time-series inputs from
-wiring-time scalar parameters. This is provisional syntax for an important
-semantic distinction; the distinction will remain even if its spelling
-changes.
+There are no `graph` or `node` declaration keywords, no temporal wrapper on
+`f64`, and no punctuation separating temporal and wiring parameters.
 
 ## Declarations
 
-The first language slice has four declaration forms:
+The agreed declaration forms are:
 
-- `module` names a compilation and import unit.
-- `use` imports public declarations from a language module descriptor.
-- `node` declares a typed per-tick compute primitive.
-- `graph` declares wiring-time composition.
+- `module` for a compilation and import unit;
+- `use` for explicit typed imports;
+- `fn` for named functions;
+- anonymous `fn(...) => expression` values.
 
-User-defined operators and overload families are deferred. Programs may call
-operators imported from hgraph and extension modules in the first slice.
+An `fn` may use a concise expression body or a brace-delimited block with a
+tail expression. An outputless function omits its return arrow.
 
-Top-level executable configuration will be a graph whose sources and sinks are
-imported native facilities or testing facilities. The language does not define
-a push adaptor declaration.
+Whether the language later admits user-defined overload families remains open.
+Imported names already represent implementation-neutral function contracts.
 
-## Initial type vocabulary
+## Parameters and results
 
-The first slice includes:
+An ordinary parameter is temporal:
 
-- scalar `bool`, `i64`, `f64`, and `str`;
-- `ts<T>` for an atomic time-series value;
-- `signal` for tick-only input observation;
-- wiring-time scalar parameters, represented by ordinary scalar types in the
-  scalar portion of a graph or node call.
+```hgl
+price: f64
+positions: map<str, f64>
+tob: atomic<tuple<f64, f64>>
+```
 
-Temporal scalars, enums, records, containers, `tss`, `tsl`, `tsd`, `tsb`,
-`tsw`, and explicit `ref` types follow after the atomic vertical slice. Their
-semantics must map to existing hgraph schemas rather than define parallel
-representations.
+A `const` parameter is a wiring-time value:
 
-Numeric conversions and scalar-to-time-series constant lifting must match the
-hgraph operator and wiring contracts. The language must not add implicit
-conversions that cause it to choose a different operator overload from native
-hgraph wiring.
+```hgl
+const window: i64 = 20
+const settings: map<str, str>
+```
 
-## Graph semantics
+Function results are temporal unless the function is outputless. No syntax for
+a returned wiring scalar has been agreed.
 
-A graph body executes once during wiring and returns one or more port handles.
-Its local bindings therefore hold ports or wiring scalars, never current
-time-series values.
+## Canonical temporal types
 
-A graph may:
+Source types describe values and structures without spelling hgraph's `TS`,
+`TSB`, `TSL`, or `TSD` wrappers.
 
-- call nodes, graphs, and imported operators;
-- bind and return ports;
-- inspect resolved types and wiring scalar values;
-- use ordinary conditionals over wiring-time facts to choose fixed topology;
-- call explicit hgraph runtime control-flow operations when a time-series value
-  must select behavior after wiring.
+Temporalization proceeds recursively:
 
-A graph may not:
+- scalar leaves such as `f64` become atomic endpoints;
+- tuples become structural tuples of temporal children;
+- lists become structural time-series lists;
+- maps become keyed temporal maps;
+- records become structural bundles;
+- `atomic<T>` becomes one endpoint carrying the complete canonical `T` value.
 
-- read `.value`, `.delta`, `.valid`, or `.modified` from a port;
-- retain evaluation state;
-- perform tick-time side effects;
-- treat a time-series boolean as an ordinary wiring conditional.
+This distinguishes:
 
-These are compile-time phase errors, not generated C++ errors.
+```hgl
+tuple<f64, f64>                   // independently temporal children
+atomic<tuple<f64, f64>>           // one tuple-valued endpoint
 
-## Node semantics
+map<str, f64>                     // keyed temporal map
+atomic<map<str, f64>>             // stream of complete map snapshots
+map<str, atomic<tuple<f64, f64>>> // keyed atomic tuple values
+```
 
-A node body executes when scheduled by hgraph. Its inputs are typed views of
-live time-series endpoints. Atomic input views initially expose:
+`const` bypasses temporalization. `const value: atomic<T>` is invalid because
+atomicity describes a runtime temporal boundary.
 
-- `.value` for the current value;
-- `.valid` for whether a value exists;
-- `.modified` for whether the endpoint ticked in the current cycle.
+Every expanded type must map to an existing public hgraph schema. Heterogeneous
+tuple mapping remains an open detail.
 
-`emit expression` writes and ticks the declared output. Reaching the end of a
-compute-node evaluation without `emit` produces no output tick. An output is
-not implicitly repeated.
+## Function abstraction
 
-The first slice supports pure stateless compute nodes only. A later stateful
-slice will distinguish:
+`fn` intentionally hides hgraph implementation category from ordinary source
+syntax. Imported calls already behave this way: a registry may select a graph
+overload or native node overload under the same function contract.
 
-- semantic state that affects future outputs and must lower to hgraph
-  recordable state;
-- explicitly ephemeral implementation cache that does not participate in
-  record/replay.
+For user functions, the current proposed classification rule is syntactic. A
+body without node-only constructs is a composition function. The presence of
+any of these constructs makes the complete body a runtime function:
 
-The language will not silently use an opaque cache for semantic loopback state.
-Lifecycle blocks, when introduced, will lower to typed `start` and `stop` hooks
-and will expose only capabilities admitted by the language.
+- a `state` declaration;
+- an `inject` declaration;
+- a `start`, `when`, or `stop` block.
 
-## Operators and calls
+Mixing wiring-only and runtime-only constructs is an error. Classification is
+based on the resolved source body, not on the implementation kind selected for
+an imported call.
 
-An operator name is a function-like contract, not an implementation. Calls to
-imported operators are resolved using the hgraph candidate registry and its
-type-pattern rules. A selected graph overload remains wiring-time composition;
-a selected node overload remains a runtime primitive.
+A runtime function may declare persistent state, approved injected
+capabilities, lifecycle behavior, and ordered activation handlers:
 
-Named arguments are preserved through lowering. Wiring-time policy values
-select an overload or immutable plan before evaluation. A fixed policy does not
-become a string or enum branch in generated per-tick code.
+```hgl
+fn combined_total(a: f64, b: f64) -> f64 {
+    state total: f64 = 0.0
+    inject out, logger
 
-## Control flow
+    start {
+        logger.info("starting")
+    }
 
-Graph and node conditionals have different input domains:
+    when modified(a) && valid(a) {
+        total += a
+        out = total
+    }
 
-- A graph `if` accepts a compile-time or wiring-time scalar boolean and selects
-  fixed topology.
-- A node `if` accepts an evaluation-time scalar boolean and selects work for
-  the current evaluation.
-- A time-series boolean in a graph requires an imported runtime switching,
-  routing, mapping, or mesh operation.
+    when modified(b) && valid(b) {
+        total -= b
+        out = total
+    }
 
-Loops are deferred. When introduced, graph loops will require statically
-bounded wiring-time iterables. Node loops will operate only over supported
-bounded scalar or time-series collection views. Unbounded allocation and
-history retention are outside the default execution model.
+    stop {
+        logger.info("stopping")
+    }
+}
+```
 
-## Restricted capabilities
+All state variables aggregate into one typed state value. State initializers
+lower to replay-aware startup initialization and do not overwrite restored
+state. State affecting later evaluations uses recordable state by default;
+ephemeral cache syntax remains separate future work.
+
+`inject` is a comma-separated function-level declaration of approved runtime
+capabilities. It does not add caller-visible parameters. `out` is a special
+injectable whose type comes from the function result and permits the runtime
+body to inspect or incrementally update its output. Other injectables, such as
+`logger`, `clock`, and `scheduler`, map to their hgraph selector contracts.
+
+`start` and `stop` execute once at node startup and teardown. State storage and
+injected capabilities are runtime-owned; `stop` expresses semantic
+finalization, not ordinary value destruction. Arbitrary resources, callbacks,
+threads, and transports remain native extension responsibilities.
+
+Multiple `when` blocks are independent ordered conditions. The compiler uses
+the union of their activation dependencies and the validity requirements common
+to all handlers as the most permissive safe node-level policy. It lowers each
+remaining predicate to a C++ `if` in source order. Later handlers observe state
+and output changes made by earlier handlers.
+
+`modified(a, b)` is true when any listed input was modified. Multiple validity
+requirements are composed with ordinary Boolean operators. The compiler
+converts activation and validity predicates into hgraph input metadata whenever
+they are statically representable. Only residual conditions remain in the
+per-tick body.
+
+In a runtime function, `return value` writes the complete output and terminates
+the current evaluation. Reaching the end without a return or output mutation
+produces no output tick. With `inject out`, whole-output writes are
+last-write-wins; writes to distinct collection children accumulate into one
+delta, and repeated writes to one child use the last value.
+
+A runtime function without `when` uses hgraph's default input activation and
+validity rules. Calls to scalar kernels, richer structural mutation, output
+access during lifecycle hooks, and exact conditional-expression spelling
+remain open.
+
+The compiler must represent a function as unclassified until the explicit
+source rule is applied. Scripted and AOT modes must classify identically.
+
+## Calls and operators
+
+Calls use ordinary positional and named arguments:
+
+```hgl
+rolling_mean(value, window)
+rolling_mean(value, period: window)
+```
+
+Imported calls use hgraph's candidate registry, type patterns, defaults,
+normalization, ranking, and rejection diagnostics. The implementation kind
+selected by the registry is not visible in call syntax.
+
+The implicit prelude maps arithmetic, comparison, equality, Boolean, indexing,
+and other admitted expression syntax to standard function contracts. Infix and
+postfix syntax are not separate dispatch paths.
+
+Wiring-time policy values are declared `const`. They select an overload or
+immutable plan before evaluation and must not become a per-tick policy branch
+unless the selected contract explicitly requires dynamic behavior.
+
+## Temporal metadata
+
+Metadata uses function syntax:
+
+```hgl
+modified(value)
+valid(value)
+delta(value)
+```
+
+The language does not expose `value.modified`, `value.valid`, or `value.value`.
+`modified` and `valid` are evaluator-local metadata in runtime functions. The
+compiler may consume them as activation and admission policy rather than
+materializing Boolean time series. Structural aggregation and `delta` result
+shapes still require design.
+
+## Native boundary
 
 Language source cannot:
 
 - include native headers or name arbitrary C++ symbols;
 - open files, sockets, or processes directly;
 - create threads, callbacks, mutexes, or push-source senders;
-- allocate arbitrary native objects with unconstrained lifetime;
-- register scalar types or native services;
-- bypass hgraph wiring, scheduling, state, or lifecycle contracts.
+- register native scalar types or services;
+- bypass hgraph wiring, scheduling, state, lifecycle, or overload contracts.
 
 Those capabilities live in C++ packages and are surfaced through reviewed
-module descriptors at graph-safe call boundaries.
+module descriptors.
 
-## Diagnostics
+## Open semantic questions
 
-Diagnostics should identify the semantic phase as well as the source error.
-Examples include:
+Later decisions must define:
 
-- "time-series values are unavailable while wiring graph `smooth`";
-- "operator `add` has no overload for `ts<str>` and `ts<i64>`";
-- "runtime resource access is not available in a language node";
-- "state affecting later ticks must be recordable".
+- `i64` overflow, conversion, and division behavior;
+- NaN comparison;
+- tuple-to-hgraph structural mapping;
+- record declarations;
+- anonymous capture and generic type inference;
+- structural temporal metadata and delta result shapes;
+- runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 
-The compiler should report imported candidate rejection reasons from hgraph
-rather than replace them with a generic no-match message.
+Diagnostics should identify the source concept and expanded hgraph shape while
+preserving candidate rejection reasons from hgraph.

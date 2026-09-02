@@ -1,20 +1,17 @@
-// Provisional syntax example. The initial scaffold does not parse this file.
+// Provisional first-slice syntax. The current scaffold does not parse this file.
 
-module prices
+module examples.prices
 
 use hgraph.analytics::{rolling_mean}
 
-node midpoint(bid: ts<f64>, ask: ts<f64>) -> ts<f64> {
-    when bid.valid && ask.valid {
-        emit (bid.value + ask.value) / 2.0
-    }
-}
+fn midpoint(
+    tob: atomic<tuple<f64, f64>>
+) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
 
-graph smooth(
-    bid: ts<f64>,
-    ask: ts<f64>;
-    window: i64 = 20
-) -> ts<f64> {
-    let mid = midpoint(bid, ask)
-    return rolling_mean(mid, period: window)
+fn smooth(
+    tob: atomic<tuple<f64, f64>>,
+    const window: i64 = 20
+) -> f64 {
+    rolling_mean(midpoint(tob), window)
 }

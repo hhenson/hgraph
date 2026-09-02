@@ -14,7 +14,8 @@ Deliverables:
 - opt-in repository build;
 - installable `hgl` command with help and version reporting;
 - architecture, language model, module, and roadmap records;
-- a provisional example kept out of executable tests.
+- user and developer guide foundations;
+- provisional examples kept out of executable tests.
 
 Acceptance:
 
@@ -28,17 +29,23 @@ Acceptance:
 Deliverables:
 
 - lexer, parser, source manager, and structured diagnostics;
-- `module`, `use`, stateless `node`, and `graph` declarations;
-- `bool`, `i64`, `f64`, `str`, `ts<T>`, and `signal` types;
-- name resolution, graph/node phase checking, and exact user-declaration type
-  checking;
+- `module`, `use`, named `fn`, and anonymous `fn` syntax;
+- `bool`, `i64`, `f64`, `str`, tuple, list, map, and `atomic<T>` types;
+- `const` wiring parameters and recursive temporal-shape expansion;
+- provisional runtime classification from `state`, `inject`, lifecycle, and
+  `when` syntax, including mixed-form diagnostics;
+- grouped inject declarations, ordered activation blocks, state aggregation,
+  and output access grammar;
+- name resolution and kind-specific phase checking;
 - a textual typed-IR dump for tests and tooling;
-- `hgl check`.
+- `hgl check`;
+- parser-check all first-slice guide examples.
 
 Acceptance:
 
 - parser and diagnostic snapshot tests cover valid and invalid programs;
-- graph value reads and node wiring calls fail as phase errors;
+- ambiguous function-kind syntax fails before lowering;
+- canonical and atomic shapes map to public hgraph schemas;
 - all AST and IR nodes retain precise source ranges;
 - malformed input recovers sufficiently to report multiple useful errors.
 
@@ -46,7 +53,8 @@ Acceptance:
 
 Deliverables:
 
-- C++ lowering for stateless atomic compute nodes and graphs;
+- C++ lowering for composition functions and runtime functions with aggregate
+  state, approved injectables, lifecycle hooks, ordered activation, and output;
 - hgraph kernel module descriptor;
 - imported operator resolution through the hgraph resolver;
 - generated CMake build manifest and source mapping;
@@ -55,7 +63,8 @@ Deliverables:
 Acceptance:
 
 - end-to-end tests compile generated code against an installed hgraph SDK;
-- graph and node behavior is asserted through public hgraph evaluation APIs;
+- classified function behavior is asserted through public hgraph evaluation
+  APIs;
 - generated code uses no private hgraph headers or runtime internals;
 - no-match and ambiguity diagnostics retain hgraph candidate reasons;
 - generated output is deterministic for identical inputs.
@@ -83,10 +92,10 @@ Acceptance:
 
 Candidates, in risk order:
 
-- temporal scalars, enums, records, and structural time-series types;
-- recordable state and explicit ephemeral cache;
-- lifecycle blocks with restricted capabilities;
-- higher-order graph operations and runtime control flow;
+- enums, records, and additional canonical temporal structures;
+- explicit ephemeral cache semantics;
+- additional lifecycle capabilities and output access;
+- higher-order functions and runtime control flow;
 - generic declarations and user-defined operator overloads;
 - incremental compilation or a JIT backend.
 

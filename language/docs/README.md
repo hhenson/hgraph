@@ -1,20 +1,31 @@
-# Design documentation
+# hgraph language documentation
 
-These records live with the language project because they describe the
-language toolchain rather than the hgraph core runtime. They are the starting
-point for an RFC process local to this project.
+The documentation is split by audience:
 
-The initial records are:
+- The [User Guide](user-guide/README.md) shows how language functions and
+  canonical temporal types look.
+- The [Developer Guide](developer-guide/README.md) explains how the compiler
+  parses, checks, lowers, builds, and tests those programs.
+- The design records capture architectural decisions, project boundaries, and
+  the delivery roadmap.
+
+The language is still a design preview. Examples describe the target first
+vertical slice; the current `hgl` scaffold only implements `--help` and
+`--version`. Provisional syntax is called out in the guides so that examples do
+not imply an implemented compatibility promise.
+
+## Design records
 
 1. [Architecture](design/architecture.md) — ownership, compiler pipeline, and
    execution modes.
-2. [Language model](design/language-model.md) — phase rules, types, graphs,
-   nodes, and provisional syntax.
+2. [Language model](design/language-model.md) — functions, canonical temporal
+   types, runtime state, injectables, lifecycle, activation, output, and syntax
+   decisions.
 3. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable without exposing a general FFI.
 4. [Roadmap](design/roadmap.md) — vertical slices and their acceptance gates.
 
-Each document identifies settled constraints separately from provisional
-syntax or packaging choices. A later accepted change should update the owning
-record instead of creating a conflicting description elsewhere in the hgraph
-repository.
+An accepted change should update the relevant guide and its owning design
+record together. The user guide is the source of truth for observable language
+behavior; the developer guide is the source of truth for implementation
+constraints.
