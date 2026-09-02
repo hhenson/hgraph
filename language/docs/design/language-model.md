@@ -1,6 +1,6 @@
 # Language model
 
-Status: agreed syntax foundation; provisional generic and runtime semantics
+Status: agreed syntax foundation; provisional generic, module, and runtime semantics
 
 The [User Guide](../user-guide/README.md) is authoritative for observable
 source behavior. The
@@ -23,6 +23,8 @@ The bespoke behavior is semantic:
 - `rolling<T, max_size[, min_size]>` describes a typed rolling window;
 - bodyless nominal `operator` declarations define generic callable contracts;
 - compatible `fn` declarations supply operator implementations;
+- operators and their implementation candidates are public by definition,
+  while an ordinary exact function requires `export fn` for public exposure;
 - name resolution selects an operator before hgraph ranks its implementations;
 - runtime collection traversal uses borrowed, non-escaping iterators;
 - ordinary `fn` bodies compose wiring, while node-only declarations and blocks
@@ -40,7 +42,7 @@ fn midpoint(
 ) -> f64 =>
     (tob[0] + tob[1]) / 2.0
 
-fn smooth(
+export fn smooth(
     tob: atomic<tuple<f64, f64>>,
     const window: i64 = 20
 ) -> f64 {
@@ -58,7 +60,8 @@ The agreed declaration forms are:
 - `module` for a compilation and import unit;
 - `use` for selective imports and aliased module namespaces;
 - `operator` for a bodyless nominal generic contract;
-- `fn` for named functions;
+- `fn` for module-internal named functions and operator implementations;
+- `export fn` for a public ordinary exact function;
 - anonymous `fn(...) => expression` values.
 
 Within a function body, `let` introduces an immutable lexical binding and
@@ -68,7 +71,7 @@ caller-supplied wiring policy is declared with a `const` parameter.
 
 An `fn` may use a concise expression body or a brace-delimited block with a
 tail expression. An outputless function omits its return arrow. An `operator`
-ends with its signature and never has a body.
+ends with its signature, never has a body, and is automatically public.
 
 ## Parameters and results
 
@@ -132,6 +135,55 @@ nominal operator. Hgraph overload resolution then ranks only the implementation
 candidates registered for that operator. An equal-ranked overlap within one
 operator remains an ambiguity error; namespace selection is not an overload
 tie-break.
+
+## Visibility and implementation participation
+
+An ordinary exact `fn` is visible throughout its defining module. `export fn`
+adds that exact declaration to the public module interface; it does not create
+an overload set. Other modules may selectively import it or call it through a
+module alias.
+
+An operator contract is public by definition. Every same-named `fn` bound to
+that operator automatically contributes a public implementation candidate, but
+the candidate is not independently importable through its provider module.
+`export fn` on an operator-bound implementation is therefore invalid rather
+than a second visibility axis.
+
+There are no declaration re-exports in the initial design. An operator has one
+defining module and one canonical import identity even when implementations
+come from many other modules.
+
+The active implementation set is determined by the resolved application target
+rather than source imports. It contains the target's source modules and all
+modules in its locked package dependency closure. The compiler enumerates their
+descriptors, collects every candidate by canonical operator identity, and
+reports overlapping best matches with provider provenance. Packages merely
+installed in the environment do not participate.
+
+## Compiled module lifetime
+
+Every compiled HGL module exposes compiler-generated initialization and
+deinitialization entry points. Initialization records a keyed installer for all
+type and operator contributions; the installer can be replayed after an hgraph
+registry reset without repeating one-time module initialization. The final
+application explicitly initializes the complete target closure before wiring.
+
+The module manager retains an opaque registration handle. Removing that handle
+deactivates the provider for future resolution, removes its installer intent so
+a reset cannot resurrect it, removes its active registrations, and releases
+owned resources. Dependencies initialize first and deinitialize in reverse
+order. Initialization and deinitialization are idempotent, and failed
+initialization rolls back its pending contribution.
+
+Selected implementations give wired graphs and cached plans a lease on their
+provider. A module cannot complete deinitialization, and its native image cannot
+be unloaded, while such a lease is live. Logical registration removal and
+physical library unloading are therefore distinct; the first implementation
+may keep removed native images resident for process lifetime.
+
+These lifecycle entry points are compiler and native-module infrastructure.
+HGL source does not acquire arbitrary module-level side effects through `init`
+or `deinit` blocks.
 
 ## Canonical temporal types
 
@@ -296,7 +348,7 @@ risk::value(trade)
 ```
 
 The implicit prelude maps arithmetic, comparison, equality, Boolean, indexing,
-and other admitted expression syntax to standard function contracts. Infix and
+and other admitted expression syntax to standard operator contracts. Infix and
 postfix syntax are not separate dispatch paths.
 
 Wiring-time policy values are declared `const`. They select an overload or

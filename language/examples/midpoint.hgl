@@ -9,7 +9,7 @@ fn midpoint(
 ) -> f64 =>
     (tob[0] + tob[1]) / 2.0
 
-fn smooth(
+export fn smooth(
     tob: atomic<tuple<f64, f64>>,
     const window: i64 = 20
 ) -> f64 {

@@ -10,13 +10,13 @@ for hgraph, not a second runtime.
 ## Guide map
 
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
-   bodyless nominal `operator` contracts, generics, module aliases, `const`
-   parameters, lexical bindings, canonical and rolling types, recursive
+   `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
+   `const` parameters, lexical bindings, canonical and rolling types, recursive
    temporalization, metadata, and collection iteration, plus provisional state,
    injectable, lifecycle, activation, and output semantics.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
-   pipeline, function classification, public SDK lowering,
-   source mapping, and build manifests.
+   pipeline, function classification, public SDK lowering, generated module
+   lifecycle, source mapping, and build manifests.
 3. [Testing and compatibility](testing-and-compatibility.md) defines syntax,
    type-shape, classification, generated-code, installed-SDK, and cross-mode
    acceptance.
@@ -45,6 +45,10 @@ surface.
 
 - `fn` is the only implementation declaration; `operator` declares a bodyless
   nominal callable contract.
+- Every `operator` and operator-bound `fn` candidate is public by definition;
+  an ordinary exact function is module-internal unless declared `export fn`.
+- Imports expose names but do not activate providers; the locked package target
+  defines the complete candidate universe without declaration re-exports.
 - Ordinary parameters and results use canonical recursively temporal types.
 - `atomic<T>` stops recursive temporalization at `T`.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
@@ -76,4 +80,8 @@ surface.
   parser must not directly emit graph- or node-specific declarations.
 - Scripted, REPL, and ahead-of-time workflows consume the same classifier,
   checked IR, and C++ backend.
+- Compiled modules use generated, handle-owned initialization, replayable
+  installation, registration removal, and reverse-order deinitialization.
+- Live graphs and plans retain provider leases; registration removal precedes
+  safe native-library unloading.
 - Hgraph core has no dependency on the language project.

@@ -12,13 +12,14 @@ source calls reach hgraph.
 
 1. [Language tour](language-tour.md) introduces a complete module.
 2. [Functions](functions.md) covers composition and runtime functions,
-   generics, operator contracts, state, injectables, lifecycle, activation,
-   and output.
+   public exports, generics, operator contracts, state, injectables, lifecycle,
+   activation, and output.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
    types, rolling windows, the `atomic<T>` boundary, metadata, and runtime
    collection traversal.
-4. [Modules and tools](modules-and-tools.md) covers native modules, `check`,
-   `run`, `build`, and the REPL.
+4. [Modules and tools](modules-and-tools.md) covers public declarations,
+   implementation discovery, compiled module lifecycle, native modules,
+   `check`, `run`, `build`, and the REPL.
 
 Source files are collected under [`language/examples`](../../examples). Until
 the frontend lands, they are checked documentation rather than executable
@@ -29,7 +30,8 @@ programs.
 The source language uses `fn` for every implementation and does not ask authors
 to declare a `graph` or `node`. A bodyless `operator` declares a nominal,
 generic callable contract whose implementations are supplied by compatible
-same-named `fn` definitions.
+same-named `fn` definitions. Operators are public by definition; an ordinary
+exact function is module-internal unless declared `export fn`.
 
 ```hgl
 fn midpoint(
@@ -41,7 +43,7 @@ fn midpoint(
 Parameters are temporal by default. `const` marks a wiring-time value:
 
 ```hgl
-fn smooth(
+export fn smooth(
     tob: atomic<tuple<f64, f64>>,
     const window: i64
 ) -> f64 {

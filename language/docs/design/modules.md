@@ -19,11 +19,15 @@ A native package that supports the language supplies a descriptor containing:
 
 - canonical language module name and version;
 - compatible hgraph SDK and descriptor-format versions;
-- public function and nominal operator contracts, implementation candidates,
-  implementation kinds, canonical types, and schema declarations;
+- automatically public nominal operator contracts and explicitly exported exact
+  functions;
+- operator implementation candidates indexed by canonical operator identity,
+  provider module, implementation kind, and generic signature;
+- canonical types and schema declarations;
 - the C++ headers required by generated code;
 - CMake package names and imported targets;
-- explicit type and operator registration entry points;
+- explicit module initialization, registry installation, deinitialization, and
+  registration-removal entry points;
 - optional documentation and source links for diagnostics and tooling.
 
 The kernel descriptor additionally maps language operator tokens such as `+`
@@ -41,6 +45,25 @@ descriptor must either express those constraints declaratively for hgraph's
 shared resolver or identify a controlled resolver helper that evaluates them
 outside the compiler process. `hgl check` must not approximate or silently omit
 such a predicate.
+
+## Public declaration surface
+
+Declaring an `operator` defines a public extension contract. A private operator
+would undermine cross-module implementation discovery, so there is no
+`export operator` form.
+
+An ordinary exact `fn` is module-internal by default. `export fn` places its
+signature in the public descriptor and makes it available to selective and
+qualified imports. Export does not create an overload family.
+
+A same-named `fn` bound to an operator is neither a private helper nor an
+independently exported exact function. It automatically contributes a public
+candidate to that operator's implementation inventory. Applying `export fn` to
+an operator-bound function is rejected as redundant and misleading.
+
+The initial design has no declaration re-export. In particular, an
+implementation module does not create another import route for the operator it
+implements. An operator retains one defining module and canonical identity.
 
 ## Import and build resolution
 
@@ -65,21 +88,20 @@ For either form, the compiler:
 
 1. locates the `hgraph.analytics` descriptor through the package search path;
 2. checks its hgraph and language compatibility constraints;
-3. adds its public declarations to name and type resolution;
-4. delegates candidate selection for each resolved nominal operator to the
-   hgraph resolver;
-5. records required headers, packages, targets, and registration hooks in the
-   generated build manifest.
+3. adds its public operators and exported exact functions to name and type
+   resolution;
+4. records the referenced declarations and their defining modules in typed IR.
 
-Generated code includes only selected module headers and links only selected
-module targets. Registration is explicit and deterministic; modules do not
-depend on static initialization.
+An import does not activate an implementation provider. Generated code includes
+the declaration headers it uses, while the application registration plan and
+link manifest are derived separately from the target's complete module closure.
 
 ## Nominal operator binding
 
 An operator's canonical identity is its defining module plus declaration name.
 Two modules may define `my_op`, but those definitions describe distinct
 protocol-like contracts and own distinct implementation sets.
+Every operator declaration is public.
 
 A same-named `fn` becomes an implementation of an operator only when its module
 declares that operator locally or selectively imports exactly one such operator
@@ -100,20 +122,51 @@ resolution. An aliased module does not create an implementation binding, so
 other definitions remain callable through qualified names such as
 `other::my_op(...)`.
 
+Every compatible bound `fn` is an externally visible candidate of its selected
+operator, even though it is not directly importable as an exact function. Its
+provider module and complete candidate signature are part of the descriptor.
+
 The semantic IR records the canonical operator identity on every implementation
 candidate and operator call. It never reconstructs that identity later from a
 short string. A descriptor for a native package maps the canonical language
 identity to its public C++ marker and registration hook. Source-defined
 operators receive deterministic generated marker identities.
 
+## Candidate universe and provider discovery
+
+The compiler resolves operator calls against one closed candidate universe. It
+contains every implementation contributed by:
+
+- the source modules assigned to the current package target;
+- every module in the locked transitive package dependency closure;
+- the hgraph kernel and selected native extension packages.
+
+This universe is not the import graph. Imports control lexical name visibility;
+the package and target graph controls implementation participation. A module
+may therefore contribute an implementation of `add` without providing any
+second name for `add` and without being imported at the call site.
+
+Installed but undeclared packages are outside the universe. The compiler must
+not search a machine-wide registry or plugin directory for additional
+candidates: doing so would make successful builds and ambiguities depend on the
+host environment.
+
+Each descriptor advertises candidate metadata without loading executable code,
+so `hgl check` can construct the same overload set as a native build. The final
+link manifest includes every participating provider and generates direct
+references to its initialization entry point; this both makes registration
+complete and prevents static-library dead stripping. A candidate-universe
+fingerprint detects a descriptor/runtime registration mismatch before graph
+wiring.
+
 ## One operator resolver
 
 The compiler owns language name resolution and type checking but does not own a
 second hgraph overload algorithm. Name resolution first chooses exactly one
-nominal operator. The candidates registered for that identity are then
-presented to a compiler bridge over hgraph's `TypePattern`, `ResolutionMap`, and
-operator registry. The bridge returns the selected candidate, resolved output
-schema, and rejected-candidate diagnostics.
+nominal operator. The candidates for that identity from the complete target
+universe are then presented to a compiler bridge over hgraph's `TypePattern`,
+`ResolutionMap`, and operator registry. The bridge returns the selected
+candidate, resolved output schema, and rejected-candidate diagnostics.
 
 Generated C++ makes the corresponding public operator wiring call. Both paths
 therefore consume the same registrations and matching rules. A mismatch between
@@ -121,10 +174,11 @@ compiler prediction and generated wiring is a compiler defect and belongs in a
 cross-mode regression test.
 
 User-defined functions without a local operator binding retain exact typed
-declarations and do not form overload sets. Same-named functions with an
-operator binding are registered as that operator's candidates. Their source
-bodies still determine whether each candidate lowers as composition or a
-runtime node.
+declarations and do not form overload sets. Only those declared `export fn`
+enter the public declaration surface. Same-named functions with an operator
+binding are registered automatically as that operator's candidates. Their
+source bodies still determine whether each candidate lowers as composition or
+a runtime node.
 
 Namespace resolution is not candidate ranking. Different nominal operators
 with the same short name never share a candidate set. Within one selected
@@ -132,6 +186,50 @@ operator, hgraph specificity rules choose the best implementation and an
 equal-ranked overlap remains an ambiguity error. Declaration and registration
 order never break the tie. Cross-module coherence rules for overlapping source
 implementations remain to be designed.
+
+## Generated module lifecycle
+
+Compilation emits a module descriptor and explicit lifecycle ABI. The exact C
+or C++ ABI remains to be specified, but it has three separate responsibilities:
+
+1. `init` attaches one module instance to an application and records its keyed
+   registry installer;
+2. the installer materializes that module's types, operator candidates, and
+   native associations for the current registry generation;
+3. `deinit` removes the module's active contributions and installer intent,
+   releases owned resources, and permits later unloading when safe.
+
+`init` and `deinit` are compiler-generated for HGL modules, not source-level
+blocks. A native extension may provide reviewed resource hooks through the same
+ABI. Registry installation remains replayable after reset and must not repeat
+unrelated one-time initialization side effects.
+
+Initialization is transactional and idempotent. A failed initialization rolls
+back its pending contribution; repeated initialization of the same module
+instance cannot duplicate candidates. Dependencies initialize first and
+deinitialize in reverse topological order. Registration order is retained for
+deterministic diagnostics but never resolves an overload tie.
+
+The module manager owns registrations through an opaque handle rather than
+asking generated code to erase individual candidates. Every installed
+candidate carries its provider identity. Removing a handle must atomically:
+
+- exclude the provider from future resolution;
+- remove its installer intent so a reset cannot resurrect it;
+- remove its exact-function and candidate registrations;
+- release type associations and native resources when their leases permit.
+
+Deactivation, deinitialization, and native-library unloading are distinct. A
+wired graph or cached plan that selects module code holds a provider lease.
+Deinitialization must wait or fail while such a lease is live, and unloading is
+permitted only after all code and metadata references are gone. The initial
+implementation may perform logical registration removal while retaining the
+library image for process lifetime.
+
+The current hgraph registry supports keyed replayable installers but not
+provider-scoped candidate removal or installer unregistration. The language
+therefore requires a first-class public module-registration handle and lease
+contract in hgraph; it must not erase registry internals itself.
 
 ## Native adaptor boundary
 
@@ -157,7 +255,7 @@ functions, not by escaping to native code.
 A language application will eventually carry a manifest which records:
 
 - package name and language edition;
-- source roots and entry function;
+- source roots, the modules assigned to each target, and its entry function;
 - direct language module dependencies and version constraints;
 - build profiles and target platforms;
 - explicitly selected runtime mode and deployment packaging.

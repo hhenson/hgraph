@@ -4,8 +4,8 @@ These files illustrate the proposed first language slice. The current `hgl`
 scaffold does not parse them yet, so they are documentation inputs rather than
 executable tests.
 
-- [`midpoint.hgl`](midpoint.hgl) uses `fn`, an atomic tuple, and a `const`
-  window.
+- [`midpoint.hgl`](midpoint.hgl) uses an internal helper, `export fn`, an
+  atomic tuple, and a `const` window.
 - [`runtime-choice.hgl`](runtime-choice.hgl) contrasts a wiring-time topology
   choice, explicit time-series selection, and a `when` runtime function.
 - [`stateful-node.hgl`](stateful-node.hgl) demonstrates aggregate state,
@@ -16,7 +16,8 @@ executable tests.
   `last_modified`, and mutable lexical `var`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
   nominal bodyless `operator`, a generic `fn` implementation, const-generic
-  rolling-window sizes, and the default minimum window size.
+  rolling-window sizes, an exported exact function, and the default minimum
+  window size.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
   maps with an atomic tuple and uses an anonymous `fn`.
 

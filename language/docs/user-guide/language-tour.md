@@ -13,7 +13,7 @@ fn midpoint(
 ) -> f64 =>
     (tob[0] + tob[1]) / 2.0
 
-fn smooth(
+export fn smooth(
     tob: atomic<tuple<f64, f64>>,
     const window: i64 = 20
 ) -> f64 {
@@ -36,6 +36,10 @@ constructs the function. It cannot change from tick to tick.
 The return type `f64` is temporal. Source type syntax describes the value and
 structural shape; it does not require an outer `ts<...>` wrapper.
 
+`midpoint` is an internal helper. `export fn smooth` makes the exact `smooth`
+function part of this module's public interface without turning it into an
+overload family.
+
 ## Reading the body
 
 The concise `=> expression` form is useful for a single-expression function.
@@ -47,9 +51,10 @@ read a tuple while hgraph is being constructed. Their selected implementations
 must preserve the atomic tuple's tick behavior.
 
 `midpoint(tob)` and `rolling_mean(...)` use ordinary function-call syntax.
-The compiler resolves imported contracts through hgraph's overload registry.
-The call site does not spell whether a selected implementation is a native
-node or a graph composition.
+The compiler resolves imported operator contracts through hgraph's overload
+registry. The call site does not spell whether a selected implementation is a
+native node or a graph composition. An imported exact `export fn` instead has
+one target and bypasses overload ranking.
 
 ## Operator contracts and module namespaces
 
@@ -62,6 +67,10 @@ operator combine<T>(lhs: T, rhs: T) -> T
 fn combine(lhs: f64, rhs: f64) -> f64 =>
     lhs + rhs
 ```
+
+The operator contract is public automatically. Its `fn combine` declaration is
+published as an implementation candidate through that operator; it is not an
+independently importable exact function and does not use `export fn`.
 
 An implementation module selects an externally defined operator with a
 selective import such as `use my.contracts::{combine}`. Exactly one operator

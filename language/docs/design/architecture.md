@@ -18,6 +18,9 @@ the directory into a separate repository without changing hgraph core.
   registered operators.
 - Express nominal generic operator contracts whose `fn` implementations reuse
   hgraph candidate matching and ranking.
+- Expose ordinary exact functions explicitly with `export fn`, while treating
+  operator contracts and their bound implementation candidates as public by
+  definition.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
@@ -56,7 +59,8 @@ hgraph runtime
 
 Hgraph core never imports, links, or otherwise depends on the language
 project. The compiler requires hgraph. Extension integrations are optional and
-are selected by imports in a program or package manifest.
+are selected by the application target's locked package dependencies. Source
+imports control names, not which implementation providers are active.
 
 ## Semantic phases
 
@@ -101,6 +105,8 @@ All execution modes share one pipeline:
 ```text
 source
   -> lexer and parser
+  -> package target and module-closure resolution
+  -> module descriptor and candidate-universe loading
   -> name and module resolution
   -> nominal operator binding and generic resolution
   -> canonical type resolution and temporal shape expansion
@@ -113,12 +119,13 @@ source
   -> hgraph runtime
 ```
 
-The frontend owns language diagnostics, lexical scope, canonical types,
-function classification, phase rules, type checking, and selection of a
-nominal operator identity through local declarations, selective imports, or
-qualified module aliases. Candidate selection within that identity delegates
-to the hgraph resolver; the language project must not clone its matching or
-ranking rules.
+The frontend owns language diagnostics, lexical scope, public function
+exposure, package membership, canonical types, function classification, phase
+rules, type checking, and selection of a nominal operator identity through
+local declarations, selective imports, or qualified module aliases. Every
+operator-bound `fn` in the resolved target closure contributes a candidate.
+Candidate selection within that identity delegates to the hgraph resolver; the
+language project must not clone its matching or ranking rules.
 
 The hgraph semantic IR is backend-neutral in representation but hgraph-specific
 in meaning. It distinguishes wiring operations from evaluation operations and
@@ -132,17 +139,32 @@ The first backend emits only public SDK constructs:
   methods and typed `Port` and `Scalar` parameters.
 - Source `operator` declarations become deterministic nominal C++ markers;
   bound `fn` implementations register explicitly against those markers.
+- Ordinary `export fn` declarations become public exact-callable entries;
+  unexported exact functions remain module implementation details.
 - Composition calls become public `wire` and operator-dispatch calls.
 - Functions classified as runtime primitives become empty structs with typed
   static hooks.
 - Runtime lifecycle and state become the corresponding hgraph selectors and
   hooks.
-- Imported modules contribute public headers, CMake packages and targets, and
-  explicit registration calls.
+- Modules in the target closure contribute public headers, CMake packages and
+  targets, descriptors, and explicit lifecycle and registration entry points.
 
 Generated code must not construct runtime internals, depend on private headers,
 or encode node indices and edges directly. Graph ordering, interning,
 flattening, overload selection, and runtime planning remain hgraph concerns.
+
+The application backend emits a deterministic module bootstrap. It initializes
+providers in dependency order, records their keyed replayable installers, runs
+those installers before graph wiring, and retains a registration handle for
+each active module. Direct references from this bootstrap prevent provider
+objects from being removed by static-library dead stripping.
+
+Teardown first prevents new selection from a provider, then stops or rejects
+live graphs holding provider leases, removes the provider's registrations and
+installer intent, deinitializes it in reverse dependency order, and unloads its
+native image only when no code or metadata reference remains. HGL module
+lifecycle entry points are generated; they are not arbitrary source-level
+initialization blocks.
 
 Generated translation units use `#line` directives or equivalent source maps
 so native compiler diagnostics refer to language source. A compiler error in
@@ -156,6 +178,11 @@ it in a child process. `hgl repl` accumulates source declarations and evaluates
 the current session through the same compile-and-run path. The initial REPL may
 rebuild the complete session; correctness and diagnostic quality precede
 incremental compilation.
+
+Every mode derives the same candidate universe from the target and lock file.
+When the REPL replaces a module, it removes the old registration handle before
+activating the new revision and rebuilding dependent graphs; a registry reset
+must not replay a removed provider.
 
 `hgl build` emits a reproducible native build tree or installable application
 artifact using the same typed IR and C++ backend. Debug and release profiles may
@@ -186,6 +213,7 @@ The language project will version these separately:
 
 - source syntax and static semantics;
 - language module descriptor format;
+- compiled module lifecycle and registration ABI;
 - generated-code requirements on the hgraph public SDK;
 - cached artifact format;
 - serialized hgraph values and record/replay data, which remain governed by

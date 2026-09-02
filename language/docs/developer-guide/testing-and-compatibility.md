@@ -7,7 +7,8 @@ Parser-only milestones remain intermediate progress.
 
 Snapshots cover:
 
-- bodyless `operator`, named `fn`, and anonymous `fn` declarations;
+- bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
+  declarations;
 - type and `const` generic parameter lists;
 - selective imports, module aliases, and `alias::declaration` references;
 - concise and block bodies;
@@ -22,6 +23,9 @@ Snapshots cover:
 - `start`, ordered `when`, and `stop` blocks;
 - complete and projected output assignment;
 - source ranges, recovery, and multiple diagnostics.
+
+Visibility cases include rejection of `export operator`, `export use`, export
+on an anonymous function, and `export fn` on an operator-bound implementation.
 
 Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
@@ -107,6 +111,10 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
   independently through qualified calls;
 - aliased modules not creating implementation bindings;
 - ordinary functions remaining exact when no operator binding exists;
+- operators and bound implementations being public without export modifiers;
+- unexported exact functions remaining module-internal and `export fn` exact
+  functions appearing in selective and qualified lookup;
+- exported exact functions not forming overload sets;
 - compatible concrete and generic implementation signatures, including type
   and rolling-size variables;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;
@@ -117,8 +125,39 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - candidate ranking and rejection reasons;
 - equal-ranked implementations of one operator remaining ambiguous regardless
   of declaration, import, or registration order;
+- candidate discovery across every source and locked dependency module in a
+  target, including provider modules with no imported exact declaration;
+- installed but undeclared packages having no effect on the candidate set;
+- one canonical operator import path regardless of provider count;
 - compiler prediction versus generated dispatch;
 - descriptor/registry fingerprint mismatch.
+
+## Module lifecycle and registration ownership
+
+Installed-SDK fixtures must compile at least two independent provider modules
+and exercise their generated lifecycle entry points through the public hgraph
+API. Tests cover:
+
+- dependency-ordered initialization and reverse-ordered deinitialization;
+- transactional rollback after partial initialization failure;
+- idempotent repeated initialization and deinitialization;
+- direct bootstrap references retaining static-library provider objects;
+- registry reset replaying every active provider exactly once;
+- provider removal deleting active candidates and installer intent;
+- a later reset not resurrecting a removed provider;
+- ambiguity and no-match diagnostics identifying provider modules;
+- candidate-universe fingerprints agreeing between descriptors and runtime;
+- deinitialization waiting or failing while a graph or plan retains a provider
+  lease;
+- logical removal retaining a native image safely when physical unloading is
+  unavailable;
+- REPL replacement removing the old revision's candidates before activating
+  the new revision.
+
+Failure injection must leave either the complete old module universe or the
+complete new universe active, never a mixture. Module removal runs only at a
+quiescent wiring boundary; tests must not rely on concurrent mutation of the
+process-wide operator registry.
 
 ## Generated C++
 
@@ -132,8 +171,11 @@ End-to-end tests must:
 2. configure against an installed hgraph SDK;
 3. use only public headers and imported targets;
 4. compile the implementation kind selected from source;
-5. execute through public evaluation APIs;
-6. compare values, ticks, validity, deltas, and absence of ticks.
+5. generate and invoke the complete module registration bootstrap;
+6. execute through public evaluation APIs;
+7. compare values, ticks, validity, deltas, and absence of ticks;
+8. deinitialize the module set and prove removed candidates stay removed after
+   registry reset.
 
 For each classified function, keep a minimal equivalent native C++ graph or
 node and compare behavior at the same semantic level.
@@ -175,6 +217,7 @@ Version independently:
 | Source grammar and semantics | language edition |
 | Function classification rules | language edition |
 | Module descriptor schema | descriptor-format version |
+| Compiled module lifecycle ABI | module-ABI version |
 | Required hgraph public APIs | SDK constraint |
 | Generated cache entries | cache format and complete cache key |
 | Runtime values and record data | hgraph and owning extensions |

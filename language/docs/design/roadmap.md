@@ -29,12 +29,14 @@ Acceptance:
 Deliverables:
 
 - lexer, parser, source manager, and structured diagnostics;
-- `module`, selective and aliased `use`, bodyless `operator`, named `fn`, and
-  anonymous `fn` syntax;
+- `module`, selective and aliased `use`, bodyless `operator`, named `fn`,
+  `export fn`, and anonymous `fn` syntax;
 - `bool`, `i64`, `f64`, `str`, `datetime`, tuple, list, set, map, and
   `atomic<T>` types, plus tick-count `rolling<T, max_size[, min_size]>`;
 - type and `const` generic declarations, nominal operator identities, and
   same-named function implementation binding;
+- automatically public operators and candidates, plus explicit public exposure
+  for ordinary exact functions;
 - `const` wiring parameters and recursive temporal-shape expansion;
 - immutable `let`, mutable lexical `var`, and runtime collection `for` loops;
 - provisional runtime classification from `state`, `inject`, lifecycle, and
@@ -55,6 +57,8 @@ Acceptance:
 - canonical and atomic shapes map to public hgraph schemas;
 - nominal operator identities and generic rolling-window size bindings survive
   into typed IR, while concrete rolling windows map to hgraph schemas;
+- private exact functions are absent from module interfaces, exported exact
+  functions are present, and operator candidates carry provider identity;
 - all AST and IR nodes retain precise source ranges;
 - malformed input recovers sufficiently to report multiple useful errors.
 
@@ -70,6 +74,13 @@ Deliverables:
 - source and imported nominal operator resolution through the hgraph resolver;
 - generated markers and explicit registration for source-defined operator
   implementations;
+- package-target and locked-dependency candidate-universe construction,
+  independent of source imports and without declaration re-exports;
+- generated module descriptors, initialization/bootstrap entry points,
+  replayable installers, registration handles, and reverse-order
+  deinitialization;
+- public hgraph provider-scoped candidate provenance, installer removal,
+  registration removal, and live-plan lease support;
 - public hgraph TSW patterns that bind named maximum and minimum size generics;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
@@ -82,6 +93,12 @@ Acceptance:
 - generated code uses no private hgraph headers or runtime internals;
 - named rolling-window size generics bind and resolve through public hgraph
   patterns;
+- every provider in the locked target is linked and registered before wiring,
+  and descriptor/runtime candidate fingerprints agree;
+- removing a provider prevents future selection and registry reset cannot
+  restore its candidates;
+- deinitialization refuses or waits on live graph leases and never unloads code
+  still referenced by a plan;
 - no-match and ambiguity diagnostics retain hgraph candidate reasons;
 - generated output is deterministic for identical inputs.
 
@@ -93,6 +110,8 @@ Deliverables:
 - `hgl run` in an isolated child process;
 - REPL sessions that accumulate declarations and rebuild through the same
   backend;
+- transactional replacement of generated module registration handles without
+  stale candidate or installer state;
 - testing sources and sinks suitable for exploration without defining native
   adaptors in the language.
 
@@ -101,6 +120,7 @@ Acceptance:
 - the same source produces identical ticks in `run`, REPL, and ahead-of-time
   execution;
 - failed compilation or execution cannot corrupt a later REPL session;
+- failed module replacement leaves the prior active module universe intact;
 - cache keys cover compiler, hgraph, extension, profile, and target inputs;
 - diagnostics map to original source in every mode.
 
@@ -129,6 +149,8 @@ Before the language is described as production-ready:
 - generated applications build against an installed SDK, not only the
   repository tree;
 - module descriptors cover at least one independently packaged extension;
+- module initialization, reset replay, deinitialization, registration removal,
+  and safe retained-image behavior pass installed-SDK lifecycle tests;
 - debug and release profiles have equivalent semantics;
 - cache and lock formats are versioned;
 - source compatibility and language edition policy are documented;

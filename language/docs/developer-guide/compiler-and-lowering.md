@@ -1,12 +1,14 @@
 # Compiler and C++ lowering
 
-Status: target pipeline with provisional runtime-function semantics
+Status: target pipeline with provisional generic, module, and runtime semantics
 
 All execution modes share one pipeline:
 
 ```text
 source
   -> tokens and syntax AST
+  -> package target and locked module closure
+  -> module descriptors and candidate universe
   -> modules, nominal names, and canonical value types
   -> generic binding and operator conformance
   -> recursive temporal shape expansion
@@ -45,6 +47,7 @@ filesystem paths through the AST.
 Parsing produces `UnclassifiedFn` for both named and anonymous functions. Its
 signature stores:
 
+- whether a named exact function carries the `export` modifier;
 - type and `const` generic parameters;
 - temporal parameters with canonical source types;
 - `const` parameters with canonical value types and defaults;
@@ -58,9 +61,12 @@ schemas but does not choose graph or node lowering.
 
 A parsed `operator` is represented separately as a bodyless `OperatorContract`
 with a canonical `(module, name)` identity, generic signature, public parameter
-roles, defaults, result relationship, and source range. Name resolution marks a
-same-named `UnclassifiedFn` as an implementation of that identity only when a
-unique local or selectively imported operator binding exists.
+roles, defaults, result relationship, and source range. Every
+`OperatorContract` is public. Name resolution marks a same-named
+`UnclassifiedFn` as an implementation of that identity only when a unique local
+or selectively imported operator binding exists. Such an implementation is a
+provider candidate automatically and rejects an `export` modifier; only an
+unbound exact function may be exported directly.
 
 ## Function classification
 
@@ -391,27 +397,82 @@ A source-defined operator lowers to a deterministic generated C++ marker. Each
 compatible same-named `fn` lowers to an explicitly registered graph or node
 candidate according to its classified body. An ordinary `fn` without an
 operator binding lowers as an exact callable and is not placed in a registry.
+Only an ordinary `export fn` is emitted into the module's public exact-function
+surface.
+
 The generated marker or descriptor mapping must preserve the full nominal
 identity rather than using an unqualified registry string that could collide
 with another module.
 
 ## Module descriptors and build manifests
 
-A descriptor exposes source-level function contracts, nominal operator
-identities, candidate-to-operator bindings, and implementation metadata, plus:
+A descriptor separates its importable interface from its provider inventory.
+The interface contains automatically public nominal operators and explicitly
+exported exact functions. The provider inventory contains every
+candidate-to-operator binding, including the provider module identity and
+implementation metadata, plus:
 
 - canonical module and compatibility versions;
 - canonical types and their hgraph schemas;
 - required public headers and CMake packages;
-- imported targets and registration entry points;
+- imported targets and module lifecycle and registration entry points;
 - descriptor fingerprints and documentation links.
 
-Selected declarations produce a deterministic build manifest. Only used
-modules contribute headers, packages, targets, and registration calls.
+The compiler constructs the candidate universe from every source module in the
+application target and every module in its locked transitive package closure.
+It does not infer provider participation from source imports and does not scan
+installed packages. The deterministic build manifest links every participating
+provider and directly references its initialization entry point, preventing
+static-library dead stripping. A candidate-universe fingerprint must agree with
+the registrations installed before graph wiring.
 
 Scalar-dependent native candidate constraints need either a declarative form
 interpreted by hgraph's shared resolver or an isolated resolver helper. The
 compiler must not approximate them.
+
+## Generated module lifecycle and ownership
+
+Each compiled module exposes compiler-generated lifecycle functions through a
+versioned public ABI. The exact spelling is provisional, but the semantic split
+is required:
+
+```cpp
+ModuleHandle init_module(ModuleContext &context);
+void deinit_module(ModuleContext &context, ModuleHandle handle);
+```
+
+`init_module` starts a registration transaction for the module's canonical
+identity and descriptor fingerprint. It records one keyed installer containing
+all type registrations, operator candidates, and native associations, then
+commits an opaque `ModuleHandle`. A failed transaction rolls back without
+leaving a partial candidate set. Repeating initialization for the same active
+module instance is idempotent.
+
+The application compiler emits one bootstrap that directly invokes every
+module initializer in dependency order and then runs all installers before
+wiring. Registry reset replays the installers, not the one-time initialization
+hooks. The bootstrap retains each handle and deinitializes modules in reverse
+dependency order.
+
+`deinit_module` removes by provider handle rather than issuing candidate-level
+erase calls. Removal first prevents new resolution against the provider, then
+removes its currently installed candidates, exact-function metadata, type
+associations, and installer intent. Removing installer intent is essential: a
+later registry reset must not resurrect the provider.
+
+Operator selection and exact-function lowering attach a provider lease to each
+resulting graph, node plan, or cached callable that may reference module code or
+metadata. Deinitialization must wait or report `module in use` while such leases
+or dependent modules remain. Native-library unloading is a later, stricter step
+allowed only when no installer callback, generated function, or type metadata
+points into that image. Logical removal may retain the image for process
+lifetime in the initial implementation.
+
+The current public hgraph `OperatorRegistry` provides keyed installers and
+reset replay but no provider-scoped removal or installer unregistration. Hgraph
+must gain a first-class module registration transaction/handle, candidate
+provenance, removal, and lease contract. Generated language code must not reach
+into registry storage or attempt to coordinate several registries privately.
 
 ## Source mapping and generated artifacts
 
@@ -431,6 +492,12 @@ classifier, typed IR, and C++ backend.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
+
+Replacing a REPL module stops and destroys graphs holding its leases, removes
+the old module handle and installer intent, initializes the replacement, and
+rebuilds the registry from the active module set. If removal cannot complete,
+the old revision remains active and the replacement fails atomically. Retaining
+old native images is acceptable; retaining their candidates is not.
 
 A future JIT must consume the same classified semantic IR and pass cross-mode
 parity before it can replace compile-and-run.

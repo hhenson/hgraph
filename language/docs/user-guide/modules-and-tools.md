@@ -33,12 +33,18 @@ use my.analytics as analytics
 analytics::zscore(prices)
 ```
 
-There are no wildcard imports. Canonical scalar and container types,
-temporal-shape rules, `atomic<T>`, and expression operator bindings come from
-the implicit hgraph prelude. Everything else must be imported, reached through
-a module alias, or declared locally.
+An `operator` declaration is public automatically. An ordinary exact function
+is public only when declared `export fn`; an unexported function remains
+module-internal. Both selective and aliased imports expose only this public
+declaration surface.
 
-## Operator identity and implementation imports
+There are no wildcard imports or re-exports. In particular, an implementation
+module does not create a second import path for an operator defined elsewhere.
+Canonical scalar and container types, temporal-shape rules, `atomic<T>`, and
+expression operator bindings come from the implicit hgraph prelude. Everything
+else must be imported, reached through a module alias, or declared locally.
+
+## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short
 name alone. The canonical identities `market.pricing::value` and
@@ -84,10 +90,65 @@ operator definitions; it does not break a tie between implementations of one
 operator. Equal-ranked implementations within one selected operator remain an
 ambiguity error.
 
-Each import is checked against a language module descriptor. A descriptor
-contains typed declarations, nominal operator identities, versions, required
-public headers, CMake package and target names, and registration entry points.
-It does not grant access to arbitrary symbols in a library.
+Every `fn` bound to an operator contributes an implementation candidate
+automatically. It does not use `export fn` and is not separately importable by
+its implementation module's name. `export fn` is reserved for exposing an
+ordinary exact function.
+
+## Implementation discovery
+
+Imports control source names; they do not decide which operator implementations
+are installed. The complete candidate universe comes from the resolved
+application target:
+
+- every source module belonging to the target;
+- every module contributed by a locked package dependency;
+- the hgraph kernel and selected native extension packages.
+
+The compiler reads each module descriptor and indexes its candidates by the
+operator's canonical identity. A provider module participates even when none of
+its exact functions is imported. Conversely, a package installed somewhere on
+the machine contributes nothing unless it belongs to the target's dependency
+closure. This makes overload resolution reproducible and avoids scanning the
+environment for implementations.
+
+For an operator such as `add`, source imports its one defining contract. User
+and extension modules in the target may contribute many implementations, but
+they do not re-export or rename `add`. If equally specific candidates overlap,
+the build reports their provider modules as an ambiguity rather than using
+module or registration order as a tie-break.
+
+Each imported declaration and each provider in the target closure is checked
+against a language module descriptor. A descriptor contains public exact
+functions, nominal operator identities, implementation candidates with provider
+provenance, versions, required public headers, CMake package and target names,
+and lifecycle and registration entry points. It does not grant access to
+arbitrary symbols in a library.
+
+## Compiled module lifecycle
+
+Each compiled module has compiler-generated lifecycle entry points. Module
+initialization attaches the library to the application and records a keyed
+installer containing its type and operator registrations. Registry installation
+may run again after an hgraph registry reset without repeating unrelated module
+initialization effects.
+
+The generated application initializes every module in dependency order before
+wiring a graph. Deinitialization proceeds in reverse dependency order and
+removes the module from future function and operator resolution, removes its
+installer so a reset cannot restore it, and releases its registrations and
+resources.
+
+A live graph may retain generated code or metadata from a provider module.
+Such a graph holds a lease on that module: deinitialization must wait or fail
+while the module is in use, and the native library cannot be unloaded until all
+leases are released. The first implementation may remove registrations while
+keeping the native image resident; physical unloading is a stricter later
+capability.
+
+These entry points are generated infrastructure, not HGL `init` or `deinit`
+blocks. Native C++ extensions may attach resource hooks through the module ABI,
+but language source cannot perform arbitrary module-load side effects.
 
 ## Native adaptors stay native
 
@@ -138,6 +199,11 @@ The initial REPL may rebuild the whole session after each accepted declaration.
 That is slower than a JIT but guarantees that exploration sees the same
 function classification, overload, graph, node, and scheduling semantics as an
 ahead-of-time production binary.
+
+When a REPL module changes, the driver stops graphs using its old revision,
+removes that revision's registration handle, initializes the replacement, and
+rebuilds from the resulting active module set. Removed candidates must not
+survive through an installer replay.
 
 External input is supplied by imported native facilities or purpose-built
 testing sources. A REPL convenience must not become an interpreter-only push

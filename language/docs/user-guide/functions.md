@@ -38,6 +38,31 @@ Calls accept positional arguments followed by named arguments:
 smooth(tob, window: 50)
 ```
 
+## Public functions
+
+An ordinary named function is visible throughout its module but is not exposed
+to other modules unless it is declared with `export`:
+
+```hgl
+fn validate_price(value: f64) -> bool =>
+    value > 0.0
+
+export fn normalize_price(value: f64) -> f64 =>
+    if value > 0.0 { value } else { 0.0 }
+```
+
+Other modules may import or qualify `normalize_price`; they cannot name
+`validate_price`. Exporting an ordinary function does not create an overload
+family. Two exported ordinary functions therefore cannot share a name merely
+because their signatures differ.
+
+Operators use a different rule. Declaring an `operator` makes its contract
+public automatically, and every compatible same-named `fn` participates as an
+implementation candidate. The candidate is reached through the operator and
+is not an independently exported exact function. Consequently `export fn` is
+invalid on an operator-bound implementation: the binding already supplies its
+public meaning.
+
 ## Temporal and constant parameters
 
 An unmodified parameter is temporal:
@@ -94,6 +119,8 @@ protocol. It declares a call shape and generic relationships but has no body:
 operator combine<T>(lhs: T, rhs: T) -> T
 ```
 
+An operator is public by definition; there is no `export operator` form.
+
 The contract owns its parameter names, temporal-versus-`const` roles, defaults,
 and result relationship. A same-named `fn` in an implementation-binding scope
 contributes a compatible implementation candidate:
@@ -121,7 +148,7 @@ candidates are an ambiguity error, never a declaration-order choice.
 If no local or selectively imported operator has the function's name, `fn`
 declares an ordinary function. Ordinary functions do not form an overload set
 merely by repeating their name. See [Modules and tools](modules-and-tools.md)
-for implementation imports and qualified operator calls.
+for implementation discovery, imports, and qualified operator calls.
 
 ## Anonymous functions
 

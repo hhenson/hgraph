@@ -151,9 +151,10 @@ rolling_mean(value, window)
 rolling_mean(value, period: window)
 ```
 
-Calls to imported contracts use hgraph's candidate matching, defaults, scalar
-lifting, ranking, and output resolution. Whether the selected implementation
-is a graph or node is invisible at the call site.
+Operator calls use hgraph's candidate matching, defaults, scalar lifting,
+ranking, and output resolution. Whether the selected implementation is a graph
+or node is invisible at the call site. An imported exact `export fn` call has
+one declared target and does not enter candidate ranking.
 
 The prelude binds familiar tokens to standard operator contracts:
 

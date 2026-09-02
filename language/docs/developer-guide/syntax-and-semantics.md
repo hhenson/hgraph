@@ -25,7 +25,7 @@ statement terminators or parameter separators.
 The hard reserved words for the current design surface are:
 
 ```text
-module use as operator fn const let var state inject return if else
+module use as export operator fn const let var state inject return if else
 start when stop for
 true false
 bool i64 f64 str datetime
@@ -57,8 +57,8 @@ import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 declaration     = operator_decl | function_decl;
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature;
-function_decl   = "fn", identifier, [ generic_parameters ],
-                  function_signature, function_body;
+function_decl   = [ "export" ], "fn", identifier,
+                  [ generic_parameters ], function_signature, function_body;
 
 generic_parameters
                 = "<", generic_parameter,
@@ -86,7 +86,8 @@ A function or operator signature with no return arrow is outputless. An
 `operator` declaration ends at the newline after its signature and cannot have
 a body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
-it is not a general local-variable qualifier.
+it is not a general local-variable qualifier. `export` applies only to a named
+ordinary exact `fn`; operators are public without a modifier.
 
 ## Anonymous functions
 
@@ -177,7 +178,8 @@ type parameters only.
 An `operator` declaration introduces a nominal, bodyless callable contract. Its
 identity is `(defining module, declaration name)`, not its short name. The
 contract owns public parameter names and order, temporal-versus-`const` roles,
-defaults, and generic input/output relationships.
+defaults, and generic input/output relationships. Every operator is public by
+definition; `export operator` is not a declaration form.
 
 A same-named `fn` is an implementation candidate when exactly one matching
 operator binding exists in the module's unqualified declaration scope. That
@@ -194,6 +196,9 @@ The implementation signature must be a compatible specialization of the
 contract. It may introduce its own generics, but cannot change the contract's
 public argument roles. Its body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
+The implementation automatically contributes a public candidate to the
+operator and cannot also be marked `export fn`; it is not an independently
+named exact function.
 
 A module alias creates only a namespace:
 
@@ -211,7 +216,14 @@ qualified reference resolves directly to one nominal identity.
 
 When no matching operator is locally declared or selectively imported, a named
 `fn` is an ordinary exact function. Repeating an ordinary function name does
-not implicitly create an overload family.
+not implicitly create an overload family. It is module-internal unless marked
+`export fn`, which places that exact signature in the public module interface.
+Exported exact functions must still have unique names.
+
+Both selective and aliased imports expose only operators and exported exact
+functions. The first language edition has no `export use` or other re-export
+form: implementation providers never create alternate import identities for an
+operator defined elsewhere.
 
 ## Blocks and expressions
 
@@ -552,6 +564,11 @@ declaration or one selective import. A qualified call obtains it from its
 module alias. Operators with equal short names but different defining modules
 never share a candidate set.
 
+The candidate set for that identity comes from every module in the resolved
+application target and locked dependency closure, not only the modules named by
+source imports. Descriptors make this set available during `hgl check`; packages
+outside the target cannot affect resolution.
+
 The compiler passes that identity, resolved temporal shapes, canonical `const`
 values, generic bindings, and source call arguments to hgraph's operator
 resolver. The result includes:
@@ -573,6 +590,23 @@ The typed HIR records whether a named `fn` is an exact ordinary function or an
 implementation of a canonical operator identity. A later import cannot silently
 reinterpret an already resolved ordinary function as an operator candidate.
 
+## Generated module lifecycle
+
+There is no source grammar for top-level `init`, `deinit`, or disposal blocks.
+The module compiler synthesizes lifecycle entry points and a registration handle
+from the module's exports, operator candidates, types, and dependencies.
+
+Initialization attaches the module once and records a replayable installer for
+the current and later hgraph registry generations. Deinitialization removes the
+provider from future resolution, removes its installer intent and active
+registrations, and releases resources only after dependent graphs and plans
+release their provider leases. Dependency order is forward for initialization
+and reverse for deinitialization.
+
+The module ABI must distinguish logical deactivation and registration removal
+from physical native-library unloading. The latter is invalid while any
+generated code, callback, or type metadata from the module remains reachable.
+
 ## AST requirements
 
 Every token and AST node retains a half-open source range. The AST preserves:
@@ -585,6 +619,7 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - `atomic` boundaries in types;
 - rolling-window size arguments and omitted minimum-size syntax;
 - nominal operator declarations and implementation bindings;
+- explicit `export` on ordinary exact functions;
 - selective imports, module aliases, and qualified references;
 - `let` versus `var` local mutability;
 - concise versus block function bodies;
@@ -595,8 +630,8 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - complete and projected output assignments;
 - explicit versus context-inferred anonymous types.
 
-Parser recovery should synchronize at closing braces, `operator`, `fn`, and
-top-level newlines.
+Parser recovery should synchronize at closing braces, `export`, `operator`,
+`fn`, and top-level newlines.
 
 ## Diagnostics
 
@@ -616,8 +651,11 @@ operator: '+' has no hgraph overload for f64 and str
 phase: runtime collection iterator cannot be stored in 'saved'
 type: predicate for 'items' must accept (key, value) and return bool
 module: hgraph.analytics does not export 'rolling_mean'
+module: function 'validate_price' is internal to market.pricing
+module: 'export fn add' is invalid because 'add' implements hgraph.std::add
 module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
 operator: function 'value' is not compatible with market.pricing::value
+module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20
 ```
 

@@ -16,5 +16,5 @@ fn summarize<
 >(window: rolling<f64, max_size, min_size>) -> f64 =>
     mean(window)
 
-fn summarize_full_window(window: rolling<f64, 20>) -> f64 =>
+export fn summarize_full_window(window: rolling<f64, 20>) -> f64 =>
     summarize(window)
