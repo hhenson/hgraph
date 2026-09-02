@@ -229,11 +229,6 @@ namespace hgraph::kafka
         return *this;
     }
 
-    ServiceConfigBuilder &ServiceConfigBuilder::consumer_failure_policy(KafkaFailurePolicy value) {
-        consumer_failure_policy_ = value;
-        return *this;
-    }
-
     ServiceConfigBuilder &ServiceConfigBuilder::outbound_overflow(KafkaOverflowAction value, KafkaOverflowAction stage_full) {
         outbound_overflow_ = value;
         stage_overflow_    = stage_full;
@@ -242,11 +237,6 @@ namespace hgraph::kafka
 
     ServiceConfigBuilder &ServiceConfigBuilder::shutdown_drain_timeout(std::chrono::milliseconds value) {
         shutdown_drain_timeout_ms_ = value.count();
-        return *this;
-    }
-
-    ServiceConfigBuilder &ServiceConfigBuilder::producer_failure_policy(KafkaFailurePolicy value) {
-        producer_failure_policy_ = value;
         return *this;
     }
 
@@ -268,8 +258,7 @@ namespace hgraph::kafka
     Value ServiceConfigBuilder::build() const {
         return make_service_config(
             bootstrap_servers_, client_id_, idempotent_producer_, ingress_record_limit_, outbound_record_limit_, common_options_,
-            consumer_options_, producer_options_, inbound_overflow_,
-            consumer_failure_policy_, outbound_overflow_, stage_overflow_, shutdown_drain_timeout_ms_, producer_failure_policy_,
+            consumer_options_, producer_options_, inbound_overflow_, outbound_overflow_, stage_overflow_, shutdown_drain_timeout_ms_,
             producer_acknowledgements_, producer_retries_, producer_linger_ms_, producer_batch_record_limit_);
     }
 
@@ -385,8 +374,6 @@ namespace hgraph::kafka
         static_cast<void>(scalar_descriptor<KafkaRecoveryClock>::value_meta());
         static_cast<void>(scalar_descriptor<KafkaMergePolicy>::value_meta());
         static_cast<void>(scalar_descriptor<KafkaOverflowAction>::value_meta());
-        static_cast<void>(scalar_descriptor<KafkaFailurePolicy>::value_meta());
-
         static_cast<void>(scalar_descriptor<KafkaHeader>::value_meta());
         static_cast<void>(scalar_descriptor<KafkaOption>::value_meta());
         static_cast<void>(scalar_descriptor<KafkaTopicPartition>::value_meta());
@@ -458,9 +445,8 @@ namespace hgraph::kafka
                               Int outbound_record_limit,
                               std::vector<KafkaOptionInput> common_options, std::vector<KafkaOptionInput> consumer_options,
                               std::vector<KafkaOptionInput> producer_options, KafkaOverflowAction inbound_overflow,
-                              KafkaFailurePolicy consumer_failure_policy, KafkaOverflowAction outbound_overflow,
-                              KafkaOverflowAction stage_overflow, Int shutdown_drain_timeout_ms,
-                              KafkaFailurePolicy producer_failure_policy, Str producer_acknowledgements, Int producer_retries,
+                              KafkaOverflowAction outbound_overflow, KafkaOverflowAction stage_overflow,
+                              Int shutdown_drain_timeout_ms, Str producer_acknowledgements, Int producer_retries,
                               Int producer_linger_ms, Int producer_batch_record_limit) {
         register_kafka_types();
         if (bootstrap_servers.empty()) {
@@ -498,7 +484,6 @@ namespace hgraph::kafka
         Value consumer   = bundle<KafkaConsumerDefaults>({
             {"ingress_record_limit", atomic(ingress_record_limit)},
             {"inbound_overflow", atomic(inbound_overflow)},
-            {"failure_policy", atomic(consumer_failure_policy)},
             {"options", options(std::move(consumer_options))},
         });
         Value producer   = bundle<KafkaProducerOptions>({
@@ -511,7 +496,6 @@ namespace hgraph::kafka
             {"overflow", atomic(outbound_overflow)},
             {"stage_overflow", atomic(stage_overflow)},
             {"shutdown_drain_timeout_ms", atomic(shutdown_drain_timeout_ms)},
-            {"failure_policy", atomic(producer_failure_policy)},
             {"options", options(std::move(producer_options))},
         });
         return bundle<KafkaServiceConfig>({

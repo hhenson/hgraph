@@ -181,8 +181,7 @@ using PlainKafkaTransportEvent =
            Field<"state", KafkaSubscriptionState>,
            Field<"evaluation_time", DateTime>, Field<"removed", Bool>,
            Field<"recovery", Bool>, Field<"request_id", Int>,
-           Field<"report", KafkaDeliveryReport>, Field<"event", KafkaEvent>,
-           Field<"stop_graph", Bool>>;
+           Field<"report", KafkaDeliveryReport>, Field<"event", KafkaEvent>>;
 using PlainKafkaTransportEventBatch =
     HomogeneousTuple<PlainKafkaTransportEvent>;
 

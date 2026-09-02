@@ -25,7 +25,6 @@ from ._hgraph_kafka import (
     KafkaMergePolicy,
     KafkaOffsetFallback,
     KafkaOverflowAction,
-    KafkaFailurePolicy,
     KafkaRecoveryClock,
     KafkaSelectorKind,
     KafkaSeverity,
@@ -197,7 +196,6 @@ class KafkaConnectionConfig(CompoundScalar, namespace=_NAMESPACE):
 class KafkaConsumerDefaults(CompoundScalar, namespace=_NAMESPACE):
     ingress_record_limit: int = 10_000
     inbound_overflow: KafkaOverflowAction = KafkaOverflowAction.FAIL
-    failure_policy: KafkaFailurePolicy = KafkaFailurePolicy.REPORT
     options: tuple[KafkaOption, ...] = ()
 
     def __post_init__(self) -> None:
@@ -218,7 +216,6 @@ class KafkaProducerOptions(CompoundScalar, namespace=_NAMESPACE):
     overflow: KafkaOverflowAction = KafkaOverflowAction.STAGE
     stage_overflow: KafkaOverflowAction = KafkaOverflowAction.FAIL
     shutdown_drain_timeout_ms: int = 5_000
-    failure_policy: KafkaFailurePolicy = KafkaFailurePolicy.REPORT
     options: tuple[KafkaOption, ...] = ()
 
     def __post_init__(self) -> None:

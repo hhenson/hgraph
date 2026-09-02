@@ -109,6 +109,12 @@ def test_graph_lifetime_stop_policy_is_exposed_to_python() -> None:
     assert stop.offsets == ()
 
 
+def test_kafka_diagnostics_expose_no_engine_stop_policy() -> None:
+    assert not hasattr(kafka, "KafkaFailurePolicy")
+    assert not hasattr(kafka.KafkaConsumerDefaults(), "failure_policy")
+    assert not hasattr(kafka.KafkaProducerOptions(), "failure_policy")
+
+
 def test_all_service_interfaces_and_topic_forms_share_one_binding() -> None:
     wiring = _hgraph.Wiring()
     config = kafka.KafkaServiceConfig.from_bootstrap_servers(

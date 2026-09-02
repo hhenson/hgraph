@@ -100,11 +100,6 @@ namespace hgraph::kafka
         Stage,
     };
 
-    enum class KafkaFailurePolicy : std::int64_t {
-        Report,
-        StopGraph,
-    };
-
     namespace detail
     {
         [[nodiscard]] constexpr std::string_view enum_name(KafkaTimestampType value) noexcept {
@@ -234,13 +229,6 @@ namespace hgraph::kafka
             return "Unknown";
         }
 
-        [[nodiscard]] constexpr std::string_view enum_name(KafkaFailurePolicy value) noexcept {
-            switch (value) {
-                case KafkaFailurePolicy::Report: return "Report";
-                case KafkaFailurePolicy::StopGraph: return "StopGraph";
-            }
-            return "Unknown";
-        }
     }  // namespace detail
 
     template <typename T>
@@ -317,10 +305,6 @@ namespace hgraph::static_schema_detail
         static constexpr std::string_view value{"hgraph.kafka::KafkaOverflowAction"};
     };
 
-    template <> struct scalar_name<kafka::KafkaFailurePolicy>
-    {
-        static constexpr std::string_view value{"hgraph.kafka::KafkaFailurePolicy"};
-    };
 }  // namespace hgraph::static_schema_detail
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -349,8 +333,6 @@ namespace hgraph
     HGRAPH_KAFKA_PYTHON_ENUM_CONVERSION(KafkaRecoveryClock);
     HGRAPH_KAFKA_PYTHON_ENUM_CONVERSION(KafkaMergePolicy);
     HGRAPH_KAFKA_PYTHON_ENUM_CONVERSION(KafkaOverflowAction);
-    HGRAPH_KAFKA_PYTHON_ENUM_CONVERSION(KafkaFailurePolicy);
-
     #undef HGRAPH_KAFKA_PYTHON_ENUM_CONVERSION
 }  // namespace hgraph
 #endif
@@ -378,15 +360,14 @@ namespace hgraph::kafka
 
     using KafkaConsumerDefaults =
         Bundle<"hgraph.kafka::KafkaConsumerDefaults", Field<"ingress_record_limit", Int>,
-               Field<"inbound_overflow", KafkaOverflowAction>, Field<"failure_policy", KafkaFailurePolicy>,
-               Field<"options", HomogeneousTuple<KafkaOption>>>;
+               Field<"inbound_overflow", KafkaOverflowAction>, Field<"options", HomogeneousTuple<KafkaOption>>>;
 
     using KafkaProducerOptions =
         Bundle<"hgraph.kafka::KafkaProducerOptions", Field<"idempotent", Bool>, Field<"acknowledgements", Str>,
                Field<"retries", Int>, Field<"linger_ms", Int>, Field<"batch_record_limit", Int>,
                Field<"outbound_record_limit", Int>, Field<"overflow", KafkaOverflowAction>,
                Field<"stage_overflow", KafkaOverflowAction>, Field<"shutdown_drain_timeout_ms", Int>,
-               Field<"failure_policy", KafkaFailurePolicy>, Field<"options", HomogeneousTuple<KafkaOption>>>;
+               Field<"options", HomogeneousTuple<KafkaOption>>>;
 
     using KafkaServiceConfig = Bundle<"hgraph.kafka::KafkaServiceConfig", Field<"connection", KafkaConnectionConfig>,
                                       Field<"consumer_defaults", KafkaConsumerDefaults>, Field<"producer", KafkaProducerOptions>>;

@@ -680,8 +680,10 @@ reports/events through the standard transport sender.
 
 No worker thread calls ``EvaluationEngineApi``, requests graph stop, mutates a
 time-series value, or retains a borrowed graph value.  Fatal events cross the
-push boundary, and an ordinary graph-thread node applies the configured
-``Report`` or ``StopGraph`` policy.
+push boundary into the public ``KafkaEvent`` flow.  An always-active
+graph-thread diagnostic sink logs each event at its declared severity whether
+or not a client subscribes to that flow.  Kafka adaptor nodes do not request
+engine shutdown; applications decide how to react to the typed diagnostic.
 
 Queue ownership and capacity
 ----------------------------

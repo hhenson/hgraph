@@ -188,7 +188,7 @@ def test_released_producer_batching_defaults_map_to_typed_native_options() -> No
     assert config.producer.retries == 7
     assert config.producer.linger_ms == 25
     assert config.producer.batch_record_limit == 1_000
-    assert config.consumer_defaults.failure_policy.name == "STOP_GRAPH"
+    assert not hasattr(config.consumer_defaults, "failure_policy")
 
 
 def _consume(headers, payload=b'{"a": 1}'):

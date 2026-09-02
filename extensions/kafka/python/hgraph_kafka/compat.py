@@ -31,7 +31,6 @@ from . import (
     KafkaCommitMode,
     KafkaConnectionConfig,
     KafkaConsumerDefaults,
-    KafkaFailurePolicy,
     KafkaHeader,
     KafkaMergePolicy,
     KafkaOffsetFallback,
@@ -217,7 +216,6 @@ def _legacy_config(value: dict | KafkaServiceConfig) -> KafkaServiceConfig:
     return KafkaServiceConfig(
         KafkaConnectionConfig(servers, client_id, tuple(common)),
         KafkaConsumerDefaults(
-            failure_policy=KafkaFailurePolicy.STOP_GRAPH,
             options=tuple(consumer),
         ),
         KafkaProducerOptions(
