@@ -14,7 +14,7 @@ from .._types import (_GenericTsExpr, _TsExpr, _TypeVarSentinel,
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_lock, _wiring_stack, wire)
 from ._graph import _GraphFn
-from ._node import _PyNode
+from ._node import _PyNode, _ensure_current_signature
 from ._sentinels import _simplify_delta
 from ._state import (GlobalState, _global_state_scope,
                      _GRAPH_LOGGER_FORMATTER_KEY,
@@ -544,6 +544,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             "EvaluationMode.REAL_TIME")
     realtime = __run_mode__ == EvaluationMode.REAL_TIME
     fn, inputs = node, args
+    if isinstance(fn, (_GraphFn, _PyNode)):
+        _ensure_current_signature(fn)
     try:
         fn_sig = inspect.signature(
             fn.fn if isinstance(fn, _GraphFn) or hasattr(fn, "_delegate") else fn,

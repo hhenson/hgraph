@@ -450,19 +450,23 @@ class _OperatorFunction:
                  "_sizes", "_ts_hint", "_resolutions")
 
     def __init__(self, name, output_type=None, sizes=None, ts_hint=None,
-                 resolutions=None, signature=None):
+                 resolutions=None, signature=None, documentation=None):
         import inspect
 
         self.__name__ = name
         self.__qualname__ = name
-        signatures = _operator_overload_signatures(name)
+        signatures = _operator_overload_signatures(name) if documentation is None else ()
         self.__signature__ = (
             inspect.signature(signature)
             if callable(signature)
             else signature if signature is not None
             else _operator_runtime_signature(signatures)
         )
-        self.__doc__ = _operator_documentation(name, signatures)
+        self.__doc__ = (
+            documentation
+            if documentation is not None
+            else _operator_documentation(name, signatures)
+        )
         self._output_type = output_type
         self._sizes = sizes
         self._ts_hint = ts_hint
@@ -530,6 +534,25 @@ class _OperatorFunction:
             kwargs.setdefault("__sizes__", self._sizes)
         if self._resolutions is not None:
             kwargs.setdefault("__resolutions__", self._resolutions)
+        # A pinned lookup of a non-storage CompoundScalar attribute can only
+        # select the Python descriptor node. Avoid repeating full getattr_
+        # overload resolution for this common computed-field form; stored
+        # fields and unpinned lookups retain ordinary registry inference.
+        if (self.__name__ == "getattr_" and 2 <= len(args) <= 3
+                and isinstance(args[0], WiringPort)
+                and isinstance(args[1], str)
+                and self._resolutions is not None
+                and "SCALAR" in self._resolutions
+                and set(kwargs).issubset({"output_type", "__resolutions__"})):
+            raw = _unwrap(args[0])
+            if raw.ts_type.is_ts:
+                value_type = _hgraph.ts_value_vt(raw.ts_type)
+                fields = getattr(value_type, "fields", ())
+                if fields and args[1] not in {name for name, _ in fields}:
+                    from ..nodes import _getattr_compound_descriptor
+
+                    return _getattr_compound_descriptor._with_resolution(
+                        self._resolutions)(*args)
         # Fixed-TSL integer access is a structural projection, not a runtime
         # node. Keep direct calls to getitem_ consistent with ``port[index]``;
         # other shapes and dynamic keys fall back to the registered operator.
@@ -590,7 +613,7 @@ class _OperatorFunction:
         return _OperatorFunction(
             self.__name__, output_type=output_type, sizes=sizes or None,
             ts_hint=ts_hints or None, resolutions=resolutions or None,
-            signature=self.__signature__)
+            signature=self.__signature__, documentation=self.__doc__)
 
     def _normalise_type_arguments(self, args, kwargs):
         """Move documented positional type carriers into output selection.
@@ -776,6 +799,15 @@ def _port_getattr(self, name):
     # JSON leaf coercions: j["a"].int / .float / .str / .bool.
     if name in ("int", "float", "str", "bool") and _unwrap(self).ts_type.is_ts_json:
         return wire("json_as_" + name, self)
+    raw = _unwrap(self)
+    if raw.ts_type.is_tsb:
+        fields = _hgraph.tsb_field_names(raw.ts_type)
+        try:
+            index = fields.index(name)
+        except ValueError:
+            pass
+        else:
+            return WiringPort(_hgraph.tsb_element(raw, index))
     try:
         return wire("getattr_", self, name)
     except WiringError:

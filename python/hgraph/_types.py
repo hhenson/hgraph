@@ -37,6 +37,8 @@ _PYTHON_OBJECT_CLASSES = []
 _TSB_SCHEMA_CLASSES = {}
 _TS_SCALAR_TYPES = {}
 _VALUE_SCALAR_TYPES = {}
+_TS_EXPR_CACHE = {}
+_TS_EXPR_CACHE_GENERATION = None
 _OPAQUE_TYPE_CACHE = {}
 
 
@@ -935,6 +937,7 @@ def _is_covariant_python_object_field(annotation, inherited_annotation):
 
 def _python_mutual_recursive_component(scalar):
     graph = {}
+    generation = _hgraph._registry_generation()
 
     def visit(current):
         if current in graph:
@@ -947,7 +950,11 @@ def _python_mutual_recursive_component(scalar):
         }
         graph[current] = edges
         for target in edges:
-            visit(target)
+            # A realized target cannot participate in a new cycle through
+            # ``scalar``: realizing it would already have realized that whole
+            # recursive component. Treat it as a closed graph boundary.
+            if (generation, target, ()) not in _PYTHON_OBJECT_TYPE_CACHE:
+                visit(target)
 
     visit(scalar)
 
@@ -2002,6 +2009,7 @@ class _TsExpr:
 
     __slots__ = (
         "handle",
+        "_registry_generation",
         "_label",
         "is_ref",
         "_bare_map",
@@ -2013,6 +2021,7 @@ class _TsExpr:
 
     def __init__(self, handle, label):
         self.handle = handle
+        self._registry_generation = _hgraph._registry_generation()
         self._label = label
         self.is_ref = False
 
@@ -2201,9 +2210,30 @@ class _TSMeta(type):
         import collections.abc as _abc
         import typing
 
+        global _TS_EXPR_CACHE_GENERATION
+        generation = _hgraph._registry_generation()
+        if generation != _TS_EXPR_CACHE_GENERATION:
+            _TS_EXPR_CACHE.clear()
+            _TS_EXPR_CACHE_GENERATION = generation
+        try:
+            cached = _TS_EXPR_CACHE.get(scalar)
+        except TypeError:
+            cached = None
+        if cached is not None:
+            if isinstance(cached, _TsExpr):
+                python_scalar = scalar.element if isinstance(scalar, _SharedType) else scalar
+                _TS_SCALAR_TYPES[cached.handle] = python_scalar
+                _VALUE_SCALAR_TYPES[_hgraph.ts_value_vt(cached.handle)] = python_scalar
+            return cached
+
         origin = typing.get_origin(scalar)
         if scalar in (typing.Callable, _abc.Callable) or origin is _abc.Callable:
-            return _TsExpr(_hgraph.ts(_hgraph.value_type("callable")), "TS[Callable]")
+            expr = _TsExpr(_hgraph.ts(_hgraph.value_type("callable")), "TS[Callable]")
+            try:
+                _TS_EXPR_CACHE[scalar] = expr
+            except TypeError:
+                pass
+            return expr
         try:
             value_type = _value_type(scalar)
             # Shared is a storage annotation. Python receives the concrete
@@ -2212,11 +2242,16 @@ class _TSMeta(type):
             _VALUE_SCALAR_TYPES[value_type] = python_scalar
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
-            return _GenericTsExpr(
+            expr = _GenericTsExpr(
                 f"TS[{scalar!r}]",
                 pattern=_hgraph.type_pattern_ts(e.pattern),
                 variables=_type_variables_of(scalar),
             )
+            try:
+                _TS_EXPR_CACHE[scalar] = expr
+            except TypeError:
+                pass
+            return expr
         _TS_SCALAR_TYPES[expr.handle] = python_scalar
         from ._compat import CompoundScalar as _CS
 
@@ -2247,6 +2282,10 @@ class _TSMeta(type):
             expr._bare_map = True
         if scalar is _JSON2:
             expr._json = True
+        try:
+            _TS_EXPR_CACHE[scalar] = expr
+        except TypeError:
+            pass
         return expr
 
 

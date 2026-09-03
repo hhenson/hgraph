@@ -302,7 +302,9 @@ def _overload_wire_trampoline(impl):
                     else:
                         call_args.append(value)
             callable_impl = impl
-            if hasattr(impl, "_with_resolution"):
+            if hasattr(impl, "_with_resolution_scope"):
+                callable_impl = impl._with_resolution_scope(resolution_scope)
+            elif hasattr(impl, "_with_resolution"):
                 callable_impl = impl._with_resolution(resolution_scope.bindings)
             out = callable_impl(*call_args, **call_kwargs)
             if out is None:
@@ -599,7 +601,7 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
     )
     invoke.__name__ = f"__dispatch_{op.__name__}_{suffix}"
     invoke.__signature__ = branch_signature
-    return _GraphFn(invoke)
+    return _GraphFn(invoke, signature=branch_signature)
 
 
 def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):

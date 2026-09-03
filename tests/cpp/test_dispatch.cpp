@@ -164,6 +164,19 @@ namespace
         }
     };
 
+    inline std::size_t counted_dispatch_branch_wirings = 0;
+
+    struct CountedDispatchSound
+    {
+        static constexpr auto name = "counted_dispatch_sound";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<void> animal)
+        {
+            ++counted_dispatch_branch_wirings;
+            return wire<stdlib::getattr_, TS<Str>>(w, animal, Str{"sound"});
+        }
+    };
+
     struct SoundWithCount
     {
         static constexpr auto name = "dispatch_sound_with_count";
@@ -502,6 +515,25 @@ TEST_CASE("dispatch_: C++ wiring selects exact and inherited Bundle cases")
                 cat_value(types, 3)),
             arg<"count">(testing::values<Int>(1, 2, 3)))),
         string_values({"woof", "yip", "meow"}));
+}
+
+TEST_CASE("dispatch_: a typed branch is compiled once while wiring")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.dog, fn<CountedDispatchSound>()),
+        stdlib::dispatch_case(types.cat, fn<CountedDispatchSound>()),
+    });
+
+    counted_dispatch_branch_wirings = 0;
+    static_cast<void>(testing::eval_node<stdlib::dispatch_, TS<Animal>>(
+        cases,
+        testing::values<Value>(dog_value(types, 1, "woof"),
+                               cat_value(types, 2))));
+
+    CHECK(counted_dispatch_branch_wirings == 2);
 }
 
 TEST_CASE("dispatch_: composed structural branch outputs retain their public schema")

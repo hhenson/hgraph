@@ -103,7 +103,7 @@ def test_getattr_computed_descriptor_uses_default_only_for_none():
     assert eval_node(g, [Computed(0), Computed(2)], [7, 8]) == [7, 2]
 
 
-def test_getattr_computed_descriptor_on_closed_union_leaf():
+def test_getattr_computed_descriptor_on_closed_union_leaf(monkeypatch):
     @dataclass(frozen=True)
     class ComputedBase(CompoundScalar, abstract=True):
         value: int
@@ -117,6 +117,17 @@ def test_getattr_computed_descriptor_on_closed_union_leaf():
     @graph
     def g(ts: TS[ComputedBase]) -> TS[int]:
         return getattr_[SCALAR: int](ts, "doubled")
+
+    import hgraph._wiring._core as wiring_core
+
+    original_wire = wiring_core.wire
+
+    def reject_descriptor_dispatch(name, *args, **kwargs):
+        if name == "getattr_":
+            raise AssertionError("pinned computed descriptor used registry dispatch")
+        return original_wire(name, *args, **kwargs)
+
+    monkeypatch.setattr(wiring_core, "wire", reject_descriptor_dispatch)
 
     assert eval_node(g, [ComputedLeaf(3), ComputedLeaf(5)]) == [6, 10]
 

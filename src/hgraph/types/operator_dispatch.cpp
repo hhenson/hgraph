@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 
 namespace hgraph
 {
@@ -189,7 +190,7 @@ namespace hgraph
 
         [[nodiscard]] bool append_tail_arg(const WiringArg &arg,
                                            std::vector<WiringArg> &tail,
-                                           std::string &why)
+                                           std::string *why)
         {
             if (!arg.from_variadic_tail)
             {
@@ -198,14 +199,14 @@ namespace hgraph
             }
             if (arg.kind != WiringArg::Kind::TimeSeries || !arg.port.is_structural_source())
             {
-                why = "packed variadic tail is not a structural time-series source";
+                if (why != nullptr) { *why = "packed variadic tail is not a structural time-series source"; }
                 return false;
             }
 
             const auto *schema = TypeRegistry::instance().dereference(arg.port.schema);
             if (schema == nullptr || schema->kind != TSTypeKind::TSL)
             {
-                why = "packed variadic tail is not a TSL";
+                if (why != nullptr) { *why = "packed variadic tail is not a TSL"; }
                 return false;
             }
 
@@ -232,7 +233,7 @@ namespace hgraph
         bool normalize_call(const OperatorImpl &impl,
                             std::span<const WiringArg> args,
                             NormalizedCall &out,
-                            std::string &why)
+                            std::string *why)
         {
             const std::size_t fixed =
                 impl.variadic && !impl.params.empty() ? impl.params.size() - 1 : impl.params.size();
@@ -246,15 +247,18 @@ namespace hgraph
             {
                 if (args[i].name.empty())
                 {
-                    why = "positional argument follows a named argument";
+                    if (why != nullptr) { *why = "positional argument follows a named argument"; }
                     return false;
                 }
             }
 
             if (!impl.variadic && positional > positional_limit)
             {
-                why = fmt::format("expects at most {} positional argument(s), got {}", positional_limit,
-                                  positional);
+                if (why != nullptr)
+                {
+                    *why = fmt::format("expects at most {} positional argument(s), got {}", positional_limit,
+                                       positional);
+                }
                 return false;
             }
 
@@ -282,7 +286,7 @@ namespace hgraph
                 {
                     if (filled[index].has_value())
                     {
-                        why = fmt::format("got multiple values for argument '{}'", named.name);
+                        if (why != nullptr) { *why = fmt::format("got multiple values for argument '{}'", named.name); }
                         return false;
                     }
                     filled[index] = named;
@@ -296,14 +300,14 @@ namespace hgraph
                                      [&](const auto &kw) { return kw.first == named.name; }) !=
                         out.kwargs.end())
                     {
-                        why = fmt::format("got multiple values for argument '{}'", named.name);
+                        if (why != nullptr) { *why = fmt::format("got multiple values for argument '{}'", named.name); }
                         return false;
                     }
                     out.kwargs.emplace_back(named.name, named);
                 }
                 else
                 {
-                    why = fmt::format("got an unexpected keyword argument '{}'", named.name);
+                    if (why != nullptr) { *why = fmt::format("got an unexpected keyword argument '{}'", named.name); }
                     return false;
                 }
             }
@@ -331,9 +335,12 @@ namespace hgraph
                     ++out.defaults_used;
                     continue;
                 }
-                why = impl.params[p].name.empty()
-                          ? fmt::format("missing required argument {}", p)
-                          : fmt::format("missing required argument '{}'", impl.params[p].name);
+                if (why != nullptr)
+                {
+                    *why = impl.params[p].name.empty()
+                               ? fmt::format("missing required argument {}", p)
+                               : fmt::format("missing required argument '{}'", impl.params[p].name);
+                }
                 return false;
             }
 
@@ -350,23 +357,29 @@ namespace hgraph
                        const TSValueTypeMetaData *expected_output,
                        ResolutionMap &map,
                        int &rank_adjustment,
-                       std::string &why,
+                       std::string *why,
                        GlobalStateView global_state,
                        Wiring *wiring,
                        bool &requires_rejected)
         {
             if (output_required.has_value() && impl.has_output != *output_required)
             {
-                why = *output_required ? "candidate has no output" : "candidate unexpectedly has an output";
+                if (why != nullptr)
+                {
+                    *why = *output_required ? "candidate has no output" : "candidate unexpectedly has an output";
+                }
                 return false;
             }
             const std::size_t fixed_params =
                 impl.variadic && !impl.params.empty() ? impl.params.size() - 1 : impl.params.size();
             if (impl.variadic ? args.size() < fixed_params : impl.params.size() != args.size())
             {
-                why = impl.variadic
-                          ? fmt::format("expects at least {} argument(s), got {}", fixed_params, args.size())
-                          : fmt::format("expects {} argument(s), got {}", impl.params.size(), args.size());
+                if (why != nullptr)
+                {
+                    *why = impl.variadic
+                               ? fmt::format("expects at least {} argument(s), got {}", fixed_params, args.size())
+                               : fmt::format("expects {} argument(s), got {}", impl.params.size(), args.size());
+                }
                 return false;
             }
             // Variadic tails are matched independently per supplied argument, so
@@ -396,7 +409,7 @@ namespace hgraph
             {
                 if (!output_ts_pattern_match(impl.output, expected_output, map))
                 {
-                    why = fmt::format("output does not match requested {}", expected_output->name());
+                    if (why != nullptr) { *why = fmt::format("output does not match requested {}", expected_output->name()); }
                     return false;
                 }
             }
@@ -432,8 +445,11 @@ namespace hgraph
                     }
                     if (!matched)
                     {
-                        why = fmt::format("variadic argument {} does not match {}", i,
-                                          ts_pattern_to_string(param.ts));
+                        if (why != nullptr)
+                        {
+                            *why = fmt::format("variadic argument {} does not match {}", i,
+                                               ts_pattern_to_string(param.ts));
+                        }
                         return false;
                     }
                     if (arg.kind == WiringArg::Kind::TimeSeries)
@@ -455,10 +471,13 @@ namespace hgraph
                     {
                         if (!input_ts_pattern_match(param.ts, arg.port.schema, map))
                         {
-                            why = fmt::format("argument {} (a {}) does not match {}", i,
-                                              arg.port.schema != nullptr ? arg.port.schema->name()
-                                                                         : std::string_view{"time-series"},
-                                              ts_pattern_to_string(param.ts));
+                            if (why != nullptr)
+                            {
+                                *why = fmt::format("argument {} (a {}) does not match {}", i,
+                                                   arg.port.schema != nullptr ? arg.port.schema->name()
+                                                                              : std::string_view{"time-series"},
+                                                   ts_pattern_to_string(param.ts));
+                            }
                             return false;
                         }
                         rank_adjustment += input_adaptation_rank(param.ts, arg.port.schema, map);
@@ -472,8 +491,11 @@ namespace hgraph
                         if (!scalar_value_matches_ts_pattern(
                                 param.ts, arg.scalar_value, map, rank_adjustment))
                         {
-                            why = fmt::format("scalar argument {} cannot be promoted to {}", i,
-                                              ts_pattern_to_string(param.ts));
+                            if (why != nullptr)
+                            {
+                                *why = fmt::format("scalar argument {} cannot be promoted to {}", i,
+                                                   ts_pattern_to_string(param.ts));
+                            }
                             return false;
                         }
                     }
@@ -482,7 +504,7 @@ namespace hgraph
                 {
                     if (arg.kind != WiringArg::Kind::Scalar)
                     {
-                        why = fmt::format("argument {} should be a scalar", i);
+                        if (why != nullptr) { *why = fmt::format("argument {} should be a scalar", i); }
                         return false;
                     }
                     if (!arg.scalar_value.has_value() && param.scalar.kind == ScalarPattern::Kind::Var)
@@ -515,8 +537,11 @@ namespace hgraph
                     }
                     if (!scalar_matches)
                     {
-                        why = fmt::format("scalar argument {} does not match {}", i,
-                                          scalar_pattern_to_string(param.scalar));
+                        if (why != nullptr)
+                        {
+                            *why = fmt::format("scalar argument {} does not match {}", i,
+                                               scalar_pattern_to_string(param.scalar));
+                        }
                         return false;
                     }
                 }
@@ -544,7 +569,7 @@ namespace hgraph
                     }
                     if (field == nullptr)
                     {
-                        why = fmt::format("keyword argument '{}' has no wireable type", kw_name);
+                        if (why != nullptr) { *why = fmt::format("keyword argument '{}' has no wireable type", kw_name); }
                         return false;
                     }
                     pack_fields.emplace_back(kw_name, field);
@@ -565,9 +590,12 @@ namespace hgraph
                         static_cast<void>(kw_name);
                         if (field != pack_fields.front().second)
                         {
-                            why = fmt::format(
-                                "TSD **kwargs requires one common value type; got {} and {}",
-                                pack_fields.front().second->name(), field->name());
+                            if (why != nullptr)
+                            {
+                                *why = fmt::format(
+                                    "TSD **kwargs requires one common value type; got {} and {}",
+                                    pack_fields.front().second->name(), field->name());
+                            }
                             return false;
                         }
                     }
@@ -577,8 +605,11 @@ namespace hgraph
                 else { pack = TypeRegistry::instance().un_named_tsb(pack_fields); }
                 if (!input_ts_pattern_match(impl.kwargs_pattern, pack, map))
                 {
-                    why = fmt::format("supplied keywords {} do not match **kwargs pattern {}",
-                                      pack->name(), ts_pattern_to_string(impl.kwargs_pattern));
+                    if (why != nullptr)
+                    {
+                        *why = fmt::format("supplied keywords {} do not match **kwargs pattern {}",
+                                           pack->name(), ts_pattern_to_string(impl.kwargs_pattern));
+                    }
                     return false;
                 }
             }
@@ -593,13 +624,15 @@ namespace hgraph
                         impl.default_resolver(map, context);
                         return true;
                     },
-                    [&](const char *message) { why = fmt::format("default type resolution failed: {}", message); });
+                    [&](const char *message) {
+                        if (why != nullptr) { *why = fmt::format("default type resolution failed: {}", message); }
+                    });
                 if (!resolved) { return false; }
             }
 
             if (impl.has_output && ts_pattern_resolve(impl.output, map) == nullptr)
             {
-                why = "output type could not be resolved";
+                if (why != nullptr) { *why = "output type could not be resolved"; }
                 return false;
             }
 
@@ -610,13 +643,13 @@ namespace hgraph
                     false,
                     [&] { return impl.requires_predicate(map, context); },
                     [&](const char *message) {
-                        why   = fmt::format("requires predicate threw: {}", message);
+                        if (why != nullptr) { *why = fmt::format("requires predicate threw: {}", message); }
                         threw = true;
                     });
                 if (threw) { return false; }
                 if (!accepted)
                 {
-                    why               = "rejected by requires predicate";
+                    if (why != nullptr) { *why = "rejected by requires predicate"; }
                     requires_rejected = true;
                     return false;
                 }
@@ -636,7 +669,18 @@ namespace hgraph
 
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
-        overloads_[impl.name].push_back(std::move(impl));
+        const std::string name = impl.name;
+        auto &overloads = overloads_[name];
+        overloads.push_back(std::move(impl));
+
+        auto &suffix = suffix_min_ranks_[name];
+        suffix.resize(overloads.size());
+        int minimum = std::numeric_limits<int>::max();
+        for (std::size_t i = overloads.size(); i-- > 0;)
+        {
+            minimum = std::min(minimum, overloads[i].rank);
+            suffix[i] = minimum;
+        }
     }
 
     void OperatorRegistry::register_installer(std::string_view key, std::function<void()> installer)
@@ -916,6 +960,7 @@ namespace hgraph
     void OperatorRegistry::reset() noexcept
     {
         overloads_.clear();
+        suffix_min_ranks_.clear();
         mesh_scopes_.clear();
         context_scopes_.clear();
         record_replay::reset();   // config + mode scopes (types/record_replay.h)
@@ -1064,24 +1109,16 @@ namespace hgraph
         std::vector<Survivor>    survivors;
         std::vector<std::string> rejected;
         bool                     any_requires_rejected = false;
-        for (const OperatorImpl &impl : it->second)
-        {
+        int                      best_rank = std::numeric_limits<int>::max();
+        const auto suffix_it = suffix_min_ranks_.find(std::string{name});
+        const std::vector<int> *suffix = suffix_it != suffix_min_ranks_.end()
+                                             ? &suffix_it->second
+                                             : nullptr;
+        const auto consider = [&](const OperatorImpl &impl, std::string *why,
+                                  int &effective_rank) -> std::optional<Survivor> {
             NormalizedCall call;
-            std::string    why;
-            if (!normalize_call(impl, args, call, why))
-            {
-                rejected.push_back(fmt::format("  {} [rank {}]: {}", impl.label, impl.rank, why));
-                if (diagnostics_enabled)
-                {
-                    diagnostic.rejected.push_back(WiringCandidateDiagnostic{
-                        .label = impl.label,
-                        .rank = impl.rank,
-                        .source = candidate_source(impl),
-                        .rejection_reason = why,
-                    });
-                }
-                continue;
-            }
+            effective_rank = impl.rank;
+            if (!normalize_call(impl, args, call, why)) { return std::nullopt; }
 
             ResolutionMap map = initial_resolution != nullptr
                                     ? *initial_resolution
@@ -1107,26 +1144,65 @@ namespace hgraph
             if (try_match(impl, call.args, call.kwargs, output_required, expected_output, map, rank_adjustment, why,
                           global_state, wiring, any_requires_rejected))
             {
-                survivors.push_back({&impl, std::move(map), std::move(call), impl.rank + rank_adjustment});
+                effective_rank = impl.rank + rank_adjustment;
+                return Survivor{&impl, std::move(map), std::move(call), effective_rank};
             }
-            else
+            effective_rank = impl.rank + rank_adjustment;
+            return std::nullopt;
+        };
+
+        for (std::size_t candidate = 0; candidate < it->second.size(); ++candidate)
+        {
+            const OperatorImpl &impl = it->second[candidate];
+            std::string why;
+            int effective_rank = impl.rank;
+            auto survivor = consider(
+                impl, diagnostics_enabled ? &why : nullptr, effective_rank);
+            if (survivor.has_value())
             {
-                const int effective_rank = impl.rank + rank_adjustment;
+                best_rank = std::min(best_rank, survivor->rank);
+                survivors.push_back(std::move(*survivor));
+            }
+            else if (diagnostics_enabled)
+            {
                 rejected.push_back(fmt::format("  {} [rank {}]: {}", impl.label, effective_rank, why));
-                if (diagnostics_enabled)
-                {
-                    diagnostic.rejected.push_back(WiringCandidateDiagnostic{
-                        .label = impl.label,
-                        .rank = effective_rank,
-                        .source = candidate_source(impl),
-                        .rejection_reason = why,
-                    });
-                }
+                diagnostic.rejected.push_back(WiringCandidateDiagnostic{
+                    .label = impl.label,
+                    .rank = effective_rank,
+                    .source = candidate_source(impl),
+                    .rejection_reason = why,
+                });
+            }
+            if (!diagnostics_enabled && suffix != nullptr &&
+                candidate + 1 < suffix->size() &&
+                best_rank < (*suffix)[candidate + 1])
+            {
+                break;
             }
         }
 
         if (survivors.empty())
         {
+            if (!diagnostics_enabled)
+            {
+                // Successful resolution never needs human-readable rejection
+                // strings. Only repeat an all-rejected call to retain the full
+                // public diagnostic, keeping the common path allocation-free.
+                any_requires_rejected = false;
+                for (const OperatorImpl &impl : it->second)
+                {
+                    std::string why;
+                    int effective_rank = impl.rank;
+                    auto survivor = consider(impl, &why, effective_rank);
+                    if (survivor.has_value())
+                    {
+                        throw std::logic_error(
+                            "operator resolution changed while rendering diagnostics");
+                    }
+                    rejected.push_back(fmt::format(
+                        "  {} [rank {}]: {}", impl.label, effective_rank, why));
+                }
+            }
             std::string message =
                 fmt::format("no matching overload for operator '{}' with {} argument(s)\nrejected candidates:\n{}", name,
                             args.size(), fmt::join(rejected, "\n"));

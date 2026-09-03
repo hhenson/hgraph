@@ -637,6 +637,46 @@ TEST_CASE("operators: an unregistered operator name raises")
     REQUIRE_THROWS_AS(eval_node<add_>(values<Int>(1), values<Int>(2)), OperatorResolutionError);
 }
 
+TEST_CASE("operators: resolution skips candidates that cannot beat the winner")
+{
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+
+    ParamPattern input{
+        .kind = ParamPattern::Kind::Input,
+        .name = "value",
+        .ts = TypePattern::concrete(ts_type<TS<Int>>()),
+    };
+    OperatorImpl winner;
+    winner.name = "rank_pruning_test";
+    winner.label = "winner";
+    winner.params = {input};
+    winner.rank = 1;
+    winner.requires_predicate = [](const ResolutionMap &, OperatorCallContext) {
+        return true;
+    };
+
+    int losing_requires_calls = 0;
+    OperatorImpl loser = winner;
+    loser.label = "loser";
+    loser.rank = 100;
+    loser.requires_predicate = [&](const ResolutionMap &, OperatorCallContext) {
+        ++losing_requires_calls;
+        return true;
+    };
+
+    OperatorRegistry::instance().register_overload(std::move(winner));
+    OperatorRegistry::instance().register_overload(std::move(loser));
+    std::array<WiringArg, 1> args{ts_arg(ts_type<TS<Int>>())};
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "rank_pruning_test", std::span<const WiringArg>{args}, false);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "winner");
+    CHECK(losing_requires_calls == 0);
+}
+
 TEST_CASE("operators: a scalar argument is coerced and forwarded to the resolved node")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

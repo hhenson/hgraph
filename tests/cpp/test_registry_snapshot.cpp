@@ -1,6 +1,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/types/registry_reset.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 
@@ -197,6 +198,40 @@ TEST_CASE(
   CHECK_THROWS_AS(NodeBuilder::from_canonical_descriptor(
                       std::move(null_identity_descriptor), nullptr),
                   std::invalid_argument);
+}
+
+TEST_CASE("graph builders initialize an active global state with one copy") {
+  using namespace hgraph;
+
+  GlobalState state;
+  GlobalContext context{state};
+  const auto before_copy =
+      runtime_registry_snapshot().type_system_lock_acquisitions;
+  GlobalState copied{state};
+  const auto after_copy =
+      runtime_registry_snapshot().type_system_lock_acquisitions;
+  const auto copy_acquisitions = after_copy - before_copy;
+
+  GraphBuilder builder;
+
+  const auto after = runtime_registry_snapshot().type_system_lock_acquisitions;
+  CHECK(after - after_copy == copy_acquisitions);
+}
+
+TEST_CASE("global state binding refreshes after a registry reset") {
+  using namespace hgraph;
+
+  {
+    GlobalState state;
+    CHECK(state.view().size() == 0);
+  }
+
+  const auto generation = TypeRegistry::instance().reset_generation();
+  reset_all_registries();
+  REQUIRE(TypeRegistry::instance().reset_generation() != generation);
+
+  GlobalState state;
+  CHECK(state.view().size() == 0);
 }
 
 TEST_CASE("equivalent graph and executor runtime types are reused") {

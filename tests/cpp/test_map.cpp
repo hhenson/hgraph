@@ -61,6 +61,18 @@ namespace
         }
     };
 
+    inline std::size_t counted_map_child_wirings = 0;
+
+    struct CountedMapChildG
+    {
+        static constexpr auto name = "counted_map_child_g";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> ts)
+        {
+            ++counted_map_child_wirings;
+            return ts;
+        }
+    };
+
     struct MapOverloadMarkerG
     {
         static constexpr auto name = "map_overload_marker_g";
@@ -741,6 +753,24 @@ TEST_CASE("map_: keys add, update, and remove drive per-key children and the TSD
                  values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}),
                                dict_delta<Str, TS<Int>>({{"a"s, 11}}),
                                dict_delta<Str, TS<Int>>({}, {"b"s})));
+}
+
+TEST_CASE("map_: a typed child is compiled once while wiring")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    counted_map_child_wirings = 0;
+    Wiring wiring{WiringKind::SubGraph};
+    Port<TSD<Str, TS<Int>>> values{
+        wiring,
+        WiringPortRef::boundary_source(0, {}, ts_type<TSD<Str, TS<Int>>>()),
+    };
+
+    static_cast<void>(wire<stdlib::map_>(
+        wiring, fn<CountedMapChildG>(), values));
+
+    CHECK(counted_map_child_wirings == 1);
 }
 
 TEST_CASE("mapped key sources expose their exact Output role record")

@@ -77,6 +77,44 @@ def test_reset_twice_then_exit_does_not_crash():
     )
 
 
+STALE_HIGHER_ORDER_CACHE = textwrap.dedent(
+    """
+    import _hgraph
+    import hgraph as hg
+    from hgraph._wiring._graph import _as_wired
+
+    @hg.graph
+    def increment(value: hg.TS[int]) -> hg.TS[int]:
+        return value + 1
+
+    @hg.compute_node
+    def increment_node(value: hg.TS[int]) -> hg.TS[int]:
+        return value.value + 1
+
+    _as_wired(increment)
+    _as_wired(increment_node)
+    _hgraph.reset_registries()
+    for callable_ in (increment, increment_node):
+        try:
+            _as_wired(callable_)
+        except hg.WiringError as error:
+            assert "recreate the decorated callable" in str(error)
+        else:
+            raise AssertionError("stale higher-order callable was reused")
+    print("ok")
+    """
+)
+
+
+def test_reset_rejects_stale_higher_order_cache_without_crashing():
+    result = _run(STALE_HIGHER_ORDER_CACHE)
+    assert result.returncode == 0, (
+        f"reset + cached callable returned {result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "ok" in result.stdout
+
+
 NO_STRANDED_STATE = textwrap.dedent(
     """
     import _hgraph

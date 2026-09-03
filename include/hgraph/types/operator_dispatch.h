@@ -556,6 +556,7 @@ namespace hgraph
         };
 
         std::unordered_map<std::string, std::vector<OperatorImpl>> overloads_{};
+        std::unordered_map<std::string, std::vector<int>>          suffix_min_ranks_{};
         std::vector<MeshScope>                                     mesh_scopes_{};
         std::vector<ContextScopeEntry>                             context_scopes_{};
         std::vector<Installer>                                     installers_{};

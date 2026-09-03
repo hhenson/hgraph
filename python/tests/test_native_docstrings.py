@@ -2,6 +2,9 @@ import subprocess
 import sys
 import textwrap
 
+import hgraph as hg
+import hgraph._wiring._core as wiring_core
+
 
 def test_native_documentation_is_available_at_runtime_and_in_the_stub():
     """Keep module-reset tests from replacing the installed binding under test."""
@@ -160,3 +163,21 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_operator_specialization_reuses_public_metadata(monkeypatch):
+    operator = wiring_core.operator_function("add_")
+    signature = operator.__signature__
+    documentation = operator.__doc__
+
+    def unexpected_registry_query(_):
+        raise AssertionError("operator specialization rebuilt native metadata")
+
+    monkeypatch.setattr(
+        wiring_core, "_operator_overload_signatures", unexpected_registry_query
+    )
+
+    specialized = operator[hg.TS[int]]
+
+    assert specialized.__signature__ is signature
+    assert specialized.__doc__ is documentation

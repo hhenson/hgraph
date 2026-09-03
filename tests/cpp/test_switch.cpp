@@ -98,6 +98,33 @@ namespace
         static Port<TS<Int>>  compose(Wiring &, Port<TS<Int>> ts) { return ts; }
     };
 
+    inline std::size_t counted_switch_sink_wirings = 0;
+
+    struct CountedSwitchSink
+    {
+        static constexpr auto name = "counted_switch_sink";
+        static void compose(Wiring &w, Port<TS<Int>> value)
+        {
+            ++counted_switch_sink_wirings;
+            wire<stdlib::null_sink>(w, value);
+        }
+    };
+
+    struct CountedSwitchSinkGraph
+    {
+        static constexpr auto name = "counted_switch_sink_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key,
+                                     Port<TS<Int>> value)
+        {
+            wire<stdlib::switch_sink_>(
+                w, key,
+                stdlib::switch_cases(
+                    {{Value{Int{0}}, fn<CountedSwitchSink>()}}),
+                value);
+            return key;
+        }
+    };
+
     // A key-consuming branch: the first parameter is named "key".
     struct AddKey
     {
@@ -596,6 +623,18 @@ TEST_CASE("switch_: sink branches use the native outputless wiring contract")
     CHECK_OUTPUT(eval_node<SwitchSinkGraph>(values<Str>(Str{"one"}, Str{"two"})),
                  values<Str>(Str{"one"}, Str{"two"}));
     CHECK(switch_sink_values == std::vector<Str>{Str{"one"}, Str{"two"}});
+}
+
+TEST_CASE("switch_: a typed sink branch is compiled once while wiring")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    counted_switch_sink_wirings = 0;
+    static_cast<void>(eval_node<CountedSwitchSinkGraph>(
+        values<Int>(0), values<Int>(1)));
+
+    CHECK(counted_switch_sink_wirings == 1);
 }
 
 TEST_CASE("switch_: a REF-shaped key is selected by its dereferenced value")

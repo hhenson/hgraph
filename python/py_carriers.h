@@ -196,6 +196,15 @@ namespace hgraph::python_bridge
         /** The annotated output schema, when known (mesh_ needs the element
             type ahead of compilation). Null = resolve at compile. */
         const TSValueTypeMetaData    *output_schema{nullptr};
+        /** Most recent schema-specific compile result. Overload resolution
+            probes are immediately followed by competing output-mode checks,
+            so one entry removes duplicate compilation without treating a
+            generic callable's output as globally fixed. */
+        mutable std::vector<const TSValueTypeMetaData *> last_compiled_inputs;
+        mutable std::optional<const TSValueTypeMetaData *> last_compiled_output_schema;
+        mutable std::uint64_t                              last_compiled_generation{0};
+        mutable std::optional<CompiledSubGraph>             retained_compilation;
+        mutable bool                                        retained_compilation_realtime{false};
     };
 
     struct PyPort
