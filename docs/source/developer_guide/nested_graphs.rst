@@ -673,9 +673,13 @@ input(s) — an operator like the rest of the family
   child's argument unbound until the peer grows to the index; scalar and
   ``pass_through`` inputs broadcast whole. The owned dynamic TSL output grows
   before binding each ordinary child terminal, which writes the real parent
-  element directly. Index entries are grow-only: node stop stops and destroys
-  all constructed children; there is no keyed remove/erase protocol because a
-  dynamic TSL does not remove positions. Pass-through child outputs and
+  element directly. Index entries follow the list length in both directions:
+  when the longest multiplexed source shrinks, the surplus children are stopped
+  and destroyed in reverse index order and the owned output list is truncated
+  to match (RFC 0031), and a later re-grow constructs a fresh child. There is
+  still no keyed remove/erase protocol: truncation is a tail operation the node
+  discovers by polling the source lengths, so no retired-child side channel is
+  needed. Node stop stops and destroys all constructed children. Pass-through child outputs and
   terminals that already require forwarding/non-peered topology are rejected;
   this initial path supports ordinary owned whole-node outputs and sink
   functions.
@@ -751,9 +755,9 @@ input(s) — an operator like the rest of the family
   from their explicit ``__keys__: TSS[K]`` input.
 - **Dynamic TSLs retain a native lifted-kernel fast path.**  A lifted scalar kernel
   (including a standard operator whose implementation exposes one) maps in a
-  single native node.  It discovers the grow-only runtime length from its
-  multiplexed inputs and grows its dynamic TSL output in place without child
-  graphs. Arbitrary graph/node functions select the slot-backed indexed
+  single native node.  It discovers the runtime length from its multiplexed
+  inputs and grows — or truncates — its dynamic TSL output in place without
+  child graphs. Arbitrary graph/node functions select the slot-backed indexed
   runtime above.
 
 Tests: ``tests/cpp/test_map.cpp`` and

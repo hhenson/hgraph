@@ -77,6 +77,8 @@ namespace hgraph
          */
         inline constexpr std::size_t tss_delta_added           = 0;
         inline constexpr std::size_t tss_delta_removed         = 1;
+        inline constexpr std::size_t tsl_delta_removed         = 0;
+        inline constexpr std::size_t tsl_delta_modified        = 1;
         inline constexpr std::size_t tsd_delta_removed         = 0;
         inline constexpr std::size_t tsd_delta_modified        = 1;
         inline constexpr std::size_t tsd_delta_removed_strict  = 2;
@@ -447,9 +449,11 @@ namespace hgraph
             }
 
             auto list_out = out.as_list();
-            if (schema->fixed_size() == 0 && source_values.size() < list_out.size())
+            // RFC 0031: a dynamic TSL current value IS the list, so a shorter
+            // source truncates rather than being rejected.
+            if (schema->fixed_size() == 0 && source_values.size() != list_out.size())
             {
-                throw std::invalid_argument("apply_current_value: dynamic TSL current value cannot shrink");
+                list_out.resize(source_values.size());
             }
 
             for (std::size_t index = 0; index < source_values.size(); ++index)
@@ -621,8 +625,13 @@ namespace hgraph
         {
             if (!input.modified() || !delta.has_value()) { return false; }
             const auto &schema = require_schema(input.schema(), "delta_is_observable");
-            const bool has_children = delta.as_map().size() != 0;
-            if (schema.fixed_size() != 0) { return has_children; }
+            if (schema.fixed_size() != 0) { return delta.as_map().size() != 0; }
+            // A dynamic TSL delta is Bundle{removed, modified} (RFC 0031): a
+            // truncation is an observable event in its own right, and a valid
+            // list still reports its structural ticks.
+            const auto bundle = delta.as_bundle();
+            const bool has_children = bundle.at(tsl_delta_removed).as_indexed_view().size() != 0 ||
+                                      bundle.at(tsl_delta_modified).as_map().size() != 0;
             return input.valid() || has_children;
         }
 
@@ -893,12 +902,11 @@ namespace hgraph
                 }
             }();
 
-            if (full && target.data_view().ops().indexed_child_growth &&
-                source_size < target_size)
-            {
-                throw std::invalid_argument(
-                    "reconcile_current_state: dynamic TSL current state cannot shrink");
-            }
+            // RFC 0031: a dynamic TSL's length IS part of its current state, so
+            // a full reconciliation resizes it instead of invalidating the
+            // surplus children the way a fixed shape must.
+            const bool resizable = full && target.data_view().ops().indexed_child_growth;
+            if (resizable && source_size != target_size) { target.as_list().resize(source_size); }
 
             for (std::size_t index = 0; index < source_size; ++index)
             {
@@ -925,7 +933,7 @@ namespace hgraph
                                               options.sample_all});
             }
 
-            if (full)
+            if (full && !resizable)
             {
                 for (std::size_t index = source_size; index < target_size; ++index)
                 {
@@ -1200,6 +1208,21 @@ namespace hgraph
             return bundle.build();
         }
 
+        /** The modified-index map inside a TSL delta: the whole delta for a
+            fixed TSL, and the second bundle field for a dynamic one (RFC 0031). */
+        [[nodiscard]] const ValueTypeMetaData *tsl_modified_map_schema(const TSValueTypeMetaData &schema,
+                                                                        const char *what)
+        {
+            const ValueTypeMetaData *delta = schema.delta_value_schema;
+            if (delta == nullptr) { throw std::logic_error(std::string{what} + ": schema is not resolved"); }
+            if (schema.fixed_size() != 0) { return delta; }
+            if (delta->value_kind() != ValueTypeKind::Bundle || delta->field_count != 2)
+            {
+                throw std::logic_error(std::string{what} + ": dynamic TSL delta must be a bundle");
+            }
+            return delta->fields[tsl_delta_modified].type;
+        }
+
         [[nodiscard]] Value empty_delta_tsl(const TSRoleTypeRef &binding)
         {
             const auto *schema = binding.schema();
@@ -1208,11 +1231,17 @@ namespace hgraph
                 throw std::logic_error("empty_delta_tsl: schema is not resolved");
             }
 
-            const ValueTypeMetaData *map_meta    = schema->delta_value_schema;
+            const ValueTypeMetaData *map_meta = tsl_modified_map_schema(*schema, "empty_delta_tsl");
             const ValueTypeRef key_binding = binding_for(map_meta->key_type, "empty_delta_tsl");
             const ValueTypeRef val_binding = binding_for(map_meta->element_type, "empty_delta_tsl");
             MapBuilder               builder{key_binding, val_binding};
-            return builder.build();
+            if (schema->fixed_size() != 0) { return builder.build(); }
+
+            SetBuilder removed{key_binding};
+            BundleBuilder bundle{binding_for(schema->delta_value_schema, "empty_delta_tsl")};
+            bundle.set("removed", removed.build());
+            bundle.set("modified", builder.build());
+            return bundle.build();
         }
 
         [[nodiscard]] Value empty_delta_tsb(const TSRoleTypeRef &binding)
@@ -1358,7 +1387,7 @@ namespace hgraph
         Value capture_delta_tsl(const TSInputView &in)
         {
             const TSValueTypeMetaData *schema = in.schema();
-            const ValueTypeMetaData *map_meta    = schema->delta_value_schema;
+            const ValueTypeMetaData *map_meta = tsl_modified_map_schema(*schema, "capture_delta");
             const ValueTypeRef key_binding = binding_for(map_meta->key_type, "capture_delta");
             const ValueTypeRef val_binding = binding_for(map_meta->element_type, "capture_delta");
 
@@ -1374,7 +1403,20 @@ namespace hgraph
                 const Value child_delta = capture_delta(child);
                 builder.set_item_copy(std::addressof(key), child_delta.view().data());
             }
-            return builder.build();
+            if (schema->fixed_size() != 0) { return builder.build(); }
+
+            // RFC 0031: a dynamic TSL also reports the indices truncated away
+            // this cycle. They are always a contiguous suffix.
+            SetBuilder removed{key_binding};
+            for (const std::size_t index : list.removed_indices())
+            {
+                const std::int64_t key = static_cast<std::int64_t>(index);
+                static_cast<void>(removed.insert_copy(std::addressof(key)));
+            }
+            BundleBuilder bundle{binding_for(schema->delta_value_schema, "capture_delta")};
+            bundle.set("removed", removed.build());
+            bundle.set("modified", builder.build());
+            return bundle.build();
         }
 
         Value capture_delta_tsb(const TSInputView &in)
@@ -1452,9 +1494,30 @@ namespace hgraph
             return !out.valid();
         }
 
-        bool delta_has_effect_tsl(const TSOutputView &, const ValueView &delta)
+        bool delta_has_effect_tsl(const TSOutputView &out, const ValueView &delta)
         {
-            return delta.has_value() && delta.as_map().size() != 0;
+            if (!delta.has_value()) { return false; }
+            const auto *schema = out.schema();
+            if (schema == nullptr || schema->fixed_size() != 0)
+            {
+                return delta.as_map().size() != 0;
+            }
+            // Dynamic TSL: either a child change or a truncation (RFC 0031).
+            const auto bundle = delta.as_bundle();
+            assert(delta_field_is(delta, tsl_delta_removed, "removed"));
+            assert(delta_field_is(delta, tsl_delta_modified, "modified"));
+            if (bundle.at(tsl_delta_modified).as_map().size() != 0) { return true; }
+            const auto removed = bundle.at(tsl_delta_removed).as_indexed_view();
+            if (removed.size() == 0) { return false; }
+            // Lenient: a removal below the current length truncates, one at or
+            // above it is already satisfied.
+            const auto list_out = out.as_list();
+            for (std::size_t index = 0; index < removed.size(); ++index)
+            {
+                const auto position = removed.at(index).template checked_as<std::int64_t>();
+                if (position >= 0 && static_cast<std::size_t>(position) < list_out.size()) { return true; }
+            }
+            return false;
         }
 
         bool delta_has_effect_tsb(const TSOutputView &out, const ValueView &delta)
@@ -1555,13 +1618,35 @@ namespace hgraph
 
         void apply_delta_tsl(const TSOutputView &out, const ValueView &delta)
         {
-            auto       list_out = out.as_list();
-            const auto map      = delta.as_map();
-            for (const auto &[key, child_delta] : map)
+            auto        list_out = out.as_list();
+            const auto *schema   = out.schema();
+            const bool  dynamic  = schema != nullptr && schema->fixed_size() == 0;
+            if (dynamic)
             {
-                auto child = list_out.at(static_cast<std::size_t>(key.template checked_as<std::int64_t>()));
-                apply_delta(child, child_delta);
+                assert(delta_field_is(delta, tsl_delta_removed, "removed"));
+                assert(delta_field_is(delta, tsl_delta_modified, "modified"));
+                // Truncation is applied FIRST so a same-cycle re-grow through
+                // `modified` reproduces the captured net structure (RFC 0031).
+                const auto removed = delta.as_bundle().at(tsl_delta_removed).as_indexed_view();
+                auto       truncate_to = list_out.size();
+                for (std::size_t index = 0; index < removed.size(); ++index)
+                {
+                    const auto position = removed.at(index).template checked_as<std::int64_t>();
+                    if (position < 0) { continue; }
+                    truncate_to = std::min(truncate_to, static_cast<std::size_t>(position));
+                }
+                if (truncate_to < list_out.size()) { list_out.resize(truncate_to); }
             }
+            const auto apply_modified = [&](const ValueView &map_view) {
+                for (const auto &[key, child_delta] : map_view.as_map())
+                {
+                    auto child =
+                        list_out.at(static_cast<std::size_t>(key.template checked_as<std::int64_t>()));
+                    apply_delta(child, child_delta);
+                }
+            };
+            if (dynamic) { apply_modified(delta.as_bundle().at(tsl_delta_modified)); }
+            else { apply_modified(delta); }
         }
 
         void apply_delta_tsb(const TSOutputView &out, const ValueView &delta)

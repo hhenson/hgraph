@@ -220,6 +220,34 @@ namespace hgraph
             rollback.release();
         }
 
+        /**
+         * Retire the child graphs for indices the source lists no longer have.
+         *
+         * Truncation is the dynamic-TSL removal shape (RFC 0031): the surplus
+         * children are the tail, so they stop and destroy in reverse index
+         * order before the owned output list is shortened to match. A later
+         * re-grow constructs a fresh child, exactly as the keyed maps do on
+         * re-insertion.
+         */
+        void retire_tsl_map_entries(const NodeView &view, TslMapNodeStorage &storage,
+                                    std::size_t runtime_size, DateTime evaluation_time) {
+            for (std::size_t index = storage.live_count; index-- > runtime_size;) {
+                auto *entry = storage.entries.entry_at(index);
+                if (entry == nullptr) { continue; }
+                if (entry->graph.has_value() && entry->graph.view().started())
+                {
+                    // Timed stop, as the keyed map's per-key removal does: the
+                    // child is retired mid-cycle, not at node teardown.
+                    entry->graph.view().stop(evaluation_time);
+                }
+                storage.entries.destroy_at(index);
+            }
+            storage.live_count = runtime_size;
+
+            auto output = view.output(evaluation_time);
+            if (output.bound()) { output.as_list().resize(runtime_size); }
+        }
+
         void refresh_tsl_map_bindings(const NodeView &view, const TslMapNodeContext &context, TslMapNodeStorage &storage,
                                       DateTime evaluation_time) {
             const auto &spec = context.spec;
@@ -247,6 +275,9 @@ namespace hgraph
             if (!resuming) {
                 const TslMapSourceStatus sources = update_tsl_map_sources(view.input(evaluation_time), storage, context.spec);
                 bindings_changed                 = sources.bindings_changed;
+                if (sources.runtime_size < storage.live_count) {
+                    retire_tsl_map_entries(view, storage, sources.runtime_size, evaluation_time);
+                }
                 storage.entries.reserve_to(sources.runtime_size);
                 for (std::size_t index = storage.live_count; index < sources.runtime_size; ++index) {
                     create_tsl_map_entry(view, context, storage, index, evaluation_time);

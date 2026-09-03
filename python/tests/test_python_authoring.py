@@ -204,6 +204,108 @@ def test_python_compute_consumes_and_produces_dynamic_tsl():
     check(result == [{0: 11}, {1: 12}, {0: 13}], f"dynamic TSL: {result}")
 
 
+def test_python_compute_truncates_a_dynamic_tsl():
+    # RFC 0031: a dynamic TSL can shrink. A returned tuple IS the list, so its
+    # length sets the list length; a REMOVE entry in a mapping truncates to the
+    # lowest removed index.
+    @hg.compute_node
+    def first_two(values: TSL[TS[int], Size[0]]) -> TSL[TS[int], Size[0]]:
+        return tuple(child.value for child in values.values())[:2]
+
+    @graph
+    def app(values: TSL[TS[int], Size[0]]) -> TSL[TS[int], Size[0]]:
+        return first_two(values)
+
+    result = eval_node(app, [{0: 1, 1: 2, 2: 3}, {0: 4}])
+    check(result == [{0: 1, 1: 2}, {0: 4, 1: 2}], f"tuple truncation: {result}")
+
+    @hg.compute_node
+    def build_then_trim(
+        values: TSL[TS[int], Size[0]], trim: TS[bool]
+    ) -> TSL[TS[int], Size[0]]:
+        if trim.modified and trim.value:
+            return {1: hg.REMOVE}
+        return {index: child.value for index, child in enumerate(values.values()) if child.modified}
+
+    @graph
+    def app2(
+        values: TSL[TS[int], Size[0]], trim: TS[bool]
+    ) -> TSL[TS[int], Size[0]]:
+        return build_then_trim(values, trim)
+
+    result = eval_node(app2, [{0: 1, 1: 2, 2: 3}, None], [False, True])
+    check(
+        result == [{0: 1, 1: 2, 2: 3}, {1: hg.REMOVE, 2: hg.REMOVE}],
+        f"REMOVE truncation: {result}",
+    )
+
+
+def test_dynamic_tsl_reports_added_and_removed_indices():
+    # The structural delta mirrors TSD's: added/removed keys are indices and
+    # the removed children stay readable for the rest of the cycle.
+    @hg.compute_node
+    def added(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return tuple(values.added_keys())
+
+    @hg.compute_node
+    def removed(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return tuple(values.removed_keys())
+
+    @hg.compute_node
+    def removed_values(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return tuple(child.value for _, child in values.removed_items())
+
+    @hg.compute_node
+    def delta_removals(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return tuple(sorted(k for k, v in values.delta_value.items() if v is hg.REMOVE))
+
+    ticks = [{0: 1, 1: 2, 2: 3}, {1: hg.REMOVE}, {1: 9}]
+
+    @graph
+    def app_added(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return added(values)
+
+    @graph
+    def app_removed(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return removed(values)
+
+    @graph
+    def app_removed_values(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return removed_values(values)
+
+    @graph
+    def app_delta(values: TSL[TS[int], Size[0]]) -> TS[tuple[int, ...]]:
+        return delta_removals(values)
+
+    result = eval_node(app_added, ticks)
+    check(result == [(0, 1, 2), (), (1,)], f"added indices: {result}")
+
+    result = eval_node(app_removed, ticks)
+    check(result == [(), (1, 2), ()], f"removed indices: {result}")
+
+    # The truncated children keep their last values until the window rolls.
+    result = eval_node(app_removed_values, ticks)
+    check(result == [(), (2, 3), ()], f"removed values: {result}")
+
+    result = eval_node(app_delta, ticks)
+    check(result == [(), (1, 2), ()], f"delta removals: {result}")
+
+
+def test_native_map_truncates_a_dynamic_tsl_output_with_its_source():
+    @graph
+    def app(
+        lhs: TSL[TS[int], Size[0]], rhs: TSL[TS[int], Size[0]]
+    ) -> TSL[TS[int], Size[0]]:
+        return hg.map_("add_", lhs, rhs)
+
+    result = eval_node(
+        app,
+        [{0: 1, 1: 2}, {1: hg.REMOVE}],
+        [{0: 10, 1: 20}, {1: hg.REMOVE}],
+    )
+    check(result == [{0: 11, 1: 22}, {1: hg.REMOVE}], f"map truncation: {result}")
+
+
 def test_native_map_lifted_kernel_grows_dynamic_tsl_output():
     @graph
     def app(

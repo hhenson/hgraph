@@ -282,14 +282,20 @@ TSData implementation families
     child ``TSData`` handle and vector growth moves only those handles,
     not the child TSData allocations they point at. The current value is
     projected as a dynamic value-layer ``List`` over child current values
-    and the delta is projected as ``Map<int, delta(C)>`` over children
-    modified with the parent. Because that delta schema has no removal
-    surface, dynamic ``TSL`` TSData is currently grow-only; copying a
-    shorter list is rejected. The role-neutral storage binds its one-word
-    element ``TSRoleTypeRef`` on first growth and rejects a later type
-    mismatch. Destruction walks owned children and invalidates observers before
-    destroying their record-backed storage handles; there is no retired-child
-    side channel.
+    and the delta as ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``
+    — the ``TSD`` delta shape (RFC 0031). Removal is TAIL TRUNCATION: the list
+    stays dense and ``size()`` stays an element count, so the whole structural
+    delta is two lengths (the live size when the window opened, and now).
+    Truncated children are stopped at removal time and RETAINED for the rest of
+    the delta window, so ``removed_values()`` can read their last value and a
+    re-grow inside the same window resurrects the same child, exactly as ``TSD``
+    reinsertion does. The next window roll invalidates their observers and only
+    then destroys them; there is no separate retired-child side channel. Because
+    a new index must be attributed to the delta window, growth needs an
+    evaluation time: it goes through the timed ``resize`` /
+    ``ensure_indexed_child_at(index, time)``, never the untimed accessor. The
+    role-neutral storage binds its one-word element ``TSRoleTypeRef`` on first
+    growth and rejects a later type mismatch.
 
 The terms above keep three layers distinct: scalar ``Value`` storage,
 ``TSData`` payload/delta storage, and top-level ``TSOutput`` /
@@ -798,10 +804,9 @@ canonical value-region copy. Copying those transient views materialises
 normal canonical value-layer ``List`` / ``Bundle`` / ``Map`` / ``Set``
 storage. Fixed ``TSL`` and ``TSB`` can therefore contain any implemented
 non-``REF`` child kind: ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed
-and dynamic ``TSL``, ``TSB``, and ``TSW``. Dynamic ``TSL`` storage is
-grow-only: it can add indexed children and project current/delta values,
-but it cannot shrink because ``Map<int, delta(C)>`` has no removal
-surface.
+and dynamic ``TSL``, ``TSB``, and ``TSW``. Dynamic ``TSL`` storage grows
+and shrinks: its ``Bundle{removed, modified}`` delta carries the truncated
+indices (RFC 0031).
 
 .. mermaid::
 

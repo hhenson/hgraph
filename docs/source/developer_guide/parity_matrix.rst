@@ -690,8 +690,9 @@ Wiring and node-authoring surface
        Python switch branches, outputless keyed maps, live dynamic-TSD reduce
        zeros, projectable fixed-composite reduce results, ordered fixed-TSL
        folds, and ordered contiguous-integer TSD/tuple reduction with a live
-       seed. Arbitrary graph/node and sink functions map over grow-only dynamic
-       TSLs through stable in-place child slots; compatible lifted scalar
+       seed. Arbitrary graph/node and sink functions map over dynamic
+       TSLs through stable in-place child slots, growing and truncating with
+       the source length; compatible lifted scalar
        kernels retain their single-node fast path. Python mesh self-reference
        follows the reference API: ``mesh_(func)[key]``, ``mesh_("name")[key]``,
        and ``get_mesh(func_or_name)`` return a lazy ``MeshWiringPort``;

@@ -426,6 +426,21 @@ namespace hgraph
     HGRAPH_EXPORT void strip_to_read_only(TSSDataOps &ops) noexcept;
 
     /**
+     * Live-size window describing an indexed shape's open structural delta.
+     *
+     * Dynamic ``TSL`` removal is tail truncation (RFC 0031), so the whole
+     * structural delta is two lengths: indices in ``[previous_size, size)``
+     * were added this cycle and indices in ``[size, previous_size)`` were
+     * removed. At most one of the two ranges is non-empty.
+     */
+    struct IndexedStructuralDelta
+    {
+        DateTime    time{MIN_DT};      ///< Window time; MIN_DT when no window is open.
+        std::size_t previous_size{0};  ///< Live size when the window opened.
+        std::size_t size{0};           ///< Live size now.
+    };
+
+    /**
      * Extension ops for TSData shapes with indexed element access.
      *
      * Fixed and dynamic TSL can share this view-facing surface while keeping
@@ -450,6 +465,20 @@ namespace hgraph
             const void *context,
             void *memory,
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
+
+        // Optional dynamic-list surface (RFC 0031). Null is the fixed-shape
+        // answer: no structural delta, no retained tail, and no resize. Same
+        // nullable-hook idiom as the dense delta index surface above.
+
+        /** Open structural-delta window, or a default when the shape has none. */
+        IndexedStructuralDelta (*structural_delta_impl)(const void *context,
+                                                        const void *memory) = nullptr;
+        /** Element memory for a live OR retained (removed this cycle) index. */
+        const void *(*retained_element_memory_impl)(const void *context, const void *memory,
+                                                    std::size_t index) = nullptr;
+        /** Grow or truncate the live list at ``modified_time``. */
+        void (*resize_impl)(const void *context, void *memory, std::size_t size,
+                            DateTime modified_time) = nullptr;
     };
 
     struct TSWDataOps : TSDataOps

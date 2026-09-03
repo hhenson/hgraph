@@ -406,8 +406,9 @@ Priority 2: Nested Graphs and Boundaries
 - planned, in-place nested storage with stop-before-destroy lifetimes;
 - two-slot ``switch_`` storage;
 - slot-observed keyed ``map_`` and ``mesh_`` instances;
-- stable-slot arbitrary-function and sink ``map_`` instances over grow-only
-  dynamic TSLs, with lifted scalar kernels retaining their single-node path;
+- stable-slot arbitrary-function and sink ``map_`` instances over dynamic
+  TSLs, growing and truncating with the source length (RFC 0031), with lifted
+  scalar kernels retaining their single-node path;
 - explicit-key-only ``map_`` instances whose child inputs are all broadcast,
   including anonymous nested maps with forwarding TSD terminals, plus
   outputless keyed maps over native or Python-authored sink children;

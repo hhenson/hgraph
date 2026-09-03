@@ -212,8 +212,9 @@ namespace hgraph
                                                         : std::move(projection.visible);
             return TSOutputView{output_, child, evaluation_time_};
         }
-        auto child = evaluation_time_ == MIN_DT ? data_.indexed_child_at(index)
-                                                : data_.ensure_indexed_child_at(index);
+        auto child = evaluation_time_ == MIN_DT
+                         ? data_.indexed_child_at(index)
+                         : data_.ensure_indexed_child_at(index, evaluation_time_);
         return TSOutputView{output_, child, evaluation_time_};
     }
 

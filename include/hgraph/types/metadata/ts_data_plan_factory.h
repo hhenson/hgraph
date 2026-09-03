@@ -33,9 +33,9 @@ namespace hgraph
      * child/parent tracking or projected child storage in a separate
      * auxiliary tree. Keyed collection TSData uses slot-oriented storage so
      * current payload and delta bookkeeping stay aligned by stable slot id.
-     * Dynamic ``TSL`` uses grow-only indexed child storage with stable child
-     * TSData handles; shrink/removal is rejected because the current ``TSL``
-     * delta schema is only ``Map<int, delta(C)>``.
+     * Dynamic ``TSL`` uses indexed child storage with stable child TSData
+     * handles. It grows and truncates: removal is tail truncation, reported
+     * through the ``Bundle{removed, modified}`` delta (RFC 0031).
      *
      * Implemented synthesis paths cover atomic TSData (``TS<T>``, ``REF<T>``,
      * and ``SIGNAL``), fixed structured TSData (``TSB`` and fixed-size

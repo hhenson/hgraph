@@ -279,6 +279,29 @@ TSDataView TSDataView::ensure_indexed_child_at(std::size_t index) const {
   return indexed_child_at(index);
 }
 
+TSDataView TSDataView::ensure_indexed_child_at(std::size_t index,
+                                               DateTime modified_time) const {
+  const auto &table = ops();
+  if (index >= table.indexed_child_count_impl(table.context, data())) {
+    if (!table.indexed_child_growth) {
+      throw std::out_of_range(
+          "TSDataView::ensure_indexed_child_at index out of range");
+    }
+    // `indexed_child_growth` is only installed by the dynamic-list strategies,
+    // whose tables are always IndexedTSDataOps (the ops structs are PODs, so
+    // this is the discriminator, not RTTI).
+    const auto &indexed = static_cast<const IndexedTSDataOps &>(table);
+    if (indexed.resize_impl != nullptr) {
+      indexed.resize_impl(table.context, mutable_data(), index + 1,
+                          modified_time);
+      return indexed_child_at(index);
+    }
+    static_cast<void>(table.mutable_indexed_child_memory_impl(
+        table.context, mutable_data(), index));
+  }
+  return indexed_child_at(index);
+}
+
 bool TSDataView::clear_collection(DateTime modified_time) const {
   const auto &table = ops();
   return table.clear_collection_impl(borrowed_ref(), modified_time);

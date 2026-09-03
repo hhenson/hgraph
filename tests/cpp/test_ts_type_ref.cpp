@@ -1113,7 +1113,9 @@ TEST_CASE("dynamic TSL teardown invalidates nested TSData before child storage d
     {
         auto output = std::make_unique<TSOutput>(dynamic);
         auto root = output->data_view();
-        auto child = root.ensure_indexed_child_at(0);
+        // Dynamic TSL growth is structural, so it needs an evaluation time
+        // (RFC 0031).
+        auto child = root.ensure_indexed_child_at(0, MIN_ST);
         auto bundle = child.as_bundle();
         auto leaf = bundle.field("value");
         child_tracking = &child.tracking();

@@ -28,6 +28,28 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<std::size_t, TSOutputView> valid_items() const;
         [[nodiscard]] KeyValueRange<std::size_t, TSOutputView> modified_items() const;
 
+        /** Structural delta for this cycle (RFC 0031). A fixed TSL reports
+            empty ranges rather than throwing. */
+        [[nodiscard]] Range<std::size_t> added_indices() const;
+        [[nodiscard]] Range<std::size_t> removed_indices() const;
+        [[nodiscard]] Range<TSOutputView> added_values() const;
+        [[nodiscard]] Range<TSOutputView> removed_values() const;
+        [[nodiscard]] KeyValueRange<std::size_t, TSOutputView> added_items() const;
+        [[nodiscard]] KeyValueRange<std::size_t, TSOutputView> removed_items() const;
+
+        /** Child view for a live OR retained (removed this cycle) index. */
+        [[nodiscard]] TSOutputView retained_at(std::size_t index) const;
+
+        /**
+         * Set the live list length, growing or truncating.
+         *
+         * Dynamic ``TSL`` only; a fixed ``TSL`` throws. Truncated children are
+         * stopped now and destroyed when the delta window next rolls, so
+         * ``removed_values()`` stays readable for the rest of the cycle. The
+         * list is marked modified even when only its length changed.
+         */
+        void resize(std::size_t size) const;
+
         [[nodiscard]] TSOutputView at(std::size_t index) &;
         [[nodiscard]] TSOutputView at(std::size_t index) const &;
         TSOutputView at(std::size_t) && = delete;

@@ -232,14 +232,14 @@ TEST_CASE("tsl: replay<TSL> -> record<TSL> round-trips list deltas (modified chi
                  {list_delta<TS<Int>>({{0, 1}, {1, 2}}), list_delta<TS<Int>>({{0, 5}}), list_delta<TS<Int>>({{1, 9}})});
 }
 
-TEST_CASE("tsl: dynamic replay<TSL> -> record<TSL> round-trips grow-only list deltas")
+TEST_CASE("tsl: dynamic replay<TSL> -> record<TSL> round-trips dynamic list deltas")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
 
     const std::vector<std::optional<Value>> deltas{
-        list_delta<TS<Int>>({{0, 1}}),
-        list_delta<TS<Int>>({{0, 5}, {1, 9}}),
-        list_delta<TS<Int>>({{1, 11}}),
+        dynamic_list_delta<TS<Int>>({{0, 1}}),
+        dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+        dynamic_list_delta<TS<Int>>({{1, 11}}),
     };
 
     GraphBuilder gb = build_graph<DynamicListDeltaGraph>();
@@ -251,8 +251,8 @@ TEST_CASE("tsl: dynamic replay<TSL> -> record<TSL> round-trips grow-only list de
     ex.view().run();
 
     CHECK_OUTPUT(testing::get_recorded_deltas(ex.view().graph().global_state(), "out"),
-                 {list_delta<TS<Int>>({{0, 1}}), list_delta<TS<Int>>({{0, 5}, {1, 9}}),
-                  list_delta<TS<Int>>({{1, 11}})});
+                 {dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+                  dynamic_list_delta<TS<Int>>({{1, 11}})});
 }
 
 TEST_CASE("tsl: eval_node drives scalar-child TSL inputs/outputs as canonical deltas")
@@ -273,11 +273,11 @@ TEST_CASE("tsl: eval_node drives scalar-child TSL inputs/outputs as canonical de
     // TSL -> TSL: re-applying the delta round-trips it.
     CHECK_OUTPUT(testing::eval_node<MirrorList>(in), in);
 
-    // Dynamic TSL -> dynamic TSL: the same erased replay/record harness applies to
-    // grow-only dynamic lists.
-    const std::vector<std::optional<Value>> dynamic_in{list_delta<TS<Int>>({{0, 1}}),
-                                                       list_delta<TS<Int>>({{0, 5}, {1, 9}}),
-                                                       list_delta<TS<Int>>({{1, 11}})};
+    // Dynamic TSL -> dynamic TSL: the same erased replay/record harness applies
+    // to dynamic lists, whose delta additionally carries `removed`.
+    const std::vector<std::optional<Value>> dynamic_in{dynamic_list_delta<TS<Int>>({{0, 1}}),
+                                                       dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+                                                       dynamic_list_delta<TS<Int>>({{1, 11}})};
     CHECK_OUTPUT(testing::eval_node<DynamicMirrorList>(dynamic_in), dynamic_in);
 }
 
@@ -304,7 +304,9 @@ TEST_CASE("tsl: recursive - list_delta over container children builds nested can
     CHECK(nd.view().as_map().at(Value{Int{0}}.view()).as_map().size() == 2);
 
     // TSData storage supports fixed and dynamic TSL over every implemented non-REF
-    // child kind; dynamic TSL is grow-only because its delta has no removal surface.
+    // child kind. A dynamic TSL additionally carries a removal surface, so its
+    // delta is Bundle{removed, modified} rather than the bare index map
+    // (RFC 0031); see ``dynamic_list_delta``.
 }
 
 TEST_CASE("tsl: a TSL<TSS> executes end-to-end (replay -> record round-trips list-of-set deltas)")

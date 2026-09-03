@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 TEST_CASE("ts_schemas: TS<std::int32_t>.value_schema and delta_value_schema are int")
 {
@@ -98,7 +99,7 @@ TEST_CASE("ts_schemas: TSD<K, V>.value_schema is Map<K, V.value_schema>, delta i
     REQUIRE(ts_int->authored_delta_schema == ts_int->delta_value_schema);
 }
 
-TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>, delta is Map<int, T.delta>")
+TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed delta is Map<int, T.delta>, dynamic adds removed")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -132,10 +133,19 @@ TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>, delta is Map<int, T
         REQUIRE(tsl->value_schema == expected_value);
         REQUIRE(tsl->value_schema->fixed_size == 0);
 
-        // delta_value_schema = Map<int, double>
+        // A dynamic TSL can shrink, so its delta carries the TSD-shaped
+        // Bundle{removed: Set<int>, modified: Map<int, double>} (RFC 0031).
         const auto *int_meta           = registry.value_type("int");
         const auto *expected_delta_map = registry.map(int_meta, double_meta);
-        REQUIRE(tsl->delta_value_schema == expected_delta_map);
+        const auto *delta              = tsl->delta_value_schema;
+        REQUIRE(delta->value_kind() == ValueTypeKind::Bundle);
+        REQUIRE(delta->field_count == 2);
+        REQUIRE(std::string_view{delta->fields[0].name} == "removed");
+        REQUIRE(delta->fields[0].type == registry.set(int_meta));
+        REQUIRE(std::string_view{delta->fields[1].name} == "modified");
+        REQUIRE(delta->fields[1].type == expected_delta_map);
+        // Truncation cannot fail, so there is no strict-removal counterpart.
+        REQUIRE(tsl->authored_delta_schema == delta);
     }
 }
 

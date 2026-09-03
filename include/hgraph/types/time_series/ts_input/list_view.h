@@ -40,6 +40,25 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<std::size_t, TSInputView> modified_items() const &;
         KeyValueRange<std::size_t, TSInputView> modified_items() && = delete;
 
+        /** Structural delta for this cycle (RFC 0031). A fixed TSL reports
+            empty ranges rather than throwing. */
+        [[nodiscard]] Range<std::size_t> added_indices() const &;
+        Range<std::size_t> added_indices() && = delete;
+        [[nodiscard]] Range<std::size_t> removed_indices() const &;
+        Range<std::size_t> removed_indices() && = delete;
+        [[nodiscard]] Range<TSInputView> added_values() const &;
+        Range<TSInputView> added_values() && = delete;
+        [[nodiscard]] Range<TSInputView> removed_values() const &;
+        Range<TSInputView> removed_values() && = delete;
+        [[nodiscard]] KeyValueRange<std::size_t, TSInputView> added_items() const &;
+        KeyValueRange<std::size_t, TSInputView> added_items() && = delete;
+        [[nodiscard]] KeyValueRange<std::size_t, TSInputView> removed_items() const &;
+        KeyValueRange<std::size_t, TSInputView> removed_items() && = delete;
+
+        /** Child view for a live OR retained (removed this cycle) index. */
+        [[nodiscard]] TSInputView retained_at(std::size_t index) const &;
+        TSInputView retained_at(std::size_t) && = delete;
+
         [[nodiscard]] TSInputView at(std::size_t index) &;
         [[nodiscard]] TSInputView at(std::size_t index) const &;
         TSInputView at(std::size_t) && = delete;

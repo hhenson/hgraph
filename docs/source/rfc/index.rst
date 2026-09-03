@@ -58,3 +58,4 @@ RFC catalogue
    rfc_0028_shared_value_representation
    rfc_0029_value_pool_ownership_and_binding
    rfc_0030_typed_value_persistence
+   rfc_0031_dynamic_tsl_removal

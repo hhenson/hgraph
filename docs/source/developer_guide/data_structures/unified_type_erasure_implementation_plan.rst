@@ -288,7 +288,7 @@ Iteration 4D
    Data, Input, and Output records (originally ABI 3; advanced to ABI 4 by
    the pointer/owner separation). Role-specific root and embedded
    labels share one physical plan per schema. Dynamic-list storage binds its
-   one-word element type on first growth, remains grow-only, and invalidates
+   one-word element type on first growth, grows and truncates (RFC 0031), and invalidates
    owned descendants before their handles are destroyed. Owned and peered
    dynamic roots are supported; non-peered dynamic structural prefixes remain
    rejected. Window removal queries at the data layer require an explicit

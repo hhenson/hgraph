@@ -481,6 +481,29 @@ namespace
         }
     };
 
+    struct FromJsonDynamicListGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "from_json_dynamic_list_graph";
+
+        static Port<TSL<TS<Int>>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::from_json, TSL<TS<Int>>>(w, ts).as<TSL<TS<Int>>>();
+        }
+    };
+
+    struct DynamicListJsonRoundTripGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "dynamic_list_json_round_trip_graph";
+
+        static Port<TSL<TS<Int>>> compose(Wiring &w, Port<TSL<TS<Int>>> ts)
+        {
+            auto text = wire<stdlib::to_json>(w, ts, true).as<TS<Str>>();
+            return wire<stdlib::from_json, TSL<TS<Int>>>(w, text).as<TSL<TS<Int>>>();
+        }
+    };
+
     struct FromJsonSetGraph
     {
         [[maybe_unused]] static constexpr auto name = "from_json_set_graph";
@@ -720,6 +743,32 @@ TEST_CASE("json operators: a null TSL element does not tick")
             values<Str>(Str{"[1, 2]"}, Str{"[null, 9]"})),
         values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}}),
                       list_delta<TS<Int>>({{1, 9}})));
+}
+
+TEST_CASE("json operators: a dynamic TSL array sets the list length")
+{
+    // RFC 0031: the array IS the list, so a shorter array truncates it and the
+    // removed indices show up in the delta.
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<FromJsonDynamicListGraph>(
+            values<Str>(Str{"[1, 2, 3]"}, Str{"[null, 9]"}, Str{"[]"})),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+                      dynamic_list_delta<TS<Int>>({{1, 9}}, {2}),
+                      dynamic_list_delta<TS<Int>>({}, {0, 1})));
+}
+
+TEST_CASE("json operators: a dynamic TSL delta round-trips its removals")
+{
+    // The object form is the canonical {"removed", "modified"} delta, so
+    // to_json -> from_json reproduces a truncation (RFC 0031).
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        eval_node<DynamicListJsonRoundTripGraph>(
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                          dynamic_list_delta<TS<Int>>({{0, 7}}, {1}))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      dynamic_list_delta<TS<Int>>({{0, 7}}, {1})));
 }
 
 TEST_CASE("json operators: temporal parsing uses the shared native format registry")

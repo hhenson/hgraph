@@ -772,21 +772,21 @@ namespace hgraph::python_bridge
         .def("valid_items", &PyOutput::valid_items,
              "Return collection key/child-output pairs whose children are valid.")
         .def("added_keys", &PyOutput::added_keys,
-             "Return dictionary keys added in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, added in the current cycle.")
         .def("added_values", &PyOutput::added_values,
-             "Return dictionary child outputs added in the current cycle.")
+             "Return dictionary or dynamic-list child outputs added in the current cycle.")
         .def("added_items", &PyOutput::added_items,
-             "Return dictionary key/child-output pairs added in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-output pairs added in the current cycle.")
         .def("clear", &PyOutput::clear,
              "Clear the current collection value and publish removals.")
         .def("invalidate", &PyOutput::invalidate,
              "Invalidate the output without assigning a replacement value.")
         .def("removed_keys", &PyOutput::removed_keys,
-             "Return keys removed in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_values", &PyOutput::removed_values,
-             "Return dictionary child outputs removed in the current cycle.")
+             "Return dictionary or dynamic-list child outputs removed in the current cycle.")
         .def("removed_items", &PyOutput::removed_items,
-             "Return dictionary key/child-output pairs removed in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-output pairs removed in the current cycle.")
         .def("added", &PyOutput::set_added,
              "Return values added to a set output in the current cycle.")
         .def("removed", &PyOutput::set_removed,
@@ -901,17 +901,17 @@ namespace hgraph::python_bridge
         .def("valid_items", &PyReadOnlyOutput::valid_items,
              "Return valid collection key/read-only-child pairs.")
         .def("added_keys", &PyReadOnlyOutput::added_keys,
-             "Return dictionary keys added in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, added in the current cycle.")
         .def("added_values", &PyReadOnlyOutput::added_values,
-             "Return dictionary child outputs added in the current cycle.")
+             "Return dictionary or dynamic-list child outputs added in the current cycle.")
         .def("added_items", &PyReadOnlyOutput::added_items,
-             "Return dictionary key/child-output pairs added in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-output pairs added in the current cycle.")
         .def("removed_keys", &PyReadOnlyOutput::removed_keys,
-             "Return dictionary keys removed in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_values", &PyReadOnlyOutput::removed_values,
-             "Return dictionary child outputs removed in the current cycle.")
+             "Return dictionary or dynamic-list child outputs removed in the current cycle.")
         .def("removed_items", &PyReadOnlyOutput::removed_items,
-             "Return dictionary key/child-output pairs removed in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-output pairs removed in the current cycle.")
         .def("added", &PyReadOnlyOutput::set_added,
              "Return set values added in the current cycle.")
         .def("removed", &PyReadOnlyOutput::set_removed,
@@ -1283,19 +1283,19 @@ namespace hgraph::python_bridge
         .def("valid_values", &PyTimeSeries::valid_values,
              "Return valid collection child inputs.")
         .def("added_keys", &PyTimeSeries::added_keys,
-             "Return dictionary keys added in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, added in the current cycle.")
         .def("added_items", &PyTimeSeries::added_items,
-             "Return dictionary key/child-input pairs added in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-input pairs added in the current cycle.")
         .def("added_values", &PyTimeSeries::added_values,
-             "Return dictionary child inputs added in the current cycle.")
+             "Return dictionary or dynamic-list child inputs added in the current cycle.")
         .def("values", &PyTimeSeries::values,
              "Return the current child values of a collection input.")
         .def("removed_keys", &PyTimeSeries::removed_keys,
-             "Return dictionary keys removed in the current cycle.")
+             "Return dictionary keys, or dynamic-list indices, removed in the current cycle.")
         .def("removed_items", &PyTimeSeries::removed_items,
-             "Return dictionary key/child-input pairs removed in the current cycle.")
+             "Return dictionary key / dynamic-list index and child-input pairs removed in the current cycle.")
         .def("removed_values", &PyTimeSeries::removed_values,
-             "Return dictionary child inputs removed in the current cycle.")
+             "Return dictionary or dynamic-list child inputs removed in the current cycle.")
         .def("get", &PyTimeSeries::get, nb::arg("key"),
              "Return a dictionary child input, or None when the key is absent.")
         .def_prop_ro("key_set", &PyTimeSeries::key_set,

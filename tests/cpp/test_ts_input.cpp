@@ -2191,6 +2191,64 @@ TEST_CASE("TSD input structural ranges do not repeat a prior removal on a forwar
     CHECK(removed_items.begin() == removed_items.end());
 }
 
+TEST_CASE("dynamic TSL input reports the truncated indices and their retained values")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer  = registry.register_scalar<std::int32_t>("int32");
+    const auto *schema   = registry.tsl(registry.ts(integer), 0);
+
+    TSOutput output{schema};
+    TSInput  input{TSInputBuilderFactory::checked_builder_for(
+        *schema, TSEndpointSchema::peered(schema))};
+
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    {
+        auto output_view = output.view(t1);
+        auto list = output_view.as_list();
+        for (std::int32_t index = 0; index < 3; ++index)
+        {
+            Value value{index + 1};
+            auto  child = list.at(static_cast<std::size_t>(index));
+            auto  mutation = child.begin_mutation(t1);
+            REQUIRE(mutation.copy_value_from(value.view()));
+        }
+    }
+    input.view(nullptr, t1).bind_output(output.view(t1));
+
+    {
+        auto input_view = input.view(nullptr, t1);
+        auto view = input_view.as_list();
+        REQUIRE(view.size() == 3);
+        REQUIRE(std::vector<std::size_t>(view.added_indices().begin(), view.added_indices().end()) ==
+                std::vector<std::size_t>{0, 1, 2});
+        REQUIRE(view.removed_indices().begin() == view.removed_indices().end());
+    }
+
+    // RFC 0031: truncation retains the removed children for the cycle, so the
+    // input can still read their last values.
+    {
+        auto output_view = output.view(t2);
+        output_view.as_list().resize(1);
+    }
+
+    auto input_view = input.view(nullptr, t2);
+    auto view = input_view.as_list();
+    REQUIRE(view.size() == 1);
+    REQUIRE(view.added_indices().begin() == view.added_indices().end());
+    REQUIRE(std::vector<std::size_t>(view.removed_indices().begin(), view.removed_indices().end()) ==
+            std::vector<std::size_t>{1, 2});
+
+    std::vector<std::pair<std::size_t, std::int32_t>> removed;
+    for (auto &&[index, child] : view.removed_items())
+    {
+        REQUIRE(child.valid());
+        removed.emplace_back(index, child.value().checked_as<std::int32_t>());
+    }
+    REQUIRE(removed == std::vector<std::pair<std::size_t, std::int32_t>>{{1, 2}, {2, 3}});
+}
+
 TEST_CASE("TSW input removed value is limited to the current evaluation cycle")
 {
     using namespace hgraph;

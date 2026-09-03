@@ -542,6 +542,16 @@ namespace hgraph::python_bridge
             return layout.element_type;
         }
 
+        /** Either REMOVE sentinel. A list truncation is total, so the strict /
+            lenient distinction has nothing to express (RFC 0031). */
+        [[nodiscard]] bool is_list_removal(nb::handle item) noexcept
+        {
+            const auto &strict = removed_sentinel_slot();
+            if (strict.is_valid() && item.is(strict)) { return true; }
+            const auto &lenient = remove_if_exists_sentinel_slot();
+            return lenient.is_valid() && item.is(lenient);
+        }
+
         [[nodiscard]] bool list_requires_authored(TSRoleTypeRef type,
                                                   nb::handle source)
         {
@@ -552,10 +562,10 @@ namespace hgraph::python_bridge
                 for (auto [key, item] : nb::cast<nb::dict>(source))
                 {
                     static_cast<void>(key);
-                    if (!item.is_none() && requires_authored(child_type, item))
-                    {
-                        return true;
-                    }
+                    // A dynamic TSL's `removed` field is part of the OBSERVED
+                    // delta, so a REMOVE sentinel needs no authored schema.
+                    if (item.is_none() || is_list_removal(item)) { continue; }
+                    if (requires_authored(child_type, item)) { return true; }
                 }
                 return false;
             }
@@ -581,62 +591,110 @@ namespace hgraph::python_bridge
             const auto &schema = schema_of(type, "TSL delta_from_python");
             const auto child_type =
                 list_element_type(type, "TSL delta_from_python");
-            const auto *map_schema = authored ? schema.authored_delta_schema
-                                              : schema.delta_value_schema;
+            const auto *delta_schema = authored ? schema.authored_delta_schema
+                                                : schema.delta_value_schema;
+            // A dynamic TSL delta is Bundle{removed, modified}; a fixed one is
+            // the bare index map (RFC 0031).
+            const bool  dynamic = schema.fixed_size() == 0;
+            const auto *map_schema = dynamic ? delta_schema->fields[1].type : delta_schema;
             MapBuilder builder{binding_for(map_schema->key_type,
                                            "TSL delta index"),
                                binding_for(map_schema->element_type,
                                            "TSL child delta")};
+            std::vector<std::int64_t> removed;
             if (nb::isinstance<nb::dict>(source))
             {
                 for (auto [key, item] : nb::cast<nb::dict>(source))
                 {
                     if (item.is_none()) { continue; }
                     Value index = value_from_python(key, map_schema->key_type);
+                    if (dynamic && is_list_removal(item))
+                    {
+                        removed.push_back(index.view().checked_as<std::int64_t>());
+                        continue;
+                    }
                     Value child = build_delta(child_type, item, authored);
                     if (child.has_value())
                     {
                         builder.set_item(index.view(), child.view());
                     }
                 }
-                return builder.build();
             }
-
-            std::int64_t index = 0;
-            for (nb::handle item : source)
+            else
             {
-                if (!item.is_none())
+                std::int64_t index = 0;
+                for (nb::handle item : source)
                 {
-                    Value child = build_delta(child_type, item, authored);
-                    if (child.has_value())
+                    if (!item.is_none())
                     {
-                        builder.set_item_copy(std::addressof(index),
-                                              child.view().data());
+                        Value child = build_delta(child_type, item, authored);
+                        if (child.has_value())
+                        {
+                            builder.set_item_copy(std::addressof(index),
+                                                  child.view().data());
+                        }
                     }
+                    ++index;
                 }
-                ++index;
             }
-            return builder.build();
+            if (!dynamic) { return builder.build(); }
+
+            const auto index_binding = binding_for(map_schema->key_type, "TSL delta index");
+            SetBuilder removed_set{index_binding};
+            for (const auto index : removed)
+            {
+                static_cast<void>(removed_set.insert_copy(std::addressof(index)));
+            }
+            BundleBuilder bundle{binding_for(delta_schema, "TSL delta_from_python")};
+            bundle.set("removed", removed_set.build());
+            bundle.set("modified", builder.build());
+            return bundle.build();
         }
 
         void apply_list_result(const TSOutputView &output, nb::handle result)
         {
             const auto type = output.storage_type();
+            const auto &schema = schema_of(type, "TSL apply result");
             const auto child_type = list_element_type(type, "TSL apply result");
             const auto &child_ops = python_ops_for(child_type);
             auto list_out = output.as_list();
-            // No parent touch: a TSL delta is only its children's changes
-            // (mirrors apply_delta_tsl).
+            const bool dynamic = schema.fixed_size() == 0;
+            // No parent touch: a TSL delta is only its children's changes plus,
+            // for a dynamic list, its length (mirrors apply_delta_tsl).
             if (nb::isinstance<nb::dict>(result))
             {
+                if (dynamic)
+                {
+                    // Truncate FIRST so a same-cycle re-grow through the
+                    // remaining entries behaves as apply_delta does.
+                    auto truncate_to = static_cast<std::size_t>(-1);
+                    for (auto [key, item] : nb::cast<nb::dict>(result))
+                    {
+                        if (item.is_none() || !is_list_removal(item)) { continue; }
+                        const auto index = nb::cast<std::int64_t>(key);
+                        if (index < 0)
+                        {
+                            throw std::out_of_range("a TSL index must be non-negative");
+                        }
+                        truncate_to = std::min(truncate_to, static_cast<std::size_t>(index));
+                    }
+                    if (truncate_to < list_out.size()) { list_out.resize(truncate_to); }
+                }
                 for (auto [key, item] : nb::cast<nb::dict>(result))
                 {
-                    if (item.is_none()) { continue; }
+                    if (item.is_none() || (dynamic && is_list_removal(item))) { continue; }
                     const auto index = nb::cast<std::int64_t>(key);
                     child_ops.apply_result_impl(
                         list_out.at(static_cast<std::size_t>(index)), item);
                 }
                 return;
+            }
+            // A sequence IS a dynamic list: its length sets the list length, so
+            // a shorter sequence truncates (RFC 0031).
+            if (dynamic)
+            {
+                const auto length = static_cast<std::size_t>(nb::len(result));
+                if (length != list_out.size()) { list_out.resize(length); }
             }
             std::size_t index = 0;
             for (nb::handle item : result)

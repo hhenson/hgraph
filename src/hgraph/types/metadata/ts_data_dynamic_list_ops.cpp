@@ -10,6 +10,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/bridge_state.h>
 #include <hgraph/python/ts_data_conversion.h>
 #endif
 
@@ -43,6 +44,18 @@ namespace hgraph::ts_data_plan_factory_detail
             return seed;
         }
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+        /** Either REMOVE sentinel. Truncation is total, so hgraph's strict /
+            lenient distinction has nothing to express for a list. */
+        [[nodiscard]] bool is_removal_sentinel(nb::handle item) noexcept
+        {
+            const auto &strict = python_bridge::removed_sentinel_slot();
+            if (strict.is_valid() && item.is(strict)) { return true; }
+            const auto &lenient = python_bridge::remove_if_exists_sentinel_slot();
+            return lenient.is_valid() && item.is(lenient);
+        }
+#endif
+
         using TSDataErasedOwner =
             MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy, TypeRecord>;
 
@@ -52,6 +65,21 @@ namespace hgraph::ts_data_plan_factory_detail
             std::size_t next_modified{0};
         };
 
+        /**
+         * Grow/shrink indexed child storage for a dynamic ``TSL`` (RFC 0031).
+         *
+         * Removal is TAIL TRUNCATION: ``live_size_`` is the list length and
+         * ``elements_`` additionally retains the truncated tail for the rest
+         * of the delta window so ``removed_values()`` can read it. The window
+         * is opened lazily by the first mutation at a newer time, using the
+         * same monotonic rule as the TSD slot store, and rolling it is what
+         * invalidates and destroys the retained tail. Within one window a
+         * re-grow RESURRECTS the retained child with its payload intact,
+         * exactly as TSD reinsertion does.
+         *
+         * The physical extent is therefore ``max(live_size_, previous_size_)``
+         * and the storage owns every element in it.
+         */
         class DynamicTSLStorage
         {
           public:
@@ -69,7 +97,20 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] TSRoleTypeRef element_type() const noexcept { return element_type_; }
             [[nodiscard]] const TSDataTracking &tracking() const noexcept { return tracking_; }
             [[nodiscard]] TSDataTracking &mutable_tracking() noexcept { return tracking_; }
-            [[nodiscard]] std::size_t size() const noexcept { return elements_.size(); }
+
+            /** Live list length. */
+            [[nodiscard]] std::size_t size() const noexcept { return live_size_; }
+            /** Live plus retained (removed-this-window) extent. */
+            [[nodiscard]] std::size_t retained_size() const noexcept { return elements_.size(); }
+            /** Live length when the current delta window opened. */
+            [[nodiscard]] std::size_t previous_size() const noexcept { return previous_size_; }
+            /** Evaluation time the current delta window describes. The ring
+                header doubles as its storage, so the modified ring and the
+                structural window can never disagree. */
+            [[nodiscard]] DateTime delta_time() const noexcept
+            {
+                return DateTime{std::chrono::microseconds{ordinal_keys_.front().ordinal_key}};
+            }
 
             [[nodiscard]] const void *child_memory(std::size_t index) const
             {
@@ -86,25 +127,43 @@ namespace hgraph::ts_data_plan_factory_detail
                 return ordinal_keys_.at(index + 1).ordinal_key;
             }
 
+            /**
+             * Roll the delta window forward when ``modified_time`` is newer.
+             *
+             * Rolling flushes the retained tail: observers are invalidated
+             * before the child storage is destroyed, matching the TSD
+             * remove-then-erase ordering.
+             */
+            void prepare_delta(DateTime modified_time)
+            {
+                // Monotonic delta window: a record carrying an older time (a
+                // freshly bound link replaying source history) joins the
+                // current window rather than rebasing it and erasing sibling
+                // marks recorded this cycle.
+                if (modified_time <= delta_time()) { return; }
+                // Clear the ring BEFORE flushing: invalidating a retained
+                // child notifies its observers, and the ring positions it is
+                // about to pop must not be reachable while that runs.
+                auto &header = ordinal_keys_.front();
+                header.next_modified = 0;
+                flush_retained();
+                header.ordinal_key = modified_time.time_since_epoch().count();
+                previous_size_     = live_size_;
+            }
+
             void record_child_modified(std::size_t index, DateTime modified_time)
             {
-                auto &header = ordinal_keys_.front();
-                const DateTime window{std::chrono::microseconds{header.ordinal_key}};
-                // Monotonic delta window: a record carrying an older time (a
-                // freshly bound link replaying source history) must not
-                // rebase the ring and erase sibling marks recorded this
-                // cycle. It cannot join the ring either (re-appending an
+                // A stale record cannot join the ring either (re-appending an
                 // already-linked entry would corrupt it), so it is dropped.
-                if (modified_time < window) { return; }
-                if (modified_time != window)
-                {
-                    header.ordinal_key = modified_time.time_since_epoch().count();
-                    header.next_modified = 0;
-                }
+                if (modified_time < delta_time()) { return; }
+                prepare_delta(modified_time);
+                if (index >= live_size_) { return; }
+
                 // Child tracking notifies its parent only on the first mutation
                 // at a given evaluation time. Keep a circular list whose header
                 // points at the tail, preserving notification order in the
                 // existing ordinal-key allocation.
+                auto &header = ordinal_keys_.front();
                 const std::size_t position = index + 1;
                 auto &entry = ordinal_keys_.at(position);
                 if (header.next_modified == 0)
@@ -122,67 +181,91 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] std::size_t modified_index_count() const noexcept
             {
-                const auto &header = ordinal_keys_.front();
-                if (DateTime{std::chrono::microseconds{header.ordinal_key}} != tracking_.last_modified_time ||
-                    header.next_modified == 0)
-                {
-                    return 0;
-                }
-
-                const std::size_t first = ordinal_keys_[header.next_modified].next_modified;
-                std::size_t count = 1;
-                for (std::size_t position = ordinal_keys_[first].next_modified; position != first;
-                     position = ordinal_keys_[position].next_modified)
-                {
+                std::size_t count = 0;
+                for_each_modified_index([&](std::size_t) {
                     ++count;
-                }
+                    return true;
+                });
                 return count;
             }
 
             [[nodiscard]] std::size_t modified_index_at(std::size_t ordinal) const
             {
-                const auto &header = ordinal_keys_.front();
-                if (DateTime{std::chrono::microseconds{header.ordinal_key}} != tracking_.last_modified_time ||
-                    header.next_modified == 0)
+                std::size_t result = TS_DATA_NO_CHILD_ID;
+                std::size_t seen   = 0;
+                for_each_modified_index([&](std::size_t index) {
+                    if (seen++ != ordinal) { return true; }
+                    result = index;
+                    return false;
+                });
+                if (result == TS_DATA_NO_CHILD_ID)
                 {
-                    throw std::out_of_range("dynamic TSL has no current modified indices");
+                    throw std::out_of_range("dynamic TSL modified index ordinal is out of range");
                 }
-                std::size_t position = ordinal_keys_[header.next_modified].next_modified;
-                for (std::size_t current = 0; current < ordinal; ++current)
-                {
-                    position = ordinal_keys_.at(position).next_modified;
-                    if (position == ordinal_keys_[header.next_modified].next_modified)
-                    {
-                        throw std::out_of_range("dynamic TSL modified index ordinal is out of range");
-                    }
-                }
-                return position - 1;
+                return result;
             }
 
-            void ensure_size(std::size_t size, TSRoleTypeRef element_type)
+            /**
+             * Whether the open window describes the parent's current tick.
+             *
+             * The structural delta is only meaningful while the storage's
+             * window and the parent's last modification agree, exactly as the
+             * modified ring is.
+             */
+            [[nodiscard]] bool structural_delta_current() const noexcept
             {
-                if (element_type.record() == nullptr)
-                    throw std::logic_error("dynamic TSL elements require canonical TypeRecords");
-                if (element_type.schema() == nullptr || element_type.plan() == nullptr)
-                    throw std::logic_error("dynamic TSL element type is not resolved");
-                if (element_type_ && element_type_ != element_type)
-                    throw std::logic_error("dynamic TSL element type cannot change after growth");
-                const bool newly_bound = !element_type_ && size > elements_.size();
-                if (newly_bound) { element_type_ = element_type; }
-                auto binding_rollback = UnwindCleanupGuard([&] {
-                    if (newly_bound && elements_.empty()) { element_type_ = {}; }
-                });
-                while (elements_.size() < size)
+                const auto window = delta_time();
+                return window != MIN_DT && window == tracking_.last_modified_time;
+            }
+
+            [[nodiscard]] std::size_t added_index_count() const noexcept
+            {
+                if (!structural_delta_current() || live_size_ <= previous_size_) { return 0; }
+                return live_size_ - previous_size_;
+            }
+
+            [[nodiscard]] std::size_t added_index_at(std::size_t ordinal) const
+            {
+                if (ordinal >= added_index_count())
                 {
-                    const auto index = elements_.size();
-                    elements_.emplace_back(*element_type.record());
-                    auto rollback = UnwindCleanupGuard([&] { elements_.pop_back(); });
-                    ordinal_keys_.push_back(DynamicTSLIndexEntry{
-                        .ordinal_key = static_cast<std::int64_t>(index),
-                    });
-                    rollback.release();
+                    throw std::out_of_range("dynamic TSL added index ordinal is out of range");
                 }
-                binding_rollback.release();
+                return previous_size_ + ordinal;
+            }
+
+            [[nodiscard]] std::size_t removed_index_count() const noexcept
+            {
+                if (!structural_delta_current() || previous_size_ <= live_size_) { return 0; }
+                return previous_size_ - live_size_;
+            }
+
+            [[nodiscard]] std::size_t removed_index_at(std::size_t ordinal) const
+            {
+                if (ordinal >= removed_index_count())
+                {
+                    throw std::out_of_range("dynamic TSL removed index ordinal is out of range");
+                }
+                return live_size_ + ordinal;
+            }
+
+            /** Grow the live list, constructing or resurrecting elements. */
+            void ensure_size(std::size_t size, TSRoleTypeRef element_type, DateTime modified_time)
+            {
+                if (size <= live_size_) { return; }
+                resize(size, element_type, modified_time);
+            }
+
+            /** Set the live list length, growing or truncating. */
+            void resize(std::size_t size, TSRoleTypeRef element_type, DateTime modified_time)
+            {
+                if (modified_time == MIN_DT)
+                {
+                    throw std::invalid_argument(
+                        "dynamic TSL resize requires a concrete evaluation time");
+                }
+                prepare_delta(modified_time);
+                if (size > live_size_) { grow_to(size, element_type); }
+                else if (size < live_size_) { truncate_to(size); }
             }
 
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
@@ -209,6 +292,74 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            /** Visit live ring members in notification order; ``fn`` returns
+                false to stop (so ordinal lookup stays O(ordinal)). */
+            template <typename Fn> void for_each_modified_index(Fn &&fn) const
+            {
+                const auto &header = ordinal_keys_.front();
+                if (delta_time() != tracking_.last_modified_time || header.next_modified == 0) { return; }
+
+                const std::size_t first = ordinal_keys_[header.next_modified].next_modified;
+                std::size_t position = first;
+                do
+                {
+                    // A child modified and then truncated in the same window
+                    // is reported as REMOVED, not modified.
+                    if (position - 1 < live_size_ && !fn(position - 1)) { return; }
+                    position = ordinal_keys_[position].next_modified;
+                } while (position != first);
+            }
+
+            void grow_to(std::size_t size, TSRoleTypeRef element_type)
+            {
+                if (element_type.record() == nullptr)
+                    throw std::logic_error("dynamic TSL elements require canonical TypeRecords");
+                if (element_type.schema() == nullptr || element_type.plan() == nullptr)
+                    throw std::logic_error("dynamic TSL element type is not resolved");
+                if (element_type_ && element_type_ != element_type)
+                    throw std::logic_error("dynamic TSL element type cannot change after growth");
+                const bool newly_bound = !element_type_ && size > elements_.size();
+                if (newly_bound) { element_type_ = element_type; }
+                auto binding_rollback = UnwindCleanupGuard([&] {
+                    if (newly_bound && elements_.empty()) { element_type_ = {}; }
+                });
+                // Retained elements below `size` are RESURRECTED: the payload
+                // and its ordinal key are already constructed.
+                while (elements_.size() < size)
+                {
+                    const auto index = elements_.size();
+                    elements_.emplace_back(*element_type.record());
+                    auto rollback = UnwindCleanupGuard([&] { elements_.pop_back(); });
+                    ordinal_keys_.push_back(DynamicTSLIndexEntry{
+                        .ordinal_key = static_cast<std::int64_t>(index),
+                    });
+                    rollback.release();
+                }
+                binding_rollback.release();
+                live_size_ = size;
+            }
+
+            void truncate_to(std::size_t size) noexcept
+            {
+                for (std::size_t index = size; index < live_size_; ++index)
+                {
+                    detail::stop_owned_ts_data_tree(TSDataView{element_type_, elements_[index].data()});
+                }
+                live_size_ = size;
+            }
+
+            /** Invalidate and destroy the tail retained by the closing window. */
+            void flush_retained() noexcept
+            {
+                while (elements_.size() > live_size_)
+                {
+                    detail::invalidate_owned_ts_data_tree(
+                        TSDataView{element_type_, elements_.back().data()});
+                    elements_.pop_back();
+                    ordinal_keys_.pop_back();
+                }
+            }
+
             TSRoleTypeRef                   element_type_{};
             TSDataTracking                    tracking_{};
             // Handles may move as the vector grows, but the child TSData bytes
@@ -216,6 +367,8 @@ namespace hgraph::ts_data_plan_factory_detail
             // addresses stable while preserving vector locality for handles.
             std::vector<TSDataErasedOwner>  elements_{};
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
+            std::size_t                     live_size_{0};
+            std::size_t                     previous_size_{0};
         };
 
         void dynamic_list_storage_construct(void *dst, const void *)
@@ -273,6 +426,8 @@ namespace hgraph::ts_data_plan_factory_detail
             IndexedValueOps                 value_list_ops{};
             MapValueOps                     delta_map_ops{};
             SetValueOps                     delta_key_set_ops{};
+            SetValueOps                     removed_set_ops{};
+            IndexedValueOps                 delta_bundle_ops{};
             TSRoleTypeRef                 element_type{};
             TypeRole                        role{TypeRole::Invalid};
             bool                            embedded{false};
@@ -280,6 +435,8 @@ namespace hgraph::ts_data_plan_factory_detail
             ValueTypeRef element_delta_binding{nullptr};
             ValueTypeRef ordinal_key_binding{nullptr};
             ValueTypeRef delta_key_set_binding{nullptr};
+            ValueTypeRef removed_set_binding{nullptr};
+            ValueTypeRef modified_map_binding{nullptr};
 
             DynamicTSLContext(const TSValueTypeMetaData &schema_,
                               const MemoryUtils::StoragePlan &plan_,
@@ -320,21 +477,37 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("dynamic TSL schemas are not populated");
                 }
-                if (value_schema->value_kind() != ValueTypeKind::List || delta_schema->value_kind() != ValueTypeKind::Map)
+                if (value_schema->value_kind() != ValueTypeKind::List)
                 {
-                    throw std::logic_error("dynamic TSL requires List value and Map delta schemas");
+                    throw std::logic_error("dynamic TSL requires a List value schema");
+                }
+                // RFC 0031: a dynamic TSL can shrink, so its delta carries the
+                // same {removed, modified} shape a TSD does.
+                if (delta_schema->value_kind() != ValueTypeKind::Bundle || delta_schema->field_count != 2)
+                {
+                    throw std::logic_error("dynamic TSL delta schema must be Bundle{removed, modified}");
+                }
+                const ValueTypeMetaData *removed_schema  = delta_schema->fields[0].type;
+                const ValueTypeMetaData *modified_schema = delta_schema->fields[1].type;
+                if (removed_schema == nullptr || modified_schema == nullptr ||
+                    removed_schema->value_kind() != ValueTypeKind::Set ||
+                    modified_schema->value_kind() != ValueTypeKind::Map)
+                {
+                    throw std::logic_error("dynamic TSL delta schema must be Bundle{Set<int>, Map<int, delta>}");
                 }
 
                 list_layout.value_binding = intern_value_type(*value_schema, *plan, value_list_ops);
 
-                ordinal_key_binding = ValuePlanFactory::instance().type_for(delta_schema->key_type);
+                ordinal_key_binding = ValuePlanFactory::instance().type_for(modified_schema->key_type);
                 if (ordinal_key_binding == nullptr)
                 {
                     throw std::logic_error("dynamic TSL ordinal key binding is not resolved");
                 }
-                const auto *key_set_schema = TypeRegistry::instance().set(delta_schema->key_type);
+                const auto *key_set_schema = TypeRegistry::instance().set(modified_schema->key_type);
                 delta_key_set_binding = intern_value_type(*key_set_schema, *plan, delta_key_set_ops);
-                list_layout.delta_binding = intern_value_type(*delta_schema, *plan, delta_map_ops);
+                removed_set_binding   = intern_value_type(*removed_schema, *plan, removed_set_ops);
+                modified_map_binding  = intern_value_type(*modified_schema, *plan, delta_map_ops);
+                list_layout.delta_binding = intern_value_type(*delta_schema, *plan, delta_bundle_ops);
             }
 
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept
@@ -346,9 +519,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 return ops;
             }
 
+            /** Ownership walks cover the RETAINED extent, not just the live
+                list: the truncated tail is still owned until the delta window
+                rolls, and destruction must reach it. */
             [[nodiscard]] static std::size_t owned_child_count(const void *, const void *memory) noexcept
             {
-                return memory != nullptr ? storage(memory).size() : 0;
+                return memory != nullptr ? storage(memory).retained_size() : 0;
             }
 
             [[nodiscard]] static detail::TSDataOwnedChild owned_child_at(const void *context,
@@ -358,7 +534,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (context == nullptr || memory == nullptr) { return {}; }
                 const auto *state = ctx(context);
                 auto &store = storage(memory);
-                if (index >= store.size()) { return {}; }
+                if (index >= store.retained_size()) { return {}; }
                 return detail::TSDataOwnedChild{
                     .type = state->element_type,
                     .data = store.child_memory(index),
@@ -414,6 +590,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.element_binding_impl        = &dynamic_indexed_element_binding;
                 ops.element_memory_impl         = &dynamic_indexed_element_memory;
                 ops.mutable_element_memory_impl = &dynamic_mutable_indexed_element_memory;
+                ops.structural_delta_impl       = &dynamic_structural_delta;
+                ops.retained_element_memory_impl = &dynamic_retained_element_memory;
+                ops.resize_impl                 = &dynamic_resize;
             }
 
             void configure_value_ops()
@@ -483,6 +662,47 @@ namespace hgraph::ts_data_plan_factory_detail
                 delta_key_set_ops.owning_type_impl      = &canonical_value_binding;
                 delta_key_set_ops.copy_construct_view_impl = &dynamic_delta_key_set_copy_construct_view;
                 delta_key_set_ops.copy_assign_view_impl    = &dynamic_delta_key_set_copy_assign_view;
+
+                removed_set_ops = SetValueOps{
+                    {{ValueOpsKind::Set, this, false, &dynamic_removed_set_hash, &dynamic_removed_set_equals,
+                      &dynamic_removed_set_compare, &dynamic_removed_set_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                      ,
+                      &dynamic_removed_set_projection_to_python
+#endif
+                     },
+                     &dynamic_removed_set_size,
+                     &dynamic_removed_set_key_at_index,
+                     &dynamic_delta_map_key_binding,
+                     &dynamic_removed_set_make_range,
+                     nullptr},
+                    &dynamic_removed_set_contains,
+                };
+                removed_set_ops.owning_type_impl           = &canonical_value_binding;
+                removed_set_ops.copy_construct_view_impl   = &dynamic_removed_set_copy_construct_view;
+                removed_set_ops.copy_assign_view_impl      = &dynamic_removed_set_copy_assign_view;
+
+                // The delta bundle is a two-field projection over the SAME
+                // storage: field 0 is the removed index set, field 1 the
+                // modified index map (mirrors the TSD dict delta bundle).
+                delta_bundle_ops = IndexedValueOps{
+                    {ValueOpsKind::Indexed, this, false, &dynamic_delta_bundle_hash,
+                     &dynamic_delta_bundle_equals, &dynamic_delta_bundle_compare,
+                     &dynamic_delta_bundle_to_string
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                     ,
+                     &dynamic_delta_bundle_to_python
+#endif
+                    },
+                    &dynamic_delta_bundle_size,
+                    &dynamic_delta_bundle_element_at,
+                    &dynamic_delta_bundle_element_binding,
+                    &dynamic_delta_bundle_make_range,
+                    nullptr,
+                };
+                delta_bundle_ops.owning_type_impl           = &canonical_value_binding;
+                delta_bundle_ops.copy_construct_view_impl   = &dynamic_delta_bundle_copy_construct_view;
+                delta_bundle_ops.copy_assign_view_impl      = &dynamic_delta_bundle_copy_assign_view;
             }
 
             [[nodiscard]] static const DynamicTSLContext *ctx(const void *context) noexcept
@@ -542,22 +762,29 @@ namespace hgraph::ts_data_plan_factory_detail
                     return nb::none();
                 }
                 const auto &ops = child_ops(state->element_type);
-                nb::dict result;
+                nb::dict modified;
                 for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
                 {
                     const auto index = store.modified_index_at(ordinal);
                     const auto *child = store.child_memory(index);
                     nb::object value = ops.delta_to_python_impl(
                         ops.context, child, evaluation_time);
-                    if (!value.is_none()) { result[nb::int_{index}] = std::move(value); }
+                    if (!value.is_none()) { modified[nb::int_{index}] = std::move(value); }
                 }
+                // RFC 0031: the canonical {removed, modified} shape, which
+                // hgraph's _simplify_delta rewrites into the friendly
+                // {index: delta, removed_index: REMOVE} form.
+                nb::dict result;
+                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"modified"}] = std::move(modified);
                 return result;
             }
 
             /** Import current/replacement values through the child strategies.
-                Dynamic TSL cannot shrink because its delta model has no index
-                removal. A mapping is a sparse replacement/update; a sequence
-                covers consecutive indices and may grow the list. */
+                A sequence IS the list: it covers consecutive indices and
+                resizes, so a shorter sequence truncates (RFC 0031). A mapping
+                is a sparse replacement/update in which a ``REMOVE`` sentinel
+                truncates to the lowest removed index. */
             [[nodiscard]] static bool dynamic_from_python(
                 const void *context, void *memory, nb::handle source,
                 DateTime modified_time)
@@ -586,7 +813,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 bool touched = false;
 
                 const auto update = [&](std::size_t index, nb::handle item) {
-                    target.ensure_size(index + 1, state->element_type);
+                    target.ensure_size(index + 1, state->element_type, modified_time);
                     void *child = target.child_memory(index);
                     if (!ops.from_python_impl(ops.context, child, item,
                                               modified_time))
@@ -607,9 +834,28 @@ namespace hgraph::ts_data_plan_factory_detail
 
                 if (nb::isinstance<nb::dict>(source))
                 {
+                    // Removal is resolved FIRST so a same-cycle re-grow through
+                    // `modified` behaves exactly as apply_delta does.
+                    auto truncate_to = static_cast<std::size_t>(-1);
                     for (auto [key, item] : nb::cast<nb::dict>(source))
                     {
-                        if (item.is_none()) { continue; }
+                        if (item.is_none() || !is_removal_sentinel(item)) { continue; }
+                        const auto index = nb::cast<std::int64_t>(key);
+                        if (index < 0)
+                        {
+                            throw std::out_of_range(
+                                "dynamic TSL from_python index must be non-negative");
+                        }
+                        truncate_to = std::min(truncate_to, static_cast<std::size_t>(index));
+                    }
+                    if (truncate_to < target.size())
+                    {
+                        target.resize(truncate_to, state->element_type, modified_time);
+                        touched = true;
+                    }
+                    for (auto [key, item] : nb::cast<nb::dict>(source))
+                    {
+                        if (item.is_none() || is_removal_sentinel(item)) { continue; }
                         const auto index = nb::cast<std::int64_t>(key);
                         if (index < 0)
                         {
@@ -628,11 +874,10 @@ namespace hgraph::ts_data_plan_factory_detail
                         "dynamic TSL from_python expects a mapping or sequence");
                 }
                 const auto source_size = static_cast<std::size_t>(nb::len(source));
-                if (source_size < target.size())
+                if (source_size != target.size())
                 {
-                    throw std::invalid_argument(
-                        "dynamic TSL from_python cannot shrink because TSL delta "
-                        "has no removal surface");
+                    target.resize(source_size, state->element_type, modified_time);
+                    touched = true;
                 }
                 std::size_t index = 0;
                 for (nb::handle item : source)
@@ -640,7 +885,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (!item.is_none()) { update(index, item); }
                     ++index;
                 }
-                target.ensure_size(source_size, state->element_type);
                 return first_for_parent && touched;
             }
 #endif
@@ -786,12 +1030,52 @@ namespace hgraph::ts_data_plan_factory_detail
                 return store.child_memory(index);
             }
 
-            [[nodiscard]] static void *dynamic_mutable_indexed_element_memory(const void *context,
+            /** Live-element access only. Growth needs an evaluation time so the
+                structural delta can attribute the added indices, so it goes
+                through ``dynamic_resize`` (RFC 0031). */
+            [[nodiscard]] static void *dynamic_mutable_indexed_element_memory(const void *,
                                                                               void *memory,
                                                                               std::size_t index)
             {
                 auto &store = storage(memory);
-                store.ensure_size(index + 1, ctx(context)->element_type);
+                if (index >= store.size())
+                {
+                    throw std::out_of_range(
+                        "dynamic TSL growth requires an evaluation time; use a timed resize");
+                }
+                return store.child_memory(index);
+            }
+
+            static void dynamic_resize(const void *context, void *memory, std::size_t size,
+                                       DateTime modified_time)
+            {
+                storage(memory).resize(size, ctx(context)->element_type, modified_time);
+            }
+
+            [[nodiscard]] static IndexedStructuralDelta dynamic_structural_delta(
+                const void *, const void *memory) noexcept
+            {
+                if (memory == nullptr) { return {}; }
+                const auto &store = storage(memory);
+                if (!store.structural_delta_current())
+                {
+                    return IndexedStructuralDelta{
+                        .time = MIN_DT, .previous_size = store.size(), .size = store.size()};
+                }
+                return IndexedStructuralDelta{
+                    .time          = store.delta_time(),
+                    .previous_size = store.previous_size(),
+                    .size          = store.size(),
+                };
+            }
+
+            /** Element memory for a live OR retained (removed this window) index. */
+            [[nodiscard]] static const void *dynamic_retained_element_memory(const void *,
+                                                                             const void *memory,
+                                                                             std::size_t index)
+            {
+                const auto &store = storage(memory);
+                if (index >= store.retained_size()) { return nullptr; }
                 return store.child_memory(index);
             }
 
@@ -1201,10 +1485,10 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                             const void *memory)
             {
                 const auto *state = ctx(context);
-                if (binding.schema() != state->schema->delta_value_schema ||
-                    binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Map)
+                if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Map ||
+                    binding.schema() != state->modified_map_binding.schema())
                 {
-                    throw std::logic_error("dynamic TSL delta copy requires the canonical parent delta map schema");
+                    throw std::logic_error("dynamic TSL delta copy requires the canonical modified map schema");
                 }
                 const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->key_type);
                 const auto value_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
@@ -1344,6 +1628,284 @@ namespace hgraph::ts_data_plan_factory_detail
                 return builder.build_storage();
             }
 
+            // --- removed index set (delta bundle field 0, RFC 0031) ---
+
+            [[nodiscard]] static std::size_t dynamic_removed_set_size(const void *,
+                                                                      const void *memory) noexcept
+            {
+                return storage(memory).removed_index_count();
+            }
+
+            [[nodiscard]] static const void *dynamic_removed_set_key_at_index(const void *,
+                                                                              const void *memory,
+                                                                              std::size_t ordinal)
+            {
+                const auto &store = storage(memory);
+                return &store.ordinal_key(store.removed_index_at(ordinal));
+            }
+
+            [[nodiscard]] static ValueView dynamic_removed_set_projector(const void *context,
+                                                                          const void *memory,
+                                                                          std::size_t ordinal)
+            {
+                return ValueView{ctx(context)->ordinal_key_binding,
+                                 dynamic_removed_set_key_at_index(context, memory, ordinal)};
+            }
+
+            [[nodiscard]] static Range<ValueView> dynamic_removed_set_make_range(const void *context,
+                                                                                  const void *memory)
+            {
+                return Range<ValueView>{
+                    .context   = context,
+                    .memory    = memory,
+                    .limit     = dynamic_removed_set_size(context, memory),
+                    .predicate = nullptr,
+                    .projector = &dynamic_removed_set_projector,
+                };
+            }
+
+            [[nodiscard]] static bool dynamic_removed_set_contains(const void *, const void *memory,
+                                                                    const void *key)
+            {
+                const auto index = *MemoryUtils::cast<std::int64_t>(key);
+                if (index < 0) { return false; }
+                const auto &store = storage(memory);
+                const auto count = store.removed_index_count();
+                if (count == 0) { return false; }
+                const auto value = static_cast<std::size_t>(index);
+                return value >= store.size() && value < store.size() + count;
+            }
+
+            [[nodiscard]] static std::size_t dynamic_removed_set_hash(const void *context,
+                                                                       const void *memory)
+            {
+                const auto *state = ctx(context);
+                const auto &store = storage(memory);
+                std::size_t result = 0;
+                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
+                {
+                    result ^= state->ordinal_key_binding.ops_ref().hash(
+                        &store.ordinal_key(store.removed_index_at(ordinal)));
+                }
+                return result;
+            }
+
+            [[nodiscard]] static bool dynamic_removed_set_equals(const void *context, const void *lhs,
+                                                                  const void *rhs) noexcept
+            {
+                if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
+                return fallback_on_exception(false, [&] {
+                    static_cast<void>(context);
+                    const auto &left  = storage(lhs);
+                    const auto &right = storage(rhs);
+                    return left.removed_index_count() == right.removed_index_count() &&
+                           (left.removed_index_count() == 0 || left.size() == right.size());
+                });
+            }
+
+            [[nodiscard]] static std::partial_ordering dynamic_removed_set_compare(
+                const void *context, const void *lhs, const void *rhs) noexcept
+            {
+                if (const auto order = value_ops_detail::null_order(lhs, rhs)) { return *order; }
+                const auto lhs_size = dynamic_removed_set_size(context, lhs);
+                const auto rhs_size = dynamic_removed_set_size(context, rhs);
+                if (lhs_size < rhs_size) { return std::partial_ordering::less; }
+                if (lhs_size > rhs_size) { return std::partial_ordering::greater; }
+                return dynamic_removed_set_equals(context, lhs, rhs) ? std::partial_ordering::equivalent
+                                                                      : std::partial_ordering::unordered;
+            }
+
+            [[nodiscard]] static std::string dynamic_removed_set_to_string(const void *, const void *memory)
+            {
+                const auto &store = storage(memory);
+                fmt::memory_buffer out;
+                fmt::format_to(std::back_inserter(out), "{{");
+                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
+                {
+                    if (ordinal > 0) { fmt::format_to(std::back_inserter(out), ", "); }
+                    fmt::format_to(std::back_inserter(out), "{}",
+                                   store.ordinal_key(store.removed_index_at(ordinal)));
+                }
+                fmt::format_to(std::back_inserter(out), "}}");
+                return fmt::to_string(out);
+            }
+
+            [[nodiscard]] static SetStorage build_dynamic_removed_set_storage(const void *context,
+                                                                              const ValueTypeRef &binding,
+                                                                              const void *memory)
+            {
+                const auto *state = ctx(context);
+                if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Set)
+                {
+                    throw std::logic_error("dynamic TSL removed-set copy requires a canonical set schema");
+                }
+                const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
+                if (key_binding == nullptr || key_binding != state->ordinal_key_binding)
+                {
+                    throw std::logic_error("dynamic TSL removed-set copy key binding is not resolved");
+                }
+
+                SetBuilder builder{key_binding};
+                const auto &store = storage(memory);
+                for (std::size_t ordinal = 0; ordinal < store.removed_index_count(); ++ordinal)
+                {
+                    builder.insert_copy(&store.ordinal_key(store.removed_index_at(ordinal)));
+                }
+                return builder.build_storage();
+            }
+
+            static void dynamic_removed_set_copy_construct_view(const void *context,
+                                                                 const ValueTypeRef &binding,
+                                                                 void *dst,
+                                                                 const void *memory)
+            {
+                auto storage = build_dynamic_removed_set_storage(context, binding, memory);
+                std::construct_at(static_cast<SetStorage *>(dst), std::move(storage));
+            }
+
+            static void dynamic_removed_set_copy_assign_view(const void *context,
+                                                              const ValueTypeRef &binding,
+                                                              void *dst,
+                                                              const void *memory)
+            {
+                *static_cast<SetStorage *>(dst) = build_dynamic_removed_set_storage(context, binding, memory);
+            }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            [[nodiscard]] static nb::object dynamic_removed_set_projection_to_python(
+                const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                return Value{ValueView{state->removed_set_binding, memory}}.to_python();
+            }
+#endif
+
+            // --- delta bundle {removed, modified} (RFC 0031) ---
+
+            [[nodiscard]] static std::size_t dynamic_delta_bundle_size(const void *, const void *) noexcept
+            {
+                return 2;
+            }
+
+            [[nodiscard]] static const void *dynamic_delta_bundle_element_at(const void *, const void *memory,
+                                                                             std::size_t index)
+            {
+                if (index < 2) { return memory; }
+                throw std::out_of_range("dynamic TSL delta bundle index out of range");
+            }
+
+            [[nodiscard]] static ValueTypeRef dynamic_delta_bundle_element_binding(
+                const void *context, const void *, std::size_t index) noexcept
+            {
+                const auto *state = ctx(context);
+                return index == 0 ? state->removed_set_binding : state->modified_map_binding;
+            }
+
+            [[nodiscard]] static ValueView dynamic_delta_bundle_projector(const void *context,
+                                                                          const void *memory,
+                                                                          std::size_t index)
+            {
+                return ValueView{dynamic_delta_bundle_element_binding(context, memory, index),
+                                 dynamic_delta_bundle_element_at(context, memory, index)};
+            }
+
+            [[nodiscard]] static Range<ValueView> dynamic_delta_bundle_make_range(const void *context,
+                                                                                  const void *memory)
+            {
+                return Range<ValueView>{
+                    .context   = context,
+                    .memory    = memory,
+                    .limit     = 2,
+                    .predicate = nullptr,
+                    .projector = &dynamic_delta_bundle_projector,
+                };
+            }
+
+            [[nodiscard]] static std::size_t dynamic_delta_bundle_hash(const void *context,
+                                                                        const void *memory)
+            {
+                const auto *state = ctx(context);
+                return dynamic_combine_hash(state->removed_set_binding.ops_ref().hash(memory),
+                                            state->modified_map_binding.ops_ref().hash(memory));
+            }
+
+            [[nodiscard]] static bool dynamic_delta_bundle_equals(const void *context, const void *lhs,
+                                                                   const void *rhs) noexcept
+            {
+                if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
+                return fallback_on_exception(false, [&] {
+                    const auto *state = ctx(context);
+                    return state->removed_set_binding.ops_ref().equals(lhs, rhs) &&
+                           state->modified_map_binding.ops_ref().equals(lhs, rhs);
+                });
+            }
+
+            [[nodiscard]] static std::partial_ordering dynamic_delta_bundle_compare(
+                const void *context, const void *lhs, const void *rhs) noexcept
+            {
+                if (const auto order = value_ops_detail::null_order(lhs, rhs)) { return *order; }
+                return dynamic_delta_bundle_equals(context, lhs, rhs) ? std::partial_ordering::equivalent
+                                                                       : std::partial_ordering::unordered;
+            }
+
+            [[nodiscard]] static std::string dynamic_delta_bundle_to_string(const void *context,
+                                                                             const void *memory)
+            {
+                const auto *state = ctx(context);
+                return fmt::format("{{removed: {}, modified: {}}}",
+                                   state->removed_set_binding.ops_ref().to_string(memory),
+                                   state->modified_map_binding.ops_ref().to_string(memory));
+            }
+
+            static void dynamic_delta_bundle_copy_assign_view(const void *context,
+                                                               const ValueTypeRef &binding,
+                                                               void *dst,
+                                                               const void *memory)
+            {
+                if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Bundle ||
+                    binding.schema()->field_count != 2)
+                {
+                    throw std::logic_error("dynamic TSL delta copy requires canonical Bundle{removed, modified}");
+                }
+                const auto &plan = binding.checked_plan();
+                if (!plan.is_composite() || plan.component_count() < 2)
+                {
+                    throw std::logic_error("dynamic TSL delta copy requires a two-field structured plan");
+                }
+                copy_projected_bundle_fields(
+                    binding, dst, 2,
+                    [&](std::size_t index) {
+                        return dynamic_delta_bundle_element_binding(context, memory, index);
+                    },
+                    [&](std::size_t index) {
+                        return dynamic_delta_bundle_element_at(context, memory, index);
+                    });
+            }
+
+            static void dynamic_delta_bundle_copy_construct_view(const void *context,
+                                                                  const ValueTypeRef &binding,
+                                                                  void *dst,
+                                                                  const void *memory)
+            {
+                const auto &plan = binding.checked_plan();
+                plan.default_construct(dst);
+                auto rollback = make_scope_exit([&]() noexcept { plan.destroy(dst); });
+                dynamic_delta_bundle_copy_assign_view(context, binding, dst, memory);
+                rollback.release();
+            }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            [[nodiscard]] static nb::object dynamic_delta_bundle_to_python(const void *context,
+                                                                            const void *memory)
+            {
+                const auto *state = ctx(context);
+                nb::dict result;
+                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"modified"}] = state->modified_map_binding.ops_ref().to_python(memory);
+                return result;
+            }
+#endif
+
             [[nodiscard]] static bool dynamic_copy_value_from(const void *context,
                                                               void *memory,
                                                               const ValueView &source,
@@ -1369,14 +1931,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 const auto source_values = source.as_list();
                 auto      &target = storage(memory);
-                if (source_values.size() < target.size())
-                {
-                    throw std::invalid_argument(
-                        "dynamic TSL copy cannot shrink because TSL delta has no removal surface");
-                }
-
                 const bool first_for_parent = target.tracking().last_modified_time != modified_time;
-                target.ensure_size(source_values.size(), state->element_type);
+                // A shorter source TRUNCATES (RFC 0031); the removed tail is
+                // retained for the rest of the cycle by the storage.
+                target.resize(source_values.size(), state->element_type, modified_time);
 
                 const auto &ops = child_ops(state->element_type);
                 for (std::size_t index = 0; index < source_values.size(); ++index)
@@ -1427,12 +1985,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 const auto source_values = source.as_list();
                 auto      &target = storage(memory);
-                if (source_values.size() < target.size())
-                {
-                    throw std::invalid_argument(
-                        "dynamic TSL move cannot shrink because TSL delta has no removal surface");
-                }
-
                 const auto &ops = child_ops(state->element_type);
                 if (ops.move_value_from_impl == &ts_data_detail::missing_move_value_from)
                 {
@@ -1448,7 +2000,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
 
                 const bool first_for_parent = target.tracking().last_modified_time != modified_time;
-                target.ensure_size(source_values.size(), state->element_type);
+                target.resize(source_values.size(), state->element_type, modified_time);
 
                 for (std::size_t index = 0; index < source_values.size(); ++index)
                 {

@@ -53,11 +53,13 @@ namespace hgraph
     };
 
     /**
-     * Build a nested node that maps one compiled child graph over grow-only
-     * dynamic TSL inputs. The maximum current input size determines how many
-     * stable child slots exist; shorter peer lists supply unbound phantom
-     * elements until they grow. Child terminals write directly into stable
-     * elements of the owned dynamic-TSL output.
+     * Build a nested node that maps one compiled child graph over dynamic TSL
+     * inputs. The maximum current input size determines how many stable child
+     * slots exist; shorter peer lists supply unbound phantom elements until
+     * they grow. Child terminals write directly into stable elements of the
+     * owned dynamic-TSL output. When that maximum falls, the surplus children
+     * are stopped and destroyed and the output list truncates with them
+     * (RFC 0031).
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder tsl_map_node(NodeTypeMetaData meta, TslMapNodeSpec spec);
 }  // namespace hgraph

@@ -143,7 +143,11 @@ namespace hgraph::stdlib
         Being a delta, an absent member is UNCHANGED rather than removed: a bare
         ``[..]`` for a ``TSS`` adds its members, and removal needs the explicit
         ``{"added": [..], "removed": [..]}`` form. A ``null`` element of a ``TSL``
-        array means that element does not tick.
+        array means that element does not tick. A DYNAMIC ``TSL`` is the
+        exception to "absent means unchanged": the array IS the list, so its
+        length sets the list length and a shorter array truncates; its object
+        form is the canonical ``{"removed": [..], "modified": {..}}`` delta
+        (RFC 0031), while a fixed ``TSL`` keeps the bare index-map object.
         @param ts JSON text.
         @return Parsed values in the selected output schema.
         @par Python example

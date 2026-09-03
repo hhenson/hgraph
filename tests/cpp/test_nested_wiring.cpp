@@ -561,14 +561,14 @@ TEST_CASE("nested wiring: a dynamic TSL pass-through binds before the producer g
     stdlib::register_standard_operators();
 
     const auto input = values<Value>(
-        list_delta<TS<Int>>({}),
-        list_delta<TS<Int>>({{0, 1}, {1, 2}}),
-        list_delta<TS<Int>>({{1, 3}}));
+        dynamic_list_delta<TS<Int>>({}),
+        dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+        dynamic_list_delta<TS<Int>>({{1, 3}}));
     CHECK_OUTPUT(
         eval_node<NestedDynamicListPassThroughGraph>(input),
         values<Value>(none,
-                      list_delta<TS<Int>>({{0, 1}, {1, 2}}),
-                      list_delta<TS<Int>>({{1, 3}})));
+                      dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      dynamic_list_delta<TS<Int>>({{1, 3}})));
 }
 
 TEST_CASE("nested wiring: structural pass-through leaves clear while their source is unbound")

@@ -70,6 +70,29 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<std::size_t, TSDataView> valid_items() const;
         [[nodiscard]] KeyValueRange<std::size_t, TSDataView> modified_items(DateTime evaluation_time) const;
 
+        // --- structural delta (RFC 0031) ---
+        //
+        // A dynamic TSL can shrink; a fixed indexed shape cannot, and answers
+        // "no structure changed" rather than throwing, so generic code over
+        // an indexed view stays uniform.
+
+        /** Whether this indexed shape supports ``resize``. */
+        [[nodiscard]] bool supports_resize() const noexcept;
+        /** Live length when the delta window for ``evaluation_time`` opened. */
+        [[nodiscard]] std::size_t previous_size(DateTime evaluation_time) const;
+        /** Indices that came into existence at ``evaluation_time``. */
+        [[nodiscard]] Range<std::size_t> added_indices(DateTime evaluation_time) const;
+        /** Indices removed at ``evaluation_time``; their children stay readable this cycle. */
+        [[nodiscard]] Range<std::size_t> removed_indices(DateTime evaluation_time) const;
+        [[nodiscard]] Range<TSDataView> added_values(DateTime evaluation_time) const;
+        [[nodiscard]] Range<TSDataView> removed_values(DateTime evaluation_time) const;
+        [[nodiscard]] KeyValueRange<std::size_t, TSDataView> added_items(DateTime evaluation_time) const;
+        [[nodiscard]] KeyValueRange<std::size_t, TSDataView> removed_items(DateTime evaluation_time) const;
+        /** Child view for a live OR retained (removed this cycle) index. */
+        [[nodiscard]] TSDataView retained_at(std::size_t index) const;
+        /** Grow or truncate the live list. Throws on a shape without ``resize``. */
+        void resize(std::size_t size, DateTime modified_time) const;
+
       protected:
         IndexedTSDataView(TSDataView view, TSTypeKind expected_kind);
 
@@ -93,6 +116,22 @@ namespace hgraph
         [[nodiscard]] static bool child_modified_predicate(const void *context, const void *, std::size_t index);
         [[nodiscard]] static std::size_t project_modified_index(const void *context, const void *,
                                                                 std::size_t ordinal);
+        [[nodiscard]] IndexedStructuralDelta structural_delta(DateTime evaluation_time) const;
+        [[nodiscard]] static std::size_t project_added_index(const void *context, const void *memory,
+                                                             std::size_t ordinal);
+        [[nodiscard]] static std::size_t project_removed_index(const void *context, const void *memory,
+                                                               std::size_t ordinal);
+        [[nodiscard]] static TSDataView project_added_value(const void *context, const void *memory,
+                                                            std::size_t ordinal);
+        [[nodiscard]] static TSDataView project_removed_value(const void *context, const void *memory,
+                                                              std::size_t ordinal);
+        [[nodiscard]] static std::pair<std::size_t, TSDataView> project_added_item(const void *context,
+                                                                                   const void *memory,
+                                                                                   std::size_t ordinal);
+        [[nodiscard]] static std::pair<std::size_t, TSDataView> project_removed_item(const void *context,
+                                                                                     const void *memory,
+                                                                                     std::size_t ordinal);
+        [[nodiscard]] static Range<std::size_t> empty_index_range() noexcept;
         [[nodiscard]] static TSDataView project_value(const void *context, const void *, std::size_t index);
         [[nodiscard]] static std::pair<std::size_t, TSDataView> project_item(const void *context, const void *,
                                                                              std::size_t index);

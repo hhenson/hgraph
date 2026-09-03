@@ -1014,6 +1014,36 @@ namespace hgraph::detail
             return const_cast<void *>(target_link_indexed_element_memory(context, memory, index));
         }
 
+        /** Forward the producer's structural delta so a target-bound dynamic
+            TSL input reports the same added/removed indices (RFC 0031). */
+        [[nodiscard]] IndexedStructuralDelta target_link_structural_delta(const void *context,
+                                                                          const void *memory) noexcept
+        {
+            return fallback_on_exception(IndexedStructuralDelta{}, [&] {
+                auto target = target_link_target_view(context, memory);
+                if (!target.valid()) { return IndexedStructuralDelta{}; }
+                const auto &ops = static_cast<const IndexedTSDataOps &>(target.ops());
+                if (ops.structural_delta_impl == nullptr) { return IndexedStructuralDelta{}; }
+                return ops.structural_delta_impl(ops.context, target.data());
+            });
+        }
+
+        [[nodiscard]] const void *target_link_retained_element_memory(const void *context,
+                                                                       const void *memory,
+                                                                       std::size_t index) noexcept
+        {
+            return fallback_on_exception<const void *>(nullptr, [&] {
+                auto target = target_link_target_view(context, memory);
+                if (!target.valid()) { return static_cast<const void *>(nullptr); }
+                const auto &ops = static_cast<const IndexedTSDataOps &>(target.ops());
+                if (ops.retained_element_memory_impl == nullptr)
+                {
+                    return static_cast<const void *>(nullptr);
+                }
+                return ops.retained_element_memory_impl(ops.context, target.data(), index);
+            });
+        }
+
         [[nodiscard]] TSWDataView target_link_window_view(const void *context, const void *memory)
         {
             auto target = target_link_target_view(context, memory);
@@ -1496,6 +1526,11 @@ namespace hgraph::detail
                 &target_link_indexed_mutable_element_memory;
             static_cast<TSDataOps &>(context->ops).indexed_child_growth =
                 schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0;
+            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            {
+                context->ops.structural_delta_impl = &target_link_structural_delta;
+                context->ops.retained_element_memory_impl = &target_link_retained_element_memory;
+            }
             context->ops.size_impl = &target_link_indexed_size;
             context->ops.element_binding_impl = &target_link_indexed_element_binding;
             context->ops.element_memory_impl = &target_link_indexed_element_memory;

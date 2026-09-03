@@ -3013,9 +3013,43 @@ TEST_CASE("map_ over dynamic TSL: lifted scalar kernels follow grow-only runtime
 
     CHECK_OUTPUT(
         (eval_node<MapLiftedDynamicAddTslG>(
-            values<Value>(list_delta<TS<Int>>({{0, 1}}), list_delta<TS<Int>>({{1, 2}}), list_delta<TS<Int>>({{0, 3}})),
-            values<Value>(list_delta<TS<Int>>({{0, 10}}), list_delta<TS<Int>>({{1, 20}}), list_delta<TS<Int>>({{0, 100}})))),
-        values<Value>(list_delta<TS<Int>>({{0, 11}}), list_delta<TS<Int>>({{1, 22}}), list_delta<TS<Int>>({{0, 103}})));
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{1, 2}}), dynamic_list_delta<TS<Int>>({{0, 3}})),
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), dynamic_list_delta<TS<Int>>({{1, 20}}), dynamic_list_delta<TS<Int>>({{0, 100}})))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 11}}), dynamic_list_delta<TS<Int>>({{1, 22}}), dynamic_list_delta<TS<Int>>({{0, 103}})));
+}
+
+TEST_CASE("map_ over dynamic TSL: a shrinking source retires child graphs and truncates the output")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // Three indices, then the sources shrink to one. The map output must
+    // truncate with them and report the removed indices (RFC 0031); the
+    // surviving child keeps its own state, and a later re-grow builds a
+    // fresh child (its counter restarts).
+    CHECK_OUTPUT(
+        (eval_node<MapDynamicCounterG>(values<Value>(
+            dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+            dynamic_list_delta<TS<Int>>({{0, 4}}, {1, 2}),
+            dynamic_list_delta<TS<Int>>({{0, 5}, {1, 6}})))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 1}, {2, 1}}),
+                      dynamic_list_delta<TS<Int>>({{0, 2}}, {1, 2}),
+                      dynamic_list_delta<TS<Int>>({{0, 3}, {1, 1}})));
+}
+
+TEST_CASE("map_ over dynamic TSL: a lifted kernel truncates its output with the source")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<MapLiftedDynamicAddTslG>(
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                          dynamic_list_delta<TS<Int>>({}, {1})),
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}}),
+                          dynamic_list_delta<TS<Int>>({}, {1})))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 11}, {1, 22}}),
+                      dynamic_list_delta<TS<Int>>({}, {1})));
 }
 
 TEST_CASE("map_ over dynamic TSL: arbitrary graphs grow stable children and "
@@ -3028,9 +3062,9 @@ TEST_CASE("map_ over dynamic TSL: arbitrary graphs grow stable children and "
     // scalar offset broadcasts to every child and ndx is an entry-owned TS.
     CHECK_OUTPUT(
         (eval_node<MapDynamicPairOffsetNdxG>(
-            values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}}), none, list_delta<TS<Int>>({{0, 5}})),
-            values<Value>(list_delta<TS<Int>>({{0, 10}}), list_delta<TS<Int>>({{1, 20}}), none), values<Int>(100, none, 200))),
-        values<Value>(list_delta<TS<Int>>({{0, 111}}), list_delta<TS<Int>>({{1, 123}}), list_delta<TS<Int>>({{0, 215}, {1, 223}})));
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), none, dynamic_list_delta<TS<Int>>({{0, 5}})),
+            values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), dynamic_list_delta<TS<Int>>({{1, 20}}), none), values<Int>(100, none, 200))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 111}}), dynamic_list_delta<TS<Int>>({{1, 123}}), dynamic_list_delta<TS<Int>>({{0, 215}, {1, 223}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: composed structural child results retain their element schema")
@@ -3040,15 +3074,15 @@ TEST_CASE("map_ over dynamic TSL: composed structural child results retain their
 
     CHECK_OUTPUT(
         (eval_node<MapDynamicStructuralPairG>(values<Value>(
-            list_delta<TS<Int>>({{0, 1}}),
-            list_delta<TS<Int>>({{1, 2}}),
-            list_delta<TS<Int>>({{0, 3}})))),
+            dynamic_list_delta<TS<Int>>({{0, 1}}),
+            dynamic_list_delta<TS<Int>>({{1, 2}}),
+            dynamic_list_delta<TS<Int>>({{0, 3}})))),
         values<Value>(
-            list_delta<DynamicStructuralPair>(
+            dynamic_list_delta<DynamicStructuralPair>(
                 {{0, tsb_delta<DynamicStructuralPair>(Int{1}, Int{101})}}),
-            list_delta<DynamicStructuralPair>(
+            dynamic_list_delta<DynamicStructuralPair>(
                 {{1, tsb_delta<DynamicStructuralPair>(Int{2}, Int{102})}}),
-            list_delta<DynamicStructuralPair>(
+            dynamic_list_delta<DynamicStructuralPair>(
                 {{0, tsb_delta<DynamicStructuralPair>(Int{3}, Int{103})}})));
 }
 
@@ -3059,10 +3093,10 @@ TEST_CASE("map_ over dynamic TSL: a typed graph preserves its keyed REF[TSB] ter
 
     CHECK_OUTPUT(
         (eval_node<MapDynamicLookupMappedBundleG>(
-            values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}})),
+            values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}})),
             values<Value>(dict_delta<Str, LookupMappedBundle>(
                 {{"a"s, tsb_delta<LookupMappedBundle>(Int{1}, Str{"one"})}})))),
-        values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}})));
+        values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: each index preserves isolated child state") {
@@ -3070,8 +3104,8 @@ TEST_CASE("map_ over dynamic TSL: each index preserves isolated child state") {
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT((eval_node<MapDynamicCounterG>(
-                     values<Value>(list_delta<TS<Int>>({{0, 1}}), list_delta<TS<Int>>({{1, 2}}), list_delta<TS<Int>>({{0, 3}})))),
-                 values<Value>(list_delta<TS<Int>>({{0, 1}}), list_delta<TS<Int>>({{1, 1}}), list_delta<TS<Int>>({{0, 2}})));
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{1, 2}}), dynamic_list_delta<TS<Int>>({{0, 3}})))),
+                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}), dynamic_list_delta<TS<Int>>({{1, 1}}), dynamic_list_delta<TS<Int>>({{0, 2}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: child graphs use stable in-place slots") {
@@ -3082,8 +3116,8 @@ TEST_CASE("map_ over dynamic TSL: child graphs use stable in-place slots") {
     dynamic_tsl_slot_block_counts.clear();
 
     CHECK_OUTPUT((eval_node<MapDynamicCounterObservedG>(
-                     values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}), list_delta<TS<Int>>({{0, 4}})))),
-                 values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 1}, {2, 1}}), list_delta<TS<Int>>({{0, 2}})));
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}), dynamic_list_delta<TS<Int>>({{0, 4}})))),
+                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 1}, {2, 1}}), dynamic_list_delta<TS<Int>>({{0, 2}})));
     CHECK(dynamic_tsl_active_counts == std::vector<std::size_t>{3, 3});
     CHECK(dynamic_tsl_constructed_counts == std::vector<std::size_t>{3, 3});
     CHECK(dynamic_tsl_slot_block_counts == std::vector<std::size_t>{1, 1});
@@ -3096,7 +3130,7 @@ TEST_CASE("map_ over dynamic TSL: sink functions use the same indexed child "
     dynamic_tsl_sink_values.clear();
 
     const auto input =
-        values<Value>(list_delta<TS<Int>>({{0, 10}}), list_delta<TS<Int>>({{1, 20}}), list_delta<TS<Int>>({{0, 30}}));
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), dynamic_list_delta<TS<Int>>({{1, 20}}), dynamic_list_delta<TS<Int>>({{0, 30}}));
     CHECK_OUTPUT(eval_node<MapDynamicSinkG>(input), input);
     CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {1, 20}, {0, 30}});
 }
@@ -3116,9 +3150,9 @@ TEST_CASE("map_ over dynamic TSL: pass_through broadcasts the whole peer list") 
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(
-        (eval_node<MapDynamicPassThroughG>(values<Value>(list_delta<TS<Int>>({{0, 1}}), none),
-                                           values<Value>(list_delta<TS<Int>>({{0, 10}, {1, 20}}), list_delta<TS<Int>>({{2, 30}})))),
-        values<Value>(list_delta<TS<Int>>({{0, 3}}), list_delta<TS<Int>>({{0, 4}})));
+        (eval_node<MapDynamicPassThroughG>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}), none),
+                                           values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}}), dynamic_list_delta<TS<Int>>({{2, 30}})))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 3}}), dynamic_list_delta<TS<Int>>({{0, 4}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: pass-through child outputs are rejected "
@@ -3126,7 +3160,7 @@ TEST_CASE("map_ over dynamic TSL: pass-through child outputs are rejected "
     using namespace hgraph;
     stdlib::register_standard_operators();
 
-    REQUIRE_THROWS((eval_node<MapDynamicIdentityG>(values<Value>(list_delta<TS<Int>>({{0, 1}})))));
+    REQUIRE_THROWS((eval_node<MapDynamicIdentityG>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}})))));
 }
 
 TEST_CASE("map_ over TSL: lifted standard kernels cover subtraction division and min") {

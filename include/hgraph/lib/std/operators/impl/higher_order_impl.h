@@ -3973,6 +3973,10 @@ namespace hgraph::stdlib
                             auto input = bundle[arg];
                             runtime_size = std::max(runtime_size, input.as_list().size());
                         }
+                        // The output list tracks the longest source, in both
+                        // directions: a shrinking source truncates it
+                        // (RFC 0031).
+                        if (runtime_size < output.size()) { output.resize(runtime_size); }
                     }
 
                     // Scratch hoisted out of the element loop: one reusable

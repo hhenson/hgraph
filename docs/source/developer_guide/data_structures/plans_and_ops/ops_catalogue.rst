@@ -515,7 +515,9 @@ TS specialisation matrix
      - ``IndexedTSDataOps``
      - ``DynamicTSLContext``
        (``ts_data_dynamic_list_ops.cpp``)
-     - grow-only child slots; sole user of ``indexed_child_growth``
+     - growing/truncating child slots; sole user of ``indexed_child_growth``,
+       ``structural_delta_impl``, ``retained_element_memory_impl`` and
+       ``resize_impl``
    * - ``TSS``
      - ``TSSDataOps``
      - ``TSSContext``
