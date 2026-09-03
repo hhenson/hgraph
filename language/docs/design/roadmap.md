@@ -43,6 +43,8 @@ Deliverables:
   duration literals, validated and normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
   explicit `impl fn` implementation binding;
+- `requires` clauses with closed type sets, categories, type equality,
+  structural reflection, and nominal operator requirements;
 - automatically public operators and candidates, plus explicit public exposure
   for ordinary exact functions;
 - `const` wiring parameters and recursive temporal-shape expansion;
@@ -72,6 +74,8 @@ Acceptance:
 - canonical and atomic shapes map to public hgraph schemas;
 - nominal operator identities and generic rolling-window size bindings survive
   into typed IR, while concrete rolling windows map to hgraph schemas;
+- independent and repeated type variables, derived equality substitutions, and
+  residual admission predicates remain distinct in typed IR;
 - private exact functions are absent from module interfaces, exported exact
   functions are present, and operator candidates carry provider identity;
 - all AST and IR nodes retain precise source ranges;
@@ -112,6 +116,8 @@ Deliverables:
   repeated or skipped time, the `Reject` policies), a policy-taking
   `resolve(date, zoned_time, ...)`, accessors,
   JSON and Arrow codecs, and a Python wrapper, as an amendment to RFC 0002;
+- public source-type resolution bindings for context-neutral HGL
+  generics, plus open structural patterns for required-field matching;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`;
 - the backend parity suite: every `hgl test` the direct-wiring backend
@@ -129,6 +135,9 @@ Acceptance:
 - generated code uses no private hgraph headers or runtime internals;
 - named rolling-window size generics bind and resolve through public hgraph
   patterns;
+- constrained and derived generic substitutions agree between compiler
+  prediction and hgraph dispatch, and structural predicates never acquire an
+  implicit declaration-order tie-break;
 - every provider in the locked target is linked and registered before wiring,
   and descriptor/runtime candidate fingerprints agree;
 - removing a provider prevents future selection and registry reset cannot
@@ -165,12 +174,15 @@ Acceptance:
 
 Candidates, in risk order:
 
-- enums, records, and additional canonical temporal structures;
+- the canonical structured-value declaration corresponding to atomic
+  `CompoundScalar` values and recursively temporalized `TimeSeriesSchema`
+  bundles, including its final user-facing name;
+- enums and additional canonical temporal structures;
 - explicit ephemeral cache semantics;
 - additional lifecycle capabilities and output access;
 - higher-order functions and runtime control flow;
-- generic constraints, explicit generic arguments, output-directed inference,
-  and cross-module implementation coherence;
+- explicit generic arguments, generic defaults, and cross-module
+  implementation coherence beyond the initial constraint model;
 - the rolling-window runtime iteration surface and a parameter spelling that
   accepts either window kind;
 - an explicit end bound and approximate comparison for `eval`, and delta

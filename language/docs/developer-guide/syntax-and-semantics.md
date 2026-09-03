@@ -1,6 +1,7 @@
 # Syntax and semantics
 
-Status: proposed grammar with provisional runtime-function semantics
+Status: implemented parser grammar plus agreed, not-yet-implemented generic
+constraint syntax and provisional runtime-function semantics
 
 This chapter specifies the syntax agreed so far and records the first proposed
 rule for distinguishing wiring composition from runtime node evaluation. The
@@ -55,7 +56,7 @@ section below.
 The hard reserved words for the current design surface are:
 
 ```text
-module use as export impl operator fn const let var state inject return if else
+module use as export impl operator fn const requires is let var state inject return if else
 start when stop for test assert eval
 true false
 bool i64 f64 str date time datetime duration
@@ -74,9 +75,12 @@ parameter and variable names deliberately to keep a runtime body readable.
 keywords, and `unbounded` is a contextual constant in a list-size position.
 Outside a type position, the same spelling can resolve to a function,
 as in `map(values, fn(value) => value * 2.0)`. `in` is contextual: it is the
-separator of a `for` statement and an ordinary identifier elsewhere. `out`
-and the names of other injectables are contextual names resolved only by an
-`inject` declaration.
+separator of a `for` statement, the membership relation in a `requires`
+clause, and an ordinary identifier elsewhere. `out` and the names of other
+injectables are contextual names resolved only by an `inject` declaration.
+`struct` is currently a contextual type category rather than a defined
+declaration form. `fields`, `has_fields`, and `field_type` are compile-time
+reflection intrinsics inside a `requires` clause.
 
 The lexer never produces a `>>` token, so nested generic lists such as
 `list<tuple<f64, f64>>` need no spacing. A number followed directly by a
@@ -104,9 +108,10 @@ import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
 declaration     = operator_decl | function_decl | test_decl;
 operator_decl   = "operator", identifier, [ generic_parameters ],
-                  function_signature;
+                  function_signature, [ requires_clause ];
 function_decl   = [ "export" | "impl" ], "fn", identifier,
-                  [ generic_parameters ], function_signature, function_body;
+                  [ generic_parameters ], function_signature,
+                  [ requires_clause ], function_body;
 
 generic_parameters
                 = "<", generic_parameter,
@@ -128,16 +133,48 @@ const_parameter = "const", identifier, ":", value_type,
 
 function_body   = ( "=>", expression ) | block;
 const_expression = expression;
+
+requires_clause = "requires", constraint_expression;
+constraint_expression
+                = constraint_term,
+                  { ( "&&" | "||" ), constraint_term };
+constraint_term = "!", constraint_term
+                | "(", constraint_expression, ")"
+                | constraint_relation
+                | constraint_call
+                | operator_requirement;
+constraint_relation
+                = constraint_operand, "==", constraint_operand
+                | constraint_operand, "in", constraint_operand
+                | constraint_operand, "is", identifier;
+constraint_operand
+                = identifier | type | const_expression | constraint_call
+                | constraint_set;
+constraint_set  = "{", constraint_operand,
+                  { ",", constraint_operand }, [ "," ], "}";
+constraint_call = identifier, "(", [ constraint_arguments ], ")";
+constraint_arguments
+                = constraint_operand,
+                  { ",", constraint_operand }, [ "," ];
+operator_requirement
+                = ( identifier | qualified_name ), "(",
+                  [ type, { ",", type } ], ")", [ "->", type ];
 ```
 
 A function or operator signature with no return arrow is outputless. An
-`operator` declaration ends at the newline after its signature and cannot have
-a body. A temporal parameter cannot have a default in the agreed slice.
+`operator` declaration ends after its optional `requires` clause and cannot
+have a body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
 it is not a general local-variable qualifier. `export` applies only to a named
 ordinary exact `fn`. `impl` marks a named `fn` as an implementation of an
 operator in scope; the two modifiers are mutually exclusive. Operators are
 public without a modifier.
+
+The constraint grammar is intentionally smaller than the general expression
+grammar. Its operands are types, generic parameters, wiring-time constants,
+and pure compiler-provided reflection operations. It cannot call an arbitrary
+language function or inspect a temporal value. Newlines may follow an infix
+constraint operator, allowing an aligned multiline `requires` expression.
 
 ## Anonymous functions
 
@@ -521,23 +558,105 @@ RFC 0002 and uses the `period` library scalar.
 
 ## Generics and nominal operator binding
 
-A plain generic parameter binds a source type. A `const` generic parameter
-binds a wiring-time value and may appear in a type-shaping position such as a
-rolling-window size. Generic scope covers the declaration signature and an
-`fn` body. Repeated uses require an equivalent type or equal constant value.
+A plain generic parameter ranges over any HGL source type admitted by all of
+its occurrences. A `const` occurrence restricts that variable to `value_type`;
+a temporal occurrence additionally admits `atomic` and `rolling` types. A
+`const` generic parameter binds a wiring-time value and may appear in a
+type-shaping position such as a rolling-window size. Generic scope covers the
+declaration signature and an `fn` body. Repeated uses require an equivalent
+type or equal constant value.
 
 Every generic needed by a selected implementation must resolve from input
-arguments, expected output, explicit generic arguments, or a future declared
-default. Unresolved or inconsistently rebound generics are type diagnostics.
-The initial syntax for explicit generic arguments, generic defaults, and
-constraints remains open; the AST and semantic model must not assume they are
-type parameters only.
+arguments, expected output, explicit generic arguments, a future declared
+default, or a solvable type equality in a `requires` clause. Unresolved or
+inconsistently rebound generics are type diagnostics. The initial syntax for
+explicit generic arguments and generic defaults remains open; the AST and
+semantic model must not assume generic parameters are types only.
+
+Different type-parameter names are independent. Repetition means equality:
+
+```hgl
+fn independent<U, V>(a: U, b: V) -> U => a
+
+fn same<U>(a: U, b: U) -> U => a
+```
+
+`independent` permits unrelated types for `a` and `b`; `same` requires one
+source type for both, including equal atomic boundaries and rolling sizes.
+Contextual temporalization occurs after this source-level relationship is
+established. A plain generic is consequently neither a time-series-only
+variable nor a runtime dynamically typed value.
+
+A `requires` clause is a compile-time constraint expression:
+
+```hgl
+fn numeric<U>(a: U, b: U) -> U
+requires U in {f64, i64}
+=> a + b
+
+fn with_prices<U>(value: U) -> f64
+requires U is struct
+      && has_fields(U, {"bid", "ask"})
+=> 0.0
+```
+
+The initial constraint vocabulary is:
+
+- `U in {A, B, ...}` restricts a type variable to a closed set;
+- `U is category` restricts it to a compiler-known type category;
+- `X == Y` states type or wiring-time constant equality;
+- `fields(U)` returns the field-name set of a structured source type;
+- `has_fields(U, names)` tests that every named field is present;
+- `field_type(U, name)` returns the canonical type of a named field;
+- `op(A, B) -> O` requires a selected nominal operator to be callable with
+  those source types and result relationship.
+
+The exact declaration form and user-facing name for `struct` are a separate
+design decision. Within constraints it currently denotes the future canonical
+structured-value category corresponding to atomic structured scalar values and
+recursively temporalized bundles. The constraint design does not prescribe
+that declaration syntax.
+
+Type equality participates in inference. If exactly one side is an unbound
+generic and the other side can be evaluated from known bindings and `const`
+values, the compiler binds the generic. If both sides are known, equality
+validates them. The compiler repeats these steps to a fixed point; an
+unresolved dependency or cycle is diagnosed rather than deferred to generated
+C++. Only equalities in a positive conjunction can introduce a binding. An
+equality beneath `||` or `!` is an admission predicate and requires both sides
+to have been resolved elsewhere.
+
+```hgl
+operator get_field<U, V>(value: U, const name: str) -> V
+requires U is struct
+      && name in fields(U)
+      && V == field_type(U, name)
+```
+
+In this example the first two predicates establish that field lookup is valid,
+and the equality resolves or checks `V`. `fields` is deliberately distinct
+from the runtime collection iterator `keys`; constraint reflection operates on
+the canonical source type and does not expose its expanded hgraph schema.
+
+An operator requirement is resolved against the nominal operator selected by
+ordinary name resolution. It proves that the operation used by a generic body
+is valid for the admitted substitution:
+
+```hgl
+fn double<U>(value: U) -> U
+requires add(U, U) -> U
+=> value + value
+```
+
+`math::add(U, U) -> U` would select the exact qualified operator identity.
+Operator requirements do not search unrelated same-named contracts.
 
 An `operator` declaration introduces a nominal, bodyless callable contract. Its
 identity is `(defining module, declaration name)`, not its short name. The
 contract owns public parameter names and order, temporal-versus-`const` roles,
-defaults, and generic input/output relationships. Every operator is public by
-definition; `export operator` is not a declaration form.
+defaults, generic input/output relationships, and any public `requires`
+clause. Every operator is public by definition; `export operator` is not a
+declaration form.
 
 An `impl fn` is an implementation candidate of the operator with the same
 name in the module's unqualified declaration scope. That operator is either
@@ -564,7 +683,10 @@ and Swift protocols, always write the conformance out.
 
 The implementation signature must be a compatible specialization of the
 contract. It may introduce its own generics, but cannot change the contract's
-public argument roles. Its body still passes through ordinary function
+public argument roles. Operator requirements are in scope while its body is
+checked, and an implementation may add stricter candidate requirements. Its
+effective dispatch constraint is the conjunction of the mapped operator and
+candidate constraints. The body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
 Several `impl fn` declarations may share a name; each is a separate candidate
 of the same operator. An `impl fn` contributes a public candidate to the
@@ -1207,6 +1329,7 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - positional and named argument order;
 - `const` on parameters;
 - type and `const` generic parameters;
+- `requires` expressions and their type, constant, and operator operands;
 - `atomic` boundaries in types;
 - rolling-window size arguments and omitted minimum-size syntax;
 - list sizes, including the `unbounded` sentinel;
@@ -1234,14 +1357,18 @@ built. Rendered diagnostics are ordered by source position.
 
 ## Diagnostics
 
-Suggested categories are `parse`, `name`, `type`, `shape`, `function-kind`,
-`phase`, `injectable`, `operator`, `module`, and `build`.
+Suggested categories are `parse`, `name`, `type`, `shape`, `constraint`,
+`function-kind`, `phase`, `injectable`, `operator`, `module`, and `build`.
 
 Examples:
 
 ```text
 type: 'atomic<T>' is not valid on const parameter 'settings'
 shape: map key type 'list<str>' is not a supported canonical key
+constraint: U resolved inconsistently as f64 and i64
+constraint: cannot resolve V because field_type(U, name) depends on unresolved U
+constraint: type Order does not contain required field 'ask'
+constraint: operator requirement add(Order, Order) -> Order has no implementation
 function-kind: 'state' must be declared before runtime handlers
 function-kind: wiring operation is not available inside a runtime function
 injectable: 'out' requires a function output
@@ -1286,8 +1413,9 @@ Before code generation, an RFC must also define:
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- generic constraints, explicit generic arguments, generic defaults,
-  output-directed inference, and overlapping-implementation coherence;
+- structured-value declarations and their final user-facing name;
+- explicit generic arguments, generic defaults, and specialization
+  relationships beyond the defined pattern ranking and ambiguity rule;
 - general anonymous capture and type inference beyond inline iterator
   predicates;
 - callable scalar kernels inside runtime functions;

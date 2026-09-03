@@ -89,8 +89,8 @@ duration`, or `datetime + datetime`. Field accessors such as `year`, `hour`,
 
 ## Recursive temporalization
 
-Canonical containers and records become structural time-series shapes
-recursively:
+Canonical containers and structured values become structural time-series
+shapes recursively:
 
 | Source type | Temporal interpretation |
 | --- | --- |
@@ -104,7 +104,7 @@ recursively:
 | `map<str, f64>` | Keyed temporal map from `str` to temporal `f64` |
 | `rolling<f64, 20, 5>` | Rolling window of at most 20 `f64` values, valid from 5 values |
 | `rolling<f64, 5m>` | Rolling window of the last five minutes of `f64` values |
-| a record type | Structural bundle whose fields are temporal |
+| a structured value type | Structural bundle whose fields are temporal |
 
 A structural tuple is hgraph's un-named bundle with positional fields, so its
 children may have different types and `pair[0]` is positional field access. A
@@ -134,6 +134,25 @@ fn head<T, const n: i64>(entries: list<T, n>) -> T =>
 accepts only a three-element list. The resolved size is part of the type
 identity, and an unbounded list is the only one whose elements can be added
 and removed after wiring.
+
+## Structured values: next design
+
+`struct` is currently a working category name, not yet an agreed declaration
+keyword. The next design step will define one canonical structured-value type
+whose context supplies the hgraph representation:
+
+- a `const` value uses the canonical scalar representation corresponding to
+  `CompoundScalar`;
+- `atomic<MyType>` is one endpoint carrying a complete structured scalar;
+- temporal `MyType` recursively expands its fields into the bundle shape
+  corresponding to `TimeSeriesSchema` and `TSB`.
+
+That design still needs to settle the source name and declaration syntax,
+nominal versus structural identity, field defaults and inheritance, field
+access, construction, and atomic/bundle conversion. The generic constraint
+surface already refers to this category through `U is struct`, `fields(U)`,
+`has_fields(U, names)`, and `field_type(U, name)` without deciding those
+remaining questions.
 
 ## Rolling windows
 

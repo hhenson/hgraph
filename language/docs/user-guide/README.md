@@ -12,8 +12,8 @@ source calls reach hgraph.
 
 1. [Language tour](language-tour.md) introduces a complete module.
 2. [Functions](functions.md) covers composition and runtime functions,
-   public exports, generics, operator contracts, state, injectables, lifecycle,
-   activation, and output.
+   public exports, generic constraints and substitution, operator contracts,
+   state, injectables, lifecycle, activation, and output.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
    types, rolling windows, the `atomic<T>` boundary, metadata, and runtime
    collection traversal.

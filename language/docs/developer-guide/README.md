@@ -6,18 +6,19 @@ for hgraph, not a second runtime.
 
 > **Implementation status:** `src/syntax/` implements the lexer, the
 > temporal literal parser, the arena AST, and the parser of
-> [Syntax and semantics](syntax-and-semantics.md); `hgl check` runs them.
-> There is no resolver, semantic IR, function classifier, direct-wiring
-> backend, or C++ generator yet.
+> [Syntax and semantics](syntax-and-semantics.md), except for the newly agreed
+> `requires` clauses and the still-open structured-value declaration;
+> `hgl check` runs the implemented subset. There is no resolver, semantic IR,
+> function classifier, direct-wiring backend, or C++ generator yet.
 
 ## Guide map
 
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
    `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
-   `const` parameters, lexical bindings, canonical and rolling types, recursive
-   temporalization, metadata, and collection iteration, plus provisional state,
-   injectable, lifecycle, activation, and output semantics, and the `test`,
-   `eval`, and run model.
+   `requires` constraints and type substitution, `const` parameters, lexical
+   bindings, canonical and rolling types, recursive temporalization, metadata,
+   and collection iteration, plus provisional state, injectable, lifecycle,
+   activation, and output semantics, and the `test`, `eval`, and run model.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
    pipeline, function classification, public SDK lowering, the direct-wiring
    backend, generated module lifecycle, source mapping, and build manifests.
@@ -69,6 +70,8 @@ surface.
   fields; it is never a list.
 - `const` parameters are wiring-time values and use their canonical value type
   directly.
+- Plain generic parameters bind canonical source types; `requires` constraints
+  drive substitution and admission before wiring-time candidate ranking.
 - `let` locals are immutable; `var` locals are mutable but lexical and
   evaluation-local rather than recordable state.
 - Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, `TSD`, or `TSW`

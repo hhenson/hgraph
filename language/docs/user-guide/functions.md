@@ -93,8 +93,9 @@ invalid.
 ## Generic functions and operators
 
 Generic parameters follow a function or operator name. A plain generic
-parameter binds a source type; a `const` generic parameter binds a wiring-time
-value that may participate in a type:
+parameter binds any HGL source type admitted by every place it is used; a
+`const` generic parameter binds a wiring-time value that may participate in a
+type:
 
 ```hgl
 operator summarize<
@@ -104,12 +105,99 @@ operator summarize<
 >(window: rolling<T, max_size, min_size>) -> T
 ```
 
-Repeated use of a generic name requires one consistent binding. In this
-example, `T` is the rolling-window element type and both size parameters are
-part of the concrete window type. Every generic used by a selected
-implementation must resolve from call arguments, expected output, an explicit
-generic argument, or a declared default. The detailed inference and generic
-constraint syntax remain provisional.
+Different generic names bind independently:
+
+```hgl
+fn choose_first<U, V>(a: U, b: V) -> U => a
+```
+
+Repeating a generic name requires one consistent source-type binding:
+
+```hgl
+fn choose_left<U>(a: U, b: U) -> U => a
+```
+
+Here `a` and `b` must have the same source type. The parameter context makes
+both values temporal; `U` itself is not shorthand for a particular hgraph
+time-series wrapper. An unbounded `U` can represent a scalar, container,
+structured, atomic, or rolling source type. Using the same `U` in a `const`
+position narrows that call to types permitted for constant values, excluding
+`atomic` and `rolling`. The same binding rule applies recursively inside type
+constructors. In the earlier window example, `T` is the rolling-window element
+type and both size parameters are part of the concrete window type.
+
+### Requirements and type constraints
+
+A trailing `requires` clause constrains an otherwise generic declaration. It
+follows the signature and precedes the body:
+
+> **Staging status:** this syntax and its semantics are agreed design, but the
+> current `hgl check` parser does not implement `requires` yet.
+
+```hgl
+fn add_numeric<U>(a: U, b: U) -> U
+requires U in {f64, i64}
+=> a + b
+```
+
+`in` expresses membership in a closed set of types. Type categories use `is`,
+while structural requirements use compile-time reflection predicates:
+
+```hgl
+fn calculate<U>(value: U) -> f64
+requires U is struct
+      && has_fields(U, {"a", "b"})
+{
+    // The definition of struct values and field access is specified separately.
+    0.0
+}
+```
+
+`struct` is the working name for the canonical structured-value concept. Its
+declaration and field-access design is intentionally left to the dedicated
+struct design; the constraint means that `U` is such a type and contains at
+least the named fields. `fields(U)` exposes its field-name set when direct
+reflection is useful. These are type-level operations, not the runtime `keys`
+operation used to traverse collection values.
+
+A type equality can both infer and validate a substitution:
+
+```hgl
+operator get_field<U, V>(value: U, const name: str) -> V
+requires U is struct
+      && name in fields(U)
+      && V == field_type(U, name)
+```
+
+If `U` and `name` are known, the last requirement resolves `V`. If an expected
+output has already bound `V`, it checks that binding instead. A requirement
+that cannot make progress because its inputs are unresolved or cyclic is a
+compile-time error.
+
+Requirements may also state that a nominal operator must be callable for the
+substitution:
+
+```hgl
+fn double<U>(value: U) -> U
+requires add(U, U) -> U
+=> value + value
+```
+
+The body is valid only when the selected `add` contract has an implementation
+for two `U` inputs producing `U`. A qualified operator such as
+`math::add(U, U) -> U` names that exact nominal contract.
+
+Requirements are evaluated while the graph is wired. They never become
+per-tick conditionals. Every generic needed by a selected implementation must
+resolve from call arguments, the expected output, an explicit generic
+argument, a declared default, or a solvable equality requirement. An
+unresolved or inconsistently rebound generic is a type error.
+
+`U` is therefore a wiring-time unknown, not a dynamically typed `any`. The
+compiler may implement a generic runtime function once using hgraph's erased
+views when every operation in its body is valid for all admitted `U` values,
+or specialize it when concrete representation is required. That
+code-generation choice does not change the source-level type relationships.
 
 An `operator` is a nominal contract, similar in role to a Rust trait or Swift
 protocol. It declares a call shape and generic relationships but has no body:
@@ -117,6 +205,19 @@ protocol. It declares a call shape and generic relationships but has no body:
 ```hgl
 operator combine<T>(lhs: T, rhs: T) -> T
 ```
+
+An operator may carry requirements as part of its public contract:
+
+```hgl
+operator double<U>(value: U) -> U
+requires add(U, U) -> U
+```
+
+Every implementation is checked with the operator requirements in scope and
+may add stricter candidate requirements. At dispatch, the effective constraint
+is the operator requirement combined with the candidate requirement. A
+candidate does not need to repeat the public constraint merely to use its
+guarantees in the body.
 
 An operator is public by definition; there is no `export operator` form.
 

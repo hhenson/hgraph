@@ -112,23 +112,80 @@ operator summarize<
 
 A repeated generic name denotes one consistent binding. Every generic required
 by a selected candidate must resolve from inputs, expected output, explicit
-generic arguments, or defaults. Constraint syntax and complete inference rules
-remain open, but generic matching must lower to hgraph `TypePattern` and
-`ResolutionMap` rather than a language-local matcher.
+generic arguments, defaults, or a solvable equality requirement. Generic
+matching must lower to hgraph `TypePattern` and `ResolutionMap` rather than a
+language-local matcher.
+
+Different generic names are independent, while repetition requires equality:
+
+```hgl
+fn independent<U, V>(a: U, b: V) -> U => a
+fn same<U>(a: U, b: U) -> U => a
+```
+
+The plain variable ranges over any HGL source type admitted by all of its use
+sites. A temporal position permits scalar, container, structured, atomic, and
+rolling types; a `const` position restricts the same variable to canonical
+value types. Parameter and result context determines its representation, so
+`U` is not intrinsically a time-series variable or a scalar variable. It is
+also not a runtime `any`: every accepted call has a concrete substitution
+before its graph or node is built.
+
+Declarations express restrictions and derived substitutions with a trailing
+`requires` clause:
+
+```hgl
+fn add_numeric<U>(a: U, b: U) -> U
+requires U in {f64, i64}
+=> a + b
+
+operator get_field<U, V>(value: U, const name: str) -> V
+requires U is struct
+      && name in fields(U)
+      && V == field_type(U, name)
+```
+
+Constraint expressions support closed type sets, type categories, structural
+reflection, type equality, Boolean composition, and nominal operator
+requirements. A type equality is declarative: it resolves one still-unbound
+side when the other can be evaluated and validates the relationship when both
+sides are known. Residual Boolean constraints only admit or reject a complete
+substitution.
+
+`struct` is a working category name here. The future structured-value design
+will define its source declaration, atomic representation, recursively
+temporalized bundle representation, field access, and nominal versus structural
+identity. Generic constraints require only a stable reflection interface:
+`fields`, `has_fields`, and `field_type`.
+
+A requirement such as `add(U, U) -> U` means that the already name-resolved
+nominal operator must have a viable candidate for that type relationship. It
+does not introduce another overload namespace or allow same-named operators to
+compete.
+
+The language preserves this symbolic type information through checked HIR.
+Code generation may use one erased implementation when the body uses only
+operations valid for every admitted substitution, or specialize an
+implementation when representation-specific code is required. This is an
+implementation decision: source generics remain statically substituted in
+both cases.
 
 An operator is a nominal contract analogous to a Rust trait or Swift protocol,
 while retaining a function-shaped source declaration. Its identity is the
 defining module plus name. The contract owns the public parameter names,
-temporal-versus-`const` roles, defaults, and generic input/output relationships.
-It contains no graph or runtime implementation.
+temporal-versus-`const` roles, defaults, generic input/output relationships,
+and public requirements. It contains no graph or runtime implementation.
 
 An `impl fn` binds to the local operator of the same name or to exactly one
 such operator brought into local scope by a selective import; the binding is
 written, never inferred from a name coincidence. `impl fn` with no operator in
 scope is an error, and a plain `fn` that shares a name with an in-scope
 operator is a conflict rather than a candidate. The function signature must be
-a compatible specialization of the contract and may itself be generic. Its body
-is classified through the ordinary composition-versus-runtime rules.
+compatible specialization of the contract and may itself be generic. Its body
+is checked with the operator requirements in scope and classified through the
+ordinary composition-versus-runtime rules. Candidate-specific requirements may
+further restrict an implementation; dispatch applies the conjunction of the
+mapped contract and candidate requirements.
 
 Two operator contracts with the same short name but different defining modules
 are unrelated. A namespace import such as `use my.module as mm` permits an
@@ -508,9 +565,9 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- record declarations;
-- generic constraints, explicit generic arguments, output-directed inference,
-  and overlapping-implementation coherence;
+- structured-value declarations and their final user-facing name;
+- explicit generic arguments, generic defaults, and any specialization
+  relationship beyond the defined pattern ranking and ambiguity rule;
 - general anonymous capture beyond inline runtime collection predicates;
 - rolling-window iteration and a parameter spelling that accepts either
   window kind;

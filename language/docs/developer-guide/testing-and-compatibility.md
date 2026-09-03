@@ -14,6 +14,8 @@ emitted for rejected input. Snapshots cover:
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;
 - type and `const` generic parameter lists;
+- trailing `requires` clauses, type sets, categories, type equalities,
+  reflection calls, and operator requirements;
 - selective imports, module aliases, and `alias::declaration` references;
 - concise and block bodies;
 - `let` and `var` declarations, assignment, and `for` iteration patterns;
@@ -75,6 +77,39 @@ Table-driven tests cover recursive expansion:
 
 Type diagnostics show both the canonical source type and expanded temporal
 shape when that distinction explains the error.
+
+## Generic constraints and substitution
+
+Table-driven semantic tests cover:
+
+- independent `<U, V>` bindings accepting unrelated types;
+- repeated `<U>` occurrences accepting equal source types and rejecting
+  inconsistent re-binding;
+- one source variable used across temporal and `const` contexts;
+- closed-set membership such as `U in {f64, i64}`;
+- type-category admission and rejection;
+- Boolean composition and short-circuiting of pure constraints;
+- structural field presence and missing-field diagnostics;
+- `field_type` equalities resolving an output-only variable;
+- expected output bindings validating the same equality in the opposite call
+  context;
+- fixed-point resolution of dependent equalities and diagnostics for cycles;
+- nominal and qualified operator requirements;
+- compile-time rejection when a generic body uses an operation not proved by
+  its signature or requirements;
+- identical substitution and diagnostics in check, REPL, run, and build.
+
+Constraint tests must distinguish matching, resolution, and admission. A
+closed type set represented in `TypePattern` participates in ranking; a
+residual `requires_` predicate only rejects. Include an overlap in which two
+same-ranked admitted predicates remain ambiguous rather than selecting by
+source or registration order.
+
+When open structural patterns are implemented, test that required fields bind
+their types, additional fields remain admissible, a more constrained pattern
+outranks an unbounded fallback, and compiler prediction agrees with the native
+hgraph resolver. Until then, a field-presence predicate must be described and
+tested as admission-only.
 
 ## Function classification
 
@@ -150,6 +185,8 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - compatible concrete and generic implementation signatures, including type,
   rolling-size, and list-size variables, with `unbounded` binding a list-size
   generic;
+- constrained variables, derived type substitutions, structural requirements,
+  and required-operator capabilities;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;
 - canonical source types expanded to matching hgraph schemas;
 - `const` values participating in candidate selection;

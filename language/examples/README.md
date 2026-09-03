@@ -17,8 +17,9 @@ lands.
   `last_modified`, and mutable lexical `var`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
   nominal bodyless `operator`, a generic `impl fn` implementation, const-generic
-  rolling-window sizes, an exported exact function, the default minimum
-  window size, and a duration window.
+  rolling-window sizes, an exported exact function, the default minimum window
+  size, and a duration window. The agreed `requires` constraint surface remains
+  in the guides until the parser implements it.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
   maps with an atomic tuple and uses an anonymous `fn`.
 

@@ -72,6 +72,7 @@ signature stores:
 - temporal parameters with canonical source types;
 - `const` parameters with canonical value types and defaults;
 - optional temporal result type;
+- an optional checked generic-constraint expression;
 - concise expression or block body;
 - captures for anonymous functions once resolved;
 - source ranges for every component.
@@ -200,11 +201,23 @@ interns it through `TypeRegistry::tsw_duration(value_type, time_range,
 min_time_range)`, the schema Python's `TSW[T, timedelta]` produces, until
 hgraph adds the marker.
 
-Plain generic parameters lower to hgraph type-pattern variables at operator
-and candidate boundaries. `const` generics that shape a rolling type must bind
-through the same hgraph resolution record rather than a compiler-only side
-table. Repeated variables must unify, and the resolved candidate must contain
-no unbound type or size required by its inputs or output.
+Plain generic parameters bind HGL source-type descriptors. At operator and
+candidate boundaries their temporal and constant occurrences lower to hgraph
+type-pattern variables. The compiler intersects the domains imposed by every
+occurrence; for example, a `const` occurrence excludes `atomic` and `rolling`.
+`const` generics that shape a rolling type must bind through the same hgraph
+resolution record rather than a compiler-only side table. Repeated variables
+must unify, and the resolved candidate must contain no unbound type or size
+required by its inputs or output.
+
+The context-neutral source variable exposes a gap in the current native
+resolution record. Hgraph stores time-series, scalar, and size variables in
+separate namespaces, while one HGL `U` may occur in both a temporal position
+and a `const` value position. The public bridge must preserve one canonical
+source-type binding and derive each contextual representation from it. The
+preferred core extension is a source-type binding kind integrated
+with `ResolutionMap`; generating unrelated native variables and correlating
+them in a compiler-private table is not an acceptable second resolution model.
 
 The current public hgraph type pattern represents TSW sizes as either concrete
 tick values (`TypePattern::tsw`, which matches no duration window) or one
@@ -220,6 +233,89 @@ named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic
 list binds it to `0`, and a concrete `TSL<T, 0>` pattern matches every size.
 The source sentinel `unbounded` lowers to `0`, and a `const` generic in a
 list-size position lowers to the existing size variable.
+
+## Generic constraint IR and lowering
+
+The semantic pass normalizes every `requires` clause into a declarative
+constraint IR. Its initial node kinds are:
+
+```text
+TypeEqual(lhs, rhs)
+TypeSetMember(type, allowed-types)
+TypeCategory(type, category)
+TypeFunction(name, arguments)
+ConstPredicate(expression)
+OperatorRequirement(operator-id, inputs, optional-output)
+And / Or / Not
+```
+
+`fields`, `has_fields`, and `field_type` are compiler-known type functions over
+canonical structured types. They do not invoke user code. Operator requirements
+carry the canonical nominal operator identity established during name
+resolution, never only its short source spelling.
+
+For an operator-bound function, conformance establishes a substitution from
+the operator's generic parameters to the candidate signature. The compiler
+applies that substitution to the operator constraint and conjoins it with the
+candidate's own constraint. The combined expression is used both to check the
+implementation body and to generate its dispatch metadata and hooks.
+
+Candidate resolution proceeds in one deterministic sequence:
+
+1. Match arguments, explicit generic arguments, and any expected output,
+   recording the initial substitution.
+2. Evaluate orientable equality constraints in positive conjunctive positions
+   and type functions whose inputs are available, repeating to a fixed point.
+3. Reject an unresolved dependency, inconsistent re-binding, or equality
+   failure with a source constraint diagnostic.
+4. Resolve every required input and output schema.
+5. Evaluate the remaining Boolean and operator requirements as candidate
+   admission predicates.
+6. Let hgraph rank the admitted candidates and require one best match.
+
+This source model maps to the existing native hooks rather than reproducing
+them:
+
+| Constraint form | Native representation |
+| --- | --- |
+| repeated `U` | one shared `ResolutionMap` binding |
+| `U in {f64, i64}` | constrained `TypePattern` variable |
+| `V == field_type(U, name)` | generated `resolve_default_types` logic |
+| `U is struct` and `has_fields(...)` | structural pattern where representable, otherwise generated `requires_` |
+| `op(U, U) -> U` | viability query through the selected nominal hgraph operator |
+| residual `const` predicate | context-aware generated `requires_` |
+
+Constraints represented in `TypePattern` participate in hgraph specificity
+ranking. A residual `requires_` predicate only rejects a candidate; it does not
+make that candidate more specific. Consequently two same-ranked candidates
+whose predicates both accept remain ambiguous. The compiler must not use
+source order, import order, registration order, or an attempted general proof
+of predicate implication as a tie-break.
+
+The current TSB pattern is closed: its field names and count must exactly match
+the concrete schema. `has_fields(U, {"a", "b"})` can initially lower to
+`requires_`, but that cannot bind the field types or rank the candidate above
+an unconstrained fallback. First-class structural generic overloads therefore
+need a public open-struct pattern that records required fields, binds their
+types, accepts additional fields, and contributes deterministic specificity.
+That extension belongs in hgraph's shared `TypePattern` machinery, not in an
+HGL-only matcher.
+
+### Erased and specialized implementations
+
+Generic substitution is complete at wiring time even when the generated
+runtime implementation is type-erased. The checked HIR records which operations
+the constraints make available to the body. Code generation may then choose:
+
+- one erased implementation using public hgraph value, delta, and structural
+  views when every body operation is valid for the complete admitted domain;
+- specialization for a finite domain or a representation-specific operation;
+- ordinary graph composition whose nested operator calls resolve at wiring
+  time.
+
+This choice must not introduce per-tick overload resolution or dynamic typing.
+An actual existential or boxed `any` type, if ever required, is a separate
+language feature from `<U>`.
 
 `let` and `var` lower to scoped native locals. `let` is immutable in the typed
 HIR. `var` admits assignment but does not allocate node state. In composition
