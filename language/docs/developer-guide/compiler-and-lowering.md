@@ -100,8 +100,17 @@ The type-shape layer recursively maps source types:
 f64
   -> atomic TS<Float> leaf
 
+date
+  -> atomic TS<Date> leaf       (CivilDate)
+
+time
+  -> atomic TS<Time> leaf       (CivilTime)
+
 datetime
-  -> atomic TS<DateTime> leaf
+  -> atomic TS<DateTime> leaf   (Instant)
+
+duration
+  -> atomic TS<TimeDelta> leaf  (Duration)
 
 tuple<f64, str>
   -> UnNamedTSB<Field<"_0", TS<Float>>, Field<"_1", TS<Str>>>
@@ -207,6 +216,19 @@ The exact formatting is not contractual. The semantic requirements are:
 - compatible literals use hgraph's normal scalar lifting;
 - the result schema is validated;
 - composition flattens through ordinary hgraph wiring.
+
+A temporal literal is normalized in the AST and lowers to the matching hgraph
+scalar constant: a `date` to `Date`, a `time` to `Time` microseconds since
+midnight, a `datetime` to `DateTime` microseconds since the epoch after UTC
+normalization, and a `duration` to `TimeDelta` microseconds. In a temporal
+position it lifts like any other scalar literal. Temporal arithmetic and
+comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`, and
+comparison operators using exactly the overloads hgraph registers, so the
+language's operation table is hgraph's; in a runtime body the generated code
+calls the same checked helpers on canonical values. Two overloads the language
+table needs are not registered today and are recorded as hgraph-side asks:
+the reversed `i64 * duration` and `f64 * duration` operand order, and
+ordering and equality comparisons for `Time`.
 
 An atomic tuple parameter lowers to one atomic endpoint. Indexing it must wire
 an imported or generated extraction operation rather than read a current tuple

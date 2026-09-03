@@ -31,9 +31,11 @@ Deliverables:
 - lexer, parser, source manager, and structured diagnostics;
 - `module`, selective and aliased `use`, bodyless `operator`, named `fn`,
   `export fn`, and anonymous `fn` syntax;
-- `bool`, `i64`, `f64`, `str`, `datetime`, tuple, sized and unbounded list,
-  set, map, and `atomic<T>` types, plus tick-count
+- `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`, tuple,
+  sized and unbounded list, set, map, and `atomic<T>` types, plus tick-count
   `rolling<T, max_size[, min_size]>`;
+- `@` temporal literals and unit-suffixed duration literals, validated and
+  normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
   explicit `impl fn` implementation binding;
 - automatically public operators and candidates, plus explicit public exposure
@@ -83,6 +85,9 @@ Deliverables:
 - public hgraph provider-scoped candidate provenance, installer removal,
   registration removal, and live-plan lease support;
 - public hgraph TSW patterns that bind named maximum and minimum size generics;
+- standard-library `i64 * duration` and `f64 * duration` overloads and `Time`
+  comparison overloads, so the language's temporal operation table is
+  hgraph's;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
 

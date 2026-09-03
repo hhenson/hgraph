@@ -50,6 +50,9 @@ surface.
 - Imports expose names but do not activate providers; the locked package target
   defines the complete candidate universe without declaration re-exports.
 - Ordinary parameters and results use canonical recursively temporal types.
+- `date`, `time`, `datetime`, and `duration` are the four temporal scalars,
+  mapping to hgraph's zone-free RFC 0002 core types; `@` literals and
+  unit-suffixed durations are single validated tokens.
 - `atomic<T>` stops recursive temporalization at `T`.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
   wiring-time values and part of its type identity.

@@ -198,7 +198,8 @@ Source types describe values and structures without spelling hgraph's `TS`,
 Temporalization proceeds recursively:
 
 - scalar leaves such as `f64` become atomic endpoints;
-- `datetime` becomes an atomic hgraph engine timestamp;
+- `date`, `time`, `datetime`, and `duration` become atomic endpoints carrying
+  hgraph's RFC 0002 `CivilDate`, `CivilTime`, `Instant`, and `Duration`;
 - tuples become un-named structural bundles with positional temporal children;
 - lists become structural time-series lists, unbounded unless sized;
 - sets become set-valued time series;
@@ -229,6 +230,17 @@ rolling<f64, 20, 5>              // maximum 20, valid from 5 values
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
 atomicity describes a runtime temporal boundary.
+
+The temporal scalars are the four zone-free RFC 0002 core types and nothing
+more: `date` and `time` are civil values, `datetime` is an instant on the UTC
+timeline (the engine clock type), and `duration` is elapsed microseconds. The
+civil date-time, calendar period, zone, zoned date-time, and range types stay
+library scalars under their registered hgraph names. Literals are single
+tokens, `@` plus an RFC 3339 shape (`@2026-09-03`, `@09:30:00`,
+`@2026-09-03T09:30:00Z`) or a unit-suffixed number (`5m`, `1.5h`), validated
+and normalized when lexed, with one canonical printed spelling per value. The
+arithmetic table is hgraph's own, so an expression means the same thing in a
+composition body, a runtime body, and a constant expression.
 
 `rolling<T, max_size, min_size>` is inherently temporal rather than a canonical
 scalar container. Its sizes are positive wiring-time `i64` values, omission of
@@ -457,7 +469,7 @@ Later decisions must define:
 - generic constraints, explicit generic arguments, output-directed inference,
   and overlapping-implementation coherence;
 - general anonymous capture beyond inline runtime collection predicates;
-- duration rolling-window syntax and rolling-window iteration;
+- duration rolling-window semantics and rolling-window iteration;
 - structural temporal metadata and delta result shapes;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 

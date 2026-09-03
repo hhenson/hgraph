@@ -22,13 +22,18 @@ String contents may be UTF-8. Required escapes initially include `\"`, `\\`,
 braces delimit blocks, so indentation is non-semantic. Semicolons are not
 statement terminators or parameter separators.
 
+A temporal literal is one token: `@` followed by an RFC 3339 date, time, or
+instant (`@2026-09-03`, `@09:30:00`, `@2026-09-03T09:30:00Z`), or a number
+directly followed by a duration unit (`5m`, `1.5h`). Their grammar and
+validation rules are in the temporal scalar section below.
+
 The hard reserved words for the current design surface are:
 
 ```text
 module use as export impl operator fn const let var state inject return if else
 start when stop for
 true false
-bool i64 f64 str datetime
+bool i64 f64 str date time datetime duration
 ```
 
 Every word in that list is reserved everywhere, including the ones such as
@@ -131,7 +136,8 @@ value_type      = scalar_type
                 | set_type
                 | value_map_type
                 | identifier;
-scalar_type     = "bool" | "i64" | "f64" | "str" | "datetime";
+scalar_type     = "bool" | "i64" | "f64" | "str"
+                | "date" | "time" | "datetime" | "duration";
 tuple_type      = "tuple", "<", type, { ",", type }, ">";
 list_type       = "list", "<", type, [ ",", size_expression ], ">";
 size_expression = const_expression | "unbounded";
@@ -189,6 +195,151 @@ concrete size; `list<T, 3>` accepts only a three-element list. The resolved
 size is part of the type identity. A separate `array<T, n>` spelling for fixed
 lists was considered and rejected: an implementation indifferent to fixedness
 would then need two candidates instead of one size-generic declaration.
+
+## Temporal scalar types
+
+Status: proposed in the review of the scaffold. The type set follows RFC 0002
+and the literal spelling is open for decision.
+
+HGL has four core temporal scalars. Each is one of hgraph's RFC 0002 core
+types, carries no time zone, and is an atomic endpoint when temporalized:
+
+| Type | Value | hgraph type | Range and resolution |
+| --- | --- | --- | --- |
+| `date` | calendar date, proleptic Gregorian | `CivilDate` (`Date`) | `0001-01-01` to `9999-12-31` |
+| `time` | time of day | `CivilTime` (`Time`) | `00:00:00` up to but excluding `24:00:00`, microsecond resolution |
+| `datetime` | an instant on the UTC timeline | `Instant` (`DateTime`) | signed 64-bit microseconds from the Unix epoch |
+| `duration` | signed elapsed time | `Duration` (`TimeDelta`) | signed 64-bit microseconds |
+
+`datetime` is the type of the engine clock and of `last_modified`. It is not a
+civil date-time: it has no local fields to lose, and field accessors such as
+`hour` read its UTC fields. A `duration` day is exactly 86 400 seconds, and a
+`duration` has no month or year component because those are calendar periods
+rather than elapsed time. Leap seconds do not exist in any of the four types.
+
+The remaining RFC 0002 types, the civil date-time, calendar period, zone
+identifier, zoned date-time, and the ranges, are library scalars rather than
+core vocabulary. They stay reachable under their registered hgraph names
+(`civil_datetime`, `period`, `zone_id`, `zoned_datetime`, `instant_range`,
+`civil_date_range`) through the scalar surface that extension descriptors will
+provide; the four core names are the only temporal reserved words.
+
+### Literals
+
+`@` introduces a date, time, or instant written in its RFC 3339 form, and a
+number immediately followed by a unit is a duration:
+
+```ebnf
+temporal_literal = date_literal | time_literal | datetime_literal
+                 | duration_literal;
+date_literal     = "@", calendar_date;
+time_literal     = "@", clock_time;
+datetime_literal = "@", calendar_date, "T", clock_time, utc_offset;
+calendar_date    = digit4, "-", digit2, "-", digit2;
+clock_time       = digit2, ":", digit2, ":", digit2, [ ".", digit1to6 ];
+utc_offset       = "Z" | ( "+" | "-" ), digit2, ":", digit2;
+duration_literal = digits, [ ".", digits ], duration_unit;
+duration_unit    = "d" | "h" | "m" | "s" | "ms" | "us";
+```
+
+```hgl
+@2026-09-03                  // date
+@09:30:00                    // time
+@09:30:00.250                // time, 250 milliseconds past the second
+@2026-09-03T09:30:00Z        // datetime
+@2026-09-03T10:30:00+01:00   // the same datetime written with an offset
+5m                           // duration: five minutes
+1.5h                         // duration: ninety minutes
+-250ms                       // unary minus applied to 250ms
+1h + 30m                     // a constant expression folded at compile time
+```
+
+Every literal is validated and normalized when it is lexed:
+
+- a date must exist in the calendar, so `@2026-02-29` is a diagnostic;
+- a time must be earlier than `24:00:00`; `24:00:00` and the leap-second form
+  `23:59:60` are diagnostics;
+- an instant must carry `Z` or an offset and is stored normalized to UTC;
+  `@2026-09-03T09:30:00` is a diagnostic rather than a civil date-time, so
+  Python's naive-means-UTC convention never enters the language;
+- `T` and `Z` are upper case, every field has exactly the digit count shown,
+  and the fraction has one to six digits;
+- a duration is its decimal number scaled by the unit using exact decimal
+  arithmetic; it must be a whole number of microseconds (`0.5us` is a
+  diagnostic) and fit the 64-bit range; the unit is lower case, and `m` is
+  minutes because calendar months are not durations;
+- a duration literal has no exponent, no internal whitespace, and exactly one
+  unit: `1h30m` is not a token, and `1h + 30m` folds to the same value.
+
+Unary minus applies to the literal as an operator; there is no signed literal
+token. Because `@` is followed by a fixed digit pattern rather than a run of
+operator-free characters, `@2026-09-03-1d` lexes as `date - duration` and
+`@2026-09-03T09:30:00Z-1d` as `datetime - duration`, although both read better
+with spaces. An identifier directly after a number (`5min`, `2x`) is an
+unknown-unit diagnostic rather than a juxtaposition error.
+
+Alternatives considered: bare ISO 8601 tokens conflict with subtraction
+(`2026-9-3`) and with named arguments and annotations (`09:30`); typed string
+prefixes such as `date"2026-09-03"` read as strings, need one prefix per type,
+and defer validation to a later phase; constructor calls (`date(2026, 9, 3)`)
+are not literals and cannot appear in a `const` default. The `@` sigil is
+otherwise unused in the language, is one lexer rule, and lets the ISO shape
+select the type.
+
+### Canonical spelling
+
+Tooling, diagnostics, and constant printing use one spelling per value, and
+the lexer accepts every spelling above, so a value round-trips through its
+canonical form:
+
+- `date`: `@YYYY-MM-DD`;
+- `time`: `@HH:MM:SS`, with a six-digit `.ffffff` only when the microsecond
+  part is non-zero;
+- `datetime`: `@YYYY-MM-DDTHH:MM:SS[.ffffff]Z`, always in UTC; an offset is an
+  input convenience only;
+- `duration`: an integer count in the largest unit that divides the value
+  exactly, so `5400s` prints as `90m`, `1500000us` as `1500ms`, and zero as
+  `0s`.
+
+These are source spellings. Interchange forms (JSON, Arrow, recording) are
+hgraph's RFC 0002 codecs and are not part of the language.
+
+### Arithmetic and comparison
+
+The four types have no implicit conversions between them or from numbers. The
+defined operations follow RFC 0002 exactly and apply in every phase: in a
+composition body they wire the standard hgraph operators, in a runtime body
+they are the same checked scalar operations, and in a constant expression they
+fold at compile time with identical results.
+
+| Expression | Result | Rule |
+| --- | --- | --- |
+| `datetime + duration`, `duration + datetime`, `datetime - duration` | `datetime` | checked overflow |
+| `datetime - datetime` | `duration` | checked overflow |
+| `date + duration`, `date - duration` | `date` | uses the duration's floor-based whole-day component: `d + 36h` is `d + 1d` and `d - 1us` is `d - 1d`, matching Python `date` arithmetic |
+| `date - date` | `duration` | a whole number of days |
+| `duration + duration`, `duration - duration`, `-duration` | `duration` | checked overflow |
+| `duration * i64`, `duration * f64`, and the reversed operand order | `duration` | floating-point scaling rounds to the nearest microsecond, ties to even |
+| `duration / i64`, `duration / f64` | `duration` | as above |
+| `duration / duration` | `f64` | ratio |
+| `<`, `<=`, `>`, `>=`, `==`, `!=` between two values of one type | `bool` | chronological order |
+
+Everything else is a `type` diagnostic, in particular `datetime + datetime`,
+`time + duration` and `time - time` (crossing midnight needs a date),
+`date + time` (its result is the civil date-time, which is not a core scalar),
+`duration * duration`, `%` on any temporal type, and every comparison between
+different types. A `duration` in a `rolling` size position is likewise a
+`type` diagnostic until duration windows are designed.
+
+Overflow in a constant expression is a compile-time diagnostic. Overflow at
+runtime raises through hgraph's checked temporal arithmetic; the language's
+runtime scalar error behaviour is an open question shared with the numeric
+types.
+
+Field accessors (`year`, `month`, `day`, `weekday`, `hour`, `minute`,
+`second`, `microsecond`, `days`, `seconds`, `total_seconds`), `abs`, and the
+rounding functions (`temporal_floor`, `temporal_ceil`, `temporal_round`) are
+ordinary standard-library functions resolved like any other call, not syntax.
 
 ## Generics and nominal operator binding
 
@@ -375,8 +526,8 @@ context:
 temporalize(bool | i64 | f64 | str)
     = atomic hgraph endpoint carrying that scalar
 
-temporalize(datetime)
-    = atomic hgraph endpoint carrying an engine timestamp
+temporalize(date | time | datetime | duration)
+    = atomic hgraph endpoint carrying that RFC 0002 scalar
 
 temporalize(tuple<T0, T1, ...>)
     = structural un-named bundle with positional fields
@@ -674,7 +825,7 @@ generated code, callback, or type metadata from the module remains reachable.
 Every token and AST node retains a half-open source range. The AST preserves:
 
 - comments as source trivia;
-- literal spelling;
+- literal spelling, with the normalized value of a temporal literal;
 - positional and named argument order;
 - `const` on parameters;
 - type and `const` generic parameters;
@@ -721,6 +872,13 @@ name: 'fn value' conflicts with operator market.pricing::value; declare 'impl fn
 module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
 operator: 'impl fn value' is not compatible with market.pricing::value
 type: list size must be a positive constant or 'unbounded'
+parse: '@2026-02-29' is not a calendar date
+parse: '@2026-09-03T09:30:00' has no UTC offset; write 'Z' or '+HH:MM'
+parse: '0.5us' is not a whole number of microseconds
+parse: '5min' has unknown duration unit 'min'; units are d h m s ms us
+type: 'datetime + datetime' is not defined; subtract two instants for a duration
+type: 'date + time' has no core result type; civil_datetime is a library scalar
+type: cannot compare 'date' with 'datetime'
 module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20
 ```
@@ -740,6 +898,7 @@ Before code generation, an RFC must also define:
   predicates;
 - callable scalar kernels inside runtime functions;
 - remaining recursive metadata and `delta` result shapes;
-- duration rolling-window syntax and rolling-window iteration;
+- duration rolling-window semantics (`rolling<T, 5m>` now parses and is
+  rejected) and rolling-window iteration;
 - ephemeral caches, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior.

@@ -14,7 +14,10 @@ The initial scalar vocabulary is:
 | `i64` | Signed 64-bit integer | `20` |
 | `f64` | 64-bit floating-point value | `2.0` |
 | `str` | UTF-8 string | `"bid"` |
-| `datetime` | hgraph engine timestamp | literal syntax remains open |
+| `date` | Calendar date | `@2026-09-03` |
+| `time` | Time of day | `@09:30:00` |
+| `datetime` | Instant on the UTC timeline, the engine clock type | `@2026-09-03T09:30:00Z` |
+| `duration` | Signed elapsed time | `5m` |
 
 In an ordinary parameter or result position, a scalar type is an atomic
 time-series leaf. In a `const` parameter position, it is a wiring-time scalar.
@@ -24,6 +27,38 @@ fn scale(value: f64, const factor: f64) -> f64 =>
     value * factor
 ```
 
+## Temporal values
+
+The four temporal scalars are hgraph's RFC 0002 core types. None of them
+carries a time zone: `date` and `time` are civil values, `datetime` is an
+instant on the UTC timeline, and `duration` is elapsed time in microseconds
+with no month or year component.
+
+A `@` literal is written in RFC 3339 form and the shape selects the type; a
+number directly followed by a unit (`d`, `h`, `m`, `s`, `ms`, `us`) is a
+duration:
+
+```hgl
+const session_open: time = @08:00:00
+const expiry: date = @2026-12-18
+const epoch: datetime = @2026-01-01T00:00:00Z
+const cooldown: duration = 1h + 30m
+```
+
+Literals are checked when they are read: `@2026-02-29` is not a date,
+`@24:00:00` is not a time, an instant without `Z` or an offset is rejected
+rather than silently treated as UTC, and `0.5us` is not a whole number of
+microseconds. `m` is minutes.
+
+Arithmetic follows hgraph: `datetime ± duration` and `date ± duration` keep
+their type, `datetime - datetime` and `date - date` produce a `duration`,
+durations add, subtract, negate, scale by a number, and divide by each other
+into an `f64`, and values of one type compare chronologically. `date`
+arithmetic uses the whole-day part of a duration, so `expiry + 36h` is the
+next day. There are no implicit conversions between the types and no
+`time ± duration`, `date + time`, or `datetime + datetime`. Field accessors
+such as `year`, `hour`, and `total_seconds` are ordinary library functions.
+
 ## Recursive temporalization
 
 Canonical containers and records become structural time-series shapes
@@ -32,6 +67,7 @@ recursively:
 | Source type | Temporal interpretation |
 | --- | --- |
 | `f64` | Atomic endpoint carrying `f64` |
+| `duration` | Atomic endpoint carrying a `duration` |
 | `tuple<f64, f64>` | Structural tuple with positional temporal children |
 | `list<f64>` | Unbounded structural list of temporal `f64` values |
 | `list<f64, 3>` | Structural list of exactly three temporal `f64` values |
