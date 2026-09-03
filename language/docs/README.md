@@ -10,9 +10,11 @@ The documentation is split by audience:
   the delivery roadmap.
 
 The language is still a design preview. Examples describe the target first
-vertical slice; the current `hgl` parses them (`hgl check`) but does not yet
-resolve, check, or run them. Provisional syntax is called out in the guides so
-that examples do not imply an implemented compatibility promise.
+vertical slice; the current `hgl` checks them (`hgl check`), and runs the
+composition-only ones through `hgl test`, `hgl run`, and `hgl repl` within
+the first-pass limits listed in the user guide. Provisional syntax is called
+out in the guides so that examples do not imply an implemented compatibility
+promise.
 
 ## Design records
 

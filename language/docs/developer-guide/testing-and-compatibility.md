@@ -54,6 +54,19 @@ Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
 unless a later RFC deliberately reintroduces one.
 
+## Resolver
+
+`tests/semantics/resolve_tests.cpp` (`hgl_semantics_tests`, CTest
+`hgraph_language_semantics`) drives `resolve` with a table of registry
+names in place of hgraph, so the suite stays hgraph-free. It covers the
+kernel-name mapping of both modules and a module alias, the `module`
+diagnostics for other modules and unknown exports, the scope chain
+(locals, parameters, functions, imports, intrinsics, and shadowing),
+unknown names, the phase rules of `assert`, `eval`, and `_`, function
+classification from statement forms, `impl fn` binding and the
+`fn`/operator clash, tests as non-values, and that every guide example
+resolves.
+
 ## Canonical types and temporal shapes
 
 Table-driven tests cover recursive expansion:
@@ -265,6 +278,17 @@ quiescent wiring boundary; tests must not rely on concurrent mutation of the
 process-wide operator registry.
 
 ## Direct-wiring backend and the harness
+
+The first pass is covered by `tests/wiring/backend_tests.cpp`
+(`hgl_wiring_tests`, CTest `hgraph_language_wiring`), which runs the
+backend against the live registry: constant folding of every folded
+operator, `eval` of a composition through the harness with `_`, defaults,
+and literal conversion, the failure detail of a wrong value and of a wrong
+length, selected tests and the REPL's described tail, the first-pass
+limits as diagnostics (timed sequences, runtime functions, element types),
+`run_program` into a stream with `--set`, `--start`, and a duration end,
+and `format_time`. `hgraph_language_test_midpoint` runs `hgl test` over
+the guide's `midpoint.hgl`.
 
 The direct-wiring backend is tested against hgraph, not against a model of
 it:

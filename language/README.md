@@ -10,11 +10,15 @@ The first backend will transpile typed language programs to public hgraph C++
 authoring APIs. Scripted execution, the REPL, and production builds will share
 that frontend and backend so they cannot acquire separate runtime semantics.
 
-The project is at the start of the first slice. `hgl check` lexes and
-parses a module and reports syntax diagnostics (`--dump-tokens` and
-`--dump-ast` show the frontend's view); every file under `examples/` is a
-CTest case. Name resolution, checking, and the direct-wiring backend that
-runs `test`, `run`, and the REPL come next
+The project is in the first slice. `hgl check` lexes, parses, and resolves
+a module and reports diagnostics (`--dump-tokens` and `--dump-ast` show the
+frontend's view); `hgl test`, `hgl run`, and `hgl repl` wire
+composition-only programs straight onto the hgraph runtime through the
+first pass of the direct-wiring backend, driving `eval` with dense
+sequences over `atomic` and scalar parameters. Every file under
+`examples/` is a CTest case, and `midpoint.hgl` runs its test. Timed
+sequences, structural tuples in the harness, the TOML run configuration,
+and generated C++ for runtime functions come next
 ([roadmap](docs/design/roadmap.md)).
 
 ## Build

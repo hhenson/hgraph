@@ -1,9 +1,10 @@
 # Language examples
 
 These files illustrate the proposed first language slice. Each one is a
-CTest case that must pass `hgl check`; they are not executed yet, so their
-`test` blocks and results are documentation until the direct-wiring backend
-lands.
+CTest case that must pass `hgl check`, and `midpoint.hgl` also runs its
+`test` under `hgl test`. The other examples declare no tests yet: they use
+runtime functions, generics, `impl fn`, or structural types that the first
+pass of the direct-wiring backend checks but does not run.
 
 - [`midpoint.hgl`](midpoint.hgl) uses an internal helper, `export fn`, an
   atomic tuple, a `const` window, and a `test` of the unexported helper.

@@ -732,6 +732,30 @@ functions. The first language edition has no `export use` or other re-export
 form: implementation providers never create alternate import identities for an
 operator defined elsewhere.
 
+## Scopes and name lookup
+
+Status: first-pass rule (2026-09-03); the shadowing question of the review
+stays open and this section records what the compiler does meanwhile.
+
+An unqualified name resolves, innermost first, to:
+
+1. a `let`, `var`, or `for` binding of the enclosing blocks, declared
+   earlier in its block;
+2. a parameter or generic parameter of the enclosing function;
+3. a declaration of the module: a `fn`, an `operator`, or a `test`
+   (a `test` is not a value and is a `name` diagnostic in an expression);
+4. a selectively imported operator;
+5. a prelude intrinsic: `valid`, `modified`, `all_valid`, `last_modified`,
+   `delta`, `key_set`, `keys`, `values`, `items`, `added`, `removed`.
+
+A module alias is only a qualifier: `alias::name` resolves `name` in that
+module's public interface and nothing else. Declaring a name twice in one
+block, twice among a function's parameters, or twice among a module's
+declarations is a `name` diagnostic; an inner binding may shadow an outer
+one, including a parameter shadowing a module declaration, so
+`first_modified_index(values: list<f64>)` is legal and its body reads the
+parameter. An unknown name is `name: unknown name 'x'`.
+
 ## Blocks and expressions
 
 A composition block contains lexical `let` and `var` bindings, calls,
@@ -1276,7 +1300,14 @@ A timed run seeds hgraph's absolute-time replay buffers and records sparsely,
 so a timed expected sequence lists exactly the ticks the output produced, at
 their times. The run's start is hgraph's simulation origin unless a
 `datetime` key fixes it; the run ends when nothing remains scheduled. An
-explicit end bound and approximate float comparison are open.
+explicit end bound and approximate float comparison are open. The first
+compiler pass runs dense sequences only; a timed sequence is a `test`
+diagnostic until the sparse harness lands.
+
+A literal in a harness sequence takes the parameter's scalar type: an
+integer literal in an `f64` position is the corresponding `f64`, and any
+other mismatch is a `type` diagnostic naming the parameter. An expected
+element is read the same way against the callee's result type.
 
 `assert` accepts any wiring-time `bool` expression. A failing assertion
 reports the first differing cycle or time with the expected and observed
@@ -1331,7 +1362,9 @@ spelling (`"1d"`, `"09:30[America/New_York]"`). Defaults are hgraph's
 `run_graph` defaults: a simulation starts at the engine origin and ends when
 nothing remains scheduled; a real-time run starts now and ends at `--end` or
 on interruption. Each tick of the entry's output is written as a `time value`
-line. The configuration file format is versioned with the command.
+line, the time in the canonical `datetime` spelling without its `@`. The
+configuration file format is versioned with the command. The first compiler
+pass implements the command line without `--config`.
 
 ## Operator resolution
 

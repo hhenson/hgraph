@@ -197,8 +197,12 @@ hgl repl
 [Testing and running](testing-and-running.md) shows `test`, `run`, and the
 run configuration file from the author's side.
 
-The current `hgl` implements `--help`, `--version`, and `check`. The other
-commands are a documented target, not yet an available interface.
+The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
+(without `--config`), and `repl` for composition-only programs over the
+`hgraph.std` and `hgraph.analytics` kernels; `build` is a documented
+target, not yet an available interface. `test` accepts test names after
+the file to run a selection. The first-pass limits are listed in
+[Testing and running](testing-and-running.md#first-pass-limits).
 
 ## One execution model
 

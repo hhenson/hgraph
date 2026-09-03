@@ -53,3 +53,33 @@ target_compile_definitions(hgl_syntax_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CU
 hgl_apply_warnings(hgl_syntax_tests)
 
 add_test(NAME hgraph_language_syntax COMMAND hgl_syntax_tests)
+
+# The resolver over a table of registry names (developer guide, "Frontend
+# components": the resolver is hgraph-free).
+add_executable(hgl_semantics_tests semantics/resolve_tests.cpp)
+target_compile_features(hgl_semantics_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_semantics_tests PRIVATE hgl::semantics Catch2::Catch2WithMain)
+target_compile_definitions(hgl_semantics_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+hgl_apply_warnings(hgl_semantics_tests)
+
+add_test(NAME hgraph_language_semantics COMMAND hgl_semantics_tests)
+
+# The direct-wiring backend against the live registry: folding, eval, the
+# failure detail, run_program (developer guide, "First pass").
+add_executable(hgl_wiring_tests wiring/backend_tests.cpp)
+target_compile_features(hgl_wiring_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_wiring_tests PRIVATE hgl::wiring Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_wiring_tests)
+hgl_apply_warnings(hgl_wiring_tests)
+
+add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
+
+# The guide's test example passes end to end through the driver
+# (user guide, "Testing and running").
+add_test(
+    NAME hgraph_language_test_midpoint
+    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+)
+set_tests_properties(hgraph_language_test_midpoint PROPERTIES
+    PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
+)

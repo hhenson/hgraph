@@ -151,13 +151,37 @@ prompt prints the observed sequence, which is the quickest way to see what
 a function does:
 
 ```text
-hgl> fn midpoint(tob: tuple<f64, f64>) -> f64 => (tob[0] + tob[1]) / 2.0
+hgl> fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
 hgl> eval(midpoint, tob: [(1.0, 2.0), (2.0, 3.0)])
 [1.5, 2.5]
+hgl> let half = midpoint
+hgl> test again { assert eval(half, tob: [(2.0, 4.0)]) == [3.0] }
+again ... ok
+1 test, 0 failed
 ```
 
 The REPL rebuilds the session after each accepted input, so what it shows is
-what the same source does under `hgl test` and `hgl run`.
+what the same source does under `hgl test` and `hgl run`. A declaration
+that does not check is reported and dropped; the session keeps its last
+valid state. `let` and `var` bindings entered at the prompt persist.
+Input continues on the next line while a bracket is open; `:list` shows the
+session, `:help` the commands, and `:quit` leaves.
+
+## First-pass limits
+
+The current `hgl` runs everything on this page that is written with
+`atomic` tuples and dense sequences. Until the next steps land:
+
+- `eval` drives scalar and `atomic` parameters; a structural tuple, list,
+  set, map, or rolling parameter is reported as unsupported;
+- timed sequences are reported as unsupported; write one value per cycle;
+- `eval` takes a module `fn`; wrap an operator in a `fn` to evaluate it;
+- `hgl run` takes its configuration from the command line only; the
+  `--config` file is not read yet;
+- a program with a runtime function, an `impl fn`, or a generic function
+  checks, but running it is reported as unsupported;
+- types in diagnostics are printed with hgraph's names (`float`,
+  `TS[float]`, `Tuple[float,float]`).
 
 ## What runs where
 

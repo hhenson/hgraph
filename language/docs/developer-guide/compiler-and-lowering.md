@@ -63,6 +63,18 @@ the token vector that applies the newline rules of the syntax guide and
 recovers at the synchronization points listed there; `ast_printer` dumps
 the tree one node per line for `hgl check --dump-ast` and the tests.
 
+The first pass of `src/semantics/` is `resolve`. It binds every name
+occurrence of one compilation unit by the lookup rules of the syntax guide
+("Scopes and name lookup"), checks `use` declarations against the interim
+kernel table (below, "Interim kernel table"), classifies every function by
+the rule of "Function classification", and applies the phase rules of
+`test` bodies. Its result, `ResolvedModule`, annotates the syntax tree
+(a binding per name occurrence, a kind per function) instead of building
+the typed HIR: hgraph's resolver types every operation the direct-wiring
+backend wires, so the HIR becomes necessary only when the C++ backend
+needs canonical types ahead of hgraph. Until then `src/wiring/` walks the
+resolved syntax tree directly.
+
 ## Common function representation
 
 Parsing produces `UnclassifiedFn` for both named and anonymous functions. Its
@@ -113,6 +125,33 @@ The classifier must:
 Operator implementations are registered after classification. Hgraph's
 resolver may select either a graph or native-node candidate without exposing
 that choice at the call site.
+
+## Interim kernel table
+
+Status: first pass (2026-09-03), until module descriptors exist.
+
+Kernel descriptors (below, "Module descriptors and build manifests") will
+say which names a kernel module exports and the registry name behind each.
+Until they exist the compiler carries one table:
+
+| Module | Short name `x` resolves to | Checked |
+| --- | --- | --- |
+| `hgraph.std` | the registry operator `x`, else `x_` (`map` -> `map_`) | at `hgl check`, against the process registry |
+| `hgraph.analytics` | the registry operator `hgraph.analytics.x` | when wired: the analytics image loads only in a tool that links it |
+
+A `use` of any other module is a `module` diagnostic in the first pass:
+programs are one compilation unit, and source modules beyond the unit
+arrive with descriptors. A selective import whose name the kernel does not
+export is `module: hgraph.std does not export 'x'`. The prelude intrinsics
+of the syntax guide ("Scopes and name lookup", step 5) are not in the table:
+the resolver binds them last, so any declaration may shadow them, and the
+backend gives them their composition-phase meaning (`valid` and `modified`
+wire the standard operators of the same name, folding several arguments with
+`and_` and `or_`, and `all_valid` is `valid` folded with `and_`;
+`last_modified` wires `last_modified_time`; `key_set` wires `keys_`; the
+traversal intrinsics `keys`, `values`, `items`, `added`, `removed`, and
+`delta` are runtime-only and a `backend` diagnostic in a composition body
+of the first pass).
 
 ## Canonical type lowering
 
@@ -774,6 +813,100 @@ The backend depends only on public hgraph headers: `operator_dispatch.h`,
 Anything it needs beyond those is an hgraph-side ask recorded in the roadmap,
 not a private include.
 
+### First pass
+
+Implemented (2026-09-03) in `src/wiring/` as `backend`, over the resolved
+syntax tree of `src/semantics/`. A `Session` bootstraps hgraph once per
+process (`register_standard_types`, `register_standard_operators`, and the
+backend's own installer, below). The walk assigns every expression one of
+four wiring-time values: a *constant* (`Value` plus its interned
+`ValueTypeMetaData`), a *port* (`WiringPortRef`), a *function* (a module
+`fn` or a registry operator), or, inside a `test` body, a *harness
+sequence*. The rules of the walk:
+
+- literals are constants: `i64`, `f64`, `bool`, `str`, `datetime`,
+  `duration`, `date`, and `time` map to hgraph's `Int`, `Float`, `Bool`,
+  `Str`, `DateTime`, `TimeDelta`, `Date`, and `Time`; the zoned and civil
+  literals are `backend` diagnostics until the zoned scalar wiring lands;
+- a unary or binary operator over constants folds in the compiler
+  (arithmetic on `i64` and `f64`, comparison on both plus `str`, `&&`,
+  `||`, `!`), a tuple literal of constants is a constant tuple, and a
+  sequence literal of constants outside a test is a constant list; any
+  operand that is a port wires the corresponding `hgraph.std` operator
+  (`add_`, `sub_`, `mul_`, `div_`, `mod_`, `eq_`, `ne_`, `lt_`, `le_`,
+  `gt_`, `ge_`, `and_`, `or_`, `not_`, `neg_`) with the constant side as a
+  scalar argument, which hgraph's resolver lifts;
+- `a[i]` wires `getitem_` and `a.b` wires `getattr_` when `a` is a port,
+  and `a[i]` folds when `a` is a constant tuple or list;
+- calling a registry operator builds `WiringArg`s in the source order with
+  the source names and calls `wire_operator` with no expected output;
+  `OperatorResolutionError` is reported as an `operator` diagnostic carrying
+  hgraph's message;
+- calling a module `fn` binds the arguments to its parameters (positional
+  then named, then defaults, evaluated in the callee's frame after its
+  `const` parameters), wires `const` at the parameter's declared schema for
+  a constant passed to a temporal parameter, requires a port to carry
+  exactly that schema, and walks the body with those bindings; a constant
+  passed to a `const` parameter converts to the declared value type (`i64`
+  to `f64`, elementwise through tuples and lists; anything else is a `type`
+  diagnostic), and a sequence literal passed to a `const list<T>` parameter
+  inside a test is that list; a runtime function, an `impl fn`, or a
+  generic function is a `backend` diagnostic naming it;
+- the prelude intrinsics take the meaning of "Interim kernel table";
+- `if` selects a branch when its condition is a constant `bool`; a port
+  condition is a `backend` diagnostic until the guide decides whether it
+  lowers to `if_then_else`; the branch value is the arm's tail expression;
+- a block body runs its statements in order: `let` and `var` bind locals
+  (a declared type converts a constant or checks a port's schema), `=` and
+  the compound assignments rebind a `var`, `return` ends the activation,
+  and the tail expression is the value; the runtime statement forms are a
+  `backend` diagnostic;
+- `eval` takes a module function (an operator must be wrapped in a `fn`,
+  so the harness always has declared parameter types) whose temporal
+  parameters lower to `ts` schemas: atomic tuples, scalars, and the
+  temporal scalars run; structural tuples, lists, sets, maps, and windows
+  are a `backend` diagnostic until the harness drives those kinds. It runs
+  dense sequences only (a keyed element is a `test` diagnostic): each
+  temporal argument becomes a `replay` at the parameter's schema under the
+  key `hgl::in::<name>`, an omitted parameter with a default replays its
+  default once, the callee result a `record` under `hgl::out` (a constant
+  result is wired as `const` first), both selected by the `"testing"`
+  backend; one simulation executor runs from `MIN_ST`; the result is read
+  back with `get_recorded_deltas` and padded with `_` to the longest
+  input; `==` and `!=` between a harness result and a literal sequence
+  give the literal the result's delta schema and compare as the syntax
+  guide specifies, remembering the first differing cycle; two literal
+  sequences cannot be compared (nothing fixes their type).
+
+A failing `assert` in `hgl test` prints `assert failed: <source text>` and,
+after a sequence comparison, one detail line: `cycle i: expected x,
+observed y in [...]` or `expected n cycles, observed m: [...]`. Numbers,
+tuples, and lists print in source spelling (an `f64` keeps its decimal
+point), other values in hgraph's `Value::to_string` form, and every schema
+in a diagnostic is hgraph's name (`float`, `Tuple[float,float]`,
+`TS[float]`) until the language has its own type printer. Each test runs
+in its own frame; a diagnostic inside a test fails that test (`diagnostics
+reported`) and is rendered after the summary. The driver prints
+`<name> ... ok|FAILED`, the message lines indented, and `<n> tests, <m>
+failed`; the exit status is non-zero on any failure or diagnostic.
+
+`hgl run` picks the entry (`--entry <name>`, else the one `export fn`
+whose parameters are all `const`; none or several is a `backend`
+diagnostic), binds every parameter from `--set name=<constant expression>`
+(the text is parsed and folded as the body of a `fn` in a scratch unit
+`module hgl.cli`, then converted to the parameter's value type; an unknown
+name is a `name` diagnostic) or its default (a parameter with neither is a
+`type` diagnostic), walks the body, sends the result port to the backend's
+own sink operator `hgl.print_tick` (an `In<TsVar>` node that writes
+`time value` per tick, the time in the canonical `datetime` spelling
+without its `@`; the one node the language tool registers, through the
+registry installer `hgl.wiring` so a registry rebuild keeps it), and runs
+the executor in the selected mode: `--mode sim` (default) from `--start`
+or `MIN_ST`, `--mode realtime` from `--start` or the wall clock, until
+`--end` as a datetime, or as a duration after the start, or `MAX_ET`.
+Registering that sink is not node emulation: it is the tool's output
+device. The TOML run configuration is not in the first pass.
+
 ## Source mapping and generated artifacts
 
 Every generated declaration and meaningful expression maps to its language
@@ -796,6 +929,23 @@ compares the recorded ticks.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
+
+The first-pass `hgl repl` does exactly that. The session is `module repl`
+plus the accepted declarations in order; every input is appended to a copy
+of that text, parsed, resolved, and, when it is a declaration (its first
+word is `fn`, `export`, `impl`, `operator`, `use`, or `test`), kept only
+if the whole session still checks; an accepted `test` also runs at once.
+Any other input is a statement or expression evaluated in a synthetic
+`test __repl` body over the session, so `let`, `assert`, and `eval` work at
+the prompt; a `let` or `var` that evaluates is retained and prefixed to
+every later body, so bindings persist; the value of a final expression
+prints as a constant, the schema name of a port, or a harness sequence.
+Input continues onto following lines while brackets are open (the prompt
+becomes `...> `); `:quit` leaves, `:list` shows the session and the
+retained bindings, `:help` the commands. Diagnostics locate into the
+session text as `<repl>:line:col`. The REPL never emits C++: a session
+that needs the C++ backend reports the `backend` diagnostic and keeps the
+last valid session.
 
 Replacing a REPL module stops and destroys graphs holding its leases, removes
 the old module handle and installer intent, initializes the replacement, and
