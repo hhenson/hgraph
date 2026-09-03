@@ -23,9 +23,11 @@ braces delimit blocks, so indentation is non-semantic. Semicolons are not
 statement terminators or parameter separators.
 
 A temporal literal is one token: `@` followed by an RFC 3339 date, time, or
-instant (`@2026-09-03`, `@09:30:00`, `@2026-09-03T09:30:00Z`), or a number
-directly followed by a duration unit (`5m`, `1.5h`). Their grammar and
-validation rules are in the temporal scalar section below.
+instant, optionally with an RFC 9557 zone annotation (`@2026-09-03`,
+`@09:30`, `@2026-09-03T09:30Z`, `@09:30[America/New_York]`,
+`@[Europe/London]`), or a number directly followed by a duration unit (`5m`,
+`1h30m`). Their grammar and validation rules are in the temporal scalar
+section below.
 
 The hard reserved words for the current design surface are:
 
@@ -34,6 +36,7 @@ module use as export impl operator fn const let var state inject return if else
 start when stop for
 true false
 bool i64 f64 str date time datetime duration
+civil_datetime zoned_datetime zoned_time timezone
 ```
 
 Every word in that list is reserved everywhere, including the ones such as
@@ -137,7 +140,9 @@ value_type      = scalar_type
                 | value_map_type
                 | identifier;
 scalar_type     = "bool" | "i64" | "f64" | "str"
-                | "date" | "time" | "datetime" | "duration";
+                | "date" | "time" | "datetime" | "duration"
+                | "civil_datetime" | "zoned_datetime"
+                | "zoned_time" | "timezone";
 tuple_type      = "tuple", "<", type, { ",", type }, ">";
 list_type       = "list", "<", type, [ ",", size_expression ], ">";
 size_expression = const_expression | "unbounded";
@@ -198,11 +203,13 @@ would then need two candidates instead of one size-generic declaration.
 
 ## Temporal scalar types
 
-Status: agreed in the review of the scaffold (2026-09-03). The type set
-follows RFC 0002.
+Status: the four zone-free types and their literals are agreed in the review
+of the scaffold (2026-09-03); the civil and zoned types added in the same
+review are proposed. The type set follows RFC 0002, plus one hgraph-side
+addition recorded below.
 
-HGL has four core temporal scalars. Each is one of hgraph's RFC 0002 core
-types, carries no time zone, and is an atomic endpoint when temporalized:
+HGL has eight temporal scalars. Each carries no time zone, a named zone, or is
+a zone, and each is an atomic endpoint when temporalized:
 
 | Type | Value | hgraph type | Range and resolution |
 | --- | --- | --- | --- |
@@ -210,54 +217,98 @@ types, carries no time zone, and is an atomic endpoint when temporalized:
 | `time` | time of day | `CivilTime` (`Time`) | `00:00:00` up to but excluding `24:00:00`, microsecond resolution |
 | `datetime` | an instant on the UTC timeline | `Instant` (`DateTime`) | signed 64-bit microseconds from the Unix epoch |
 | `duration` | signed elapsed time | `Duration` (`TimeDelta`) | signed 64-bit microseconds |
+| `civil_datetime` | a date and time with no zone or offset | `CivilDateTime` | local microseconds from the civil epoch |
+| `timezone` | a named TZDB zone | `ZoneId` | interned zone name, such as `Europe/London` |
+| `zoned_datetime` | an instant with its zone and resolved offset | `ZonedDateTime` | instant, zone, and offset |
+| `zoned_time` | a time of day in a named zone | `ZonedTime` (proposed) | time of day and zone, no offset |
 
 `datetime` is the type of the engine clock and of `last_modified`. It is not a
 civil date-time: it has no local fields to lose, and field accessors such as
 `hour` read its UTC fields. A `duration` day is exactly 86 400 seconds, and a
 `duration` has no month or year component because those are calendar periods
-rather than elapsed time. Leap seconds do not exist in any of the four types.
+rather than elapsed time. Leap seconds do not exist in any of the types.
 
-The remaining RFC 0002 types, the civil date-time, calendar period, zone
-identifier, zoned date-time, and the ranges, are library scalars rather than
-core vocabulary. They stay reachable under their registered hgraph names
-(`civil_datetime`, `period`, `zone_id`, `zoned_datetime`, `instant_range`,
-`civil_date_range`) through the scalar surface that extension descriptors will
-provide; the four core names are the only temporal reserved words.
+A `civil_datetime` is what a wall clock shows: it names a moment only once a
+zone interprets it. A `zoned_datetime` is a resolved moment, so it stores the
+instant, the zone, and the offset the zone had at that instant; the offset is
+what distinguishes the two occurrences of a repeated hour and what detects a
+rule change when the value is read under a later TZDB. Values for the same
+instant in two zones are therefore different values, and `same_instant` is
+the library function that compares timelines. A `zoned_time` is a wall-clock
+time in a named zone with no date and hence no offset, because the offset of
+`09:30` in `America/New_York` depends on the day; it resolves to a
+`zoned_datetime` only when combined with a `date`. A `timezone` is an interned
+TZDB name; TZDB links are not canonicalized, so `US/Eastern` and
+`America/New_York` are two distinct values.
+
+`zoned_time` is not part of RFC 0002. It is the language's one hgraph-side
+addition to the temporal types: a core scalar (`CivilTime` plus `ZoneId`,
+registered name `zoned_time`) with the resolution operations listed below, a
+JSON form of the time followed by the bracketed zone, and a Python wrapper.
+It is tracked with the other hgraph-side requirements in the roadmap until an
+RFC promotes it.
+
+The remaining RFC 0002 types, the calendar period and the ranges, are library
+scalars rather than core vocabulary. They stay reachable under their
+registered hgraph names (`period`, `instant_range`, `civil_date_range`)
+through the scalar surface that extension descriptors will provide; the eight
+core names are the only temporal reserved words.
 
 ### Literals
 
-`@` introduces a date, time, or instant written in its RFC 3339 form, and a
-number immediately followed by a unit is a duration. Shorthand is supported
+`@` introduces a value written in its RFC 3339 form, extended with the
+RFC 9557 bracketed zone annotation, and a number immediately followed by a
+unit is a duration. The shape selects the type. Shorthand is supported
 wherever it stays unambiguous: seconds may be omitted, an offset may omit its
 minutes, and a duration may run several units together:
 
 ```ebnf
 temporal_literal = date_literal | time_literal | datetime_literal
+                 | civil_datetime_literal | zoned_datetime_literal
+                 | zoned_time_literal | timezone_literal
                  | duration_literal;
 date_literal     = "@", calendar_date;
 time_literal     = "@", clock_time;
 datetime_literal = "@", calendar_date, "T", clock_time, utc_offset;
+civil_datetime_literal
+                 = "@", calendar_date, "T", clock_time;
+zoned_datetime_literal
+                 = "@", calendar_date, "T", clock_time, utc_offset,
+                   zone_annotation;
+zoned_time_literal
+                 = "@", clock_time, zone_annotation;
+timezone_literal = "@", zone_annotation;
 calendar_date    = digit4, "-", digit2, "-", digit2;
 clock_time       = digit2, ":", digit2,
                    [ ":", digit2, [ ".", digit1to6 ] ];
 utc_offset       = "Z" | ( "+" | "-" ), digit2, [ ":", digit2 ];
+zone_annotation  = "[", zone_name, "]";
+zone_name        = zone_component, { "/", zone_component };
+zone_component   = ( letter | digit | "_" | "-" | "+" | "." ),
+                   { letter | digit | "_" | "-" | "+" | "." };
 duration_literal = duration_part, { duration_part };
 duration_part    = digits, [ ".", digits ], duration_unit;
 duration_unit    = "d" | "h" | "m" | "s" | "ms" | "us";
 ```
 
 ```hgl
-@2026-09-03                  // date
-@09:30                       // time; seconds default to zero
-@09:30:15.250                // time, 250 milliseconds past the second
-@2026-09-03T09:30Z           // datetime
-@2026-09-03T10:30:00+01:00   // the same datetime written with an offset
-@2026-09-03T10:30+01         // the same again, both shorthands
-5m                           // duration: five minutes
-1h30m                        // duration: ninety minutes, as one token
-1.5h                         // the same value
--250ms                       // unary minus applied to 250ms
-1h + 30m                     // the same value as a folded constant expression
+@2026-09-03                            // date
+@09:30                                 // time; seconds default to zero
+@09:30:15.250                          // time, 250 milliseconds past the second
+@2026-09-03T09:30Z                     // datetime
+@2026-09-03T10:30:00+01:00             // the same datetime, with an offset
+@2026-09-03T10:30+01                   // the same again, both shorthands
+@2026-09-03T10:30                      // civil_datetime: no offset, no zone
+@2026-09-03T10:30+01:00[Europe/London] // zoned_datetime
+@2026-11-01T01:30-04:00[America/New_York] // the first 01:30 of the fold day
+@2026-11-01T01:30-05:00[America/New_York] // the second 01:30 of the fold day
+@09:30[America/New_York]               // zoned_time
+@[Europe/London]                       // timezone
+5m                                     // duration: five minutes
+1h30m                                  // duration: ninety minutes, as one token
+1.5h                                   // the same value
+-250ms                                 // unary minus applied to 250ms
+1h + 30m                               // the same value, folded at compile time
 ```
 
 Every literal is validated and normalized when it is lexed:
@@ -265,9 +316,23 @@ Every literal is validated and normalized when it is lexed:
 - a date must exist in the calendar, so `@2026-02-29` is a diagnostic;
 - a time must be earlier than `24:00:00`; `24:00:00` and the leap-second form
   `23:59:60` are diagnostics;
-- an instant must carry `Z` or an offset and is stored normalized to UTC;
-  `@2026-09-03T09:30:00` is a diagnostic rather than a civil date-time, so
-  Python's naive-means-UTC convention never enters the language;
+- an instant carries `Z` or an offset and is stored normalized to UTC; the
+  same shape with no offset is a `civil_datetime`, a different type, so
+  `const t: datetime = @2026-09-03T09:30` is a `type` diagnostic rather than
+  a value silently read as UTC, and Python's naive-means-UTC convention never
+  enters the language;
+- a `zoned_datetime` literal carries both an offset and a zone; the offset
+  fixes the instant, and the zone is retained with it, so a repeated local
+  hour is written unambiguously by its offset and a nonexistent one cannot be
+  written at all; the offset-free form `@2026-09-03T10:30[Europe/London]`
+  is a diagnostic with a hint to `resolve` the civil value with explicit
+  policies, because a literal never chooses a fold or gap policy silently;
+- a zone name is validated syntactically by the RFC 0002 rules (ASCII letters,
+  digits, `.`, `_`, `-`, `+`, and `/`; no empty, leading, trailing, or
+  repeated `/`; no `.` or `..` components; at most 255 bytes); whether the
+  zone exists and whether a zoned literal's offset agrees with its zone are
+  checked by the run's time-zone provider under hgraph's strict decoding rule,
+  so a literal's meaning never depends on the compiler's TZDB;
 - `T` and `Z` are upper case, every field present has exactly the digit
   count shown, omitted seconds and offset minutes are zero, and the fraction
   has one to six digits;
@@ -285,9 +350,11 @@ token. Because `@` is followed by a fixed digit pattern rather than a run of
 operator-free characters, `@2026-09-03-1d` lexes as `date - duration` and
 `@2026-09-03T09:30Z-1d` as `datetime - duration`, although both read better
 with spaces; an instant whose offset is directly followed by an operand, as in
-`@2026-09-03T09:30+01-1d`, needs the spaces. An identifier directly after a
-number (`5min`, `2x`) is an unknown-unit diagnostic rather than a
-juxtaposition error.
+`@2026-09-03T09:30+01-1d`, needs the spaces. A zone annotation is delimited by
+its brackets, so no zone name is ever confused with an operator, and a
+bracketed annotation directly after a value is always part of the literal
+rather than an index. An identifier directly after a number (`5min`, `2x`) is
+an unknown-unit diagnostic rather than a juxtaposition error.
 
 Alternatives considered: bare ISO 8601 tokens conflict with subtraction
 (`2026-9-3`) and with named arguments and annotations (`09:30`); typed string
@@ -295,7 +362,10 @@ prefixes such as `date"2026-09-03"` read as strings, need one prefix per type,
 and defer validation to a later phase; constructor calls (`date(2026, 9, 3)`)
 are not literals and cannot appear in a `const` default. The `@` sigil is
 otherwise unused in the language, is one lexer rule, and lets the ISO shape
-select the type.
+select the type. A bare zone spelling (`@Europe/London`) reads better than the
+bracketed one but would make `+`, `-`, and `/` part of a token; the bracketed
+form is the RFC 9557 annotation and can be relaxed later, whereas a bare
+spelling could not be withdrawn.
 
 ### Canonical spelling
 
@@ -309,6 +379,12 @@ canonical form:
   removed, so `@09:30`, `@09:30:15`, and `@09:30:15.25`;
 - `datetime`: the date, `T`, the time in the same shortest form, and `Z`,
   always in UTC; an offset is an input convenience only;
+- `civil_datetime`: the date, `T`, and the time in the shortest form;
+- `zoned_datetime`: the date, `T`, the time in the shortest form, the offset
+  as `Z` when zero and otherwise `±HH` or `±HH:MM` in the shortest form, and
+  the bracketed zone, so `@2026-09-03T10:30+01[Europe/London]`;
+- `zoned_time`: the time in the shortest form and the bracketed zone;
+- `timezone`: `@[Zone]` with the interned name exactly as written;
 - `duration`: the non-zero parts in descending unit order with integer counts,
   so `5400s` prints as `1h30m`, `1500000us` as `1s500ms`, `36h` as `1d12h`,
   and zero as `0s`; a negative value prints with a leading `-`, which
@@ -319,11 +395,12 @@ hgraph's RFC 0002 codecs and are not part of the language.
 
 ### Arithmetic and comparison
 
-The four types have no implicit conversions between them or from numbers. The
-defined operations follow RFC 0002 exactly and apply in every phase: in a
+The temporal types have no implicit conversions between them or from numbers.
+The defined operations follow RFC 0002 exactly and apply in every phase: in a
 composition body they wire the standard hgraph operators, in a runtime body
 they are the same checked scalar operations, and in a constant expression they
-fold at compile time with identical results.
+fold at compile time with identical results. Zoned arithmetic needs the run's
+time-zone provider and therefore never folds at compile time.
 
 | Expression | Result | Rule |
 | --- | --- | --- |
@@ -331,15 +408,23 @@ fold at compile time with identical results.
 | `datetime - datetime` | `duration` | checked overflow |
 | `date + duration`, `date - duration` | `date` | uses the duration's floor-based whole-day component: `d + 36h` is `d + 1d` and `d - 1us` is `d - 1d`, matching Python `date` arithmetic |
 | `date - date` | `duration` | a whole number of days |
+| `date + time` | `civil_datetime` | combines the fields |
+| `civil_datetime + duration`, `civil_datetime - duration` | `civil_datetime` | checked overflow, no zone involved |
+| `civil_datetime - civil_datetime` | `duration` | checked overflow |
+| `zoned_datetime + duration`, `duration + zoned_datetime`, `zoned_datetime - duration` | `zoned_datetime` | timeline arithmetic: shifts the instant, keeps the zone, re-resolves the offset through the provider |
+| `date + zoned_time` | `zoned_datetime` | resolves the wall-clock time on that date in the zone with the `Reject` fold and gap policies, hgraph's default; a repeated or skipped time is a runtime error, and `resolve` takes explicit policies |
 | `duration + duration`, `duration - duration`, `-duration` | `duration` | checked overflow |
 | `duration * i64`, `duration * f64` | `duration` | floating-point scaling rounds to the nearest microsecond, ties to even |
 | `duration / i64`, `duration / f64` | `duration` | as above |
 | `duration / duration` | `f64` | ratio |
-| `<`, `<=`, `>`, `>=`, `==`, `!=` between two values of one type | `bool` | chronological order |
+| `<`, `<=`, `>`, `>=`, `==`, `!=` between two `date`, `time`, `datetime`, `duration`, or `civil_datetime` values of one type | `bool` | chronological order; civil order for `civil_datetime` |
+| `==`, `!=` between two `zoned_datetime`, `zoned_time`, or `timezone` values | `bool` | structural: instant, zone, and offset must all agree; `same_instant` compares timelines |
 
 Everything else is a `type` diagnostic, in particular `datetime + datetime`,
 `time + duration` and `time - time` (crossing midnight needs a date),
-`date + time` (its result is the civil date-time, which is not a core scalar),
+`zoned_datetime - zoned_datetime` (subtract `to_instant` of each), ordering
+of `zoned_datetime`, `zoned_time`, or `timezone` values (order `to_instant`
+or `to_civil` explicitly, as RFC 0002 requires), `zoned_time + duration`,
 `duration * duration`, `%` on any temporal type, and every comparison between
 different types. Scaling is written duration first: `2 * cooldown` is a
 `type` diagnostic with a hint to write `cooldown * 2`. The operation is
@@ -354,9 +439,19 @@ runtime scalar error behaviour is an open question shared with the numeric
 types.
 
 Field accessors (`year`, `month`, `day`, `weekday`, `hour`, `minute`,
-`second`, `microsecond`, `days`, `seconds`, `total_seconds`), `abs`, and the
-rounding functions (`temporal_floor`, `temporal_ceil`, `temporal_round`) are
-ordinary standard-library functions resolved like any other call, not syntax.
+`second`, `microsecond`, `days`, `seconds`, `total_seconds`), `abs`, the
+rounding functions (`temporal_floor`, `temporal_ceil`, `temporal_round`), and
+the zone operations are ordinary standard-library functions resolved like any
+other call, not syntax. The zone operations are hgraph's:
+`at_zone(datetime, timezone) -> zoned_datetime`,
+`resolve(civil_datetime, timezone, ambiguous:, nonexistent:) -> zoned_datetime`
+(hgraph's `resolve_civil`, with the same policy enumerations), and the
+proposed `resolve(date, zoned_time, ambiguous:, nonexistent:)`,
+`convert_zone(zoned_datetime, timezone)`, `to_instant(zoned_datetime)`,
+`to_civil(zoned_datetime)`, `same_instant`, and the accessors `zone_of`,
+`offset_of` (a `duration`), `date_of`, and `time_of`. Calendar-period
+arithmetic on zoned values is the explicit three-step civil pipeline of
+RFC 0002 and uses the `period` library scalar.
 
 ## Generics and nominal operator binding
 
@@ -543,8 +638,9 @@ context:
 temporalize(bool | i64 | f64 | str)
     = atomic hgraph endpoint carrying that scalar
 
-temporalize(date | time | datetime | duration)
-    = atomic hgraph endpoint carrying that RFC 0002 scalar
+temporalize(date | time | datetime | duration | civil_datetime
+            | zoned_datetime | zoned_time | timezone)
+    = atomic hgraph endpoint carrying that temporal scalar
 
 temporalize(tuple<T0, T1, ...>)
     = structural un-named bundle with positional fields
@@ -890,13 +986,15 @@ module: operator 'value' is imported unqualified from both market.pricing and ri
 operator: 'impl fn value' is not compatible with market.pricing::value
 type: list size must be a positive constant or 'unbounded'
 parse: '@2026-02-29' is not a calendar date
-parse: '@2026-09-03T09:30:00' has no UTC offset; write 'Z' or '+HH:MM'
+type: '@2026-09-03T09:30' is a civil_datetime, not a datetime; add an offset
+parse: '@2026-09-03T10:30[Europe/London]' has no offset; add it or use resolve()
+parse: '[Europe//London]' is not a valid zone name
 parse: '0.5us' is not a whole number of microseconds
 parse: '5min' has unknown duration unit 'min'; units are d h m s ms us
 parse: '30m1h' lists duration units out of descending order
 type: 'i64 * duration' is not defined; write the duration first
 type: 'datetime + datetime' is not defined; subtract two instants for a duration
-type: 'date + time' has no core result type; civil_datetime is a library scalar
+type: zoned_datetime is not ordered; compare to_instant() or to_civil()
 type: cannot compare 'date' with 'datetime'
 module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20

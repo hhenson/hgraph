@@ -198,8 +198,9 @@ Source types describe values and structures without spelling hgraph's `TS`,
 Temporalization proceeds recursively:
 
 - scalar leaves such as `f64` become atomic endpoints;
-- `date`, `time`, `datetime`, and `duration` become atomic endpoints carrying
-  hgraph's RFC 0002 `CivilDate`, `CivilTime`, `Instant`, and `Duration`;
+- the temporal scalars (`date`, `time`, `datetime`, `duration`,
+  `civil_datetime`, `timezone`, `zoned_datetime`, `zoned_time`) become atomic
+  endpoints carrying the corresponding hgraph RFC 0002 types;
 - tuples become un-named structural bundles with positional temporal children;
 - lists become structural time-series lists, unbounded unless sized;
 - sets become set-valued time series;
@@ -231,15 +232,20 @@ rolling<f64, 20, 5>              // maximum 20, valid from 5 values
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
 atomicity describes a runtime temporal boundary.
 
-The temporal scalars are the four zone-free RFC 0002 core types and nothing
-more: `date` and `time` are civil values, `datetime` is an instant on the UTC
-timeline (the engine clock type), and `duration` is elapsed microseconds. The
-civil date-time, calendar period, zone, zoned date-time, and range types stay
-library scalars under their registered hgraph names. Literals are single
-tokens, `@` plus an RFC 3339 shape (`@2026-09-03`, `@09:30`,
-`@2026-09-03T09:30Z`) or unit-suffixed numbers (`5m`, `1.5h`, `1h30m`),
-validated and normalized when lexed, with one canonical printed spelling per
-value; shorthand is accepted wherever it stays unambiguous. The
+The temporal scalars are the RFC 0002 core types: `date` and `time` are civil
+values, `datetime` is an instant on the UTC timeline (the engine clock type),
+`duration` is elapsed microseconds, `civil_datetime` is an uninterpreted wall
+clock reading, `timezone` is an interned TZDB name, `zoned_datetime` is an
+instant with its zone and resolved offset, and `zoned_time` is a wall-clock
+time in a named zone, the one type the language adds to hgraph (recorded as
+an RFC ask). The calendar period and range types stay library scalars under
+their registered hgraph names. Literals are single tokens, `@` plus an
+RFC 3339 shape with an optional RFC 9557 zone annotation (`@2026-09-03`,
+`@09:30`, `@2026-09-03T09:30Z`, `@2026-09-03T10:30+01[Europe/London]`,
+`@09:30[America/New_York]`, `@[Europe/London]`) or unit-suffixed numbers
+(`5m`, `1.5h`, `1h30m`), validated and normalized when lexed, with one
+canonical printed spelling per value; shorthand is accepted wherever it stays
+unambiguous, and a literal never chooses a fold or gap policy silently. The
 arithmetic table is hgraph's own, so an expression means the same thing in a
 composition body, a runtime body, and a constant expression.
 

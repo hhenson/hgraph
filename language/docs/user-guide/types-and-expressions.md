@@ -18,6 +18,10 @@ The initial scalar vocabulary is:
 | `time` | Time of day | `@09:30` |
 | `datetime` | Instant on the UTC timeline, the engine clock type | `@2026-09-03T09:30Z` |
 | `duration` | Signed elapsed time | `5m` |
+| `civil_datetime` | Wall-clock date and time, no zone | `@2026-09-03T10:30` |
+| `timezone` | Named TZDB zone | `@[Europe/London]` |
+| `zoned_datetime` | Instant with its zone and offset | `@2026-09-03T10:30+01[Europe/London]` |
+| `zoned_time` | Time of day in a named zone | `@09:30[America/New_York]` |
 
 In an ordinary parameter or result position, a scalar type is an atomic
 time-series leaf. In a `const` parameter position, it is a wiring-time scalar.
@@ -29,38 +33,58 @@ fn scale(value: f64, const factor: f64) -> f64 =>
 
 ## Temporal values
 
-The four temporal scalars are hgraph's RFC 0002 core types. None of them
-carries a time zone: `date` and `time` are civil values, `datetime` is an
-instant on the UTC timeline, and `duration` is elapsed time in microseconds
-with no month or year component.
+The temporal scalars are hgraph's RFC 0002 core types. `date` and `time` are
+civil values, `datetime` is an instant on the UTC timeline, `duration` is
+elapsed time in microseconds with no month or year component, and
+`civil_datetime` is a wall-clock reading that means a moment only once a zone
+interprets it. Zones are named: `timezone` is a TZDB name, `zoned_datetime`
+is an instant together with its zone and the offset the zone had at that
+instant, and `zoned_time` is a time of day in a zone, such as a market open,
+whose offset depends on the day.
 
-A `@` literal is written in RFC 3339 form and the shape selects the type;
-seconds may be omitted. A number directly followed by a unit (`d`, `h`, `m`,
-`s`, `ms`, `us`) is a duration, and several units may run together in
-descending order:
+A `@` literal is written in RFC 3339 form, with the zone in brackets as in
+RFC 9557, and the shape selects the type; seconds may be omitted. A number
+directly followed by a unit (`d`, `h`, `m`, `s`, `ms`, `us`) is a duration,
+and several units may run together in descending order:
 
 ```hgl
-const session_open: time = @08:00
+const session_open: zoned_time = @09:30[America/New_York]
+const close: time = @16:00
 const expiry: date = @2026-12-18
 const epoch: datetime = @2026-01-01T00:00Z
+const reported: civil_datetime = @2026-09-03T10:30
+const fixing: zoned_datetime = @2026-09-03T10:30+01[Europe/London]
+const venue: timezone = @[Europe/London]
 const cooldown: duration = 1h30m
 const settle: duration = 2m30.5s
 ```
 
 Literals are checked when they are read: `@2026-02-29` is not a date,
-`@24:00` is not a time, an instant without `Z` or an offset is rejected
-rather than silently treated as UTC, `0.5us` is not a whole number of
-microseconds, and `30m1h` is out of order. `m` is minutes.
+`@24:00` is not a time, `0.5us` is not a whole number of microseconds, and
+`30m1h` is out of order. `m` is minutes. A date and time without `Z` or an
+offset is a `civil_datetime`, never an instant read as UTC, so assigning it
+to a `datetime` is a type error. A `zoned_datetime` literal always carries
+its offset, which is how the two occurrences of a repeated hour are told
+apart; to interpret a wall-clock value in a zone, call `resolve` with explicit
+policies for repeated and skipped times. The run's time-zone provider checks
+that a zone exists and that a literal's offset agrees with it.
 
-Arithmetic follows hgraph: `datetime ± duration` and `date ± duration` keep
-their type, `datetime - datetime` and `date - date` produce a `duration`,
-durations add, subtract, negate, scale by a number written after them
-(`cooldown * 2`, not `2 * cooldown`), and divide by each other into an `f64`,
-and values of one type compare chronologically. `date` arithmetic uses the
-whole-day part of a duration, so `expiry + 36h` is the next day. There are no
-implicit conversions between the types and no `time ± duration`,
-`date + time`, or `datetime + datetime`. Field accessors such as `year`,
-`hour`, and `total_seconds` are ordinary library functions.
+Arithmetic follows hgraph: `datetime ± duration`, `date ± duration`,
+`civil_datetime ± duration`, and `zoned_datetime ± duration` keep their type,
+`datetime - datetime`, `date - date`, and `civil_datetime - civil_datetime`
+produce a `duration`, `date + time` is a `civil_datetime`, and
+`date + zoned_time` resolves to a `zoned_datetime` (a repeated or skipped time
+on that day is an error; `resolve` takes policies). Durations add, subtract,
+negate, scale by a number written after them (`cooldown * 2`, not
+`2 * cooldown`), and divide by each other into an `f64`. Values of one
+zone-free type compare chronologically; zoned values compare only for
+equality, structurally, and `same_instant`, `to_instant`, and `to_civil`
+give the timeline and civil views. `date` arithmetic uses the whole-day part
+of a duration, so `expiry + 36h` is the next day. There are no implicit
+conversions between the types and no `time ± duration`, `zoned_time ±
+duration`, or `datetime + datetime`. Field accessors such as `year`, `hour`,
+`total_seconds`, and `zone_of` and the zone conversions `at_zone`,
+`convert_zone`, and `resolve` are ordinary library functions.
 
 ## Recursive temporalization
 
@@ -71,6 +95,7 @@ recursively:
 | --- | --- |
 | `f64` | Atomic endpoint carrying `f64` |
 | `duration` | Atomic endpoint carrying a `duration` |
+| `zoned_time` | Atomic endpoint carrying a `zoned_time` |
 | `tuple<f64, f64>` | Structural tuple with positional temporal children |
 | `list<f64>` | Unbounded structural list of temporal `f64` values |
 | `list<f64, 3>` | Structural list of exactly three temporal `f64` values |

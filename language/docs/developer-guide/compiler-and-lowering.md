@@ -112,6 +112,18 @@ datetime
 duration
   -> atomic TS<TimeDelta> leaf  (Duration)
 
+civil_datetime
+  -> atomic TS<CivilDateTime> leaf
+
+timezone
+  -> atomic TS<ZoneId> leaf
+
+zoned_datetime
+  -> atomic TS<ZonedDateTime> leaf
+
+zoned_time
+  -> atomic TS<ZonedTime> leaf  (proposed hgraph type)
+
 tuple<f64, str>
   -> UnNamedTSB<Field<"_0", TS<Float>>, Field<"_1", TS<Str>>>
 
@@ -220,14 +232,21 @@ The exact formatting is not contractual. The semantic requirements are:
 A temporal literal is normalized in the AST and lowers to the matching hgraph
 scalar constant: a `date` to `Date`, a `time` to `Time` microseconds since
 midnight, a `datetime` to `DateTime` microseconds since the epoch after UTC
-normalization, and a `duration` to `TimeDelta` microseconds. In a temporal
-position it lifts like any other scalar literal. Temporal arithmetic and
-comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`, and
-comparison operators using exactly the overloads hgraph registers, so the
+normalization, a `duration` to `TimeDelta` microseconds, a `civil_datetime`
+to `CivilDateTime` local microseconds, a `timezone` to a `ZoneId` interned
+from the validated name, a `zoned_datetime` to `ZonedDateTime` through
+`from_resolved(instant, zone, offset)` so that the run's provider applies the
+strict offset check, and a `zoned_time` to the proposed `ZonedTime`. In a
+temporal position it lifts like any other scalar literal. Temporal arithmetic
+and comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`,
+and comparison operators using exactly the overloads hgraph registers, so the
 language's operation table is hgraph's; in a runtime body the generated code
-calls the same checked helpers on canonical values. One set of overloads the
-language table needs is not registered today and is recorded as a hgraph-side
-ask: ordering and equality comparisons for `Time`.
+calls the same checked helpers on canonical values, and zoned arithmetic
+reaches the provider through `GlobalState` exactly as the standard operators
+do. The hgraph-side asks recorded in the roadmap are the ordering overloads
+for `Time` and `CivilDateTime`, which `register_ordered_same_scalar_comparisons`
+does not cover today, and the `ZonedTime` scalar with its `date + zoned_time`
+and policy-taking `resolve` operators.
 
 An atomic tuple parameter lowers to one atomic endpoint. Indexing it must wire
 an imported or generated extraction operation rather than read a current tuple

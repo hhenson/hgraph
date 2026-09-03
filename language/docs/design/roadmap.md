@@ -31,11 +31,12 @@ Deliverables:
 - lexer, parser, source manager, and structured diagnostics;
 - `module`, selective and aliased `use`, bodyless `operator`, named `fn`,
   `export fn`, and anonymous `fn` syntax;
-- `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`, tuple,
-  sized and unbounded list, set, map, and `atomic<T>` types, plus tick-count
+- `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`,
+  `civil_datetime`, `timezone`, `zoned_datetime`, `zoned_time`, tuple, sized
+  and unbounded list, set, map, and `atomic<T>` types, plus tick-count
   `rolling<T, max_size[, min_size]>`;
-- `@` temporal literals and unit-suffixed duration literals, validated and
-  normalized in the lexer;
+- `@` temporal literals with RFC 9557 zone annotations and unit-suffixed
+  duration literals, validated and normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
   explicit `impl fn` implementation binding;
 - automatically public operators and candidates, plus explicit public exposure
@@ -85,8 +86,12 @@ Deliverables:
 - public hgraph provider-scoped candidate provenance, installer removal,
   registration removal, and live-plan lease support;
 - public hgraph TSW patterns that bind named maximum and minimum size generics;
-- standard-library `Time` comparison overloads, so the language's temporal
-  operation table is hgraph's;
+- standard-library ordering overloads for `Time` and `CivilDateTime`, so the
+  language's temporal operation table is hgraph's;
+- a `ZonedTime` core scalar (`CivilTime` plus `ZoneId`, registered as
+  `zoned_time`) with `date + zoned_time -> zoned_datetime` under the `Reject`
+  policies, a policy-taking `resolve(date, zoned_time, ...)`, accessors,
+  JSON and Arrow codecs, and a Python wrapper, as an amendment to RFC 0002;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
 
