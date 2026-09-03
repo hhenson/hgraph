@@ -13,6 +13,8 @@ emitted for rejected input. Snapshots cover:
 
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;
+- nominal `struct` and `export struct` declarations with newline-separated
+  fields, defaults, and `null` optional fields;
 - type and `const` generic parameter lists;
 - trailing `requires` clauses, type sets, categories, type equalities,
   reflection calls, and operator requirements;
@@ -30,6 +32,8 @@ emitted for rejected input. Snapshots cover:
   and unknown units, plus offset normalization and canonical re-spelling;
 - contextual type keywords used as callable names, especially `map`;
 - calls, indexing, named arguments, and expression precedence;
+- named-only complete struct construction and contextual `delta<S>(...)`
+  construction;
 - tail expressions and explicit returns;
 - state declarations and grouped inject declarations;
 - `start`, ordered `when`, and `stop` blocks;
@@ -41,9 +45,10 @@ emitted for rejected input. Snapshots cover:
   lone `_` as identifiers;
 - source ranges, recovery, and multiple diagnostics.
 
-Visibility cases include rejection of `export operator`, `export use`, export
-on an anonymous function, `export impl fn`, `impl` on an anonymous function,
-and `impl fn` with no operator of that name in scope.
+Visibility cases include public `export struct`, and rejection of
+`export operator`, `export use`, export on an anonymous function,
+`export impl fn`, `impl` on an anonymous function, and `impl fn` with no
+operator of that name in scope.
 
 Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
@@ -77,6 +82,36 @@ Table-driven tests cover recursive expansion:
 
 Type diagnostics show both the canonical source type and expanded temporal
 shape when that distinction explains the error.
+
+## Structured values and deltas
+
+Semantic and generated-code tests cover:
+
+- module-qualified nominal identity and distinct equal-shaped structs;
+- scalar Bundle, recursively temporalized TSB, and `atomic<S>` schemas from one
+  declaration;
+- nested atomic boundaries in structs, maps, and lists;
+- named-only complete construction and rejection of missing required,
+  duplicate, or unknown fields;
+- ordinary defaults, `null` optional defaults, and rejection of `null` for a
+  required field;
+- scalar, temporal, and atomic construction contexts, including scalar lifting
+  and the atomic aggregation activation/validity policy;
+- immutable field access in scalar, temporal, and atomic contexts;
+- sparse `delta<S>` construction with every field omittable and no defaults;
+- recursive structural deltas and complete values at atomic boundaries;
+- `return delta<S>(...)` and `out = delta<S>(...)`, including ordered
+  last-write-wins behavior;
+- rejection of `delta<S>` as a parameter, result, state, collection element, or
+  struct field;
+- harness and replay round trips that preserve omitted fields as no change;
+- explicit `null` clearing of optional fields remaining distinct from omission
+  through direct wiring, generated C++, record, and replay.
+
+The last case is blocked until hgraph exposes a public mutation or canonical
+delta encoding for explicit TSB field invalidation. A test must fail closed
+until that contract exists; the compiler must not silently lower clear to the
+existing typed-null no-change representation.
 
 ## Generic constraints and substitution
 

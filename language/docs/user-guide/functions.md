@@ -147,18 +147,20 @@ while structural requirements use compile-time reflection predicates:
 fn calculate<U>(value: U) -> f64
 requires U is struct
       && has_fields(U, {"a", "b"})
+      && field_type(U, "a") == f64
+      && field_type(U, "b") == f64
 {
-    // The definition of struct values and field access is specified separately.
-    0.0
+    (value.a + value.b) / 2.0
 }
 ```
 
-`struct` is the working name for the canonical structured-value concept. Its
-declaration and field-access design is intentionally left to the dedicated
-struct design; the constraint means that `U` is such a type and contains at
-least the named fields. `fields(U)` exposes its field-name set when direct
-reflection is useful. These are type-level operations, not the runtime `keys`
-operation used to traverse collection values.
+`struct` is the canonical structured-value declaration described in
+[Types and expressions](types-and-expressions.md#structured-values). The
+constraint means that `U` is a nominal struct containing at least the named
+fields. `fields(U)` exposes its field-name set when direct reflection is
+useful. These are type-level operations, not the runtime `keys` operation used
+to traverse collection values. Structural admission does not make two
+unrelated nominal structs assignment-compatible.
 
 A type equality can both infer and validate a substitution:
 

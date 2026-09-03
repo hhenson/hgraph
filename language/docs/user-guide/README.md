@@ -15,8 +15,8 @@ source calls reach hgraph.
    public exports, generic constraints and substitution, operator contracts,
    state, injectables, lifecycle, activation, and output.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
-   types, rolling windows, the `atomic<T>` boundary, metadata, and runtime
-   collection traversal.
+   types, nominal structs, sparse deltas, optional fields, rolling windows, the
+   `atomic<T>` boundary, metadata, and runtime collection traversal.
 4. [Modules and tools](modules-and-tools.md) covers public declarations,
    implementation discovery, compiled module lifecycle, native modules,
    `check`, `test`, `run`, `build`, and the REPL.

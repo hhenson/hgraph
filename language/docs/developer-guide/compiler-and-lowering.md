@@ -1,6 +1,7 @@
 # Compiler and C++ lowering
 
-Status: target pipeline with provisional generic, module, and runtime semantics
+Status: target pipeline with agreed structured-value lowering and provisional
+generic, module, and runtime semantics
 
 All execution modes share one pipeline:
 
@@ -181,13 +182,55 @@ atomic<map<str, f64>>
 map<str, atomic<tuple<f64, f64>>>
   -> keyed structure whose value endpoint carries a complete tuple
 
+struct Quote {
+  bid: f64
+  ask: f64
+}
+  scalar   -> Bundle<"module::Quote",
+                     Field<"bid", Float>, Field<"ask", Float>>
+  temporal -> TSB<"module::Quote",
+                   Field<"bid", TS<Float>>, Field<"ask", TS<Float>>>
+
+atomic<Quote>
+  -> TS<Bundle<"module::Quote", ...>>
+
 const window: i64
   -> Scalar<"window", Int>
 ```
 
+For nested HGL structs and containers, the compiler constructs each `TSB`
+field schema recursively rather than using the native `TSBFromScalar`
+convenience alias, whose field lift is intentionally shallow. The resulting
+named TSB's value schema must be the same module-qualified named Bundle used by
+scalar and atomic contexts.
+
 `atomic` is erased from the canonical payload after it establishes the endpoint
 boundary. It remains in source-level type identity and diagnostics where the
 distinction from a structural value matters.
+
+Struct symbols carry ordered field descriptors containing the source type,
+required/default/optional construction metadata, and source range. That
+metadata does not alter native Bundle type identity. Complete construction
+validates the metadata and produces the Bundle value or field-wise wiring
+shape selected by context. Scalar arguments in temporal construction are
+lifted; construction expected as `atomic<S>` generates one aggregation node
+that activates on any supplied temporal field and publishes only once all
+required fields are valid.
+
+A `delta<S>(...)` expression lowers to a distinct checked-HIR delta value for
+the recursively expanded temporal `S`. Its field-presence bitmap means “this
+field participates in this update” and is not the Bundle value-validity bitmap.
+No defaults are evaluated. A structural child contains its own delta, while an
+atomic child contains a complete canonical value. This HIR value is consumable
+only by runtime output, test/replay input, or a temporary local and has no
+ordinary source-schema descriptor.
+
+Native TSB delta values already represent omitted fields, and generated code
+must use their typed delta builders or per-field output mutations rather than
+materialize unchanged values. Explicit `null` in an optional field is a clear
+operation, not omission. The existing scalar-child typed-null delta denotes no
+change, so clear lowering remains blocked until hgraph exposes a distinct
+public mutation or canonical delta encoding that survives record/replay.
 
 `rolling` is not erased. It establishes a TSW endpoint whose kind and
 resolved maximum and minimum sizes participate in schema identity. The

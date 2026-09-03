@@ -20,8 +20,9 @@ that examples do not imply an implemented compatibility promise.
    the two backends, and execution modes.
 2. [Language model](design/language-model.md) — functions, nominal operators,
    generics, generic constraints and substitution, exports, canonical and
-   rolling temporal types, runtime state, lifecycle, activation, output,
-   tests and running, and syntax decisions.
+   rolling temporal types, nominal structs, optional fields, sparse deltas,
+   runtime state, lifecycle, activation, output, tests and running, and syntax
+   decisions.
 3. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.

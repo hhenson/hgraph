@@ -56,6 +56,11 @@ An ordinary exact `fn` is module-internal by default. `export fn` places its
 signature in the public descriptor and makes it available to selective and
 qualified imports. Export does not create an overload family.
 
+A nominal `struct` is likewise module-internal by default. `export struct`
+places its module-qualified name, ordered field schemas, and construction
+metadata in the public descriptor so downstream modules resolve the same
+scalar Bundle and temporal TSB identities.
+
 An `impl fn` is neither a private helper nor an independently exported exact
 function. It contributes a public candidate to its operator's implementation
 inventory. Applying `export` to an `impl fn` is rejected as redundant and
@@ -88,8 +93,8 @@ For either form, the compiler:
 
 1. locates the `hgraph.analytics` descriptor through the package search path;
 2. checks its hgraph and language compatibility constraints;
-3. adds its public operators and exported exact functions to name and type
-   resolution;
+3. adds its public operators, exported exact functions, and exported nominal
+   structs to name and type resolution;
 4. records the referenced declarations and their defining modules in typed IR.
 
 An import does not activate an implementation provider. Generated code includes
@@ -182,6 +187,8 @@ declarations and do not form overload sets. Only those declared `export fn`
 enter the public declaration surface. `impl fn` declarations are registered
 as their operator's candidates. Their source bodies still determine whether
 each candidate lowers as composition or a runtime node.
+Exported structs enter the same declaration surface as nominal types rather
+than callable candidates.
 
 Namespace resolution is not candidate ranking. Different nominal operators
 with the same short name never share a candidate set. Within one selected

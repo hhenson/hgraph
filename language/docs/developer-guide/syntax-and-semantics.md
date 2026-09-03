@@ -1,7 +1,8 @@
 # Syntax and semantics
 
 Status: implemented parser grammar plus agreed, not-yet-implemented generic
-constraint syntax and provisional runtime-function semantics
+constraints and structured-value syntax, with provisional runtime-function
+semantics
 
 This chapter specifies the syntax agreed so far and records the first proposed
 rule for distinguishing wiring composition from runtime node evaluation. The
@@ -56,9 +57,9 @@ section below.
 The hard reserved words for the current design surface are:
 
 ```text
-module use as export impl operator fn const requires is let var state inject return if else
+module use as export impl operator fn struct const requires is let var state inject return if else
 start when stop for test assert eval
-true false
+true false null
 bool i64 f64 str date time datetime duration
 civil_datetime zoned_datetime zoned_time timezone
 ```
@@ -78,9 +79,11 @@ as in `map(values, fn(value) => value * 2.0)`. `in` is contextual: it is the
 separator of a `for` statement, the membership relation in a `requires`
 clause, and an ordinary identifier elsewhere. `out` and the names of other
 injectables are contextual names resolved only by an `inject` declaration.
-`struct` is currently a contextual type category rather than a defined
-declaration form. `fields`, `has_fields`, and `field_type` are compile-time
-reflection intrinsics inside a `requires` clause.
+`struct` is both a declaration keyword and the corresponding constraint
+category. `delta` is contextual: followed by `<` it introduces a structured
+delta constructor, while `delta(value)` remains the temporal metadata function.
+It is not a general type constructor. `fields`, `has_fields`, and `field_type`
+are compile-time reflection intrinsics inside a `requires` clause.
 
 The lexer never produces a `>>` token, so nested generic lists such as
 `list<tuple<f64, f64>>` need no spacing. A number followed directly by a
@@ -106,7 +109,10 @@ use_decl        = "use", module_path,
                   ( "::", import_set | "as", identifier );
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
-declaration     = operator_decl | function_decl | test_decl;
+declaration     = struct_decl | operator_decl | function_decl | test_decl;
+struct_decl     = [ "export" ], "struct", identifier, "{", [ NL ],
+                  [ struct_field, { NL, struct_field }, [ NL ] ], "}";
+struct_field    = identifier, ":", type, [ "=", const_expression ];
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature, [ requires_clause ];
 function_decl   = [ "export" | "impl" ], "fn", identifier,
@@ -165,10 +171,17 @@ A function or operator signature with no return arrow is outputless. An
 `operator` declaration ends after its optional `requires` clause and cannot
 have a body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
-it is not a general local-variable qualifier. `export` applies only to a named
-ordinary exact `fn`. `impl` marks a named `fn` as an implementation of an
-operator in scope; the two modifiers are mutually exclusive. Operators are
-public without a modifier.
+it is not a general local-variable qualifier. `export` applies to a named
+ordinary exact `fn` or a `struct`; other declarations reject it. `impl` marks
+a named `fn` as an implementation of an operator in scope; the two function
+modifiers are mutually exclusive. Operators are public without a modifier.
+
+A struct has a module-qualified nominal identity. Its fields are public,
+immutable, and ordered metadata, with newline separators and no semicolons.
+The first slice has no struct generic parameters, inheritance, methods,
+visibility modifiers, or self-recursive fields. A field default is checked
+against the field's canonical value projection. `null` is accepted as a
+default only to mark that field optional and initially unset.
 
 The constraint grammar is intentionally smaller than the general expression
 grammar. Its operands are types, generic parameters, wiring-time constants,
@@ -816,7 +829,14 @@ postfix_expr   = primary_expr,
                  | ".", identifier };
 primary_expr   = literal | placeholder | identifier | qualified_name
                | "(", expression, ")" | tuple_literal | sequence_literal
+               | delta_expression
                | function_expr | if_expression | eval_expression | block;
+delta_expression
+               = "delta", "<", identifier, ">", "(",
+                 [ struct_arguments ], ")";
+struct_arguments
+               = named_argument, { ",", named_argument }, [ "," ];
+named_argument = identifier, ":", expression;
 if_expression  = "if", expression, block,
                  [ "else", ( block | if_expression ) ];
 ```
@@ -878,6 +898,22 @@ section below.
 Duplicate names, unknown names, positional arguments after named arguments,
 and missing required arguments are source diagnostics.
 
+A call whose callee resolves to a struct type is a complete-value constructor
+and accepts named arguments only. Required fields must be supplied, ordinary
+defaults fill omitted fields, and a field declared with `= null` may remain
+unset. The literal `null` is accepted only when the expected field is optional;
+it is not an untyped runtime object.
+
+`delta<S>(...)` requires a nominal struct `S`, accepts named fields only, and
+produces a contextual update value rather than an ordinary source type. Every
+field may be omitted independently of the complete constructor's requirements
+or defaults. Omission means no change and does not apply a default. Explicit
+`null` means clear an optional field and is distinct from omission; it is an
+error for a required field. Delta constructors may appear only where runtime
+output, a harness or replay sequence, or a temporary `let` binding supplies an
+expected delta shape. They are not admitted as function parameter, function
+result, state, collection-element, or struct-field types.
+
 ## Canonical temporalization
 
 The frontend first resolves a canonical value type, then expands it in temporal
@@ -913,8 +949,8 @@ temporalize(rolling<T, Max, Min>)
       with resolved sizes Max and Min, both tick
       counts or both durations
 
-temporalize(record fields)
-    = structural bundle of temporalized fields
+temporalize(struct S fields)
+    = named structural bundle S whose fields are temporalized recursively
 
 temporalize(atomic<T>)
     = one atomic endpoint carrying canonical value T
@@ -928,8 +964,24 @@ The compiler must map every expanded shape to an existing public hgraph schema.
 It must not create a language-only runtime representation. A structural tuple
 is therefore hgraph's un-named structural bundle with index-named fields
 (`_0`, `_1`, ...), which already admits heterogeneous children; two tuples with
-the same element types intern to the same schema. Indexing a structural tuple
-with a literal index is positional field access. A homogeneous
+the same children are structurally equal. A struct instead resolves to one
+module-qualified named `Bundle` for scalar use and one matching named `TSB`
+whose field schemas are obtained by recursive temporalization. Its nominal
+name remains part of both identities. `atomic<S>` resolves to `TS<Bundle<S>>`.
+
+An `atomic` marker nested in a struct or container stops expansion only at that
+point. In the canonical scalar projection the marker contributes the canonical
+value of its payload, not another wrapper. This is why
+`map<str, atomic<Quote>>` becomes a temporal map of atomic Quote snapshots while
+the same field inside a scalar struct remains a canonical map of Quote values.
+
+Requiredness, defaults, and optionality are source-construction metadata rather
+than new Bundle field schemas. A complete constructor validates required
+fields; a `null` optional field is represented by the Bundle field validity
+bit being unset. A structural delta derives separately from the expanded
+temporal shape, so every field is omittable regardless of that metadata.
+Indexing a structural tuple with a literal index is positional field access. A
+homogeneous
 `tuple<f64, f64>` is deliberately not a `list<f64, 2>`: a tuple is accessed by
 position, a list is sized and traversed.
 
@@ -1115,6 +1167,12 @@ runtime function it assigns the complete output, ticks it, and terminates the
 current evaluation. A runtime path reaching the end without a return or output
 mutation produces no output tick.
 
+For a structural result, returning a complete struct writes every field while
+returning `delta<S>(...)` writes only the named fields. An omitted delta field
+does not tick. At an atomic boundary a tick is a complete canonical value, so a
+sparse delta cannot be returned for `atomic<S>` without explicit stateful
+patching.
+
 `inject out` exposes a typed, mutable output binding. Reading it requires
 `valid(out)` unless flow analysis proves validity. Whole-output assignment
 continues evaluation and uses last-write-wins within one evaluation. Writes to
@@ -1126,6 +1184,13 @@ writes made by earlier blocks.
 then returning. A bare `return` terminates evaluation after any preceding
 incremental output mutations. Detailed collection mutation operations remain
 part of structural-type design.
+
+Assigning `delta<S>(...)` to `out` performs the same sparse structural update
+and continues evaluation. Explicit `null` on an optional delta field requests
+field invalidation; it must not be lowered as the absent field used for “no
+change”. The current native delta value uses an unset scalar child for
+omission, so this clear operation requires a distinct public hgraph mutation or
+delta encoding before generated code may claim support for it.
 
 The classifier applies to named and anonymous functions wherever their body
 grammar admits runtime constructs. The first concise anonymous-function slice
@@ -1413,13 +1478,15 @@ Before code generation, an RFC must also define:
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- structured-value declarations and their final user-facing name;
+- structured inheritance, generic structs, self-recursive fields,
+  destructuring, and copy-with-update syntax;
 - explicit generic arguments, generic defaults, and specialization
   relationships beyond the defined pattern ranking and ambiguity rule;
 - general anonymous capture and type inference beyond inline iterator
   predicates;
 - callable scalar kernels inside runtime functions;
-- remaining recursive metadata and `delta` result shapes;
+- collection delta constructors and a first-class public native encoding for
+  explicitly clearing an optional TSB field;
 - rolling-window iteration over hgraph's window view (`values`,
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's

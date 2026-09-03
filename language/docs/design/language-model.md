@@ -1,6 +1,7 @@
 # Language model
 
-Status: agreed syntax foundation; provisional generic, module, and runtime semantics
+Status: agreed syntax and structured-value foundation; provisional generic,
+module, and runtime semantics
 
 The [User Guide](../user-guide/README.md) is authoritative for observable
 source behavior. The
@@ -23,6 +24,10 @@ The bespoke behavior is semantic:
 - `rolling<T, max_size[, min_size]>` describes a typed rolling window;
 - `list<T[, size]>` describes an unbounded or fixed-size temporal list, with
   `unbounded` as the size sentinel;
+- nominal `struct` declarations define one canonical scalar value and one
+  recursively temporalized bundle shape;
+- `delta<S>(...)` constructs a sparse update without weakening complete-value
+  field requirements;
 - bodyless nominal `operator` declarations define generic callable contracts;
 - `impl fn` declarations supply operator implementations explicitly;
 - operators and their implementation candidates are public by definition,
@@ -65,6 +70,8 @@ The agreed declaration forms are:
 - `fn` for module-internal named functions;
 - `impl fn` for an implementation of an operator in scope;
 - `export fn` for a public ordinary exact function;
+- `struct` for a module-internal nominal structured type;
+- `export struct` for a public nominal structured type;
 - anonymous `fn(...) => expression` values.
 
 Within a function body, `let` introduces an immutable lexical binding and
@@ -95,6 +102,47 @@ const settings: map<str, str>
 
 Function results are temporal unless the function is outputless. No syntax for
 a returned wiring scalar has been agreed.
+
+## Structured values and deltas
+
+One struct declaration supplies the value schema and temporal shape that
+Python currently expresses separately as `CompoundScalar` and
+`TimeSeriesSchema`:
+
+```hgl
+export struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = null
+}
+```
+
+`const Quote` is the scalar value, temporal `Quote` recursively expands into a
+field-wise bundle, and `atomic<Quote>` is one endpoint carrying the complete
+value. Atomic markers may occur at any nested boundary and are erased when
+deriving the canonical scalar schema.
+
+Complete construction is named and checks required/default/optional metadata.
+A sparse delta has a separate contextual constructor:
+
+```hgl
+Quote(bid: 100.0, ask: 101.0)
+delta<Quote>(bid: 100.5)
+```
+
+Omitted delta fields mean no change even when the corresponding complete-value
+field is required. Defaults never run for a delta. `null` declares or clears an
+optional field; it is not the representation of an omitted delta field.
+`delta<S>` is intentionally not a normal parameter, result, state, or stored
+field type because temporal schemas already define their own delta shapes.
+Runtime code returns it or assigns it to injected `out`; there is no separate
+output keyword.
+
+The runtime already supports sparse TSB delta fields through Bundle validity.
+Explicit optional-field clearing still needs a distinct public native
+operation or delta encoding, because the existing unset delta field means no
+change. The compiler must preserve that distinction through checked HIR and
+reject the clear form until its native contract exists.
 
 ## Generics and nominal operators
 
@@ -152,11 +200,17 @@ side when the other can be evaluated and validates the relationship when both
 sides are known. Residual Boolean constraints only admit or reject a complete
 substitution.
 
-`struct` is a working category name here. The future structured-value design
-will define its source declaration, atomic representation, recursively
-temporalized bundle representation, field access, and nominal versus structural
-identity. Generic constraints require only a stable reflection interface:
-`fields`, `has_fields`, and `field_type`.
+`struct` is a nominal, module-qualified source declaration. In scalar context
+it denotes a Bundle-like value; temporal context recursively temporalizes its
+fields into a named TSB-like shape; `atomic<S>` stops that recursion and carries
+the complete scalar value. Fields are immutable and publicly readable.
+Complete construction uses named arguments, enforces required fields, applies
+ordinary defaults, and permits fields declared with `= null` to remain unset.
+The contextual `delta<S>(...)` form instead permits every field to be omitted,
+applies no defaults, and distinguishes omission from explicitly clearing an
+optional field with `null`. The generic reflection interface is `fields`,
+`has_fields`, and `field_type`; structural constraints do not erase nominal
+identity.
 
 A requirement such as `add(U, U) -> U` means that the already name-resolved
 nominal operator must have a viable candidate for that type relationship. It
@@ -565,7 +619,8 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- structured-value declarations and their final user-facing name;
+- struct inheritance, generic declarations, self-recursive fields,
+  destructuring, and copy-with-update syntax;
 - explicit generic arguments, generic defaults, and any specialization
   relationship beyond the defined pattern ranking and ambiguity rule;
 - general anonymous capture beyond inline runtime collection predicates;
@@ -574,7 +629,8 @@ Later decisions must define:
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction
   from temporal values;
-- structural temporal metadata and delta result shapes;
+- collection delta literals and the native encoding for explicit optional-field
+  clearing;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 
 Diagnostics should identify the source concept and expanded hgraph shape while

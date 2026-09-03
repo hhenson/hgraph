@@ -135,24 +135,170 @@ accepts only a three-element list. The resolved size is part of the type
 identity, and an unbounded list is the only one whose elements can be added
 and removed after wiring.
 
-## Structured values: next design
+## Structured values
 
-`struct` is currently a working category name, not yet an agreed declaration
-keyword. The next design step will define one canonical structured-value type
-whose context supplies the hgraph representation:
+> **Staging status:** the declaration, construction, optional-field, and delta
+> semantics in this section are agreed design, but the current `hgl check`
+> parser does not implement them yet.
 
-- a `const` value uses the canonical scalar representation corresponding to
-  `CompoundScalar`;
-- `atomic<MyType>` is one endpoint carrying a complete structured scalar;
-- temporal `MyType` recursively expands its fields into the bundle shape
-  corresponding to `TimeSeriesSchema` and `TSB`.
+A `struct` declares one nominal structured type. It is module-internal unless
+it is exported, and its fields are public and immutable:
 
-That design still needs to settle the source name and declaration syntax,
-nominal versus structural identity, field defaults and inheritance, field
-access, construction, and atomic/bundle conversion. The generic constraint
-surface already refers to this category through `U is struct`, `fields(U)`,
-`has_fields(U, names)`, and `field_type(U, name)` without deciding those
-remaining questions.
+```hgl
+export struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = null
+    currency: str = "USD"
+}
+```
+
+The nominal identity is the module-qualified name, so two separately declared
+structs with equal fields remain different types. Field declaration order is
+stable schema metadata, but construction uses names rather than positions.
+`export struct` exposes the name to other modules in the same way that
+`export fn` exposes an ordinary function.
+
+One declaration supplies three contextual representations:
+
+| Source use | hgraph interpretation |
+| --- | --- |
+| `const quote: Quote` | Canonical scalar value corresponding to `CompoundScalar` / `Bundle` |
+| `quote: atomic<Quote>` | One atomic endpoint carrying a complete `Quote` snapshot |
+| `quote: Quote` | A named bundle whose fields are independently temporal |
+
+Temporalization is recursive unless an `atomic` marker stops it. For example:
+
+```hgl
+struct Book {
+    best: Quote
+    quotes: map<str, Quote>
+    snapshots: map<str, atomic<Quote>>
+    configuration: atomic<BookConfig>
+}
+```
+
+Temporal `Book.best` is a nested `Quote` bundle, and each value in `quotes` is
+also a `Quote` bundle. Each value in `snapshots` is instead one atomic `Quote`,
+while `configuration` is one atomic `BookConfig`. `atomic<Book>` stops the
+whole expansion and carries a complete scalar `Book`. In a scalar projection,
+an atomic marker changes no storage type: its canonical value is the canonical
+value of its payload.
+
+Field access follows the same context. Accessing `quote.bid` on a temporal
+`Quote` projects its `bid` endpoint. Access through `atomic<Quote>` observes a
+field of the complete snapshot, so all such projections share the enclosing
+snapshot's tick. Access on a `const Quote` reads the scalar field.
+
+### Complete construction
+
+Struct construction uses named arguments only:
+
+```hgl
+Quote(
+    bid: 100.0,
+    ask: 101.0
+)
+```
+
+A field without a default is required. A non-null default supplies an omitted
+value. A `null` default declares an optional field whose value is initially
+unset:
+
+| Declaration | Complete construction |
+| --- | --- |
+| `bid: f64` | The caller must supply `bid` |
+| `currency: str = "USD"` | Omission supplies `"USD"` |
+| `venue: str = null` | Omission leaves `venue` unset |
+
+`null` is a polymorphic absence literal accepted only where the expected field
+is optional. Passing `null` to a required field is a type error. Defaults and
+optionality are authoring metadata; the underlying Bundle validity bitmap
+represents whether a field is set. Defaults apply when constructing a struct;
+they do not replace an invalid field on an existing temporal input.
+
+Context also selects construction behavior. In scalar context the call creates
+a canonical value. In a temporal `Quote` context, temporal arguments retain
+their independent shapes and scalar arguments are lifted. In an
+`atomic<Quote>` context, the compiler aggregates the supplied temporal fields
+and publishes one complete snapshot when any supplied field changes and every
+required field is valid.
+
+```hgl
+fn make_quote(bid: f64, ask: f64) -> Quote =>
+    Quote(bid: bid, ask: ask)
+
+fn make_snapshot(bid: f64, ask: f64) -> atomic<Quote> =>
+    Quote(bid: bid, ask: ask)
+```
+
+Struct values are immutable. `var` may rebind a complete value; it does not
+make fields assignable in place.
+
+### Sparse delta values
+
+Complete-value requirements do not apply to a delta. A contextual
+`delta<Struct>(...)` constructor describes only the fields changed in one
+evaluation, so even a required, defaultless field may be omitted:
+
+```hgl
+delta<Quote>(bid: 100.5)
+```
+
+An omitted delta field means no change, and field defaults are never applied
+while constructing a delta. Explicit `null` clears an optional field; it is
+not the same as omission. Clearing a required field is a type error.
+
+Deltas recurse through structural fields and stop at atomic boundaries:
+
+```hgl
+delta<Book>(
+    best: delta<Quote>(bid: 100.5),
+    configuration: BookConfig(mode: "continuous")
+)
+```
+
+Here `best` receives a sparse nested delta. `configuration` is atomic and must
+therefore receive a complete `BookConfig` snapshot.
+
+`delta<T>` is a contextual update value rather than an ordinary source type.
+It may appear in runtime output, harness and replay sequences, and temporary
+`let` bindings, but not as a struct field or ordinary function parameter or
+result. Every temporal value already has an associated delta, so admitting a
+normal `delta<delta<T>>` type would describe the wrong abstraction.
+
+A runtime function writes a delta with the ordinary output forms:
+
+```hgl
+fn update_quote(price: f64) -> Quote {
+    when modified(price) {
+        return delta<Quote>(bid: price)
+    }
+}
+```
+
+Use `inject out` when the write must not terminate the evaluation:
+
+```hgl
+fn update_quote_and_continue(price: f64) -> Quote {
+    inject out
+
+    when modified(price) {
+        out = delta<Quote>(bid: price)
+    }
+}
+```
+
+For an `atomic<Quote>` output, a tick is a complete `Quote`; a sparse
+`delta<Quote>` is rejected unless user code explicitly retains, patches, and
+publishes prior state.
+
+The first structured-value slice does not yet define inheritance, generic
+struct declarations, self-recursive fields, destructuring, or copy-with-update
+syntax. Structural constraints still inspect nominal structs through
+`U is struct`, `fields(U)`, `has_fields(U, names)`, and
+`field_type(U, name)`; satisfying such a constraint does not make unrelated
+nominal structs assignment-compatible.
 
 ## Rolling windows
 

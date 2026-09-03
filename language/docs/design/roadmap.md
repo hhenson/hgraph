@@ -174,9 +174,11 @@ Acceptance:
 
 Candidates, in risk order:
 
-- the canonical structured-value declaration corresponding to atomic
-  `CompoundScalar` values and recursively temporalized `TimeSeriesSchema`
-  bundles, including its final user-facing name;
+- implement the agreed nominal `struct` declaration, named construction,
+  required/default/`null` optional fields, recursively temporalized bundle and
+  explicit `atomic<S>` representations, and contextual `delta<S>` values;
+- add a public native operation or canonical delta encoding for explicitly
+  clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
 - explicit ephemeral cache semantics;
 - additional lifecycle capabilities and output access;
