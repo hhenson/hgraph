@@ -1,4 +1,4 @@
-// Operators are nominal generic contracts implemented by fn candidates.
+// Operators are nominal generic contracts implemented by impl fn candidates.
 
 module examples.operators_and_generics
 
@@ -10,7 +10,7 @@ operator summarize<
     const min_size: i64
 >(window: rolling<T, max_size, min_size>) -> T
 
-fn summarize<
+impl fn summarize<
     const max_size: i64,
     const min_size: i64
 >(window: rolling<f64, max_size, min_size>) -> f64 =>

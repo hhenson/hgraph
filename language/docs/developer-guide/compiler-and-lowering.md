@@ -62,11 +62,12 @@ schemas but does not choose graph or node lowering.
 A parsed `operator` is represented separately as a bodyless `OperatorContract`
 with a canonical `(module, name)` identity, generic signature, public parameter
 roles, defaults, result relationship, and source range. Every
-`OperatorContract` is public. Name resolution marks a same-named
-`UnclassifiedFn` as an implementation of that identity only when a unique local
-or selectively imported operator binding exists. Such an implementation is a
-provider candidate automatically and rejects an `export` modifier; only an
-unbound exact function may be exported directly.
+`OperatorContract` is public. Name resolution binds an `UnclassifiedFn` that
+carries the `impl` modifier to the unique local or selectively imported
+operator of its name, reports an error when no such operator exists, and
+reports a conflict for a plain `fn` whose name is an in-scope operator. A bound
+implementation is a provider candidate and rejects an `export` modifier; only
+an unbound exact function may be exported directly.
 
 ## Function classification
 
@@ -101,6 +102,18 @@ f64
 
 datetime
   -> atomic TS<DateTime> leaf
+
+tuple<f64, str>
+  -> UnNamedTSB<Field<"_0", TS<Float>>, Field<"_1", TS<Str>>>
+
+list<f64>
+  -> TSL<Float, 0>          (0 is hgraph's dynamic-size sentinel)
+
+list<f64, 3>
+  -> TSL<Float, 3>
+
+list<f64, n>              (const generic n)
+  -> TSL<Float, SIZE<"n">>
 
 set<str>
   -> TSS<Str>
@@ -145,6 +158,12 @@ named maximum and minimum size variables. Generic
 `rolling<T, max_size, min_size>` lowering therefore requires a public TSW
 size-pattern extension integrated with `ResolutionMap`; the compiler must not
 approximate this with private matching logic.
+
+List sizes need no such extension. hgraph's `TSL` pattern already carries a
+named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic
+list binds it to `0`, and a concrete `TSL<T, 0>` pattern matches every size.
+The source sentinel `unbounded` lowers to `0`, and a `const` generic in a
+list-size position lowers to the existing size variable.
 
 `let` and `var` lower to scoped native locals. `let` is immutable in the typed
 HIR. `var` admits assignment but does not allocate node state. In composition
@@ -191,7 +210,10 @@ The exact formatting is not contractual. The semantic requirements are:
 
 An atomic tuple parameter lowers to one atomic endpoint. Indexing it must wire
 an imported or generated extraction operation rather than read a current tuple
-during composition.
+during composition. A structural tuple parameter lowers to an un-named bundle;
+indexing it with a literal is projection of field `_<index>` (a wired
+projection in composition, a field view at runtime), and a non-literal index is
+a type diagnostic.
 
 ## Runtime lowering
 
@@ -394,9 +416,9 @@ algorithm. Generated C++ dispatches through the public marker again so
 descriptor or registry drift becomes an error.
 
 A source-defined operator lowers to a deterministic generated C++ marker. Each
-compatible same-named `fn` lowers to an explicitly registered graph or node
-candidate according to its classified body. An ordinary `fn` without an
-operator binding lowers as an exact callable and is not placed in a registry.
+`impl fn` lowers to an explicitly registered graph or node candidate according
+to its classified body. An ordinary `fn` lowers as an exact callable and is not
+placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
 

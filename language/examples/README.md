@@ -15,7 +15,7 @@ executable tests.
   `key_set`, runtime `keys`/`values`/`items`, built-in and inline predicates,
   `last_modified`, and mutable lexical `var`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
-  nominal bodyless `operator`, a generic `fn` implementation, const-generic
+  nominal bodyless `operator`, a generic `impl fn` implementation, const-generic
   rolling-window sizes, an exported exact function, and the default minimum
   window size.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal

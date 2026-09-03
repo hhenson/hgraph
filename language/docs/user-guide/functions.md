@@ -2,7 +2,7 @@
 
 `fn` is the only user-facing implementation declaration. Source does not label
 an implementation as a graph or node. A bodyless `operator` declaration names
-a generic callable contract whose implementations are supplied by `fn`
+a generic callable contract whose implementations are supplied by `impl fn`
 definitions.
 
 ## Named functions
@@ -57,11 +57,10 @@ family. Two exported ordinary functions therefore cannot share a name merely
 because their signatures differ.
 
 Operators use a different rule. Declaring an `operator` makes its contract
-public automatically, and every compatible same-named `fn` participates as an
-implementation candidate. The candidate is reached through the operator and
-is not an independently exported exact function. Consequently `export fn` is
-invalid on an operator-bound implementation: the binding already supplies its
-public meaning.
+public automatically, and every compatible `impl fn` of that name participates
+as an implementation candidate. The candidate is reached through the operator
+and is not an independently exported exact function. Consequently `export` is
+invalid on an `impl fn`: the binding already supplies its public meaning.
 
 ## Temporal and constant parameters
 
@@ -122,16 +121,22 @@ operator combine<T>(lhs: T, rhs: T) -> T
 An operator is public by definition; there is no `export operator` form.
 
 The contract owns its parameter names, temporal-versus-`const` roles, defaults,
-and result relationship. A same-named `fn` in an implementation-binding scope
-contributes a compatible implementation candidate:
+and result relationship. An `impl fn` with the operator's name contributes a
+compatible implementation candidate:
 
 ```hgl
-fn combine(lhs: f64, rhs: f64) -> f64 =>
+impl fn combine(lhs: f64, rhs: f64) -> f64 =>
     lhs + rhs
 
-fn combine(lhs: i64, rhs: i64) -> i64 =>
+impl fn combine(lhs: i64, rhs: i64) -> i64 =>
     lhs + rhs
 ```
+
+The `impl` modifier is required. It makes the relationship visible at the
+declaration, and it turns a misspelt implementation name into an error instead
+of a quietly unrelated function: `impl fn combne` is rejected because no
+operator `combne` is in scope. Conversely, a plain `fn combine` beside an
+operator `combine` is a name conflict, not a silent candidate.
 
 An implementation may be concrete or generic, but it must specialize the
 operator contract rather than change its public argument roles. Its body is
@@ -145,10 +150,10 @@ implementations belonging to that contract. Concrete or otherwise more
 specific candidates win according to hgraph's resolver. Equal-ranked matching
 candidates are an ambiguity error, never a declaration-order choice.
 
-If no local or selectively imported operator has the function's name, `fn`
-declares an ordinary function. Ordinary functions do not form an overload set
-merely by repeating their name. See [Modules and tools](modules-and-tools.md)
-for implementation discovery, imports, and qualified operator calls.
+A `fn` without `impl` declares an ordinary function. Ordinary functions do
+not form an overload set merely by repeating their name. See
+[Modules and tools](modules-and-tools.md) for implementation discovery,
+imports, and qualified operator calls.
 
 ## Anonymous functions
 
@@ -235,18 +240,25 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 ```hgl
 fn accumulator(a: f64, b: f64) -> f64 {
     state total: f64 = 0.0
+    inject out
 
     when modified(a) && valid(a) {
         total += a
-        return total
+        out = total
     }
 
     when modified(b) && valid(b) {
         total -= b
-        return total
+        out = total
     }
 }
 ```
+
+Each handler writes `out` instead of returning. A `return` in the first
+handler would end the evaluation before the second ran, so a tick on which `a`
+and `b` both changed would lose the `b` update: `modified(b)` is false again
+on the next tick. Use `return` in an ordered handler only when later handlers
+are meant to be skipped.
 
 State declarations are function-level declarations. All state variables in a
 function are aggregated into one typed state value. Initializers run during

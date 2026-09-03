@@ -57,9 +57,9 @@ fn audit_membership(symbols: set<str>) {
     }
 }
 
-fn first_modified_index(values: list<f64>) -> i64 {
-    when modified(values) {
-        for index, value in items(values, modified) {
+fn first_modified_index(samples: list<f64>) -> i64 {
+    when modified(samples) {
+        for index, value in items(samples, modified) {
             if valid(value) {
                 return index
             }

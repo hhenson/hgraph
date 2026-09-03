@@ -52,18 +52,22 @@ name alone. The canonical identities `market.pricing::value` and
 appear in diagnostics and metadata; source calls qualify through a local module
 alias rather than spelling a dotted module path as an expression.
 
-An implementation module binds same-named `fn` definitions to a local operator
-declaration or to exactly one operator brought into local scope by a selective
-import:
+An implementation module binds an `impl fn` to a local operator declaration
+or to exactly one operator brought into local scope by a selective import:
 
 ```hgl
 module market.pricing_impl
 
 use market.pricing::{value}
 
-fn value(input: f64) -> f64 =>
+impl fn value(input: f64) -> f64 =>
     input
 ```
+
+The `impl` modifier is what creates the binding. Without it, `fn value` beside
+an in-scope operator `value` is a name conflict; with it and no operator in
+scope, the declaration is an error. Adding a `use` for an unrelated call can
+therefore never turn one of your helpers into a published candidate.
 
 The uniqueness rule applies per local short name. Selectively importing two
 different operator definitions as `value` is an import error before function
@@ -76,7 +80,7 @@ module market.pricing_impl
 use market.pricing::{value}
 use risk.pricing as risk
 
-fn value(input: f64) -> f64 =>
+impl fn value(input: f64) -> f64 =>
     input
 
 fn compare(input: f64) -> bool =>
@@ -90,10 +94,9 @@ operator definitions; it does not break a tie between implementations of one
 operator. Equal-ranked implementations within one selected operator remain an
 ambiguity error.
 
-Every `fn` bound to an operator contributes an implementation candidate
-automatically. It does not use `export fn` and is not separately importable by
-its implementation module's name. `export fn` is reserved for exposing an
-ordinary exact function.
+Every `impl fn` contributes an implementation candidate. It does not use
+`export` and is not separately importable by its implementation module's
+name. `export fn` is reserved for exposing an ordinary exact function.
 
 ## Implementation discovery
 

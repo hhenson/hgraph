@@ -16,8 +16,8 @@ the directory into a separate repository without changing hgraph core.
 
 - Express typed functions that lower to hgraph graphs or nodes and call
   registered operators.
-- Express nominal generic operator contracts whose `fn` implementations reuse
-  hgraph candidate matching and ranking.
+- Express nominal generic operator contracts whose `impl fn` implementations
+  reuse hgraph candidate matching and ranking.
 - Expose ordinary exact functions explicitly with `export fn`, while treating
   operator contracts and their bound implementation candidates as public by
   definition.
@@ -123,7 +123,7 @@ The frontend owns language diagnostics, lexical scope, public function
 exposure, package membership, canonical types, function classification, phase
 rules, type checking, and selection of a nominal operator identity through
 local declarations, selective imports, or qualified module aliases. Every
-operator-bound `fn` in the resolved target closure contributes a candidate.
+`impl fn` in the resolved target closure contributes a candidate.
 Candidate selection within that identity delegates to the hgraph resolver; the
 language project must not clone its matching or ranking rules.
 
@@ -138,7 +138,7 @@ The first backend emits only public SDK constructs:
 - Functions classified as composition become graph structs with `compose`
   methods and typed `Port` and `Scalar` parameters.
 - Source `operator` declarations become deterministic nominal C++ markers;
-  bound `fn` implementations register explicitly against those markers.
+  `impl fn` implementations register explicitly against those markers.
 - Ordinary `export fn` declarations become public exact-callable entries;
   unexported exact functions remain module implementation details.
 - Composition calls become public `wire` and operator-dispatch calls.

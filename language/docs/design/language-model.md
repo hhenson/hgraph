@@ -21,8 +21,10 @@ The bespoke behavior is semantic:
 - canonical types recursively describe hgraph temporal structures;
 - `atomic<T>` stops recursive temporalization;
 - `rolling<T, max_size[, min_size]>` describes a typed rolling window;
+- `list<T[, size]>` describes an unbounded or fixed-size temporal list, with
+  `unbounded` as the size sentinel;
 - bodyless nominal `operator` declarations define generic callable contracts;
-- compatible `fn` declarations supply operator implementations;
+- `impl fn` declarations supply operator implementations explicitly;
 - operators and their implementation candidates are public by definition,
   while an ordinary exact function requires `export fn` for public exposure;
 - name resolution selects an operator before hgraph ranks its implementations;
@@ -60,7 +62,8 @@ The agreed declaration forms are:
 - `module` for a compilation and import unit;
 - `use` for selective imports and aliased module namespaces;
 - `operator` for a bodyless nominal generic contract;
-- `fn` for module-internal named functions and operator implementations;
+- `fn` for module-internal named functions;
+- `impl fn` for an implementation of an operator in scope;
 - `export fn` for a public ordinary exact function;
 - anonymous `fn(...) => expression` values.
 
@@ -119,9 +122,12 @@ defining module plus name. The contract owns the public parameter names,
 temporal-versus-`const` roles, defaults, and generic input/output relationships.
 It contains no graph or runtime implementation.
 
-A same-named `fn` binds to a local operator or to exactly one operator brought
-into local scope by a selective import. The function signature must be a
-compatible specialization of the contract and may itself be generic. Its body
+An `impl fn` binds to the local operator of the same name or to exactly one
+such operator brought into local scope by a selective import; the binding is
+written, never inferred from a name coincidence. `impl fn` with no operator in
+scope is an error, and a plain `fn` that shares a name with an in-scope
+operator is a conflict rather than a candidate. The function signature must be
+a compatible specialization of the contract and may itself be generic. Its body
 is classified through the ordinary composition-versus-runtime rules.
 
 Two operator contracts with the same short name but different defining modules
@@ -143,11 +149,10 @@ adds that exact declaration to the public module interface; it does not create
 an overload set. Other modules may selectively import it or call it through a
 module alias.
 
-An operator contract is public by definition. Every same-named `fn` bound to
-that operator automatically contributes a public implementation candidate, but
-the candidate is not independently importable through its provider module.
-`export fn` on an operator-bound implementation is therefore invalid rather
-than a second visibility axis.
+An operator contract is public by definition. Every `impl fn` bound to that
+operator contributes a public implementation candidate, but the candidate is
+not independently importable through its provider module. `export` on an
+`impl fn` is therefore invalid rather than a second visibility axis.
 
 There are no declaration re-exports in the initial design. An operator has one
 defining module and one canonical import identity even when implementations
@@ -194,8 +199,8 @@ Temporalization proceeds recursively:
 
 - scalar leaves such as `f64` become atomic endpoints;
 - `datetime` becomes an atomic hgraph engine timestamp;
-- tuples become structural tuples of temporal children;
-- lists become structural time-series lists;
+- tuples become un-named structural bundles with positional temporal children;
+- lists become structural time-series lists, unbounded unless sized;
 - sets become set-valued time series;
 - maps become keyed temporal maps;
 - rolling windows become typed hgraph `TSW` endpoints;
@@ -207,6 +212,9 @@ This distinguishes:
 ```hgl
 tuple<f64, f64>                   // independently temporal children
 atomic<tuple<f64, f64>>           // one tuple-valued endpoint
+
+list<f64>                         // unbounded temporal list
+list<f64, 3>                      // exactly three temporal elements
 
 map<str, f64>                     // keyed temporal map
 atomic<map<str, f64>>             // stream of complete map snapshots
@@ -228,8 +236,13 @@ scalar container. Its sizes are positive wiring-time `i64` values, omission of
 part of the type identity. Duration-window syntax and rolling-window iteration
 remain open.
 
-Every expanded type must map to an existing public hgraph schema. Heterogeneous
-tuple mapping remains an open detail.
+Every expanded type must map to an existing public hgraph schema. A structural
+tuple maps to hgraph's un-named bundle with index-named fields (`_0`, `_1`,
+...), which is why heterogeneous tuples need no new runtime shape. A list size
+is part of the type identity; a `const` generic in a list-size position binds
+the argument's actual size, including the `unbounded` sentinel, so an
+implementation indifferent to fixedness declares one generic candidate rather
+than two.
 
 ## Function abstraction
 
@@ -281,8 +294,11 @@ fn combined_total(a: f64, b: f64) -> f64 {
 
 All state variables aggregate into one typed state value. State initializers
 lower to replay-aware startup initialization and do not overwrite restored
-state. State affecting later evaluations uses recordable state by default;
-ephemeral cache syntax remains separate future work.
+state. `state` is by definition a time series and is always recordable: the
+language sets as its default the practice hgraph's own library applies only to
+loopback state. Bespoke non-temporal values, such as cached adaptor handles,
+are not `state`; they belong to a separate global or module-level resource
+concept whose syntax remains future work.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special
@@ -335,8 +351,8 @@ normalization, ranking, and rejection diagnostics. The implementation kind
 selected by the registry is not visible in call syntax. The source name has
 already resolved to one nominal operator identity before candidate matching.
 
-Selective imports introduce unqualified operator names and establish which
-contract same-named implementation functions bind. Module aliases create
+Selective imports introduce unqualified operator names and determine which
+contract an `impl fn` of that name binds. Module aliases create
 qualified namespaces instead:
 
 ```hgl
@@ -434,7 +450,6 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- tuple-to-hgraph structural mapping;
 - record declarations;
 - generic constraints, explicit generic arguments, output-directed inference,
   and overlapping-implementation coherence;

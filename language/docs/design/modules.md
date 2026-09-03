@@ -56,10 +56,10 @@ An ordinary exact `fn` is module-internal by default. `export fn` places its
 signature in the public descriptor and makes it available to selective and
 qualified imports. Export does not create an overload family.
 
-A same-named `fn` bound to an operator is neither a private helper nor an
-independently exported exact function. It automatically contributes a public
-candidate to that operator's implementation inventory. Applying `export fn` to
-an operator-bound function is rejected as redundant and misleading.
+An `impl fn` is neither a private helper nor an independently exported exact
+function. It contributes a public candidate to its operator's implementation
+inventory. Applying `export` to an `impl fn` is rejected as redundant and
+misleading.
 
 The initial design has no declaration re-export. In particular, an
 implementation module does not create another import route for the operator it
@@ -103,26 +103,30 @@ Two modules may define `my_op`, but those definitions describe distinct
 protocol-like contracts and own distinct implementation sets.
 Every operator declaration is public.
 
-A same-named `fn` becomes an implementation of an operator only when its module
-declares that operator locally or selectively imports exactly one such operator
-into the local scope:
+A `fn` becomes an implementation of an operator only when it is declared
+`impl fn` and its module declares that operator locally or selectively imports
+exactly one such operator into the local scope:
 
 ```hgl
 module my.implementation
 
 use my.contracts::{my_op}
 
-fn my_op(value: f64) -> f64 =>
+impl fn my_op(value: f64) -> f64 =>
     value
 ```
 
+`impl fn` without an operator of that name in scope is an error, and a plain
+`fn` that shares a name with an in-scope operator is a name conflict. Binding
+is therefore never a side effect of an import: a `use` added for an unrelated
+call cannot promote an existing private function into the candidate universe.
 The uniqueness rule applies per local short name. Two selective imports that
 would bind different nominal operators as `my_op` are rejected during import
 resolution. An aliased module does not create an implementation binding, so
 other definitions remain callable through qualified names such as
 `other::my_op(...)`.
 
-Every compatible bound `fn` is an externally visible candidate of its selected
+Every compatible `impl fn` is an externally visible candidate of its selected
 operator, even though it is not directly importable as an exact function. Its
 provider module and complete candidate signature are part of the descriptor.
 
@@ -175,10 +179,9 @@ cross-mode regression test.
 
 User-defined functions without a local operator binding retain exact typed
 declarations and do not form overload sets. Only those declared `export fn`
-enter the public declaration surface. Same-named functions with an operator
-binding are registered automatically as that operator's candidates. Their
-source bodies still determine whether each candidate lowers as composition or
-a runtime node.
+enter the public declaration surface. `impl fn` declarations are registered
+as their operator's candidates. Their source bodies still determine whether
+each candidate lowers as composition or a runtime node.
 
 Namespace resolution is not candidate ranking. Different nominal operators
 with the same short name never share a candidate set. Within one selected
@@ -188,6 +191,14 @@ order never break the tie. Cross-module coherence rules for overlapping source
 implementations remain to be designed.
 
 ## Generated module lifecycle
+
+Explicit load and unload logic is in scope from the first native slice rather
+than deferred to REPL work. hgraph already relies on module load and unload
+logic to expose native modules to Python, operator-overload registration has to
+be evaluated for hand-written C++ modules as well as generated ones, and
+deterministic teardown is needed for orderly process shutdown and for unit
+tests that install and remove modules within one process. Running scripts in a
+child process does not cover any of those.
 
 Compilation emits a module descriptor and explicit lifecycle ABI. The exact C
 or C++ ABI remains to be specified, but it has three separate responsibilities:

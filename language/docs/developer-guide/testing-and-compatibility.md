@@ -25,7 +25,8 @@ Snapshots cover:
 - source ranges, recovery, and multiple diagnostics.
 
 Visibility cases include rejection of `export operator`, `export use`, export
-on an anonymous function, and `export fn` on an operator-bound implementation.
+on an anonymous function, `export impl fn`, `impl` on an anonymous function,
+and `impl fn` with no operator of that name in scope.
 
 Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
@@ -40,7 +41,10 @@ Table-driven tests cover recursive expansion:
 - atomic container snapshots;
 - atomic values nested inside structures;
 - invalid `const atomic<T>` parameters;
-- unsupported map keys and heterogeneous tuple mappings;
+- unsupported map keys;
+- structural tuple expansion to positional un-named bundle fields;
+- `list<T, n>` sizes, including the `unbounded` sentinel and rejection of
+  non-positive literal sizes;
 - descriptor round trips to public hgraph schemas;
 - rolling-window default minimum normalization, size validation, generic size
   binding, and exact TSW schema identity.
@@ -103,20 +107,25 @@ Local-binding tests distinguish immutable `let`, mutable `var`, and persistent
 Use a deterministic fixture and the real hgraph standard registry to cover:
 
 - nominal operator identity by defining module and declaration name;
-- a same-named `fn` binding to a local operator or the one selectively imported
+- an `impl fn` binding to a local operator or the one selectively imported
   operator;
+- `impl fn` with no operator in scope, and a plain `fn` conflicting with an
+  in-scope operator name;
+- adding or removing an unrelated `use` never changing whether an existing
+  `fn` is a candidate;
 - rejection when two selective imports introduce different operators under one
   short name;
 - two aliased modules exposing the same short operator name and resolving
   independently through qualified calls;
 - aliased modules not creating implementation bindings;
-- ordinary functions remaining exact when no operator binding exists;
-- operators and bound implementations being public without export modifiers;
+- ordinary functions remaining exact without `impl`;
+- operators and `impl fn` candidates being public without export modifiers;
 - unexported exact functions remaining module-internal and `export fn` exact
   functions appearing in selective and qualified lookup;
 - exported exact functions not forming overload sets;
-- compatible concrete and generic implementation signatures, including type
-  and rolling-size variables;
+- compatible concrete and generic implementation signatures, including type,
+  rolling-size, and list-size variables, with `unbounded` binding a list-size
+  generic;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;
 - canonical source types expanded to matching hgraph schemas;
 - `const` values participating in candidate selection;

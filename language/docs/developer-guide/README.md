@@ -44,8 +44,8 @@ surface.
 ## Current invariants
 
 - `fn` is the only implementation declaration; `operator` declares a bodyless
-  nominal callable contract.
-- Every `operator` and operator-bound `fn` candidate is public by definition;
+  nominal callable contract, and `impl fn` is the only way to implement one.
+- Every `operator` and `impl fn` candidate is public by definition;
   an ordinary exact function is module-internal unless declared `export fn`.
 - Imports expose names but do not activate providers; the locked package target
   defines the complete candidate universe without declaration re-exports.
@@ -53,6 +53,10 @@ surface.
 - `atomic<T>` stops recursive temporalization at `T`.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
   wiring-time values and part of its type identity.
+- `list<T>` is an unbounded temporal list and `list<T, n>` a fixed one;
+  `unbounded` is the size sentinel a `const` size generic may bind.
+- A structural `tuple<...>` is hgraph's un-named bundle with positional
+  fields; it is never a list.
 - `const` parameters are wiring-time values and use their canonical value type
   directly.
 - `let` locals are immutable; `var` locals are mutable but lexical and
@@ -63,8 +67,9 @@ surface.
 - Runtime collection traversal uses `keys`, `values`, and `items` with optional
   built-in, named, or inline predicates; its borrowed iterators cannot escape an
   evaluation.
-- Selective imports establish unqualified operator bindings; module aliases
-  provide qualified names such as `mm::my_op` without binding implementations.
+- Selective imports establish the unqualified operator names an `impl fn` may
+  bind to; module aliases provide qualified names such as `mm::my_op` without
+  binding implementations.
 - Name resolution selects one nominal operator identity before hgraph performs
   candidate normalization, ranking, and diagnostics.
 - A body without runtime-only constructs is classified as composition;

@@ -58,19 +58,21 @@ one target and bypasses overload ranking.
 
 ## Operator contracts and module namespaces
 
-A bodyless `operator` defines a nominal generic contract. Compatible
-same-named `fn` declarations provide implementations:
+A bodyless `operator` defines a nominal generic contract. `impl fn`
+declarations provide its implementations:
 
 ```hgl
 operator combine<T>(lhs: T, rhs: T) -> T
 
-fn combine(lhs: f64, rhs: f64) -> f64 =>
+impl fn combine(lhs: f64, rhs: f64) -> f64 =>
     lhs + rhs
 ```
 
-The operator contract is public automatically. Its `fn combine` declaration is
-published as an implementation candidate through that operator; it is not an
-independently importable exact function and does not use `export fn`.
+The operator contract is public automatically. Its `impl fn combine`
+declaration is published as an implementation candidate through that operator;
+it is not an independently importable exact function and does not use
+`export`. The `impl` modifier is mandatory, so a misspelt implementation name
+is an error rather than an unrelated private function.
 
 An implementation module selects an externally defined operator with a
 selective import such as `use my.contracts::{combine}`. Exactly one operator
@@ -98,7 +100,7 @@ operator preserve_window<
 >(window: rolling<T, max_size, min_size>)
     -> rolling<T, max_size, min_size>
 
-fn preserve_window<
+impl fn preserve_window<
     T,
     const max_size: i64,
     const min_size: i64

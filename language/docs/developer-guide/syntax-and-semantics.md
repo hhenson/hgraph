@@ -25,14 +25,15 @@ statement terminators or parameter separators.
 The hard reserved words for the current design surface are:
 
 ```text
-module use as export operator fn const let var state inject return if else
+module use as export impl operator fn const let var state inject return if else
 start when stop for
 true false
 bool i64 f64 str datetime
 ```
 
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
-keywords. Outside a type position, the same spelling can resolve to a function,
+keywords, and `unbounded` is a contextual constant in a list-size position.
+Outside a type position, the same spelling can resolve to a function,
 as in `map(values, fn(value) => value * 2.0)`. `out` and the names of other
 injectables are contextual names resolved only by an `inject` declaration.
 
@@ -57,7 +58,7 @@ import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 declaration     = operator_decl | function_decl;
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature;
-function_decl   = [ "export" ], "fn", identifier,
+function_decl   = [ "export" | "impl" ], "fn", identifier,
                   [ generic_parameters ], function_signature, function_body;
 
 generic_parameters
@@ -87,7 +88,9 @@ A function or operator signature with no return arrow is outputless. An
 a body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
 it is not a general local-variable qualifier. `export` applies only to a named
-ordinary exact `fn`; operators are public without a modifier.
+ordinary exact `fn`. `impl` marks a named `fn` as an implementation of an
+operator in scope; the two modifiers are mutually exclusive. Operators are
+public without a modifier.
 
 ## Anonymous functions
 
@@ -123,7 +126,8 @@ value_type      = scalar_type
                 | identifier;
 scalar_type     = "bool" | "i64" | "f64" | "str" | "datetime";
 tuple_type      = "tuple", "<", type, { ",", type }, ">";
-list_type       = "list", "<", type, ">";
+list_type       = "list", "<", type, [ ",", size_expression ], ">";
+size_expression = const_expression | "unbounded";
 set_type        = "set", "<", value_type, ">";
 map_type        = "map", "<", value_type, ",", type, ">";
 rolling_type    = "rolling", "<", value_type, ",",
@@ -161,6 +165,24 @@ type identity. Size arguments must be constant expressions formed from literals
 or in-scope `const` generics and cannot depend on temporal values.
 Duration-window arguments remain a separate design question.
 
+A temporal list is unbounded unless it carries a size:
+
+```hgl
+list<f64>              // unbounded; the same as list<f64, unbounded>
+list<f64, 3>           // exactly three temporal elements
+list<f64, n>           // n is an in-scope const generic
+```
+
+`unbounded` is the sentinel size. A `const` generic in a list-size position
+binds the argument's actual size, including `unbounded` for an unbounded list,
+so one generic `fn` can accept both forms. A fixed size must be a positive
+constant expression. In a parameter position `list<T>` accepts a list of any
+size, mirroring hgraph's rule that a dynamic `TSL` pattern matches every
+concrete size; `list<T, 3>` accepts only a three-element list. The resolved
+size is part of the type identity. A separate `array<T, n>` spelling for fixed
+lists was considered and rejected: an implementation indifferent to fixedness
+would then need two candidates instead of one size-generic declaration.
+
 ## Generics and nominal operator binding
 
 A plain generic parameter binds a source type. A `const` generic parameter
@@ -181,24 +203,37 @@ contract owns public parameter names and order, temporal-versus-`const` roles,
 defaults, and generic input/output relationships. Every operator is public by
 definition; `export operator` is not a declaration form.
 
-A same-named `fn` is an implementation candidate when exactly one matching
-operator binding exists in the module's unqualified declaration scope. That
-binding is either a locally declared operator or an operator introduced by a
-selective import:
+An `impl fn` is an implementation candidate of the operator with the same
+name in the module's unqualified declaration scope. That operator is either
+declared locally or introduced by a selective import:
 
 ```hgl
 use my.contracts::{my_op}
 
-fn my_op(value: f64) -> f64 => value
+impl fn my_op(value: f64) -> f64 => value
 ```
+
+The binding is explicit. `impl fn` with no such operator in scope is a
+`module` diagnostic, which catches a misspelt implementation name at the
+declaration instead of leaving a quietly unrelated function. A plain `fn`
+never binds to an operator; declaring a plain `fn` whose name is already an
+operator in the module's unqualified scope is a `name` conflict, resolved by
+writing `impl fn` or renaming the function. Adding or removing a `use` can
+therefore never change what an existing declaration means: an import only
+makes an `impl fn` resolve or fail to resolve. This rule replaced implicit
+same-name binding because the implicit form let a selective import added for
+an unrelated call turn a private helper into a globally registered candidate,
+and because the nominal systems the operator model borrows from, Rust traits
+and Swift protocols, always write the conformance out.
 
 The implementation signature must be a compatible specialization of the
 contract. It may introduce its own generics, but cannot change the contract's
 public argument roles. Its body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
-The implementation automatically contributes a public candidate to the
-operator and cannot also be marked `export fn`; it is not an independently
-named exact function.
+Several `impl fn` declarations may share a name; each is a separate candidate
+of the same operator. An `impl fn` contributes a public candidate to the
+operator and cannot also be marked `export`; it is not an independently named
+exact function.
 
 A module alias creates only a namespace:
 
@@ -208,16 +243,17 @@ use my.contracts as mc
 mc::my_op(value)
 ```
 
-It does not introduce `my_op` as an unqualified name and cannot bind a local
-`fn my_op`. Two selective imports that introduce different nominal operators
-under the same local short name are rejected before implementation binding.
+It does not introduce `my_op` as an unqualified name, so an `impl fn my_op`
+cannot bind through it. Two selective imports that introduce different
+nominal operators under the same local short name are rejected before
+implementation binding.
 Multiple aliased modules may expose the same short operator name because each
 qualified reference resolves directly to one nominal identity.
 
-When no matching operator is locally declared or selectively imported, a named
-`fn` is an ordinary exact function. Repeating an ordinary function name does
-not implicitly create an overload family. It is module-internal unless marked
-`export fn`, which places that exact signature in the public module interface.
+A named `fn` without `impl` is an ordinary exact function. Repeating an
+ordinary function name does not implicitly create an overload family. It is
+module-internal unless marked `export fn`, which places that exact signature
+in the public module interface.
 Exported exact functions must still have unique names.
 
 Both selective and aliased imports expose only operators and exported exact
@@ -335,11 +371,15 @@ temporalize(bool | i64 | f64 | str)
 temporalize(datetime)
     = atomic hgraph endpoint carrying an engine timestamp
 
-temporalize(tuple<T...>)
-    = structural tuple of temporalize(T) children
+temporalize(tuple<T0, T1, ...>)
+    = structural un-named bundle with positional fields
+      _0: temporalize(T0), _1: temporalize(T1), ...
 
 temporalize(list<T>)
-    = structural list of temporalize(T) children
+    = unbounded structural list of temporalize(T) children
+
+temporalize(list<T, n>)
+    = structural list of exactly n temporalize(T) children
 
 temporalize(set<T>)
     = set-valued hgraph endpoint carrying canonical T members
@@ -364,8 +404,13 @@ temporalize(atomic<T>)
 boundary.
 
 The compiler must map every expanded shape to an existing public hgraph schema.
-It must not create a language-only runtime representation. Exact mapping of
-heterogeneous tuples remains open.
+It must not create a language-only runtime representation. A structural tuple
+is therefore hgraph's un-named structural bundle with index-named fields
+(`_0`, `_1`, ...), which already admits heterogeneous children; two tuples with
+the same element types intern to the same schema. Indexing a structural tuple
+with a literal index is positional field access. A homogeneous
+`tuple<f64, f64>` is deliberately not a `list<f64, 2>`: a tuple is accessed by
+position, a list is sized and traversed.
 
 ## Temporal metadata syntax
 
@@ -432,10 +477,10 @@ Traversal and built-in delta-predicate support is:
 
 | Runtime shape | Traversals | Delta predicates |
 | --- | --- | --- |
-| TSB | `keys`, `values`, `items` | `modified` for values/items |
+| TSB, including structural tuples | `keys`, `values`, `items` | `modified` for values/items |
 | TSD | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| fixed TSL | `values`, `items` | `modified` |
-| unbounded TSL | `values`, `items` | `added`, `modified`, `removed` |
+| `list<T, n>` (fixed TSL) | `values`, `items` | `modified` |
+| `list<T>` (unbounded TSL) | `values`, `items` | `added`, `modified`, `removed` |
 | TSS | `values` | `added`, `removed` |
 
 `items` yields two bindings. TSB yields `str` field names and the corresponding
@@ -519,7 +564,11 @@ Each `state` declaration introduces a mutable function-lifetime binding. The
 compiler aggregates all declarations into one typed recordable-state schema.
 Initializers run during startup only for fields that were not restored by
 record/replay. Initializers may depend on `const` parameters and admitted pure
-scalar expressions, but not current temporal input values.
+scalar expressions, but not current temporal input values. `state` is by
+definition temporal: it is part of the node's recorded and replayed data, and
+there is no non-recordable `state` form. Values that are not time series, such
+as cached adaptor handles, are not `state`; they belong to a separate resource
+concept that is still to be designed.
 
 An `inject` declaration requests compiler-approved runtime selectors without
 adding parameters to the callable contract. Each generated hook requests only
@@ -586,9 +635,10 @@ under hgraph's normal rules. Equal-ranked candidates within the selected
 operator are an ambiguity error; source order, import order, and registration
 order do not break the tie.
 
-The typed HIR records whether a named `fn` is an exact ordinary function or an
-implementation of a canonical operator identity. A later import cannot silently
-reinterpret an already resolved ordinary function as an operator candidate.
+The typed HIR records whether a named `fn` is an exact ordinary function or,
+through its `impl` modifier, an implementation of a canonical operator
+identity. Import changes only make an `impl fn` resolve or fail to resolve;
+they never reinterpret an ordinary function as a candidate.
 
 ## Generated module lifecycle
 
@@ -618,7 +668,8 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - type and `const` generic parameters;
 - `atomic` boundaries in types;
 - rolling-window size arguments and omitted minimum-size syntax;
-- nominal operator declarations and implementation bindings;
+- list sizes, including the `unbounded` sentinel;
+- nominal operator declarations and explicit `impl` bindings;
 - explicit `export` on ordinary exact functions;
 - selective imports, module aliases, and qualified references;
 - `let` versus `var` local mutability;
@@ -630,8 +681,8 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - complete and projected output assignments;
 - explicit versus context-inferred anonymous types.
 
-Parser recovery should synchronize at closing braces, `export`, `operator`,
-`fn`, and top-level newlines.
+Parser recovery should synchronize at closing braces, `export`, `impl`,
+`operator`, `fn`, and top-level newlines.
 
 ## Diagnostics
 
@@ -652,9 +703,12 @@ phase: runtime collection iterator cannot be stored in 'saved'
 type: predicate for 'items' must accept (key, value) and return bool
 module: hgraph.analytics does not export 'rolling_mean'
 module: function 'validate_price' is internal to market.pricing
-module: 'export fn add' is invalid because 'add' implements hgraph.std::add
+module: 'export impl fn add' is invalid; the implementation is public through hgraph.std::add
+module: 'impl fn valeu' has no operator named 'valeu' in scope
+name: 'fn value' conflicts with operator market.pricing::value; declare 'impl fn value' or rename it
 module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
-operator: function 'value' is not compatible with market.pricing::value
+operator: 'impl fn value' is not compatible with market.pricing::value
+type: list size must be a positive constant or 'unbounded'
 module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20
 ```
@@ -668,7 +722,6 @@ Before code generation, an RFC must also define:
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- tuple-to-hgraph structural mapping;
 - generic constraints, explicit generic arguments, generic defaults,
   output-directed inference, and overlapping-implementation coherence;
 - general anonymous capture and type inference beyond inline iterator

@@ -30,7 +30,7 @@ programs.
 The source language uses `fn` for every implementation and does not ask authors
 to declare a `graph` or `node`. A bodyless `operator` declares a nominal,
 generic callable contract whose implementations are supplied by compatible
-same-named `fn` definitions. Operators are public by definition; an ordinary
+`impl fn` definitions. Operators are public by definition; an ordinary
 exact function is module-internal unless declared `export fn`.
 
 ```hgl
@@ -69,7 +69,11 @@ fn running_total(value: f64) -> f64 {
     inject out
 
     when modified(value) && valid(value) {
-        out = (out if valid(out) else 0.0) + value
+        if valid(out) {
+            out += value
+        } else {
+            out = value
+        }
     }
 }
 ```

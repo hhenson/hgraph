@@ -32,15 +32,42 @@ recursively:
 | Source type | Temporal interpretation |
 | --- | --- |
 | `f64` | Atomic endpoint carrying `f64` |
-| `tuple<f64, f64>` | Structural tuple with temporal children |
-| `list<f64>` | Structural list of temporal `f64` values |
+| `tuple<f64, f64>` | Structural tuple with positional temporal children |
+| `list<f64>` | Unbounded structural list of temporal `f64` values |
+| `list<f64, 3>` | Structural list of exactly three temporal `f64` values |
 | `set<str>` | Set-valued time series of `str` members |
 | `map<str, f64>` | Keyed temporal map from `str` to temporal `f64` |
 | `rolling<f64, 20, 5>` | Rolling window of at most 20 `f64` values, valid from 5 values |
 | a record type | Structural bundle whose fields are temporal |
 
-The exact hgraph schema chosen for heterogeneous tuples is still open, but it
-must be an existing public hgraph shape rather than a parallel runtime type.
+A structural tuple is hgraph's un-named bundle with positional fields, so its
+children may have different types and `pair[0]` is positional field access. A
+homogeneous `tuple<f64, f64>` is still a tuple, not a two-element list: tuples
+are accessed by position, lists are sized and traversed.
+
+## List sizes
+
+A temporal list is unbounded unless it carries a size:
+
+```hgl
+list<f64>              // unbounded
+list<f64, 3>           // exactly three elements
+list<f64, unbounded>   // the same as list<f64>
+```
+
+`unbounded` is the sentinel size. A generic `const` size binds whatever size
+the argument has, including `unbounded`, so one function can accept both
+forms:
+
+```hgl
+fn head<T, const n: i64>(entries: list<T, n>) -> T =>
+    entries[0]
+```
+
+`list<T>` in a parameter position accepts a list of any size; `list<T, 3>`
+accepts only a three-element list. The resolved size is part of the type
+identity, and an unbounded list is the only one whose elements can be added
+and removed after wiring.
 
 ## Rolling windows
 
@@ -258,8 +285,8 @@ The available built-in delta predicates follow the underlying structure:
 | --- | --- | --- |
 | Bundle (TSB) | `keys`, `values`, `items` | `modified` on values and items |
 | Temporal map (TSD) | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| Fixed temporal list (TSL) | `values`, `items` | `modified` |
-| Unbounded temporal list (TSL) | `values`, `items` | `added`, `modified`, `removed` |
+| Fixed temporal list, `list<T, n>` (TSL) | `values`, `items` | `modified` |
+| Unbounded temporal list, `list<T>` (TSL) | `values`, `items` | `added`, `modified`, `removed` |
 | Temporal set (TSS) | `values` | `added`, `removed` |
 
 A compatible named function or inline concise function provides a general

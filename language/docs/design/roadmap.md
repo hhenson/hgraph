@@ -31,10 +31,11 @@ Deliverables:
 - lexer, parser, source manager, and structured diagnostics;
 - `module`, selective and aliased `use`, bodyless `operator`, named `fn`,
   `export fn`, and anonymous `fn` syntax;
-- `bool`, `i64`, `f64`, `str`, `datetime`, tuple, list, set, map, and
-  `atomic<T>` types, plus tick-count `rolling<T, max_size[, min_size]>`;
+- `bool`, `i64`, `f64`, `str`, `datetime`, tuple, sized and unbounded list,
+  set, map, and `atomic<T>` types, plus tick-count
+  `rolling<T, max_size[, min_size]>`;
 - type and `const` generic declarations, nominal operator identities, and
-  same-named function implementation binding;
+  explicit `impl fn` implementation binding;
 - automatically public operators and candidates, plus explicit public exposure
   for ordinary exact functions;
 - `const` wiring parameters and recursive temporal-shape expansion;
@@ -84,6 +85,10 @@ Deliverables:
 - public hgraph TSW patterns that bind named maximum and minimum size generics;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
+
+The hgraph-side requirements above are tracked here while the language design
+is still moving. Once agreed they are promoted to an RFC in
+`docs/source/rfc/` before the corresponding core changes land.
 
 Acceptance:
 
