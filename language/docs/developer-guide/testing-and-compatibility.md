@@ -52,14 +52,17 @@ Table-driven tests cover recursive expansion:
 - `list<T, n>` sizes, including the `unbounded` sentinel and rejection of
   non-positive literal sizes;
 - descriptor round trips to public hgraph schemas;
-- rolling-window default minimum normalization, size validation, generic size
-  binding, and exact TSW schema identity;
+- rolling-window default minimum normalization for both kinds, size
+  validation (positive tick sizes, a positive duration maximum, a `0s`
+  duration minimum, minimum not above maximum, rejection of mixed kinds),
+  generic size binding, canonical identity (`rolling<f64, 5m>` is
+  `rolling<f64, 300s>`), and exact tick `TSW` and registry `tsw_duration`
+  schema identity;
 - the temporal arithmetic table, including rejection of `datetime + datetime`,
   `time ± duration`, `zoned_time ± duration`, `i64 * duration`, ordering of
-  zoned values, cross-type comparison, and a `duration` in a `rolling` size
-  position, constant folding that matches hgraph's whole-day `date`
-  arithmetic and ties-to-even duration scaling, and no folding of zoned
-  arithmetic, which needs the run's provider.
+  zoned values, and cross-type comparison, constant folding that matches
+  hgraph's whole-day `date` arithmetic and ties-to-even duration scaling, and
+  no folding of zoned arithmetic, which needs the run's provider.
 
 Type diagnostics show both the canonical source type and expanded temporal
 shape when that distinction explains the error.

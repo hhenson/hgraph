@@ -16,8 +16,8 @@ executable tests.
   `last_modified`, and mutable lexical `var`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
   nominal bodyless `operator`, a generic `impl fn` implementation, const-generic
-  rolling-window sizes, an exported exact function, and the default minimum
-  window size.
+  rolling-window sizes, an exported exact function, the default minimum
+  window size, and a duration window.
 - [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
   maps with an atomic tuple and uses an anonymous `fn`.
 

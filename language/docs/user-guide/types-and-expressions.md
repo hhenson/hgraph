@@ -103,6 +103,7 @@ recursively:
 | `set<str>` | Set-valued time series of `str` members |
 | `map<str, f64>` | Keyed temporal map from `str` to temporal `f64` |
 | `rolling<f64, 20, 5>` | Rolling window of at most 20 `f64` values, valid from 5 values |
+| `rolling<f64, 5m>` | Rolling window of the last five minutes of `f64` values |
 | a record type | Structural bundle whose fields are temporal |
 
 A structural tuple is hgraph's un-named bundle with positional fields, so its
@@ -136,20 +137,37 @@ and removed after wiring.
 
 ## Rolling windows
 
-`rolling<T, max_size, min_size>` describes a tick-count rolling-window time
-series. The minimum size is optional at a use site:
+`rolling<T, max_size, min_size>` describes a rolling-window time series. The
+sizes are either tick counts (`i64`) or durations, and the minimum is
+optional at a use site:
 
 ```hgl
-rolling<f64, 20>
-rolling<f64, 20, 5>
+rolling<f64, 20>          // the last 20 values
+rolling<f64, 20, 5>       // the last 20 values, valid from 5
+rolling<f64, 5m>          // everything in the last five minutes
+rolling<f64, 5m, 1m>      // the last five minutes, valid once it spans 1m
 ```
 
 The square brackets in the descriptive form
 `rolling<T, max_size[, min_size]>` mean “optional”; they are not source
-punctuation. Omitting `min_size` currently means `min_size = max_size`, so the
-first form becomes valid when it contains 20 values. Both sizes are positive
-wiring-time `i64` values, `min_size` cannot exceed `max_size`, and the resolved
-sizes are part of the type identity.
+punctuation. Omitting `min_size` means `min_size = max_size`, so the first
+form becomes valid when it contains 20 values and the third once its oldest
+and newest values are five minutes apart. Both sizes are wiring-time
+constants of one kind: `rolling<f64, 5m, 3>` is a type error. Tick sizes are
+positive; a duration maximum is positive and a duration minimum may be `0s`,
+meaning valid from the first value. `min_size` cannot exceed `max_size`, and
+the kind and resolved sizes are part of the type identity, so
+`rolling<f64, 5m>` and `rolling<f64, 300s>` are the same type while
+`rolling<f64, 20>` and `rolling<f64, 20s>` are different types.
+
+A tick window keeps the newest `max_size` values and drops the oldest when
+full. A duration window keeps every value that ticked within `max_size` of
+the current evaluation time and drops older values as time moves on; it has
+no fixed capacity, so a fast source makes a large window. Until a window
+reaches its minimum it is invalid and its consumers do not evaluate. The
+duration minimum is measured across the values the window holds, not the
+time since the graph started, so `rolling<f64, 5m, 1m>` with a single value
+is still invalid.
 
 `rolling` is itself a temporal type constructor and maps to hgraph's `TSW`
 schema. It is not a canonical scalar container, so it cannot appear beneath
@@ -163,9 +181,11 @@ rolling<T, max_size, min_size>
 ```
 
 Here `T` is a declared type parameter and `max_size` and `min_size` are declared
-`const` generic parameters. Duration-window spelling and the way rolling
-windows participate in `values` or `items` iteration remain open; the current
-collection-iterator table does not implicitly include them.
+`const` generic parameters whose declared type, `i64` or `duration`, fixes
+the kind of window the function accepts. A spelling that accepts either kind,
+and the way rolling windows participate in `values` or `items` iteration,
+remain open; the current collection-iterator table does not implicitly
+include them.
 
 ## Atomic boundaries
 

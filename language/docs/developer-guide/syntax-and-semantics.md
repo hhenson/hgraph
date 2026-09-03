@@ -170,18 +170,41 @@ and atomic payloads. `type` allows atomic boundaries recursively inside
 structural values. `rolling` is already a temporal endpoint shape and therefore
 cannot appear under `atomic` or in a `const` parameter.
 
-The first rolling-window form uses positive tick-count `i64` sizes:
+A rolling window is sized by tick count or by duration. The size arguments
+are constant expressions, and their type selects the kind: `i64` sizes
+describe a tick window and `duration` sizes a duration window.
 
 ```hgl
-rolling<f64, 20>
-rolling<f64, 20, 5>
+rolling<f64, 20>          // the last 20 values, valid once it holds 20
+rolling<f64, 20, 5>       // the last 20 values, valid once it holds 5
+rolling<f64, 5m>          // the last five minutes, valid once it spans 5m
+rolling<f64, 5m, 1m>      // the last five minutes, valid once it spans 1m
 ```
 
-Omitting the third argument normalizes the minimum size to the maximum size.
-The minimum cannot exceed the maximum, and both resolved values participate in
-type identity. Size arguments must be constant expressions formed from literals
-or in-scope `const` generics and cannot depend on temporal values.
-Duration-window arguments remain a separate design question.
+Omitting the third argument normalizes the minimum to the maximum for both
+kinds. Both arguments must be of one kind; `rolling<f64, 5m, 3>` is a `type`
+diagnostic. Tick sizes are positive. A duration maximum is positive and a
+duration minimum may be `0s`, the one spelling of a duration window that is
+valid from its first value. The minimum cannot exceed the maximum. Size
+arguments must be constant expressions formed from literals or in-scope
+`const` generics and cannot depend on temporal values; a `const` generic in
+a size position has its declared type, `i64` or `duration`, so one generic
+declaration accepts one kind.
+
+The window semantics are hgraph's. A tick window holds the most recent
+`max_size` values and evicts the oldest when full. A duration window holds
+every value whose tick time lies within `max_size` of the evaluation time
+and evicts older values before each push; it has no element bound, so its
+memory follows the tick rate. A window is invalid, and does not evaluate its
+consumers, until it reaches its minimum: a tick window once it holds
+`min_size` values, a duration window once the span from its oldest to its
+newest value reaches `min_size`. That span is measured over the captured
+values, not the run's elapsed time, so a positive duration minimum needs at
+least two values. The kind and both resolved sizes participate in type
+identity: `rolling<f64, 5m>` and `rolling<f64, 300s>` are one type,
+`rolling<f64, 20>` and `rolling<f64, 20s>` are two, and the kinds never
+unify. A parameter that accepts either kind (hgraph's `TSWAny` wildcard) has
+no spelling yet and is listed under the open questions.
 
 A temporal list is unbounded unless it carries a size:
 
@@ -203,10 +226,11 @@ would then need two candidates instead of one size-generic declaration.
 
 ## Temporal scalar types
 
-Status: the four zone-free types and their literals are agreed in the review
-of the scaffold (2026-09-03); the civil and zoned types added in the same
-review are proposed. The type set follows RFC 0002, plus one hgraph-side
-addition recorded below.
+Status: agreed in the review of the scaffold (2026-09-03): the eight types,
+their literals, and the arithmetic table below. The civil and zoned design
+was accepted as written and is the record until the project owner revises a
+point; a revision replaces the text here. The type set follows RFC 0002,
+plus one hgraph-side addition recorded below.
 
 HGL has eight temporal scalars. Each carries no time zone, a named zone, or is
 a zone, and each is an atomic endpoint when temporalized:
@@ -220,7 +244,7 @@ a zone, and each is an atomic endpoint when temporalized:
 | `civil_datetime` | a date and time with no zone or offset | `CivilDateTime` | local microseconds from the civil epoch |
 | `timezone` | a named TZDB zone | `ZoneId` | interned zone name, such as `Europe/London` |
 | `zoned_datetime` | an instant with its zone and resolved offset | `ZonedDateTime` | instant, zone, and offset |
-| `zoned_time` | a time of day in a named zone | `ZonedTime` (proposed) | time of day and zone, no offset |
+| `zoned_time` | a time of day in a named zone | `ZonedTime` (hgraph-side addition) | time of day and zone, no offset |
 
 `datetime` is the type of the engine clock and of `last_modified`. It is not a
 civil date-time: it has no local fields to lose, and field accessors such as
@@ -430,8 +454,8 @@ different types. Scaling is written duration first: `2 * cooldown` is a
 `type` diagnostic with a hint to write `cooldown * 2`. The operation is
 commutative, but one spelling reads better, hgraph registers only that order,
 and a permitted spelling is easy to add later and hard to withdraw. A
-`duration` in a `rolling` size position is likewise a `type` diagnostic until
-duration windows are designed.
+`duration` constant in a `rolling` size position is not arithmetic: it
+selects a duration window, as the type section describes.
 
 Overflow in a constant expression is a compile-time diagnostic. Overflow at
 runtime raises through hgraph's checked temporal arithmetic; the language's
@@ -445,8 +469,8 @@ the zone operations are ordinary standard-library functions resolved like any
 other call, not syntax. The zone operations are hgraph's:
 `at_zone(datetime, timezone) -> zoned_datetime`,
 `resolve(civil_datetime, timezone, ambiguous:, nonexistent:) -> zoned_datetime`
-(hgraph's `resolve_civil`, with the same policy enumerations), and the
-proposed `resolve(date, zoned_time, ambiguous:, nonexistent:)`,
+(hgraph's `resolve_civil`, with the same policy enumerations), and, as a
+roadmap ask, `resolve(date, zoned_time, ambiguous:, nonexistent:)`,
 `convert_zone(zoned_datetime, timezone)`, `to_instant(zoned_datetime)`,
 `to_civil(zoned_datetime)`, `same_instant`, and the accessors `zone_of`,
 `offset_of` (a `duration`), `date_of`, and `time_of`. Calendar-period
@@ -661,7 +685,8 @@ temporalize(map<K, V>)
 
 temporalize(rolling<T, Max, Min>)
     = hgraph TSW endpoint carrying canonical T values
-      with resolved tick sizes Max and Min
+      with resolved sizes Max and Min, both tick
+      counts or both durations
 
 temporalize(record fields)
     = structural bundle of temporalized fields
@@ -998,6 +1023,8 @@ type: zoned_datetime is not ordered; compare to_instant() or to_civil()
 type: cannot compare 'date' with 'datetime'
 module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20
+type: rolling sizes must both be tick counts or both be durations
+type: rolling minimum span 10m exceeds maximum span 5m
 ```
 
 No-match and ambiguity diagnostics attach hgraph's candidate rejection reasons.
@@ -1015,7 +1042,9 @@ Before code generation, an RFC must also define:
   predicates;
 - callable scalar kernels inside runtime functions;
 - remaining recursive metadata and `delta` result shapes;
-- duration rolling-window semantics (`rolling<T, 5m>` now parses and is
-  rejected) and rolling-window iteration;
+- rolling-window iteration over hgraph's window view (`values`,
+  `time_values`, `value_times`, `removed_value`), which both window kinds
+  share, and a parameter spelling that accepts either kind (hgraph's
+  `TSWAny`);
 - ephemeral caches, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior.

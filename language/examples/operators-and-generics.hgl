@@ -18,3 +18,6 @@ impl fn summarize<
 
 export fn summarize_full_window(window: rolling<f64, 20>) -> f64 =>
     summarize(window)
+
+export fn summarize_recent(window: rolling<f64, 5m>) -> f64 =>
+    mean(window)

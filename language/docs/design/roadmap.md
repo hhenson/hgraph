@@ -33,8 +33,8 @@ Deliverables:
   `export fn`, and anonymous `fn` syntax;
 - `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`,
   `civil_datetime`, `timezone`, `zoned_datetime`, `zoned_time`, tuple, sized
-  and unbounded list, set, map, and `atomic<T>` types, plus tick-count
-  `rolling<T, max_size[, min_size]>`;
+  and unbounded list, set, map, and `atomic<T>` types, plus tick-count and
+  duration `rolling<T, max_size[, min_size]>`;
 - `@` temporal literals with RFC 9557 zone annotations and unit-suffixed
   duration literals, validated and normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
@@ -85,7 +85,9 @@ Deliverables:
   deinitialization;
 - public hgraph provider-scoped candidate provenance, installer removal,
   registration removal, and live-plan lease support;
-- public hgraph TSW patterns that bind named maximum and minimum size generics;
+- public hgraph TSW patterns that match a concrete duration window and bind
+  named maximum and minimum size generics of either kind, and a compile-time
+  duration `TSW` marker (the parity matrix records the gap);
 - standard-library ordering overloads for `Time` and `CivilDateTime`, so the
   language's temporal operation table is hgraph's;
 - a `ZonedTime` core scalar (`CivilTime` plus `ZoneId`, registered as
@@ -149,7 +151,8 @@ Candidates, in risk order:
 - higher-order functions and runtime control flow;
 - generic constraints, explicit generic arguments, output-directed inference,
   and cross-module implementation coherence;
-- duration rolling windows and their runtime iteration surface;
+- the rolling-window runtime iteration surface and a parameter spelling that
+  accepts either window kind;
 - incremental compilation or a JIT backend.
 
 Each capability must map to a first-class public C++ hgraph path and have

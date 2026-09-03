@@ -57,7 +57,8 @@ surface.
   literal never chooses a fold or gap policy silently.
 - `atomic<T>` stops recursive temporalization at `T`.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
-  wiring-time values and part of its type identity.
+  wiring-time tick counts or durations, one kind per window, and part of its
+  type identity.
 - `list<T>` is an unbounded temporal list and `list<T, n>` a fixed one;
   `unbounded` is the size sentinel a `const` size generic may bind.
 - A structural `tuple<...>` is hgraph's un-named bundle with positional

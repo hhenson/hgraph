@@ -227,6 +227,8 @@ atomic<set<str>>                  // stream of complete set snapshots
 
 rolling<f64, 20>                 // maximum and minimum size are both 20
 rolling<f64, 20, 5>              // maximum 20, valid from 5 values
+rolling<f64, 5m>                 // the last five minutes, valid once spanned
+rolling<f64, 5m, 1m>             // the last five minutes, valid from a 1m span
 ```
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
@@ -250,10 +252,14 @@ arithmetic table is hgraph's own, so an expression means the same thing in a
 composition body, a runtime body, and a constant expression.
 
 `rolling<T, max_size, min_size>` is inherently temporal rather than a canonical
-scalar container. Its sizes are positive wiring-time `i64` values, omission of
-`min_size` currently normalizes it to `max_size`, and both resolved sizes form
-part of the type identity. Duration-window syntax and rolling-window iteration
-remain open.
+scalar container. Its sizes are wiring-time constants of one kind, `i64` tick
+counts or `duration` spans, omission of `min_size` normalizes it to
+`max_size`, and the kind and both resolved sizes form part of the type
+identity. The semantics are hgraph's: a tick window keeps the newest
+`max_size` values, a duration window keeps every value within `max_size` of
+the evaluation time, and either is invalid until it holds `min_size` values
+or spans `min_size`. Rolling-window iteration and a spelling that accepts
+either kind remain open.
 
 Every expanded type must map to an existing public hgraph schema. A structural
 tuple maps to hgraph's un-named bundle with index-named fields (`_0`, `_1`,
@@ -476,7 +482,8 @@ Later decisions must define:
 - generic constraints, explicit generic arguments, output-directed inference,
   and overlapping-implementation coherence;
 - general anonymous capture beyond inline runtime collection predicates;
-- duration rolling-window semantics and rolling-window iteration;
+- rolling-window iteration and a parameter spelling that accepts either
+  window kind;
 - structural temporal metadata and delta result shapes;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 

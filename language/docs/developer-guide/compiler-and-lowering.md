@@ -122,7 +122,7 @@ zoned_datetime
   -> atomic TS<ZonedDateTime> leaf
 
 zoned_time
-  -> atomic TS<ZonedTime> leaf  (proposed hgraph type)
+  -> atomic TS<ZonedTime> leaf  (hgraph-side addition)
 
 tuple<f64, str>
   -> UnNamedTSB<Field<"_0", TS<Float>>, Field<"_1", TS<Str>>>
@@ -145,6 +145,12 @@ rolling<f64, 20>
 rolling<f64, 20, 5>
   -> TSW<Float, 20, 5>
 
+rolling<f64, 5m>
+  -> registry tsw_duration(Float, 5m, 5m)
+
+rolling<f64, 5m, 1m>
+  -> registry tsw_duration(Float, 5m, 1m)
+
 map<str, f64>
   -> keyed hgraph structure with TS<Float> values
 
@@ -162,10 +168,17 @@ const window: i64
 boundary. It remains in source-level type identity and diagnostics where the
 distinction from a structural value matters.
 
-`rolling` is not erased. It establishes a TSW endpoint whose resolved maximum
-and minimum tick counts participate in schema identity. The compiler
-normalizes an omitted minimum to the maximum, validates both values before
-lowering, and rejects `atomic<rolling<...>>` and `const` rolling values.
+`rolling` is not erased. It establishes a TSW endpoint whose kind and
+resolved maximum and minimum sizes participate in schema identity. The
+compiler normalizes an omitted minimum to the maximum, checks that both sizes
+are of one kind and in range before lowering, and rejects
+`atomic<rolling<...>>` and `const` rolling values. A tick window lowers to
+the static `TSW<T, max, min>` schema. A duration window has no static schema
+today (`static_schema.h` records duration windows as registry-only and the
+parity matrix records the missing compile-time marker), so generated code
+interns it through `TypeRegistry::tsw_duration(value_type, time_range,
+min_time_range)`, the schema Python's `TSW[T, timedelta]` produces, until
+hgraph adds the marker.
 
 Plain generic parameters lower to hgraph type-pattern variables at operator
 and candidate boundaries. `const` generics that shape a rolling type must bind
@@ -174,11 +187,13 @@ table. Repeated variables must unify, and the resolved candidate must contain
 no unbound type or size required by its inputs or output.
 
 The current public hgraph type pattern represents TSW sizes as either concrete
-values or one wildcard over the complete window shape. It does not yet bind
-named maximum and minimum size variables. Generic
-`rolling<T, max_size, min_size>` lowering therefore requires a public TSW
-size-pattern extension integrated with `ResolutionMap`; the compiler must not
-approximate this with private matching logic.
+tick values (`TypePattern::tsw`, which matches no duration window) or one
+wildcard over the complete window shape (`tsw_any`). It has no concrete
+duration form and does not yet bind named maximum and minimum size variables
+of either kind. Generic `rolling<T, max_size, min_size>` lowering, and exact
+matching of a duration window at a candidate boundary, therefore require a
+public TSW size-pattern extension integrated with `ResolutionMap`; the
+compiler must not approximate this with private matching logic.
 
 List sizes need no such extension. hgraph's `TSL` pattern already carries a
 named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic
@@ -236,7 +251,8 @@ normalization, a `duration` to `TimeDelta` microseconds, a `civil_datetime`
 to `CivilDateTime` local microseconds, a `timezone` to a `ZoneId` interned
 from the validated name, a `zoned_datetime` to `ZonedDateTime` through
 `from_resolved(instant, zone, offset)` so that the run's provider applies the
-strict offset check, and a `zoned_time` to the proposed `ZonedTime`. In a
+strict offset check, and a `zoned_time` to `ZonedTime` once hgraph adds it.
+In a
 temporal position it lifts like any other scalar literal. Temporal arithmetic
 and comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`,
 and comparison operators using exactly the overloads hgraph registers, so the
