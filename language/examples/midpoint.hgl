@@ -1,0 +1,21 @@
+// Provisional first-slice syntax: a helper, an export, and a helper test.
+
+module examples.prices
+
+use hgraph.analytics::{rolling_mean}
+
+fn midpoint(
+    tob: atomic<tuple<f64, f64>>
+) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
+
+export fn smooth(
+    tob: atomic<tuple<f64, f64>>,
+    const window: i64 = 20
+) -> f64 {
+    rolling_mean(midpoint(tob), window)
+}
+
+test midpoint_ticks {
+    assert eval(midpoint, tob: [(1.0, 2.0), _, (2.0, 3.0)]) == [1.5, _, 2.5]
+}

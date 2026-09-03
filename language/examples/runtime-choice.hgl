@@ -1,0 +1,35 @@
+// Wiring-time topology and runtime selection are deliberately different.
+
+module examples.runtime_choice
+
+use hgraph.analytics::{rolling_mean}
+use hgraph.std::{if_then_else}
+
+fn maybe_smooth(
+    price: f64,
+    const enabled: bool = true,
+    const window: i64 = 20
+) -> f64 {
+    if enabled {
+        return rolling_mean(price, period: window)
+    }
+    price
+}
+
+fn selected_price(
+    use_adjusted: bool,
+    raw: f64,
+    adjusted: f64
+) -> f64 {
+    return if_then_else(use_adjusted, adjusted, raw)
+}
+
+// `when` classifies the function as one generated runtime node.
+fn add_when_ready(a: f64, b: f64) -> f64 {
+    when modified(a, b) && valid(a) {
+        if valid(b) {
+            return a + b
+        }
+        return 0.0
+    }
+}

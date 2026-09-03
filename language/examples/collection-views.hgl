@@ -1,0 +1,68 @@
+// Collection projections and runtime iteration use one function-call surface.
+
+module examples.collection_views
+
+fn active_symbols(book: map<str, f64>) -> set<str> =>
+    key_set(book)
+
+fn count_recent(
+    book: map<str, f64>,
+    const some_time: datetime = @2026-01-01T00:00Z
+) -> i64 {
+    inject logger
+
+    when modified(book) {
+        var count = 0
+
+        for key, value in items(
+            book,
+            fn(key, value) =>
+                valid(value) && last_modified(value) > some_time
+        ) {
+            logger.info(key)
+            count += 1
+        }
+
+        return count
+    }
+}
+
+fn audit_book(book: map<str, f64>) {
+    inject logger
+
+    when modified(book) {
+        for key, value in items(book, modified) {
+            if valid(value) {
+                logger.info(key)
+            }
+        }
+
+        for key in keys(book, removed) {
+            logger.info(key)
+        }
+    }
+}
+
+fn audit_membership(symbols: set<str>) {
+    inject logger
+
+    when modified(symbols) {
+        for symbol in values(symbols, added) {
+            logger.info(symbol)
+        }
+
+        for symbol in values(symbols, removed) {
+            logger.info(symbol)
+        }
+    }
+}
+
+fn first_modified_index(samples: list<f64>) -> i64 {
+    when modified(samples) {
+        for index, value in items(samples, modified) {
+            if valid(value) {
+                return index
+            }
+        }
+    }
+}

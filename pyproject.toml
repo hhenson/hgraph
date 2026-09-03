@@ -149,6 +149,7 @@ sdist.exclude = [
     "reports/**",
     "ext/**",
     "extensions/**",
+    "language/**",
     "benchmarks/.venv*/**",
     "benchmarks/results/**",
 ]

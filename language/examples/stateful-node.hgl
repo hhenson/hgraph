@@ -1,0 +1,46 @@
+// Runtime functions expose state and approved capabilities explicitly.
+
+module examples.stateful_node
+
+fn combined_total(a: f64, b: f64) -> f64 {
+    state total: f64 = 0.0
+    inject out, logger
+
+    start {
+        logger.info("starting")
+    }
+
+    when modified(a) && valid(a) {
+        total += a
+        out = total
+    }
+
+    when modified(b) && valid(b) {
+        total -= b
+        out = total
+    }
+
+    stop {
+        logger.info("stopping")
+    }
+}
+
+fn running_total(value: f64) -> f64 {
+    inject out
+
+    when modified(value) && valid(value) {
+        if valid(out) {
+            out += value
+        } else {
+            out = value
+        }
+    }
+}
+
+fn latest_by_key(key: str, value: f64) -> map<str, f64> {
+    inject out
+
+    when modified(value) && valid(key, value) {
+        out[key] = value
+    }
+}

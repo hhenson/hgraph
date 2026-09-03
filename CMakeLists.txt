@@ -75,6 +75,7 @@ option(HGRAPH_BUILD_ANALYTICS_EXTENSION "Build the first-party analytics extensi
 option(HGRAPH_BUILD_WEB_EXTENSION "Build the first-party web extension" OFF)
 option(HGRAPH_BUILD_PERSISTENCE_EXTENSION "Build the first-party persistence extension" OFF)
 option(HGRAPH_BUILD_FABRIC_EXTENSION "Build the first-party versioned dataflow fabric extension" OFF)
+option(HGRAPH_BUILD_LANGUAGE "Build the experimental hgraph language toolchain" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -822,6 +823,11 @@ endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
+endif()
+
+# After tests so the language's Catch2 suites reuse the repository's Catch2.
+if(HGRAPH_BUILD_LANGUAGE)
+    add_subdirectory(language)
 endif()
 
 set(_hgraph_export_targets hgraph_options hgraph_runtime hgraph_wiring hgraph_stdlib hgraph_core)
