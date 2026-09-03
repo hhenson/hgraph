@@ -31,6 +31,13 @@ true false
 bool i64 f64 str datetime
 ```
 
+Every word in that list is reserved everywhere, including the ones such as
+`state`, `start`, `stop`, and `when` that are only meaningful at a particular
+position in a runtime function body. Variables are introduced by `let`, `var`,
+and `state`, and each block keyword carries its own placement rule, so there is
+no ambiguity to resolve by making them contextual; they are withheld from
+parameter and variable names deliberately to keep a runtime body readable.
+
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
 keywords, and `unbounded` is a contextual constant in a list-size position.
 Outside a type position, the same spelling can resolve to a function,
