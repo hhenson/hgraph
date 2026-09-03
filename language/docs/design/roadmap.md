@@ -89,8 +89,9 @@ Deliverables:
 - standard-library ordering overloads for `Time` and `CivilDateTime`, so the
   language's temporal operation table is hgraph's;
 - a `ZonedTime` core scalar (`CivilTime` plus `ZoneId`, registered as
-  `zoned_time`) with `date + zoned_time -> zoned_datetime` under the `Reject`
-  policies, a policy-taking `resolve(date, zoned_time, ...)`, accessors,
+  `zoned_time`) with `date + zoned_time -> zoned_datetime` (raising on a
+  repeated or skipped time, the `Reject` policies), a policy-taking
+  `resolve(date, zoned_time, ...)`, accessors,
   JSON and Arrow codecs, and a Python wrapper, as an amendment to RFC 0002;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.

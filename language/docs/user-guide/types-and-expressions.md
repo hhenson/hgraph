@@ -73,8 +73,9 @@ Arithmetic follows hgraph: `datetime ± duration`, `date ± duration`,
 `civil_datetime ± duration`, and `zoned_datetime ± duration` keep their type,
 `datetime - datetime`, `date - date`, and `civil_datetime - civil_datetime`
 produce a `duration`, `date + time` is a `civil_datetime`, and
-`date + zoned_time` resolves to a `zoned_datetime` (a repeated or skipped time
-on that day is an error; `resolve` takes policies). Durations add, subtract,
+`date + zoned_time` is a `zoned_datetime` with that day's offset (on a
+transition day where the time is repeated or skipped it raises rather than
+guessing; `resolve` takes policies). Durations add, subtract,
 negate, scale by a number written after them (`cooldown * 2`, not
 `2 * cooldown`), and divide by each other into an `f64`. Values of one
 zone-free type compare chronologically; zoned values compare only for

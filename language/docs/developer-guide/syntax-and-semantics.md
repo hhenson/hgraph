@@ -412,7 +412,7 @@ time-zone provider and therefore never folds at compile time.
 | `civil_datetime + duration`, `civil_datetime - duration` | `civil_datetime` | checked overflow, no zone involved |
 | `civil_datetime - civil_datetime` | `duration` | checked overflow |
 | `zoned_datetime + duration`, `duration + zoned_datetime`, `zoned_datetime - duration` | `zoned_datetime` | timeline arithmetic: shifts the instant, keeps the zone, re-resolves the offset through the provider |
-| `date + zoned_time` | `zoned_datetime` | resolves the wall-clock time on that date in the zone with the `Reject` fold and gap policies, hgraph's default; a repeated or skipped time is a runtime error, and `resolve` takes explicit policies |
+| `date + zoned_time` | `zoned_datetime` | the wall-clock time on that date in that zone, with the offset the zone has that day; only on a transition day where the time is repeated or skipped does it raise instead of guessing (hgraph's `Reject` fold and gap policies), and `resolve` then takes explicit policies |
 | `duration + duration`, `duration - duration`, `-duration` | `duration` | checked overflow |
 | `duration * i64`, `duration * f64` | `duration` | floating-point scaling rounds to the nearest microsecond, ties to even |
 | `duration / i64`, `duration / f64` | `duration` | as above |
