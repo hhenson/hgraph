@@ -11,6 +11,7 @@ source
   -> package target and locked module closure
   -> module descriptors and candidate universe
   -> modules, nominal names, and canonical value types
+  -> struct hierarchy and effective-field resolution
   -> generic binding and operator conformance
   -> recursive temporal shape expansion
   -> function classification
@@ -247,14 +248,41 @@ scalar and atomic contexts.
 boundary. It remains in source-level type identity and diagnostics where the
 distinction from a structural value matters.
 
-Struct symbols carry ordered field descriptors containing the source type,
-required/default/optional construction metadata, and source range. That
+Struct symbols carry parent identities, abstract/final kind, ordered field
+descriptors, inherited-default overrides, and source ranges. Each effective
+field descriptor keeps its declaration origin, canonical source type,
+invariant optionality, and effective construction default. Constructor
 metadata does not alter native Bundle type identity. Complete construction
-validates the metadata and produces the Bundle value or field-wise wiring
-shape selected by context. Scalar arguments in temporal construction are
-lifted; construction expected as `atomic<S>` generates one aggregation node
-that activates on any supplied temporal field and publishes only once all
-required fields are valid.
+validates the effective metadata and produces the Bundle value or field-wise
+wiring shape selected by context. Scalar arguments in temporal construction
+are lifted; construction expected as `atomic<S>` generates one aggregation
+node that activates on any supplied temporal field and publishes only once all
+non-optional fields are valid.
+
+Hierarchy resolution runs before temporal expansion and generic reflection. It
+rejects cycles, concrete parents, abstract construction, inherited type or
+optionality changes, a typed redeclaration of an inherited field, invalid
+default overrides, and unresolved multiple-parent default conflicts. A
+default override updates constructor metadata only. It may add or replace a
+default but cannot remove one; `null` remains legal only for a field whose
+introducing declaration made it optional. `fields`, `has_fields`, and
+`field_type` operate on the validated effective field set.
+
+Every concrete struct lowers as a final nominal Bundle containing its inherited
+and locally declared fields, with abstract-parent relationships registered in
+hgraph's type hierarchy. Abstract structs have no constructible value of their
+own. A scalar or atomic abstract position lowers through hgraph's closed
+polymorphic value plan and retains the concrete leaf discriminator. Its leaf
+set comes from the complete linked module closure and is captured in the graph
+type-realization snapshot. A temporal abstract position lowers only the fixed
+field-wise base TSB. The compiler must not insert an implicit derived-to-base
+temporal projection; the source language will expose that graph operation
+explicitly once its spelling is defined.
+
+The compiler must assign one deterministic effective field order before schema
+interning, descriptor fingerprinting, and code generation. The exact
+multiple-parent linearization remains an open language rule, so hierarchy
+lowering must not ship until that rule is fixed and tested.
 
 A `delta<S>(...)` expression lowers to a distinct checked-HIR delta value for
 the recursively expanded temporal `S`. Its field-presence bitmap means “this
@@ -683,13 +711,15 @@ with another module.
 ## Module descriptors and build manifests
 
 A descriptor separates its importable interface from its provider inventory.
-The interface contains automatically public nominal operators and explicitly
-exported exact functions. The provider inventory contains every
+The interface contains automatically public nominal operators, explicitly
+exported exact functions, and exported struct declarations and hierarchy
+relationships. The provider inventory contains every
 candidate-to-operator binding, including the provider module identity and
 implementation metadata, plus:
 
 - canonical module and compatibility versions;
-- canonical types and their hgraph schemas;
+- canonical types, effective constructor metadata, abstract/concrete hierarchy
+  contributions, and their hgraph schemas;
 - required public headers and CMake packages;
 - imported targets and module lifecycle and registration entry points;
 - descriptor fingerprints and documentation links.

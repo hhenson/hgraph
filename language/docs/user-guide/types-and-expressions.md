@@ -137,9 +137,9 @@ and removed after wiring.
 
 ## Structured values
 
-> **Staging status:** the declaration, construction, optional-field, and delta
-> semantics in this section are agreed design, but the current `hgl check`
-> parser does not implement them yet.
+> **Staging status:** the declaration, inheritance, construction,
+> optional-field, and delta semantics in this section are agreed design, but
+> the current `hgl check` parser does not implement them yet.
 
 A `struct` declares one nominal structured type. It is module-internal unless
 it is exported, and its fields are public and immutable:
@@ -158,6 +158,73 @@ structs with equal fields remain different types. Field declaration order is
 stable schema metadata, but construction uses names rather than positions.
 `export struct` exposes the name to other modules in the same way that
 `export fn` exposes an ordinary function.
+
+### Abstract data families
+
+An abstract struct defines common data for a polymorphic family. Only an
+abstract struct may be inherited, and every concrete struct is implicitly
+final:
+
+```hgl
+export abstract struct Instrument {
+    symbol: str
+    venue: str = null
+    currency: str = "USD"
+}
+
+export struct EuropeanInstrument: Instrument {
+    venue = "XLON"
+    currency = "GBP"
+}
+
+export struct GenericInstrument: Instrument {}
+```
+
+An abstract struct cannot be constructed. A concrete child may add no fields,
+as `GenericInstrument` does, when its nominal identity is the only additional
+information. An abstract struct may inherit other abstract structs, and a
+concrete child may implement more than one abstract data aspect. Structs do
+not contain methods, so there is no behavior inheritance or method-resolution
+order.
+
+The declaration that introduces a field fixes its canonical type and whether
+the field is optional for the entire family. A child cannot redeclare that
+field or change its optionality. An assignment without a type annotation in a
+child changes only the inherited construction default:
+
+```hgl
+export abstract struct Request {
+    timeout: duration
+    venue: str = null
+}
+
+export struct StandardRequest: Request {
+    timeout = 30s
+    venue = "primary"
+}
+```
+
+Here `timeout` remains non-optional but callers of `StandardRequest` may omit
+it because the child supplies a default. `venue` remains optional even though
+its child default is non-null, so `venue: null` is still valid when constructing
+a `StandardRequest`. A descendant may introduce or replace a default, but the
+initial design has no syntax for removing one. `null` may be a descendant
+default only for a field that was originally declared optional.
+
+When multiple abstract parents contribute the same field name, its type and
+optionality must agree. Equal defaults merge. Different defaults, or a default
+from only one of otherwise compatible parents, require the child to choose an
+explicit default. A type or optionality conflict is always an error. The exact
+stable ordering rule for fields contributed by multiple parents will be fixed
+before this syntax is implemented.
+
+A scalar or `atomic<Abstract>` value carries one concrete final member of the
+family and preserves its concrete type. The compiled target's module closure
+defines the available concrete members, and a graph captures that closed set
+when it is wired. A temporal abstract type exposes the fixed bundle of fields
+declared by its abstract family; converting a temporal concrete bundle to that
+base view is explicit because silently inserting a projection would add graph
+work. The spelling of that projection remains to be selected.
 
 One declaration supplies three contextual representations:
 
@@ -293,9 +360,11 @@ For an `atomic<Quote>` output, a tick is a complete `Quote`; a sparse
 `delta<Quote>` is rejected unless user code explicitly retains, patches, and
 publishes prior state.
 
-The first structured-value slice does not yet define inheritance, generic
-struct declarations, self-recursive fields, destructuring, or copy-with-update
-syntax. Structural constraints still inspect nominal structs through
+The first structured-value slice does not yet define generic struct
+declarations, self-recursive fields, destructuring, or copy-with-update syntax.
+Runtime type tests, concrete downcasts, exhaustive family matching, and the
+explicit temporal base-projection spelling also remain to be defined.
+Structural constraints still inspect nominal structs through
 `U is struct`, `fields(U)`, `has_fields(U, names)`, and
 `field_type(U, name)`; satisfying such a constraint does not make unrelated
 nominal structs assignment-compatible.

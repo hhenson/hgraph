@@ -11,3 +11,6 @@
 - Specify nominal `struct` declarations, recursive temporalization with
   explicit `atomic<T>` boundaries, named construction, required/default/null
   optional fields, and contextual sparse `delta<S>` output values.
+- Restrict struct inheritance to abstract data families, make concrete structs
+  implicitly final, keep inherited field type and optionality invariant, and
+  allow descendants to introduce or replace constructor defaults.

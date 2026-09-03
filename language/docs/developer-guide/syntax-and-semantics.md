@@ -57,7 +57,7 @@ section below.
 The hard reserved words for the current design surface are:
 
 ```text
-module use as export impl operator fn struct const requires is let var state inject return if else
+module use as export abstract impl operator fn struct const requires is let var state inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -110,9 +110,15 @@ use_decl        = "use", module_path,
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
 declaration     = struct_decl | operator_decl | function_decl | test_decl;
-struct_decl     = [ "export" ], "struct", identifier, "{", [ NL ],
-                  [ struct_field, { NL, struct_field }, [ NL ] ], "}";
+struct_decl     = [ "export" ], [ "abstract" ], "struct", identifier,
+                  [ ":", struct_parent, { ",", struct_parent } ],
+                  "{", [ NL ],
+                  [ struct_member, { NL, struct_member }, [ NL ] ], "}";
+struct_parent   = identifier | qualified_name;
+struct_member   = struct_field | inherited_default;
 struct_field    = identifier, ":", type, [ "=", const_expression ];
+inherited_default
+                = identifier, "=", const_expression;
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature, [ requires_clause ];
 function_decl   = [ "export" | "impl" ], "fn", identifier,
@@ -178,10 +184,26 @@ modifiers are mutually exclusive. Operators are public without a modifier.
 
 A struct has a module-qualified nominal identity. Its fields are public,
 immutable, and ordered metadata, with newline separators and no semicolons.
-The first slice has no struct generic parameters, inheritance, methods,
-visibility modifiers, or self-recursive fields. A field default is checked
-against the field's canonical value projection. `null` is accepted as a
-default only to mark that field optional and initially unset.
+Only an `abstract struct` may be named as a parent. Abstract structs are not
+constructible and may inherit abstract parents; concrete structs may inherit
+one or more abstract parents and are implicitly final. An empty concrete body
+is valid. There are no methods, behavior inheritance, visibility modifiers,
+generic struct parameters, or self-recursive fields in the first slice.
+
+A typed `struct_field` introduces a field. Its canonical type and optionality
+are invariant in every descendant. Its default is checked against the field's
+canonical value projection; `null` on the introducing declaration marks the
+field optional and initially unset. An untyped `inherited_default` must name an
+inherited field and only introduces or replaces that child's construction
+default. It cannot change the field type or optionality, and a default cannot
+be removed. `null` is accepted as an inherited default only when the original
+field is optional.
+
+When multiple parents contribute a field name, type and optionality must agree.
+Equal defaults merge; differing defaults or a default supplied by only one
+parent require an explicit `inherited_default` in the child. Other conflicts
+are diagnosed. The stable field-linearization rule remains open and must be
+settled before implementation.
 
 The constraint grammar is intentionally smaller than the general expression
 grammar. Its operands are types, generic parameters, wiring-time constants,
@@ -624,11 +646,11 @@ The initial constraint vocabulary is:
 - `op(A, B) -> O` requires a selected nominal operator to be callable with
   those source types and result relationship.
 
-The exact declaration form and user-facing name for `struct` are a separate
-design decision. Within constraints it currently denotes the future canonical
-structured-value category corresponding to atomic structured scalar values and
-recursively temporalized bundles. The constraint design does not prescribe
-that declaration syntax.
+Within constraints, `struct` denotes the canonical structured-value category
+covering concrete and abstract nominal declarations. Reflection includes
+inherited fields after hierarchy validation and operates on the canonical
+source schema rather than either its atomic or recursively temporalized
+representation.
 
 Type equality participates in inference. If exactly one side is an unbound
 generic and the other side can be evaluated from known bindings and `const`
@@ -988,10 +1010,18 @@ The compiler must map every expanded shape to an existing public hgraph schema.
 It must not create a language-only runtime representation. A structural tuple
 is therefore hgraph's un-named structural bundle with index-named fields
 (`_0`, `_1`, ...), which already admits heterogeneous children; two tuples with
-the same children are structurally equal. A struct instead resolves to one
-module-qualified named `Bundle` for scalar use and one matching named `TSB`
-whose field schemas are obtained by recursive temporalization. Its nominal
-name remains part of both identities. `atomic<S>` resolves to `TS<Bundle<S>>`.
+the same children are structurally equal. A concrete struct instead resolves
+to one module-qualified named `Bundle` for scalar use and one matching named
+`TSB` whose field schemas are obtained by recursive temporalization. Its
+nominal name remains part of both identities. `atomic<S>` resolves to
+`TS<Bundle<S>>`.
+
+An abstract struct contributes hierarchy metadata and a fixed base-field TSB,
+but no constructible scalar instance. Scalar and atomic uses of the abstract
+name accept its registered final concrete descendants through hgraph's closed
+polymorphic value plan. Temporalization never changes bundle shape at runtime,
+so converting a concrete temporal bundle to an abstract base bundle requires
+an explicit graph projection.
 
 An `atomic` marker nested in a struct or container stops expansion only at that
 point. In the canonical scalar projection the marker contributes the canonical
@@ -999,11 +1029,14 @@ value of its payload, not another wrapper. This is why
 `map<str, atomic<Quote>>` becomes a temporal map of atomic Quote snapshots while
 the same field inside a scalar struct remains a canonical map of Quote values.
 
-Requiredness, defaults, and optionality are source-construction metadata rather
-than new Bundle field schemas. A complete constructor validates required
-fields; a `null` optional field is represented by the Bundle field validity
-bit being unset. A structural delta derives separately from the expanded
-temporal shape, so every field is omittable regardless of that metadata.
+Optionality and constructor defaults are separate source metadata rather than
+new Bundle field schemas. The introducing declaration fixes optionality; the
+effective descendant default determines whether a constructor argument may be
+omitted. A non-optional field may therefore have a default, and an optional
+field may have a non-null default while remaining clearable. A `null` optional
+field is represented by the Bundle field validity bit being unset. A
+structural delta derives separately from the expanded temporal shape, so every
+field is omittable regardless of that metadata.
 Indexing a structural tuple with a literal index is positional field access. A
 homogeneous
 `tuple<f64, f64>` is deliberately not a `list<f64, 2>`: a tuple is accessed by

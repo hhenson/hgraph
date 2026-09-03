@@ -21,6 +21,8 @@ the directory into a separate repository without changing hgraph core.
 - Expose ordinary exact functions explicitly with `export fn`, while treating
   operator contracts and their bound implementation candidates as public by
   definition.
+- Express abstract structured-data families with final concrete values and
+  preserve their hierarchy through hgraph's native type realization.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
@@ -124,11 +126,12 @@ wiring API; the C++ backend emits source. Which one a command uses is decided
 by the program and the command, never by the language rules; the section
 "Two backends, one wiring" below records the split.
 
-The frontend owns language diagnostics, lexical scope, public function
-exposure, package membership, canonical types, function classification, phase
-rules, type checking, and selection of a nominal operator identity through
-local declarations, selective imports, or qualified module aliases. Every
-`impl fn` in the resolved target closure contributes a candidate.
+The frontend owns language diagnostics, lexical scope, public declaration
+exposure, package membership, canonical types and struct hierarchies, function
+classification, phase rules, type checking, and selection of a nominal
+operator identity through local declarations, selective imports, or qualified
+module aliases. Every `impl fn` in the resolved target closure contributes a
+candidate.
 Candidate selection within that identity delegates to the hgraph resolver; the
 language project must not clone its matching or ranking rules.
 
@@ -146,6 +149,8 @@ The first backend emits only public SDK constructs:
   `impl fn` implementations register explicitly against those markers.
 - Ordinary `export fn` declarations become public exact-callable entries;
   unexported exact functions remain module implementation details.
+- Struct declarations become nominal Bundle and recursively temporalized TSB
+  schemas; abstract-family relationships are registered before graph wiring.
 - Composition calls become public `wire` and operator-dispatch calls.
 - Functions classified as runtime primitives become empty structs with typed
   static hooks.

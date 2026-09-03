@@ -19,11 +19,11 @@ A native package that supports the language supplies a descriptor containing:
 
 - canonical language module name and version;
 - compatible hgraph SDK and descriptor-format versions;
-- automatically public nominal operator contracts and explicitly exported exact
-  functions;
+- automatically public nominal operator contracts, explicitly exported exact
+  functions, and exported concrete and abstract struct declarations;
 - operator implementation candidates indexed by canonical operator identity,
   provider module, implementation kind, and generic signature;
-- canonical types and schema declarations;
+- canonical types, schema declarations, and abstract-family relationships;
 - the C++ headers required by generated code;
 - CMake package names and imported targets;
 - explicit module initialization, registry installation, deinitialization, and
@@ -56,10 +56,12 @@ An ordinary exact `fn` is module-internal by default. `export fn` places its
 signature in the public descriptor and makes it available to selective and
 qualified imports. Export does not create an overload family.
 
-A nominal `struct` is likewise module-internal by default. `export struct`
-places its module-qualified name, ordered field schemas, and construction
-metadata in the public descriptor so downstream modules resolve the same
-scalar Bundle and temporal TSB identities.
+A nominal `struct` is likewise module-internal by default. `export struct` and
+`export abstract struct` place the module-qualified name, abstract/final kind,
+parent identities, ordered field schemas, and construction metadata in the
+public descriptor so downstream modules resolve the same scalar Bundle,
+temporal TSB, and polymorphic family identities. The visibility rule for a
+public child whose abstract parent is module-private remains to be defined.
 
 An `impl fn` is neither a private helper nor an independently exported exact
 function. It contributes a public candidate to its operator's implementation
@@ -188,7 +190,11 @@ enter the public declaration surface. `impl fn` declarations are registered
 as their operator's candidates. Their source bodies still determine whether
 each candidate lowers as composition or a runtime node.
 Exported structs enter the same declaration surface as nominal types rather
-than callable candidates.
+than callable candidates. Their parent relationships also enter the target's
+type-registration inventory. The complete linked module closure, rather than
+the set of source imports, determines the final concrete alternatives visible
+to an abstract scalar or atomic value when a graph captures its type
+realization.
 
 Namespace resolution is not candidate ranking. Different nominal operators
 with the same short name never share a candidate set. Within one selected

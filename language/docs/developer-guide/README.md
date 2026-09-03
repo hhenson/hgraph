@@ -17,7 +17,8 @@ for hgraph, not a second runtime.
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
    `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
    `requires` constraints and type substitution, `const` parameters, lexical
-   bindings, canonical and rolling types, nominal structs, sparse deltas,
+   bindings, canonical and rolling types, nominal structs, abstract data
+   families, final concrete values, inherited defaults, sparse deltas,
    recursive temporalization, metadata, and collection iteration, plus
    provisional state, injectable, lifecycle, activation, and output semantics,
    and the `test`, `eval`, and run model.
@@ -65,7 +66,9 @@ surface.
 - `atomic<T>` stops recursive temporalization at `T`.
 - A nominal `struct` has a canonical Bundle value, recursively temporalized
   TSB shape, named-only construction, required/default/optional fields, and an
-  explicit `atomic<S>` snapshot boundary.
+  explicit `atomic<S>` snapshot boundary. Only abstract structs are bases;
+  concrete structs are final, while descendants may replace defaults but not
+  field types or optionality.
 - `delta<S>(...)` is a contextual sparse update: omitted fields mean no change,
   defaults do not apply, and `null` explicitly clears only optional fields.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are

@@ -13,8 +13,9 @@ emitted for rejected input. Snapshots cover:
 
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;
-- nominal `struct` and `export struct` declarations with newline-separated
-  fields, defaults, and `null` optional fields;
+- nominal `struct`, `abstract struct`, `export struct`, and
+  `export abstract struct` declarations with parent lists, newline-separated
+  fields, inherited-default overrides, and `null` optional fields;
 - type and `const` generic parameter lists;
 - trailing `requires` clauses, type sets, categories, type equalities,
   reflection calls, and operator requirements;
@@ -45,7 +46,8 @@ emitted for rejected input. Snapshots cover:
   lone `_` as identifiers;
 - source ranges, recovery, and multiple diagnostics.
 
-Visibility cases include public `export struct`, and rejection of
+Visibility cases include public `export struct` and `export abstract struct`,
+and rejection of
 `export operator`, `export use`, export on an anonymous function,
 `export impl fn`, `impl` on an anonymous function, and `impl fn` with no
 operator of that name in scope.
@@ -101,8 +103,22 @@ shape when that distinction explains the error.
 Semantic and generated-code tests cover:
 
 - module-qualified nominal identity and distinct equal-shaped structs;
+- abstract-only parent validation, hierarchy-cycle rejection, non-constructible
+  abstract structs, implicitly final concrete structs, multiple abstract
+  parents, and empty concrete leaves;
+- inherited effective fields, invariant field types and optionality, accepted
+  default addition/replacement, rejected default removal and typed field
+  redeclaration, and `null` overrides only on optional fields;
+- multiple-parent merging of compatible fields, explicit resolution of
+  differing or one-sided defaults, and rejection of type or optionality
+  conflicts;
 - scalar Bundle, recursively temporalized TSB, and `atomic<S>` schemas from one
   declaration;
+- closed scalar and atomic abstract-family values retaining their final leaf
+  discriminator and using exactly the concrete descendants in the target
+  module closure;
+- temporal abstract base bundles and rejection of implicit derived-to-base
+  temporal projection;
 - nested atomic boundaries in structs, maps, and lists;
 - named-only complete construction and rejection of missing required,
   duplicate, or unknown fields;

@@ -25,7 +25,8 @@ The bespoke behavior is semantic:
 - `list<T[, size]>` describes an unbounded or fixed-size temporal list, with
   `unbounded` as the size sentinel;
 - nominal `struct` declarations define one canonical scalar value and one
-  recursively temporalized bundle shape;
+  recursively temporalized bundle shape; abstract structs define data families
+  and every concrete struct is implicitly final;
 - `delta<S>(...)` constructs a sparse update without weakening complete-value
   field requirements;
 - bodyless nominal `operator` declarations define generic callable contracts;
@@ -71,7 +72,9 @@ The agreed declaration forms are:
 - `impl fn` for an implementation of an operator in scope;
 - `export fn` for a public ordinary exact function;
 - `struct` for a module-internal nominal structured type;
+- `abstract struct` for a module-internal abstract data family;
 - `export struct` for a public nominal structured type;
+- `export abstract struct` for a public abstract data family;
 - anonymous `fn(...) => expression` values.
 
 Within a function body, `let` introduces an immutable lexical binding and
@@ -143,6 +146,55 @@ Explicit optional-field clearing still needs a distinct public native
 operation or delta encoding, because the existing unset delta field means no
 change. The compiler must preserve that distinction through checked HIR and
 reject the clear form until its native contract exists.
+
+### Abstract structs and final values
+
+Struct inheritance is restricted to abstract data families:
+
+```hgl
+export abstract struct Instrument {
+    symbol: str
+    venue: str = null
+    currency: str = "USD"
+}
+
+export struct EuropeanInstrument: Instrument {
+    venue = "XLON"
+    currency = "GBP"
+}
+```
+
+Only an `abstract struct` may appear as a parent. Abstract structs are not
+constructible; they may inherit one or more abstract parents and provide
+common stored fields. Concrete structs may inherit one or more abstract
+parents, are always constructible final leaves, and may be empty. There is no
+concrete-to-concrete inheritance, `final` modifier, behavior inheritance, or
+method-resolution order.
+
+Field type and optionality are invariants of the declaration that first
+introduces the field. A descendant cannot redeclare a field, change its type,
+or change whether it may be unset. It may introduce or replace the inherited
+constructor default with an untyped `field = constant` member. Defaults may
+not be removed in the initial design. Consequently a non-optional field may
+gain a default without becoming optional, while an optional field remains
+clearable even after a descendant gives it a non-null default. A `null`
+override is valid only for a field whose original declaration is optional.
+
+Multiple abstract parents may contribute the same field only when type and
+optionality agree. Identical defaults merge; differing defaults, including a
+default contributed by only one otherwise compatible parent, require an
+explicit choice in the child. Type and optionality conflicts are errors. Field
+order remains stable schema metadata; the exact deterministic multiple-parent
+linearization is deferred until implementation.
+
+Scalar and `atomic<Abstract>` positions are polymorphic closed families whose
+values retain the identity of one final concrete leaf. Their alternatives are
+the concrete descendants registered by the compiled target's complete module
+closure and frozen by the graph's type-realization snapshot. A temporal
+abstract position is instead the fixed field-wise base bundle. Derived
+temporal bundles do not implicitly convert to it, because that would hide a
+projection graph and its change-tracking cost; the explicit projection
+spelling remains open.
 
 ## Generics and nominal operators
 
@@ -619,8 +671,10 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- struct inheritance, generic declarations, self-recursive fields,
-  destructuring, and copy-with-update syntax;
+- generic struct declarations, self-recursive fields, destructuring, and
+  copy-with-update syntax;
+- runtime type tests, concrete downcasts, exhaustive abstract-family matching,
+  the temporal base-projection spelling, and multiple-parent field ordering;
 - explicit generic arguments, generic defaults, and any specialization
   relationship beyond the defined pattern ranking and ambiguity rule;
 - general anonymous capture beyond inline runtime collection predicates;

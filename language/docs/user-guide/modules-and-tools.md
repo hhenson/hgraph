@@ -35,17 +35,17 @@ analytics::zscore(prices)
 
 An `operator` declaration is public automatically. An ordinary exact function
 is public only when declared `export fn`, and a nominal struct only when
-declared `export struct`; unexported functions and structs remain
-module-internal. Both selective and aliased imports expose only this public
-declaration surface.
+declared `export struct` or `export abstract struct`; unexported functions and
+structs remain module-internal. Both selective and aliased imports expose only
+this public declaration surface.
 
 There are no wildcard imports or re-exports. In particular, an implementation
 module does not create a second import path for an operator defined elsewhere.
 Canonical scalar and container types, temporal-shape rules, `atomic<T>`, and
 expression operator bindings come from the implicit hgraph prelude. Exported
-nominal structs follow their defining module and are imported like other public
-declarations. Everything else must be imported, reached through a module alias,
-or declared locally.
+nominal structs and their abstract-family relationships follow their defining
+modules and are imported like other public declarations. Everything else must
+be imported, reached through a module alias, or declared locally.
 
 ## Operator identity and implementation binding
 

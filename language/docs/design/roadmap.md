@@ -177,6 +177,10 @@ Candidates, in risk order:
 - implement the agreed nominal `struct` declaration, named construction,
   required/default/`null` optional fields, recursively temporalized bundle and
   explicit `atomic<S>` representations, and contextual `delta<S>` values;
+- implement abstract-only inheritance, implicitly final concrete leaves,
+  invariant field type and optionality, descendant default overrides, and
+  scalar/atomic closed-family registration after settling multiple-parent
+  field order and the temporal base-projection spelling;
 - add a public native operation or canonical delta encoding for explicitly
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
