@@ -1105,6 +1105,24 @@ def test_mesh_from_python():
         check("@graph" in str(e), f"unexpected: {e}")
 
 
+def test_mesh_lookup_dereferences_reference_valued_key():
+    @graph
+    def dependency(key: TS[str], links: TSD[str, TS[str]]) -> TS[int]:
+        peer = links[key]
+        return hg.default(hg.mesh_("ref-key")[peer], 0) + 1
+
+    @graph
+    def chain(links: TSD[str, TS[str]]) -> TSD[str, TS[int]]:
+        return hg.mesh_(
+            dependency,
+            hg.pass_through(links),
+            __keys__=links.key_set,
+            __name__="ref-key",
+        )
+
+    assert eval_node(chain, [{"a": "b"}]) == [{"a": 2, "b": 1}]
+
+
 def test_mesh_python_reference_surface():
     class Pair(hg.TimeSeriesSchema):
         value: TS[int]

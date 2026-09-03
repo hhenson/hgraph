@@ -200,3 +200,29 @@ def test_no_change_means_no_tick():
         return 3
 
     assert eval_node(const3, [1, 2]) == [3, 3]   # explicit writes always tick
+
+
+def test_eval_node_frozenset_samples_are_full_membership_snapshots():
+    @graph
+    def sized(values: TSS[str]) -> TS[int]:
+        return hg.len_(values)
+
+    snapshots = [
+        frozenset({"A"}),
+        frozenset({"A", "B"}),
+        frozenset({"B"}),
+    ]
+    assert eval_node(sized, snapshots) == [1, 2, 1]
+
+
+def test_eval_node_nested_frozenset_samples_preserve_replacement_semantics():
+    @graph
+    def sized(values: TSD[str, TSS[str]]) -> TS[int]:
+        return hg.len_(values["group"])
+
+    snapshots = [
+        {"group": frozenset({"A"})},
+        {"group": frozenset({"A", "B"})},
+        {"group": frozenset({"B"})},
+    ]
+    assert eval_node(sized, snapshots) == [1, 2, 1]

@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 212
    * - Public operator groups
-     - 187
+     - 188
    * - Public submodules
      - 18
 
@@ -331,6 +331,9 @@ whose curated signatures remain authoritative.
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
+   * - :ref:`datepart <python-operator-datepart>`
+     - ``datepart(ts: TS[datetime]) -> TS[datetime]``
+     - 1 native overload; lazy operator
    * - :ref:`day <python-operator-day>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -434,11 +437,11 @@ whose curated signatures remain authoritative.
      - ``9 overloads``
      - 9 native overloads; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
-     - ``7 overloads``
-     - 7 native overloads; lazy operator
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - :ref:`getitem_ <python-operator-getitem_>`
-     - ``11 overloads``
-     - 11 native overloads; lazy operator
+     - ``17 overloads``
+     - 17 native overloads; lazy operator
    * - :ref:`group_by <python-operator-group_by>`
      - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator
@@ -543,7 +546,7 @@ whose curated signatures remain authoritative.
      - 1 native overload; lazy operator
    * - :ref:`max_ <python-operator-max_>`
      - ``2 overload groups``
-     - 26 native overloads across 2 groups; lazy operator
+     - 27 native overloads across 2 groups; lazy operator
    * - :ref:`mean <python-operator-mean>`
      - ``18 overloads``
      - 18 native overloads; lazy operator
@@ -561,7 +564,7 @@ whose curated signatures remain authoritative.
      - 1 native overload; lazy operator
    * - :ref:`min_ <python-operator-min_>`
      - ``2 overload groups``
-     - 26 native overloads across 2 groups; lazy operator
+     - 27 native overloads across 2 groups; lazy operator
    * - :ref:`minute <python-operator-minute>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -791,8 +794,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`ungroup <python-operator-ungroup>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - :ref:`union <python-operator-union>`
      - ``union(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator

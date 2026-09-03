@@ -7,6 +7,7 @@ whether a variable is already resolved and for consistent re-binding checks.
 import inspect
 import typing
 from collections.abc import Mapping
+from functools import lru_cache
 
 import _hgraph
 
@@ -39,12 +40,25 @@ class _BindingsMap(Mapping):
         return len(self._bindings)
 
 
+@lru_cache(maxsize=None)
+def _cached_resolution_parameter_names(fn):
+    return tuple(inspect.signature(fn).parameters)
+
+
+def _resolution_parameter_names(fn):
+    try:
+        return _cached_resolution_parameter_names(fn)
+    except TypeError:
+        # Callable instances may deliberately be unhashable.
+        return tuple(inspect.signature(fn).parameters)
+
+
 def _invoke_resolution_callable(fn, bindings, scalar_values):
     """Invoke a wiring callable as ``fn(mapping, **declared_scalars)``."""
     # Resolver annotations do not participate in argument selection. Avoid
     # evaluating postponed annotations here: a valid resolver may annotate
     # its parameters with function-local types that are absent from globals.
-    parameters = list(inspect.signature(fn).parameters)
+    parameters = _resolution_parameter_names(fn)
     scalars = dict(scalar_values or {})
     return fn(
         _BindingsMap(bindings),

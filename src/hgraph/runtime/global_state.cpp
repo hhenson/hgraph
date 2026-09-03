@@ -16,12 +16,26 @@ namespace hgraph
         // Canonical binding for the GlobalState backing: a mutable Map<string, Any>.
         ValueTypeRef global_state_binding()
         {
-            auto       &registry = TypeRegistry::instance();
+            struct CachedBinding
+            {
+                std::uint64_t generation{0};
+                ValueTypeRef  binding{};
+            };
+            thread_local CachedBinding cached{};
+
+            auto &registry = TypeRegistry::instance();
+            const std::uint64_t generation = registry.reset_generation();
+            if (cached.binding.bound() && cached.generation == generation)
+            {
+                return cached.binding;
+            }
+
             const auto *str_meta = registry.register_scalar<std::string>("str");
             const auto *any_meta = registry.any();
             const auto *schema   = registry.mutable_map(str_meta, any_meta);
-            const auto binding  = ValuePlanFactory::instance().type_for(schema);
+            auto binding = ValuePlanFactory::instance().type_for(schema);
             if (!binding) { throw std::logic_error("GlobalState: no binding for Map<string, Any>"); }
+            cached = CachedBinding{generation, binding};
             return binding;
         }
     }  // namespace

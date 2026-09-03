@@ -990,13 +990,21 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
   const auto *output = registry.dereference(source.schema);
   const bool nominal_upcast =
       input_schema->kind == TSTypeKind::TS && source.schema != nullptr &&
-      source.schema->kind == TSTypeKind::TS && input != nullptr &&
-      output != nullptr && input->kind == TSTypeKind::TS &&
+      input != nullptr && output != nullptr && input->kind == TSTypeKind::TS &&
       output->kind == TSTypeKind::TS && input->value_schema != nullptr &&
       output->value_schema != nullptr &&
       TypeRegistry::instance().value_is_a(output->value_schema,
                                           input->value_schema);
-  if (nominal_upcast && !time_series_schema_equivalent(input, output)) {
+  const bool keyed_nominal_upcast =
+      input_schema->kind == TSTypeKind::TSD && source.schema != nullptr &&
+      source.schema->kind == TSTypeKind::TSD &&
+      input_schema->key_type() == source.schema->key_type() &&
+      input_schema->element_ts()->kind == TSTypeKind::TS &&
+      source.schema->element_ts()->kind == TSTypeKind::TS &&
+      input_accepts_output_schema(input_schema->element_ts(),
+                                  source.schema->element_ts());
+  if ((nominal_upcast || keyed_nominal_upcast) &&
+      !time_series_schema_equivalent(input, output)) {
     WiringArg arg;
     arg.kind = WiringArg::Kind::TimeSeries;
     arg.port = std::move(source);
@@ -1017,6 +1025,7 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
           "wire<T>: structural source schema does not match REF input target");
     }
 
+    source = adapt_source_for_input(w, target_schema, std::move(source));
     std::array<WiringPortRef, 1> inputs{std::move(source)};
     NodeBuilder builder = structural_ref_node_builder(target_schema, inputs[0]);
     return w.add_node(

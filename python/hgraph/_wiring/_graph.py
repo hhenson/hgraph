@@ -13,7 +13,10 @@ from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _annotation_ts_kind)
 from ._node import (_PyNode, _is_time_series_annotation,
-                    _lift_time_series_argument, _warn_deprecated)
+                    _bind_partial, _ensure_current_signature,
+                    _lift_time_series_argument, _partial_binding_plan,
+                    _signature_registry_generation, _warn_deprecated,
+                    _wired_fn_cache)
 from ._operator import _register_overload, _run_requires
 from ._resolution import (_apply_resolvers, _python_value_for_binding,
                           _resolution_binding)
@@ -28,15 +31,20 @@ def _is_injectable_annotation(annotation):
             isinstance(annotation, (_StateExpr, _RecordableStateExpr)))
 
 
-def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
+def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
+                   signature=None):
     """Erase a Python @graph function into a WiredFn: the wrapper runs the
     function against whatever Wiring the C++ side supplies (inline OR a
     fresh child during sub-graph compilation), pushing it as the active
     wiring context. Identity is the user function object."""
+    if isinstance(gfn, (_GraphFn, _PyNode)):
+        _ensure_current_signature(gfn)
     user_fn = gfn.fn if isinstance(gfn, _GraphFn) else gfn
     # Introspect the REAL signature (unwrap @compute_node/@graph wrappers);
     # injectable/context parameters are not wired inputs.
-    sig = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
+    sig = signature or getattr(gfn, "_wiring_signature", None)
+    if sig is None:
+        sig = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     names = list(input_names) if input_names is not None else [
         p.name for p in sig.parameters.values()
         if p.annotation not in _INJECTABLE_MARKERS and not isinstance(p.annotation, _ContextExpr)
@@ -136,7 +144,9 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         return _as_wired(func), args, kwargs
 
     user_fn = func.fn if isinstance(func, (_GraphFn, _PyNode)) else func
-    signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
+    signature = getattr(func, "_wiring_signature", None)
+    if signature is None:
+        signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [
         parameter for parameter in signature.parameters.values()
         if parameter.annotation not in _INJECTABLE_MARKERS
@@ -155,7 +165,9 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         name: value for name, value in kwargs.items()
         if not name.startswith("__")
     }
-    bound = callable_signature.bind_partial(*args, **ordinary_kwargs)
+    bound = _bind_partial(
+        callable_signature, _partial_binding_plan(callable_signature),
+        args, ordinary_kwargs)
 
     input_names = [parameters[0].name] if takes_key else []
     scalar_bindings = {}
@@ -189,7 +201,8 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         if name.startswith("__")
     }
     wrapped = None
-    cache = getattr(func, "_wired_fn_cache", None)
+    cache = (_wired_fn_cache(func)
+             if hasattr(func, "_wired_fn_cache") else None)
     if cache is not None:
         candidate = (
             tuple(input_names),
@@ -206,11 +219,13 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
                     func,
                     input_names=input_names,
                     scalar_bindings=scalar_bindings,
+                    signature=signature,
                 )
                 cache[candidate] = wrapped
     if wrapped is None:
         wrapped = _wrap_graph_fn(
-            func, input_names=input_names, scalar_bindings=scalar_bindings)
+            func, input_names=input_names, scalar_bindings=scalar_bindings,
+            signature=signature)
     return wrapped, tuple(prepared_args), special_kwargs
 
 
@@ -221,13 +236,19 @@ def _as_wired(func):
     if isinstance(func, _hgraph.WiredFn):
         return func
     if isinstance(func, (_GraphFn, _PyNode)):
-        return _wrap_graph_fn(func)
+        cache = _wired_fn_cache(func)
+        key = (None, ())
+        wrapped = cache.get(key)
+        if wrapped is None:
+            wrapped = _wrap_graph_fn(func)
+            cache[key] = wrapped
+        return wrapped
     from ._operator import _Dispatch, _Operator
 
     if isinstance(func, _Dispatch):
         return _wrap_graph_fn(func)
     if isinstance(func, _Operator):
-        output = inspect.signature(func.fn, eval_str=True).return_annotation
+        output = func._wiring_signature.return_annotation
         output_handle = output.handle if isinstance(output, _TsExpr) else None
         return _hgraph.wired_op(func._registry_name, output_handle)
     if callable(func) and not isinstance(func, str):
@@ -402,12 +423,12 @@ class _GraphFn:
     top level."""
 
     def __init__(self, fn, *, resolvers=None, requires=None, label=None,
-                 deprecated=False):
-        from .._types import default_type_var_of
+                 deprecated=False, signature=None):
+        from .._types import AUTO_RESOLVE, default_type_var_of
 
         self.fn = fn
         self._signature, self._default_type_var = default_type_var_of(
-            inspect.signature(fn, eval_str=True))
+            signature or inspect.signature(fn, eval_str=True))
         self._wiring_signature = self._signature
         self.__name__ = fn.__name__
         self.__doc__ = fn.__doc__
@@ -417,6 +438,22 @@ class _GraphFn:
         self._label = label
         self._deprecated = deprecated
         self._wired_fn_cache = {}
+        self._wired_fn_cache_generation = _hgraph._registry_generation()
+        self._signature_registry_generation = _signature_registry_generation(
+            self._signature)
+        self._partial_binding_plan = _partial_binding_plan(self._signature)
+        self._has_context_parameters = any(
+            isinstance(parameter.annotation, _ContextExpr)
+            for parameter in self._signature.parameters.values()
+        )
+        self._needs_auto_resolution = bool(
+            self._resolvers
+            or self._requires is not None
+            or any(
+                parameter.default is AUTO_RESOLVE
+                for parameter in self._signature.parameters.values()
+            )
+        )
         for param in self._signature.parameters.values():
             if not _is_injectable_annotation(param.annotation):
                 continue
@@ -528,9 +565,13 @@ class _GraphFn:
             return self._call(*args, **kwargs)
 
     def _call(self, *args, **kwargs):
+        _ensure_current_signature(self)
         _warn_deprecated(self.__name__, self._deprecated)
-        bound = self._signature.bind_partial(*args, **kwargs)
-        context_scope = _hgraph.ResolutionScope()
+        bound = _bind_partial(
+            self._signature, self._partial_binding_plan, args, kwargs)
+        context_scope = (
+            _hgraph.ResolutionScope() if self._has_context_parameters else None
+        )
         for param in self._signature.parameters.values():
             if param.annotation in _GRAPH_INJECTABLES:
                 if param.name in bound.arguments:
@@ -598,9 +639,10 @@ class _GraphFn:
                     and _is_time_series_annotation(param.annotation)):
                 bound.arguments[param.name] = _lift_time_series_argument(
                     value, param.annotation)
-        bound.arguments.update(_graph_auto_resolve(
-            self._signature, bound.arguments, self._resolvers, self._requires,
-            getattr(self, "_seed_bindings", None)))
+        if self._needs_auto_resolution:
+            bound.arguments.update(_graph_auto_resolve(
+                self._signature, bound.arguments, self._resolvers, self._requires,
+                getattr(self, "_seed_bindings", None)))
         result = self.fn(*bound.args, **bound.kwargs)
         if isinstance(result, dict) and result and all(isinstance(v, WiringPort) for v in result.values()):
             # hgraph parity: a dict literal of ports returned from a @graph

@@ -13,7 +13,7 @@ import pyarrow as pa
 import pytest
 from frozendict import frozendict as fd
 
-from hgraph import TS, TSD, CompoundScalar, Frame, graph
+from hgraph import TS, TSB, TSD, CompoundScalar, Frame, TimeSeriesSchema, graph
 from hgraph.test import eval_node
 
 # Exact curated package contract from upstream hgraph after hgraph#368, plus
@@ -131,6 +131,10 @@ class Value(CompoundScalar):
     v: int
 
 
+class FrameBundle(TimeSeriesSchema):
+    frame: TS[Frame[Value]]
+
+
 def test_ungroup_with_key_public_dispatch():
     from hgraph.adaptors.data_frame import ungroup
 
@@ -141,6 +145,30 @@ def test_ungroup_with_key_public_dispatch():
     (out,) = eval_node(
         g,
         ts=[fd({"a": pa.table({"v": [1]}), "b": pa.table({"v": [2]})})],
+    )
+    assert sorted(zip(out.column("k").to_pylist(), out.column("v").to_pylist())) == [
+        ("a", 1),
+        ("b", 2),
+    ]
+
+
+def test_ungroup_dereferences_projected_tsd_bundle_fields():
+    from hgraph.adaptors.data_frame import ungroup
+
+    @graph
+    def g(ts: TSD[str, TSB[FrameBundle]]) -> TS[Frame[Row]]:
+        return ungroup[TS[Frame[Row]]](ts.frame, "k")
+
+    (out,) = eval_node(
+        g,
+        ts=[
+            fd(
+                {
+                    "a": {"frame": pa.table({"v": [1]})},
+                    "b": {"frame": pa.table({"v": [2]})},
+                }
+            )
+        ],
     )
     assert sorted(zip(out.column("k").to_pylist(), out.column("v").to_pylist())) == [
         ("a", 1),

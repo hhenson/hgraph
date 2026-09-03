@@ -1772,6 +1772,17 @@ namespace hgraph
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
             if (time_series_schema_equivalent(input, output)) { return true; }
+            if (input_schema->kind == TSTypeKind::TSD &&
+                output_schema->kind == TSTypeKind::TSD &&
+                input_schema->key_type() == output_schema->key_type())
+            {
+                const auto *input_element = input_schema->element_ts();
+                const auto *output_element = output_schema->element_ts();
+                return input_element != nullptr && output_element != nullptr &&
+                       input_element->kind == TSTypeKind::TS &&
+                       output_element->kind == TSTypeKind::TS &&
+                       input_accepts_output_schema(input_element, output_element);
+            }
             if (input == nullptr || output == nullptr || input->kind != TSTypeKind::TS ||
                 output->kind != TSTypeKind::TS)
             {
@@ -2100,12 +2111,11 @@ namespace hgraph
          * installs the same REF-transparent adaptation as a typed ``In<T>``.
          * Dereferencing is recursive for container schemas.
          *
-         * Do NOT call this from an operator implementation: whether a given
-         * argument wants the value or the reference is decided by its
-         * declaration, in ``operator_dispatch_detail::value_argument``, which
-         * is the sole caller. A consumer that dereferences by hand is deciding
-         * a question its declaration has already answered — that is how the
-         * rule came to be applied inconsistently in the first place.
+         * Ordinary operator implementations do not call this themselves:
+         * ``operator_dispatch_detail::value_argument`` applies it from the
+         * declared parameter contract. Framework wiring surfaces that bypass
+         * operator dispatch must apply it explicitly when their contract
+         * consumes a value rather than a reference.
          */
         [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
         {
@@ -2198,11 +2208,31 @@ namespace hgraph
 
             std::vector<TSEndpointSchema> children;
             children.reserve(sources.size());
+            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> effective_fields;
+            effective_fields.reserve(sources.size());
+            bool specializes_signal = false;
             for (std::size_t index = 0; index < sources.size(); ++index)
             {
-                children.push_back(endpoint_for_source(input_schema->fields()[index].type, sources[index]));
+                const auto &field = input_schema->fields()[index];
+                const auto *field_schema = field.type;
+                const auto *source_schema = sources[index].schema;
+                const bool fixed_structural_signal =
+                    field_schema != nullptr && field_schema->kind == TSTypeKind::SIGNAL &&
+                    sources[index].is_structural_source() && source_schema != nullptr &&
+                    (source_schema->kind == TSTypeKind::TSB ||
+                     (source_schema->kind == TSTypeKind::TSL && source_schema->fixed_size() != 0));
+                if (fixed_structural_signal)
+                {
+                    field_schema = source_schema;
+                    specializes_signal = true;
+                }
+                children.push_back(endpoint_for_source(field_schema, sources[index]));
+                effective_fields.emplace_back(
+                    field.name != nullptr ? std::string{field.name} : std::string{}, field_schema);
             }
-            return TSEndpointSchema::non_peered(input_schema, std::move(children));
+            const auto *effective_input_schema =
+                specializes_signal ? TypeRegistry::instance().un_named_tsb(effective_fields) : input_schema;
+            return TSEndpointSchema::non_peered(effective_input_schema, std::move(children));
         }
 
         // Drop the leading ``Wiring &`` from a ``compose`` parameter tuple.

@@ -193,6 +193,7 @@ struct PythonBundleValue {
 struct PythonBundleBindingEntry {
   const ValueTypeMetaData *schema{nullptr};
   std::vector<ValueTypeRef> field_bindings{};
+  std::vector<ValueTypeRef> field_owning_bindings{};
   IndexedValueOps ops{};
   ValueTypeRef binding{};
 
@@ -206,6 +207,10 @@ struct PythonBundleBindingEntry {
     if (field_bindings.size() != schema->field_count) {
       throw std::invalid_argument(
           "Python-owned Bundle field binding count does not match its schema");
+    }
+    field_owning_bindings.reserve(field_bindings.size());
+    for (const auto field : field_bindings) {
+      field_owning_bindings.push_back(value_owning_type(field));
     }
 
     ops.kind = ValueOpsKind::Indexed;
@@ -530,11 +535,18 @@ struct PythonBundleBindingEntry {
     return entry(context).field_bindings.size();
   }
 
-  static ValueTypeRef element_binding(const void *context, const void *,
+  static ValueTypeRef element_binding(const void *context, const void *memory,
                                       std::size_t index) noexcept {
     const auto &self = entry(context);
-    return index < self.field_bindings.size() ? self.field_bindings[index]
-                                              : ValueTypeRef{};
+    if (index >= self.field_bindings.size()) {
+      return {};
+    }
+    // A live projection is cached in Value, which deliberately replaces a
+    // graph-local binding with its ordinary owning representation.  Advertise
+    // that representation with the returned memory; pairing graph-local type
+    // metadata with owning bytes is invalid for closed polymorphic Bundles.
+    return memory != nullptr ? self.field_owning_bindings[index]
+                             : self.field_bindings[index];
   }
 
   static const void *element_at(const void *context, const void *memory,

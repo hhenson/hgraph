@@ -2,20 +2,40 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_SERIES_IMPL_H
 
 #include <hgraph/lib/std/operators/arithmetic.h>
+#include <hgraph/lib/std/operators/comparison.h>
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/series.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/value.h>
 
 #include <arrow/array.h>
+#include <arrow/array/util.h>
 #include <arrow/compute/api.h>
 #include <arrow/scalar.h>
 
 #include <stdexcept>
 #include <string>
+
+namespace hgraph::stdlib::series_impl_detail
+{
+    struct FrameRowState
+    {
+        const TableConverter *converter{nullptr};
+    };
+}
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<stdlib::series_impl_detail::FrameRowState>
+    {
+        static constexpr std::string_view value{"stdlib.frame_row_state"};
+    };
+}
 
 namespace hgraph::stdlib
 {
@@ -93,33 +113,48 @@ namespace hgraph::stdlib
             return *cast;
         }
 
-        /** Read ``series[index]`` and publish it as the erased output's scalar
-            (int/float following the bound element type). */
+        /** Publish an owned erased value without a registry lookup. */
+        inline void publish_value(Value result, const TSOutputView &erased)
+        {
+            if (!result.has_value()) { return; }
+            auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+            static_cast<void>(mutation.move_value_from(std::move(result)));
+        }
+
+        /** Read ``series[index]`` using the bound element codec. Arrow nulls
+            do not tick, matching a Python compute node returning ``None``. */
         inline void publish_element(const Series &series, Int index, const TSOutputView &erased)
         {
-            if (!series.has_value() || index < 0 || index >= series.array->length())
+            if (!series.has_value()) { throw std::invalid_argument("cannot index an empty Series"); }
+            const Int length = static_cast<Int>(series.array->length());
+            index = index < 0 ? length + index : index;
+            if (index < 0 || index >= length)
             {
                 throw std::out_of_range("Series index out of range");
             }
-            auto scalar = series.array->GetScalar(index);
-            if (!scalar.ok()) { throw std::runtime_error("Series element read failed"); }
-            // Generation-cached scalar binding: no registry mutex per tick.
-            const auto *float_meta = TypeRegistry::instance().scalar_type<Float>().schema();
-            Value  result;
-            if (erased.schema()->value_schema == float_meta)
+            publish_value(array_cell(*series.array, erased.schema()->value_schema, index), erased);
+        }
+
+        [[nodiscard]] inline const ValueTypeMetaData *frame_meta(OperatorCallContext context)
+        {
+            const auto *schema = time_series_schema_at_as<AnyTS>(context, 0);
+            if (schema == nullptr || !TypeRegistry::instance().is_frame(schema->value_schema)) { return nullptr; }
+            return schema->value_schema->element_type != nullptr ? schema->value_schema : nullptr;
+        }
+
+        [[nodiscard]] inline const ValueTypeMetaData *frame_field(const ValueTypeMetaData *frame,
+                                                                  std::string_view name)
+        {
+            if (frame == nullptr || frame->element_type == nullptr) { return nullptr; }
+            const auto *row = frame->element_type;
+            for (std::size_t index = 0; index < row->field_count; ++index)
             {
-                auto v = arrow::compute::Cast(arrow::Datum{*scalar}, arrow::float64());
-                if (!v.ok()) { throw std::runtime_error("Series element cast failed"); }
-                result = Value{std::static_pointer_cast<arrow::DoubleScalar>(v->scalar())->value};
+                if (row->fields[index].name != nullptr && name == row->fields[index].name)
+                {
+                    return row->fields[index].type;
+                }
             }
-            else
-            {
-                auto v = arrow::compute::Cast(arrow::Datum{*scalar}, arrow::int64());
-                if (!v.ok()) { throw std::runtime_error("Series element cast failed"); }
-                result = Value{static_cast<Int>(std::static_pointer_cast<arrow::Int64Scalar>(v->scalar())->value)};
-            }
-            auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-            static_cast<void>(mutation.move_value_from(std::move(result)));
+            return nullptr;
         }
     }  // namespace series_impl_detail
 
@@ -164,6 +199,145 @@ namespace hgraph::stdlib
                                      : series_impl_detail::call_binary(FnName.value, lhs_d, rhs_d);
             auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
             static_cast<void>(mutation.move_value_from(Value{std::move(result)}));
+        }
+    };
+
+    /** Reduce a Series to its non-null minimum or maximum. Empty and all-null
+        arrays do not tick, matching the Python compute-node contract. */
+    template <bool Min>
+    struct series_extremum_impl
+    {
+        static constexpr auto name = Min ? "min_series" : "max_series";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            if (!series_impl_detail::is_series_arg(context, 0)) { return false; }
+            const auto *element = series_impl_detail::operand_element(time_series_schema_at(context, 0));
+            const auto *requested = resolution.find_ts("O");
+            return element != nullptr &&
+                   (requested == nullptr || requested == TypeRegistry::instance().ts(element));
+        }
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+        {
+            if (local_output_bound(resolution, "O")) { return; }
+            const auto *element = series_impl_detail::operand_element(time_series_schema_at(context, 0));
+            if (element != nullptr)
+            {
+                bind_local_output(resolution, TypeRegistry::instance().ts(element), "O");
+            }
+        }
+
+        static void eval(In<"ts", TS<SeriesOf<ScalarVar<"S">>>> ts, Out<TsVar<"O">> out)
+        {
+            const Series series = ts.base().value().checked_as<Series>();
+            if (!series.has_value()) { throw std::invalid_argument("cannot reduce an empty Series"); }
+            auto reduced = arrow::compute::CallFunction(Min ? "min" : "max", {arrow::Datum{series.array}});
+            if (!reduced.ok())
+            {
+                throw std::runtime_error(std::string{"arrow Series reduction failed: "} +
+                                         reduced.status().ToString());
+            }
+            const auto scalar = reduced->scalar();
+            if (scalar == nullptr || !scalar->is_valid) { return; }
+            auto array = arrow::MakeArrayFromScalar(*scalar, 1);
+            if (!array.ok())
+            {
+                throw std::runtime_error(std::string{"Arrow Series reduction conversion failed: "} +
+                                         array.status().ToString());
+            }
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            series_impl_detail::publish_value(array_cell(**array, erased.schema()->value_schema, 0), erased);
+        }
+    };
+
+    /** Project a declared Frame column as Series[T]. The name is a fixed
+        scalar, while the frame value may carry its columns in any order. */
+    template <typename FrameScalar, fixed_string KeyName, fixed_string NodeName>
+    struct frame_column_impl
+    {
+        static constexpr const char *name = NodeName.value;
+
+        [[nodiscard]] static const ValueTypeMetaData *field(OperatorCallContext context)
+        {
+            const auto *key = context.scalar_as<Str>(KeyName.sv());
+            return key != nullptr
+                       ? series_impl_detail::frame_field(series_impl_detail::frame_meta(context), *key)
+                       : nullptr;
+        }
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *element = field(context);
+            if (element == nullptr) { return false; }
+            const auto *requested = resolution.find_ts("O");
+            const auto *expected = TypeRegistry::instance().ts(TypeRegistry::instance().series(element));
+            return requested == nullptr || requested == expected;
+        }
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+        {
+            if (local_output_bound(resolution, "O")) { return; }
+            const auto *element = field(context);
+            if (element != nullptr)
+            {
+                bind_local_output(
+                    resolution, TypeRegistry::instance().ts(TypeRegistry::instance().series(element)), "O");
+            }
+        }
+
+        static void eval(In<"ts", TS<FrameScalar>> ts, Scalar<KeyName, Str> key,
+                         Out<TsVar<"O">> out)
+        {
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            const auto *series = erased.schema()->value_schema;
+            Series result = frame_column(ts.base().value().template checked_as<Frame>(), key.value(),
+                                         series->element_type);
+            auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+            static_cast<void>(mutation.move_value_from(Value{std::move(result)}));
+        }
+    };
+
+    /** Select one Frame row and reconstruct the declared row scalar. KeyParam
+        is either a fixed ``Scalar<key, int>`` or a live ``In<key, TS[int]>``. */
+    template <typename FrameScalar, typename KeyParam, fixed_string NodeName>
+    struct frame_row_impl
+    {
+        static constexpr const char *name = NodeName.value;
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *frame = series_impl_detail::frame_meta(context);
+            const auto *requested = resolution.find_ts("O");
+            return frame != nullptr &&
+                   (requested == nullptr || requested == TypeRegistry::instance().ts(frame->element_type));
+        }
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+        {
+            if (local_output_bound(resolution, "O")) { return; }
+            const auto *frame = series_impl_detail::frame_meta(context);
+            if (frame != nullptr)
+            {
+                bind_local_output(resolution, TypeRegistry::instance().ts(frame->element_type), "O");
+            }
+        }
+
+        static void start(State<series_impl_detail::FrameRowState> state, Out<TsVar<"O">> out)
+        {
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            state.set(series_impl_detail::FrameRowState{
+                &table_converter(erased.schema()->value_schema)});
+        }
+
+        static void eval(In<"ts", TS<FrameScalar>> ts, KeyParam key,
+                         State<series_impl_detail::FrameRowState> state, Out<TsVar<"O">> out)
+        {
+            const Frame frame = ts.base().value().template checked_as<Frame>();
+            const Int size = static_cast<Int>(frame_rows(frame));
+            const Int index = key.value() < 0 ? size + key.value() : key.value();
+            Value row = read_row(*state.get().converter, frame, index);
+            out.apply(row.view());
         }
     };
 
@@ -227,7 +401,10 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return series_impl_detail::is_series_arg(context, 0);
+            const auto *series = time_series_schema_at_as<AnyTS>(context, 0);
+            const auto *item = time_series_schema_at_as<AnyTS>(context, 1);
+            return series != nullptr && series_impl_detail::is_series_value(series->value_schema) &&
+                   item != nullptr && item->value_schema == series->value_schema->element_type;
         }
 
         static void eval(In<"ts", TS<ScalarVar<"S">>> ts, In<"item", TS<ScalarVar<"I">>> item, Out<TS<Bool>> out)
@@ -236,7 +413,9 @@ namespace hgraph::stdlib
             if (!series.has_value()) { out.set(false); return; }
             // is_in(item, value_set=series) -> is the item a member.
             arrow::compute::SetLookupOptions options{arrow::Datum{series.array}};
-            auto item_datum = series_impl_detail::operand_datum(item);
+            auto item_datum = arrow_scalar_for_type(
+                item.base().value(), ts.base().schema()->value_schema->element_type,
+                series.array->type());
             auto found = arrow::compute::CallFunction("is_in", {item_datum}, &options);
             if (!found.ok()) { throw std::runtime_error("arrow is_in failed: " + found.status().ToString()); }
             out.set(std::static_pointer_cast<arrow::BooleanScalar>(found->scalar())->value);

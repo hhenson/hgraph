@@ -5,7 +5,7 @@ from typing import Callable, Generic, Type, TypeVar
 import pytest
 
 from hgraph import (
-    AUTO_RESOLVE, DEFAULT, K, OUT, SCALAR, SCALAR_1, SIZE,
+    AUTO_RESOLVE, CONTEXT, DEFAULT, K, OUT, REQUIRED, SCALAR, SCALAR_1, SIZE,
     TIME_SERIES_TYPE, CompoundScalar, Size, TS, TSB, TSD, TSL,
     TimeSeriesSchema, WiringError, compute_node, graph, operator,
 )
@@ -95,6 +95,35 @@ def test_graph_subscript_prioritizes_default_type_carrier():
         return type_name[int](inferred=str)
 
     assert eval_node(app) == ["int"]
+
+
+def test_graph_overload_materializes_type_carrier_after_context_parameter():
+    observed = []
+
+    @operator
+    def typed(value: TS[int]) -> DEFAULT[OUT]: ...
+
+    @graph(overloads=typed)
+    def typed_impl(
+        value: TS[int],
+        setting: CONTEXT[TS[int]] = REQUIRED["setting"],
+        output_type: type[OUT] = DEFAULT[OUT],
+    ) -> OUT:
+        observed.append(output_type)
+        return value + setting
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        with const[TS[int]](10) as setting:
+            return typed[TS[int]](value)
+
+    @graph
+    def explicit(value: TS[int], setting: TS[int]) -> TS[int]:
+        return typed[TS[int]](value, setting=setting)
+
+    assert eval_node(app, [1]) == [11]
+    assert eval_node(explicit, [1], [20]) == [21]
+    assert observed == [TS[int], TS[int]]
 
 
 def test_operator_subscript_binds_sole_scalar_type_variable_in_nested_output():

@@ -94,6 +94,7 @@ namespace hgraph::stdlib
         std::string format_bundle(std::string_view format, const TSInputView &packed)
         {
             auto bundle = const_cast<TSInputView &>(packed).as_bundle();
+            if (bundle.empty()) { return std::string{format}; }
             std::string result;
             result.reserve(format.size());
             std::size_t positional = 0;

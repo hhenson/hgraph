@@ -452,7 +452,10 @@ namespace hgraph
         NodeBuilder &label(std::string label);
         [[nodiscard]] std::string_view label() const noexcept;
 
-        /** Override the input endpoint annotation for this node instance. */
+        /** Override the input endpoint annotation for this node instance.
+         *  A fixed structural source bound to a ``SIGNAL`` slot specializes
+         *  that runtime slot to the source schema so its leaves can bind
+         *  without an aggregate helper node. */
         NodeBuilder &input_endpoint(TSEndpointSchema endpoint);
 
         /**

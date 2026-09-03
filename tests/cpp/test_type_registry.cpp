@@ -362,6 +362,40 @@ TEST_CASE("TypeRegistry gives opaque Any-storage values nominal inheritance") {
       std::invalid_argument);
 }
 
+TEST_CASE("TypeRegistry propagates nominal row covariance through Frame") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  const auto *animal = registry.bundle(
+      "tests.frame_covariance", "Animal", {{"id", integer}}, {}, true);
+  const auto *dog = registry.bundle(
+      "tests.frame_covariance", "Dog",
+      {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+  const auto *puppy = registry.bundle(
+      "tests.frame_covariance", "Puppy",
+      {{"id", integer}, {"barks", registry.value_type("bool")},
+       {"young", registry.value_type("bool")}},
+      {dog});
+  const auto *instrument = registry.bundle(
+      "tests.frame_covariance", "Instrument", {{"id", integer}});
+  const auto *metadata = registry.bundle(
+      "tests.frame_covariance", "Metadata", {{"version", integer}});
+
+  const auto *animal_frame = registry.frame(animal);
+  const auto *dog_frame = registry.frame(dog);
+  const auto *puppy_frame = registry.frame(puppy);
+
+  CHECK(registry.value_is_a(puppy_frame, dog_frame));
+  CHECK(registry.value_is_a(puppy_frame, animal_frame));
+  CHECK_FALSE(registry.value_is_a(animal_frame, dog_frame));
+  CHECK_FALSE(registry.value_is_a(registry.frame(instrument), animal_frame));
+  CHECK_FALSE(registry.value_is_a(registry.frame(puppy, metadata), animal_frame));
+  CHECK(registry.value_inheritance_distance(puppy_frame, dog_frame) == 1);
+  CHECK(registry.value_inheritance_distance(puppy_frame, animal_frame) == 2);
+}
+
 TEST_CASE("self-recursive Bundles store one inline owner pointer and allocate "
           "on demand") {
   using namespace hgraph;
@@ -516,7 +550,22 @@ TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
 
   const auto realized_list = first->type_for(list_of_base);
   REQUIRE(realized_list != ValuePlanFactory::instance().type_for(list_of_base));
-  REQUIRE_THROWS_AS(first->type_for(fixed_list_of_base), std::logic_error);
+  const auto realized_fixed_list = first->type_for(fixed_list_of_base);
+  REQUIRE(realized_fixed_list !=
+          ValuePlanFactory::instance().type_for(fixed_list_of_base));
+  REQUIRE(&realized_fixed_list.checked_plan().array_element_plan() ==
+          realized_base.plan());
+  Value fixed_list{realized_fixed_list};
+  auto fixed_values = fixed_list.as_list().begin_mutation();
+  auto fixed_value = fixed_values.at(0);
+  realized_base.ops_ref().copy_assign_from(
+      realized_base, fixed_value.mutable_data(), exact_small,
+      concrete.view().data());
+  REQUIRE(fixed_values.at(0).concrete().schema() == small);
+  REQUIRE(fixed_values.at(0)
+              .concrete()
+              .as_bundle()["label"]
+              .checked_as<std::string>() == "small");
   const auto realized_mutable_list = first->type_for(mutable_list_of_base);
   REQUIRE(realized_mutable_list !=
           ValuePlanFactory::instance().type_for(mutable_list_of_base));
@@ -639,7 +688,11 @@ TEST_CASE("graph realization stores wide polymorphic Bundles in the shared "
           snapshot);
   const auto external = snapshot->type_for(base);
   const auto graph = snapshot->graph_type_for(base);
+  const auto *fixed_list_schema = registry.list(base, 2);
+  const auto external_fixed_list = snapshot->type_for(fixed_list_schema);
+  const auto graph_fixed_list = snapshot->graph_type_for(fixed_list_schema);
   REQUIRE(graph != external);
+  REQUIRE(graph_fixed_list != external_fixed_list);
   REQUIRE(graph.checked_plan().layout.size == sizeof(void *));
   REQUIRE(external.checked_plan().layout.size >
           graph.checked_plan().layout.size);
@@ -656,6 +709,35 @@ TEST_CASE("graph realization stores wide polymorphic Bundles in the shared "
 
   TypeRealizationScope realization_scope{snapshot.get()};
   const auto baseline_metrics = shared_value_pool_metrics();
+
+  {
+    Value external_list{external_fixed_list};
+    auto external_element =
+        external_list.as_list().begin_mutation().at(0);
+    external.ops_ref().copy_assign_from(
+        external, external_element.mutable_data(), canonical_large.binding(),
+        canonical_large.view().data());
+    Value::storage_type graph_list{*graph_fixed_list.record()};
+    graph_fixed_list.ops_ref().copy_assign_from(
+        graph_fixed_list, graph_list.data(), external_fixed_list,
+        external_list.view().data());
+    REQUIRE(ValueView{graph_fixed_list, graph_list.data()}
+                .as_list()
+                .at(0)
+                .concrete()
+                .schema() == large);
+
+    Value external_round_trip{external_fixed_list};
+    external_fixed_list.ops_ref().copy_assign_from(
+        external_fixed_list,
+        external_round_trip.begin_mutation().mutable_data(), graph_fixed_list,
+        graph_list.data());
+    REQUIRE(external_round_trip.as_list()
+                .at(0)
+                .concrete()
+                .as_bundle()["a"]
+                .checked_as<Str>() == "original");
+  }
 
   Value escaped;
   {

@@ -5,6 +5,7 @@ import typing
 import warnings
 from collections.abc import Mapping
 from copy import copy
+from functools import lru_cache
 
 import _hgraph
 
@@ -24,6 +25,107 @@ from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
                           _bind_resolution, _binding_for_type_value,
                           _invoke_resolution_callable, _match_type_argument,
                           _python_value_for_binding, _resolution_binding)
+
+
+@lru_cache(maxsize=None)
+def _cached_node_ref(fn):
+    """Mirror the native process-lifetime node identity registry in Python."""
+    return _hgraph.node_ref(fn)
+
+
+def _node_ref(fn):
+    try:
+        return _cached_node_ref(fn)
+    except TypeError:
+        return _hgraph.node_ref(fn)
+
+
+def _signature_registry_generation(signature):
+    """Generation owning concrete TS handles retained by a signature."""
+    annotations = [
+        parameter.annotation
+        for parameter in signature.parameters.values()
+    ]
+    annotations.append(signature.return_annotation)
+    for annotation in annotations:
+        if isinstance(annotation, _TsExpr):
+            return annotation._registry_generation
+        if (isinstance(annotation, _ContextExpr)
+                and isinstance(annotation.ts, _TsExpr)):
+            return annotation.ts._registry_generation
+    return None
+
+
+def _ensure_current_signature(owner):
+    generation = getattr(owner, "_signature_registry_generation", None)
+    if (generation is not None
+            and generation != _hgraph._registry_generation()):
+        raise WiringError(
+            f"{owner.__name__}: concrete time-series annotations belong to "
+            "a registry generation that has been reset; recreate the "
+            "decorated callable after reset_registries()"
+        )
+
+
+def _wired_fn_cache(owner):
+    """Return a cache containing wrappers from only the active registry."""
+    generation = _hgraph._registry_generation()
+    if getattr(owner, "_wired_fn_cache_generation", None) != generation:
+        owner._wired_fn_cache.clear()
+        owner._wired_fn_cache_generation = generation
+    return owner._wired_fn_cache
+
+
+def _partial_binding_plan(signature):
+    """Precompute the ordinary successful path for ``bind_partial``."""
+    positional = []
+    accepted = set()
+    for parameter in signature.parameters.values():
+        if parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD:
+            positional.append(parameter.name)
+        elif parameter.kind is not inspect.Parameter.KEYWORD_ONLY:
+            return None
+        accepted.add(parameter.name)
+    return tuple(positional), frozenset(accepted)
+
+
+def _bind_partial(signature, plan, args, kwargs):
+    """Bind a common valid call, retaining ``inspect`` for all error paths."""
+    if plan is not None:
+        positional, accepted = plan
+        if len(args) <= len(positional):
+            arguments = dict(zip(positional, args))
+            for name, value in kwargs.items():
+                if name not in accepted or name in arguments:
+                    break
+                arguments[name] = value
+            else:
+                return inspect.BoundArguments(signature, arguments)
+    return signature.bind_partial(*args, **kwargs)
+
+
+def _bind_with_defaults(signature, plan, args, kwargs):
+    """Bind a complete ordinary call and materialize its declared defaults."""
+    if plan is not None:
+        positional, accepted = plan
+        if len(args) <= len(positional):
+            arguments = dict(zip(positional, args))
+            for name, value in kwargs.items():
+                if name not in accepted or name in arguments:
+                    break
+                arguments[name] = value
+            else:
+                for parameter in signature.parameters.values():
+                    if parameter.name in arguments:
+                        continue
+                    if parameter.default is inspect.Parameter.empty:
+                        break
+                    arguments[parameter.name] = parameter.default
+                else:
+                    return inspect.BoundArguments(signature, arguments)
+    bound = signature.bind(*args, **kwargs)
+    bound.apply_defaults()
+    return bound
 
 
 def _warn_deprecated(name, deprecated):
@@ -171,16 +273,40 @@ class _PyNode:
         self._label = label
         self._deprecated = deprecated
         self._wired_fn_cache = {}
+        self._wired_fn_cache_generation = _hgraph._registry_generation()
+        self._resolved_scope = None
         self._start_fn = None
         self._stop_fn = None
         self.__name__ = fn.__name__
         sig = self._wiring_signature
         self._signature = sig
+        self._signature_registry_generation = _signature_registry_generation(sig)
         # Callers introspecting the NODE (eval_node's input typing) must see
         # the user function's signature, not _PyNode.__call__'s.
         self.__signature__ = sig
         self._out_tp = sig.return_annotation if has_output else None
         self._params = list(sig.parameters.values())
+        self._partial_binding_plan = _partial_binding_plan(sig)
+        self._ts_params = tuple(
+            param for param in self._params
+            if _is_time_series_annotation(param.annotation)
+        )
+        self._scalar_params = tuple(
+            param for param in self._params
+            if (not _is_time_series_annotation(param.annotation)
+                and not isinstance(param.annotation, (_RecordableStateExpr,
+                                                       _StateExpr))
+                and param.annotation not in _INJECTABLE_MARKERS)
+        )
+        self._has_var_group = any(
+            param.kind in (inspect.Parameter.VAR_POSITIONAL,
+                           inspect.Parameter.VAR_KEYWORD)
+            for param in self._params
+        )
+        self._has_dynamic_policy = any(
+            policy is not None
+            for policy in (self._active_fn, self._valid_fn, self._all_valid_fn)
+        )
         self._recordable_state = next(
             (param.annotation for param in self._params
              if isinstance(param.annotation, _RecordableStateExpr)), None)
@@ -396,6 +522,12 @@ class _PyNode:
         resolved._wired_fn_cache = {}
         return resolved
 
+    def _with_resolution_scope(self, scope):
+        """Use the completed scope from operator overload selection once."""
+        resolved = copy(self)
+        resolved._resolved_scope = scope
+        return resolved
+
     @staticmethod
     def _bind_resolved(scope, name, resolved):
         """Seed a pinned/resolved type variable into the C++ scope: a ts
@@ -499,6 +631,9 @@ class _PyNode:
             # wiring, so handle equality over-rejects).
             if handle.kind == _tsw_kind():
                 return
+            port_tp = _unwrap(value).ts_type
+            if handle == port_tp:
+                return
         try:
             pattern = _pattern_of(annotation)
         except TypeError:
@@ -539,6 +674,8 @@ class _PyNode:
         import typing
         from .._types import _pattern_of
 
+        if isinstance(annotation, _TsExpr):
+            return annotation.handle
         if typing.get_origin(annotation) in (typing.Union, types.UnionType):
             port_type = _unwrap(value).ts_type
             for member in typing.get_args(annotation):
@@ -592,6 +729,7 @@ class _PyNode:
     def __call__(self, *args, **kwargs):
         from .._types import _pattern_of
 
+        _ensure_current_signature(self)
         _warn_deprecated(self.__name__, self._deprecated)
         kwargs.pop("__recordable_id__", None)
         lifecycle_scalar_values = {}
@@ -607,14 +745,16 @@ class _PyNode:
                 if (not injectable and param.name not in self._signature.parameters
                         and param.name in kwargs):
                     lifecycle_scalar_values[param.name] = kwargs.pop(param.name)
-        ref = _hgraph.node_ref(self.fn)
+        ref = _node_ref(self.fn)
         layout, ports, scalars, reference_shapes = [], [], [], []
         # The wiring-time RESOLUTION SCOPE: the C++ type-variable map. Every
         # generic input pattern matches into it; outputs/resolvers/pins read
         # and write the same map - no python-side type classification.
-        scope = _hgraph.ResolutionScope()
-        for name, resolved in self._pins.items():
-            self._bind_resolved(scope, name, resolved)
+        pre_resolved = self._resolved_scope is not None
+        scope = self._resolved_scope if pre_resolved else _hgraph.ResolutionScope()
+        if not pre_resolved:
+            for name, resolved in self._pins.items():
+                self._bind_resolved(scope, name, resolved)
         requested_output = None
         if self.has_output and self._default_type_var is not None:
             requested_output = scope.find_ts(_type_var_name(self._default_type_var))
@@ -623,17 +763,12 @@ class _PyNode:
                     raise IncorrectTypeBinding(
                         f"{self.__name__}: requested output {requested_output!r} "
                         f"does not match {self._out_tp!r}")
-        bound = self._signature.bind_partial(*args, **kwargs)
+        bound = _bind_partial(
+            self._signature, self._partial_binding_plan, args, kwargs)
         scalar_values = dict(lifecycle_scalar_values)
         # Pre-collect scalar values so callable active=/valid= policies can
         # evaluate before layout letters are chosen.
-        for param in self._params:
-            if (_is_time_series_annotation(param.annotation)
-                    or isinstance(param.annotation, (_RecordableStateExpr,
-                                                     _StateExpr))):
-                continue
-            if param.annotation in _INJECTABLE_MARKERS:
-                continue
+        for param in self._scalar_params:
             value = bound.arguments.get(param.name, _MISSING)
             if value is _MISSING and param.default is not inspect.Parameter.empty:
                 value = param.default
@@ -642,15 +777,15 @@ class _PyNode:
         # Resolve concrete input patterns before evaluating resolver-backed
         # active/valid policies. Upstream policy callables receive the final
         # resolution map, not an empty pre-binding scope.
-        for param in self._params:
-            value = bound.arguments.get(param.name, _MISSING)
-            if isinstance(value, WiringPort) and _is_time_series_annotation(
-                    param.annotation):
-                self._check_binding(scope, param, value)
-        if self._resolvers:
-            self._apply_resolvers(scope, scalar_values)
+        if not pre_resolved:
+            for param in self._ts_params:
+                value = bound.arguments.get(param.name, _MISSING)
+                if isinstance(value, WiringPort):
+                    self._check_binding(scope, param, value)
+            if self._resolvers:
+                self._apply_resolvers(scope, scalar_values)
         from .._types import AUTO_RESOLVE
-        for param in self._params:
+        for param in self._scalar_params:
             scalar_value = scalar_values.get(param.name, _MISSING)
             if scalar_value is AUTO_RESOLVE:
                 scalar_values[param.name] = self._resolved_auto_value(scope, param)
@@ -674,27 +809,26 @@ class _PyNode:
         if self._all_valid_fn is not None:
             all_valid_policy = self._eval_policy(
                 "all_valid", self._all_valid_fn, scope, scalar_values)
-        for policy, names in (("active", active_policy), ("valid", valid_policy),
-                              ("all_valid", all_valid_policy)):
-            if names is None:
-                continue
-            unknown = names - self._ts_names
-            if unknown:
-                rendered = ", ".join(sorted(unknown))
-                raise TypeError(
-                    f"{self.__name__}: {policy}= contains non-time-series input(s): {rendered}")
-        if valid_policy is not None and all_valid_policy is not None:
-            overlap = valid_policy & all_valid_policy
-            if overlap:
-                rendered = ", ".join(sorted(overlap))
-                raise TypeError(
-                    f"{self.__name__}: valid= and all_valid= overlap: {rendered}")
+        if self._has_dynamic_policy:
+            for policy, names in (("active", active_policy), ("valid", valid_policy),
+                                  ("all_valid", all_valid_policy)):
+                if names is None:
+                    continue
+                unknown = names - self._ts_names
+                if unknown:
+                    rendered = ", ".join(sorted(unknown))
+                    raise TypeError(
+                        f"{self.__name__}: {policy}= contains non-time-series input(s): {rendered}")
+            if valid_policy is not None and all_valid_policy is not None:
+                overlap = valid_policy & all_valid_policy
+                if overlap:
+                    rendered = ", ".join(sorted(overlap))
+                    raise TypeError(
+                        f"{self.__name__}: valid= and all_valid= overlap: {rendered}")
         # Var-args parity (upstream model): the *args group packs into ONE
         # TSL (or structural TSB when so annotated), **kwargs into ONE named
         # TSB (or TSD); the rewritten fn receives every parameter BY NAME.
-        has_var_group = any(p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                            for p in self._params)
-        by_name = has_var_group
+        by_name = self._has_var_group
         layout_names, layout_by_name = [], []   # parallel to ``layout``
 
         def _note(name):
@@ -833,7 +967,6 @@ class _PyNode:
                 # errors surface as wiring errors.
                 value = _lift_time_series_argument(value, param.annotation)
             if isinstance(value, WiringPort):
-                self._check_binding(scope, param, value)
                 if all_valid_policy is not None and param.name in all_valid_policy:
                     layout.append(
                         "a" if active_policy is None or param.name in active_policy else "A")
@@ -862,7 +995,7 @@ class _PyNode:
                 _note(param.name)
                 scalars.append(value)
                 scalar_values[param.name] = value
-        if self._requires is not None:
+        if self._requires is not None and not pre_resolved:
             try:
                 verdict = _run_requires(self._requires, scope.bindings, scalar_values)
             except KeyError as error:
@@ -935,7 +1068,7 @@ class _PyNode:
                         value = param.default
                     lifecycle_layout.append("s")
                     lifecycle_scalars.append(value)
-            node_kwargs[f"{phase}_fn"] = _hgraph.node_ref(lifecycle_fn or self.fn)
+            node_kwargs[f"{phase}_fn"] = _node_ref(lifecycle_fn or self.fn)
             node_kwargs[f"{phase}_enabled"] = lifecycle_fn is not None
             node_kwargs[f"{phase}_config"] = "".join(lifecycle_layout)
             node_kwargs[f"{phase}_scalars"] = _hgraph.any_list(lifecycle_scalars)
@@ -1253,10 +1386,10 @@ class _Generator:
         return wire(
             "__py_generator",
             __node_label__=self._label or getattr(self.fn, "__name__", None),
-            fn=_hgraph.node_ref(self.fn),
+            fn=_node_ref(self.fn),
             config=config,
             scalars=_hgraph.any_list(scalars),
-            stop_fn=_hgraph.node_ref(self._stop_fn or self.fn),
+            stop_fn=_node_ref(self._stop_fn or self.fn),
             stop_enabled=self._stop_fn is not None,
             stop_config="".join(stop_layout),
             stop_scalars=_hgraph.any_list(stop_scalars),
@@ -1445,9 +1578,9 @@ class _PushQueue:
 
         port, _sender = w.push_source(
             _unwrap(out_tp), self.conflate, self.burst, self.max_pending,
-            _hgraph.node_ref(self.fn),
+            _node_ref(self.fn),
             self._config,
-            _hgraph.node_ref(self._stop_fn or self.fn),
+            _node_ref(self._stop_fn or self.fn),
             self._stop_fn is not None, stop_config, len(scalars),
             _hgraph.any_list(scalars + stop_scalars),
             self._label or self.__name__)

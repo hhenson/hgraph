@@ -594,7 +594,10 @@ namespace hgraph
                    std::span<const TSValueTypeMetaData *const> schemas) {
                     return lift_detail::compile_thunk<F, Identity>(parent, schemas);
                 },
+                nullptr,
                 [](const void *) { return lift_detail::param_names<F>(); },
+                nullptr,
+                nullptr,
                 nullptr,
                 nullptr,
                 nullptr,

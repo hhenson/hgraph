@@ -179,6 +179,48 @@ TEST_CASE("value builders convert concrete Bundle leaves into a declared polymor
     }
 }
 
+TEST_CASE("value builders widen covariant variadic tuple elements")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *base = registry.bundle(
+        "tests.value_builder", "TupleBase", {{"id", integer}}, {}, true);
+    const auto *derived = registry.bundle(
+        "tests.value_builder", "TupleDerived",
+        {{"id", integer}, {"extra", integer}}, {base});
+    const auto *base_tuple = registry.list(base, 0, true);
+    const auto *derived_tuple = registry.list(derived, 0, true);
+
+    REQUIRE(registry.value_is_a(derived_tuple, base_tuple));
+    REQUIRE_FALSE(registry.value_is_a(
+        registry.mutable_list(derived), registry.mutable_list(base)));
+
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+
+    BundleBuilder element_builder{realization->exact_type_for(derived)};
+    element_builder.set("id", Value{Int{1}});
+    element_builder.set("extra", Value{Int{2}});
+    Value element = element_builder.build();
+
+    ListBuilder source_builder{
+        realization->exact_type_for(derived), *derived_tuple};
+    source_builder.push_back(element.view());
+    Value source = source_builder.build();
+
+    const auto target_binding = realization->type_for(base_tuple);
+    Value target{target_binding};
+    target_binding.ops_ref().copy_assign_from(
+        target_binding, const_cast<void *>(target.view().data()), source.binding(),
+        source.view().data());
+
+    REQUIRE(target.as_list().size() == 1);
+    REQUIRE(target.as_list().at(0).concrete().schema() == derived);
+    CHECK(target.as_list().at(0).concrete().as_bundle()["extra"].checked_as<Int>() == 2);
+}
+
 TEST_CASE("value builders reject an incompatible view before changing their contents")
 {
     const auto schemas = polymorphic_builder_schemas();

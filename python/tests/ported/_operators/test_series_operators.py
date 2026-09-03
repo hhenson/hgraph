@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pyarrow as pa
 import pytest
 
-from hgraph import contains_, graph, TS, Series
+from hgraph import contains_, graph, max_, min_, TS, Series
 NodeException = Exception
 from hgraph.test import eval_node
 
@@ -46,6 +46,33 @@ def test_get_item_series_ts():
     assert eval_node(g, [s], [0, 2]) == [1, 3]
     with pytest.raises(NodeException):
         assert eval_node(g, [s], [4])
+
+
+def test_series_extrema_preserve_element_types_and_ignore_nulls():
+    @graph
+    def min_int(ts: TS[Series[int]]) -> TS[int]:
+        return min_(ts)
+
+    @graph
+    def max_datetime(ts: TS[Series[datetime]]) -> TS[datetime]:
+        return max_(ts)
+
+    assert eval_node(min_int, [pa.array([3, None, 1])]) == [1]
+    assert eval_node(min_int, [pa.array([], type=pa.int64())]) is None
+    assert eval_node(min_int, [pa.array([None], type=pa.int64())]) is None
+
+    earlier = datetime(2024, 1, 2, 3, 4, 5)
+    later = datetime(2025, 6, 7, 8, 9, 10)
+    assert eval_node(max_datetime, [pa.array([earlier, None, later])]) == [later]
+
+
+def test_series_datetime_indexing_uses_the_declared_element_codec():
+    @graph
+    def item(ts: TS[Series[datetime]]) -> TS[datetime]:
+        return ts[1]
+
+    expected = datetime(2025, 6, 7, 8, 9, 10)
+    assert eval_node(item, [pa.array([datetime(2024, 1, 1), expected])]) == [expected]
 
 
 def test_div_series_int_series_int():
@@ -325,3 +352,18 @@ def test_series_contains():
 
     results = eval_node(g, [pa.array([4, 3, 3])], [3, 6, 4])
     assert results == [True, False, True]
+
+
+def test_series_contains_datetime_with_timezone_free_arrow_values():
+    @graph
+    def g(lhs: TS[Series[datetime]], rhs: TS[datetime]) -> TS[bool]:
+        return contains_(lhs, rhs)
+
+    first = datetime(2024, 1, 2, 3, 4, 5)
+    second = datetime(2025, 6, 7, 8, 9, 10)
+    results = eval_node(
+        g,
+        [pa.array([first, second]), pa.array([first, second])],
+        [second, datetime(2026, 1, 1)],
+    )
+    assert results == [True, False]

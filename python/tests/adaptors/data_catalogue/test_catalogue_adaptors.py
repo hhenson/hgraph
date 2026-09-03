@@ -84,12 +84,12 @@ def test_catalogue_subscribe_routes_matching_source():
     catalogue = DataCatalogue()
     with hg.GlobalContext(hg.GlobalState()):
         with catalogue:
-            DataCatalogueEntry[_Source](
+            catalogue.add_entry(DataCatalogueEntry[_Source](
                 _Row,
                 "rows",
                 frozendict(),
                 _Source(source_path="memory", table="rows"),
-            )
+            ))
             hg.run_graph(app)
 
     assert responses[0][0] is StreamStatus.OK, responses[0][1]
@@ -159,7 +159,7 @@ def test_catalogue_publish_routes_all_matching_sinks():
     catalogue = DataCatalogue()
     with hg.GlobalContext(hg.GlobalState()):
         with catalogue:
-            DataCatalogueEntry[_Sink](
+            catalogue.add_entry(DataCatalogueEntry[_Sink](
                 _Row,
                 "rows",
                 frozendict(partition=StringScope()),
@@ -167,7 +167,7 @@ def test_catalogue_publish_routes_all_matching_sinks():
                     sink_path="memory",
                     table="rows",
                 ),
-            )
+            ))
             hg.run_graph(app)
 
     assert sorted(
@@ -194,13 +194,13 @@ def test_catalogue_publish_without_matching_sink_completes_as_noop():
         capture(publish[_Row]("rows", data))
 
     with hg.GlobalContext(hg.GlobalState()):
-        with DataCatalogue():
-            DataCatalogueEntry[_Source](
+        with DataCatalogue() as catalogue:
+            catalogue.add_entry(DataCatalogueEntry[_Source](
                 _Row,
                 "rows",
                 frozendict(),
                 _Source(source_path="memory", table="rows"),
-            )
+            ))
             hg.run_graph(app)
 
     assert responses == [(StreamStatus.OK, "", hg.MIN_DT)]

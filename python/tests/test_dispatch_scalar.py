@@ -3,24 +3,34 @@ import inspect
 from dataclasses import dataclass
 from typing import Type, Union
 
+import polars as pl
 import pytest
 
 from hgraph import (
     AUTO_RESOLVE,
     OUT,
     CompoundScalar,
+    Frame,
     TS,
     TSB,
+    TSD,
+    MIN_TD,
     TimeSeriesSchema,
+    WiringError,
     combine,
     compute_node,
     const,
+    convert,
+    default,
     dispatch,
     dispatch_,
     downcast_,
     downcast_ref,
     graph,
+    lag,
+    mesh_,
     operator,
+    pass_through,
     switch_,
 )
 from hgraph.test import eval_node
@@ -167,6 +177,104 @@ def test_dispatch_uses_declared_concrete_output_schema():
 
     assert eval_node(app, [Dog()]) == [{"sound": "woof"}]
     assert eval_node(projected, [Dog()]) == ["woof"]
+
+
+def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
+    class Request(CompoundScalar): ...
+
+    class ByName(Request): ...
+
+    class InstrumentKey(CompoundScalar): ...
+
+    class FutureKey(InstrumentKey): ...
+
+    class ExistingKey(InstrumentKey): ...
+
+    class PeerKey(InstrumentKey): ...
+
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar, abstract=True):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument): ...
+
+    class Result(TimeSeriesSchema):
+        value: TS[Instrument]
+        error: TS[str]
+
+    # The selected branch returns a value. The two unselected, but reachable,
+    # branches make the common output REF[TSB] and require preserving a live
+    # forwarding terminal respectively.
+    @dispatch
+    def by_key(
+        key: TS[InstrumentKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](value=Future("unknown"))
+
+    @graph(overloads=by_key)
+    def by_future(
+        key: TS[FutureKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](
+            value=lag(const(Future("future"), tp=TS[Future]), MIN_TD),
+            error=default(lag(const(""), MIN_TD), "missing"),
+        )
+
+    @graph(overloads=by_key)
+    def by_existing(
+        key: TS[ExistingKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return repository["existing"]
+
+    @graph(overloads=by_key)
+    def by_peer(
+        key: TS[PeerKey], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return mesh_("nested-dispatch-repro")["existing"]
+
+    @dispatch
+    def resolve(
+        request: TS[Request], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return combine[TSB[Result]](value=Future("unsupported"))
+
+    @graph(overloads=resolve)
+    def resolve_by_name(
+        request: TS[ByName], repository: TSD[str, TSB[Result]]
+    ) -> TSB[Result]:
+        return by_key(
+            const(FutureKey(), tp=TS[InstrumentKey]), repository
+        )
+
+    @graph
+    def resolve_item(
+        key: TS[str],
+        request: TS[Request],
+        repository: TSD[str, TSB[Result]],
+    ) -> TSB[Result]:
+        return resolve(request, repository)
+
+    @graph
+    def app(
+        requests: TSD[str, TS[Request]],
+        repository: TSD[str, TSB[Result]],
+    ) -> TSD[str, TSB[Result]]:
+        return mesh_(
+            resolve_item,
+            requests,
+            pass_through(repository),
+            __name__="nested-dispatch-repro",
+        )
+
+    assert eval_node(
+        app,
+        [{"item": ByName()}],
+        [{"existing": {"value": Future("existing")}}],
+    ) == [
+        {"item": {"error": "missing"}},
+        {"item": {"value": Future("future"), "error": ""}},
+    ]
 
 
 def test_union_overload_is_registered_for_direct_operator_dispatch():
@@ -402,6 +510,56 @@ def test_compound_scalar_dispatch_accepts_statically_narrower_input():
     assert eval_node(app, [Dog()]) == ["woof"]
 
 
+def test_frame_dispatch_accepts_and_ranks_statically_narrower_rows():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar):
+        name: str
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        breed: str
+
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar):
+        name: str
+
+    @operator
+    def accepts_animals(frame: TS[Frame[Animal]]) -> TS[str]: ...
+
+    @compute_node(overloads=accepts_animals)
+    def accepts_animal_frame(frame: TS[Frame[Animal]]) -> TS[str]:
+        return "animal"
+
+    @operator
+    def classify_animals(frame: TS[Frame[Animal]]) -> TS[str]: ...
+
+    @compute_node(overloads=classify_animals)
+    def classify_animal_frame(frame: TS[Frame[Animal]]) -> TS[str]:
+        return "animal"
+
+    @compute_node(overloads=classify_animals)
+    def classify_dog_frame(frame: TS[Frame[Dog]]) -> TS[str]:
+        return "dog"
+
+    @graph
+    def accept_dogs(frame: TS[Frame[Dog]]) -> TS[str]:
+        return accepts_animals(frame)
+
+    @graph
+    def classify_dogs(frame: TS[Frame[Dog]]) -> TS[str]:
+        return classify_animals(frame)
+
+    @graph
+    def reject_instruments(frame: TS[Frame[Instrument]]) -> TS[str]:
+        return accepts_animals(frame)
+
+    dogs = pl.DataFrame({"name": ["Fido"], "breed": ["collie"]})
+    assert eval_node(accept_dogs, [dogs]) == ["animal"]
+    assert eval_node(classify_dogs, [dogs]) == ["dog"]
+    with pytest.raises(WiringError, match="does not match TS\\[frame"):
+        eval_node(reject_instruments, [pl.DataFrame({"name": ["swap"]})])
+
+
 def test_dispatch_preserves_python_structured_parent_through_multiple_inheritance():
     @dataclass(frozen=True)
     class Animal:
@@ -521,6 +679,29 @@ def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax(
     assert eval_node(output_selected, samples) == samples
     assert tuple(inspect.signature(downcast_).parameters) == ("tp", "ts")
     assert tuple(inspect.signature(downcast_[TS[Dog]]).parameters) == ("ts",)
+
+
+def test_convert_retains_checked_compound_scalar_downcast_compatibility():
+    @dataclass(frozen=True)
+    class Animal(CompoundScalar):
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Dog(Animal):
+        sound: str
+
+    @dataclass(frozen=True)
+    class Cat(Animal):
+        lives: int
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[Dog]:
+        return convert[TS[Dog]](animal)
+
+    dog = Dog(identifier=1, sound="woof")
+    assert eval_node(app, [dog]) == [dog]
+    with pytest.raises(RuntimeError, match="active Bundle value does not match"):
+        eval_node(app, [Cat(identifier=2, lives=9)])
 
 
 def test_compound_scalar_reference_downcast_uses_the_native_reference_operator():

@@ -471,6 +471,28 @@ namespace
         }
     };
 
+    using FreeSignalBundle = TSB<"FreeSignalBundle",
+                                 Field<"left", TS<Int>>,
+                                 Field<"right", TS<Int>>>;
+
+    struct StructuralBundleSignalGraph
+    {
+        static void compose(Wiring &w)
+        {
+            auto source = wire<ConstantSource>(w);
+            wire<CountSignal>(w, stdlib::to_tsb<FreeSignalBundle>(w, source, source));
+        }
+    };
+
+    struct StructuralListSignalGraph
+    {
+        static void compose(Wiring &w)
+        {
+            auto source = wire<ConstantSource>(w);
+            wire<CountSignal>(w, stdlib::to_tsl<TS<Int>>(w, source, source));
+        }
+    };
+
     struct RefProbe
     {
         static constexpr auto name              = "ref_probe";
@@ -1341,6 +1363,28 @@ TEST_CASE("graph wiring: sub-graph SIGNAL input accepts any time-series port")
     view.run();
 
     auto graph = view.graph();
+    REQUIRE(graph.node_count() == 2);
+    CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
+}
+
+TEST_CASE("graph wiring: SIGNAL input accepts a free structural TSB without a helper node")
+{
+    using namespace hgraph;
+
+    GraphExecutorValue executor = testing::run_graph(build_graph<StructuralBundleSignalGraph>());
+    auto graph = executor.view().graph();
+
+    REQUIRE(graph.node_count() == 2);
+    CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
+}
+
+TEST_CASE("graph wiring: SIGNAL input accepts a free fixed TSL without a helper node")
+{
+    using namespace hgraph;
+
+    GraphExecutorValue executor = testing::run_graph(build_graph<StructuralListSignalGraph>());
+    auto graph = executor.view().graph();
+
     REQUIRE(graph.node_count() == 2);
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{1});
 }

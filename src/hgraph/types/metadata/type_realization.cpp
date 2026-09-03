@@ -910,8 +910,10 @@ struct TypeRealizationSnapshot::Impl {
       const auto element = type_for_locked(schema->element_type);
       if (element != factory.type_for(schema->element_type)) {
         if (schema->fixed_size != 0) {
-          throw std::logic_error("polymorphic Bundle elements are not "
-                                 "supported in fixed List schemas");
+          const auto result =
+              factory.realized_fixed_list_type_for(schema, element);
+          exact_types.emplace(schema, result);
+          return result;
         }
         const auto result = schema->is_mutable()
                                 ? mutable_list_type(element)
@@ -1095,8 +1097,8 @@ struct TypeRealizationSnapshot::Impl {
       const auto element = graph_type_for_locked(schema->element_type);
       if (element != factory.type_for(schema->element_type)) {
         if (schema->fixed_size != 0) {
-          throw std::logic_error("polymorphic Bundle elements are not "
-                                 "supported in fixed List schemas");
+          result = factory.realized_fixed_list_type_for(schema, element);
+          break;
         }
         result = schema->is_mutable() ? mutable_list_type(element)
                                       : compact_list_type(element, *schema);

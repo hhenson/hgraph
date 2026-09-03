@@ -556,6 +556,7 @@ namespace hgraph
         };
 
         std::unordered_map<std::string, std::vector<OperatorImpl>> overloads_{};
+        std::unordered_map<std::string, std::vector<int>>          suffix_min_ranks_{};
         std::vector<MeshScope>                                     mesh_scopes_{};
         std::vector<ContextScopeEntry>                             context_scopes_{};
         std::vector<Installer>                                     installers_{};
@@ -655,6 +656,30 @@ namespace hgraph
             if (target == scalar_descriptor<Float>::value_meta()) { return coerce_standard_numeric_scalar<Float>(source); }
 
             return std::nullopt;
+        }
+
+        /**
+         * Return the nominal widening distance for an opaque Python value lifted
+         * into a declared TS input.  Native atomics deliberately have no such
+         * relation: auto-const remains spelling rather than numeric conversion.
+         */
+        [[nodiscard]] inline std::optional<std::size_t> opaque_auto_const_distance(
+            const TSValueTypeMetaData &target, const ValueTypeMetaData &source)
+        {
+            const auto *target_value = target.value_schema;
+            if (!source.is_opaque_python() || target_value == nullptr ||
+                target_value->value_kind() != ValueTypeKind::Any)
+            {
+                return std::nullopt;
+            }
+            return TypeRegistry::instance().value_inheritance_distance(&source, target_value);
+        }
+
+        [[nodiscard]] inline bool auto_const_value_matches(
+            const TSValueTypeMetaData &target, const ValueTypeMetaData &source)
+        {
+            return current_value_schema_compatible(target, source) ||
+                   opaque_auto_const_distance(target, source).has_value();
         }
 
         struct operator_auto_const
@@ -953,20 +978,34 @@ namespace hgraph
             }
             const auto *source_schema = arg.scalar_value.schema();
             if (source_schema == nullptr ||
-                !current_value_schema_compatible(*target_schema, *source_schema))
+                !auto_const_value_matches(*target_schema, *source_schema))
             {
                 throw std::logic_error(
                     "operator scalar argument schema does not match the target time-series value");
             }
 
+            const Value *lifted_value = &arg.scalar_value;
+            std::optional<Value> widened_value;
+            if (!current_value_schema_compatible(*target_schema, *source_schema))
+            {
+                widened_value = coerce_scalar_value_to_meta(
+                    arg.scalar_value, target_schema->value_schema);
+                if (!widened_value.has_value())
+                {
+                    throw std::logic_error(
+                        "operator scalar argument could not be widened to the target time-series value");
+                }
+                lifted_value = &*widened_value;
+            }
+
             ResolutionMap map;
-            map.bind_scalar("T", source_schema);
+            map.bind_scalar("T", lifted_value->schema());
             map.bind_ts("S", target_schema);
 
             const auto binding = value_type_for_wiring(
                 StaticNodeSignature<operator_auto_const>::scalar_schema(map));
             BundleBuilder bundle{binding};
-            bundle.set("value", arg.scalar_value.view());
+            bundle.set("value", lifted_value->view());
 
             NodeBuilder builder;
             builder.implementation<operator_auto_const>(map);

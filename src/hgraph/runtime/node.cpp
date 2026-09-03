@@ -1812,7 +1812,63 @@ namespace hgraph
             const auto *schema = node_schema != nullptr ? node_schema->input_schema : nullptr;
             if (schema != nullptr && !endpoint.empty() && !time_series_schema_equivalent(schema, endpoint.schema()))
             {
-                throw std::invalid_argument("NodeBuilder input endpoint schema does not match node input schema");
+                const auto *specialized = endpoint.schema();
+                const auto is_structural_signal_specialization = [&]() {
+                    if (schema->kind != TSTypeKind::TSB || specialized == nullptr ||
+                        specialized->kind != TSTypeKind::TSB ||
+                        schema->field_count() != specialized->field_count())
+                    {
+                        return false;
+                    }
+                    for (std::size_t index = 0; index < schema->field_count(); ++index)
+                    {
+                        const auto &declared_field = schema->fields()[index];
+                        const auto &actual_field = specialized->fields()[index];
+                        const std::string_view declared_name =
+                            declared_field.name != nullptr ? declared_field.name : "";
+                        const std::string_view actual_name =
+                            actual_field.name != nullptr ? actual_field.name : "";
+                        if (declared_name != actual_name) { return false; }
+                        if (time_series_schema_equivalent(declared_field.type, actual_field.type)) { continue; }
+                        const bool fixed_structural = actual_field.type != nullptr &&
+                            (actual_field.type->kind == TSTypeKind::TSB ||
+                             (actual_field.type->kind == TSTypeKind::TSL &&
+                              actual_field.type->fixed_size() != 0));
+                        if (declared_field.type == nullptr ||
+                            declared_field.type->kind != TSTypeKind::SIGNAL || !fixed_structural)
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                }();
+                if (!is_structural_signal_specialization)
+                {
+                    throw std::invalid_argument("NodeBuilder input endpoint schema does not match node input schema");
+                }
+
+                const NodeOps &node_ops = type_.ops_ref();
+                if (node_ops.start_impl != &start_impl || node_ops.stop_impl != &stop_impl ||
+                    node_ops.context == nullptr)
+                {
+                    throw std::invalid_argument(
+                        "structural SIGNAL inputs are only supported on native nodes");
+                }
+                const auto &origin = *static_cast<const NodeRuntimeContext *>(node_ops.context);
+                NodeTypeMetaData rebound_schema = *node_schema;
+                rebound_schema.input_schema = specialized;
+
+                std::vector<NodeStorageField> extra_fields;
+                if (const auto *prepared = origin.plan != nullptr
+                                               ? origin.plan->find_component(node_prepared_inputs_field)
+                                               : nullptr)
+                {
+                    extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
+                }
+                const auto &plan = node_storage_plan_for(rebound_schema, extra_fields);
+                type_ = node_runtime_registry().make_type(
+                    std::move(rebound_schema), origin.callbacks, plan, NodeOps{},
+                    type_.record()->implementation_name(), origin.runtime_type_id);
             }
             if (schema == nullptr && !endpoint.empty())
             {

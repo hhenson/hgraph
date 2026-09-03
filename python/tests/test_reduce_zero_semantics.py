@@ -132,6 +132,32 @@ def test_explicit_zero_tracks_valid_values_through_forwarded_mesh_slots():
     assert out == [0, 2, -1, 0]
 
 
+def test_reduce_mapped_bundle_collection_projection_dereferences_key_set_source():
+    class NestedBundle(hg.TimeSeriesSchema):
+        values: TSD[str, TS[int]]
+
+    @graph
+    def wrap(values: TSD[str, TS[int]]) -> hg.TSB[NestedBundle]:
+        return hg.combine[hg.TSB[NestedBundle]](values=values)
+
+    @graph
+    def reduce_projected(
+        values: TSD[str, TSD[str, TS[int]]],
+    ) -> TSD[str, TS[int]]:
+        projected = hg.map_(wrap, values).values
+        return projected.reduce(
+            lambda lhs, rhs: hg.map_(lambda x, y: x + y, lhs, rhs)
+        )
+
+    # The projected values are REF[TSD]. Two outer keys instantiate the
+    # combiner, whose inner map binds each operand's key-set projection.
+    assert eval_node(
+        reduce_projected,
+        [{"a": {"x": 1}, "b": {"x": 2}}],
+        __elide__=True,
+    ) == [{"x": 3}]
+
+
 def _map_reduce_no_zero(increment: int):
     @graph
     def map_reduce(values: TSD[str, TS[int]]) -> TS[int]:

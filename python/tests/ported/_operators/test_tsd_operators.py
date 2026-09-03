@@ -25,6 +25,7 @@ from hgraph import (
     TimeSeriesSchema,
     add_,
     collapse_keys,
+    collect,
     combine,
     contains_,
     compute_node,
@@ -621,6 +622,18 @@ def test_merge_tsd_disjoint():
     assert eval_node(
         g, tsd1=[{1: 1, 2: 2}, {2: 4}, {1: REMOVE}, {}], tsd2=[{1: 5, 3: 6}, {1: 5, 3: 8}, {}, {1: REMOVE}]
     ) == [fd({1: 1, 2: 2, 3: 6}), fd({2: 4, 3: 8}), fd({1: 5}), fd({1: REMOVE})]
+
+
+def test_collect_materializes_disjoint_merge_references():
+    @graph
+    def g(lhs: TSD[int, TS[int]], rhs: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return collect[TSD](merge(lhs, rhs, disjoint=True))
+
+    assert eval_node(
+        g,
+        lhs=[{1: 1}, {1: 2}],
+        rhs=[{2: 3}, {2: 4}],
+    ) == [fd({1: 1, 2: 3}), fd({1: 2, 2: 4})]
 
 
 def test_merge_nested_tsd():

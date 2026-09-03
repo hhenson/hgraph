@@ -722,7 +722,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
    Value stream to accumulate.
 
 ``reset`` : time-series; ``TS[bool]``
@@ -759,7 +759,7 @@ Accepted native overloads
 
    collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
    collect(key: K, ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
-   collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ..., exclude: TIME_SERIES_TYPE_1 = ...) -> OUT
+   collect(ts: TSD[K, V], reset: TS[bool] = ..., exclude: TIME_SERIES_TYPE = ...) -> OUT
 
 .. _python-operator-combine:
 
@@ -1208,6 +1208,42 @@ Accepted native overloads
 .. code-block:: text
 
    convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]
+
+.. _python-operator-datepart:
+
+``datepart``
+------------
+
+``datepart`` — truncate a datetime to midnight while retaining datetime type.
+
+Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[datetime]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.datepart(ts)
+
+Accepted native overloads
+
+.. code-block:: text
+
+   datepart(ts: TS[datetime]) -> TS[datetime]
 
 .. _python-operator-day:
 
@@ -2667,7 +2703,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
    Structured input.
 
 ``attr`` : scalar; ``str``
@@ -2700,6 +2736,8 @@ Accepted native overloads
    getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT
+   getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT
+   getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT
    getattr_(ts: TS[Any], attr: str) -> TS[str]
    getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]
 
@@ -2718,7 +2756,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_2]]``, ``TS[Frame[SCALAR_2, SCALAR_3]]``
    Collection, mapping, list, bundle, or other indexable input.
 
 ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
@@ -2751,6 +2789,12 @@ Accepted native overloads
    getitem_(ts: TSD[K, V], key: TSS[K]) -> OUT
    getitem_(ts: TS[SCALAR], key: TS[int]) -> OUT
    getitem_(ts: TS[SCALAR], key: int) -> OUT
+   getitem_(ts: TS[Frame[SCALAR]], key: str) -> OUT
+   getitem_(ts: TS[Frame[SCALAR, SCALAR_1]], key: str) -> OUT
+   getitem_(ts: TS[Frame[SCALAR]], key: int) -> OUT
+   getitem_(ts: TS[Frame[SCALAR, SCALAR_1]], key: int) -> OUT
+   getitem_(ts: TS[Frame[SCALAR]], key: TS[int]) -> OUT
+   getitem_(ts: TS[Frame[SCALAR, SCALAR_1]], key: TS[int]) -> OUT
 
 .. _python-operator-group_by:
 
@@ -4166,7 +4210,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``
+``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``, ``TS[Series[SCALAR_3]]``
    Scalar, collection, or variadic values.
 
 ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
@@ -4226,6 +4270,7 @@ Accepted native overloads
    max_(ts: TSD[K, TS[V]]) -> TS[V]
    max_(ts: TSL[TS[V], SIZE]) -> TS[V]
    max_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
+   max_(ts: TS[Series[SCALAR]]) -> OUT
 
 Grouped overrides
 ~~~~~~~~~~~~~~~~~
@@ -4506,7 +4551,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``
+``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``, ``TS[Series[SCALAR_3]]``
    Scalar, collection, or variadic values.
 
 ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
@@ -4566,6 +4611,7 @@ Accepted native overloads
    min_(ts: TSD[K, TS[V]]) -> TS[V]
    min_(ts: TSL[TS[V], SIZE]) -> TS[V]
    min_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
+   min_(ts: TS[Series[SCALAR]]) -> OUT
 
 Grouped overrides
 ~~~~~~~~~~~~~~~~~
@@ -7797,10 +7843,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSD[K, TS[Frame[SCALAR]]]``, ``TIME_SERIES_TYPE``
    Keyed collection of same-schema frames.
 
-``key_col`` : scalar; ``SCALAR``
+``key_col`` : scalar; ``SCALAR_1``
    The key col value used by the selected overload.
 
 Returns
@@ -7819,8 +7865,9 @@ Accepted native overloads
 
 .. code-block:: text
 
+   ungroup(ts: TSD[K, TS[Frame[SCALAR]]]) -> TS[Frame[OUT]]
+   ungroup(ts: TSD[K, TS[Frame[SCALAR]]], key_col: SCALAR_1) -> TS[Frame[OUT]]
    ungroup(ts: TIME_SERIES_TYPE) -> TS[Frame[OUT]]
-   ungroup(ts: TIME_SERIES_TYPE, key_col: SCALAR) -> TS[Frame[OUT]]
 
 .. _python-operator-union:
 

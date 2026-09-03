@@ -375,6 +375,27 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         if (candidate == base) { return candidate != nullptr; }
         if (candidate == nullptr || base == nullptr) { return false; }
+        if (is_frame(candidate) && is_frame(base))
+        {
+            if (candidate->element_type == nullptr || base->element_type == nullptr ||
+                candidate->key_type != base->key_type)
+            {
+                return false;
+            }
+            candidate = candidate->element_type;
+            base = base->element_type;
+            if (candidate == base) { return true; }
+        }
+        while (candidate->value_kind() == ValueTypeKind::List &&
+               base->value_kind() == ValueTypeKind::List &&
+               candidate->has(ValueTypeFlags::VariadicTuple) &&
+               base->has(ValueTypeFlags::VariadicTuple))
+        {
+            candidate = candidate->element_type;
+            base = base->element_type;
+            if (candidate == base) { return candidate != nullptr; }
+            if (candidate == nullptr || base == nullptr) { return false; }
+        }
         if (candidate->bundle_hierarchy == nullptr) { return false; }
         std::vector<const ValueTypeMetaData *> pending{candidate};
         std::unordered_map<const ValueTypeMetaData *, bool> seen;
@@ -436,6 +457,17 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         if (candidate == nullptr || base == nullptr) { return std::nullopt; }
         if (candidate == base) { return 0; }
+        if (is_frame(candidate) && is_frame(base))
+        {
+            if (candidate->element_type == nullptr || base->element_type == nullptr ||
+                candidate->key_type != base->key_type)
+            {
+                return std::nullopt;
+            }
+            candidate = candidate->element_type;
+            base = base->element_type;
+            if (candidate == base) { return 0; }
+        }
         if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
 
         std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> pending{{candidate, 0}};

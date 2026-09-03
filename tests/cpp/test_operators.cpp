@@ -494,6 +494,46 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.bundle_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *animal = registry.bundle(
+        "tests.operator.frame", "Animal", {{"id", integer}}, {}, true);
+    const auto *dog = registry.bundle(
+        "tests.operator.frame", "Dog",
+        {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+    const auto *puppy = registry.bundle(
+        "tests.operator.frame", "Puppy",
+        {{"id", integer}, {"barks", registry.value_type("bool")},
+         {"young", registry.value_type("bool")}},
+        {dog});
+
+    const auto register_candidate = [&](const ValueTypeMetaData *row,
+                                        std::string label) {
+        OperatorImpl impl;
+        impl.name = "frame_nominal_overload";
+        impl.label = std::move(label);
+        impl.params.push_back(ParamPattern{
+            .kind = ParamPattern::Kind::Input,
+            .name = "value",
+            .ts = TypePattern::ts(ScalarPattern::frame(
+                ScalarPattern::concrete(row))),
+        });
+        impl.rank = operator_dispatch_detail::operator_rank(impl.params);
+        OperatorRegistry::instance().register_overload(std::move(impl));
+    };
+    register_candidate(animal, "animal");
+    register_candidate(dog, "dog");
+
+    std::array<WiringArg, 1> args{
+        ts_arg(registry.ts(registry.frame(puppy)))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "frame_nominal_overload", std::span<const WiringArg>{args}, false);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "dog");
+}
+
 TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and conversion")
 {
     auto &registry = TypeRegistry::instance();
@@ -545,6 +585,37 @@ TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and co
 
     Value puppy_value{ValuePlanFactory::instance().type_for(puppy)};
     puppy_value.as_any().begin_mutation().set(Value{Int{7}});
+
+    WiringArg puppy_scalar;
+    puppy_scalar.kind = WiringArg::Kind::Scalar;
+    puppy_scalar.scalar_value = puppy_value;
+    puppy_scalar.scalar_meta = puppy;
+    std::array<WiringArg, 1> scalar_args{puppy_scalar};
+    const auto scalar_resolved = OperatorRegistry::instance().resolve(
+        "opaque_nominal_overload", std::span<const WiringArg>{scalar_args}, false);
+    REQUIRE(scalar_resolved.impl != nullptr);
+    CHECK(scalar_resolved.impl->label == "dog");
+
+    register_overload<add_, add_generic>();
+    std::array<WiringArg, 2> bound_args{
+        ts_arg(registry.ts(animal)), puppy_scalar};
+    const auto bound_resolved = OperatorRegistry::instance().resolve(
+        "add", std::span<const WiringArg>{bound_args}, true);
+    REQUIRE(bound_resolved.impl != nullptr);
+    CHECK(bound_resolved.map.find_ts("S") == registry.ts(animal));
+
+    stdlib::register_standard_operators();
+    const auto scalar_variable_resolved = OperatorRegistry::instance().resolve(
+        "eq_", std::span<const WiringArg>{bound_args}, true);
+    REQUIRE(scalar_variable_resolved.impl != nullptr);
+    CHECK(scalar_variable_resolved.impl->label.find("eq_any") != std::string::npos);
+    CHECK(scalar_variable_resolved.map.find_scalar("T") == animal);
+
+    Wiring scalar_wiring{WiringKind::SubGraph};
+    const auto lifted = operator_dispatch_detail::wire_scalar_const(
+        scalar_wiring, puppy_scalar, registry.ts(animal));
+    CHECK(lifted.schema == registry.ts(animal));
+
     const auto coerced = operator_dispatch_detail::coerce_scalar_value_to_meta(
         puppy_value, animal);
     REQUIRE(coerced.has_value());
@@ -564,6 +635,46 @@ TEST_CASE("operators: an unregistered operator name raises")
     (void)TypeRegistry::instance().register_scalar<Int>("int");
     // No overloads registered this case (the registry is reset between cases).
     REQUIRE_THROWS_AS(eval_node<add_>(values<Int>(1), values<Int>(2)), OperatorResolutionError);
+}
+
+TEST_CASE("operators: resolution skips candidates that cannot beat the winner")
+{
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+
+    ParamPattern input{
+        .kind = ParamPattern::Kind::Input,
+        .name = "value",
+        .ts = TypePattern::concrete(ts_type<TS<Int>>()),
+    };
+    OperatorImpl winner;
+    winner.name = "rank_pruning_test";
+    winner.label = "winner";
+    winner.params = {input};
+    winner.rank = 1;
+    winner.requires_predicate = [](const ResolutionMap &, OperatorCallContext) {
+        return true;
+    };
+
+    int losing_requires_calls = 0;
+    OperatorImpl loser = winner;
+    loser.label = "loser";
+    loser.rank = 100;
+    loser.requires_predicate = [&](const ResolutionMap &, OperatorCallContext) {
+        ++losing_requires_calls;
+        return true;
+    };
+
+    OperatorRegistry::instance().register_overload(std::move(winner));
+    OperatorRegistry::instance().register_overload(std::move(loser));
+    std::array<WiringArg, 1> args{ts_arg(ts_type<TS<Int>>())};
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "rank_pruning_test", std::span<const WiringArg>{args}, false);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "winner");
+    CHECK(losing_requires_calls == 0);
 }
 
 TEST_CASE("operators: a scalar argument is coerced and forwarded to the resolved node")

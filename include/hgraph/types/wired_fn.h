@@ -123,10 +123,20 @@ namespace hgraph
         WiringPortRef (*wire)(const void *context, Wiring &, std::span<const WiringPortRef>){nullptr};
         CompiledSubGraph (*compile)(const void *context, Wiring *parent,
                                     std::span<const TSValueTypeMetaData *const>){nullptr};
+        const CompiledSubGraph *(*probe_compile)(
+            const void *context, Wiring *parent,
+            std::span<const TSValueTypeMetaData *const>){nullptr};
         std::span<const std::string_view> (*param_names)(const void *context){nullptr};
         const TSValueTypeMetaData *(*input_schema)(const void *context, std::size_t index){nullptr};
         std::optional<TypePattern> (*input_pattern)(const void *context, std::size_t index){nullptr};
         const TSValueTypeMetaData *(*output_schema)(const void *context){nullptr};
+        std::optional<const TSValueTypeMetaData *> (*cached_output_schema)(
+            const void *context,
+            std::span<const TSValueTypeMetaData *const> input_schemas){nullptr};
+        void (*record_output_schema)(
+            const void *context,
+            std::span<const TSValueTypeMetaData *const> input_schemas,
+            const TSValueTypeMetaData *output_schema){nullptr};
         std::string_view (*diagnostic_label)(const void *context){nullptr};
     };
 
@@ -158,6 +168,35 @@ namespace hgraph
         [[nodiscard]] const TSValueTypeMetaData *output_schema() const
         {
             return ops != nullptr && ops->output_schema != nullptr ? ops->output_schema(context) : nullptr;
+        }
+
+        /** A previously compiled output/sink result for these exact inputs.
+
+            Runtime callables can use this to avoid a second speculative child
+            compilation during overload selection. An empty optional means no
+            matching compilation has been observed; an engaged null pointer
+            records a sink. The input key prevents a generic callable's output
+            from being reused for a different input shape. */
+        [[nodiscard]] std::optional<const TSValueTypeMetaData *> cached_output_schema(
+            std::span<const TSValueTypeMetaData *const> input_schemas) const
+        {
+            if (!has_output) { return nullptr; }
+            if (const auto *declared = output_schema(); declared != nullptr)
+            {
+                return declared;
+            }
+            return ops != nullptr && ops->cached_output_schema != nullptr
+                       ? ops->cached_output_schema(context, input_schemas)
+                       : std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<bool> cached_output_mode(
+            std::span<const TSValueTypeMetaData *const> input_schemas) const
+        {
+            const auto cached = cached_output_schema(input_schemas);
+            return cached.has_value()
+                       ? std::optional<bool>{*cached != nullptr}
+                       : std::nullopt;
         }
 
         /** The statically-known schema of input ``index``, or ``nullptr`` when
@@ -252,6 +291,20 @@ namespace hgraph
             return ops->compile(context, &parent, input_schemas);
         }
 
+        /** Retain a speculative compilation for a following real compile.
+
+            Runtime backends may implement this when child compilation is
+            expensive and movable. A null result asks the caller to use the
+            ordinary non-retained compile path. */
+        [[nodiscard]] const CompiledSubGraph *probe_compile(
+            Wiring &parent,
+            std::span<const TSValueTypeMetaData *const> input_schemas) const
+        {
+            return ops != nullptr && ops->probe_compile != nullptr
+                       ? ops->probe_compile(context, &parent, input_schemas)
+                       : nullptr;
+        }
+
         /**
          * Compile against explicit child-boundary shapes. Unlike the schema-only
          * overload, this preserves a structurally assembled fixed TSB/TSL so a
@@ -288,10 +341,48 @@ namespace hgraph
                 schemas.push_back(shape.schema);
             }
 
+            // A root-only boundary has exactly the shape synthesized by the
+            // schema compile backend. Route Python callables through it so a
+            // retained output probe can be consumed; structural/null shapes
+            // continue through the shape-preserving path below.
+            bool canonical_boundary =
+                ops->probe_compile != nullptr && output_schema() == nullptr;
+            for (std::size_t index = 0;
+                 canonical_boundary && index < boundary_shapes.size(); ++index)
+            {
+                const WiringPortRef &shape = boundary_shapes[index];
+                canonical_boundary =
+                    shape.is_boundary_source() &&
+                    !shape.is_captured_boundary_source() &&
+                    shape.boundary_arg_index() == index &&
+                    shape.boundary_path().empty();
+            }
+            if (canonical_boundary)
+            {
+                return ops->compile(
+                    context, parent, {schemas.data(), schemas.size()});
+            }
+
             auto compile = [&] {
                 WiringPortRef out = wire(child, boundary_shapes);
+                if (ops->record_output_schema != nullptr)
+                {
+                    ops->record_output_schema(
+                        context, {schemas.data(), schemas.size()}, out.schema);
+                }
                 if (out.schema != nullptr)
                 {
+                    if (const auto *declared = output_schema(); declared != nullptr)
+                    {
+                        if (!graph_wiring_detail::input_accepts_output_schema(
+                                declared, out.schema))
+                        {
+                            throw std::invalid_argument(
+                                "WiredFn::compile output is incompatible with its declared schema");
+                        }
+                        out = graph_wiring_detail::adapt_source_for_input(
+                            child, declared, std::move(out));
+                    }
                     return std::move(child).finish_subgraph(
                         out, std::move(schemas));
                 }
@@ -847,10 +938,13 @@ namespace hgraph
                    std::span<const TSValueTypeMetaData *const> schemas) {
                     return compile_thunk<X>(parent, schemas);
                 },
+                nullptr,
                 [](const void *) { return param_names_thunk<X>(); },
                 [](const void *, std::size_t index) { return input_schema_thunk<X>(index); },
                 [](const void *, std::size_t index) { return input_pattern_thunk<X>(index); },
                 [](const void *) { return output_schema_thunk<X>(); },
+                nullptr,
+                nullptr,
                 [](const void *) -> std::string_view {
                     if constexpr (static_node_detail::has_name<X>) {
                         return static_node_detail::name_view<X>();

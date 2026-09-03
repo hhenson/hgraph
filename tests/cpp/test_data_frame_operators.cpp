@@ -34,9 +34,16 @@ namespace
     using JoinedRow = Bundle<"tests.data_frame::JoinedRow", Field<"a", Int>,
                              Field<"b", Int>, Field<"b_right", Int>>;
     using PredicateTSB = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
+    using InstantRow = Bundle<"tests.data_frame::InstantRow",
+                              Field<"timestamp", DateTime>, Field<"value", Int>>;
+    using InstantPredicateTSB = UnNamedTSB<Field<"timestamp", TS<DateTime>>>;
+    using CivilRow = Bundle<"tests.data_frame::CivilRow",
+                            Field<"timestamp", CivilDateTime>, Field<"value", Int>>;
+    using CivilPredicateTSB = UnNamedTSB<Field<"timestamp", TS<CivilDateTime>>>;
     using BColumnTSB = UnNamedTSB<Field<"b", TS<Int>>>;
     using CColumnTSB = UnNamedTSB<Field<"c", TS<Int>>>;
     using CSeriesColumnTSB = UnNamedTSB<Field<"c", TS<SeriesOf<Int>>>>;
+    using FrameBundleTSB = UnNamedTSB<Field<"frame", TS<FrameOf<Row>>>>;
     using ProjectedRow = Bundle<"tests.data_frame::ProjectedRow", Field<"a", Int>,
                                 Field<"c", Int>>;
     using KeyedRow = Bundle<"tests.data_frame::KeyedRow", Field<"a", Int>,
@@ -183,6 +190,26 @@ namespace
         std::shared_ptr<arrow::Array> array;
         require_arrow(builder.Finish(&array));
         return Series{std::move(array)};
+    }
+
+    [[nodiscard]] Frame temporal_frame(
+        const std::shared_ptr<arrow::DataType> &type,
+        std::vector<std::int64_t> timestamps, std::vector<std::int64_t> values,
+        std::shared_ptr<arrow::KeyValueMetadata> metadata = nullptr)
+    {
+        arrow::TimestampBuilder timestamp_builder{type, arrow::default_memory_pool()};
+        arrow::Int64Builder value_builder;
+        require_arrow(timestamp_builder.AppendValues(timestamps));
+        require_arrow(value_builder.AppendValues(values));
+        std::shared_ptr<arrow::Array> timestamp_array;
+        std::shared_ptr<arrow::Array> value_array;
+        require_arrow(timestamp_builder.Finish(&timestamp_array));
+        require_arrow(value_builder.Finish(&value_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("timestamp", type),
+                           arrow::field("value", arrow::int64())},
+                          std::move(metadata)),
+            {std::move(timestamp_array), std::move(value_array)})};
     }
 
     [[nodiscard]] Frame array_frame(DateTime when)
@@ -414,6 +441,48 @@ namespace
         }
     };
 
+    struct FilterInstantFrameGraph
+    {
+        static constexpr auto name = "filter_instant_frame_graph";
+
+        static Port<TS<FrameOf<InstantRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<InstantRow>>> ts,
+            Port<TS<DateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<InstantPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<InstantRow>>>();
+        }
+    };
+
+    struct FilterCivilFrameGraph
+    {
+        static constexpr auto name = "filter_civil_frame_graph";
+
+        static Port<TS<FrameOf<CivilRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<CivilRow>>> ts,
+            Port<TS<CivilDateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<CivilPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<CivilRow>>>();
+        }
+    };
+
+    struct FilterInstantWithCivilPredicateGraph
+    {
+        static constexpr auto name = "filter_instant_with_civil_predicate_graph";
+
+        static Port<TS<FrameOf<InstantRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<InstantRow>>> ts,
+            Port<TS<CivilDateTime>> timestamp)
+        {
+            auto predicate = stdlib::to_tsb<CivilPredicateTSB>(w, timestamp);
+            return wire<stdlib::data_frame::filter_frame>(w, ts, predicate)
+                .as<TS<FrameOf<InstantRow>>>();
+        }
+    };
+
     struct ReplaceColumnGraph
     {
         static constexpr auto name = "replace_column_graph";
@@ -466,6 +535,58 @@ namespace
         }
     };
 
+    struct FrameAttributeGraph
+    {
+        static constexpr auto name = "frame_attribute_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getattr_>(w, ts, Str{"a"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
+    struct FrameColumnGraph
+    {
+        static constexpr auto name = "frame_column_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Str{"b"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
+    struct FrameRowGraph
+    {
+        static constexpr auto name = "frame_row_graph";
+
+        static Port<TS<Row>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts,
+                                     Scalar<"index", Int> index)
+        {
+            return wire<stdlib::getitem_>(w, ts, index.value()).as<TS<Row>>();
+        }
+    };
+
+    struct FrameRowDynamicGraph
+    {
+        static constexpr auto name = "frame_row_dynamic_graph";
+
+        static Port<TS<Row>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts,
+                                     Port<TS<Int>> index)
+        {
+            return wire<stdlib::getitem_>(w, ts, index).as<TS<Row>>();
+        }
+    };
+
+    struct MissingFrameColumnGraph
+    {
+        static constexpr auto name = "missing_frame_column_graph";
+
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            return wire<stdlib::getattr_>(w, ts, Str{"missing"}).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
     struct UngroupKeyedFrameGraph
     {
         static constexpr auto name = "ungroup_keyed_frame_graph";
@@ -475,6 +596,20 @@ namespace
         {
             return wire<stdlib::data_frame::ungroup_with_keys,
                         TS<FrameOf<KeyedRow>>>(w, ts, Str{"key"});
+        }
+    };
+
+    struct UngroupProjectedFrameGraph
+    {
+        static constexpr auto name = "ungroup_projected_frame_graph";
+
+        static Port<TS<FrameOf<KeyedRow>>> compose(
+            Wiring &w, Port<TSD<Str, FrameBundleTSB>> ts)
+        {
+            auto projected = wire<stdlib::getattr_>(w, ts, Str{"frame"})
+                                 .as<TSD<Str, REF<TS<FrameOf<Row>>>>>();
+            return wire<stdlib::data_frame::ungroup_with_keys,
+                        TS<FrameOf<KeyedRow>>>(w, projected, Str{"key"});
         }
     };
 
@@ -763,6 +898,60 @@ TEST_CASE("data frame operators: structural and compound predicates filter nativ
     CHECK(equals(*compound[0], frame({2}, {20})));
 }
 
+TEST_CASE("data frame operators: temporal predicates preserve instant and civil semantics")
+{
+    stdlib::register_standard_operators();
+
+    // The two UTC instants are the two occurrences of 01:30 during the
+    // 2024-11-03 New York DST fold. Legacy frames present both as naive UTC
+    // epoch values; filtering must keep them distinct.
+    constexpr std::int64_t fold_early = 1730611800000000;
+    constexpr std::int64_t fold_late = 1730615400000000;
+    const auto naive_timestamp = arrow::timestamp(arrow::TimeUnit::MICRO);
+    const auto instants = temporal_frame(
+        naive_timestamp, {fold_early, fold_late}, {1, 2});
+    const auto instant_results = eval_node<FilterInstantFrameGraph>(
+        values<Frame>(instants, instants),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}},
+                         DateTime{std::chrono::microseconds{fold_late}}));
+    REQUIRE(instant_results.size() == 2);
+    REQUIRE(instant_results[0].has_value());
+    REQUIRE(instant_results[1].has_value());
+    CHECK(equals(*instant_results[0],
+                 temporal_frame(naive_timestamp, {fold_early}, {1})));
+    CHECK(equals(*instant_results[1],
+                 temporal_frame(naive_timestamp, {fold_late}, {2})));
+
+    constexpr std::int64_t civil_wall_time = 1730597400000000;
+    const auto civil = temporal_frame(naive_timestamp, {civil_wall_time}, {3});
+    const auto civil_results = eval_node<FilterCivilFrameGraph>(
+        values<Frame>(civil),
+        values<CivilDateTime>(
+            CivilDateTime::from_epoch_microseconds(civil_wall_time)));
+    REQUIRE(civil_results.size() == 1);
+    REQUIRE(civil_results[0].has_value());
+    CHECK(equals(*civil_results[0], civil));
+
+    const auto named_zone = temporal_frame(
+        arrow::timestamp(arrow::TimeUnit::MICRO, "America/New_York"),
+        {fold_early}, {1});
+    CHECK_THROWS(eval_node<FilterInstantFrameGraph>(
+        values<Frame>(named_zone),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}})));
+
+    const auto invalid_v2 = temporal_frame(
+        naive_timestamp, {fold_early}, {1},
+        arrow::key_value_metadata({"hgraph.temporal.version"}, {"2"}));
+    CHECK_THROWS(eval_node<FilterInstantFrameGraph>(
+        values<Frame>(invalid_v2),
+        values<DateTime>(DateTime{std::chrono::microseconds{fold_early}})));
+
+    CHECK_THROWS(eval_node<FilterInstantWithCivilPredicateGraph>(
+        values<Frame>(instants),
+        values<CivilDateTime>(
+            CivilDateTime::from_epoch_microseconds(fold_early))));
+}
+
 TEST_CASE("data frame operators: from_data_frame preserves shaped array bindings")
 {
     stdlib::register_standard_operators();
@@ -866,6 +1055,32 @@ TEST_CASE("data frame operators: with_columns replaces and projects through C++ 
     CHECK(series[0]->table->Equals(**series_expected));
 }
 
+TEST_CASE("data frame operators: Frame column and row access use the declared row schema")
+{
+    stdlib::register_standard_operators();
+    const auto input = frame({1, 2}, {10, 20});
+
+    auto attribute = eval_node<FrameAttributeGraph>(values<Frame>(input));
+    REQUIRE(attribute.size() == 1);
+    REQUIRE(attribute[0].has_value());
+    CHECK(attribute[0]->array->Equals(int_series({1, 2}).array));
+
+    auto column = eval_node<FrameColumnGraph>(values<Frame>(input));
+    REQUIRE(column.size() == 1);
+    REQUIRE(column[0].has_value());
+    CHECK(column[0]->array->Equals(int_series({10, 20}).array));
+
+    CHECK_OUTPUT(eval_node<FrameRowGraph>(values<Frame>(input), Int{0}),
+                 values<Value>(row_value(1, 10)));
+    CHECK_OUTPUT(eval_node<FrameRowGraph>(values<Frame>(input), Int{-1}),
+                 values<Value>(row_value(2, 20)));
+    CHECK_OUTPUT(eval_node<FrameRowDynamicGraph>(values<Frame>(input), values<Int>(0, 1)),
+                 values<Value>(row_value(1, 10), row_value(2, 20)));
+
+    REQUIRE_THROWS(eval_node<FrameRowGraph>(values<Frame>(input), Int{2}));
+    REQUIRE_THROWS(eval_node<MissingFrameColumnGraph>(values<Frame>(input)));
+}
+
 TEST_CASE("data frame operators: ungroup concatenates keyed frames and materializes keys natively")
 {
     stdlib::register_standard_operators();
@@ -883,6 +1098,23 @@ TEST_CASE("data frame operators: ungroup concatenates keyed frames and materiali
     REQUIRE(keyed.size() == 1);
     REQUIRE(keyed[0].has_value());
     CHECK(equals(*keyed[0],
+                 keyed_frame({1, 2, 3}, {10, 20, 30},
+                             {"one", "one", "two"})));
+}
+
+TEST_CASE("data frame operators: ungroup dereferences projected TSD bundle fields")
+{
+    stdlib::register_standard_operators();
+    const auto one = frame({1, 2}, {10, 20});
+    const auto two = frame({3}, {30});
+    const auto input = values<Value>(dict_delta<Str, FrameBundleTSB>(
+        {{Str{"one"}, tsb_delta<FrameBundleTSB>(one)},
+         {Str{"two"}, tsb_delta<FrameBundleTSB>(two)}}));
+
+    const auto result = eval_node<UngroupProjectedFrameGraph>(input);
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(equals(*result[0],
                  keyed_frame({1, 2, 3}, {10, 20, 30},
                              {"one", "one", "two"})));
 }

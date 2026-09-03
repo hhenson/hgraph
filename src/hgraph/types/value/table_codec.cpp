@@ -8,6 +8,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <arrow/api.h>
+#include <arrow/compute/api.h>
 
 #include <fmt/format.h>
 
@@ -666,12 +667,11 @@ namespace hgraph
                                                                                       : std::string_view{"?"}));
         }
 
-        void validate_array_type(const arrow::Array &array,
-                                 const ValueTypeMetaData *leaf,
-                                 std::string_view source)
+        void validate_data_type(const std::shared_ptr<arrow::DataType> &actual,
+                                const ValueTypeMetaData *leaf,
+                                std::string_view source)
         {
             const LeafOps ops = leaf_ops_for(leaf);
-            const auto actual = array.type();
             const auto integer_compatible = [&] {
                 if (leaf != scalar_descriptor<Int>::value_meta()) { return false; }
                 switch (actual->id())
@@ -711,6 +711,13 @@ namespace hgraph
                         ? leaf->name()
                         : std::string_view{"?"}));
             }
+        }
+
+        void validate_array_type(const arrow::Array &array,
+                                 const ValueTypeMetaData *leaf,
+                                 std::string_view source)
+        {
+            validate_data_type(array.type(), leaf, source);
         }
 
         [[nodiscard]] bool temporal_version_two(
@@ -1306,6 +1313,35 @@ namespace hgraph
         return names;
     }
 
+    Series frame_column(const Frame &frame, std::string_view column,
+                        const ValueTypeMetaData *element)
+    {
+        if (!frame.has_value()) { throw std::invalid_argument("table codec: cannot read an empty frame"); }
+        const auto chunked = frame.table->GetColumnByName(std::string{column});
+        if (chunked == nullptr)
+        {
+            throw std::invalid_argument(fmt::format("table codec: frame is missing column '{}'", column));
+        }
+
+        std::shared_ptr<arrow::Array> array;
+        if (chunked->num_chunks() == 0)
+        {
+            auto empty = arrow::MakeArrayOfNull(chunked->type(), 0);
+            if (!empty.ok()) { fail_status(empty.status(), "construct empty column"); }
+            array = std::move(*empty);
+        }
+        else if (chunked->num_chunks() == 1) { array = chunked->chunk(0); }
+        else
+        {
+            auto combined = arrow::Concatenate(chunked->chunks());
+            if (!combined.ok()) { fail_status(combined.status(), "concatenate chunks"); }
+            array = std::move(*combined);
+        }
+        validate_versioned_array_type(
+            *array, element, *frame.table->schema(), fmt::format("column '{}'", column));
+        return Series{std::move(array)};
+    }
+
     Value array_cell(const arrow::Array &array, const ValueTypeMetaData *leaf,
                      std::int64_t row)
     {
@@ -1334,6 +1370,34 @@ namespace hgraph
         auto scalar = array->GetScalar(0);
         if (!scalar.ok()) { fail_status(scalar.status(), "read encoded scalar"); }
         return arrow::Datum{std::move(*scalar)};
+    }
+
+    arrow::Datum arrow_scalar_for_type(
+        const ValueView &value, const ValueTypeMetaData *leaf,
+        const std::shared_ptr<arrow::DataType> &physical_type,
+        const arrow::Schema *schema)
+    {
+        if (physical_type == nullptr)
+        {
+            throw std::invalid_argument("table codec: scalar target has no Arrow type");
+        }
+        validate_data_type(physical_type, leaf, "scalar target");
+        if (schema != nullptr && leaf == scalar_descriptor<DateTime>::value_meta() &&
+            temporal_version_two(*schema))
+        {
+            const auto &timestamp = static_cast<const arrow::TimestampType &>(*physical_type);
+            if (timestamp.timezone() != "UTC")
+            {
+                throw std::invalid_argument(
+                    "table codec: version-2 Instant scalar target must use UTC");
+            }
+        }
+
+        arrow::Datum scalar = arrow_scalar(value, leaf);
+        if (scalar.type()->Equals(physical_type)) { return scalar; }
+        auto cast = arrow::compute::Cast(scalar, physical_type);
+        if (!cast.ok()) { fail_status(cast.status(), "cast encoded scalar"); }
+        return std::move(*cast);
     }
 
     Value frame_cell(const Frame &frame, std::string_view column, const ValueTypeMetaData *leaf,

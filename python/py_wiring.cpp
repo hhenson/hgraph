@@ -379,6 +379,7 @@ namespace
         static constexpr WiredFnOps ops{
             &runtime_operator_wire,
             &runtime_operator_compile,
+            nullptr,
             [](const void *context) {
                 const auto &record = *static_cast<const RuntimeOperatorRecord *>(context);
                 return std::span<const std::string_view>{
@@ -389,6 +390,8 @@ namespace
             [](const void *context) -> const TSValueTypeMetaData * {
                 return static_cast<const RuntimeOperatorRecord *>(context)->expected_output;
             },
+            nullptr,
+            nullptr,
             [](const void *context) -> std::string_view {
                 return static_cast<const RuntimeOperatorRecord *>(context)->name;
             },
@@ -551,9 +554,22 @@ namespace
         return nb::cast<PyPort &>(result).ref;
     }
 
-    [[nodiscard]] CompiledSubGraph py_graph_fn_compile(const void *context,
-                                                       Wiring *parent,
-                                                       std::span<const TSValueTypeMetaData *const> input_schemas)
+    [[nodiscard]] bool py_graph_fn_cache_matches(
+        const PyGraphFnRecord &record, Wiring *parent,
+        std::span<const TSValueTypeMetaData *const> input_schemas)
+    {
+        return record.last_compiled_generation ==
+                   TypeRegistry::instance().reset_generation() &&
+               record.retained_compilation_realtime ==
+                   (parent != nullptr && parent->is_realtime()) &&
+               record.last_compiled_inputs.size() == input_schemas.size() &&
+               std::equal(record.last_compiled_inputs.begin(),
+                          record.last_compiled_inputs.end(), input_schemas.begin());
+    }
+
+    [[nodiscard]] CompiledSubGraph build_py_graph_fn(
+        const void *context, Wiring *parent,
+        std::span<const TSValueTypeMetaData *const> input_schemas)
     {
         const auto &record = *static_cast<const PyGraphFnRecord *>(context);
         if (input_schemas.size() != record.arity)
@@ -571,6 +587,13 @@ namespace
         }
         WiringPortRef out = py_graph_fn_wire(
             context, child, {boundary.data(), boundary.size()});
+        record.last_compiled_inputs.assign(
+            input_schemas.begin(), input_schemas.end());
+        record.last_compiled_output_schema = out.schema;
+        record.last_compiled_generation =
+            TypeRegistry::instance().reset_generation();
+        record.retained_compilation_realtime =
+            parent != nullptr && parent->is_realtime();
         // The Python wrapper emits the nested graph scope while invoking the
         // callable. The call result is authoritative: an unannotated lambda
         // is provisionally output-producing but may compile to an actual sink.
@@ -582,11 +605,43 @@ namespace
                                                 std::move(schemas));
     }
 
+    [[nodiscard]] CompiledSubGraph py_graph_fn_compile(
+        const void *context, Wiring *parent,
+        std::span<const TSValueTypeMetaData *const> input_schemas)
+    {
+        auto &record = *static_cast<const PyGraphFnRecord *>(context);
+        if (record.retained_compilation.has_value() &&
+            py_graph_fn_cache_matches(record, parent, input_schemas) &&
+            (parent == nullptr || !parent->has_wiring_observers()))
+        {
+            CompiledSubGraph compiled = std::move(*record.retained_compilation);
+            record.retained_compilation.reset();
+            return compiled;
+        }
+        record.retained_compilation.reset();
+        return build_py_graph_fn(context, parent, input_schemas);
+    }
+
+    [[nodiscard]] const CompiledSubGraph *py_graph_fn_probe_compile(
+        const void *context, Wiring *parent,
+        std::span<const TSValueTypeMetaData *const> input_schemas)
+    {
+        auto &record = *static_cast<const PyGraphFnRecord *>(context);
+        if (!record.retained_compilation.has_value() ||
+            !py_graph_fn_cache_matches(record, parent, input_schemas))
+        {
+            record.retained_compilation =
+                build_py_graph_fn(context, parent, input_schemas);
+        }
+        return &*record.retained_compilation;
+    }
+
     [[nodiscard]] const WiredFnOps &py_graph_fn_ops()
     {
         static constexpr WiredFnOps ops{
             &py_graph_fn_wire,
             &py_graph_fn_compile,
+            &py_graph_fn_probe_compile,
             [](const void *context) {
                 const auto &record = *static_cast<const PyGraphFnRecord *>(context);
                 return std::span<const std::string_view>{record.names.data(), record.names.size()};
@@ -604,6 +659,33 @@ namespace
                 // Known when the python fn carries a TS return annotation
                 // (mesh_ learns its element type this way); else null.
                 return static_cast<const PyGraphFnRecord *>(context)->output_schema;
+            },
+            [](const void *context,
+               std::span<const TSValueTypeMetaData *const> input_schemas)
+                -> std::optional<const TSValueTypeMetaData *> {
+                const auto &record = *static_cast<const PyGraphFnRecord *>(context);
+                if (!record.last_compiled_output_schema.has_value() ||
+                    record.last_compiled_generation !=
+                        TypeRegistry::instance().reset_generation() ||
+                    record.last_compiled_inputs.size() != input_schemas.size() ||
+                    !std::equal(record.last_compiled_inputs.begin(),
+                                record.last_compiled_inputs.end(),
+                                input_schemas.begin()))
+                {
+                    return std::nullopt;
+                }
+                return record.last_compiled_output_schema;
+            },
+            [](const void *context,
+               std::span<const TSValueTypeMetaData *const> input_schemas,
+               const TSValueTypeMetaData *output_schema) {
+                auto &record = *static_cast<const PyGraphFnRecord *>(context);
+                record.last_compiled_inputs.assign(
+                    input_schemas.begin(), input_schemas.end());
+                record.last_compiled_output_schema = output_schema;
+                record.last_compiled_generation =
+                    TypeRegistry::instance().reset_generation();
+                record.retained_compilation.reset();
             },
             [](const void *context) -> std::string_view {
                 return static_cast<const PyGraphFnRecord *>(context)->diagnostic_label;

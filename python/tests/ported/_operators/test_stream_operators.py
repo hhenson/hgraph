@@ -179,6 +179,14 @@ def test_sample():
     ]
 
 
+def test_sample_accepts_anonymous_structural_signal():
+    @graph
+    def g(left: TS[int], right: TS[int], value: TS[str]) -> TS[str]:
+        return sample(combine(left=left, right=right), value)
+
+    assert eval_node(g, [1, 2, None], [10, None, 11], ["a", "b", "c"]) == ["a", "b", "c"]
+
+
 def test_sample_observes_the_selected_reference_branch():
     @graph
     def g(ts: TS[int]) -> TS[int]:

@@ -33,6 +33,13 @@ constexpr std::size_t invalid_cursor = std::numeric_limits<std::size_t>::max();
       engine_clock::now());
 }
 
+[[nodiscard]] GlobalState initial_graph_builder_state() {
+  if (const GlobalState *state = GlobalContext::active_state()) {
+    return *state;
+  }
+  return GlobalState{};
+}
+
 /** "node[3 'my_label']" — the identity prefix used in diagnostics. */
 [[nodiscard]] std::string node_identity(const NodeView &node,
                                         std::size_t index) {
@@ -1883,11 +1890,8 @@ void GraphValue::attach_nodes() {
                           this);
 }
 
-GraphBuilder::GraphBuilder() {
-  if (const GlobalState *state = GlobalContext::active_state()) {
-    global_state_ = *state;
-  }
-}
+GraphBuilder::GraphBuilder()
+    : global_state_(initial_graph_builder_state()) {}
 
 GraphBuilder &GraphBuilder::label(std::string label) {
   label_ = std::move(label);

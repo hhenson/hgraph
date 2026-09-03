@@ -20,7 +20,8 @@ from ._core import (
 )
 from ._graph import _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
-from ._node import _PyNode, _warn_deprecated
+from ._node import (_PyNode, _bind_with_defaults, _partial_binding_plan,
+                    _warn_deprecated)
 from ._resolution import (_apply_resolvers, _python_value_for_binding,
                           _resolution_binding)
 
@@ -101,23 +102,13 @@ def _flavour_label(flavour):
 
 def _client_config_values(stub, bound):
     return {
-        parameter.name: bound.arguments[parameter.name]
-        for parameter in stub._signature.parameters.values()
-        if parameter.name != "path"
-        and not _is_ts_annotation(parameter.annotation)
-        and not _is_resolution_annotation(parameter.annotation)
-        and parameter.annotation not in _INJECTABLE_MARKERS
+        name: bound.arguments[name]
+        for name in stub._client_config_names
     }
 
 
 def _has_client_config(stub):
-    return any(
-        parameter.name != "path"
-        and not _is_ts_annotation(parameter.annotation)
-        and not _is_resolution_annotation(parameter.annotation)
-        and parameter.annotation not in _INJECTABLE_MARKERS
-        for parameter in stub._signature.parameters.values()
-    )
+    return bool(stub._client_config_names)
 
 
 def _client_state_key(identity, stub, path):
@@ -410,14 +401,11 @@ def _service_needs_resolution(stub):
     """
     if getattr(stub, "descriptor", None) is None:
         return True
-    signature = getattr(stub, "_signature", None)
-    if signature is None:
-        return False
     resolution = getattr(stub, "_resolution", None)
     return any(
         resolution is None
         or not resolution.is_resolved(_type_var_name(variable))
-        for variable in _service_type_variables(signature)
+        for variable in getattr(stub, "_type_variables", ())
     )
 
 
@@ -489,7 +477,7 @@ def _apply_service_defaults(signature, resolution):
     return resolution
 
 
-def _service_scalar_values(signature, bound):
+def _service_scalar_values(names, bound):
     """Return the bound wiring-time scalars available to resolvers.
 
     Time-series arguments may still be raw Python values at this point, so
@@ -498,11 +486,9 @@ def _service_scalar_values(signature, bound):
     are both visible by their declared parameter name.
     """
     return {
-        parameter.name: bound.arguments[parameter.name]
-        for parameter in signature.parameters.values()
-        if parameter.name in bound.arguments
-        and not _is_ts_annotation(parameter.annotation)
-        and parameter.annotation not in _INJECTABLE_MARKERS
+        name: bound.arguments[name]
+        for name in names
+        if name in bound.arguments
     }
 
 
@@ -619,7 +605,7 @@ def _remember_service_resolution(stub):
     variables = dict(getattr(stub, "_resolution_variables", {}))
     variables.update({
         _type_var_name(variable): variable
-        for variable in _service_type_variables(stub._signature)
+        for variable in stub._type_variables
     })
     _SERVICE_RESOLUTIONS[(stub.flavour, stub.__name__, stub._specialization)] = (
         {variables.get(name, name): value
@@ -649,6 +635,22 @@ class _ServiceStub:
             registered_resolutions if registered_resolutions is not None else []
         )
         self._signature, self._default_type_var = _wiring_signature_of(fn)
+        self._binding_plan = _partial_binding_plan(self._signature)
+        self._type_variables = _service_type_variables(self._signature)
+        self._scalar_names = tuple(
+            parameter.name
+            for parameter in self._signature.parameters.values()
+            if not _is_ts_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
+        self._client_config_names = tuple(
+            parameter.name
+            for parameter in self._signature.parameters.values()
+            if parameter.name != "path"
+            and not _is_ts_annotation(parameter.annotation)
+            and not _is_resolution_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
         self._request_params = tuple(
             p for p in self._signature.parameters.values()
             if _is_ts_annotation(p.annotation)
@@ -725,7 +727,7 @@ class _ServiceStub:
         items = item if isinstance(item, tuple) else (item,)
         if not all(isinstance(binding, slice) for binding in items):
             variables = [
-                variable for variable in _service_type_variables(self._signature)
+                variable for variable in self._type_variables
                 if self._resolution is None
                 or _type_var_name(variable) not in self._resolution.bindings
             ]
@@ -774,8 +776,8 @@ class _ServiceStub:
     def _bind_call(self, args, kwargs):
         kwargs = dict(kwargs)
         external_path = kwargs.pop("path", "") if "path" not in self._signature.parameters else None
-        bound = self._signature.bind(*args, **kwargs)
-        bound.apply_defaults()
+        bound = _bind_with_defaults(
+            self._signature, self._binding_plan, args, kwargs)
         path = (
             bound.arguments.get("path")
             if "path" in self._signature.parameters
@@ -804,7 +806,7 @@ class _ServiceStub:
             ]
         w = _current_wiring()
         stub = self
-        scalar_values = _service_scalar_values(self._signature, bound)
+        scalar_values = _service_scalar_values(self._scalar_names, bound)
         if _service_needs_resolution(self):
             resolution = _resolve_service_signature(
                 self._signature,
@@ -968,7 +970,7 @@ class _AdaptorClientStub:
             for value in (bound.arguments[parameter.name],)
         ]
         stub = self
-        scalar_values = _service_scalar_values(self._signature, bound)
+        scalar_values = _service_scalar_values(self._scalar_names, bound)
         if _service_needs_resolution(self):
             resolution = _resolve_service_signature(
                 self._signature,
@@ -1027,6 +1029,21 @@ class _AdaptorStub(_AdaptorClientStub):
         self.__signature__ = sig
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         self._signature = sig
+        self._type_variables = _service_type_variables(sig)
+        self._scalar_names = tuple(
+            parameter.name
+            for parameter in sig.parameters.values()
+            if not _is_ts_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
+        self._client_config_names = tuple(
+            parameter.name
+            for parameter in sig.parameters.values()
+            if parameter.name != "path"
+            and not _is_ts_annotation(parameter.annotation)
+            and not _is_resolution_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
         self._request_params = tuple(params)
         out = sig.return_annotation
         path_param = sig.parameters.get("path")
@@ -1184,6 +1201,21 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
                 f"@service_adaptor '{self.__name__}' return annotation must be a "
                 "time-series type or None")
         self._signature = sig
+        self._type_variables = _service_type_variables(sig)
+        self._scalar_names = tuple(
+            parameter.name
+            for parameter in sig.parameters.values()
+            if not _is_ts_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
+        self._client_config_names = tuple(
+            parameter.name
+            for parameter in sig.parameters.values()
+            if parameter.name != "path"
+            and not _is_ts_annotation(parameter.annotation)
+            and not _is_resolution_annotation(parameter.annotation)
+            and parameter.annotation not in _INJECTABLE_MARKERS
+        )
         self._request_params = tuple(params)
         path_param = sig.parameters.get("path")
         default_path = (
@@ -1221,7 +1253,7 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
         items = item if isinstance(item, tuple) else (item,)
         if not all(isinstance(binding, slice) for binding in items):
             variables = [
-                variable for variable in _service_type_variables(self._signature)
+                variable for variable in self._type_variables
                 if self._resolution is None
                 or _type_var_name(variable) not in self._resolution.bindings
             ]

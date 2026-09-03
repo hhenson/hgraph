@@ -197,10 +197,15 @@ void bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
 
   if (switch_output.schema() != nullptr &&
       switch_output.schema()->kind == TSTypeKind::REF &&
-      branch_terminal.schema() != nullptr &&
-      branch_terminal.schema()->kind != TSTypeKind::REF) {
+      branch_terminal.schema() != nullptr) {
+    if (branch_terminal.schema()->kind == TSTypeKind::REF &&
+        !branch_terminal.valid()) {
+      return;
+    }
     const TimeSeriesReference reference =
-        TimeSeriesReference::peered(branch_terminal);
+        branch_terminal.schema()->kind == TSTypeKind::REF
+            ? branch_terminal.value().checked_as<TimeSeriesReference>()
+            : TimeSeriesReference::peered(branch_terminal);
     if (switch_output.valid() &&
         switch_output.value().checked_as<TimeSeriesReference>() == reference) {
       return;
@@ -237,6 +242,13 @@ void clear_branch_output(const NodeView &view, const SwitchNodeContext &context,
   if (context.spec.output_forwards_to_child_terminal) {
     auto output =
         walk_ts_path(view.output(evaluation_time), binding.target_path);
+    if (output.schema() != nullptr &&
+        output.schema()->kind == TSTypeKind::REF) {
+      // A REF switch owns the reference token that preserves the selected
+      // terminal. The terminal itself retains responsibility for its
+      // forwarding lifecycle.
+      return;
+    }
     static_cast<void>(clear_forwarding_output_tree(std::move(output)));
     return;
   }
@@ -409,7 +421,12 @@ bool switch_evaluate(const NodeView &view, DateTime evaluation_time) {
     const SingleNestedGraphNodeSpec &spec = *storage.active_spec;
     bind_branch_inputs(view, spec, active->view(), evaluation_time);
     bind_branch_output(view, context, spec, active->view(), evaluation_time);
-    return active->view().evaluate(evaluation_time);
+    const bool complete = active->view().evaluate(evaluation_time);
+    // A REF terminal can become valid or repoint while evaluating the child.
+    // Refresh the copied switch boundary after that mutation; value terminals
+    // propagate through their forwarding endpoints without this extra sample.
+    bind_branch_output(view, context, spec, active->view(), evaluation_time);
+    return complete;
   }
   return true;
 }
@@ -513,11 +530,13 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
        spec.default_branch->graph_builder.requires_phase_runner());
   meta.node_kind = NodeKind::Nested;
   if (meta.output_schema != nullptr) {
-    meta.output_endpoint_schema = spec.output_forwards_to_child_terminal
-                                      ? forwarding_output_endpoint_schema(
-                                            meta.output_schema)
-                                      : TSEndpointSchema::local(
-                                            meta.output_schema);
+    const bool forwards_output =
+        spec.output_forwards_to_child_terminal &&
+        meta.output_schema->kind != TSTypeKind::REF;
+    meta.output_endpoint_schema =
+        forwards_output
+            ? forwarding_output_endpoint_schema(meta.output_schema)
+            : TSEndpointSchema::local(meta.output_schema);
   }
 
   NodeTypeDescriptor descriptor;

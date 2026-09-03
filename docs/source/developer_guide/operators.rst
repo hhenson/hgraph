@@ -208,16 +208,21 @@ the selected candidate wires an internal one-shot const source to supply that in
 For example ``wire<add_>(w, price, Int{3})`` selects the same ``TS<Int>`` overload as
 ``wire<add_>(w, price, const_3)``.
 
-Atomic auto-const matches are exact: the scalar's interned schema must equal the
-candidate's current-value schema. Template matching performs no numeric widening
-or narrowing, so an ``int32`` does not match ``TS<Int>``, a ``Float`` does not
-match ``TS<float>``, and an int does not match ``TS<Float>``. This prevents a
-more-specific overload from changing the argument's type while it is being
-matched; for example ``dedup(2)`` selects the generic ``TS<Int>`` overload and
-cannot reach the float-tolerance overload. Existing structural current-value
-compatibility, including declared bundle inheritance, is preserved. Scalar
-(configuration) parameters are unaffected and keep the standard numeric
-conversions of the ordinary ``wire<>`` scalar path.
+Native atomic auto-const matches are exact: the scalar's interned schema must
+equal the candidate's current-value schema. Template matching performs no
+numeric widening or narrowing, so an ``int32`` does not match ``TS<Int>``, a
+``Float`` does not match ``TS<float>``, and an int does not match
+``TS<Float>``. This prevents a more-specific overload from changing the
+argument's type while it is being matched; for example ``dedup(2)`` selects the
+generic ``TS<Int>`` overload and cannot reach the float-tolerance overload.
+Nominal opaque Python values retain ordinary subtype covariance: an instance of
+a registered subclass may lift to ``TS[Base]`` and is reboxed at that declared
+base schema after overload selection. Inheritance distance ranks an exact or
+nearer overload ahead of a wider base. Unrelated Python classes remain
+incompatible. Existing structural current-value compatibility, including
+declared bundle inheritance, is also preserved. Scalar (configuration)
+parameters are unaffected and keep the standard numeric conversions of the
+ordinary ``wire<>`` scalar path.
 
 
 Variadic ``**kwargs`` candidates and pack patterns (issue #224)

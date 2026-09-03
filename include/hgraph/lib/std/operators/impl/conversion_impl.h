@@ -349,6 +349,46 @@ namespace hgraph::stdlib
         }
     };
 
+    /** Lift a keyed stream whose values use a concrete nominal schema into
+        the corresponding keyed stream of a registered base schema. */
+    struct convert_tsd_nominal_upcast_impl
+    {
+        static constexpr auto name = "convert_tsd_nominal_upcast";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *out = time_series_schema_as<AnyTSD>(output_schema(resolution));
+            const auto *in = time_series_schema_at_as<AnyTSD>(context, 0);
+            if (out == nullptr || in == nullptr || out->key_type() != in->key_type()) { return false; }
+
+            const auto *out_element = time_series_schema_as<AnyTS>(out->element_ts());
+            const auto *in_element = time_series_schema_as<AnyTS>(in->element_ts());
+            return out_element != nullptr && in_element != nullptr &&
+                   out_element->value_schema != nullptr && in_element->value_schema != nullptr &&
+                   !time_series_schema_equivalent(out_element, in_element) &&
+                   TypeRegistry::instance().value_is_a(
+                       in_element->value_schema, out_element->value_schema);
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)
+        {
+            const TSDInputView input{ts.base().borrowed_ref()};
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            auto output = erased.as_dict();
+            auto mutation = output.begin_mutation(erased.evaluation_time());
+
+            for (const ValueView &key : input.removed_keys())
+            {
+                static_cast<void>(mutation.erase(key));
+            }
+            for (const auto [key, child] : input.modified_items())
+            {
+                if (child.valid()) { mutation.set(key, child.value()); }
+            }
+            if (!erased.valid()) { mutation.touch(); }
+        }
+    };
+
     /** Narrow an Any-storage opaque value to a registered derived annotation.
 
         Both schemas use the same Python-owned Any representation, so the
@@ -2579,7 +2619,7 @@ namespace hgraph::stdlib
                    in == out;
         }
 
-        static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+        static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
                          In<"reset", TS<Bool>, InputValidity::Unchecked> reset,
                          In<"exclude", TsVar<"E">, InputValidity::Unchecked> exclude,
                          Out<TsVar<"__out__">> out)

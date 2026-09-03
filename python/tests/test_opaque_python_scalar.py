@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from typing import Type, TypeVar
 
 import _hgraph
+import pytest
 
-from hgraph import AUTO_RESOLVE, TS, compute_node, const, graph, operator
+from hgraph import AUTO_RESOLVE, TS, WiringError, compute_node, const, graph, operator
 from hgraph.reflection import resolved_type
 from hgraph.test import eval_node
 
@@ -44,11 +45,12 @@ def test_opaque_python_scalar_reflection_is_not_changed_by_later_annotations():
     assert resolved_type(_scalar_value_type(TS[object])) is object
 
 
-def test_parameterized_python_annotations_share_their_origin_identity():
-    assert TS[type[OpaqueBase]] == TS[type[OpaqueDerived]]
+def test_parameterized_python_type_annotations_use_object_runtime_schema():
+    assert TS[type[OpaqueBase]] == TS[object]
+    assert TS[type[OpaqueDerived]] == TS[object]
 
 
-def test_type_of_opaque_class_uses_its_origin_for_wiring():
+def test_parameterized_python_type_annotations_are_wiring_compatible():
     @graph
     def accept_base_type(value: TS[type[OpaqueBase]]) -> TS[type[OpaqueBase]]:
         return value
@@ -95,6 +97,51 @@ def test_opaque_python_scalar_is_covariant_for_wiring():
 
     value = OpaqueDerived()
     assert eval_node(app, [value]) == [value]
+
+
+def test_opaque_python_subclass_auto_const_lifts_to_declared_base():
+    @operator
+    def identity_base(value: TS[OpaqueBase]) -> TS[OpaqueBase]: ...
+
+    @graph(overloads=identity_base)
+    def identity_base_impl(value: TS[OpaqueBase]) -> TS[OpaqueBase]:
+        return value
+
+    value = OpaqueDerived()
+
+    @graph
+    def app() -> TS[OpaqueBase]:
+        return identity_base(value)
+
+    result = eval_node(app)
+    assert result == [value]
+    assert result[0] is value
+
+
+def test_opaque_python_auto_const_rejects_unrelated_class():
+    @operator
+    def identity_base(value: TS[OpaqueBase]) -> TS[OpaqueBase]: ...
+
+    @graph(overloads=identity_base)
+    def identity_base_impl(value: TS[OpaqueBase]) -> TS[OpaqueBase]:
+        return value
+
+    @graph
+    def app() -> TS[OpaqueBase]:
+        return identity_base(OtherOpaque())
+
+    with pytest.raises(WiringError, match="cannot be promoted"):
+        eval_node(app)
+
+
+def test_bound_opaque_base_accepts_subclass_auto_const():
+    value = OpaqueDerived()
+
+    @graph
+    def same_as_value(ts: TS[OpaqueBase]) -> TS[bool]:
+        return ts == value
+
+    assert eval_node(same_as_value, [value]) == [True]
 
 
 def test_constrained_zero_input_operator_distinguishes_opaque_classes():
@@ -179,4 +226,9 @@ def test_nearest_opaque_base_overload_beats_object_overload():
     def app(value: TS[OpaqueDerived]) -> TS[str]:
         return describe(value)
 
+    @graph
+    def scalar_app() -> TS[str]:
+        return describe(OpaqueDerived())
+
     assert eval_node(app, [OpaqueDerived()]) == ["base"]
+    assert eval_node(scalar_app) == ["base"]

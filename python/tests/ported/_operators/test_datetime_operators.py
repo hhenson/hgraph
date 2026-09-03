@@ -67,3 +67,12 @@ def test_date_operators(attr, expected):
         return getattr(d, attr)
 
     assert eval_node(g, date(2024, 11, 1)) == [expected]
+
+
+def test_datetime_datepart_retains_datetime_type_and_truncates_to_midnight():
+    @graph
+    def g(value: TS[datetime]) -> TS[datetime]:
+        return value.datepart
+
+    value = datetime(2024, 11, 1, 15, 42, 17, 123456)
+    assert eval_node(g, value) == [datetime(2024, 11, 1)]

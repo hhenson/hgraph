@@ -541,6 +541,18 @@ void bind_ports(nb::module_ &m) {
                                                           element_schema)};
   });
 
+  m.def("tsb_element", [](const PyPort &port, std::size_t index) {
+    const auto *schema = port.ref.schema;
+    if (schema == nullptr || schema->kind != TSTypeKind::TSB) {
+      throw nb::type_error("tsb_element requires a TSB port");
+    }
+    if (index >= schema->field_count()) {
+      throw nb::index_error("TSB field index is out of range");
+    }
+    return PyPort{subgraph_wiring_detail::tsb_field_ref(
+        port.ref, index, schema->fields()[index].type)};
+  });
+
   m.def(
       "tsl_port",
       [](nb::list ports, std::optional<PyTsType> output_type) {

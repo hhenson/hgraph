@@ -334,6 +334,43 @@ def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
     ]
 
 
+def test_computed_python_owned_bundle_projects_nested_polymorphic_field():
+    @dataclass(frozen=True)
+    class Detail:
+        code: str
+
+    @dataclass(frozen=True)
+    class VenueDetail(Detail):
+        venue: str
+
+    @dataclass(frozen=True)
+    class Item:
+        detail: Detail
+
+    @dataclass(frozen=True)
+    class RankedItem(Item):
+        rank: int
+
+    @dataclass(frozen=True)
+    class Container:
+        item: Item
+
+    for tp in (Detail, VenueDetail, Item, RankedItem, Container):
+        _value_type(tp)
+
+    expected = RankedItem(detail=VenueDetail(code="power", venue="EEX"), rank=1)
+
+    @compute_node
+    def source(trigger: TS[bool]) -> TS[Container]:
+        return Container(item=expected)
+
+    @graph
+    def app(trigger: TS[bool]) -> TS[Item]:
+        return getattr_[SCALAR:Item](source(trigger), "item")
+
+    assert eval_node(app, [True]) == [expected]
+
+
 def test_covariant_python_owned_field_reuses_inherited_native_schema():
     @dataclass(frozen=True)
     class Instrument:
@@ -676,6 +713,27 @@ def test_indirect_recursive_closed_hierarchy_realizes_from_leaf():
 
     future = Future("FUT", ContractSeries(ContractSpec(Instrument("SPOT"))))
     assert eval_node(symbol, [future]) == ["FUT"]
+
+
+def test_owned_ancestry_field_binds_to_its_declared_python_type():
+    @dataclass(frozen=True)
+    class ContractSeries:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class DerivedSeries(ContractSeries):
+        underlying: ContractSeries
+
+    @compute_node
+    def read_symbol(series: TS[ContractSeries]) -> TS[str]:
+        return series.value.symbol
+
+    @graph
+    def app(series: TS[DerivedSeries]) -> TS[str]:
+        return read_symbol(series.underlying)
+
+    underlying = ContractSeries("MONTHLY")
+    assert eval_node(app, [DerivedSeries("BOM", underlying)]) == ["MONTHLY"]
 
 
 def test_time_series_schema_can_be_lifted_from_python_owned_dataclass():

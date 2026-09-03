@@ -1,5 +1,5 @@
 from collections import defaultdict
-from dataclasses import InitVar, dataclass
+from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from frozendict import frozendict
@@ -40,11 +40,6 @@ class DataCatalogueEntry(CompoundScalar, Generic[DATA_STORE]):
     dataset: str
     scope: frozendict[str, Scope]
     store: DATA_STORE
-    auto_register: InitVar[bool] = True
-
-    def __post_init__(self, auto_register: bool):
-        if auto_register:
-            DataCatalogue.instance().add_entry(self)
 
 
 class DataCatalogue(_published_in_global_state):

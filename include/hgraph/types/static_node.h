@@ -1763,25 +1763,31 @@ namespace hgraph
 
         /** Supplied directly (graph ``compose`` parameter / wiring-time value). */
         explicit Scalar(TValue value)
-            : storage_(std::in_place_index<0>, std::move(value))
+            : owned_(std::move(value))
         {
         }
 
         /** Borrow from the immutable node scalar storage (node hook path). */
         explicit Scalar(const ValueView &view)
-            : storage_(std::in_place_index<1>,
-                       std::addressof(view.template checked_as<TValue>()))
+            : borrowed_(std::addressof(view.template checked_as<TValue>()))
         {
         }
 
         /** The configured value of this scalar input. */
         [[nodiscard]] const value_type &value() const noexcept
         {
-            return storage_.index() == 0 ? std::get<0>(storage_) : *std::get<1>(storage_);
+            if (owned_.has_value()) { return *owned_; }
+            return *borrowed_;
         }
 
       private:
-        std::variant<TValue, const TValue *> storage_;
+        // Keep ownership and borrowing in separate, always-initialized fields.
+        // Besides making the invariant explicit, this avoids a GCC false
+        // positive when a string-valued Scalar is moved through the static
+        // node hook tuple and then read from a pointer alternative in a
+        // std::variant.
+        std::optional<TValue> owned_{};
+        const TValue         *borrowed_{nullptr};
     };
 
     /**

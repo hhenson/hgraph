@@ -174,6 +174,15 @@ namespace hgraph
             std::span<const ValueTypeRef> field_bindings);
 
         /**
+         * Build a graph-realized fixed List binding from an explicit element
+         * binding. The schema and static length stay canonical while the
+         * element stride follows the realized storage representation.
+         */
+        [[nodiscard]] ValueTypeRef realized_fixed_list_type_for(
+            const ValueTypeMetaData *schema,
+            ValueTypeRef element_binding);
+
+        /**
          * Build a structural Tuple/Bundle projection from explicit field
          * bindings while retaining ``schema`` as the binding's nominal
          * identity. Unlike ``realized_composite_type_for``, this accepts

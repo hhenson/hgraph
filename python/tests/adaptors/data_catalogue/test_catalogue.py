@@ -33,6 +33,7 @@ def test_catalogue_entry_selection_and_environment_mapping():
             scope=frozendict({"rank": IntegerScope(default=1)}),
             store=_FileSource(source_path="primary", file_name="prices.arrow"),
         )
+        catalogue.add_entry(entry)
         assert catalogue.get_entries(_Row, "prices", DataSource) == {entry}
         assert catalogue.get_entries_for_store_type(_Row, _FileSource) == {entry}
 
@@ -49,7 +50,6 @@ def test_catalogue_entry_crosses_the_runtime_value_boundary():
         dataset="prices",
         scope=frozendict(),
         store=_FileSource(source_path="primary", file_name="prices.arrow"),
-        auto_register=False,
     )
 
     @compute_node
