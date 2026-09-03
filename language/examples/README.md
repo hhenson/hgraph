@@ -1,8 +1,9 @@
 # Language examples
 
-These files illustrate the proposed first language slice. The current `hgl`
-scaffold does not parse them yet, so they are documentation inputs rather than
-executable tests.
+These files illustrate the proposed first language slice. Each one is a
+CTest case that must pass `hgl check`; they are not executed yet, so their
+`test` blocks and results are documentation until the direct-wiring backend
+lands.
 
 - [`midpoint.hgl`](midpoint.hgl) uses an internal helper, `export fn`, an
   atomic tuple, a `const` window, and a `test` of the unexported helper.

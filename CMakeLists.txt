@@ -821,12 +821,13 @@ if(HGRAPH_BUILD_FABRIC_EXTENSION)
     add_subdirectory(extensions/fabric)
 endif()
 
-if(HGRAPH_BUILD_LANGUAGE)
-    add_subdirectory(language)
-endif()
-
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
+endif()
+
+# After tests so the language's Catch2 suites reuse the repository's Catch2.
+if(HGRAPH_BUILD_LANGUAGE)
+    add_subdirectory(language)
 endif()
 
 set(_hgraph_export_targets hgraph_options hgraph_runtime hgraph_wiring hgraph_stdlib hgraph_core)

@@ -22,6 +22,29 @@ String contents may be UTF-8. Required escapes initially include `\"`, `\\`,
 braces delimit blocks, so indentation is non-semantic. Semicolons are not
 statement terminators or parameter separators.
 
+A newline is a terminator only where a declaration or statement can end.
+The parser ignores newlines inside `()`, `[]`, and generic `<>` lists;
+directly after a comma, a binary or assignment operator, `=`, `=>`, `->`,
+or the `:` that introduces a type or a named argument; and directly before
+a line whose first token is a binary operator, a `->` result arrow, or the
+`else` of an `if`. The binary-operator rule is what lets a long expression
+continue on the next line:
+
+```hgl
+assert eval(midpoint, tob: [(1.0, _), (_, 3.0), (2.0, _)])
+    == [_, 2.0, 2.5]
+```
+
+Inside `{}` a newline ends the statement, so a block body cannot be
+continued by indentation alone; a `-` at the start of a line is a
+continuation, not a negation, which is why the rule is stated in terms of
+the first token rather than of indentation. `!` never continues a line.
+The postfix forms never cross a newline: `f\n(x)` is two statements. The
+`{` of a body or block is on the same line as its header, and two
+statements on one line are a diagnostic. An `inject` list continues past
+a trailing comma and newline only when the next line starts with an
+identifier.
+
 A temporal literal is one token: `@` followed by an RFC 3339 date, time, or
 instant, optionally with an RFC 9557 zone annotation (`@2026-09-03`,
 `@09:30`, `@2026-09-03T09:30Z`, `@09:30[America/New_York]`,
@@ -50,8 +73,16 @@ parameter and variable names deliberately to keep a runtime body readable.
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
 keywords, and `unbounded` is a contextual constant in a list-size position.
 Outside a type position, the same spelling can resolve to a function,
-as in `map(values, fn(value) => value * 2.0)`. `out` and the names of other
-injectables are contextual names resolved only by an `inject` declaration.
+as in `map(values, fn(value) => value * 2.0)`. `in` is contextual: it is the
+separator of a `for` statement and an ordinary identifier elsewhere. `out`
+and the names of other injectables are contextual names resolved only by an
+`inject` declaration.
+
+The lexer never produces a `>>` token, so nested generic lists such as
+`list<tuple<f64, f64>>` need no spacing. A number followed directly by a
+letter is a duration literal candidate: `1h30m` and `2m30.5s` are single
+tokens, and `5min` is a `parse` diagnostic naming the unknown unit rather
+than a number followed by an identifier.
 
 ## Compilation-unit grammar
 
@@ -157,6 +188,13 @@ value_tuple_type = "tuple", "<", value_type,
 value_list_type = "list", "<", value_type, ">";
 value_map_type  = "map", "<", value_type, ",", value_type, ">";
 ```
+
+A contextual type keyword introduces a container type only when it is
+directly followed by `<`; `rolling` alone is a named type and `list(1, 2)`
+is a call. A size expression is parsed at additive precedence and above, so
+`list<f64, n + 1>` needs no parentheses but a comparison inside a size
+does; `unbounded` is the sentinel only when it directly precedes the
+closing `>`. Generic parameter lists and tuple types are non-empty.
 
 This grammar permits `atomic<T>` only at a temporal boundary. Nested atomic
 values remain expressible because a container's element is itself
@@ -341,7 +379,10 @@ Every literal is validated and normalized when it is lexed:
 - a date must exist in the calendar, so `@2026-02-29` is a diagnostic;
 - a time must be earlier than `24:00:00`; `24:00:00` and the leap-second form
   `23:59:60` are diagnostics;
-- an instant carries `Z` or an offset and is stored normalized to UTC; the
+- an instant carries `Z` or an offset and is stored normalized to UTC, and
+  that UTC value must itself lie in the years 0001 to 9999 so that every
+  instant has a canonical spelling (`@0001-01-01T00:00+23:59` is a
+  diagnostic); the
   same shape with no offset is a `civil_datetime`, a different type, so
   `const t: datetime = @2026-09-03T09:30` is a `type` diagnostic rather than
   a value silently read as UTC, and Python's naive-means-UTC convention never
@@ -625,6 +666,48 @@ they hold canonical scalar values local to the executing block. Runtime `var`
 storage is recreated on every block execution and is never added to the
 function's recordable state. A value that crosses evaluations must use `state`.
 
+The statement and expression productions are:
+
+```ebnf
+block          = "{", [ NL ], { statement, NL }, [ statement ], "}";
+statement      = local_decl | state_decl | inject_decl | lifecycle_block
+               | when_statement | for_statement | mutation_statement
+               | return_statement | assert_statement | expression;
+return_statement
+               = "return", [ expression ];
+
+expression     = or_expr;
+or_expr        = and_expr, { "||", and_expr };
+and_expr       = equality_expr, { "&&", equality_expr };
+equality_expr  = comparison_expr, { ( "==" | "!=" ), comparison_expr };
+comparison_expr
+               = additive_expr,
+                 { ( "<" | "<=" | ">" | ">=" ), additive_expr };
+additive_expr  = multiplicative_expr,
+                 { ( "+" | "-" ), multiplicative_expr };
+multiplicative_expr
+               = unary_expr, { ( "*" | "/" | "%" ), unary_expr };
+unary_expr     = ( "-" | "!" ), unary_expr | postfix_expr;
+postfix_expr   = primary_expr,
+                 { "(", [ argument, { ",", argument }, [ "," ] ], ")"
+                 | "[", expression, "]"
+                 | ".", identifier };
+primary_expr   = literal | placeholder | identifier | qualified_name
+               | "(", expression, ")" | tuple_literal | sequence_literal
+               | function_expr | if_expression | eval_expression | block;
+if_expression  = "if", expression, block,
+                 [ "else", ( block | if_expression ) ];
+```
+
+The final statement of a block is its tail expression when it is an
+expression. `if` is a primary expression, so it is an operand only when
+parenthesized (`(if c { 1 } else { 2 }) + 1`); as a statement its value is
+discarded. A bare `{ ... }` in expression position is a block expression.
+Which conditions a composition body may branch on is a
+classification question (the open item on temporal conditions), not a
+grammar one: the parser accepts `if` uniformly and the classifier
+diagnoses the cases the current slice does not lower.
+
 Expression precedence is:
 
 | Precedence, high to low | Tokens |
@@ -661,11 +744,14 @@ placeholder      = "_";
 A qualified callee begins with an alias introduced by `use module.path as
 alias` and uses `::` between namespace and declaration names. Dots remain the
 syntax of canonical module paths in `module` and `use` declarations; they are
-not expression member access. A sequence literal is a constant `list` value
+not expression member access. A named argument is an identifier directly
+followed by `:`, and a timed sequence element is a temporal literal directly
+followed by `:`. A sequence literal is a constant `list` value
 of one element type, and a tuple literal a constant tuple; a single
 parenthesized expression is grouping, so a one-element tuple needs the
-trailing comma. Timed elements and the `_` placeholder are valid only in the
-harness sequences of the evaluation section below.
+trailing comma and `()` is a diagnostic. Timed elements and the `_`
+placeholder are valid only in the harness sequences of the evaluation
+section below.
 
 Duplicate names, unknown names, positional arguments after named arguments,
 and missing required arguments are source diagnostics.
@@ -1138,8 +1224,13 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - complete and projected output assignments;
 - explicit versus context-inferred anonymous types.
 
-Parser recovery should synchronize at closing braces, `export`, `impl`,
-`operator`, `fn`, and top-level newlines.
+Parser recovery synchronizes at closing braces, `export`, `impl`,
+`operator`, `fn`, `test`, and top-level newlines: a bad statement is
+skipped to the end of its line or the closing `}` of its block, a bad
+declaration to the next line that starts a declaration, and each bad
+construct produces one diagnostic. A reserved word in a name position is
+reported and then taken as the name so the enclosing declaration is still
+built. Rendered diagnostics are ordered by source position.
 
 ## Diagnostics
 

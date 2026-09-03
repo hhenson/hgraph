@@ -194,7 +194,7 @@ hgl repl
 [Testing and running](testing-and-running.md) shows `test`, `run`, and the
 run configuration file from the author's side.
 
-The current scaffold implements only `hgl --help` and `hgl --version`. These
+The current `hgl` implements `--help`, `--version`, and `check`. The other
 commands are a documented target, not yet an available interface.
 
 ## One execution model

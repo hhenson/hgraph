@@ -10,9 +10,12 @@ The first backend will transpile typed language programs to public hgraph C++
 authoring APIs. Scripted execution, the REPL, and production builds will share
 that frontend and backend so they cannot acquire separate runtime semantics.
 
-The project is currently a design and build scaffold. The `hgl` executable
-only reports help and version information; it does not parse language source
-yet.
+The project is at the start of the first slice. `hgl check` lexes and
+parses a module and reports syntax diagnostics (`--dump-tokens` and
+`--dump-ast` show the frontend's view); every file under `examples/` is a
+CTest case. Name resolution, checking, and the direct-wiring backend that
+runs `test`, `run`, and the REPL come next
+([roadmap](docs/design/roadmap.md)).
 
 ## Build
 
@@ -32,6 +35,12 @@ cmake -S language -B build-language \
 cmake --build build-language
 ctest --test-dir build-language
 ```
+
+When the SDK is the installed `hgraph` wheel, pass its `site-packages`
+directory as the prefix and `-DPython_EXECUTABLE=<that interpreter>`;
+`hgraphConfig.cmake` needs the interpreter to locate nanobind. Catch2 is
+found or fetched for the frontend tests unless the language is built as
+part of the repository, where it reuses the repository's copy.
 
 ## Documentation
 

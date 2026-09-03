@@ -4,8 +4,11 @@ This guide explains how to implement the source contract in the
 [User Guide](../user-guide/README.md). The compiler is an authoring frontend
 for hgraph, not a second runtime.
 
-> **Implementation status:** the current project contains the `hgl` command
-> scaffold but no lexer, semantic IR, function classifier, or C++ generator.
+> **Implementation status:** `src/syntax/` implements the lexer, the
+> temporal literal parser, the arena AST, and the parser of
+> [Syntax and semantics](syntax-and-semantics.md); `hgl check` runs them.
+> There is no resolver, semantic IR, function classifier, direct-wiring
+> backend, or C++ generator yet.
 
 ## Guide map
 

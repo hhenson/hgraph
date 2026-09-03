@@ -47,6 +47,21 @@ The source manager owns file identities, byte offsets, line/column lookup, and
 snippets. Diagnostics refer to source identities rather than scattering raw
 filesystem paths through the AST.
 
+`src/syntax/` is implemented as follows. `source` holds a file's path, text,
+and line table; every token and node carries a half-open byte range into
+it. `diagnostic` collects `Category`-tagged diagnostics with optional notes
+and renders them as `path:line:col: category: message` plus the source line
+and a caret. `temporal` parses and validates the temporal literal spellings
+of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
+and zone) and prints the canonical spelling. `lexer` produces one token
+vector per file, with comments as trivia and one `Newline` token per run of
+terminators. `ast` is an index-based arena: nodes are `std::variant`
+payloads addressed by `NodeId`, so the tree owns no pointers and a module is
+one movable value. `parser` is a hand-written recursive-descent parser over
+the token vector that applies the newline rules of the syntax guide and
+recovers at the synchronization points listed there; `ast_printer` dumps
+the tree one node per line for `hgl check --dump-ast` and the tests.
+
 ## Common function representation
 
 Parsing produces `UnclassifiedFn` for both named and anonymous functions. Its

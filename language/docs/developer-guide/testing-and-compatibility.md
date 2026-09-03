@@ -5,7 +5,11 @@ Parser-only milestones remain intermediate progress.
 
 ## Lexer and parser
 
-Snapshots cover:
+The frontend tests are Catch2 cases in `tests/syntax/` (`temporal_tests`,
+`lexer_tests`, `parser_tests`; one `hgl_syntax_tests` binary registered as
+the `hgraph_language_syntax` CTest case). They assert on token kinds and
+values, on the `print_ast` dump of parsed snippets, and on the diagnostics
+emitted for rejected input. Snapshots cover:
 
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;

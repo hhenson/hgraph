@@ -4,9 +4,9 @@ This guide describes the emerging source language from an author's point of
 view: how functions and types look, which values change over time, and how
 source calls reach hgraph.
 
-> **Design preview:** the current `hgl` command does not parse these examples.
-> The documents record syntax agreed during design discussion, not a source
-> compatibility promise.
+> **Design preview:** the current `hgl` command parses these examples but
+> does not run them. The documents record syntax agreed during design
+> discussion, not a source compatibility promise.
 
 ## Read in this order
 
