@@ -987,7 +987,11 @@ namespace hgraph::python_bridge
             auto view = checked();
             if (is_dynamic_list())
             {
-                for (const std::size_t index : view.as_list().added_indices())
+                // The list view is NAMED: the range borrows the ops table and
+                // storage, not the view, but a temporary here trips GCC 14's
+                // -Wdangling-reference (and the rest of this file names it too).
+                auto list = view.as_list();
+                for (const std::size_t index : list.added_indices())
                 {
                     result.append(nb::cast(index));
                 }
@@ -1053,7 +1057,8 @@ namespace hgraph::python_bridge
             auto     view = checked();
             if (is_dynamic_list())
             {
-                for (const std::size_t index : view.as_list().removed_indices())
+                auto list = view.as_list();
+                for (const std::size_t index : list.removed_indices())
                 {
                     result.append(nb::cast(index));
                 }
