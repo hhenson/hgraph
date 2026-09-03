@@ -4,6 +4,46 @@ module examples.structural_types
 
 use hgraph.std::{map}
 
+export struct Quote {
+    bid: f64
+    ask: f64
+    currency: str = "USD"
+    venue: str = null
+}
+
+export struct Box<T> {
+    value: T
+}
+
+export struct Range<T>
+requires T in {i64, f64}
+{
+    lower: T
+    upper: T
+}
+
+export abstract struct Instrument {
+    symbol: str
+    venue: str = null
+}
+
+export struct Future: Instrument {
+    venue = "XCME"
+    expiry: date
+}
+
+fn make_quote(bid: f64, ask: f64) -> Quote =>
+    Quote(bid: bid, ask: ask)
+
+fn boxed_midpoint(value: f64) -> atomic<Box<f64>> =>
+    Box<f64>(value: value)
+
+fn bid_delta(value: f64) -> Quote {
+    when modified(value) {
+        return delta<Quote>(bid: value)
+    }
+}
+
 fn notionals(
     prices: map<str, f64>,
     quantities: map<str, i64>

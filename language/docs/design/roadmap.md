@@ -2,6 +2,24 @@
 
 Status: initial design
 
+## Prototype checkpoint (2026-09-03)
+
+The prototype deliberately permits incompatible AST and implementation
+changes while these slices are being exercised. The current tree implements
+the struct, constraint, and construction syntax described below; resolves
+abstract-only single inheritance, effective fields, constructor completeness,
+generic argument roles, and statically decidable closed requirements; and
+directly wires scalar Bundle values, `atomic<S>` values, type-only generic
+specializations, sparse scalar deltas, and simple field-wise temporal structs.
+
+The implementation fails closed where the public or language contract is not
+settled: multiple-parent field order, constructor inference, typed `const`
+generic Bundle metadata, explicit optional-field clearing, temporal deltas,
+callable generic substitution, source-defined operator candidates, and runtime
+function lowering. Slice numbering below still describes the intended
+end-to-end acceptance rather than a claim that all earlier deliverables are
+complete.
+
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,
 runtime behavior, and diagnostics. Slice 1 reaches them through the
@@ -174,16 +192,15 @@ Acceptance:
 
 Candidates, in risk order:
 
-- implement the agreed nominal `struct` declaration, named construction,
-  required/default/`null` optional fields, recursively temporalized bundle and
-  explicit `atomic<S>` representations, and contextual `delta<S>` values;
-- implement abstract-only inheritance, implicitly final concrete leaves,
-  invariant field type and optionality, descendant default overrides, and
+- complete the implemented nominal `struct` prototype with nested temporal
+  construction, runtime consumption of contextual `delta<S>` values, and
+  atomic aggregation validity semantics;
+- complete the implemented abstract-only single-inheritance checks with
   scalar/atomic closed-family registration after settling multiple-parent
   field order and the temporal base-projection spelling;
-- implement invariant generic struct origins over canonical type and `const`
-  arguments, complete application, constructor inference, `requires`
-  validation, and exact-specialization abstract families;
+- complete the implemented invariant type-generic struct origins with typed
+  `const` arguments, constructor inference, full `requires` evaluation, and
+  exact-specialization abstract families;
 - extend public nominal Bundle metadata and generic patterns with typed constant
   arguments rather than encoding a `const` specialization only in its name;
 - add a public native operation or canonical delta encoding for explicitly

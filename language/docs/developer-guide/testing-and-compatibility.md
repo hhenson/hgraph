@@ -3,6 +3,16 @@
 The language is complete only when source reaches observable hgraph behavior.
 Parser-only milestones remain intermediate progress.
 
+The lists below are the acceptance matrix, not a claim that every item has
+landed. At the 2026-09-03 prototype checkpoint, syntax tests cover struct,
+generic application, constraint, `null`, and delta nodes; resolver tests cover
+effective single-parent fields, hierarchy failures, generic argument roles,
+closed-set struct admission, nominal constraint binding, and constructor
+shape; and direct-wiring tests cover scalar/defaulted/inherited Bundle values,
+type-generic and atomic values, sparse deltas, and field-wise temporal
+composition. The tests also lock fail-closed diagnostics for multiple parents,
+typed `const` generic metadata, and explicit optional-field clearing.
+
 ## Lexer and parser
 
 The frontend tests are Catch2 cases in `tests/syntax/` (`temporal_tests`,
@@ -67,8 +77,9 @@ diagnostics for other modules and unknown exports, the scope chain
 (locals, parameters, functions, imports, intrinsics, and shadowing),
 unknown names, the phase rules of `assert`, `eval`, and `_`, function
 classification from statement forms, `impl fn` binding and the
-`fn`/operator clash, tests as non-values, and that every guide example
-resolves.
+`fn`/operator clash, nominal structs and effective fields, generic applications
+and decidable struct requirements, constructor validation, tests as non-values,
+and that every guide example resolves.
 
 ## Canonical types and temporal shapes
 

@@ -10,15 +10,21 @@ The first backend will transpile typed language programs to public hgraph C++
 authoring APIs. Scripted execution, the REPL, and production builds will share
 that frontend and backend so they cannot acquire separate runtime semantics.
 
-The project is in the first slice. `hgl check` lexes, parses, and resolves
-a module and reports diagnostics (`--dump-tokens` and `--dump-ast` show the
-frontend's view); `hgl test`, `hgl run`, and `hgl repl` wire
-composition-only programs straight onto the hgraph runtime through the
-first pass of the direct-wiring backend, driving `eval` with dense
-sequences over `atomic` and scalar parameters. Every file under
-`examples/` is a CTest case, and `midpoint.hgl` runs its test. Timed
-sequences, structural tuples in the harness, the TOML run configuration,
-and generated C++ for runtime functions come next
+The project is an intentionally changeable prototype in its first executable
+slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
+(`--dump-tokens` and `--dump-ast` show the frontend's view). That frontend now
+models nominal and generic structs, abstract-only inheritance, defaults and
+optional fields, `requires` constraints, and sparse `delta<S>` construction.
+`hgl test`, `hgl run`, and `hgl repl` wire composition-only programs straight
+onto the hgraph runtime through the direct-wiring backend, including scalar
+struct construction, type-generic Bundle specializations, `atomic<S>` values,
+and field-wise temporal struct composition. Every file under `examples/` is a
+CTest check case, and `midpoint.hgl` runs its test.
+
+Constructor inference, typed `const` arguments in native generic Bundle
+identity, multiple-parent field order, explicit optional-field clearing,
+runtime-function lowering, timed harness sequences, TOML run configuration,
+and generated C++ remain staged work
 ([roadmap](docs/design/roadmap.md)).
 
 ## Build
@@ -62,5 +68,6 @@ and preserves those semantics through hgraph's public C++ APIs.
 - [Modules and native extensions](docs/design/modules.md)
 - [Roadmap](docs/design/roadmap.md)
 
-Syntax shown in the design records and examples is provisional until the
-grammar and semantic tests land.
+Syntax remains provisional while the prototype evolves; compatibility is not
+yet a release constraint. Implemented forms are kept under grammar, semantic,
+and direct-wiring tests.

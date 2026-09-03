@@ -6,11 +6,16 @@ for hgraph, not a second runtime.
 
 > **Implementation status:** `src/syntax/` implements the lexer, the
 > temporal literal parser, the arena AST, and the parser of
-> [Syntax and semantics](syntax-and-semantics.md), except for the newly agreed
-> `requires` clauses and the newly agreed generic `struct`, inheritance,
-> `null`, and structured `delta` forms. `src/semantics/` resolves and classifies
-> the implemented subset, and `src/wiring/` executes its composition-only
-> subset for `test`, `run`, and the REPL. Typed HIR, runtime-function lowering,
+> [Syntax and semantics](syntax-and-semantics.md), including `requires`,
+> nominal and generic `struct`, abstract-only inheritance, `null`, and
+> structured `delta` forms. `src/semantics/` binds constraint names, resolves
+> struct families and effective fields, validates hierarchy and construction,
+> rejects decidably false closed requirements, and classifies functions.
+> `src/wiring/` executes the composition-only subset for `test`, `run`, and the
+> REPL, including scalar and atomic struct values, type-only generic
+> specializations, and field-wise temporal struct composition. Typed HIR,
+> constructor inference, `const` generic metadata, multiple-parent
+> linearization, explicit optional-field clearing, runtime-function lowering,
 > and generated C++ remain to be implemented.
 
 ## Guide map

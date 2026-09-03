@@ -29,6 +29,7 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -97,7 +98,10 @@ namespace hgl::wiring
             {
                 Void,
                 Const,
+                Null,
+                Delta,
                 Port,
+                Struct,
                 Function,
                 Operator,
                 Intrinsic,
@@ -136,6 +140,14 @@ namespace hgl::wiring
             Slot slot;
             slot.kind  = Slot::Kind::Port;
             slot.port  = std::move(port);
+            slot.range = range;
+            return slot;
+        }
+
+        Slot make_null(SourceRange range)
+        {
+            Slot slot;
+            slot.kind  = Slot::Kind::Null;
             slot.range = range;
             return slot;
         }
@@ -255,6 +267,46 @@ namespace hgl::wiring
             [[nodiscard]] hgraph::Value convert(const hgraph::Value &value, const hgraph::ValueTypeMetaData *target,
                                                 SourceRange range, std::string_view what);
 
+            struct ActiveTypeArgument
+            {
+                ast::DeclId                      decl{ast::no_node};
+                std::uint32_t                    index{0};
+                const hgraph::ValueTypeMetaData *meta{nullptr};
+                ast::TypeId                      source_type{ast::no_node};
+                ast::DeclId                      source_struct{ast::no_node};
+            };
+
+            struct AppliedStruct
+            {
+                ast::DeclId                                    decl{ast::no_node};
+                std::size_t                                    mark{0};
+                std::string                                    local_name{};
+                std::vector<const hgraph::ValueTypeMetaData *> generic_types{};
+            };
+
+            struct RuntimeStructField
+            {
+                std::string                        name{};
+                const hgraph::ValueTypeMetaData   *value_meta{nullptr};
+                const hgraph::TSValueTypeMetaData *schema{nullptr};
+                bool                               optional{false};
+                bool                               has_default{false};
+                Slot                               default_value{};
+            };
+
+            [[nodiscard]] AppliedStruct                    apply_struct(ast::TypeId id, Frame &frame);
+            [[nodiscard]] AppliedStruct                    apply_plain_struct(ast::DeclId decl, SourceRange range);
+            void                                           restore_types(std::size_t mark) { active_type_arguments_.resize(mark); }
+            [[nodiscard]] const hgraph::ValueTypeMetaData *type_argument(const ast::GenericArgument &argument, Frame &frame);
+            [[nodiscard]] const hgraph::ValueTypeMetaData *named_type_argument(std::string_view name, SourceRange range,
+                                                                               Frame &frame);
+            [[nodiscard]] const hgraph::ValueTypeMetaData *struct_value_meta(const AppliedStruct &applied, Frame &frame);
+            [[nodiscard]] const hgraph::TSValueTypeMetaData *struct_schema(const AppliedStruct &applied, Frame &frame);
+            [[nodiscard]] std::vector<RuntimeStructField>    struct_fields(const AppliedStruct &applied, Frame &frame,
+                                                                           bool evaluate_defaults);
+            [[nodiscard]] Slot eval_construct(ast::DeclId decl, ast::TypeId type, const std::vector<ast::Argument> &arguments,
+                                              bool delta, SourceRange range, Frame &frame);
+
             // -- constants
             [[nodiscard]] bool is_type(const Slot &slot, const hgraph::ValueTypeMetaData *meta) const noexcept
             {
@@ -279,71 +331,296 @@ namespace hgl::wiring
             }
             [[nodiscard]] Slot fold_binary(ast::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range);
             [[nodiscard]] Slot fold_unary(ast::UnaryOp op, const Slot &operand, SourceRange range);
-            [[nodiscard]] Slot compare_sequences(const Slot &lhs, const Slot &rhs, bool negate, SourceRange range,
-                                                 Frame &frame);
-            void resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *elem_meta, Frame &frame);
+            [[nodiscard]] Slot compare_sequences(const Slot &lhs, const Slot &rhs, bool negate, SourceRange range, Frame &frame);
+            void               resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *elem_meta, Frame &frame);
             [[nodiscard]] Slot constant_of(const Slot &slot, const hgraph::ValueTypeMetaData *meta, Frame &frame,
                                            const std::string &what);
 
             // -- wiring
             [[nodiscard]] hgraph::Wiring &wiring(SourceRange range)
             {
-                if (wiring_ == nullptr)
-                {
-                    backend(range, "a time-series expression is only wired inside eval or a run");
-                }
+                if (wiring_ == nullptr) { backend(range, "a time-series expression is only wired inside eval or a run"); }
                 return *wiring_;
             }
-            [[nodiscard]] Slot wire(std::string_view name, std::vector<hgraph::WiringArg> args, SourceRange range,
-                                    std::optional<bool> output_required = std::nullopt,
-                                    const hgraph::TSValueTypeMetaData *expected = nullptr);
+            [[nodiscard]] Slot              wire(std::string_view name, std::vector<hgraph::WiringArg> args, SourceRange range,
+                                                 std::optional<bool>                output_required = std::nullopt,
+                                                 const hgraph::TSValueTypeMetaData *expected        = nullptr);
             [[nodiscard]] hgraph::WiringArg argument_of(const Slot &slot, std::string name);
-            [[nodiscard]] Slot wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *schema);
-            [[nodiscard]] Slot wire_binary(ast::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range);
+            [[nodiscard]] Slot              wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *schema);
+            [[nodiscard]] Slot              wire_binary(ast::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range);
 
             // -- evaluation
             [[nodiscard]] Slot eval_expr(ast::ExprId id, Frame &frame);
             [[nodiscard]] Slot eval_name(ast::ExprId id, Frame &frame);
             [[nodiscard]] Slot eval_call(const ast::Call &call, SourceRange range, Frame &frame);
-            [[nodiscard]] Slot eval_intrinsic(const Slot &callee, const ast::Call &call, SourceRange range,
-                                              Frame &frame);
+            [[nodiscard]] Slot eval_intrinsic(const Slot &callee, const ast::Call &call, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_eval(const ast::Eval &eval, SourceRange range, Frame &frame);
-            [[nodiscard]] Slot call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments,
-                                             SourceRange range, Frame &frame);
+            [[nodiscard]] Slot call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments, SourceRange range,
+                                             Frame &frame);
             [[nodiscard]] Slot invoke(ast::DeclId decl, Frame &callee);
             [[nodiscard]] Slot exec_block(ast::BlockId id, Frame &frame);
-            void exec_stmt(ast::StmtId id, Frame &frame);
+            void               exec_stmt(ast::StmtId id, Frame &frame);
             [[nodiscard]] Slot eval_if(const ast::If &node, Frame &frame);
             [[nodiscard]] Slot eval_tuple(const ast::TupleLiteral &node, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_list(const ast::SequenceLiteral &node, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_literal(const ast::TemporalLiteral &node, SourceRange range);
-            [[nodiscard]] Slot bind_parameter(const ast::Parameter &param, const Slot &arg, Frame &callee,
-                                              SourceRange range);
-            [[nodiscard]] std::vector<ast::ExprId> bind_arguments(const ast::FunctionDecl &fn,
-                                                                  const std::vector<ast::Argument> &arguments,
-                                                                  SourceRange range);
-            [[nodiscard]] std::string describe(const Slot &slot);
+            [[nodiscard]] Slot bind_parameter(const ast::Parameter &param, const Slot &arg, Frame &callee, SourceRange range);
+            [[nodiscard]] std::vector<ast::ExprId> bind_arguments(const ast::FunctionDecl          &fn,
+                                                                  const std::vector<ast::Argument> &arguments, SourceRange range);
+            [[nodiscard]] std::string              describe(const Slot &slot);
             [[nodiscard]] const ast::FunctionDecl &function(ast::DeclId decl) const
-            {
-                return std::get<ast::FunctionDecl>(module_.decl(decl).node);
-            }
+            { return std::get<ast::FunctionDecl>(module_.decl(decl).node); }
             [[nodiscard]] std::string slice(SourceRange range) const { return std::string{file_.slice(range)}; }
 
             // -- programs
             [[nodiscard]] std::optional<hgraph::Value> setting_value(const Setting &setting, const ast::Parameter &param,
                                                                      Frame &frame, SourceRange range);
 
-            const syntax::SourceFile                     &file_;
-            const ast::Module                            &module_;
-            const semantics::ResolvedModule              &resolved_;
-            syntax::DiagnosticSink                       &diagnostics_;
+            const syntax::SourceFile                      &file_;
+            const ast::Module                             &module_;
+            const semantics::ResolvedModule               &resolved_;
+            syntax::DiagnosticSink                        &diagnostics_;
             const hgraph::stdlib::RegisteredStandardTypes &types_;
-            hgraph::TypeRegistry                         &registry_;
-            hgraph::Wiring                               *wiring_{nullptr};
-            std::string                                   compare_detail_{};
+            hgraph::TypeRegistry                          &registry_;
+            hgraph::Wiring                                *wiring_{nullptr};
+            std::string                                    compare_detail_{};
+            std::vector<ActiveTypeArgument>                active_type_arguments_{};
         };
 
         // ------------------------------------------------------------- types
+
+        Compiler::AppliedStruct Compiler::apply_plain_struct(ast::DeclId decl, SourceRange range)
+        {
+            const auto &structure = std::get<ast::StructDecl>(module_.decl(decl).node);
+            if (!structure.generics.empty())
+            {
+                backend(range, "generic struct '" + std::string{structure.name.text} +
+                                   "' needs explicit arguments in the executable prototype");
+            }
+            AppliedStruct applied;
+            applied.decl       = decl;
+            applied.mark       = active_type_arguments_.size();
+            applied.local_name = std::string{structure.name.text};
+            return applied;
+        }
+
+        const hgraph::ValueTypeMetaData *Compiler::named_type_argument(std::string_view name, SourceRange range, Frame &frame)
+        {
+            for (auto active = active_type_arguments_.rbegin(); active != active_type_arguments_.rend(); ++active)
+            {
+                const ast::DeclNode                      &decl     = module_.decl(active->decl).node;
+                const std::vector<ast::GenericParameter> *generics = nullptr;
+                if (const auto *structure = std::get_if<ast::StructDecl>(&decl)) { generics = &structure->generics; }
+                else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl)) { generics = &fn->generics; }
+                else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl)) { generics = &op->generics; }
+                if (generics != nullptr && active->index < generics->size() && (*generics)[active->index].name.text == name)
+                {
+                    return active->meta;
+                }
+            }
+            for (const ast::DeclId id : resolved_.structs)
+            {
+                const auto &structure = std::get<ast::StructDecl>(module_.decl(id).node);
+                if (structure.name.text != name) { continue; }
+                const AppliedStruct applied = apply_plain_struct(id, range);
+                return struct_value_meta(applied, frame);
+            }
+            backend(range, "unresolved type argument '" + std::string{name} + "'");
+        }
+
+        const hgraph::ValueTypeMetaData *Compiler::type_argument(const ast::GenericArgument &argument, Frame &frame)
+        {
+            if (argument.type != ast::no_node) { return value_meta_for_type(argument.type, frame); }
+            if (!argument.name.empty()) { return named_type_argument(argument.name.text, argument.name.range, frame); }
+            backend(argument.range, "a type parameter cannot be bound from a value argument");
+        }
+
+        Compiler::AppliedStruct Compiler::apply_struct(ast::TypeId id, Frame &frame)
+        {
+            const ast::Type          &type    = module_.type(id);
+            const semantics::Binding &binding = resolved_.type_binding(id);
+            if (type.kind != ast::TypeKind::Named || binding.kind != BindingKind::Struct)
+            {
+                backend(type.range, "expected a resolved struct type");
+            }
+            const auto   &structure = std::get<ast::StructDecl>(module_.decl(binding.decl).node);
+            AppliedStruct applied;
+            applied.decl       = binding.decl;
+            applied.mark       = active_type_arguments_.size();
+            applied.local_name = std::string{structure.name.text};
+            try
+            {
+                for (std::size_t i = 0; i < structure.generics.size(); ++i)
+                {
+                    const ast::GenericParameter &parameter = structure.generics[i];
+                    if (parameter.is_const)
+                    {
+                        backend(type.arguments[i].range, "const generic struct arguments require typed constant Bundle "
+                                                         "metadata in hgraph");
+                    }
+                    const hgraph::ValueTypeMetaData *meta = type_argument(type.arguments[i], frame);
+                    ActiveTypeArgument               active;
+                    active.decl  = binding.decl;
+                    active.index = static_cast<std::uint32_t>(i);
+                    active.meta  = meta;
+                    if (type.arguments[i].type != ast::no_node) { active.source_type = type.arguments[i].type; }
+                    else if (!type.arguments[i].name.empty())
+                    {
+                        for (auto outer = active_type_arguments_.rbegin(); outer != active_type_arguments_.rend(); ++outer)
+                        {
+                            const ast::DeclNode                      &outer_decl     = module_.decl(outer->decl).node;
+                            const std::vector<ast::GenericParameter> *outer_generics = nullptr;
+                            if (const auto *s = std::get_if<ast::StructDecl>(&outer_decl)) { outer_generics = &s->generics; }
+                            else if (const auto *f = std::get_if<ast::FunctionDecl>(&outer_decl)) { outer_generics = &f->generics; }
+                            else if (const auto *o = std::get_if<ast::OperatorDecl>(&outer_decl)) { outer_generics = &o->generics; }
+                            if (outer_generics != nullptr && outer->index < outer_generics->size() &&
+                                (*outer_generics)[outer->index].name.text == type.arguments[i].name.text)
+                            {
+                                active.source_type   = outer->source_type;
+                                active.source_struct = outer->source_struct;
+                                break;
+                            }
+                        }
+                        if (active.source_type == ast::no_node && active.source_struct == ast::no_node)
+                        {
+                            for (const ast::DeclId candidate : resolved_.structs)
+                            {
+                                if (std::get<ast::StructDecl>(module_.decl(candidate).node).name.text ==
+                                    type.arguments[i].name.text)
+                                {
+                                    active.source_struct = candidate;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    active_type_arguments_.push_back(active);
+                    applied.generic_types.push_back(meta);
+                }
+            }
+            catch (...)
+            {
+                restore_types(applied.mark);
+                throw;
+            }
+            if (!applied.generic_types.empty())
+            {
+                applied.local_name += '[';
+                for (std::size_t i = 0; i < applied.generic_types.size(); ++i)
+                {
+                    if (i != 0) { applied.local_name += ','; }
+                    applied.local_name += applied.generic_types[i]->name();
+                }
+                applied.local_name += ']';
+            }
+            return applied;
+        }
+
+        std::vector<Compiler::RuntimeStructField> Compiler::struct_fields(const AppliedStruct &applied, Frame &frame,
+                                                                          bool evaluate_defaults)
+        {
+            const auto &structure = std::get<ast::StructDecl>(module_.decl(applied.decl).node);
+            if (!resolved_.structure(applied.decl).valid)
+            {
+                backend(structure.name.range, "struct '" + std::string{structure.name.text} + "' is not valid");
+            }
+            std::vector<RuntimeStructField> fields;
+            for (const ast::TypeId parent_type : structure.parents)
+            {
+                AppliedStruct parent = apply_struct(parent_type, frame);
+                try
+                {
+                    std::vector<RuntimeStructField> inherited = struct_fields(parent, frame, evaluate_defaults);
+                    fields.insert(fields.end(), std::make_move_iterator(inherited.begin()),
+                                  std::make_move_iterator(inherited.end()));
+                }
+                catch (...)
+                {
+                    restore_types(parent.mark);
+                    throw;
+                }
+                restore_types(parent.mark);
+            }
+
+            for (const ast::StructMember &member : structure.members)
+            {
+                if (const auto *field = std::get_if<ast::StructField>(&member))
+                {
+                    RuntimeStructField runtime;
+                    runtime.name        = std::string{field->name.text};
+                    runtime.value_meta  = value_meta_for_type(field->type, frame);
+                    runtime.schema      = schema_for_type(field->type, frame);
+                    runtime.optional    = field->default_value != ast::no_node &&
+                                          std::holds_alternative<ast::NullLiteral>(module_.expr(field->default_value).node);
+                    runtime.has_default = field->default_value != ast::no_node;
+                    if (evaluate_defaults && runtime.has_default)
+                    {
+                        runtime.default_value = eval_expr(field->default_value, frame);
+                    }
+                    fields.push_back(std::move(runtime));
+                    continue;
+                }
+                const auto &override = std::get<ast::InheritedDefault>(member);
+                auto        found = std::find_if(fields.begin(), fields.end(),
+                                                 [&](const RuntimeStructField &field) { return field.name == override.name.text; });
+                if (found == fields.end()) { backend(override.name.range, "unresolved inherited default"); }
+                found->has_default = true;
+                if (evaluate_defaults) { found->default_value = eval_expr(override.value, frame); }
+            }
+            return fields;
+        }
+
+        const hgraph::ValueTypeMetaData *Compiler::struct_value_meta(const AppliedStruct &applied, Frame &frame)
+        {
+            const auto                           &structure      = std::get<ast::StructDecl>(module_.decl(applied.decl).node);
+            const std::vector<RuntimeStructField> runtime_fields = struct_fields(applied, frame, false);
+            std::vector<std::pair<std::string, const hgraph::ValueTypeMetaData *>> fields;
+            fields.reserve(runtime_fields.size());
+            for (const RuntimeStructField &field : runtime_fields) { fields.emplace_back(field.name, field.value_meta); }
+
+            std::vector<const hgraph::ValueTypeMetaData *> parents;
+            for (const ast::TypeId parent_type : structure.parents)
+            {
+                AppliedStruct parent = apply_struct(parent_type, frame);
+                try
+                {
+                    parents.push_back(struct_value_meta(parent, frame));
+                }
+                catch (...)
+                {
+                    restore_types(parent.mark);
+                    throw;
+                }
+                restore_types(parent.mark);
+            }
+            try
+            {
+                return registry_.bundle(resolved_.module_path, applied.local_name, fields, parents, structure.abstract, "__type__",
+                                        applied.generic_types);
+            }
+            catch (const std::exception &error)
+            {
+                backend(structure.name.range, "cannot register struct '" + applied.local_name + "': " + error.what());
+            }
+        }
+
+        const hgraph::TSValueTypeMetaData *Compiler::struct_schema(const AppliedStruct &applied, Frame &frame)
+        {
+            const hgraph::ValueTypeMetaData      *value_meta     = struct_value_meta(applied, frame);
+            const std::vector<RuntimeStructField> runtime_fields = struct_fields(applied, frame, false);
+            std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
+            fields.reserve(runtime_fields.size());
+            for (const RuntimeStructField &field : runtime_fields) { fields.emplace_back(field.name, field.schema); }
+            try
+            {
+                return registry_.tsb(value_meta->name(), fields);
+            }
+            catch (const std::exception &error)
+            {
+                backend(module_.decl(applied.decl).range,
+                        "cannot register temporal struct '" + applied.local_name + "': " + error.what());
+            }
+        }
 
         const hgraph::ValueTypeMetaData *Compiler::scalar_meta(ast::ScalarType scalar, SourceRange range)
         {
@@ -383,28 +660,49 @@ namespace hgl::wiring
             switch (type.kind)
             {
                 case ast::TypeKind::Scalar: return scalar_meta(type.scalar, type.range);
-                case ast::TypeKind::Named:
-                    backend(type.range, "generic parameters are not supported by the first pass");
-                case ast::TypeKind::Tuple:
-                {
+                case ast::TypeKind::Named: {
+                    const semantics::Binding &binding = resolved_.type_binding(id);
+                    if (binding.kind == BindingKind::Generic)
+                    {
+                        for (auto active = active_type_arguments_.rbegin(); active != active_type_arguments_.rend(); ++active)
+                        {
+                            if (active->decl == binding.decl && active->index == binding.index) { return active->meta; }
+                        }
+                        backend(type.range, "generic type '" + std::string{type.name.text} + "' is not bound");
+                    }
+                    if (binding.kind == BindingKind::Struct)
+                    {
+                        AppliedStruct applied = apply_struct(id, frame);
+                        try
+                        {
+                            const hgraph::ValueTypeMetaData *meta = struct_value_meta(applied, frame);
+                            restore_types(applied.mark);
+                            return meta;
+                        }
+                        catch (...)
+                        {
+                            restore_types(applied.mark);
+                            throw;
+                        }
+                    }
+                    backend(type.range, "unresolved named value type '" + std::string{type.name.text} + "'");
+                }
+                case ast::TypeKind::Tuple: {
                     std::vector<const hgraph::ValueTypeMetaData *> elements;
                     elements.reserve(type.children.size());
                     for (ast::TypeId child : type.children) { elements.push_back(value_meta_for_type(child, frame)); }
                     return registry_.tuple(elements);
                 }
-                case ast::TypeKind::List:
-                {
-                    const auto *element = value_meta_for_type(type.children[0], frame);
-                    const std::size_t size =
-                        type.size == ast::no_node ? 0 : size_argument(type.size, frame, "a list size");
+                case ast::TypeKind::List: {
+                    const auto       *element = value_meta_for_type(type.children[0], frame);
+                    const std::size_t size    = type.size == ast::no_node ? 0 : size_argument(type.size, frame, "a list size");
                     return registry_.list(element, size);
                 }
                 case ast::TypeKind::Set: return registry_.set(value_meta_for_type(type.children[0], frame));
                 case ast::TypeKind::Map:
                     return registry_.map(value_meta_for_type(type.children[0], frame),
                                          value_meta_for_type(type.children[1], frame));
-                case ast::TypeKind::Rolling:
-                    backend(type.range, "'rolling' has no value type; it is a time-series window");
+                case ast::TypeKind::Rolling: backend(type.range, "'rolling' has no value type; it is a time-series window");
                 case ast::TypeKind::Atomic: return value_meta_for_type(type.children[0], frame);
             }
             backend(type.range, "unsupported type");
@@ -416,24 +714,54 @@ namespace hgl::wiring
             switch (type.kind)
             {
                 case ast::TypeKind::Scalar: return registry_.ts(scalar_meta(type.scalar, type.range));
-                case ast::TypeKind::Named:
-                    backend(type.range, "generic parameters are not supported by the first pass");
+                case ast::TypeKind::Named: {
+                    const semantics::Binding &binding = resolved_.type_binding(id);
+                    if (binding.kind == BindingKind::Generic)
+                    {
+                        for (auto active = active_type_arguments_.rbegin(); active != active_type_arguments_.rend(); ++active)
+                        {
+                            if (active->decl == binding.decl && active->index == binding.index)
+                            {
+                                if (active->source_type != ast::no_node) { return schema_for_type(active->source_type, frame); }
+                                if (active->source_struct != ast::no_node)
+                                {
+                                    const AppliedStruct source = apply_plain_struct(active->source_struct, type.range);
+                                    return struct_schema(source, frame);
+                                }
+                                return registry_.ts(active->meta);
+                            }
+                        }
+                        backend(type.range, "generic type '" + std::string{type.name.text} + "' is not bound");
+                    }
+                    if (binding.kind == BindingKind::Struct)
+                    {
+                        AppliedStruct applied = apply_struct(id, frame);
+                        try
+                        {
+                            const hgraph::TSValueTypeMetaData *schema = struct_schema(applied, frame);
+                            restore_types(applied.mark);
+                            return schema;
+                        }
+                        catch (...)
+                        {
+                            restore_types(applied.mark);
+                            throw;
+                        }
+                    }
+                    backend(type.range, "unresolved named time-series type '" + std::string{type.name.text} + "'");
+                }
                 case ast::TypeKind::Tuple:
-                    backend(type.range,
-                            "a structural tuple has no first-pass schema; write atomic<tuple<...>> for one value");
-                case ast::TypeKind::List:
-                {
-                    const auto *element = schema_for_type(type.children[0], frame);
-                    const std::size_t size =
-                        type.size == ast::no_node ? 0 : size_argument(type.size, frame, "a list size");
+                    backend(type.range, "a structural tuple has no first-pass schema; write "
+                                        "atomic<tuple<...>> for one value");
+                case ast::TypeKind::List: {
+                    const auto       *element = schema_for_type(type.children[0], frame);
+                    const std::size_t size    = type.size == ast::no_node ? 0 : size_argument(type.size, frame, "a list size");
                     return registry_.tsl(element, size);
                 }
                 case ast::TypeKind::Set: return registry_.tss(value_meta_for_type(type.children[0], frame));
                 case ast::TypeKind::Map:
-                    return registry_.tsd(value_meta_for_type(type.children[0], frame),
-                                         schema_for_type(type.children[1], frame));
-                case ast::TypeKind::Rolling:
-                {
+                    return registry_.tsd(value_meta_for_type(type.children[0], frame), schema_for_type(type.children[1], frame));
+                case ast::TypeKind::Rolling: {
                     const auto *element = value_meta_for_type(type.children[0], frame);
                     const Slot  size    = eval_expr(type.size, frame);
                     if (is_type(size, types_.timedelta_type))
@@ -769,6 +1097,9 @@ namespace hgl::wiring
             {
                 case Slot::Kind::Const: return scalar_arg(slot.value, std::move(name));
                 case Slot::Kind::Port: return ts_arg(slot.port, std::move(name));
+                case Slot::Kind::Null: backend(slot.range, "null needs an optional field context");
+                case Slot::Kind::Delta: backend(slot.range, "a structured delta is not an ordinary operator value");
+                case Slot::Kind::Struct:
                 case Slot::Kind::Function:
                 case Slot::Kind::Operator:
                 case Slot::Kind::Intrinsic:
@@ -898,6 +1229,148 @@ namespace hgl::wiring
             return make_const(builder.build(), range);
         }
 
+        Slot Compiler::eval_construct(ast::DeclId decl, ast::TypeId type, const std::vector<ast::Argument> &arguments, bool delta,
+                                      SourceRange range, Frame &frame)
+        {
+            AppliedStruct applied = type == ast::no_node ? apply_plain_struct(decl, range) : apply_struct(type, frame);
+            try
+            {
+                const auto &structure = std::get<ast::StructDecl>(module_.decl(applied.decl).node);
+                if (structure.abstract)
+                {
+                    fail(Category::Type, range, "abstract struct '" + std::string{structure.name.text} + "' is not constructible");
+                }
+                const hgraph::ValueTypeMetaData *meta   = struct_value_meta(applied, frame);
+                std::vector<RuntimeStructField>  fields = struct_fields(applied, frame, true);
+                std::vector<std::optional<Slot>> supplied(fields.size());
+                for (const ast::Argument &argument : arguments)
+                {
+                    if (argument.name.empty())
+                    {
+                        fail(Category::Type, module_.expr(argument.value).range, "struct construction uses named arguments");
+                    }
+                    const auto found = std::find_if(fields.begin(), fields.end(), [&](const RuntimeStructField &field) {
+                        return field.name == argument.name.text;
+                    });
+                    if (found == fields.end())
+                    {
+                        fail(Category::Name, argument.name.range,
+                             "struct '" + std::string{structure.name.text} + "' has no field named '" +
+                                 std::string{argument.name.text} + "'");
+                    }
+                    const auto index = static_cast<std::size_t>(found - fields.begin());
+                    if (supplied[index].has_value())
+                    {
+                        fail(Category::Name, argument.name.range, "field '" + std::string{argument.name.text} + "' is given twice");
+                    }
+                    supplied[index] = eval_expr(argument.value, frame);
+                }
+
+                for (std::size_t i = 0; i < fields.size(); ++i)
+                {
+                    RuntimeStructField &field = fields[i];
+                    std::optional<Slot> value = supplied[i];
+                    if (!value && !delta && field.has_default) { value = field.default_value; }
+                    if (!value)
+                    {
+                        if (delta || field.optional) { continue; }
+                        fail(Category::Type, range,
+                             "struct '" + std::string{structure.name.text} + "' needs field '" + field.name + "'");
+                    }
+                    if (value->kind == Slot::Kind::Null)
+                    {
+                        if (!field.optional)
+                        {
+                            fail(Category::Type, value->range, "required field '" + field.name + "' cannot be null");
+                        }
+                        if (delta)
+                        {
+                            backend(value->range, "clearing an optional struct field needs the "
+                                                  "distinct public hgraph clear-delta operation");
+                        }
+                        continue;
+                    }
+                    if (value->kind != Slot::Kind::Const && value->kind != Slot::Kind::Delta)
+                    {
+                        if (value->kind != Slot::Kind::Port)
+                        {
+                            fail(Category::Type, value->range, "field '" + field.name + "' needs a value");
+                        }
+                    }
+                    if (value->kind == Slot::Kind::Delta && !delta)
+                    {
+                        fail(Category::Type, value->range, "a sparse delta cannot initialise complete field '" + field.name + "'");
+                    }
+                }
+
+                const bool temporal = std::any_of(supplied.begin(), supplied.end(), [](const std::optional<Slot> &value) {
+                    return value && value->kind == Slot::Kind::Port;
+                });
+                if (temporal)
+                {
+                    if (delta)
+                    {
+                        backend(range, "a temporal structured delta is only available in a "
+                                       "runtime function");
+                    }
+                    const hgraph::TSValueTypeMetaData *schema = struct_schema(applied, frame);
+                    std::vector<hgraph::WiringPortRef> children;
+                    children.reserve(fields.size());
+                    for (std::size_t i = 0; i < fields.size(); ++i)
+                    {
+                        RuntimeStructField &field = fields[i];
+                        std::optional<Slot> value = supplied[i];
+                        if (!value && field.has_default) { value = field.default_value; }
+                        if (!value || value->kind == Slot::Kind::Null)
+                        {
+                            children.push_back(hgraph::WiringPortRef::null_source(field.schema));
+                            continue;
+                        }
+                        if (value->kind == Slot::Kind::Const)
+                        {
+                            Slot converted = make_const(
+                                convert(value->value, field.value_meta, value->range, "field '" + field.name + "'"), value->range);
+                            children.push_back(wire_constant(converted, field.schema).port);
+                            continue;
+                        }
+                        if (value->kind != Slot::Kind::Port)
+                        {
+                            fail(Category::Type, value->range, "field '" + field.name + "' needs a temporal or scalar value");
+                        }
+                        if (value->port.schema != field.schema)
+                        {
+                            fail(Category::Type, value->range,
+                                 "field '" + field.name + "' expects " + std::string{field.schema->name()} + ", got " +
+                                     std::string{value->port.schema->name()});
+                        }
+                        children.push_back(value->port);
+                    }
+                    Slot result = make_port(hgraph::WiringPortRef::structural_source(schema, std::move(children)), range);
+                    restore_types(applied.mark);
+                    return result;
+                }
+
+                hgraph::BundleBuilder builder{hgraph::ValuePlanFactory::instance().type_for(meta)};
+                for (std::size_t i = 0; i < fields.size(); ++i)
+                {
+                    RuntimeStructField &field = fields[i];
+                    std::optional<Slot> value = supplied[i];
+                    if (!value && !delta && field.has_default) { value = field.default_value; }
+                    if (!value || value->kind == Slot::Kind::Null) { continue; }
+                    builder.set(i, convert(value->value, field.value_meta, value->range, "field '" + field.name + "'").view());
+                }
+                Slot result = make_const(builder.build(), range);
+                if (delta) { result.kind = Slot::Kind::Delta; }
+                restore_types(applied.mark);
+                return result;
+            }
+            catch (...)
+            {
+                restore_types(applied.mark);
+                throw;
+            }
+        }
+
         Slot Compiler::eval_name(ast::ExprId id, Frame &frame)
         {
             const semantics::Binding &binding = resolved_.binding(id);
@@ -927,6 +1400,14 @@ namespace hgl::wiring
                 }
                 case BindingKind::Generic:
                     backend(range, "generic parameters are not supported by the first pass");
+                case BindingKind::Struct:
+                {
+                    Slot slot;
+                    slot.kind  = Slot::Kind::Struct;
+                    slot.fn    = binding.decl;
+                    slot.range = range;
+                    return slot;
+                }
                 case BindingKind::Function:
                 {
                     Slot slot;
@@ -998,6 +1479,7 @@ namespace hgl::wiring
                     {
                         return make_const(hgraph::Value{hgraph::Bool{node.value}}, expr.range);
                     }
+                    else if constexpr (std::is_same_v<T, ast::NullLiteral>) { return make_null(expr.range); }
                     else if constexpr (std::is_same_v<T, ast::TemporalLiteral>) { return eval_literal(node, expr.range); }
                     else if constexpr (std::is_same_v<T, ast::Placeholder>)
                     {
@@ -1071,7 +1553,14 @@ namespace hgl::wiring
                                         {argument_of(target, {}), scalar_arg(hgraph::Value{hgraph::Str{node.field.text}})},
                                         expr.range);
                         }
-                        backend(expr.range, "field access is supported on time-series values only");
+                        if ((target.kind == Slot::Kind::Const || target.kind == Slot::Kind::Delta) &&
+                            target.value.view().is_bundle())
+                        {
+                            const auto field = target.value.view().as_bundle().field(node.field.text);
+                            if (!field.valid()) { return make_null(expr.range); }
+                            return make_const(hgraph::Value{field}, expr.range);
+                        }
+                        backend(expr.range, "field access needs a temporal or structured value");
                     }
                     else if constexpr (std::is_same_v<T, ast::SequenceLiteral>)
                     {
@@ -1087,6 +1576,11 @@ namespace hgl::wiring
                     else if constexpr (std::is_same_v<T, ast::If>) { return eval_if(node, frame); }
                     else if constexpr (std::is_same_v<T, ast::BlockExpr>) { return exec_block(node.block, frame); }
                     else if constexpr (std::is_same_v<T, ast::Eval>) { return eval_eval(node, expr.range, frame); }
+                    else if constexpr (std::is_same_v<T, ast::Construct>)
+                    {
+                        const semantics::Binding &binding = resolved_.type_binding(node.type);
+                        return eval_construct(binding.decl, node.type, node.arguments, node.delta, expr.range, frame);
+                    }
                     else
                     {
                         static_assert(sizeof(T) == 0, "unhandled expression node");
@@ -1112,9 +1606,12 @@ namespace hgl::wiring
                     }
                     return wire(callee.name, std::move(args), range);
                 }
+                case Slot::Kind::Struct: return eval_construct(callee.fn, ast::no_node, call.arguments, false, range, frame);
                 case Slot::Kind::Function: return call_function(callee.fn, call.arguments, range, frame);
                 case Slot::Kind::Intrinsic: return eval_intrinsic(callee, call, range, frame);
                 case Slot::Kind::Const:
+                case Slot::Kind::Null:
+                case Slot::Kind::Delta:
                 case Slot::Kind::Port:
                 case Slot::Kind::Sequence:
                 case Slot::Kind::Void: break;
@@ -1546,7 +2043,11 @@ namespace hgl::wiring
             switch (slot.kind)
             {
                 case Slot::Kind::Const: return describe_value(slot.value);
+                case Slot::Kind::Null: return "null";
+                case Slot::Kind::Delta: return "delta " + describe_value(slot.value);
                 case Slot::Kind::Port: return std::string{slot.port.schema->name()};
+                case Slot::Kind::Struct:
+                    return "struct " + std::string{std::get<ast::StructDecl>(module_.decl(slot.fn).node).name.text};
                 case Slot::Kind::Function: return "fn " + std::string{function(slot.fn).name.text};
                 case Slot::Kind::Operator: return "operator " + slot.name;
                 case Slot::Kind::Intrinsic: return "intrinsic " + slot.name;

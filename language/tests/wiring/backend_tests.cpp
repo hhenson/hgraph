@@ -116,6 +116,147 @@ test defaults_apply {
     }
 }
 
+TEST_CASE("nominal struct values apply defaults and inheritance", "[wiring]")
+{
+    Unit             unit{R"(
+module suite.struct_values
+
+abstract struct Instrument {
+    symbol: str
+    venue: str = "ANY"
+    alias: str = null
+}
+
+struct Future: Instrument {
+    venue = "XEUR"
+    expiry: date
+}
+
+struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = "XNAS"
+    note: str = null
+}
+
+test values {
+    let q = Quote(bid: 1.0, ask: 2.0)
+    let f = Future(symbol: "ES", expiry: @2026-12-18)
+    assert q.bid == 1.0
+    assert q.ask == 2.0
+    assert q.venue == "XNAS"
+    assert f.symbol == "ES"
+    assert f.venue == "XEUR"
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("type-generic struct specializations retain nominal values", "[wiring]")
+{
+    Unit unit{R"(
+module suite.generic_structs
+
+struct Box<T> {
+    value: T
+}
+
+fn same_box(value: atomic<Box<f64>>) -> atomic<Box<f64>> => value
+
+test generic_value {
+    assert Box<f64>(value: 1.5).value == 1.5
+}
+
+test generic_atomic {
+    assert eval(same_box, value: [Box<f64>(value: 1.5), _]) == [Box<f64>(value: 1.5), _]
+}
+)"};
+    for (const TestResult &result : unit.tests())
+    {
+        INFO(result.name << ": " << result.message);
+        CHECK(result.passed);
+    }
+}
+
+TEST_CASE("temporal struct construction wires a structural bundle", "[wiring]")
+{
+    Unit             unit{R"(
+module suite.temporal_structs
+
+struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = "XNAS"
+}
+
+fn quote_bid(bid: f64, ask: f64) -> f64 => Quote(bid: bid, ask: ask).bid
+
+test fieldwise {
+    assert eval(quote_bid, bid: [1.0, 2.0], ask: [3.0, 4.0]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(result.message << "\n" << unit.diagnostics.render(unit.file));
+    CHECK(result.passed);
+}
+
+TEST_CASE("a structured delta is sparse and does not apply defaults", "[wiring]")
+{
+    Unit unit{R"(
+module suite.struct_deltas
+
+struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = "XNAS"
+}
+
+test sparse {
+    delta<Quote>(bid: 1.5)
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    TestOptions options;
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(result.tail.starts_with("delta "));
+    CHECK(result.tail.find("1.5") != std::string::npos);
+    CHECK(result.tail.find("XNAS") == std::string::npos);
+}
+
+TEST_CASE("unavailable structural operations are explicit diagnostics", "[wiring]")
+{
+    SECTION("an optional clear needs a distinct native delta operation")
+    {
+        Unit             unit{R"(
+module suite.struct_clear
+struct Quote { note: str = null }
+test clear { delta<Quote>(note: null) }
+)"};
+        const TestResult result = only(unit.tests());
+        CHECK_FALSE(result.passed);
+        CHECK(unit.has(Category::Backend, "distinct public hgraph clear-delta operation"));
+    }
+
+    SECTION("const generic identity needs native metadata")
+    {
+        Unit             unit{R"(
+module suite.const_generic_structs
+struct Vector<T, const size: i64> { values: list<T, size> }
+test value { Vector<f64, 2>(values: [1.0, 2.0]) }
+)"};
+        const TestResult result = only(unit.tests());
+        CHECK_FALSE(result.passed);
+        CHECK(unit.has(Category::Backend, "const generic struct arguments require "
+                                          "typed constant Bundle metadata"));
+    }
+}
+
 TEST_CASE("a failing assert reports the observed sequence", "[wiring]")
 {
     Unit unit{R"(

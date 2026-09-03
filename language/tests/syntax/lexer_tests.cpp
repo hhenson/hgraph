@@ -42,12 +42,13 @@ TEST_CASE("empty input yields end of file", "[lexer]")
 
 TEST_CASE("keywords, identifiers and the placeholder", "[lexer]")
 {
-    Lexed lexed{"fn export _ _x in tuple"};
-    REQUIRE(kinds(lexed) == std::vector<TokenKind>{TokenKind::KwFn, TokenKind::KwExport, TokenKind::Placeholder,
-                                                   TokenKind::Identifier, TokenKind::Identifier, TokenKind::Identifier,
-                                                   TokenKind::EndOfFile});
-    REQUIRE(lexed.result.tokens[3].text == "_x");
-    REQUIRE(lexed.result.tokens[4].text == "in");
+    Lexed lexed{"fn export abstract struct requires is null _ _x in tuple"};
+    REQUIRE(kinds(lexed) == std::vector<TokenKind>{TokenKind::KwFn, TokenKind::KwExport, TokenKind::KwAbstract, TokenKind::KwStruct,
+                                                   TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwNull,
+                                                   TokenKind::Placeholder, TokenKind::Identifier, TokenKind::Identifier,
+                                                   TokenKind::Identifier, TokenKind::EndOfFile});
+    REQUIRE(lexed.result.tokens[8].text == "_x");
+    REQUIRE(lexed.result.tokens[9].text == "in");
 }
 
 TEST_CASE("type keywords are reserved", "[lexer]")

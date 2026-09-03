@@ -180,6 +180,11 @@ The current `hgl` runs everything on this page that is written with
   `--config` file is not read yet;
 - a program with a runtime function, an `impl fn`, or a generic function
   checks, but running it is reported as unsupported;
+- complete scalar struct values, type-only generic struct specializations,
+  `atomic<S>` harness values, and simple field-wise temporal struct
+  construction run; generic constructor inference, `const` generic struct
+  identity, multiple inheritance, temporal structured deltas, and explicit
+  optional-field clearing are reported as unsupported;
 - types in diagnostics are printed with hgraph's names (`float`,
   `TS[float]`, `Tuple[float,float]`).
 

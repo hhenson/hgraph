@@ -28,9 +28,10 @@ source calls reach hgraph.
    `eval` with dense and timed sequences, running an entry from the command
    line or a configuration file, and the REPL.
 
-Source files are collected under [`language/examples`](../../examples). Until
-the frontend lands, they are checked documentation rather than executable
-programs.
+Source files are collected under [`language/examples`](../../examples). The
+frontend checks every example; the direct-wiring backend runs the supported
+composition subset described in
+[Testing and running](testing-and-running.md#first-pass-limits).
 
 ## Current language shape
 

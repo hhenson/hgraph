@@ -17,3 +17,11 @@
 - Define invariant generic struct families over canonical value types and
   wiring-time constants, complete type application, constructor inference,
   struct constraints, and generic abstract-parent specialization.
+- Implement prototype AST and parsing for structs, generic applications,
+  `requires`, `null`, and `delta<S>`, plus semantic validation of
+  abstract-only single inheritance, effective fields, construction, generic
+  argument roles, and decidable closed requirements.
+- Extend direct wiring with scalar/defaulted/inherited Bundle construction,
+  type-only generic Bundle specializations, atomic struct harness values,
+  sparse scalar deltas, and field-wise temporal struct composition; unsupported
+  native-boundary cases fail with explicit diagnostics.

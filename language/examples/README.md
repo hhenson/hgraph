@@ -2,9 +2,10 @@
 
 These files illustrate the proposed first language slice. Each one is a
 CTest case that must pass `hgl check`, and `midpoint.hgl` also runs its
-`test` under `hgl test`. The other examples declare no tests yet: they use
-runtime functions, generics, `impl fn`, or structural types that the first
-pass of the direct-wiring backend checks but does not run.
+`test` under `hgl test`. The other examples declare no tests yet: some use
+runtime functions, generic functions, or `impl fn` declarations that the
+direct-wiring backend checks but does not run. Structural values and
+type-generic struct specializations also have executable unit coverage.
 
 - [`midpoint.hgl`](midpoint.hgl) uses an internal helper, `export fn`, an
   atomic tuple, a `const` window, and a `test` of the unexported helper.
@@ -19,10 +20,12 @@ pass of the direct-wiring backend checks but does not run.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
   nominal bodyless `operator`, a generic `impl fn` implementation, const-generic
   rolling-window sizes, an exported exact function, the default minimum window
-  size, and a duration window. The agreed `requires` constraint surface remains
-  in the guides until the parser implements it.
-- [`structural-types.hgl`](structural-types.hgl) contrasts recursively temporal
-  maps with an atomic tuple and uses an anonymous `fn`.
+  size, and a duration window. Operators, functions, and structs may now carry
+  the agreed `requires` constraint syntax.
+- [`structural-types.hgl`](structural-types.hgl) demonstrates a recursively
+  temporal struct, `atomic<S>`, a type-generic struct, closed-set requirements,
+  abstract-only inheritance with a default override, and a sparse delta in a
+  runtime function, alongside temporal maps and an anonymous `fn`.
 
 As compiler slices land, each example should advance from parsing and typed IR
 coverage through `hgl test` to generated C++ behavior and backend parity.

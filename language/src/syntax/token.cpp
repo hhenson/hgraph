@@ -7,15 +7,19 @@ namespace hgl::syntax
 {
     namespace
     {
-        constexpr std::array<std::pair<std::string_view, TokenKind>, 37> keywords{{
+        constexpr std::array<std::pair<std::string_view, TokenKind>, 42> keywords{{
             {"module", TokenKind::KwModule},
             {"use", TokenKind::KwUse},
             {"as", TokenKind::KwAs},
             {"export", TokenKind::KwExport},
+            {"abstract", TokenKind::KwAbstract},
             {"impl", TokenKind::KwImpl},
             {"operator", TokenKind::KwOperator},
             {"fn", TokenKind::KwFn},
+            {"struct", TokenKind::KwStruct},
             {"const", TokenKind::KwConst},
+            {"requires", TokenKind::KwRequires},
+            {"is", TokenKind::KwIs},
             {"let", TokenKind::KwLet},
             {"var", TokenKind::KwVar},
             {"state", TokenKind::KwState},
@@ -32,6 +36,7 @@ namespace hgl::syntax
             {"eval", TokenKind::KwEval},
             {"true", TokenKind::KwTrue},
             {"false", TokenKind::KwFalse},
+            {"null", TokenKind::KwNull},
             {"bool", TokenKind::KwBool},
             {"i64", TokenKind::KwI64},
             {"f64", TokenKind::KwF64},

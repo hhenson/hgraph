@@ -137,6 +137,7 @@ namespace hgl::syntax
                 line(depth, "OperatorDecl", range, std::string{d.name.text});
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
+                if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
             }
 
             void decl_node(int depth, SourceRange range, const ast::FunctionDecl &d)
@@ -152,8 +153,47 @@ namespace hgl::syntax
                 line(depth, "FunctionDecl", range, std::move(details));
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
+                if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
                 if (d.concise_body != ast::no_node) { expr(depth + 1, d.concise_body, "body"); }
                 if (d.block_body != ast::no_node) { block(depth + 1, d.block_body, "body"); }
+            }
+
+            void decl_node(int depth, SourceRange range, const ast::StructDecl &d)
+            {
+                std::string details;
+                if (d.exported) { details += "export "; }
+                if (d.abstract) { details += "abstract "; }
+                details += "struct ";
+                details += d.name.text;
+                line(depth, "StructDecl", range, std::move(details));
+                generics(depth + 1, d.generics);
+                for (const ast::TypeId parent : d.parents) { type(depth + 1, parent, "parent"); }
+                if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                for (const ast::StructMember &member : d.members)
+                {
+                    std::visit(
+                        [&](const auto &m) {
+                            using T = std::decay_t<decltype(m)>;
+                            if constexpr (std::is_same_v<T, ast::StructField>)
+                            {
+                                SourceRange member_range = m.name.range.join(module_.type(m.type).range);
+                                if (m.default_value != ast::no_node)
+                                {
+                                    member_range = member_range.join(module_.expr(m.default_value).range);
+                                }
+                                line(depth + 1, "StructField", member_range, std::string{m.name.text});
+                                type(depth + 2, m.type, "type");
+                                if (m.default_value != ast::no_node) { expr(depth + 2, m.default_value, "default"); }
+                            }
+                            else
+                            {
+                                const SourceRange member_range = m.name.range.join(module_.expr(m.value).range);
+                                line(depth + 1, "InheritedDefault", member_range, std::string{m.name.text});
+                                expr(depth + 2, m.value, "value");
+                            }
+                        },
+                        member);
+                }
             }
 
             void decl_node(int depth, SourceRange range, const ast::TestDecl &d)
@@ -205,6 +245,11 @@ namespace hgl::syntax
                         break;
                     case ast::TypeKind::Named:
                         details += ' ';
+                        if (!node.qualifier.empty())
+                        {
+                            details += node.qualifier.text;
+                            details += "::";
+                        }
                         details += node.name.text;
                         break;
                     case ast::TypeKind::List:
@@ -214,6 +259,16 @@ namespace hgl::syntax
                 }
                 if (node.value_position) { details += " (value)"; }
                 line(depth, "Type", node.range, std::move(details), slot);
+                for (const ast::GenericArgument &argument : node.arguments)
+                {
+                    line(depth + 1, "GenericArgument", argument.range, "");
+                    if (argument.type != ast::no_node) { type(depth + 2, argument.type); }
+                    else if (argument.value != ast::no_node) { expr(depth + 2, argument.value); }
+                    else
+                    {
+                        line(depth + 2, "Name", argument.name.range, std::string{argument.name.text});
+                    }
+                }
                 for (const ast::TypeId child : node.children) { type(depth + 1, child); }
                 if (node.size != ast::no_node) { expr(depth + 1, node.size, "size"); }
                 if (node.min_size != ast::no_node) { expr(depth + 1, node.min_size, "min"); }
@@ -228,38 +283,23 @@ namespace hgl::syntax
             }
 
             void expr_node(int depth, SourceRange range, const ast::IntLiteral &e, std::string_view slot)
-            {
-                line(depth, "IntLiteral", range, std::format("{}", e.value), slot);
-            }
+            { line(depth, "IntLiteral", range, std::format("{}", e.value), slot); }
             void expr_node(int depth, SourceRange range, const ast::FloatLiteral &e, std::string_view slot)
-            {
-                line(depth, "FloatLiteral", range, format_float(e.value), slot);
-            }
+            { line(depth, "FloatLiteral", range, format_float(e.value), slot); }
             void expr_node(int depth, SourceRange range, const ast::StringLiteral &e, std::string_view slot)
-            {
-                line(depth, "StringLiteral", range, escape(e.value), slot);
-            }
+            { line(depth, "StringLiteral", range, escape(e.value), slot); }
             void expr_node(int depth, SourceRange range, const ast::BoolLiteral &e, std::string_view slot)
-            {
-                line(depth, "BoolLiteral", range, e.value ? "true" : "false", slot);
-            }
+            { line(depth, "BoolLiteral", range, e.value ? "true" : "false", slot); }
+            void expr_node(int depth, SourceRange range, const ast::NullLiteral &, std::string_view slot)
+            { line(depth, "NullLiteral", range, "", slot); }
             void expr_node(int depth, SourceRange range, const ast::TemporalLiteral &e, std::string_view slot)
-            {
-                line(depth, "TemporalLiteral", range, canonical_spelling(e.value), slot);
-            }
+            { line(depth, "TemporalLiteral", range, canonical_spelling(e.value), slot); }
             void expr_node(int depth, SourceRange range, const ast::Placeholder &, std::string_view slot)
-            {
-                line(depth, "Placeholder", range, "", slot);
-            }
+            { line(depth, "Placeholder", range, "", slot); }
             void expr_node(int depth, SourceRange range, const ast::NameRef &e, std::string_view slot)
-            {
-                line(depth, "NameRef", range, std::string{e.name.text}, slot);
-            }
+            { line(depth, "NameRef", range, std::string{e.name.text}, slot); }
             void expr_node(int depth, SourceRange range, const ast::QualifiedRef &e, std::string_view slot)
-            {
-                line(depth, "QualifiedRef", range, std::string{e.qualifier.text} + "::" + std::string{e.name.text},
-                     slot);
-            }
+            { line(depth, "QualifiedRef", range, std::string{e.qualifier.text} + "::" + std::string{e.name.text}, slot); }
             void expr_node(int depth, SourceRange range, const ast::Unary &e, std::string_view slot)
             {
                 line(depth, "Unary", range, std::string{ast::unary_op_spelling(e.op)}, slot);
@@ -343,6 +383,90 @@ namespace hgl::syntax
                 line(depth, "Eval", range, "", slot);
                 expr(depth + 1, e.callee, "callee");
                 arguments(depth + 1, e.arguments);
+            }
+            void expr_node(int depth, SourceRange range, const ast::Construct &e, std::string_view slot)
+            {
+                line(depth, e.delta ? "DeltaConstruct" : "StructConstruct", range, "", slot);
+                type(depth + 1, e.type, "type");
+                arguments(depth + 1, e.arguments);
+            }
+
+            // --------------------------------------------------- constraints
+
+            void constraint(int depth, ast::ConstraintId id, std::string_view slot = {})
+            {
+                const ast::Constraint &node = module_.constraint(id);
+                std::visit([&](const auto &c) { constraint_node(depth, node.range, c, slot); }, node.node);
+            }
+
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintName &c, std::string_view slot)
+            { line(depth, "ConstraintName", range, std::string{c.name.text}, slot); }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintType &c, std::string_view slot)
+            {
+                line(depth, "ConstraintType", range, "", slot);
+                type(depth + 1, c.type);
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintValue &c, std::string_view slot)
+            {
+                line(depth, "ConstraintValue", range, "", slot);
+                expr(depth + 1, c.value);
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintSet &c, std::string_view slot)
+            {
+                line(depth, "ConstraintSet", range, "", slot);
+                for (const ast::ConstraintId element : c.elements) { constraint(depth + 1, element); }
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintCall &c, std::string_view slot)
+            {
+                std::string name;
+                if (!c.qualifier.empty())
+                {
+                    name += c.qualifier.text;
+                    name += "::";
+                }
+                name += c.name.text;
+                line(depth, "ConstraintCall", range, std::move(name), slot);
+                for (const ast::ConstraintId argument : c.arguments) { constraint(depth + 1, argument); }
+            }
+            void constraint_node(int depth, SourceRange range, const ast::OperatorRequirement &c, std::string_view slot)
+            {
+                std::string name;
+                if (!c.qualifier.empty())
+                {
+                    name += c.qualifier.text;
+                    name += "::";
+                }
+                name += c.name.text;
+                line(depth, "OperatorRequirement", range, std::move(name), slot);
+                for (const ast::ConstraintId argument : c.arguments) { constraint(depth + 1, argument); }
+                if (c.result != ast::no_node) { type(depth + 1, c.result, "result"); }
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintRelation &c, std::string_view slot)
+            {
+                const std::string_view op = c.op == ast::ConstraintRelationOp::Equal ? "=="
+                                            : c.op == ast::ConstraintRelationOp::In  ? "in"
+                                                                                     : "is";
+                line(depth, "ConstraintRelation", range, std::string{op}, slot);
+                constraint(depth + 1, c.lhs);
+                if (c.op == ast::ConstraintRelationOp::Is)
+                {
+                    line(depth + 1, "Category", c.category.range, std::string{c.category.text});
+                }
+                else
+                {
+                    constraint(depth + 1, c.rhs);
+                }
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintNot &c, std::string_view slot)
+            {
+                line(depth, "ConstraintNot", range, "", slot);
+                constraint(depth + 1, c.operand);
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintLogic &c, std::string_view slot)
+            {
+                line(depth, "ConstraintLogic", range, c.op == ast::ConstraintLogicOp::And ? "&&" : "||", slot);
+                constraint(depth + 1, c.lhs);
+                constraint(depth + 1, c.rhs);
             }
 
             void arguments(int depth, const std::vector<ast::Argument> &arguments)

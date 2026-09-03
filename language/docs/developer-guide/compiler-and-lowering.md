@@ -64,17 +64,19 @@ the token vector that applies the newline rules of the syntax guide and
 recovers at the synchronization points listed there; `ast_printer` dumps
 the tree one node per line for `hgl check --dump-ast` and the tests.
 
-The first pass of `src/semantics/` is `resolve`. It binds every name
-occurrence of one compilation unit by the lookup rules of the syntax guide
-("Scopes and name lookup"), checks `use` declarations against the interim
-kernel table (below, "Interim kernel table"), classifies every function by
-the rule of "Function classification", and applies the phase rules of
-`test` bodies. Its result, `ResolvedModule`, annotates the syntax tree
-(a binding per name occurrence, a kind per function) instead of building
-the typed HIR: hgraph's resolver types every operation the direct-wiring
-backend wires, so the HIR becomes necessary only when the C++ backend
-needs canonical types ahead of hgraph. Until then `src/wiring/` walks the
-resolved syntax tree directly.
+The first pass of `src/semantics/` is `resolve`. It binds every value, type,
+and constraint-name occurrence of one compilation unit by the lookup rules of
+the syntax guide ("Scopes and name lookup"), checks `use` declarations against
+the interim kernel table (below, "Interim kernel table"), resolves nominal
+struct hierarchies and effective fields, validates construction and closed
+generic-struct requirements, classifies every function by the rule of
+"Function classification", and applies the phase rules of `test` bodies. Its
+result, `ResolvedModule`, annotates the syntax tree with expression and type
+bindings, constraint identities, struct metadata, and function kinds instead
+of building the typed HIR. Hgraph's resolver still types every operator the
+direct-wiring backend wires, so the HIR becomes necessary when callable
+substitution or the C++ backend needs canonical types ahead of hgraph. Until
+then `src/wiring/` walks the resolved syntax tree directly.
 
 ## Common function representation
 
@@ -852,7 +854,7 @@ into registry storage or attempt to coordinate several registries privately.
 
 ## Direct-wiring backend
 
-Status: proposed (2026-09-03) with the test harness and run model in
+Status: executable prototype (2026-09-03) with the test harness and run model in
 [Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
 
 The direct-wiring backend executes a composition-only program without
@@ -918,11 +920,12 @@ not a private include.
 Implemented (2026-09-03) in `src/wiring/` as `backend`, over the resolved
 syntax tree of `src/semantics/`. A `Session` bootstraps hgraph once per
 process (`register_standard_types`, `register_standard_operators`, and the
-backend's own installer, below). The walk assigns every expression one of
-four wiring-time values: a *constant* (`Value` plus its interned
-`ValueTypeMetaData`), a *port* (`WiringPortRef`), a *function* (a module
-`fn` or a registry operator), or, inside a `test` body, a *harness
-sequence*. The rules of the walk:
+backend's own installer, below). The walk assigns every expression one of the
+following wiring-time values: a *constant* (`Value` plus its interned
+`ValueTypeMetaData`), `null`, a sparse structured delta, a *port*
+(`WiringPortRef`), a nominal struct, a *function* (a module `fn` or a registry
+operator), or, inside a `test` body, a *harness sequence*. The rules of the
+walk:
 
 - literals are constants: `i64`, `f64`, `bool`, `str`, `datetime`,
   `duration`, `date`, and `time` map to hgraph's `Int`, `Float`, `Bool`,
@@ -938,6 +941,16 @@ sequence*. The rules of the walk:
   scalar argument, which hgraph's resolver lifts;
 - `a[i]` wires `getitem_` and `a.b` wires `getattr_` when `a` is a port,
   and `a[i]` folds when `a` is a constant tuple or list;
+- a non-generic or explicitly type-applied struct constructor builds its
+  module-qualified native Bundle value when every supplied field is scalar;
+  defaults are evaluated only for a complete value, optional `null` fields
+  remain unset, field access folds, and `delta<S>` instead builds a sparse
+  Bundle without defaults. A constructor containing ports produces a public
+  structural `WiringPortRef` at the recursively expanded named TSB schema,
+  lifting scalar fields and filling absent optional fields with typed null
+  sources. Type-only generic applications use hgraph's generic Bundle metadata;
+  constructor inference and typed `const` generic arguments are rejected
+  explicitly rather than encoded into an unstable name;
 - calling a registry operator builds `WiringArg`s in the source order with
   the source names and calls `wire_operator` with no expected output;
   `OperatorResolutionError` is reported as an `operator` diagnostic carrying
@@ -963,9 +976,9 @@ sequence*. The rules of the walk:
   `backend` diagnostic;
 - `eval` takes a module function (an operator must be wrapped in a `fn`,
   so the harness always has declared parameter types) whose temporal
-  parameters lower to `ts` schemas: atomic tuples, scalars, and the
-  temporal scalars run; structural tuples, lists, sets, maps, and windows
-  are a `backend` diagnostic until the harness drives those kinds. It runs
+  parameters lower to `ts` schemas: atomic tuples, atomic structs, scalars, and
+  the temporal scalars run; structural tuples, structs, lists, sets, maps, and
+  windows are a `backend` diagnostic until the harness drives those kinds. It runs
   dense sequences only (a keyed element is a `test` diagnostic): each
   temporal argument becomes a `replay` at the parameter's schema under the
   key `hgl::in::<name>`, an omitted parameter with a default replays its

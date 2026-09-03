@@ -23,14 +23,15 @@ namespace hgl::semantics
     enum class BindingKind : std::uint8_t
     {
         Unbound,
-        Local,      ///< `let`/`var`/`for` binding: `stmt` (+ `second` for a pair pattern)
-        Parameter,  ///< `decl` is the function, `index` the parameter
-        Generic,    ///< `decl` is the function, `index` the generic parameter
-        Function,   ///< `decl` is the `fn`
-        Operator,   ///< an imported kernel operator: `registry_name`
+        Local,          ///< `let`/`var`/`for` binding: `stmt` (+ `second` for a pair pattern)
+        Parameter,      ///< `decl` is the function, `index` the parameter
+        Generic,        ///< `decl` is the function, `index` the generic parameter
+        Struct,         ///< `decl` is the nominal struct declaration
+        Function,       ///< `decl` is the `fn`
+        Operator,       ///< an imported kernel operator: `registry_name`
         LocalOperator,  ///< `decl` is the `operator` declaration
-        Test,       ///< `decl` is the `test` (not a value)
-        Intrinsic,  ///< a prelude intrinsic: `registry_name` holds its name
+        Test,           ///< `decl` is the `test` (not a value)
+        Intrinsic,      ///< a prelude intrinsic: `registry_name` holds its name
     };
 
     struct Binding
@@ -63,19 +64,42 @@ namespace hgl::semantics
         std::string module;
     };
 
+    struct StructField
+    {
+        std::string name;
+        ast::TypeId type{ast::no_node};
+        ast::ExprId default_value{ast::no_node};
+        ast::DeclId origin{ast::no_node};
+        bool        optional{false};
+    };
+
+    struct StructInfo
+    {
+        bool                     valid{false};
+        std::vector<ast::DeclId> parents;
+        std::vector<StructField> fields;
+    };
+
     struct ResolvedModule
     {
         std::string                   module_path;
-        std::vector<Binding>          bindings;  ///< indexed by ExprId
-        std::vector<FunctionKind>     kinds;     ///< indexed by DeclId
+        std::vector<Binding>          bindings;             ///< indexed by ExprId
+        std::vector<Binding>          type_bindings;        ///< indexed by TypeId
+        std::vector<Binding>          constraint_bindings;  ///< indexed by ConstraintId
+        std::vector<FunctionKind>     kinds;                ///< indexed by DeclId
         std::vector<ImportedOperator> imports;
         std::vector<ModuleAlias>      aliases;
         std::vector<ast::DeclId>      functions;
+        std::vector<ast::DeclId>      structs;
         std::vector<ast::DeclId>      operators;
         std::vector<ast::DeclId>      tests;
+        std::vector<StructInfo>       struct_info;  ///< indexed by DeclId
 
-        [[nodiscard]] const Binding &binding(ast::ExprId id) const noexcept { return bindings[id]; }
-        [[nodiscard]] FunctionKind   kind(ast::DeclId id) const noexcept { return kinds[id]; }
+        [[nodiscard]] const Binding    &binding(ast::ExprId id) const noexcept { return bindings[id]; }
+        [[nodiscard]] const Binding    &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }
+        [[nodiscard]] const Binding    &constraint_binding(ast::ConstraintId id) const noexcept { return constraint_bindings[id]; }
+        [[nodiscard]] FunctionKind      kind(ast::DeclId id) const noexcept { return kinds[id]; }
+        [[nodiscard]] const StructInfo &structure(ast::DeclId id) const noexcept { return struct_info[id]; }
     };
 
     /// The prelude intrinsics (syntax guide, "Scopes and name lookup", step

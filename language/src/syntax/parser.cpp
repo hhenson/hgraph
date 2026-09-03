@@ -109,8 +109,10 @@ namespace hgl::syntax
                 case TokenKind::KwModule:
                 case TokenKind::KwUse:
                 case TokenKind::KwExport:
+                case TokenKind::KwAbstract:
                 case TokenKind::KwImpl:
                 case TokenKind::KwOperator:
+                case TokenKind::KwStruct:
                 case TokenKind::KwTest: return true;
                 case TokenKind::KwFn: return next == TokenKind::Identifier || is_keyword(next);
                 default: return false;
@@ -289,7 +291,15 @@ namespace hgl::syntax
                             id = parse_use_decl();
                             break;
                         case TokenKind::KwOperator: id = parse_operator_decl(); break;
+                        case TokenKind::KwAbstract:
+                        case TokenKind::KwStruct: id = parse_struct_decl(); break;
                         case TokenKind::KwExport:
+                            if (next_tok().kind == TokenKind::KwStruct || next_tok().kind == TokenKind::KwAbstract)
+                            {
+                                id = parse_struct_decl();
+                                break;
+                            }
+                            [[fallthrough]];
                         case TokenKind::KwImpl:
                         case TokenKind::KwFn: id = parse_function_decl(); break;
                         case TokenKind::KwTest: id = parse_test_decl(); break;
@@ -389,7 +399,8 @@ namespace hgl::syntax
                 ast::OperatorDecl decl;
                 decl.name = expect_name("an operator name");
                 if (at(TokenKind::Less)) { decl.generics = parse_generic_parameters(); }
-                decl.signature = parse_signature();
+                decl.signature    = parse_signature();
+                decl.requirements = parse_requires_clause();
                 if (at(TokenKind::FatArrow) || at(TokenKind::LBrace))
                 {
                     fail(tok().range, "an operator declaration has no body; implement it with 'impl fn'");
@@ -414,15 +425,99 @@ namespace hgl::syntax
                 expect(TokenKind::KwFn, "'fn'");
                 decl.name = expect_name("a function name");
                 if (at(TokenKind::Less)) { decl.generics = parse_generic_parameters(); }
-                decl.signature = parse_signature();
-                if (at(TokenKind::FatArrow))
+                decl.signature    = parse_signature();
+                decl.requirements = parse_requires_clause();
+                if (continue_with(TokenKind::FatArrow))
                 {
                     advance();
                     skip_newlines();
                     decl.concise_body = parse_expression();
                 }
-                else if (at(TokenKind::LBrace)) { decl.block_body = parse_block(); }
-                else { fail_expected("'=>' or '{' to begin the function body"); }
+                else if (continue_with(TokenKind::LBrace)) { decl.block_body = parse_block(); }
+                else
+                {
+                    fail_expected("'=>' or '{' to begin the function body");
+                }
+                return module_.add(ast::Decl{range_from(begin), std::move(decl)});
+            }
+
+            ast::DeclId parse_struct_decl()
+            {
+                const std::uint32_t begin = tok().range.begin;
+                ast::StructDecl     decl;
+                if (at(TokenKind::KwExport))
+                {
+                    decl.exported = true;
+                    advance();
+                }
+                if (at(TokenKind::KwAbstract))
+                {
+                    decl.abstract = true;
+                    advance();
+                }
+                expect(TokenKind::KwStruct, "'struct'");
+                decl.name = expect_name("a struct name");
+                if (at(TokenKind::Less)) { decl.generics = parse_generic_parameters(); }
+                if (at(TokenKind::Colon))
+                {
+                    advance();
+                    skip_newlines();
+                    while (true)
+                    {
+                        const ast::TypeId parent = parse_type(true);
+                        if (module_.type(parent).kind != ast::TypeKind::Named)
+                        {
+                            fail(module_.type(parent).range, "a struct parent is a named type");
+                        }
+                        decl.parents.push_back(parent);
+                        skip_newlines();
+                        if (!at(TokenKind::Comma)) { break; }
+                        advance();
+                        skip_newlines();
+                    }
+                }
+                decl.requirements = parse_requires_clause();
+                if (!continue_with(TokenKind::LBrace)) { fail_expected("'{' to begin the struct body"); }
+                advance();
+                while (true)
+                {
+                    skip_newlines();
+                    if (at(TokenKind::RBrace)) { break; }
+                    if (at_end()) { fail(here(), "expected '}' to close the struct, found end of file"); }
+
+                    ast::Name name = expect_name("a field name");
+                    if (at(TokenKind::Colon))
+                    {
+                        advance();
+                        skip_newlines();
+                        ast::StructField field;
+                        field.name = name;
+                        field.type = parse_type(false);
+                        if (at(TokenKind::Assign))
+                        {
+                            advance();
+                            skip_newlines();
+                            field.default_value = parse_expression();
+                        }
+                        decl.members.emplace_back(std::move(field));
+                    }
+                    else if (at(TokenKind::Assign))
+                    {
+                        advance();
+                        skip_newlines();
+                        ast::InheritedDefault override;
+                        override.name  = name;
+                        override.value = parse_expression();
+                        decl.members.emplace_back(std::move(override));
+                    }
+                    else
+                    {
+                        fail_expected("':' for a field or '=' for an inherited default");
+                    }
+
+                    if (!at(TokenKind::RBrace)) { expect_terminator("a newline after the struct member"); }
+                }
+                advance();
                 return module_.add(ast::Decl{range_from(begin), std::move(decl)});
             }
 
@@ -487,6 +582,11 @@ namespace hgl::syntax
                         advance();
                         skip_newlines();
                         parameter.default_value = parse_expression();
+                        if (!parameter.is_const)
+                        {
+                            diagnostics_.report(Category::Parse, module_.expr(parameter.default_value).range,
+                                                "only a const parameter may have a default");
+                        }
                     }
                     signature.parameters.push_back(std::move(parameter));
                     skip_newlines();
@@ -502,6 +602,187 @@ namespace hgl::syntax
                     signature.result = parse_type(false);
                 }
                 return signature;
+            }
+
+            // -------------------------------------------------- constraints
+
+            ast::ConstraintId parse_requires_clause()
+            {
+                if (!continue_with(TokenKind::KwRequires)) { return ast::no_node; }
+                advance();
+                skip_newlines();
+                return parse_constraint_or();
+            }
+
+            ast::ConstraintId parse_constraint_or()
+            {
+                ast::ConstraintId lhs = parse_constraint_and();
+                while (continue_with(TokenKind::OrOr))
+                {
+                    advance();
+                    skip_newlines();
+                    const ast::ConstraintId rhs = parse_constraint_and();
+                    lhs = module_.add(ast::Constraint{module_.constraint(lhs).range.join(module_.constraint(rhs).range),
+                                                      ast::ConstraintLogic{ast::ConstraintLogicOp::Or, lhs, rhs}});
+                }
+                return lhs;
+            }
+
+            ast::ConstraintId parse_constraint_and()
+            {
+                ast::ConstraintId lhs = parse_constraint_term();
+                while (continue_with(TokenKind::AndAnd))
+                {
+                    advance();
+                    skip_newlines();
+                    const ast::ConstraintId rhs = parse_constraint_term();
+                    lhs = module_.add(ast::Constraint{module_.constraint(lhs).range.join(module_.constraint(rhs).range),
+                                                      ast::ConstraintLogic{ast::ConstraintLogicOp::And, lhs, rhs}});
+                }
+                return lhs;
+            }
+
+            ast::ConstraintId parse_constraint_term()
+            {
+                if (at(TokenKind::Bang))
+                {
+                    const Token            &token   = advance();
+                    const ast::ConstraintId operand = parse_constraint_term();
+                    return module_.add(
+                        ast::Constraint{token.range.join(module_.constraint(operand).range), ast::ConstraintNot{operand}});
+                }
+                if (at(TokenKind::LParen))
+                {
+                    advance();
+                    skip_newlines();
+                    const ast::ConstraintId result = parse_constraint_or();
+                    skip_newlines();
+                    expect(TokenKind::RParen, "')'");
+                    return result;
+                }
+
+                ast::ConstraintId lhs = parse_constraint_operand();
+                if (at(TokenKind::Arrow))
+                {
+                    auto *call = std::get_if<ast::ConstraintCall>(&module_.constraints[lhs].node);
+                    if (call == nullptr)
+                    {
+                        fail(module_.constraint(lhs).range, "the left side of an operator requirement is a call");
+                    }
+                    advance();
+                    skip_newlines();
+                    const ast::TypeId        result = parse_type(true);
+                    ast::OperatorRequirement requirement;
+                    requirement.qualifier    = call->qualifier;
+                    requirement.name         = call->name;
+                    requirement.arguments    = std::move(call->arguments);
+                    requirement.result       = result;
+                    const SourceRange range  = module_.constraint(lhs).range.join(module_.type(result).range);
+                    module_.constraints[lhs] = ast::Constraint{range, std::move(requirement)};
+                    return lhs;
+                }
+
+                ast::ConstraintRelationOp relation;
+                bool                      has_relation = true;
+                if (at(TokenKind::EqualEqual)) { relation = ast::ConstraintRelationOp::Equal; }
+                else if (at_identifier("in")) { relation = ast::ConstraintRelationOp::In; }
+                else if (at(TokenKind::KwIs)) { relation = ast::ConstraintRelationOp::Is; }
+                else
+                {
+                    has_relation = false;
+                }
+                if (!has_relation) { return lhs; }
+
+                advance();
+                skip_newlines();
+                ast::ConstraintRelation node;
+                node.op  = relation;
+                node.lhs = lhs;
+                if (relation == ast::ConstraintRelationOp::Is)
+                {
+                    if (at(TokenKind::KwStruct))
+                    {
+                        const Token &category = advance();
+                        node.category         = ast::Name{category.text, category.range};
+                    }
+                    else
+                    {
+                        node.category = expect_name("a type category after 'is'");
+                    }
+                    return module_.add(ast::Constraint{module_.constraint(lhs).range.join(node.category.range), std::move(node)});
+                }
+                node.rhs = parse_constraint_operand();
+                return module_.add(
+                    ast::Constraint{module_.constraint(lhs).range.join(module_.constraint(node.rhs).range), std::move(node)});
+            }
+
+            ast::ConstraintId parse_constraint_operand()
+            {
+                const std::uint32_t begin = tok().range.begin;
+                if (at(TokenKind::LBrace))
+                {
+                    advance();
+                    skip_newlines();
+                    ast::ConstraintSet set;
+                    while (!at(TokenKind::RBrace))
+                    {
+                        set.elements.push_back(parse_constraint_operand());
+                        skip_newlines();
+                        if (!at(TokenKind::Comma)) { break; }
+                        advance();
+                        skip_newlines();
+                    }
+                    expect(TokenKind::RBrace, "',' or '}'");
+                    if (set.elements.empty()) { fail(range_from(begin), "a constraint set has at least one element"); }
+                    return module_.add(ast::Constraint{range_from(begin), std::move(set)});
+                }
+
+                if (is_scalar_type_keyword(tok().kind) || (at(TokenKind::Identifier) && next_tok().kind == TokenKind::Less))
+                {
+                    const ast::TypeId type = parse_type(true);
+                    return module_.add(ast::Constraint{module_.type(type).range, ast::ConstraintType{type}});
+                }
+
+                if (at(TokenKind::Identifier))
+                {
+                    ast::Name qualifier;
+                    ast::Name name = expect_name("a constraint name");
+                    if (at(TokenKind::ColonColon))
+                    {
+                        advance();
+                        qualifier = name;
+                        name      = expect_name("a declaration name after '::'");
+                    }
+                    if (!at(TokenKind::LParen))
+                    {
+                        if (!qualifier.empty()) { fail(range_from(begin), "a qualified constraint name must be called"); }
+                        return module_.add(ast::Constraint{name.range, ast::ConstraintName{name}});
+                    }
+                    advance();
+                    skip_newlines();
+                    ast::ConstraintCall call;
+                    call.qualifier = qualifier;
+                    call.name      = name;
+                    while (!at(TokenKind::RParen))
+                    {
+                        call.arguments.push_back(parse_constraint_operand());
+                        skip_newlines();
+                        if (!at(TokenKind::Comma)) { break; }
+                        advance();
+                        skip_newlines();
+                    }
+                    expect(TokenKind::RParen, "',' or ')'");
+                    return module_.add(ast::Constraint{range_from(begin), std::move(call)});
+                }
+
+                if (at(TokenKind::IntLiteral) || at(TokenKind::FloatLiteral) || at(TokenKind::StringLiteral) ||
+                    at(TokenKind::TemporalLiteral) || at(TokenKind::KwTrue) || at(TokenKind::KwFalse) || at(TokenKind::KwNull) ||
+                    at(TokenKind::Minus))
+                {
+                    const ast::ExprId value = parse_size_expression();
+                    return module_.add(ast::Constraint{module_.expr(value).range, ast::ConstraintValue{value}});
+                }
+                fail_expected("a constraint operand");
             }
 
             // -------------------------------------------------------- types
@@ -624,11 +905,53 @@ namespace hgl::syntax
                         type.kind = ast::TypeKind::Named;
                         type.name = ast::Name{text, tok().range};
                         advance();
+                        if (at(TokenKind::ColonColon))
+                        {
+                            advance();
+                            type.qualifier = type.name;
+                            type.name      = expect_name("a type name after '::'");
+                        }
+                        if (at(TokenKind::Less)) { type.arguments = parse_generic_arguments(); }
                     }
                 }
-                else { fail_expected("a type"); }
+                else
+                {
+                    fail_expected("a type");
+                }
                 type.range = range_from(begin);
                 return module_.add(std::move(type));
+            }
+
+            std::vector<ast::GenericArgument> parse_generic_arguments()
+            {
+                std::vector<ast::GenericArgument> arguments;
+                expect(TokenKind::Less, "'<'");
+                skip_newlines();
+                while (!at(TokenKind::Greater))
+                {
+                    ast::GenericArgument argument;
+                    const std::uint32_t  begin = tok().range.begin;
+                    if (is_scalar_type_keyword(tok().kind) ||
+                        (at(TokenKind::Identifier) &&
+                         (next_tok().kind == TokenKind::Less || next_tok().kind == TokenKind::ColonColon)))
+                    {
+                        argument.type = parse_type(true);
+                    }
+                    else if (at(TokenKind::Identifier)) { argument.name = expect_name("a generic argument"); }
+                    else
+                    {
+                        argument.value = parse_size_expression();
+                    }
+                    argument.range = range_from(begin);
+                    arguments.push_back(std::move(argument));
+                    skip_newlines();
+                    if (!at(TokenKind::Comma)) { break; }
+                    advance();
+                    skip_newlines();
+                }
+                expect(TokenKind::Greater, "',' or '>'");
+                if (arguments.empty()) { fail(here(), "a generic argument list has at least one argument"); }
+                return arguments;
             }
 
             /// A size argument is a constant expression parsed above the
@@ -710,6 +1033,57 @@ namespace hgl::syntax
                 return expr;
             }
 
+            [[nodiscard]] bool looks_like_applied_constructor() const noexcept
+            {
+                std::size_t p = pos_;
+                if (tok_at(p).kind != TokenKind::Identifier) { return false; }
+                ++p;
+                if (tok_at(p).kind == TokenKind::ColonColon)
+                {
+                    p += 2;
+                    if (tok_at(p - 1).kind != TokenKind::Identifier) { return false; }
+                }
+                if (tok_at(p).kind != TokenKind::Less) { return false; }
+                int depth = 0;
+                for (; p < tokens_.size(); ++p)
+                {
+                    if (tok_at(p).kind == TokenKind::Less) { ++depth; }
+                    else if (tok_at(p).kind == TokenKind::Greater)
+                    {
+                        --depth;
+                        if (depth == 0) { return tok_at(p + 1).kind == TokenKind::LParen; }
+                    }
+                    else if (tok_at(p).kind == TokenKind::EndOfFile) { return false; }
+                }
+                return false;
+            }
+
+            ast::ExprId parse_construct(bool delta)
+            {
+                const std::uint32_t begin = tok().range.begin;
+                ast::Construct      construct;
+                construct.delta = delta;
+                if (delta)
+                {
+                    advance();
+                    expect(TokenKind::Less, "'<' after 'delta'");
+                    skip_newlines();
+                    construct.type = parse_type(false);
+                    skip_newlines();
+                    expect(TokenKind::Greater, "'>' after the delta target");
+                }
+                else
+                {
+                    construct.type = parse_type(false);
+                }
+                if (module_.type(construct.type).kind != ast::TypeKind::Named)
+                {
+                    fail(module_.type(construct.type).range, "a struct constructor takes a named struct type");
+                }
+                construct.arguments = parse_arguments();
+                return module_.add(ast::Expr{range_from(begin), std::move(construct)});
+            }
+
             /// `(` [argument {, argument} [,]] `)`; the opening paren is current.
             std::vector<ast::Argument> parse_arguments()
             {
@@ -768,9 +1142,11 @@ namespace hgl::syntax
                     case TokenKind::KwFalse:
                         advance();
                         return module_.add(ast::Expr{token.range, ast::BoolLiteral{token.kind == TokenKind::KwTrue}});
+                    case TokenKind::KwNull: advance(); return module_.add(ast::Expr{token.range, ast::NullLiteral{}});
                     case TokenKind::Placeholder: advance(); return module_.add(ast::Expr{token.range, ast::Placeholder{}});
-                    case TokenKind::Identifier:
-                    {
+                    case TokenKind::Identifier: {
+                        if (token.text == "delta" && next_tok().kind == TokenKind::Less) { return parse_construct(true); }
+                        if (looks_like_applied_constructor()) { return parse_construct(false); }
                         ast::Name name = expect_name("a name");
                         if (at(TokenKind::ColonColon))
                         {

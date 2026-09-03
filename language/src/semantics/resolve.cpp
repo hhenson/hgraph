@@ -1,5 +1,7 @@
 #include "semantics/resolve.h"
 
+#include <algorithm>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <utility>
@@ -40,11 +42,15 @@ namespace hgl::semantics
         class Resolver
         {
           public:
-            Resolver(const ast::Module &module, const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics)
-                : module_{module}, has_operator_{has_operator}, diagnostics_{diagnostics}
+            Resolver(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
+                     syntax::DiagnosticSink &diagnostics)
+                : file_{file}, module_{module}, has_operator_{has_operator}, diagnostics_{diagnostics}
             {
                 result_.bindings.resize(module.exprs.size());
+                result_.type_bindings.resize(module.types.size());
+                result_.constraint_bindings.resize(module.constraints.size());
                 result_.kinds.resize(module.decls.size(), FunctionKind::Composition);
+                result_.struct_info.resize(module.decls.size());
             }
 
             ResolvedModule run()
@@ -53,10 +59,13 @@ namespace hgl::semantics
                 for (const ast::DeclId id : module_.declarations)
                 {
                     const ast::Decl &decl = module_.decl(id);
-                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) { resolve_function(id, *fn); }
+                    if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) { resolve_struct(id, *structure); }
+                    else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) { resolve_function(id, *fn); }
                     else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) { resolve_operator(id, *op); }
                     else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) { resolve_test(id, *test); }
                 }
+                validate_structs();
+                validate_constructors();
                 return std::move(result_);
             }
 
@@ -101,6 +110,21 @@ namespace hgl::semantics
                     if (const auto *use = std::get_if<ast::UseDecl>(&decl.node)) { resolve_use(*use, decl.range); }
                 }
                 // Operators first so a plain `fn` of an operator's name is a conflict.
+                for (const ast::DeclId id : module_.declarations)
+                {
+                    const ast::Decl &decl = module_.decl(id);
+                    if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node))
+                    {
+                        result_.structs.push_back(id);
+                        Binding binding;
+                        binding.kind = BindingKind::Struct;
+                        binding.decl = id;
+                        declare(structure->name, binding, "in the module");
+                    }
+                }
+                // Operators share the value namespace with exact functions
+                // and structs, and are collected before functions so a plain
+                // `fn` of an operator's name is diagnosed as a conflict.
                 for (const ast::DeclId id : module_.declarations)
                 {
                     const ast::Decl &decl = module_.decl(id);
@@ -245,8 +269,9 @@ namespace hgl::semantics
                 Context context;
                 context.fn = id;
                 push_scope();
-                declare_generics(id, fn.generics);
+                declare_generics(id, fn.generics, context);
                 resolve_signature(id, fn.signature, context);
+                resolve_constraint(fn.requirements, context);
                 if (fn.concise_body != ast::no_node) { resolve_expr(fn.concise_body, context); }
                 if (fn.block_body != ast::no_node) { resolve_block(fn.block_body, context); }
                 pop_scope();
@@ -257,8 +282,37 @@ namespace hgl::semantics
                 Context context;
                 context.fn = id;
                 push_scope();
-                declare_generics(id, op.generics);
+                declare_generics(id, op.generics, context);
                 resolve_signature(id, op.signature, context);
+                resolve_constraint(op.requirements, context);
+                pop_scope();
+            }
+
+            void resolve_struct(ast::DeclId id, const ast::StructDecl &structure)
+            {
+                Context context;
+                context.fn = id;
+                push_scope();
+                declare_generics(id, structure.generics, context);
+                for (const ast::TypeId parent : structure.parents) { resolve_type(parent, context); }
+                for (const ast::StructMember &member : structure.members)
+                {
+                    std::visit(
+                        [&](const auto &item) {
+                            using T = std::decay_t<decltype(item)>;
+                            if constexpr (std::is_same_v<T, ast::StructField>)
+                            {
+                                resolve_type(item.type, context);
+                                if (item.default_value != ast::no_node) { resolve_expr(item.default_value, context); }
+                            }
+                            else
+                            {
+                                resolve_expr(item.value, context);
+                            }
+                        },
+                        member);
+                }
+                resolve_constraint(structure.requirements, context);
                 pop_scope();
             }
 
@@ -272,10 +326,11 @@ namespace hgl::semantics
                 pop_scope();
             }
 
-            void declare_generics(ast::DeclId fn, const std::vector<ast::GenericParameter> &generics)
+            void declare_generics(ast::DeclId fn, const std::vector<ast::GenericParameter> &generics, Context &context)
             {
                 for (std::size_t i = 0; i < generics.size(); ++i)
                 {
+                    if (generics[i].type != ast::no_node) { resolve_type(generics[i].type, context); }
                     Binding binding;
                     binding.kind  = BindingKind::Generic;
                     binding.decl  = fn;
@@ -481,6 +536,17 @@ namespace hgl::semantics
                         else if constexpr (std::is_same_v<T, ast::Call>)
                         {
                             resolve_expr(node.callee, context);
+                            if (result_.bindings[node.callee].kind == BindingKind::Struct)
+                            {
+                                for (const ast::Argument &argument : node.arguments)
+                                {
+                                    if (argument.name.empty())
+                                    {
+                                        report(Category::Type, module_.expr(argument.value).range,
+                                               "struct construction uses named arguments");
+                                    }
+                                }
+                            }
                             for (const ast::Argument &argument : node.arguments) { resolve_expr(argument.value, context); }
                         }
                         else if constexpr (std::is_same_v<T, ast::Index>)
@@ -535,6 +601,25 @@ namespace hgl::semantics
                             resolve_expr(node.callee, context);
                             for (const ast::Argument &argument : node.arguments) { resolve_expr(argument.value, context); }
                         }
+                        else if constexpr (std::is_same_v<T, ast::Construct>)
+                        {
+                            resolve_type(node.type, context);
+                            const Binding &target = result_.type_bindings[node.type];
+                            if (target.kind != BindingKind::Struct)
+                            {
+                                report(Category::Type, module_.type(node.type).range,
+                                       "a struct constructor target is a concrete struct type");
+                            }
+                            for (const ast::Argument &argument : node.arguments)
+                            {
+                                if (argument.name.empty())
+                                {
+                                    report(Category::Type, module_.expr(argument.value).range,
+                                           "struct construction uses named arguments");
+                                }
+                                resolve_expr(argument.value, context);
+                            }
+                        }
                         // Literals bind nothing.
                     },
                     expr.node);
@@ -585,20 +670,646 @@ namespace hgl::semantics
                 report(Category::Name, ref.qualifier.range, "unknown module alias '" + std::string{ref.qualifier.text} + "'");
             }
 
+            [[nodiscard]] const std::vector<ast::GenericParameter> &generics_of(ast::DeclId id) const
+            {
+                const ast::DeclNode &node = module_.decl(id).node;
+                if (const auto *structure = std::get_if<ast::StructDecl>(&node)) { return structure->generics; }
+                if (const auto *fn = std::get_if<ast::FunctionDecl>(&node)) { return fn->generics; }
+                return std::get<ast::OperatorDecl>(node).generics;
+            }
+
+            [[nodiscard]] bool is_const_generic(const Binding &binding) const
+            {
+                return binding.kind == BindingKind::Generic && binding.index < generics_of(binding.decl).size() &&
+                       generics_of(binding.decl)[binding.index].is_const;
+            }
+
+            void resolve_generic_argument(const ast::GenericArgument &argument, const ast::GenericParameter &parameter,
+                                          Context &context)
+            {
+                if (argument.type != ast::no_node)
+                {
+                    resolve_type(argument.type, context);
+                    if (parameter.is_const)
+                    {
+                        report(Category::Type, argument.range,
+                               "const generic '" + std::string{parameter.name.text} + "' takes a value argument");
+                    }
+                    else
+                    {
+                        const ast::TypeKind kind = module_.type(argument.type).kind;
+                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling)
+                        {
+                            report(Category::Type, argument.range,
+                                   "generic struct type arguments are canonical value types; put "
+                                   "'atomic' or 'rolling' in the field declaration");
+                        }
+                    }
+                    return;
+                }
+                if (argument.value != ast::no_node)
+                {
+                    resolve_expr(argument.value, context);
+                    if (!parameter.is_const)
+                    {
+                        report(Category::Type, argument.range,
+                               "type generic '" + std::string{parameter.name.text} + "' takes a type argument");
+                    }
+                    return;
+                }
+
+                const std::optional<Binding> binding = lookup(argument.name.text);
+                if (!binding)
+                {
+                    report(Category::Type, argument.name.range,
+                           "unknown generic argument '" + std::string{argument.name.text} + "'");
+                    return;
+                }
+                if (parameter.is_const)
+                {
+                    if (!is_const_generic(*binding))
+                    {
+                        report(Category::Type, argument.name.range,
+                               "const generic '" + std::string{parameter.name.text} + "' takes a const value argument");
+                    }
+                    return;
+                }
+                if (binding->kind == BindingKind::Generic && is_const_generic(*binding))
+                {
+                    report(Category::Type, argument.name.range,
+                           "type generic '" + std::string{parameter.name.text} + "' takes a type argument");
+                }
+                else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct)
+                {
+                    report(Category::Type, argument.name.range, "'" + std::string{argument.name.text} + "' is not a type");
+                }
+                else if (binding->kind == BindingKind::Struct && !generics_of(binding->decl).empty())
+                {
+                    report(Category::Type, argument.name.range,
+                           "generic struct '" + std::string{argument.name.text} + "' must be fully applied");
+                }
+            }
+
+            [[nodiscard]] std::string expression_key(ast::ExprId id) const
+            {
+                std::string key{file_.slice(module_.expr(id).range)};
+                key.erase(std::remove_if(key.begin(), key.end(), [](unsigned char c) { return std::isspace(c); }), key.end());
+                return "v:" + key;
+            }
+
+            [[nodiscard]] std::string type_key(ast::TypeId id) const
+            {
+                const ast::Type &type = module_.type(id);
+                std::string      key  = "t:" + std::to_string(static_cast<unsigned>(type.kind)) + ':';
+                if (type.kind == ast::TypeKind::Scalar) { return key + std::string{ast::scalar_type_name(type.scalar)}; }
+                if (type.kind == ast::TypeKind::Named)
+                {
+                    const Binding &binding = result_.type_bindings[id];
+                    key += binding.kind == BindingKind::Struct ? "struct:" : "generic:";
+                    key += std::to_string(binding.decl) + ':' + std::to_string(binding.index);
+                    for (const ast::GenericArgument &argument : type.arguments)
+                    {
+                        key += '<';
+                        if (argument.type != ast::no_node) { key += type_key(argument.type); }
+                        else if (argument.value != ast::no_node) { key += expression_key(argument.value); }
+                        else
+                        {
+                            key += "n:" + std::string{argument.name.text};
+                        }
+                        key += '>';
+                    }
+                    return key;
+                }
+                for (const ast::TypeId child : type.children) { key += '<' + type_key(child) + '>'; }
+                if (type.size != ast::no_node) { key += '<' + expression_key(type.size) + '>'; }
+                if (type.min_size != ast::no_node) { key += '<' + expression_key(type.min_size) + '>'; }
+                if (type.unbounded) { key += "<unbounded>"; }
+                return key;
+            }
+
+            [[nodiscard]] std::string generic_argument_key(const ast::GenericArgument &argument) const
+            {
+                if (argument.type != ast::no_node) { return type_key(argument.type); }
+                if (argument.value != ast::no_node) { return expression_key(argument.value); }
+                const std::optional<Binding> binding = lookup(argument.name.text);
+                if (binding && binding->kind == BindingKind::Struct)
+                {
+                    return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
+                           ":struct:" + std::to_string(binding->decl) + ":0";
+                }
+                if (binding && binding->kind == BindingKind::Generic)
+                {
+                    return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
+                           ":generic:" + std::to_string(binding->decl) + ':' + std::to_string(binding->index);
+                }
+                return "n:" + std::string{argument.name.text};
+            }
+
+            using ConstraintSubstitution = std::vector<std::pair<std::string_view, std::string>>;
+
+            [[nodiscard]] std::optional<std::string> constraint_operand_key(ast::ConstraintId             id,
+                                                                            const ConstraintSubstitution &substitution) const
+            {
+                const ast::Constraint &constraint = module_.constraint(id);
+                if (const auto *name = std::get_if<ast::ConstraintName>(&constraint.node))
+                {
+                    for (const auto &[parameter, value] : substitution)
+                    {
+                        if (parameter == name->name.text) { return value; }
+                    }
+                    const Binding &binding = result_.constraint_bindings[id];
+                    if (binding.kind == BindingKind::Struct)
+                    {
+                        return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
+                               ":struct:" + std::to_string(binding.decl) + ":0";
+                    }
+                    return std::nullopt;
+                }
+                if (const auto *type = std::get_if<ast::ConstraintType>(&constraint.node)) { return type_key(type->type); }
+                if (const auto *value = std::get_if<ast::ConstraintValue>(&constraint.node))
+                {
+                    return expression_key(value->value);
+                }
+                return std::nullopt;
+            }
+
+            [[nodiscard]] std::optional<bool> evaluate_constraint(ast::ConstraintId             id,
+                                                                  const ConstraintSubstitution &substitution) const
+            {
+                if (id == ast::no_node) { return true; }
+                const ast::Constraint &constraint = module_.constraint(id);
+                if (const auto *relation = std::get_if<ast::ConstraintRelation>(&constraint.node))
+                {
+                    const std::optional<std::string> lhs = constraint_operand_key(relation->lhs, substitution);
+                    if (!lhs) { return std::nullopt; }
+                    if (relation->op == ast::ConstraintRelationOp::Is)
+                    {
+                        if (relation->category.text == "struct")
+                        {
+                            const std::string prefix =
+                                "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) + ":struct:";
+                            return lhs->starts_with(prefix);
+                        }
+                        return std::nullopt;
+                    }
+                    if (relation->op == ast::ConstraintRelationOp::Equal)
+                    {
+                        const std::optional<std::string> rhs = constraint_operand_key(relation->rhs, substitution);
+                        return rhs ? std::optional<bool>{*lhs == *rhs} : std::nullopt;
+                    }
+                    const auto *set = std::get_if<ast::ConstraintSet>(&module_.constraint(relation->rhs).node);
+                    if (set == nullptr) { return std::nullopt; }
+                    bool complete = true;
+                    for (const ast::ConstraintId element : set->elements)
+                    {
+                        const std::optional<std::string> candidate = constraint_operand_key(element, substitution);
+                        if (!candidate)
+                        {
+                            complete = false;
+                            continue;
+                        }
+                        if (*candidate == *lhs) { return true; }
+                    }
+                    return complete ? std::optional<bool>{false} : std::nullopt;
+                }
+                if (const auto *not_ = std::get_if<ast::ConstraintNot>(&constraint.node))
+                {
+                    const std::optional<bool> value = evaluate_constraint(not_->operand, substitution);
+                    return value ? std::optional<bool>{!*value} : std::nullopt;
+                }
+                if (const auto *logic = std::get_if<ast::ConstraintLogic>(&constraint.node))
+                {
+                    const std::optional<bool> lhs = evaluate_constraint(logic->lhs, substitution);
+                    const std::optional<bool> rhs = evaluate_constraint(logic->rhs, substitution);
+                    if (logic->op == ast::ConstraintLogicOp::And)
+                    {
+                        if ((lhs && !*lhs) || (rhs && !*rhs)) { return false; }
+                        if (lhs && rhs) { return *lhs && *rhs; }
+                    }
+                    else
+                    {
+                        if ((lhs && *lhs) || (rhs && *rhs)) { return true; }
+                        if (lhs && rhs) { return *lhs || *rhs; }
+                    }
+                }
+                return std::nullopt;
+            }
+
+            void validate_struct_application(const Binding &binding, const ast::Type &type)
+            {
+                const auto &structure = std::get<ast::StructDecl>(module_.decl(binding.decl).node);
+                if (structure.requirements == ast::no_node || structure.generics.size() != type.arguments.size()) { return; }
+                ConstraintSubstitution substitution;
+                for (std::size_t i = 0; i < structure.generics.size(); ++i)
+                {
+                    substitution.emplace_back(structure.generics[i].name.text, generic_argument_key(type.arguments[i]));
+                }
+                if (const std::optional<bool> accepted = evaluate_constraint(structure.requirements, substitution);
+                    accepted && !*accepted)
+                {
+                    report(Category::Type, type.range,
+                           "generic struct '" + std::string{structure.name.text} + "' requirements are not satisfied");
+                }
+            }
+
             void resolve_type(ast::TypeId id, Context &context)
             {
                 const ast::Type &type = module_.type(id);
+                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling))
+                {
+                    report(Category::Type, type.range,
+                           std::string{"'"} + (type.kind == ast::TypeKind::Atomic ? "atomic" : "rolling") +
+                               "' is a temporal shape, not a canonical value type");
+                }
                 if (type.kind == ast::TypeKind::Named)
                 {
+                    if (!type.qualifier.empty())
+                    {
+                        report(Category::Type, type.qualifier.range,
+                               "qualified source types require a module descriptor; only local "
+                               "struct types are available in this prototype");
+                    }
                     const std::optional<Binding> binding = lookup(type.name.text);
-                    if (!binding || binding->kind != BindingKind::Generic)
+                    if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct))
                     {
                         report(Category::Type, type.name.range, "unknown type '" + std::string{type.name.text} + "'");
+                    }
+                    else
+                    {
+                        result_.type_bindings[id] = *binding;
+                        if (binding->kind == BindingKind::Generic)
+                        {
+                            if (!type.arguments.empty())
+                            {
+                                report(Category::Type, type.range, "a type parameter cannot be applied as a generic struct");
+                            }
+                        }
+                        else
+                        {
+                            const auto &parameters = generics_of(binding->decl);
+                            if (parameters.size() != type.arguments.size())
+                            {
+                                report(Category::Type, type.range,
+                                       "generic struct '" + std::string{type.name.text} + "' expects " +
+                                           std::to_string(parameters.size()) + " arguments, got " +
+                                           std::to_string(type.arguments.size()));
+                            }
+                            const std::size_t count = std::min(parameters.size(), type.arguments.size());
+                            for (std::size_t i = 0; i < count; ++i)
+                            {
+                                resolve_generic_argument(type.arguments[i], parameters[i], context);
+                            }
+                            for (std::size_t i = count; i < type.arguments.size(); ++i)
+                            {
+                                const ast::GenericArgument &argument = type.arguments[i];
+                                if (argument.type != ast::no_node) { resolve_type(argument.type, context); }
+                                else if (argument.value != ast::no_node) { resolve_expr(argument.value, context); }
+                            }
+                            if (parameters.size() == type.arguments.size()) { validate_struct_application(*binding, type); }
+                        }
                     }
                 }
                 for (const ast::TypeId child : type.children) { resolve_type(child, context); }
                 if (type.size != ast::no_node) { resolve_expr(type.size, context); }
                 if (type.min_size != ast::no_node) { resolve_expr(type.min_size, context); }
+            }
+
+            void resolve_constraint(ast::ConstraintId id, Context &context)
+            {
+                if (id == ast::no_node) { return; }
+                const ast::Constraint &constraint = module_.constraint(id);
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, ast::ConstraintName>)
+                        {
+                            const std::optional<Binding> binding = lookup(node.name.text);
+                            if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Parameter &&
+                                             binding->kind != BindingKind::Struct))
+                            {
+                                report(Category::Name, node.name.range,
+                                       "unknown constraint name '" + std::string{node.name.text} + "'");
+                            }
+                            else
+                            {
+                                result_.constraint_bindings[id] = *binding;
+                            }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintType>) { resolve_type(node.type, context); }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintValue>) { resolve_expr(node.value, context); }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintSet>)
+                        {
+                            for (const ast::ConstraintId element : node.elements) { resolve_constraint(element, context); }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintCall>)
+                        {
+                            if (!node.qualifier.empty() ||
+                                (node.name.text != "fields" && node.name.text != "has_fields" && node.name.text != "field_type" &&
+                                 node.name.text != "schema" && node.name.text != "keys"))
+                            {
+                                report(Category::Type, constraint.range,
+                                       "'" + std::string{node.name.text} + "' is not a compile-time reflection function");
+                            }
+                            else
+                            {
+                                Binding binding;
+                                binding.kind                    = BindingKind::Intrinsic;
+                                binding.registry_name           = std::string{node.name.text};
+                                result_.constraint_bindings[id] = std::move(binding);
+                            }
+                            for (const ast::ConstraintId argument : node.arguments) { resolve_constraint(argument, context); }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::OperatorRequirement>)
+                        {
+                            Binding binding;
+                            if (node.qualifier.empty())
+                            {
+                                const std::optional<Binding> found = lookup(node.name.text);
+                                if (found && (found->kind == BindingKind::Operator || found->kind == BindingKind::LocalOperator))
+                                {
+                                    binding = *found;
+                                }
+                                else
+                                {
+                                    report(Category::Name, node.name.range,
+                                           "operator requirement names no operator '" + std::string{node.name.text} + "'");
+                                }
+                            }
+                            else
+                            {
+                                bool found_alias = false;
+                                for (const ModuleAlias &alias : result_.aliases)
+                                {
+                                    if (alias.alias != node.qualifier.text) { continue; }
+                                    found_alias                           = true;
+                                    const std::optional<std::string> name = kernel_registry_name(alias.module, node.name.text);
+                                    if (!name)
+                                    {
+                                        report(Category::Module, node.name.range,
+                                               alias.module + " does not export '" + std::string{node.name.text} + "'");
+                                    }
+                                    else
+                                    {
+                                        binding.kind          = BindingKind::Operator;
+                                        binding.registry_name = *name;
+                                    }
+                                    break;
+                                }
+                                if (!found_alias)
+                                {
+                                    report(Category::Name, node.qualifier.range,
+                                           "unknown module alias '" + std::string{node.qualifier.text} + "'");
+                                }
+                            }
+                            result_.constraint_bindings[id] = std::move(binding);
+                            for (const ast::ConstraintId argument : node.arguments) { resolve_constraint(argument, context); }
+                            if (node.result != ast::no_node) { resolve_type(node.result, context); }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintRelation>)
+                        {
+                            resolve_constraint(node.lhs, context);
+                            if (node.op == ast::ConstraintRelationOp::Is)
+                            {
+                                if (node.category.text != "struct")
+                                {
+                                    report(Category::Type, node.category.range,
+                                           "unknown type category '" + std::string{node.category.text} + "'");
+                                }
+                            }
+                            else
+                            {
+                                resolve_constraint(node.rhs, context);
+                            }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintNot>) { resolve_constraint(node.operand, context); }
+                        else if constexpr (std::is_same_v<T, ast::ConstraintLogic>)
+                        {
+                            resolve_constraint(node.lhs, context);
+                            resolve_constraint(node.rhs, context);
+                        }
+                    },
+                    constraint.node);
+            }
+
+            // ---------------------------------------------------- structures
+
+            [[nodiscard]] bool is_null(ast::ExprId id) const noexcept
+            { return id != ast::no_node && std::holds_alternative<ast::NullLiteral>(module_.expr(id).node); }
+
+            [[nodiscard]] bool contains_struct(ast::TypeId id, ast::DeclId target) const
+            {
+                const ast::Type &type = module_.type(id);
+                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct &&
+                    result_.type_bindings[id].decl == target)
+                {
+                    return true;
+                }
+                for (const ast::TypeId child : type.children)
+                {
+                    if (contains_struct(child, target)) { return true; }
+                }
+                for (const ast::GenericArgument &argument : type.arguments)
+                {
+                    if (argument.type != ast::no_node && contains_struct(argument.type, target)) { return true; }
+                }
+                return false;
+            }
+
+            bool validate_struct(ast::DeclId id)
+            {
+                if (struct_states_[id] == 2) { return result_.struct_info[id].valid; }
+                const auto &structure = std::get<ast::StructDecl>(module_.decl(id).node);
+                if (struct_states_[id] == 1)
+                {
+                    report(Category::Type, structure.name.range,
+                           "struct inheritance cycle reaches '" + std::string{structure.name.text} + "'");
+                    return false;
+                }
+                struct_states_[id] = 1;
+                bool        valid  = true;
+                StructInfo &info   = result_.struct_info[id];
+
+                if (structure.parents.size() > 1)
+                {
+                    report(Category::Type, structure.name.range,
+                           "multiple abstract parents are parsed, but lowering awaits the "
+                           "stable field-order rule");
+                    valid = false;
+                }
+                for (const ast::TypeId parent_type : structure.parents)
+                {
+                    const Binding &binding = result_.type_bindings[parent_type];
+                    if (binding.kind != BindingKind::Struct)
+                    {
+                        valid = false;
+                        continue;
+                    }
+                    const auto &parent = std::get<ast::StructDecl>(module_.decl(binding.decl).node);
+                    if (!parent.abstract)
+                    {
+                        report(Category::Type, module_.type(parent_type).range,
+                               "only an abstract struct may be inherited; '" + std::string{parent.name.text} +
+                                   "' is concrete and implicitly final");
+                        valid = false;
+                        continue;
+                    }
+                    if (!validate_struct(binding.decl)) { valid = false; }
+                    info.parents.push_back(binding.decl);
+                    if (structure.parents.size() == 1) { info.fields = result_.struct_info[binding.decl].fields; }
+                }
+
+                std::vector<std::string_view> local_names;
+                std::vector<std::string_view> overridden;
+                for (const ast::StructMember &member : structure.members)
+                {
+                    std::visit(
+                        [&](const auto &item) {
+                            using T = std::decay_t<decltype(item)>;
+                            if constexpr (std::is_same_v<T, ast::StructField>)
+                            {
+                                if (std::find(local_names.begin(), local_names.end(), item.name.text) != local_names.end())
+                                {
+                                    report(Category::Name, item.name.range,
+                                           "struct field '" + std::string{item.name.text} + "' is declared twice");
+                                    valid = false;
+                                    return;
+                                }
+                                local_names.push_back(item.name.text);
+                                const auto inherited =
+                                    std::find_if(info.fields.begin(), info.fields.end(),
+                                                 [&](const StructField &field) { return field.name == item.name.text; });
+                                if (inherited != info.fields.end())
+                                {
+                                    report(Category::Type, item.name.range,
+                                           "inherited field '" + std::string{item.name.text} +
+                                               "' cannot be redeclared with a type; override only "
+                                               "its default");
+                                    valid = false;
+                                    return;
+                                }
+                                if (contains_struct(item.type, id))
+                                {
+                                    report(Category::Type, module_.type(item.type).range,
+                                           "self-recursive struct fields are not supported in this "
+                                           "prototype");
+                                    valid = false;
+                                }
+                                info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value, id,
+                                                                  is_null(item.default_value)});
+                            }
+                            else
+                            {
+                                if (std::find(overridden.begin(), overridden.end(), item.name.text) != overridden.end())
+                                {
+                                    report(Category::Name, item.name.range,
+                                           "inherited default '" + std::string{item.name.text} + "' is set twice");
+                                    valid = false;
+                                    return;
+                                }
+                                overridden.push_back(item.name.text);
+                                const auto inherited =
+                                    std::find_if(info.fields.begin(), info.fields.end(),
+                                                 [&](const StructField &field) { return field.name == item.name.text; });
+                                if (inherited == info.fields.end())
+                                {
+                                    report(Category::Type, item.name.range,
+                                           "default override names no inherited field '" + std::string{item.name.text} + "'");
+                                    valid = false;
+                                    return;
+                                }
+                                if (is_null(item.value) && !inherited->optional)
+                                {
+                                    report(Category::Type, module_.expr(item.value).range,
+                                           "only an optional inherited field may have a null default");
+                                    valid = false;
+                                    return;
+                                }
+                                inherited->default_value = item.value;
+                            }
+                        },
+                        member);
+                }
+                info.valid         = valid;
+                struct_states_[id] = 2;
+                return valid;
+            }
+
+            void validate_structs()
+            {
+                struct_states_.assign(module_.decls.size(), 0);
+                for (const ast::DeclId id : result_.structs) { (void)validate_struct(id); }
+            }
+
+            void validate_constructor(ast::DeclId decl, const std::vector<ast::Argument> &arguments, bool delta, SourceRange range)
+            {
+                const auto       &structure = std::get<ast::StructDecl>(module_.decl(decl).node);
+                const StructInfo &info      = result_.struct_info[decl];
+                if (!info.valid) { return; }
+                if (structure.abstract)
+                {
+                    report(Category::Type, range,
+                           "abstract struct '" + std::string{structure.name.text} + "' is not constructible");
+                    return;
+                }
+                std::vector<bool> supplied(info.fields.size(), false);
+                for (const ast::Argument &argument : arguments)
+                {
+                    if (argument.name.empty()) { continue; }
+                    const auto found = std::find_if(info.fields.begin(), info.fields.end(),
+                                                    [&](const StructField &field) { return field.name == argument.name.text; });
+                    if (found == info.fields.end())
+                    {
+                        report(Category::Name, argument.name.range,
+                               "struct '" + std::string{structure.name.text} + "' has no field named '" +
+                                   std::string{argument.name.text} + "'");
+                        continue;
+                    }
+                    const auto index = static_cast<std::size_t>(found - info.fields.begin());
+                    if (supplied[index])
+                    {
+                        report(Category::Name, argument.name.range,
+                               "field '" + std::string{argument.name.text} + "' is given twice");
+                    }
+                    supplied[index] = true;
+                    if (is_null(argument.value) && !found->optional)
+                    {
+                        report(Category::Type, module_.expr(argument.value).range,
+                               "required field '" + found->name + "' cannot be null");
+                    }
+                }
+                if (delta) { return; }
+                for (std::size_t i = 0; i < info.fields.size(); ++i)
+                {
+                    if (!supplied[i] && info.fields[i].default_value == ast::no_node && !info.fields[i].optional)
+                    {
+                        report(Category::Type, range,
+                               "struct '" + std::string{structure.name.text} + "' needs field '" + info.fields[i].name + "'");
+                    }
+                }
+            }
+
+            void validate_constructors()
+            {
+                for (ast::ExprId id = 0; id < module_.exprs.size(); ++id)
+                {
+                    const ast::Expr &expr = module_.expr(id);
+                    if (const auto *construct = std::get_if<ast::Construct>(&expr.node))
+                    {
+                        const Binding &binding = result_.type_bindings[construct->type];
+                        if (binding.kind == BindingKind::Struct)
+                        {
+                            validate_constructor(binding.decl, construct->arguments, construct->delta, expr.range);
+                        }
+                    }
+                    else if (const auto *call = std::get_if<ast::Call>(&expr.node))
+                    {
+                        const Binding &binding = result_.bindings[call->callee];
+                        if (binding.kind == BindingKind::Struct)
+                        {
+                            validate_constructor(binding.decl, call->arguments, false, expr.range);
+                        }
+                    }
+                }
             }
 
             // ----------------------------------------------------------- scopes
@@ -639,11 +1350,13 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
-            const ast::Module     &module_;
-            const OperatorLookup  &has_operator_;
-            syntax::DiagnosticSink &diagnostics_;
-            ResolvedModule         result_{};
-            std::vector<Scope>     scopes_{};
+            const syntax::SourceFile &file_;
+            const ast::Module        &module_;
+            const OperatorLookup     &has_operator_;
+            syntax::DiagnosticSink   &diagnostics_;
+            ResolvedModule            result_{};
+            std::vector<Scope>        scopes_{};
+            std::vector<std::uint8_t> struct_states_{};
         };
     }  // namespace
 
@@ -659,7 +1372,6 @@ namespace hgl::semantics
     ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
                            syntax::DiagnosticSink &diagnostics)
     {
-        static_cast<void>(file);
-        return Resolver{module, has_operator, diagnostics}.run();
+        return Resolver{file, module, has_operator, diagnostics}.run();
     }
 }  // namespace hgl::semantics

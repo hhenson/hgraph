@@ -113,8 +113,7 @@ impl fn preserve_window<
 same maximum and minimum size. `rolling<f64, 20, 5>` becomes valid from five
 values while retaining at most twenty.
 
-The agreed next generic surface adds compile-time requirements. The current
-`hgl check` parser does not accept this clause yet:
+Generic declarations may carry compile-time requirements:
 
 ```hgl
 operator choose_number<U>(lhs: U, rhs: U) -> U
@@ -131,8 +130,11 @@ impl fn double<U>(value: U) -> U => value + value
 Repeating `U` requires the arguments and result to share one canonical source
 type. The first contract restricts that type to `f64` or `i64`. The second
 requires the nominal `add` operator to accept two `U` values and produce `U`;
-its implementation may rely on that guarantee without repeating it. These
-requirements are resolved while wiring, not tested for every tick.
+its implementation may rely on that guarantee without repeating it. `hgl
+check` parses and binds this constraint model now. Closed requirements on an
+explicit generic struct application are evaluated when all operands are
+known; callable substitution and operator admission remain part of the typed
+IR and hgraph resolver work. Requirements are never tested per tick.
 
 ## Anonymous functions
 

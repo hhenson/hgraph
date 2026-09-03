@@ -26,6 +26,7 @@ namespace hgl::syntax::ast
     using StmtId  = NodeId;
     using BlockId = NodeId;
     using DeclId  = NodeId;
+    using ConstraintId = NodeId;
 
     /// An identifier occurrence with its own range (for name diagnostics).
     struct Name
@@ -68,16 +69,29 @@ namespace hgl::syntax::ast
         Atomic,   ///< `children[0]`
     };
 
+    /// One argument of an applied nominal type. A bare identifier is kept
+    /// ambiguous until name resolution sees the referenced declaration's
+    /// type/const parameter at this position.
+    struct GenericArgument
+    {
+        SourceRange range{};
+        TypeId      type{no_node};
+        ExprId      value{no_node};
+        Name        name{};
+    };
+
     struct Type
     {
-        TypeKind            kind{TypeKind::Scalar};
-        SourceRange         range{};
-        ScalarType          scalar{ScalarType::Bool};
-        Name                name{};
-        std::vector<TypeId> children{};
-        ExprId              size{no_node};
-        ExprId              min_size{no_node};
-        bool                unbounded{false};
+        TypeKind                     kind{TypeKind::Scalar};
+        SourceRange                  range{};
+        ScalarType                   scalar{ScalarType::Bool};
+        Name                         qualifier{};
+        Name                         name{};
+        std::vector<GenericArgument> arguments{};
+        std::vector<TypeId>          children{};
+        ExprId                       size{no_node};
+        ExprId                       min_size{no_node};
+        bool                         unbounded{false};
         /// True when the type was written in a value-type position
         /// (`const`, generic, `set<>` element, map key, rolling element).
         bool value_position{false};
@@ -126,6 +140,9 @@ namespace hgl::syntax::ast
     struct BoolLiteral
     {
         bool value{false};
+    };
+    struct NullLiteral
+    {
     };
     struct TemporalLiteral
     {
@@ -223,9 +240,20 @@ namespace hgl::syntax::ast
         std::vector<Argument> arguments{};
     };
 
-    using ExprNode = std::variant<IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, TemporalLiteral, Placeholder,
-                                  NameRef, QualifiedRef, Unary, Binary, Call, Index, Field, SequenceLiteral,
-                                  TupleLiteral, AnonymousFn, If, BlockExpr, Eval>;
+    /// A nominal struct constructor. The un-applied `Quote(...)` form stays
+    /// an ordinary Call and becomes a constructor through name resolution;
+    /// this node preserves the explicit `Box<f64>(...)` and `delta<S>(...)`
+    /// type application without opening generic function-call syntax.
+    struct Construct
+    {
+        TypeId                type{no_node};
+        std::vector<Argument> arguments{};
+        bool                  delta{false};
+    };
+
+    using ExprNode = std::variant<IntLiteral, FloatLiteral, StringLiteral, BoolLiteral, NullLiteral, TemporalLiteral, Placeholder,
+                                  NameRef, QualifiedRef, Unary, Binary, Call, Index, Field, SequenceLiteral, TupleLiteral,
+                                  AnonymousFn, If, BlockExpr, Eval, Construct>;
 
     struct Expr
     {
@@ -341,6 +369,79 @@ namespace hgl::syntax::ast
         TypeId                 result{no_node};
     };
 
+    // ---------------------------------------------------------- constraints
+
+    enum class ConstraintLogicOp : std::uint8_t
+    {
+        And,
+        Or,
+    };
+
+    enum class ConstraintRelationOp : std::uint8_t
+    {
+        Equal,
+        In,
+        Is,
+    };
+
+    /// An identifier whose type/value interpretation is determined by its
+    /// declaration and its position in the constraint.
+    struct ConstraintName
+    {
+        Name name{};
+    };
+    struct ConstraintType
+    {
+        TypeId type{no_node};
+    };
+    struct ConstraintValue
+    {
+        ExprId value{no_node};
+    };
+    struct ConstraintSet
+    {
+        std::vector<ConstraintId> elements{};
+    };
+    struct ConstraintCall
+    {
+        Name                      qualifier{};
+        Name                      name{};
+        std::vector<ConstraintId> arguments{};
+    };
+    struct OperatorRequirement
+    {
+        Name                      qualifier{};
+        Name                      name{};
+        std::vector<ConstraintId> arguments{};
+        TypeId                    result{no_node};
+    };
+    struct ConstraintRelation
+    {
+        ConstraintRelationOp op{ConstraintRelationOp::Equal};
+        ConstraintId         lhs{no_node};
+        ConstraintId         rhs{no_node};
+        Name                 category{};  ///< right side of `is`
+    };
+    struct ConstraintNot
+    {
+        ConstraintId operand{no_node};
+    };
+    struct ConstraintLogic
+    {
+        ConstraintLogicOp op{ConstraintLogicOp::And};
+        ConstraintId      lhs{no_node};
+        ConstraintId      rhs{no_node};
+    };
+
+    using ConstraintNode = std::variant<ConstraintName, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
+                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+
+    struct Constraint
+    {
+        SourceRange    range{};
+        ConstraintNode node{};
+    };
+
     struct ModuleDecl
     {
         std::vector<Name> path{};
@@ -358,6 +459,7 @@ namespace hgl::syntax::ast
         Name                          name{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
+        ConstraintId                  requirements{no_node};
     };
 
     enum class FunctionVisibility : std::uint8_t
@@ -373,8 +475,35 @@ namespace hgl::syntax::ast
         Name                          name{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
+        ConstraintId                  requirements{no_node};
         ExprId                        concise_body{no_node};  ///< `=> expr`
         BlockId                       block_body{no_node};    ///< `{ ... }`
+    };
+
+    struct StructField
+    {
+        Name   name{};
+        TypeId type{no_node};
+        ExprId default_value{no_node};
+    };
+
+    struct InheritedDefault
+    {
+        Name   name{};
+        ExprId value{no_node};
+    };
+
+    using StructMember = std::variant<StructField, InheritedDefault>;
+
+    struct StructDecl
+    {
+        bool                          exported{false};
+        bool                          abstract{false};
+        Name                          name{};
+        std::vector<GenericParameter> generics{};
+        std::vector<TypeId>           parents{};
+        ConstraintId                  requirements{no_node};
+        std::vector<StructMember>     members{};
     };
 
     struct TestDecl
@@ -383,7 +512,7 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, OperatorDecl, FunctionDecl, TestDecl>;
+    using DeclNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, FunctionDecl, TestDecl>;
 
     struct Decl
     {
@@ -404,6 +533,7 @@ namespace hgl::syntax::ast
         std::vector<Expr>    exprs{};
         std::vector<Stmt>    stmts{};
         std::vector<Block>   blocks{};
+        std::vector<Constraint> constraints{};
         std::vector<Decl>    decls{};
         std::vector<Comment> comments{};  ///< source trivia, in order
 
@@ -413,6 +543,7 @@ namespace hgl::syntax::ast
         [[nodiscard]] const Expr &expr(ExprId id) const noexcept { return exprs[id]; }
         [[nodiscard]] const Stmt &stmt(StmtId id) const noexcept { return stmts[id]; }
         [[nodiscard]] const Block &block(BlockId id) const noexcept { return blocks[id]; }
+        [[nodiscard]] const Constraint &constraint(ConstraintId id) const noexcept { return constraints[id]; }
         [[nodiscard]] const Decl &decl(DeclId id) const noexcept { return decls[id]; }
 
         TypeId add(Type node)
@@ -434,6 +565,11 @@ namespace hgl::syntax::ast
         {
             blocks.push_back(std::move(node));
             return static_cast<NodeId>(blocks.size() - 1);
+        }
+        ConstraintId add(Constraint node)
+        {
+            constraints.push_back(std::move(node));
+            return static_cast<NodeId>(constraints.size() - 1);
         }
         DeclId add(Decl node)
         {

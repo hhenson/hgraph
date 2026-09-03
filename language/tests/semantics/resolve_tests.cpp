@@ -91,6 +91,16 @@ namespace
             FAIL("no function " << text);
             throw 0;
         }
+
+        [[nodiscard]] ast::DeclId struct_id(std::string_view text) const
+        {
+            for (const ast::DeclId id : result.structs)
+            {
+                if (std::get<ast::StructDecl>(module.decl(id).node).name.text == text) { return id; }
+            }
+            FAIL("no struct " << text);
+            throw 0;
+        }
     };
 
     Resolved resolve_clean(std::string text)
@@ -127,7 +137,8 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
 
 TEST_CASE("only the kernel modules link in the first pass", "[semantics]")
 {
-    const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse hgraph.std::{nothing_like_this}\n"};
+    const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse "
+                            "hgraph.std::{nothing_like_this}\n"};
     CHECK(resolved.has(Category::Module, "module 'market.pricing' is not available"));
     CHECK(resolved.has(Category::Module, "hgraph.std does not export 'nothing_like_this'"));
 }
@@ -235,7 +246,8 @@ impl fn valid(x: f64) -> bool => true
     const Resolved unbound{"module t\n\nimpl fn nothing(x: f64) -> bool => true\n"};
     CHECK(unbound.has(Category::Module, "'impl fn nothing' has no operator named 'nothing' in scope"));
 
-    const Resolved clash{"module t\n\nuse hgraph.std::{valid}\n\nfn valid(x: f64) -> bool => true\n"};
+    const Resolved clash{"module t\n\nuse hgraph.std::{valid}\n\nfn valid(x: "
+                         "f64) -> bool => true\n"};
     CHECK(clash.has(Category::Name, "'fn valid' conflicts with operator hgraph.std::valid"));
 }
 
@@ -254,6 +266,177 @@ fn g(x: f64) -> f64 => check_f
 )"};
     CHECK(resolved.result.tests.size() == 1);
     CHECK(resolved.has(Category::Name, "'check_f' is a test, not a value"));
+}
+
+TEST_CASE("struct hierarchy resolves effective fields and defaults", "[semantics]")
+{
+    const Resolved    resolved   = resolve_clean(R"(
+module t
+
+abstract struct Instrument {
+    symbol: str
+    venue: str = "ANY"
+    alias: str = null
+}
+
+struct Future: Instrument {
+    venue = "XEUR"
+    expiry: date
+}
+
+fn make() -> atomic<Future> => Future(symbol: "F", expiry: @2026-12-18)
+)");
+    const ast::DeclId instrument = resolved.struct_id("Instrument");
+    const ast::DeclId future     = resolved.struct_id("Future");
+    REQUIRE(resolved.result.structure(instrument).valid);
+    REQUIRE(resolved.result.structure(future).valid);
+    REQUIRE(resolved.result.structure(future).parents == std::vector<ast::DeclId>{instrument});
+    const auto &fields = resolved.result.structure(future).fields;
+    REQUIRE(fields.size() == 4);
+    CHECK(fields[0].name == "symbol");
+    CHECK(fields[1].name == "venue");
+    CHECK(fields[1].default_value != ast::no_node);
+    CHECK(fields[2].name == "alias");
+    CHECK(fields[2].optional);
+    CHECK(fields[3].name == "expiry");
+}
+
+TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]")
+{
+    SECTION("concrete parents are final")
+    {
+        const Resolved resolved{"module t\nstruct Base {}\nstruct Child: Base {}\n"};
+        CHECK(resolved.has(Category::Type, "only an abstract struct may be inherited"));
+    }
+    SECTION("inherited field types cannot be redeclared")
+    {
+        const Resolved resolved{"module t\nabstract struct Base { value: f64 "
+                                "}\nstruct Child: Base { value: i64 }\n"};
+        CHECK(resolved.has(Category::Type, "cannot be redeclared with a type"));
+    }
+    SECTION("required fields cannot become optional")
+    {
+        const Resolved resolved{"module t\nabstract struct Base { value: f64 "
+                                "}\nstruct Child: Base { value = null }\n"};
+        CHECK(resolved.has(Category::Type, "only an optional inherited field may have a null default"));
+    }
+    SECTION("self recursion and inheritance cycles are rejected")
+    {
+        const Resolved recursive{"module t\nstruct Node { next: Node }\n"};
+        CHECK(recursive.has(Category::Type, "self-recursive struct fields are not supported"));
+        const Resolved cycle{"module t\nabstract struct A: B {}\nabstract struct B: A {}\n"};
+        CHECK(cycle.has(Category::Type, "struct inheritance cycle reaches"));
+    }
+    SECTION("multiple parent order fails closed")
+    {
+        const Resolved resolved{"module t\nabstract struct A {}\nabstract struct B "
+                                "{}\nstruct C: A, B {}\n"};
+        CHECK(resolved.has(Category::Type, "awaits the stable field-order rule"));
+    }
+}
+
+TEST_CASE("generic structs validate applications and decidable requirements", "[semantics]")
+{
+    const Resolved valid = resolve_clean(R"(
+module t
+
+struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+struct Vector<T, const size: i64> {
+    values: list<T, size>
+}
+
+fn range(x: Range<f64>) -> Range<f64> => x
+fn vector(x: Vector<f64, 3>) -> Vector<f64, 3> => x
+)");
+    CHECK(valid.result.structure(valid.struct_id("Range")).valid);
+
+    const Resolved rejected{R"(
+module t
+struct Range<T> requires T in {i64, f64} { value: T }
+fn bad(x: Range<str>) -> Range<str> => x
+)"};
+    CHECK(rejected.has(Category::Type, "generic struct 'Range' requirements are not satisfied"));
+
+    const Resolved wrong_roles{R"(
+module t
+struct Vector<T, const size: i64> { values: list<T, size> }
+fn bad(x: Vector<3, f64>) => x
+)"};
+    CHECK(wrong_roles.has(Category::Type, "type generic 'T' takes a type argument"));
+    CHECK(wrong_roles.has(Category::Type, "const generic 'size' takes a value argument"));
+
+    const Resolved temporal_argument{R"(
+module t
+struct Box<T> { value: T }
+fn bad(x: Box<atomic<f64>>) => x
+)"};
+    CHECK(temporal_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
+}
+
+TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]")
+{
+    const Resolved resolved = resolve_clean(R"(
+module t
+use hgraph.std as std
+
+abstract struct Record { id: i64 }
+
+fn combine<T>(a: T, b: T) -> T
+requires T is struct && has_fields(T, {"id"}) && std::add(T, T) -> T
+{
+    a
+}
+)");
+    CHECK_FALSE(resolved.result.constraint_bindings.empty());
+
+    const Resolved bad{R"(
+module t
+fn f<T>(x: T) -> T requires T is class && mystery(T) { x }
+)"};
+    CHECK(bad.has(Category::Type, "unknown type category 'class'"));
+    CHECK(bad.has(Category::Type, "is not a compile-time reflection function"));
+}
+
+TEST_CASE("struct construction enforces complete and sparse forms", "[semantics]")
+{
+    const Resolved valid = resolve_clean(R"(
+module t
+struct Quote {
+    bid: f64
+    ask: f64
+    venue: str = "X"
+    note: str = null
+}
+fn full() -> atomic<Quote> => Quote(bid: 1.0, ask: 2.0)
+fn update() -> atomic<Quote> => delta<Quote>(bid: 1.5)
+)");
+    CHECK(valid.result.structure(valid.struct_id("Quote")).valid);
+
+    const Resolved invalid{R"(
+module t
+abstract struct Base { id: i64 }
+struct Quote {
+    bid: f64
+    note: str = null
+}
+fn missing() => Quote()
+fn unknown() => Quote(bid: 1.0, extra: 2.0)
+fn duplicate() => Quote(bid: 1.0, bid: 2.0)
+fn bad_null() => Quote(bid: null)
+fn positional() => Quote(1.0)
+fn abstract_value() => Base(id: 1)
+)"};
+    CHECK(invalid.has(Category::Type, "struct 'Quote' needs field 'bid'"));
+    CHECK(invalid.has(Category::Name, "has no field named 'extra'"));
+    CHECK(invalid.has(Category::Name, "field 'bid' is given twice"));
+    CHECK(invalid.has(Category::Type, "required field 'bid' cannot be null"));
+    CHECK(invalid.has(Category::Type, "struct construction uses named arguments"));
+    CHECK(invalid.has(Category::Type, "abstract struct 'Base' is not constructible"));
 }
 
 TEST_CASE("every guide example resolves", "[semantics]")

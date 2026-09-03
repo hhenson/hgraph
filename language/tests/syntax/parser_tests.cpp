@@ -209,9 +209,9 @@ TEST_CASE("generic parameters", "[parser]")
             "    body: NameRef x\n");
 }
 
-TEST_CASE("parameters with types, defaults, and const", "[parser]")
+TEST_CASE("only const parameters have defaults", "[parser]")
 {
-    REQUIRE(dump_clean("module t\nfn f(a: f64, const n: i64 = 3, s: str = \"x\") => a\n") ==
+    REQUIRE(dump_clean("module t\nfn f(a: f64, const n: i64 = 3) => a\n") ==
             "Module\n"
             "  ModuleDecl t\n"
             "  FunctionDecl fn f\n"
@@ -220,10 +220,39 @@ TEST_CASE("parameters with types, defaults, and const", "[parser]")
             "    Parameter const n\n"
             "      type: Type scalar i64 (value)\n"
             "      default: IntLiteral 3\n"
-            "    Parameter s\n"
-            "      type: Type scalar str\n"
-            "      default: StringLiteral \"x\"\n"
             "    body: NameRef a\n");
+
+    Parsed temporal_default{"module t\nfn f(s: str = \"x\") => s\n"};
+    REQUIRE(temporal_default.messages() == std::vector<std::string>{"only a const parameter may have a default"});
+}
+
+TEST_CASE("struct declarations carry hierarchy, defaults, and generic requirements", "[parser]")
+{
+    const std::string tree = dump_clean(R"(
+module t
+
+export abstract struct Instrument<T> {
+    value: T
+    venue: str = null
+}
+
+export struct Future<T, const size: i64>: Instrument<T>
+requires T in {i64, f64} && T is struct || add(T, T) -> T
+{
+    venue = "XEUR"
+    history: list<T, size>
+}
+)");
+    CHECK(tree.find("StructDecl export abstract struct Instrument") != std::string::npos);
+    CHECK(tree.find("GenericParameter const size") != std::string::npos);
+    CHECK(tree.find("parent: Type named Instrument") != std::string::npos);
+    CHECK(tree.find("requires: ConstraintLogic ||") != std::string::npos);
+    CHECK(tree.find("ConstraintRelation in") != std::string::npos);
+    CHECK(tree.find("ConstraintRelation is") != std::string::npos);
+    CHECK(tree.find("OperatorRequirement add") != std::string::npos);
+    CHECK(tree.find("InheritedDefault venue") != std::string::npos);
+    CHECK(tree.find("Type named T") != std::string::npos);
+    CHECK(tree.find("size: NameRef size") != std::string::npos);
 }
 
 TEST_CASE("operator declarations have signatures and no body", "[parser]")
@@ -274,6 +303,11 @@ TEST_CASE("scalar and named types", "[parser]")
     REQUIRE(type_dump("duration") == "Type scalar duration\n");
     REQUIRE(type_dump("T") == "Type named T\n");
     REQUIRE(type_dump("Quote") == "Type named Quote\n");
+    REQUIRE(type_dump("market::Box<f64, N>") == "Type named market::Box\n"
+                                                "  GenericArgument\n"
+                                                "    Type scalar f64 (value)\n"
+                                                "  GenericArgument\n"
+                                                "    Name N\n");
 }
 
 TEST_CASE("container types", "[parser]")
@@ -360,10 +394,33 @@ TEST_CASE("literals", "[parser]")
     REQUIRE(expr_dump("\"hi\\n\"") == "StringLiteral \"hi\\n\"\n");
     REQUIRE(expr_dump("true") == "BoolLiteral true\n");
     REQUIRE(expr_dump("false") == "BoolLiteral false\n");
+    REQUIRE(expr_dump("null") == "NullLiteral\n");
     REQUIRE(expr_dump("_") == "Placeholder\n");
     REQUIRE(expr_dump("5m") == "TemporalLiteral 5m\n");
     REQUIRE(expr_dump("1h30m") == "TemporalLiteral 1h30m\n");
     REQUIRE(expr_dump("@2026-09-03T09:30Z") == "TemporalLiteral @2026-09-03T09:30Z\n");
+}
+
+TEST_CASE("struct and delta construction use named arguments", "[parser]")
+{
+    REQUIRE(expr_dump("Quote(bid: 1.0, ask: 2.0)") == "Call\n"
+                                                      "  callee: NameRef Quote\n"
+                                                      "  Argument bid\n"
+                                                      "    FloatLiteral 1.0\n"
+                                                      "  Argument ask\n"
+                                                      "    FloatLiteral 2.0\n");
+    REQUIRE(expr_dump("Box<f64>(value: 1.0)") == "StructConstruct\n"
+                                                 "  type: Type named Box\n"
+                                                 "    GenericArgument\n"
+                                                 "      Type scalar f64 (value)\n"
+                                                 "  Argument value\n"
+                                                 "    FloatLiteral 1.0\n");
+    REQUIRE(expr_dump("delta<Quote>(bid: 1.0, ask: null)") == "DeltaConstruct\n"
+                                                              "  type: Type named Quote\n"
+                                                              "  Argument bid\n"
+                                                              "    FloatLiteral 1.0\n"
+                                                              "  Argument ask\n"
+                                                              "    NullLiteral\n");
 }
 
 TEST_CASE("names and qualified references", "[parser]")
