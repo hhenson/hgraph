@@ -33,6 +33,48 @@ namespace hgraph
             return {index, static_cast<const TSLInputView *>(context)->at(index)};
         }
 
+        // Structural-delta ranges are ordinal-indexed over a contiguous window
+        // (RFC 0031), so each projector maps ordinal -> absolute index.
+        [[nodiscard]] std::size_t tsl_input_added_index(const TSLInputView *view, std::size_t ordinal)
+        {
+            return view->data_view().previous_size(view->evaluation_time()) + ordinal;
+        }
+
+        [[nodiscard]] std::size_t tsl_input_removed_index(const TSLInputView *view, std::size_t ordinal)
+        {
+            return view->size() + ordinal;
+        }
+
+        [[nodiscard]] TSInputView tsl_input_project_added(const void *context, const void *,
+                                                           std::size_t ordinal)
+        {
+            const auto *view = static_cast<const TSLInputView *>(context);
+            return view->retained_at(tsl_input_added_index(view, ordinal));
+        }
+
+        [[nodiscard]] TSInputView tsl_input_project_removed(const void *context, const void *,
+                                                             std::size_t ordinal)
+        {
+            const auto *view = static_cast<const TSLInputView *>(context);
+            return view->retained_at(tsl_input_removed_index(view, ordinal));
+        }
+
+        [[nodiscard]] std::pair<std::size_t, TSInputView> tsl_input_project_added_item(
+            const void *context, const void *, std::size_t ordinal)
+        {
+            const auto *view = static_cast<const TSLInputView *>(context);
+            const auto index = tsl_input_added_index(view, ordinal);
+            return {index, view->retained_at(index)};
+        }
+
+        [[nodiscard]] std::pair<std::size_t, TSInputView> tsl_input_project_removed_item(
+            const void *context, const void *, std::size_t ordinal)
+        {
+            const auto *view = static_cast<const TSLInputView *>(context);
+            const auto index = tsl_input_removed_index(view, ordinal);
+            return {index, view->retained_at(index)};
+        }
+
     }  // namespace
 
     TSLInputView::TSLInputView(TSInputView view)
@@ -107,6 +149,65 @@ namespace hgraph
                                                        .limit = size(),
                                                        .predicate = &tsl_input_modified_child,
                                                        .projector = &tsl_input_project_item};
+    }
+
+    Range<std::size_t> TSLInputView::added_indices() const &
+    {
+        if (!view_.is_target_position()) { return {}; }
+        const auto &data = view_.data_view();
+        if (!data.valid()) { return {}; }
+        return data.as_list().added_indices(view_.evaluation_time());
+    }
+
+    Range<std::size_t> TSLInputView::removed_indices() const &
+    {
+        if (!view_.is_target_position()) { return {}; }
+        const auto &data = view_.data_view();
+        if (!data.valid()) { return {}; }
+        return data.as_list().removed_indices(view_.evaluation_time());
+    }
+
+    Range<TSInputView> TSLInputView::added_values() const &
+    {
+        return Range<TSInputView>{.context = this, .memory = nullptr,
+                                  .limit = added_indices().limit, .predicate = nullptr,
+                                  .projector = &tsl_input_project_added};
+    }
+
+    Range<TSInputView> TSLInputView::removed_values() const &
+    {
+        return Range<TSInputView>{.context = this, .memory = nullptr,
+                                  .limit = removed_indices().limit, .predicate = nullptr,
+                                  .projector = &tsl_input_project_removed};
+    }
+
+    KeyValueRange<std::size_t, TSInputView> TSLInputView::added_items() const &
+    {
+        return KeyValueRange<std::size_t, TSInputView>{.context = this,
+                                                       .memory = nullptr,
+                                                       .limit = added_indices().limit,
+                                                       .predicate = nullptr,
+                                                       .projector = &tsl_input_project_added_item};
+    }
+
+    KeyValueRange<std::size_t, TSInputView> TSLInputView::removed_items() const &
+    {
+        return KeyValueRange<std::size_t, TSInputView>{.context = this,
+                                                       .memory = nullptr,
+                                                       .limit = removed_indices().limit,
+                                                       .predicate = nullptr,
+                                                       .projector = &tsl_input_project_removed_item};
+    }
+
+    TSInputView TSLInputView::retained_at(std::size_t index) const &
+    {
+        if (index < size()) { return const_cast<TSLInputView *>(this)->at(index); }
+        const auto &data = view_.data_view();
+        if (!data.valid())
+        {
+            throw std::out_of_range("TSLInputView::retained_at index out of range");
+        }
+        return view_.child_from_retained(data.as_list().retained_at(index));
     }
 
     TSInputView TSLInputView::at(std::size_t index) &

@@ -103,8 +103,11 @@ values:
    * - ``TSD<K,V>``
      - ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``
        — see "strict removal" below
-   * - ``TSL<C,N>``
+   * - fixed ``TSL<C,N>``
      - ``Map<int, delta(C)>``
+   * - dynamic ``TSL<C,0>``
+     - ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``
+       — see RFC 0031
    * - ``TSB{f...}``
      - ``Bundle{f: delta(f)...}``, recursive in children
    * - ``REF``

@@ -291,6 +291,15 @@ namespace hgraph
         [[nodiscard]] std::size_t indexed_child_count() const;
         [[nodiscard]] TSDataView indexed_child_at(std::size_t index) const;
         [[nodiscard]] TSDataView ensure_indexed_child_at(std::size_t index) const;
+        /**
+         * Timed growth for an indexed shape that can also shrink.
+         *
+         * A dynamic ``TSL`` attributes new indices to the delta window, so its
+         * growth needs the evaluation time (RFC 0031); the untimed overload
+         * throws for such a shape. Shapes with no structural delta ignore the
+         * time and behave as the untimed overload.
+         */
+        [[nodiscard]] TSDataView ensure_indexed_child_at(std::size_t index, DateTime modified_time) const;
 
         /** Clear collection-shaped TSData; returns false for non-collection shapes. */
         [[nodiscard]] bool clear_collection(DateTime modified_time) const;

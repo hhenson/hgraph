@@ -973,10 +973,26 @@ namespace hgraph::python_bridge
             }
         }
 
+        /** True when this output is a dynamic ``TSL``, whose keys are indices
+            and whose structural delta is tail truncation (RFC 0031). */
+        [[nodiscard]] bool is_dynamic_list() const
+        {
+            const auto *schema = checked().schema();
+            return schema != nullptr && schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0;
+        }
+
         [[nodiscard]] nb::list added_keys() const
         {
             nb::list result;
             auto view = checked();
+            if (is_dynamic_list())
+            {
+                for (const std::size_t index : view.as_list().added_indices())
+                {
+                    result.append(nb::cast(index));
+                }
+                return result;
+            }
             auto dict = view.as_dict();
             for (const ValueView &key : dict.added_keys()) { result.append(value_to_py(key)); }
             return result;
@@ -986,6 +1002,16 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
+            if (is_dynamic_list())
+            {
+                auto list = view.as_list();
+                for (auto &&[index, child] : list.added_items())
+                {
+                    result.append(collection_child(
+                        TSOutputHandle{std::move(child)}, nb::cast(index)));
+                }
+                return result;
+            }
             auto dict = view.as_dict();
             for (auto &&[key, child] : dict.added_items())
             {
@@ -999,6 +1025,17 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
+            if (is_dynamic_list())
+            {
+                auto list = view.as_list();
+                for (auto &&[index, child] : list.added_items())
+                {
+                    nb::object py_key = nb::cast(index);
+                    result.append(nb::make_tuple(
+                        py_key, collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                }
+                return result;
+            }
             auto dict = view.as_dict();
             for (auto &&[key, child] : dict.added_items())
             {
@@ -1014,6 +1051,14 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto     view = checked();
+            if (is_dynamic_list())
+            {
+                for (const std::size_t index : view.as_list().removed_indices())
+                {
+                    result.append(nb::cast(index));
+                }
+                return result;
+            }
             auto     dict = view.as_dict();
             for (const ValueView &key : dict.removed_keys()) { result.append(value_to_py(key)); }
             return result;
@@ -1023,6 +1068,16 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
+            if (is_dynamic_list())
+            {
+                auto list = view.as_list();
+                for (auto &&[index, child] : list.removed_items())
+                {
+                    result.append(collection_child(
+                        TSOutputHandle{std::move(child)}, nb::cast(index)));
+                }
+                return result;
+            }
             auto dict = view.as_dict();
             for (auto &&[key, child] : dict.removed_items())
             {
@@ -1036,6 +1091,17 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto view = checked();
+            if (is_dynamic_list())
+            {
+                auto list = view.as_list();
+                for (auto &&[index, child] : list.removed_items())
+                {
+                    nb::object py_key = nb::cast(index);
+                    result.append(nb::make_tuple(
+                        py_key, collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                }
+                return result;
+            }
             auto dict = view.as_dict();
             for (auto &&[key, child] : dict.removed_items())
             {
@@ -2162,9 +2228,23 @@ namespace hgraph::python_bridge
             }
         }
 
+        /** True when this input is a dynamic ``TSL``, whose keys are indices
+            and whose structural delta is tail truncation (RFC 0031). */
+        [[nodiscard]] bool is_dynamic_list() const
+        {
+            const auto *schema = checked().schema();
+            return schema != nullptr && schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0;
+        }
+
         [[nodiscard]] nb::list added_keys() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (const std::size_t index : list.added_indices()) { result.append(nb::cast(index)); }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (const ValueView &key : dict.added_keys()) { result.append(value_to_py(key)); }
             return result;
@@ -2173,6 +2253,15 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list added_values() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (auto &&[index, child] : list.added_items())
+                {
+                    result.append(collection_child(std::move(child), nb::cast(index)));
+                }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.added_items())
             {
@@ -2185,6 +2274,17 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list added_items() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (auto &&[index, child] : list.added_items())
+                {
+                    nb::object py_key = nb::cast(index);
+                    result.append(nb::make_tuple(
+                        py_key, collection_child(std::move(child), py_key)));
+                }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.added_items())
             {
@@ -2198,6 +2298,12 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_keys() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (const std::size_t index : list.removed_indices()) { result.append(nb::cast(index)); }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (const ValueView &key : dict.removed_keys()) { result.append(value_to_py(key)); }
             return result;
@@ -2206,6 +2312,15 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_values() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (auto &&[index, child] : list.removed_items())
+                {
+                    result.append(collection_child(std::move(child), nb::cast(index)));
+                }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.removed_items())
             {
@@ -2218,6 +2333,17 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list removed_items() const
         {
             nb::list result;
+            if (is_dynamic_list())
+            {
+                auto list = checked().as_list();
+                for (auto &&[index, child] : list.removed_items())
+                {
+                    nb::object py_key = nb::cast(index);
+                    result.append(nb::make_tuple(
+                        py_key, collection_child(std::move(child), py_key)));
+                }
+                return result;
+            }
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.removed_items())
             {

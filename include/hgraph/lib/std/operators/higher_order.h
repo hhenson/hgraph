@@ -336,7 +336,7 @@ namespace hgraph::stdlib
      *
      * - the multiplexed input is a ``TSD`` (keyed runtime children), a
      *   fixed-size ``TSL`` (wiring-time expansion: one inline application of
-     *   ``func`` per index), or a grow-only dynamic ``TSL`` (one stable,
+     *   ``func`` per index), or a dynamic ``TSL`` (one stable,
      *   in-place child graph slot per observed index). TSD child lifecycle follows
      *   a required ``__keys__`` TSS input; wiring may supply it explicitly or infer
      *   it from the union of multiplexed TSD keys. A TSD multiplexes when the
@@ -368,7 +368,7 @@ namespace hgraph::stdlib
      *
      * Dynamic-TSL children currently require an ordinary owned whole-node
      * terminal output. Pass-through and already-forwarding child outputs are
-     * rejected because a grow-only TSL cannot represent their non-peered
+     * rejected because a dynamic TSL cannot represent their non-peered
      * endpoint shape safely.
      */
     /**

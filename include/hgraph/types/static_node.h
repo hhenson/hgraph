@@ -80,8 +80,10 @@ namespace hgraph
     // is the runtime ``delta_value_schema`` (``TS<T>`` / ``SIGNAL`` /
     // ``TSW<T,...>`` -> scalar; ``TSS<T>`` ->
     // ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` ->
-    // ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; ``TSL<C,N>`` ->
-    // ``Map<int, delta(C)>``; ``TSB{f...}`` -> ``Bundle{f: delta(f)...}``,
+    // ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; fixed ``TSL<C,N>`` ->
+    // ``Map<int, delta(C)>``; dynamic ``TSL<C,0>`` ->
+    // ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``;
+    // ``TSB{f...}`` -> ``Bundle{f: delta(f)...}``,
     // recursive). These builders *produce that exact canonical Value*, so a built
     // delta compares to a runtime-produced one via ``Value::equals`` — there is no
     // parallel wrapper type. These are the *test-authoring* builders (construct an
@@ -242,6 +244,39 @@ namespace hgraph
             return builder.build();
         }
 
+        /** Build a dynamic ``TSL`` delta ``Bundle{removed: Set<int>, modified:
+            Map<int, delta(C)>}`` (RFC 0031). */
+        template <typename C>
+        [[nodiscard]] inline Value build_dynamic_list_delta(
+            const std::map<std::size_t, delta_input_t<C>> &modified,
+            const std::vector<std::size_t>                &removed)
+        {
+            auto       &registry        = TypeRegistry::instance();
+            const auto *key_meta        = scalar_descriptor<Int>::value_meta();
+            const auto  key_binding     = ValuePlanFactory::instance().type_for(key_meta);
+            const auto *removed_schema  = registry.set(key_meta);
+            const auto *modified_schema = registry.map(key_meta, delta_value_schema<C>());
+            const auto *bundle_schema   = registry.un_named_bundle(
+                {{"removed", removed_schema}, {"modified", modified_schema}});
+            const auto bundle_binding = ValuePlanFactory::instance().type_for(bundle_schema);
+            if (!key_binding || !bundle_binding)
+            {
+                throw std::logic_error("dynamic_list_delta: unresolved binding");
+            }
+
+            SetBuilder removed_set{key_binding};
+            for (const auto index : removed)
+            {
+                const Int key = static_cast<Int>(index);
+                (void)removed_set.insert_copy(std::addressof(key));
+            }
+
+            BundleBuilder bundle{bundle_binding};
+            bundle.set("removed", removed_set.build());
+            bundle.set("modified", build_list_delta<C>(modified));
+            return bundle.build();
+        }
+
         template <typename K, typename V>
         [[nodiscard]] inline Value build_dict_delta(const std::map<K, delta_input_t<V>> &modified,
                                                     const std::vector<K>                &removed,
@@ -310,7 +345,18 @@ namespace hgraph
         template <typename C, auto N>
         struct empty_delta_builder<TSL<C, N>>
         {
-            [[nodiscard]] static Value build() { return build_list_delta<C>({}); }
+            [[nodiscard]] static Value build()
+            {
+                // A dynamic TSL carries the removal-capable bundle (RFC 0031).
+                if constexpr (static_cast<std::size_t>(N) == 0)
+                {
+                    return build_dynamic_list_delta<C>({}, {});
+                }
+                else
+                {
+                    return build_list_delta<C>({});
+                }
+            }
         };
 
         template <typename Field>
@@ -408,7 +454,7 @@ namespace hgraph
     }  // namespace static_node_detail
 
     /**
-     * Build the canonical ``TSL<C,N>`` delta value ``Map<int, delta(C)>`` from a
+     * Build the canonical fixed ``TSL<C,N>`` delta value ``Map<int, delta(C)>`` from a
      * sparse ``index -> child-delta`` list. For a scalar child the entry value is the
      * bare ``T``; for a container child it is a prebuilt child-delta ``Value`` (from an
      * inner ``set_delta`` / ``list_delta``) — so construction is recursive. The result
@@ -433,6 +479,37 @@ namespace hgraph
             if (positional[i].has_value()) { map.emplace(i, *positional[i]); }
         }
         return static_node_detail::build_list_delta<C>(map);
+    }
+
+    /**
+     * Build the canonical dynamic ``TSL<C,0>`` delta value
+     * ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031).
+     *
+     * ``removed`` names the indices truncated away this cycle; they are always
+     * a contiguous suffix of the previous length.
+     */
+    template <typename C>
+    [[nodiscard]] inline Value dynamic_list_delta(
+        std::initializer_list<std::pair<std::size_t, static_node_detail::delta_input_t<C>>> entries,
+        std::vector<std::size_t> removed = {})
+    {
+        std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
+        for (const auto &[index, input] : entries) { map.insert_or_assign(index, input); }
+        return static_node_detail::build_dynamic_list_delta<C>(map, removed);
+    }
+
+    /** Positional dynamic ``TSL<C,0>`` delta; ``none`` skips a position. */
+    template <typename C>
+    [[nodiscard]] inline Value dynamic_list_delta(
+        std::vector<std::optional<static_node_detail::delta_input_t<C>>> positional,
+        std::vector<std::size_t> removed = {})
+    {
+        std::map<std::size_t, static_node_detail::delta_input_t<C>> map;
+        for (std::size_t i = 0; i < positional.size(); ++i)
+        {
+            if (positional[i].has_value()) { map.emplace(i, *positional[i]); }
+        }
+        return static_node_detail::build_dynamic_list_delta<C>(map, removed);
     }
 
     /**
@@ -764,7 +841,8 @@ namespace hgraph
      * fixed-size collection. The child schema ``C`` is **any** time-series type
      * (``TS`` / ``TSS`` / ``TSL`` …); ``operator[](i)`` / ``at(i)`` return the typed
      * child selector ``In<"", C>`` (recursive). ``delta()`` is the canonical
-     * ``Map<int, delta(C)>`` value view; ``size()`` / ``modified_items()`` /
+     * ``Map<int, delta(C)>`` value view (``Bundle{removed, modified}`` when the
+     * list is dynamic); ``size()`` / ``modified_items()`` /
      * ``modified()`` / ``valid()`` are inherited.
      */
     template <fixed_string Name, typename TElementSchema, auto N, auto... TPolicies>

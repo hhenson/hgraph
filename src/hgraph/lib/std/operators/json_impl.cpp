@@ -844,7 +844,25 @@ namespace hgraph::stdlib
                     out.push_back('}');
                 },
                 [&](TSLInputView list) {
+                    // A dynamic TSL carries the canonical
+                    // {"removed": [..], "modified": {..}} delta so a
+                    // truncation survives the round trip (RFC 0031); a fixed
+                    // TSL has no structural delta and stays a bare index map.
+                    const bool dynamic =
+                        list.schema() != nullptr && list.schema()->fixed_size() == 0;
                     bool first = true;
+                    if (dynamic)
+                    {
+                        out.push_back('{');
+                        out += "\"removed\": [";
+                        bool first_removed = true;
+                        for (const std::size_t index : list.removed_indices())
+                        {
+                            write_separator(first_removed, out);
+                            out += fmt::format("{}", index);
+                        }
+                        out += "], \"modified\": ";
+                    }
                     out.push_back('{');
                     for (std::size_t index = 0; index < list.size(); ++index)
                     {
@@ -855,6 +873,7 @@ namespace hgraph::stdlib
                         write_ts_delta(child, *plan.children[0], out);
                     }
                     out.push_back('}');
+                    if (dynamic) { out.push_back('}'); }
                 },
                 [&](TSBInputView bundle) {
                     bool first = true;
@@ -963,6 +982,8 @@ namespace hgraph::stdlib
                     }
                 },
                 [&](TSLOutputView list) {
+                    const bool dynamic =
+                        list.schema() != nullptr && list.schema()->fixed_size() == 0;
                     if (json_fragment::peek(cursor) == '[')
                     {
                         // Element-wise, because a null means "this element does
@@ -970,10 +991,17 @@ namespace hgraph::stdlib
                         // one value cannot express that: the whole-array
                         // converter rejects null against a typed element.
                         static_cast<void>(json_fragment::consume(cursor, '['));
-                        if (json_fragment::consume(cursor, ']')) { return; }
+                        if (json_fragment::consume(cursor, ']'))
+                        {
+                            // The array IS a dynamic list, so an empty one
+                            // empties it (RFC 0031).
+                            if (dynamic) { list.resize(0); }
+                            return;
+                        }
+                        std::size_t count = 0;
                         for (std::size_t index = 0;; ++index)
                         {
-                            if (index >= list.size())
+                            if (!dynamic && index >= list.size())
                             {
                                 json_fragment::fail(cursor, "too many elements for a TSL");
                             }
@@ -981,14 +1009,24 @@ namespace hgraph::stdlib
                             {
                                 apply_ts_json(list.at(index), *plan.children[0], cursor);
                             }
+                            else if (dynamic && index >= list.size())
+                            {
+                                // A trailing null still declares the position.
+                                list.resize(index + 1);
+                            }
+                            count = index + 1;
                             if (json_fragment::consume(cursor, ',')) { continue; }
                             if (json_fragment::consume(cursor, ']')) { break; }
                             json_fragment::fail(cursor, "expected ',' or ']' in a TSL array");
                         }
+                        // The array's length sets a dynamic list's length, so a
+                        // shorter array truncates it.
+                        if (dynamic && count < list.size()) { list.resize(count); }
                         return;
                     }
-                    // The index-object form IS the canonical TSL delta (an
-                    // index map); its converter reads quoted keys.
+                    // The object form IS the canonical TSL delta: a bare index
+                    // map for a fixed TSL, {"removed", "modified"} for a
+                    // dynamic one. Its converter reads quoted keys.
                     const Value parsed = json_fragment::parse_value(
                         plan.delta, cursor);
                     apply_delta(list.base(), parsed.view());

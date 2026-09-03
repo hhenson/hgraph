@@ -605,6 +605,18 @@ namespace hgraph
                 return structural;
             }
 
+            // RFC 0031: a truncated index is REMOVED, not modified, so its leaf
+            // is retired here rather than by the modified walk below.
+            for (const std::size_t index : list_input.removed_indices())
+            {
+                const Value key{static_cast<Int>(index)};
+                const auto  found = storage.key_to_leaf.find(key);
+                if (found == storage.key_to_leaf.end()) { continue; }
+                record_removed_leaf_paths(storage, found->second);
+                remove_leaf_at(storage, found->second);
+                structural = true;
+            }
+
             // Ordinary value ticks cannot affect unmodified TSL children. Limit
             // validity and forwarding-handle checks to the current delta instead
             // of walking the retained list twice on every sparse update.

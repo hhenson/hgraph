@@ -299,7 +299,8 @@ now covers fixed ``TSL`` children across the implemented non-``REF`` kinds:
 ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed and dynamic ``TSL``, ``TSB``,
 and ``TSW``. Slot, dynamic-list, and window children are owned as child
 auxiliary storage, while fixed children recurse through the parent
-value/auxiliary layout. Dynamic ``TSL`` storage is grow-only until the
+value/auxiliary layout. Dynamic ``TSL`` storage grows and truncates (RFC
+0031) and binds its element type until the
 ``TSL`` delta schema grows a structural removal surface.
 
 **Deltas are canonical type-erased Values.** A selector does *not* introduce a
@@ -307,8 +308,10 @@ parallel delta representation. The delta of any time-series is the canonical
 ``Value`` whose schema is the runtime ``delta_value_schema`` (``TS<T>`` /
 ``SIGNAL`` / tick-count ``TSW<T,...>`` → scalar; ``TSS<T>`` →
 ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` →
-``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; ``TSL<C,N>`` →
-``Map<int, delta(C)>``; ``TSB{f...}`` →
+``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; fixed ``TSL<C,N>`` →
+``Map<int, delta(C)>``; dynamic ``TSL<C,0>`` →
+``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031);
+``TSB{f...}`` →
 ``Bundle{f: delta(f_schema)...}``; recursive). ``In<…>::delta()`` is just the inherited
 ``delta_value()``. To **construct** a collection delta for tests/wiring, recursive
 builder functions produce the canonical ``Value`` (see *Allocation, Plans and Ops

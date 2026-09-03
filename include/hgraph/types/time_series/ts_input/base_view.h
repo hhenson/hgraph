@@ -323,6 +323,16 @@ namespace hgraph
         [[nodiscard]] bool target_view_live() const noexcept;
         [[nodiscard]] TSDataView &checked_target_data_view(const char *what) const;
         [[nodiscard]] TSInputView child_from_target(TSDataView child, std::size_t index) const;
+        /**
+         * Detached read view over a child that is being torn down.
+         *
+         * A dynamic ``TSL`` retains its truncated tail for the rest of the
+         * cycle (RFC 0031), but those indices are past the live length, so a
+         * target-position child would re-resolve to nothing on every read.
+         * This view therefore holds the retained TSData directly and never
+         * re-resolves; it is read-only and valid only for this cycle.
+         */
+        [[nodiscard]] TSInputView child_from_retained(TSDataView child) const;
         [[nodiscard]] TSInputView child_from_input(std::size_t index) const;
         /** Child projection over RESOLVED input-shaped data (a from-REF
             alternative behind a target position): the projection carries the

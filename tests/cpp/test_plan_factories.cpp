@@ -1962,7 +1962,7 @@ TEST_CASE("TSDataPlanFactory: nested TSD rejects whole-child move replacement")
     REQUIRE_THROWS_AS(mutation.move_value_from(std::move(source)), std::logic_error);
 }
 
-TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
+TEST_CASE("TSDataPlanFactory: dynamic TSL stores growable child TSData")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -2010,7 +2010,9 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     Value key_zero{std::int64_t{0}};
     Value key_one{std::int64_t{1}};
     Value key_two{std::int64_t{2}};
-    auto  t1_delta = view.delta_value(t1).as_map();
+    auto  t1_bundle = view.delta_value(t1).as_bundle();
+    REQUIRE(t1_bundle.at("removed").as_set().empty());
+    auto  t1_delta = t1_bundle.at("modified").as_map();
     REQUIRE(t1_delta.contains(key_zero.view()));
     REQUIRE(t1_delta.contains(key_one.view()));
     REQUIRE(t1_delta.at(key_zero.view()).checked_as<std::int32_t>() == 11);
@@ -2028,7 +2030,8 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     REQUIRE(list.at(0).data() == child0_data);
     REQUIRE(list.at(1).data() == child1_data);
     REQUIRE(list.at(2).value().checked_as<std::int32_t>() == 44);
-    auto grown_t1_delta = view.delta_value(t1).as_map();
+    auto grown_t1_bundle = view.delta_value(t1).as_bundle();
+    auto grown_t1_delta = grown_t1_bundle.at("modified").as_map();
     REQUIRE(grown_t1_delta.contains(key_zero.view()));
     REQUIRE(grown_t1_delta.contains(key_one.view()));
     REQUIRE(grown_t1_delta.contains(key_two.view()));
@@ -2040,7 +2043,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     const auto *float_tsl = registry.tsl(registry.ts(float_meta), 0);
     const auto float_type = factory.data_type_for(float_tsl);
     TSDataView mismatched{TSRoleTypeRef{float_type.as_role()}, view.mutable_data()};
-    REQUIRE_THROWS_AS(mismatched.ensure_indexed_child_at(3), std::logic_error);
+    REQUIRE_THROWS_AS(mismatched.as_list().resize(4, t2), std::logic_error);
     REQUIRE(view.as_list().size() == 3);
 
     {
@@ -2051,7 +2054,9 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     }
     REQUIRE(view.modified(t2));
     REQUIRE(list.at(1).value().checked_as<std::int32_t>() == 33);
-    auto t2_delta = view.delta_value(t2).as_map();
+    auto t2_bundle = view.delta_value(t2).as_bundle();
+    REQUIRE(t2_bundle.at("removed").as_set().empty());
+    auto t2_delta = t2_bundle.at("modified").as_map();
     REQUIRE_FALSE(t2_delta.contains(key_zero.view()));
     REQUIRE(t2_delta.contains(key_one.view()));
     REQUIRE_FALSE(t2_delta.contains(key_two.view()));
@@ -2059,13 +2064,87 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     REQUIRE(std::vector<std::size_t>(list.modified_indices().begin(), list.modified_indices().end()) ==
             std::vector<std::size_t>{1});
 
+    // RFC 0031: a shorter source truncates. The removed children stay
+    // readable for the rest of the cycle and index 0 keeps its address.
     {
         auto shorter = stdlib::make_list<std::int32_t>({1});
         auto mutation = view.begin_mutation(t3);
-        REQUIRE_THROWS_AS(mutation.copy_value_from(shorter.view()), std::invalid_argument);
+        REQUIRE(mutation.copy_value_from(shorter.view()));
     }
-    REQUIRE_FALSE(view.modified(t3));
-    REQUIRE(view.as_list().size() == 3);
+    REQUIRE(view.modified(t3));
+    list = view.as_list();
+    REQUIRE(list.size() == 1);
+    REQUIRE(list.at(0).data() == child0_data);
+    REQUIRE(list.at(0).value().checked_as<std::int32_t>() == 1);
+    REQUIRE(std::vector<std::size_t>(list.removed_indices(t3).begin(), list.removed_indices(t3).end()) ==
+            std::vector<std::size_t>{1, 2});
+    REQUIRE(list.added_indices(t3).begin() == list.added_indices(t3).end());
+    REQUIRE(list.retained_at(1).data() == child1_data);
+    REQUIRE(list.retained_at(1).value().checked_as<std::int32_t>() == 33);
+
+    auto t3_bundle = view.delta_value(t3).as_bundle();
+    auto t3_removed = t3_bundle.at("removed").as_set();
+    REQUIRE(t3_removed.size() == 2);
+    REQUIRE(t3_removed.contains(key_one.view()));
+    REQUIRE(t3_removed.contains(key_two.view()));
+    REQUIRE(t3_bundle.at("modified").as_map().contains(key_zero.view()));
+
+    Value shrunk_snapshot{view.value()};
+    REQUIRE(shrunk_snapshot.view().as_list().size() == 1);
+
+    // The next window rolls the retained tail away; growing back allocates
+    // fresh storage rather than resurrecting it.
+    const auto t4 = t3 + TimeDelta{1};
+    {
+        auto grown = stdlib::make_list<std::int32_t>({1, 2});
+        auto mutation = view.begin_mutation(t4);
+        REQUIRE(mutation.copy_value_from(grown.view()));
+    }
+    list = view.as_list();
+    REQUIRE(list.size() == 2);
+    REQUIRE(std::vector<std::size_t>(list.added_indices(t4).begin(), list.added_indices(t4).end()) ==
+            std::vector<std::size_t>{1});
+    REQUIRE(list.removed_indices(t4).begin() == list.removed_indices(t4).end());
+    REQUIRE(list.at(1).value().checked_as<std::int32_t>() == 2);
+}
+
+TEST_CASE("TSDataPlanFactory: dynamic TSL truncation retains and resurrects within one cycle")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
+    const auto  type     = TSDataPlanFactory::instance().data_type_for(tsl);
+
+    TSData data{type};
+    auto   view = data.view();
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    {
+        auto source = stdlib::make_list<std::int32_t>({11, 22, 33, 44, 55});
+        auto mutation = view.begin_mutation(t1);
+        REQUIRE(mutation.copy_value_from(source.view()));
+    }
+    auto list = view.as_list();
+    const void *child3_data = list.at(3).data();
+
+    // 5 -> 3 -> 4 inside one cycle: index 3 is RESURRECTED with its payload,
+    // so the net structural delta reports only index 4 removed.
+    list.resize(3, t2);
+    list.resize(4, t2);
+    {
+        auto mutation = view.begin_mutation(t2);
+        mutation.mark_modified();
+    }
+
+    list = view.as_list();
+    REQUIRE(list.size() == 4);
+    REQUIRE(list.at(3).data() == child3_data);
+    REQUIRE(list.at(3).value().checked_as<std::int32_t>() == 44);
+    REQUIRE(std::vector<std::size_t>(list.removed_indices(t2).begin(), list.removed_indices(t2).end()) ==
+            std::vector<std::size_t>{4});
+    REQUIRE(list.added_indices(t2).begin() == list.added_indices(t2).end());
+    REQUIRE(list.retained_at(4).value().checked_as<std::int32_t>() == 55);
 }
 
 TEST_CASE("TSDataPlanFactory: dynamic TSL stale child records preserve the current modified ring")
@@ -2099,7 +2178,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stale child records preserve the curre
             std::vector<std::size_t>{0, 1});
     Value key_zero{std::int64_t{0}};
     Value key_one{std::int64_t{1}};
-    auto  delta = view.delta_value(t2).as_map();
+    auto  delta = view.delta_value(t2).as_bundle().at("modified").as_map();
     REQUIRE(delta.contains(key_zero.view()));
     REQUIRE(delta.contains(key_one.view()));
 }
@@ -2135,10 +2214,12 @@ TEST_CASE("TSDataPlanFactory: failed first dynamic TSL growth restores unbound e
     TSData storage{integer_type};
     auto owner_view = storage.view();
     TSDataView failing{throwing_type.as_role(), owner_view.mutable_data()};
-    REQUIRE_THROWS_AS(failing.ensure_indexed_child_at(0), std::runtime_error);
+    REQUIRE_THROWS_AS(failing.as_list().resize(1, MIN_ST), std::runtime_error);
     REQUIRE(owner_view.indexed_child_count() == 0);
 
-    auto child = owner_view.ensure_indexed_child_at(0);
+    owner_view.as_list().resize(1, MIN_ST);
+    auto owner_list = owner_view.as_list();
+    auto child = owner_list.at(0);
     REQUIRE(child.valid());
     REQUIRE(owner_view.indexed_child_count() == 1);
     REQUIRE(child.schema() == registry.ts(integer));

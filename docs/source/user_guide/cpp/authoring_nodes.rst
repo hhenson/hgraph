@@ -681,7 +681,10 @@ compose recursively:
        }
    };
 
-A ``TSL`` delta is the canonical ``Map<int, delta(C)>`` ``Value`` (recursive in
+A fixed ``TSL`` delta is the canonical ``Map<int, delta(C)>`` ``Value``; a
+dynamic one adds the truncated indices as
+``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031). Both are
+recursive in
 ``C``); build one for tests with ``list_delta`` (see *Testing Graphs in C++*).
 
 The selector composition above is recursive over **any** child today, and the TSData
@@ -689,8 +692,11 @@ runtime supports fixed ``TSL`` children across the implemented non-``REF`` kinds
 ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed and dynamic ``TSL``, ``TSB``, and ``TSW``. A
 ``TSL<TSS<Int>, N>`` such as ``FanIn`` owns each child set's slot storage inside the
 fixed list and projects the parent value from those child views. Dynamic ``TSL``
-storage is grow-only: output indexing can allocate new children, but shorter-list
-value copies are rejected until the ``TSL`` delta schema can represent removals.
+storage grows and truncates: output indexing allocates new children,
+``resize(n)`` sets the list length, and a shorter-list value copy truncates it.
+Truncation removes trailing indices only; ``added_indices()`` /
+``removed_indices()`` report the change and the removed children stay readable
+for the rest of the cycle (RFC 0031).
 
 **Dict (``TSD<K, V>``) — available and recursive.** ``In`` derives from
 ``TSDInputView`` and adds typed key lookup. ``contains(key)`` and

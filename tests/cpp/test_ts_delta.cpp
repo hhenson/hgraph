@@ -284,31 +284,32 @@ TEST_CASE("current-state reconciliation rejects incompatible TS topology") {
       std::invalid_argument);
 }
 
-TEST_CASE("full current-state reconciliation rejects dynamic TSL shrink") {
+TEST_CASE("full current-state reconciliation truncates a dynamic TSL to the source") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   using DynamicList = TSL<TS<Int>>;
   const auto *schema = schema_descriptor<DynamicList>::ts_meta();
   TSOutput source{schema};
   TSOutput target{schema};
 
-  Value source_delta = list_delta<TS<Int>>({{0, 1}});
-  Value target_delta = list_delta<TS<Int>>({{0, 10}, {1, 20}});
+  Value source_delta = dynamic_list_delta<TS<Int>>({{0, 1}});
+  Value target_delta = dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}});
   apply_delta(source.view(MIN_ST), source_delta.view());
   apply_delta(target.view(MIN_ST), target_delta.view());
 
+  // RFC 0031: a full reconciliation replaces the list, so a shorter source
+  // truncates the target instead of being rejected.
   const DateTime next = MIN_ST + MIN_TD;
-  REQUIRE_THROWS_AS(
-      reconcile_current_state(
-          target.view(next), source.data_view(),
-          TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false}),
-      std::invalid_argument);
+  reconcile_current_state(
+      target.view(next), source.data_view(),
+      TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
 
-  // Rejection happens before any child is partially reconciled.
   auto target_view = target.view(next);
-  auto preserved = target_view.as_list();
-  REQUIRE(preserved.size() == 2);
-  REQUIRE(preserved.at(0).value().checked_as<Int>() == 10);
-  REQUIRE(preserved.at(1).value().checked_as<Int>() == 20);
+  auto reconciled = target_view.as_list();
+  REQUIRE(reconciled.size() == 1);
+  REQUIRE(reconciled.at(0).value().checked_as<Int>() == 1);
+  REQUIRE(std::vector<std::size_t>(reconciled.removed_indices().begin(),
+                                   reconciled.removed_indices().end()) ==
+          std::vector<std::size_t>{1});
 }
 
 TEST_CASE("observable-delta policy rejects scheduling-only fixed-list invalidation") {
@@ -400,17 +401,36 @@ TEST_CASE(
     "ts_delta: capture/apply round-trip a dynamic TSL-of-scalar list delta") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   const std::vector<std::optional<Value>> deltas{
-      list_delta<TS<Int>>({{0, 1}}),
-      list_delta<TS<Int>>({{0, 5}, {1, 9}}),
-      list_delta<TS<Int>>({{1, 11}}),
+      dynamic_list_delta<TS<Int>>({{0, 1}}),
+      dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+      dynamic_list_delta<TS<Int>>({{1, 11}}),
   };
 
   auto rt = run_graph<RoundTripGraph<TSL<TS<Int>>>>(
       [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
   CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
-               {list_delta<TS<Int>>({{0, 1}}),
-                list_delta<TS<Int>>({{0, 5}, {1, 9}}),
-                list_delta<TS<Int>>({{1, 11}})});
+               {dynamic_list_delta<TS<Int>>({{0, 1}}),
+                dynamic_list_delta<TS<Int>>({{0, 5}, {1, 9}}),
+                dynamic_list_delta<TS<Int>>({{1, 11}})});
+}
+
+TEST_CASE(
+    "ts_delta: capture/apply round-trip a dynamic TSL truncation") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  // Grow to three, truncate to one (also modifying the survivor), then grow
+  // back. A captured truncation must replay to the same length (RFC 0031).
+  const std::vector<std::optional<Value>> deltas{
+      dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+      dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}),
+      dynamic_list_delta<TS<Int>>({{1, 8}}),
+  };
+
+  auto rt = run_graph<RoundTripGraph<TSL<TS<Int>>>>(
+      [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
+  CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
+               {dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+                dynamic_list_delta<TS<Int>>({{0, 7}}, {1, 2}),
+                dynamic_list_delta<TS<Int>>({{1, 8}})});
 }
 
 TEST_CASE("ts_delta: capture/apply round-trip a TSD-of-scalar dict delta") {

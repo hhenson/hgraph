@@ -803,6 +803,14 @@ namespace hgraph
                            scheduling_notifier_, evaluation_time_, InputDataCursor::Classification::Known};
     }
 
+    TSInputView TSInputView::child_from_retained(TSDataView child) const
+    {
+        // No raw target-link data: `resolved_value_data` must not re-resolve a
+        // path that no longer reaches this child.
+        return TSInputView{input_, std::move(child), TSDataView{}, nullptr, scheduling_notifier_,
+                           evaluation_time_, InputDataCursor::Classification::Known};
+    }
+
     TSInputView TSInputView::child_from_input(std::size_t index) const
     {
         auto parent = data_.value_data.borrowed_ref();

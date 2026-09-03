@@ -145,6 +145,147 @@ namespace hgraph
         return items_range(&child_modified_predicate);
     }
 
+    bool IndexedTSDataView::supports_resize() const noexcept
+    {
+        return indexed_ops().resize_impl != nullptr;
+    }
+
+    IndexedStructuralDelta IndexedTSDataView::structural_delta(DateTime evaluation_time) const
+    {
+        const auto &ops = indexed_ops();
+        const auto current = ops.size_impl(ops.context, storage_.data());
+        if (ops.structural_delta_impl == nullptr || evaluation_time == MIN_DT)
+        {
+            return IndexedStructuralDelta{.time = MIN_DT, .previous_size = current, .size = current};
+        }
+        auto delta = ops.structural_delta_impl(ops.context, storage_.data());
+        if (delta.time != evaluation_time)
+        {
+            return IndexedStructuralDelta{.time = MIN_DT, .previous_size = current, .size = current};
+        }
+        return delta;
+    }
+
+    std::size_t IndexedTSDataView::previous_size(DateTime evaluation_time) const
+    {
+        return structural_delta(evaluation_time).previous_size;
+    }
+
+    // The structural-delta ranges bind to the OPS TABLE and storage memory
+    // rather than to `this`: the typed input/output list views forward them
+    // from a temporary TSLDataView, and both of those outlive any view (the
+    // TSD dict ranges are built the same way).
+    Range<std::size_t> IndexedTSDataView::added_indices(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.size <= delta.previous_size) { return empty_index_range(); }
+        return Range<std::size_t>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.size - delta.previous_size,
+            .predicate = nullptr,
+            .projector = &project_added_index,
+        };
+    }
+
+    Range<std::size_t> IndexedTSDataView::removed_indices(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.previous_size <= delta.size) { return empty_index_range(); }
+        return Range<std::size_t>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.previous_size - delta.size,
+            .predicate = nullptr,
+            .projector = &project_removed_index,
+        };
+    }
+
+    Range<TSDataView> IndexedTSDataView::added_values(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.size <= delta.previous_size) { return empty_values_range(); }
+        return Range<TSDataView>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.size - delta.previous_size,
+            .predicate = nullptr,
+            .projector = &project_added_value,
+        };
+    }
+
+    Range<TSDataView> IndexedTSDataView::removed_values(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.previous_size <= delta.size) { return empty_values_range(); }
+        return Range<TSDataView>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.previous_size - delta.size,
+            .predicate = nullptr,
+            .projector = &project_removed_value,
+        };
+    }
+
+    KeyValueRange<std::size_t, TSDataView> IndexedTSDataView::added_items(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.size <= delta.previous_size) { return empty_items_range(); }
+        return KeyValueRange<std::size_t, TSDataView>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.size - delta.previous_size,
+            .predicate = nullptr,
+            .projector = &project_added_item,
+        };
+    }
+
+    KeyValueRange<std::size_t, TSDataView> IndexedTSDataView::removed_items(DateTime evaluation_time) const
+    {
+        const auto delta = structural_delta(evaluation_time);
+        if (delta.previous_size <= delta.size) { return empty_items_range(); }
+        return KeyValueRange<std::size_t, TSDataView>{
+            .context = &indexed_ops(),
+            .memory = storage_.data(),
+            .limit = delta.previous_size - delta.size,
+            .predicate = nullptr,
+            .projector = &project_removed_item,
+        };
+    }
+
+    TSDataView IndexedTSDataView::retained_at(std::size_t index) const
+    {
+        const auto &ops = indexed_ops();
+        if (index < ops.size_impl(ops.context, storage_.data()))
+        {
+            return const_cast<IndexedTSDataView *>(this)->at_impl(index);
+        }
+        if (ops.retained_element_memory_impl == nullptr)
+        {
+            throw std::out_of_range("IndexedTSDataView::retained_at: index out of range");
+        }
+        const auto element_type = ops.element_binding_impl(ops.context, storage_.data(), index);
+        const auto *element_memory =
+            ops.retained_element_memory_impl(ops.context, storage_.data(), index);
+        if (!element_type || element_memory == nullptr)
+        {
+            throw std::out_of_range("IndexedTSDataView::retained_at: index out of range");
+        }
+        // A retained child is being torn down: hand back a READ-ONLY view so
+        // nothing re-parents or writes into storage that is about to go.
+        return TSDataView{element_type, element_memory};
+    }
+
+    void IndexedTSDataView::resize(std::size_t size, DateTime modified_time) const
+    {
+        const auto &ops = indexed_ops();
+        if (ops.resize_impl == nullptr)
+        {
+            throw std::logic_error("IndexedTSDataView::resize requires a dynamic list");
+        }
+        ops.resize_impl(ops.context, base().mutable_data(), size, modified_time);
+    }
+
     IndexedTSDataView::IndexedTSDataView(TSDataView view, TSTypeKind expected_kind)
         : storage_(view.storage_ref(), expected_kind)
     {
@@ -251,6 +392,83 @@ namespace hgraph
         return ops.modified_index_at_impl != nullptr
                    ? ops.modified_index_at_impl(ops.context, self->storage_.data(), ordinal)
                    : ordinal;
+    }
+
+    Range<std::size_t> IndexedTSDataView::empty_index_range() noexcept
+    {
+        return Range<std::size_t>{.context = nullptr, .memory = nullptr, .limit = 0, .predicate = nullptr,
+                                  .projector = nullptr};
+    }
+
+    namespace
+    {
+        [[nodiscard]] const IndexedTSDataOps &structural_ops(const void *context) noexcept
+        {
+            return *static_cast<const IndexedTSDataOps *>(context);
+        }
+
+        /** Read-only child view for a live or retained index. Removed children
+            are being torn down, so nothing re-parents or writes into them. */
+        [[nodiscard]] TSDataView structural_child(const IndexedTSDataOps &ops, const void *memory,
+                                                  std::size_t index)
+        {
+            const auto element_type = ops.element_binding_impl(ops.context, memory, index);
+            const void *element_memory =
+                index < ops.size_impl(ops.context, memory)
+                    ? ops.element_memory_impl(ops.context, memory, index)
+                    : (ops.retained_element_memory_impl != nullptr
+                           ? ops.retained_element_memory_impl(ops.context, memory, index)
+                           : nullptr);
+            if (!element_type || element_memory == nullptr)
+            {
+                throw std::out_of_range("indexed structural child index out of range");
+            }
+            return TSDataView{element_type, element_memory};
+        }
+    }  // namespace
+
+    std::size_t IndexedTSDataView::project_added_index(const void *context, const void *memory,
+                                                        std::size_t ordinal)
+    {
+        const auto &ops = structural_ops(context);
+        return ops.structural_delta_impl(ops.context, memory).previous_size + ordinal;
+    }
+
+    std::size_t IndexedTSDataView::project_removed_index(const void *context, const void *memory,
+                                                          std::size_t ordinal)
+    {
+        const auto &ops = structural_ops(context);
+        return ops.structural_delta_impl(ops.context, memory).size + ordinal;
+    }
+
+    TSDataView IndexedTSDataView::project_added_value(const void *context, const void *memory,
+                                                       std::size_t ordinal)
+    {
+        return structural_child(structural_ops(context), memory,
+                                project_added_index(context, memory, ordinal));
+    }
+
+    TSDataView IndexedTSDataView::project_removed_value(const void *context, const void *memory,
+                                                         std::size_t ordinal)
+    {
+        return structural_child(structural_ops(context), memory,
+                                project_removed_index(context, memory, ordinal));
+    }
+
+    std::pair<std::size_t, TSDataView> IndexedTSDataView::project_added_item(const void *context,
+                                                                             const void *memory,
+                                                                             std::size_t ordinal)
+    {
+        const auto index = project_added_index(context, memory, ordinal);
+        return {index, structural_child(structural_ops(context), memory, index)};
+    }
+
+    std::pair<std::size_t, TSDataView> IndexedTSDataView::project_removed_item(const void *context,
+                                                                               const void *memory,
+                                                                               std::size_t ordinal)
+    {
+        const auto index = project_removed_index(context, memory, ordinal);
+        return {index, structural_child(structural_ops(context), memory, index)};
     }
 
     TSDataView IndexedTSDataView::project_value(const void *context, const void *, std::size_t index)

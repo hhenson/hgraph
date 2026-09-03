@@ -1148,17 +1148,32 @@ TEST_CASE("reduce over TSD: a pass-through combiner aliases the selected aggrega
                  values<Int>(7, 11));
 }
 
-TEST_CASE("reduce over dynamic TSL: associative trees follow grow-only length and updates")
+TEST_CASE("reduce over dynamic TSL: associative trees follow the runtime length and updates")
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
                      fn<stdlib::add_>(),
-                     values<Value>(list_delta<TS<Int>>({{0, 1}}),
-                                   list_delta<TS<Int>>({{1, 2}, {2, 3}}),
-                                   list_delta<TS<Int>>({{0, 10}})))),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}),
+                                   dynamic_list_delta<TS<Int>>({{1, 2}, {2, 3}}),
+                                   dynamic_list_delta<TS<Int>>({{0, 10}})))),
                  values<Int>(1, 6, 15));
+}
+
+TEST_CASE("reduce over dynamic TSL: truncation retires the removed leaves")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // 1 + 2 + 3 = 6, then indices 1 and 2 are truncated away, leaving 1, then
+    // the list grows again to 1 + 5 = 6 (RFC 0031).
+    CHECK_OUTPUT((eval_node<stdlib::reduce_, TSL<TS<Int>>>(
+                     fn<stdlib::add_>(),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+                                   dynamic_list_delta<TS<Int>>({}, {1, 2}),
+                                   dynamic_list_delta<TS<Int>>({{1, 5}})))),
+                 values<Int>(6, 1, 6));
 }
 
 TEST_CASE("reduce over dynamic TSL: ordered reduction retains left-to-right semantics")
@@ -1167,9 +1182,9 @@ TEST_CASE("reduce over dynamic TSL: ordered reduction retains left-to-right sema
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<OrderedSubtractDynamicTslGraph>(
-                     values<Value>(list_delta<TS<Int>>({{0, 1}}),
-                                   list_delta<TS<Int>>({{1, 2}}),
-                                   list_delta<TS<Int>>({{2, 3}})),
+                     values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}}),
+                                   dynamic_list_delta<TS<Int>>({{1, 2}}),
+                                   dynamic_list_delta<TS<Int>>({{2, 3}})),
                      values<Int>(100)),
                  values<Int>(99, 97, 94));
 }
