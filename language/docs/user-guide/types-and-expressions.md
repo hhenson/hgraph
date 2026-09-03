@@ -137,7 +137,7 @@ and removed after wiring.
 
 ## Structured values
 
-> **Staging status:** the declaration, inheritance, construction,
+> **Staging status:** the declaration, generic, inheritance, construction,
 > optional-field, and delta semantics in this section are agreed design, but
 > the current `hgl check` parser does not implement them yet.
 
@@ -226,7 +226,123 @@ declared by its abstract family; converting a temporal concrete bundle to that
 base view is explicit because silently inserting a projection would add graph
 work. The spelling of that projection remains to be selected.
 
-One declaration supplies three contextual representations:
+### Generic structured types
+
+A struct may declare type parameters and wiring-time constant parameters using
+the same parameter-list syntax as a function or operator:
+
+```hgl
+export struct Box<T> {
+    value: T
+}
+
+export struct Pair<K, V> {
+    first: K
+    second: V
+}
+
+export struct Vector<T, const size: i64> {
+    values: list<T, size>
+}
+```
+
+Every applied type is a distinct invariant nominal specialization. For
+example, `Box<i64>` and `Box<f64>` are different types, and
+`Box<Derived>` is not a subtype of `Box<Base>` even when `Derived` implements
+`Base`. A generic type must be fully applied in a type annotation:
+
+```hgl
+const box: Box<f64>
+const vector: Vector<f64, 3>
+```
+
+A bare `Box`, an unresolved argument, and partial application such as
+`Pair<_, str>` are errors. Generic parameter defaults are not part of the
+initial design, so explicitly applying a type supplies every argument.
+
+Struct constructors may instead infer the complete argument list from their
+named fields and expected type:
+
+```hgl
+let inferred = Box(value: 1.5)              // Box<f64>
+let explicit = Box<f64>(value: 1.5)
+let expected: Box<f64> = Box(value: 1.5)
+```
+
+Inference unifies every occurrence of a parameter. An expected result and the
+supplied fields may contribute bindings, including a fixed list field binding
+a `const` size parameter. All parameters must resolve consistently. A
+constructor with no evidence needs an expected type or explicit arguments:
+
+```hgl
+struct Maybe<T> {
+    value: T = null
+}
+
+let empty: Maybe<f64> = Maybe()
+let also_empty = Maybe<f64>()
+let ambiguous = Maybe()                    // error: cannot infer T
+```
+
+A generic struct may use the existing `requires` language. The requirements
+are checked whenever a specialization is formed:
+
+```hgl
+export struct Range<T>
+requires T in {i64, f64}
+{
+    lower: T
+    upper: T
+}
+```
+
+`Range<str>` is therefore invalid. Type sets, categories, reflection,
+equalities, constant predicates, and nominal operator requirements have the
+same meaning here as on a generic function.
+
+In the initial design, a struct's type arguments are canonical value types,
+not temporal policies. Put `atomic` at the field where temporal expansion is
+controlled:
+
+```hgl
+struct LiveBox<T> {
+    value: T
+}
+
+struct SnapshotBox<T> {
+    value: atomic<T>
+}
+```
+
+`LiveBox<atomic<Quote>>` and `LiveBox<rolling<f64, 20>>` are rejected. This
+ensures that one specialization has one canonical Bundle schema and one
+deterministic temporal expansion. Generic functions remain broader: their
+plain type parameters may still bind complete HGL source shapes, including
+`atomic` and `rolling`. The compiler retains HGL source-type arguments in its
+IR so a later language version can relax the struct restriction without
+redesigning the semantic model.
+
+Generic abstract families and final concrete specializations compose directly:
+
+```hgl
+export abstract struct Event<T> {
+    payload: T
+}
+
+export struct QuoteEvent: Event<Quote> {}
+
+export struct TaggedEvent<T>: Event<T> {
+    tag: str
+}
+```
+
+Each `TaggedEvent<T>` specialization is final. `Event<Quote>` and
+`Event<Trade>` have separate closed concrete families, and a child parent
+application must be complete after substituting the child's parameters.
+Inherited default overrides are checked against the substituted field type.
+
+Each concrete declaration or fully applied generic specialization supplies
+three contextual representations:
 
 | Source use | hgraph interpretation |
 | --- | --- |
@@ -310,11 +426,14 @@ evaluation, so even a required, defaultless field may be omitted:
 
 ```hgl
 delta<Quote>(bid: 100.5)
+delta<Box<f64>>(value: 1.5)
 ```
 
 An omitted delta field means no change, and field defaults are never applied
 while constructing a delta. Explicit `null` clears an optional field; it is
-not the same as omission. Clearing a required field is a type error.
+not the same as omission. Clearing a required field is a type error. A generic
+delta target must be fully applied; delta construction does not infer an
+omitted type argument.
 
 Deltas recurse through structural fields and stop at atomic boundaries:
 
@@ -360,11 +479,12 @@ For an `atomic<Quote>` output, a tick is a complete `Quote`; a sparse
 `delta<Quote>` is rejected unless user code explicitly retains, patches, and
 publishes prior state.
 
-The first structured-value slice does not yet define generic struct
-declarations, self-recursive fields, destructuring, or copy-with-update syntax.
-Runtime type tests, concrete downcasts, exhaustive family matching, and the
-explicit temporal base-projection spelling also remain to be defined.
-Structural constraints still inspect nominal structs through
+The first structured-value slice does not yet define self-recursive fields,
+destructuring, or copy-with-update syntax. Runtime type tests, concrete
+downcasts, exhaustive family matching, and the explicit temporal
+base-projection spelling also remain to be defined. Generic parameter defaults
+and partial generic application are deliberately deferred. Structural
+constraints still inspect nominal structs through
 `U is struct`, `fields(U)`, `has_fields(U, names)`, and
 `field_type(U, name)`; satisfying such a constraint does not make unrelated
 nominal structs assignment-compatible.

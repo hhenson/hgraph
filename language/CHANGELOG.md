@@ -14,3 +14,6 @@
 - Restrict struct inheritance to abstract data families, make concrete structs
   implicitly final, keep inherited field type and optionality invariant, and
   allow descendants to introduce or replace constructor defaults.
+- Define invariant generic struct families over canonical value types and
+  wiring-time constants, complete type application, constructor inference,
+  struct constraints, and generic abstract-parent specialization.

@@ -27,6 +27,8 @@ The bespoke behavior is semantic:
 - nominal `struct` declarations define one canonical scalar value and one
   recursively temporalized bundle shape; abstract structs define data families
   and every concrete struct is implicitly final;
+- generic structs form invariant nominal specialization families over canonical
+  value types and wiring-time constant arguments;
 - `delta<S>(...)` constructs a sparse update without weakening complete-value
   field requirements;
 - bodyless nominal `operator` declarations define generic callable contracts;
@@ -196,11 +198,73 @@ temporal bundles do not implicitly convert to it, because that would hide a
 projection graph and its change-tracking cost; the explicit projection
 spelling remains open.
 
+### Generic struct families
+
+Struct declarations accept the common type and `const` generic parameter
+syntax and an optional trailing `requires` clause:
+
+```hgl
+export struct Box<T> {
+    value: T
+}
+
+export struct Vector<T, const size: i64> {
+    values: list<T, size>
+}
+
+export struct Range<T>
+requires T in {i64, f64}
+{
+    lower: T
+    upper: T
+}
+```
+
+A fully applied struct type is nominal by module-qualified origin and complete
+argument list. Arguments are invariant, including abstract-family arguments,
+and constant arguments participate in identity. Bare origins, partial
+applications, `_` placeholders, and generic parameter defaults are rejected in
+the initial design.
+
+Explicit application is available in types and struct constructors, such as
+`Box<f64>` and `Box<f64>(value: 1.5)`. Without explicit arguments, a
+constructor infers the complete substitution from supplied named fields and an
+expected type. Repeated occurrences unify, constraints are evaluated after
+inference, and any unresolved or conflicting parameter is an error. Explicit
+generic arguments on function and operator calls remain a separate open
+question.
+
+Struct type parameters initially accept canonical value types only. An
+`atomic` boundary belongs in the declaration (`value: atomic<T>`), not in an
+application such as `Box<atomic<Quote>>`, and `rolling` is likewise rejected as
+a struct argument. Generic function parameters continue to range over complete
+source shapes. Checked IR retains the HGL source form of every struct argument
+despite the initial restriction, allowing a later version to widen the domain
+without replacing the substitution model.
+
+Generic abstract parents may be fully applied with fixed arguments or child
+parameters. Each concrete application remains final, and closed polymorphic
+families are calculated per exact abstract specialization:
+
+```hgl
+export abstract struct Event<T> {
+    payload: T
+}
+
+export struct QuoteEvent: Event<Quote> {}
+export struct TaggedEvent<T>: Event<T> { tag: str }
+```
+
+The same constraint vocabulary used by functions and operators validates a
+generic struct declaration and each specialization. A failed application does
+not create a partial nominal type or enter the module's type registry.
+
 ## Generics and nominal operators
 
-Generic parameters follow an `operator` or `fn` name. Plain parameters bind
-source types. Parameters prefixed with `const` bind wiring-time values that may
-shape a type:
+Generic parameters follow a `struct`, `operator`, or `fn` name. This section
+focuses on callable declarations; struct domains and application are defined
+above. Plain callable parameters bind source types. Parameters prefixed with
+`const` bind wiring-time values that may shape a type:
 
 ```hgl
 operator summarize<
@@ -211,9 +275,9 @@ operator summarize<
 ```
 
 A repeated generic name denotes one consistent binding. Every generic required
-by a selected candidate must resolve from inputs, expected output, explicit
-generic arguments, defaults, or a solvable equality requirement. Generic
-matching must lower to hgraph `TypePattern` and `ResolutionMap` rather than a
+by a selected candidate must resolve from inputs, expected output, or a
+solvable equality requirement in the initial callable design. Generic matching
+must lower to hgraph `TypePattern` and `ResolutionMap` rather than a
 language-local matcher.
 
 Different generic names are independent, while repetition requires equality:
@@ -252,8 +316,9 @@ side when the other can be evaluated and validates the relationship when both
 sides are known. Residual Boolean constraints only admit or reject a complete
 substitution.
 
-`struct` is a nominal, module-qualified source declaration. In scalar context
-it denotes a Bundle-like value; temporal context recursively temporalizes its
+`struct` is a nominal, module-qualified source declaration. A generic struct
+must be fully applied before use. In scalar context a concrete specialization
+denotes a Bundle-like value; temporal context recursively temporalizes its
 fields into a named TSB-like shape; `atomic<S>` stops that recursion and carries
 the complete scalar value. Fields are immutable and publicly readable.
 Complete construction uses named arguments, enforces required fields, applies
@@ -671,12 +736,13 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- generic struct declarations, self-recursive fields, destructuring, and
-  copy-with-update syntax;
+- self-recursive fields, destructuring, and copy-with-update syntax;
 - runtime type tests, concrete downcasts, exhaustive abstract-family matching,
   the temporal base-projection spelling, and multiple-parent field ordering;
-- explicit generic arguments, generic defaults, and any specialization
-  relationship beyond the defined pattern ranking and ambiguity rule;
+- explicit generic arguments on function and operator calls, generic parameter
+  defaults, partial generic type application, and any specialization
+  relationship beyond invariant applied types and the defined pattern ranking
+  and ambiguity rule;
 - general anonymous capture beyond inline runtime collection predicates;
 - rolling-window iteration and a parameter spelling that accepts either
   window kind;

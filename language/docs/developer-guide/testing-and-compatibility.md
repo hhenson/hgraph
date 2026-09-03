@@ -15,7 +15,8 @@ emitted for rejected input. Snapshots cover:
   declarations;
 - nominal `struct`, `abstract struct`, `export struct`, and
   `export abstract struct` declarations with parent lists, newline-separated
-  fields, inherited-default overrides, and `null` optional fields;
+  fields, inherited-default overrides, generic parameter lists, trailing
+  `requires`, and `null` optional fields;
 - type and `const` generic parameter lists;
 - trailing `requires` clauses, type sets, categories, type equalities,
   reflection calls, and operator requirements;
@@ -33,8 +34,8 @@ emitted for rejected input. Snapshots cover:
   and unknown units, plus offset normalization and canonical re-spelling;
 - contextual type keywords used as callable names, especially `map`;
 - calls, indexing, named arguments, and expression precedence;
-- named-only complete struct construction and contextual `delta<S>(...)`
-  construction;
+- named-only complete struct construction, fully applied generic constructors,
+  inferred generic constructors, and contextual `delta<S>(...)` construction;
 - tail expressions and explicit returns;
 - state declarations and grouped inject declarations;
 - `start`, ordered `when`, and `stop` blocks;
@@ -103,6 +104,19 @@ shape when that distinction explains the error.
 Semantic and generated-code tests cover:
 
 - module-qualified nominal identity and distinct equal-shaped structs;
+- invariant generic specialization identity by origin and complete type and
+  constant argument list;
+- rejection of bare origins, partial applications, generic parameter defaults,
+  unresolved constructor inference, conflicting explicit/inferred bindings,
+  `atomic` or `rolling` type arguments, and explicit generic application of an
+  ordinary function or operator;
+- constructor inference from named fields and expected type, including repeated
+  variables and a fixed list binding a `const` size parameter;
+- generic struct `requires` admission before schema registration;
+- type-only generic Bundle metadata and pattern round trips through hgraph's
+  public generic-origin support;
+- fail-closed coverage for a `const` generic Bundle argument until native
+  nominal metadata and patterns represent typed constants explicitly;
 - abstract-only parent validation, hierarchy-cycle rejection, non-constructible
   abstract structs, implicitly final concrete structs, multiple abstract
   parents, and empty concrete leaves;
@@ -119,6 +133,9 @@ Semantic and generated-code tests cover:
   module closure;
 - temporal abstract base bundles and rejection of implicit derived-to-base
   temporal projection;
+- generic abstract families partitioned by exact parent specialization,
+  generic final children, fixed parent arguments, substituted inherited fields,
+  and inherited defaults checked after substitution;
 - nested atomic boundaries in structs, maps, and lists;
 - named-only complete construction and rejection of missing required,
   duplicate, or unknown fields;
@@ -159,6 +176,8 @@ Table-driven semantic tests cover:
   context;
 - fixed-point resolution of dependent equalities and diagnostics for cycles;
 - nominal and qualified operator requirements;
+- the same constraint IR admitting or rejecting a complete generic struct
+  specialization without affecting overload ranking;
 - compile-time rejection when a generic body uses an operation not proved by
   its signature or requirements;
 - identical substitution and diagnostics in check, REPL, run, and build.

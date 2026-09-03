@@ -23,7 +23,8 @@ A native package that supports the language supplies a descriptor containing:
   functions, and exported concrete and abstract struct declarations;
 - operator implementation candidates indexed by canonical operator identity,
   provider module, implementation kind, and generic signature;
-- canonical types, schema declarations, and abstract-family relationships;
+- canonical types, schema declarations, generic struct-family parameters and
+  constraints, and abstract-family relationships;
 - the C++ headers required by generated code;
 - CMake package names and imported targets;
 - explicit module initialization, registry installation, deinitialization, and
@@ -62,6 +63,10 @@ parent identities, ordered field schemas, and construction metadata in the
 public descriptor so downstream modules resolve the same scalar Bundle,
 temporal TSB, and polymorphic family identities. The visibility rule for a
 public child whose abstract parent is module-private remains to be defined.
+For a generic struct, the public descriptor carries the origin, ordered type
+and `const` parameter kinds, constraint IR, and unsubstituted field, default,
+and parent expressions. A downstream target can therefore validate and create
+the same fully applied nominal specializations without loading user code.
 
 An `impl fn` is neither a private helper nor an independently exported exact
 function. It contributes a public candidate to its operator's implementation
@@ -194,7 +199,9 @@ than callable candidates. Their parent relationships also enter the target's
 type-registration inventory. The complete linked module closure, rather than
 the set of source imports, determines the final concrete alternatives visible
 to an abstract scalar or atomic value when a graph captures its type
-realization.
+realization. The application manifest also records the finite set of generic
+struct specializations used by that target. Only those complete, validated
+applications are registered; a generic origin is not a runtime value schema.
 
 Namespace resolution is not candidate ranking. Different nominal operators
 with the same short name never share a candidate set. Within one selected

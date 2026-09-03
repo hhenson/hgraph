@@ -126,6 +126,13 @@ position narrows that call to types permitted for constant values, excluding
 constructors. In the earlier window example, `T` is the rolling-window element
 type and both size parameters are part of the concrete window type.
 
+When a function parameter appears as an argument of a generic struct, that
+occurrence narrows it to the struct's canonical-value domain. For example,
+`fn unwrap<T>(box: Box<T>) -> T` accepts fully applied `Box` specializations
+and binds `T` from the specialization metadata; it does not accept a runtime
+`Box<any>`. Generic struct syntax, construction inference, and inheritance are
+described in [Types and expressions](types-and-expressions.md#generic-structured-types).
+
 ### Requirements and type constraints
 
 A trailing `requires` clause constrains an otherwise generic declaration. It
@@ -191,9 +198,13 @@ for two `U` inputs producing `U`. A qualified operator such as
 
 Requirements are evaluated while the graph is wired. They never become
 per-tick conditionals. Every generic needed by a selected implementation must
-resolve from call arguments, the expected output, an explicit generic
-argument, a declared default, or a solvable equality requirement. An
-unresolved or inconsistently rebound generic is a type error.
+resolve from call arguments, the expected output, or a solvable equality
+requirement. An unresolved or inconsistently rebound generic is a type error.
+
+Explicit generic application is agreed for struct types and their constructors
+(`Box<f64>` and `Box<f64>(...)`). Its spelling on ordinary function and
+operator calls remains open; those calls continue to infer their generic
+bindings in the initial design.
 
 `U` is therefore a wiring-time unknown, not a dynamically typed `any`. The
 compiler may implement a generic runtime function once using hgraph's erased

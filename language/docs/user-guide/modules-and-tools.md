@@ -47,6 +47,11 @@ nominal structs and their abstract-family relationships follow their defining
 modules and are imported like other public declarations. Everything else must
 be imported, reached through a module alias, or declared locally.
 
+An exported generic struct exposes one nominal family, not a separate export
+for every possible specialization. Downstream code applies that family with a
+complete argument list such as `Box<f64>`; the application target records and
+registers only the concrete specializations it actually uses.
+
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short

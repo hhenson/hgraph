@@ -7,18 +7,20 @@ for hgraph, not a second runtime.
 > **Implementation status:** `src/syntax/` implements the lexer, the
 > temporal literal parser, the arena AST, and the parser of
 > [Syntax and semantics](syntax-and-semantics.md), except for the newly agreed
-> `requires` clauses and the newly agreed `struct`, `null`, and structured
-> `delta` forms;
-> `hgl check` runs the implemented subset. There is no resolver, semantic IR,
-> function classifier, direct-wiring backend, or C++ generator yet.
+> `requires` clauses and the newly agreed generic `struct`, inheritance,
+> `null`, and structured `delta` forms. `src/semantics/` resolves and classifies
+> the implemented subset, and `src/wiring/` executes its composition-only
+> subset for `test`, `run`, and the REPL. Typed HIR, runtime-function lowering,
+> and generated C++ remain to be implemented.
 
 ## Guide map
 
 1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
    `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
    `requires` constraints and type substitution, `const` parameters, lexical
-   bindings, canonical and rolling types, nominal structs, abstract data
-   families, final concrete values, inherited defaults, sparse deltas,
+   bindings, canonical and rolling types, nominal and generic structs,
+   abstract data families, final concrete values, inherited defaults,
+   generic construction and constraints, sparse deltas,
    recursive temporalization, metadata, and collection iteration, plus
    provisional state, injectable, lifecycle, activation, and output semantics,
    and the `test`, `eval`, and run model.
@@ -69,6 +71,9 @@ surface.
   explicit `atomic<S>` snapshot boundary. Only abstract structs are bases;
   concrete structs are final, while descendants may replace defaults but not
   field types or optionality.
+- Generic structs form invariant nominal families over canonical value types
+  and wiring-time constants. Types are fully applied; constructors may infer a
+  complete substitution, and `requires` validates each specialization.
 - `delta<S>(...)` is a contextual sparse update: omitted fields mean no change,
   defaults do not apply, and `null` explicitly clears only optional fields.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are

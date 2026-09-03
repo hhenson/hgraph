@@ -111,10 +111,11 @@ import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
 declaration     = struct_decl | operator_decl | function_decl | test_decl;
 struct_decl     = [ "export" ], [ "abstract" ], "struct", identifier,
+                  [ generic_parameters ],
                   [ ":", struct_parent, { ",", struct_parent } ],
-                  "{", [ NL ],
+                  [ requires_clause ], "{", [ NL ],
                   [ struct_member, { NL, struct_member }, [ NL ] ], "}";
-struct_parent   = identifier | qualified_name;
+struct_parent   = named_type;
 struct_member   = struct_field | inherited_default;
 struct_field    = identifier, ":", type, [ "=", const_expression ];
 inherited_default
@@ -187,8 +188,14 @@ immutable, and ordered metadata, with newline separators and no semicolons.
 Only an `abstract struct` may be named as a parent. Abstract structs are not
 constructible and may inherit abstract parents; concrete structs may inherit
 one or more abstract parents and are implicitly final. An empty concrete body
-is valid. There are no methods, behavior inheritance, visibility modifiers,
-generic struct parameters, or self-recursive fields in the first slice.
+is valid. There are no methods, behavior inheritance, visibility modifiers, or
+self-recursive fields in the first slice.
+
+Struct generic parameters use the common `generic_parameters` production, and
+their trailing `requires` clause uses the same constraint grammar as a function
+or operator. A parent application must be fully resolved after substituting the
+child's parameters. Generic parameter defaults and partial applications are
+not accepted in the initial design.
 
 A typed `struct_field` introduces a field. Its canonical type and optionality
 are invariant in every descendant. Its default is checked against the field's
@@ -235,14 +242,20 @@ type            = scalar_type
                 | set_type
                 | map_type
                 | rolling_type
-                | identifier
+                | named_type
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
                 | value_tuple_type
                 | value_list_type
                 | set_type
                 | value_map_type
-                | identifier;
+                | named_type;
+named_type      = ( identifier | qualified_name ), [ generic_arguments ];
+generic_arguments
+                = "<", generic_argument,
+                  { ",", generic_argument }, [ "," ], ">";
+generic_argument
+                = type | const_expression;
 scalar_type     = "bool" | "i64" | "f64" | "str"
                 | "date" | "time" | "datetime" | "duration"
                 | "civil_datetime" | "zoned_datetime"
@@ -260,6 +273,11 @@ value_tuple_type = "tuple", "<", value_type,
 value_list_type = "list", "<", value_type, ">";
 value_map_type  = "map", "<", value_type, ",", value_type, ">";
 ```
+
+A generic argument is initially parsed without deciding whether an identifier
+names a type or a wiring-time value. Name resolution interprets each position
+from the referenced declaration's type or `const` parameter. Every declared
+argument must be supplied; `_` and parameter defaults are not accepted.
 
 A contextual type keyword introduces a container type only when it is
 directly followed by `<`; `rolling` alone is a named type and `list(1, 2)`
@@ -598,15 +616,17 @@ its occurrences. A `const` occurrence restricts that variable to `value_type`;
 a temporal occurrence additionally admits `atomic` and `rolling` types. A
 `const` generic parameter binds a wiring-time value and may appear in a
 type-shaping position such as a rolling-window size. Generic scope covers the
-declaration signature and an `fn` body. Repeated uses require an equivalent
-type or equal constant value.
+declaration signature and body or, for a struct, its parents, fields, default
+overrides, and `requires` clause. Repeated uses require an equivalent type or
+equal constant value.
 
 Every generic needed by a selected implementation must resolve from input
-arguments, expected output, explicit generic arguments, a future declared
-default, or a solvable type equality in a `requires` clause. Unresolved or
-inconsistently rebound generics are type diagnostics. The initial syntax for
-explicit generic arguments and generic defaults remains open; the AST and
-semantic model must not assume generic parameters are types only.
+arguments, expected output, or a solvable type equality in a `requires` clause.
+Unresolved or inconsistently rebound generics are type diagnostics. Explicit
+generic arguments are additionally accepted when applying or constructing a
+struct type. Generic parameter defaults and explicit generic arguments on
+ordinary function or operator calls remain open. The AST and semantic model
+must not assume generic parameters are types only.
 
 Different type-parameter names are independent. Repetition means equality:
 
@@ -621,6 +641,37 @@ source type for both, including equal atomic boundaries and rolling sizes.
 Contextual temporalization occurs after this source-level relationship is
 established. A plain generic is consequently neither a time-series-only
 variable nor a runtime dynamically typed value.
+
+On a struct declaration, each type parameter is restricted to the canonical
+`value_type` domain. `atomic` and `rolling` cannot be supplied as generic
+struct arguments; temporal policy belongs in the field declaration, such as
+`value: atomic<T>`. Constant parameters retain their declared wiring-time
+value type and form part of specialization identity:
+
+```hgl
+struct Vector<T, const size: i64> {
+    values: list<T, size>
+}
+```
+
+An applied generic struct is invariant and nominal by both origin and complete
+argument list. `Vector<f64, 3>` and `Vector<f64, 4>` differ, as do `Box<Base>`
+and `Box<Derived>`. A bare generic origin and a partial application are not
+types. The checked IR nevertheless retains HGL source-type arguments rather
+than only their native scalar projections, leaving room to relax the
+canonical-only restriction in a later language version.
+
+Constructor inference matches supplied named fields and an optional expected
+result against the generic field schemas, unifies all bindings, and rejects
+any unresolved or conflicting parameter. An explicit constructor application
+supplies the complete list. There are no `_` placeholders or generic parameter
+defaults in this slice.
+
+Generic abstract parents are applied using the same rules. Each concrete
+generic specialization remains final, parent arguments must be complete after
+child substitution, and closed abstract-family membership is computed for the
+exact parent specialization rather than for every specialization of its
+generic origin.
 
 A `requires` clause is a compile-time constraint expression:
 
@@ -645,6 +696,12 @@ The initial constraint vocabulary is:
 - `field_type(U, name)` returns the canonical type of a named field;
 - `op(A, B) -> O` requires a selected nominal operator to be callable with
   those source types and result relationship.
+
+The same vocabulary constrains a generic struct family. Its declaration is
+checked symbolically, and every concrete specialization must satisfy the
+constraint before construction, inheritance, or temporal expansion. Thus a
+failed `Range<str>` application is a type diagnostic at the application site,
+not a partly registered nominal schema.
 
 Within constraints, `struct` denotes the canonical structured-value category
 covering concrete and abstract nominal declarations. Reflection includes
@@ -875,10 +932,13 @@ postfix_expr   = primary_expr,
                  | ".", identifier };
 primary_expr   = literal | placeholder | identifier | qualified_name
                | "(", expression, ")" | tuple_literal | sequence_literal
-               | delta_expression
+               | generic_constructor | delta_expression
                | function_expr | if_expression | eval_expression | block;
+generic_constructor
+               = ( identifier | qualified_name ), generic_arguments,
+                 "(", [ struct_arguments ], ")";
 delta_expression
-               = "delta", "<", identifier, ">", "(",
+               = "delta", "<", type, ">", "(",
                  [ struct_arguments ], ")";
 struct_arguments
                = named_argument, { ",", named_argument }, [ "," ];
@@ -950,7 +1010,18 @@ defaults fill omitted fields, and a field declared with `= null` may remain
 unset. The literal `null` is accepted only when the expected field is optional;
 it is not an untyped runtime object.
 
-`delta<S>(...)` requires a nominal struct `S`, accepts named fields only, and
+An explicitly applied constructor such as `Box<f64>(value: 1.5)` must supply
+every generic argument. The `name<...>(...)` syntax is reserved for struct
+construction in the initial design; a callee that resolves to an ordinary
+function or operator is diagnosed because explicit generic function-call
+syntax remains open. Without the list, constructor inference binds parameters
+from the expected result and supplied fields, unifies repeated occurrences,
+then evaluates the struct's `requires` clause. Every parameter must resolve;
+`Maybe()` without either a type-bearing field or an expected `Maybe<T>` type is
+an inference error.
+
+`delta<S>(...)` requires a fully applied nominal struct `S`, accepts named
+fields only, and
 produces a contextual update value rather than an ordinary source type. Every
 field may be omitted independently of the complete constructor's requirements
 or defaults. Omission means no change and does not apply a default. Explicit
@@ -1015,6 +1086,14 @@ to one module-qualified named `Bundle` for scalar use and one matching named
 `TSB` whose field schemas are obtained by recursive temporalization. Its
 nominal name remains part of both identities. `atomic<S>` resolves to
 `TS<Bundle<S>>`.
+
+A fully applied generic struct first substitutes and validates every type and
+constant argument, then follows the same rule. The nominal specialization
+identity contains the module-qualified origin and complete invariant argument
+list, while its fields contain the substituted canonical schemas. Recursive
+temporalization starts only after specialization, so `SnapshotBox<Quote>` can
+place `atomic<Quote>` at its declared field boundary without admitting
+`atomic<Quote>` as a generic argument.
 
 An abstract struct contributes hierarchy metadata and a fixed base-field TSB,
 but no constructible scalar instance. Scalar and atomic uses of the abstract
@@ -1544,10 +1623,11 @@ Before code generation, an RFC must also define:
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- structured inheritance, generic structs, self-recursive fields,
-  destructuring, and copy-with-update syntax;
-- explicit generic arguments, generic defaults, and specialization
-  relationships beyond the defined pattern ranking and ambiguity rule;
+- self-recursive fields, destructuring, and copy-with-update syntax;
+- explicit generic arguments on function and operator calls, generic parameter
+  defaults, partial generic type application, and specialization relationships
+  beyond invariant applied types and the defined pattern ranking and ambiguity
+  rule;
 - general anonymous capture and type inference beyond inline iterator
   predicates;
 - callable scalar kernels inside runtime functions;

@@ -23,6 +23,8 @@ the directory into a separate repository without changing hgraph core.
   definition.
 - Express abstract structured-data families with final concrete values and
   preserve their hierarchy through hgraph's native type realization.
+- Express invariant generic struct families whose complete substitutions use
+  the same constraint model as generic functions and operators.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
@@ -110,8 +112,10 @@ source
   -> package target and module-closure resolution
   -> module descriptor and candidate-universe loading
   -> name and module resolution
-  -> nominal operator binding and generic resolution
-  -> canonical type resolution and temporal shape expansion
+  -> canonical source type and generic declaration resolution
+  -> struct specialization and hierarchy resolution
+  -> nominal operator binding and generic call resolution
+  -> temporal shape expansion
   -> function classification
   -> phase/effect checking and operator candidate resolution
   -> typed high-level IR
@@ -150,7 +154,8 @@ The first backend emits only public SDK constructs:
 - Ordinary `export fn` declarations become public exact-callable entries;
   unexported exact functions remain module implementation details.
 - Struct declarations become nominal Bundle and recursively temporalized TSB
-  schemas; abstract-family relationships are registered before graph wiring.
+  schemas; fully applied generic specializations and abstract-family
+  relationships are registered before graph wiring.
 - Composition calls become public `wire` and operator-dispatch calls.
 - Functions classified as runtime primitives become empty structs with typed
   static hooks.

@@ -11,8 +11,8 @@ source
   -> package target and locked module closure
   -> module descriptors and candidate universe
   -> modules, nominal names, and canonical value types
-  -> struct hierarchy and effective-field resolution
-  -> generic binding and operator conformance
+  -> generic struct specialization, hierarchy, and effective fields
+  -> generic call binding and operator conformance
   -> recursive temporal shape expansion
   -> function classification
   -> phase-checked typed HIR
@@ -284,6 +284,68 @@ interning, descriptor fingerprinting, and code generation. The exact
 multiple-parent linearization remains an open language rule, so hierarchy
 lowering must not ship until that rule is fixed and tested.
 
+### Generic struct specialization
+
+A generic struct symbol owns an ordered list of type and `const` parameters,
+its normalized constraint IR, parent type expressions, fields, and default
+overrides. The generic origin has nominal identity but no constructible Bundle
+schema. A fully resolved application creates a specialization key containing
+the origin plus every canonical type or typed constant argument. The key is
+invariant and is interned before hierarchy resolution and temporal expansion.
+
+Struct type parameters initially have the canonical-value domain. The checked
+IR still stores their HGL source-type descriptors rather than erasing them to
+native value metadata; semantic checking rejects `atomic` and `rolling`
+arguments for this language edition. Constant parameters store their declared
+value type and normalized value. A constant participates in identity even when
+it does not affect a field schema.
+
+An explicitly applied type or constructor must provide the complete ordered
+argument list. Otherwise constructor inference:
+
+1. matches an expected result type against the generic origin;
+2. matches supplied named arguments against the unsubstituted field types;
+3. repeatedly unifies type and constant bindings from every occurrence;
+4. evaluates orientable equality constraints to a fixed point;
+5. rejects unresolved or conflicting parameters; and
+6. evaluates the remaining struct requirements before interning the
+   specialization.
+
+Omitted fields and their defaults do not provide inference evidence. In
+particular, `Maybe()` cannot invent the argument for `Maybe<T>` merely because
+its only field defaults to `null`. Generic parameter defaults and partial
+applications do not enter this algorithm.
+
+After substitution, ordinary hierarchy rules apply. A generic child may map
+its parameters into a fully applied abstract parent or fix the parent
+arguments. Each concrete application is final, inherited fields are checked
+after substitution, and a closed abstract family contains only descendants of
+that exact parent specialization. `Event<Quote>` and `Event<Trade>` never
+share alternatives merely because they have the same generic origin.
+
+The existing hgraph Bundle registry already supports invariant type-only
+specializations through generic-argument metadata, and the scalar pattern
+matcher can bind arguments for a named generic Bundle origin. HGL should use
+that public path for `Box<T>` and derive temporal matching from the matching
+Bundle value schema rather than build a second TSB-specific generic system.
+
+The native metadata currently records only type arguments. A source type such
+as `Vector<T, const size: i64>` requires the public nominal Bundle metadata,
+manifest fingerprint, and generic Bundle pattern to carry typed constant
+arguments as well. Encoding a constant only into a generated local name or
+recovering it from the field layout is not sufficient: two specializations
+must remain distinct even when the parameter is unused by their fields. The
+extension must bind constants through hgraph's shared `ResolutionMap` and
+participate in equality, hashing, diagnostics, and descriptor round trips.
+
+Module descriptors publish the generic origin, parameter kinds, constraints,
+and source-level field and parent expressions. The application compiler
+collects the finite set of fully applied specializations used by the target and
+registers those schemas before graph wiring. An invalid or unresolved
+application never creates a registry entry. Generic erasure or per-type C++
+specialization remains a backend choice for functions consuming the type; it
+does not introduce an open `Box<any>` runtime value.
+
 A `delta<S>(...)` expression lowers to a distinct checked-HIR delta value for
 the recursively expanded temporal `S`. Its field-presence bitmap means “this
 field participates in this update” and is not the Bundle value-validity bitmap.
@@ -370,10 +432,17 @@ applies that substitution to the operator constraint and conjoins it with the
 candidate's own constraint. The combined expression is used both to check the
 implementation body and to generate its dispatch metadata and hooks.
 
+For a generic struct, the same IR validates the family declaration and each
+complete application. It admits or rejects a nominal specialization and does
+not participate in overload ranking. Operator requirements are viability
+queries against the target's selected nominal operator universe; the compiler
+does not cache a specialization that fails one.
+
 Candidate resolution proceeds in one deterministic sequence:
 
-1. Match arguments, explicit generic arguments, and any expected output,
-   recording the initial substitution.
+1. Match call arguments and any expected output, recording the initial
+   substitution. Explicit generic arguments are handled only by the separate
+   struct-application algorithm in the initial design.
 2. Evaluate orientable equality constraints in positive conjunctive positions
    and type functions whose inputs are available, repeating to a fixed point.
 3. Reject an unresolved dependency, inconsistent re-binding, or equality
@@ -713,13 +782,14 @@ with another module.
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
 exported exact functions, and exported struct declarations and hierarchy
-relationships. The provider inventory contains every
+relationships, including generic origins and their normalized constraints. The
+provider inventory contains every
 candidate-to-operator binding, including the provider module identity and
 implementation metadata, plus:
 
 - canonical module and compatibility versions;
 - canonical types, effective constructor metadata, abstract/concrete hierarchy
-  contributions, and their hgraph schemas;
+  contributions, generic specialization keys, and their hgraph schemas;
 - required public headers and CMake packages;
 - imported targets and module lifecycle and registration entry points;
 - descriptor fingerprints and documentation links.

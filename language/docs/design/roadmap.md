@@ -181,14 +181,20 @@ Candidates, in risk order:
   invariant field type and optionality, descendant default overrides, and
   scalar/atomic closed-family registration after settling multiple-parent
   field order and the temporal base-projection spelling;
+- implement invariant generic struct origins over canonical type and `const`
+  arguments, complete application, constructor inference, `requires`
+  validation, and exact-specialization abstract families;
+- extend public nominal Bundle metadata and generic patterns with typed constant
+  arguments rather than encoding a `const` specialization only in its name;
 - add a public native operation or canonical delta encoding for explicitly
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
 - explicit ephemeral cache semantics;
 - additional lifecycle capabilities and output access;
 - higher-order functions and runtime control flow;
-- explicit generic arguments, generic defaults, and cross-module
-  implementation coherence beyond the initial constraint model;
+- explicit generic arguments on function/operator calls, generic parameter
+  defaults, partial generic type application, and cross-module implementation
+  coherence beyond the initial constraint model;
 - the rolling-window runtime iteration surface and a parameter spelling that
   accepts either window kind;
 - an explicit end bound and approximate comparison for `eval`, and delta
