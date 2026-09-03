@@ -386,7 +386,10 @@ delta(value)
 ```
 
 The language does not expose `value.modified`, `value.valid`, or `value.value`.
-`modified` and `valid` are evaluator-local metadata in runtime functions. The
+Like `key_set`, the metadata calls follow the phase of their containing
+function: in composition they wire hgraph's standard `valid`, `modified`, and
+`last_modified_time` operators and yield time series; `modified` and `valid`
+are evaluator-local metadata in runtime functions. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
 validity; recursive child validity is a distinct operation named

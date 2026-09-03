@@ -437,8 +437,13 @@ The parser treats these as ordinary calls resolved through the prelude or
 intrinsic declarations. Source member spellings such as `value.modified`,
 `value.valid`, and `value.value` are not part of the language.
 
-In a runtime function, `modified` and `valid` inspect evaluator-local endpoint
-metadata rather than construct Boolean time series. Both require at least one
+These calls are phase-polymorphic in the same way as `key_set`. In a
+composition function they wire the standard hgraph operators of the same
+meaning: `valid` and `modified` produce a `bool` time series and
+`last_modified` a `datetime` time series, with the multi-argument forms
+composing through the standard Boolean operators. In a runtime function,
+`modified` and `valid` inspect evaluator-local endpoint metadata rather than
+construct Boolean time series. Both require at least one
 argument and fold over their arguments with complementary rules:
 
 ```text
