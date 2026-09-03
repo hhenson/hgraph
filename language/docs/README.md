@@ -16,11 +16,11 @@ not imply an implemented compatibility promise.
 
 ## Design records
 
-1. [Architecture](design/architecture.md) — ownership, compiler pipeline, and
-   execution modes.
+1. [Architecture](design/architecture.md) — ownership, compiler pipeline,
+   the two backends, and execution modes.
 2. [Language model](design/language-model.md) — functions, nominal operators,
    generics, exports, canonical and rolling temporal types, runtime state,
-   lifecycle, activation, output, and syntax decisions.
+   lifecycle, activation, output, tests and running, and syntax decisions.
 3. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.

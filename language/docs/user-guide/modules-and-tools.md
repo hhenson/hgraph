@@ -175,7 +175,10 @@ The intended command surface is:
 
 ```text
 hgl check path/to/program.hgl
-hgl run path/to/program.hgl
+hgl test path/to/program.hgl
+hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
+        [--start <datetime>] [--end <datetime|duration>]
+        [--set name=<constant expression>]... [--config run.toml]
 hgl build path/to/program.hgl --profile release
 hgl repl
 ```
@@ -183,20 +186,31 @@ hgl repl
 | Command | Intended behavior |
 | --- | --- |
 | `check` | Parse, resolve, phase-check, and type-check without compiling |
-| `run` | Compile into a content-addressed cache and execute in a child process |
+| `test` | Run the module's `test` declarations and report failing assertions |
+| `run` | Bind an entry to a mode, clock, and parameters, then execute it |
 | `build` | Produce a reproducible ahead-of-time native artifact |
-| `repl` | Accumulate declarations and compile the current session |
+| `repl` | Accumulate declarations, run tests and `eval` forms interactively |
+
+[Testing and running](testing-and-running.md) shows `test`, `run`, and the
+run configuration file from the author's side.
 
 The current scaffold implements only `hgl --help` and `hgl --version`. These
 commands are a documented target, not yet an available interface.
 
 ## One execution model
 
-`run`, `build`, and the REPL share:
+`test`, `run`, `build`, and the REPL share one checked semantic IR and
+one hgraph runtime. A program made only of composition functions is wired
+onto the runtime directly, in process; a program with runtime functions goes
+through generated C++:
 
 ```text
-source -> checked semantic IR -> generated C++ -> native compiler -> hgraph runtime
+source -> checked semantic IR -> direct wiring          -> hgraph runtime
+                              -> generated C++ -> native -> hgraph runtime
 ```
+
+Both paths build the same graph, and the compiler's parity suite holds them
+to the same ticks.
 
 The initial REPL may rebuild the whole session after each accepted declaration.
 That is slower than a JIT but guarantees that exploration sees the same

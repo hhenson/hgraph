@@ -3,8 +3,12 @@
 Status: initial design
 
 Development proceeds through executable vertical slices. Parser-only progress
-is not a usable milestone: each language slice must reach generated C++, hgraph
-wiring, runtime behavior, and diagnostics.
+is not a usable milestone: each language slice must reach hgraph wiring,
+runtime behavior, and diagnostics. Slice 1 reaches them through the
+direct-wiring backend, which wires composition-only programs through hgraph's
+public erased dispatch and runs them in process; Slice 2 adds generated C++
+for everything else. The two backends and their split are recorded in
+[Architecture](architecture.md#two-backends-one-wiring).
 
 ## Slice 0: project scaffold
 
@@ -24,7 +28,7 @@ Acceptance:
 - default hgraph builds remain independent of the language project;
 - the core source distribution excludes `language/`.
 
-## Slice 1: atomic frontend
+## Slice 1: atomic frontend and direct wiring
 
 Deliverables:
 
@@ -50,9 +54,16 @@ Deliverables:
 - `key_set`, `keys`, `values`, and `items`, including built-in, named, and
   inline traversal predicates;
 - name resolution and kind-specific phase checking;
+- `test` declarations, `assert`, `eval` with dense and timed harness
+  sequences and the `_` placeholder, and the sequence and tuple literals;
 - a textual typed-IR dump for tests and tooling;
-- `hgl check`;
-- parser-check all first-slice guide examples.
+- the direct-wiring backend for composition-only programs: constant
+  folding, exact-function inlining, operator calls through hgraph's erased
+  `wire_operator`, and `replay`/`record` harness wiring;
+- `hgl check`, `hgl test`, `hgl run` with the command-line and TOML run
+  configuration, and a first `hgl repl` that rebuilds the session per
+  input;
+- parser-check all first-slice guide examples and run their tests.
 
 Acceptance:
 
@@ -64,7 +75,13 @@ Acceptance:
 - private exact functions are absent from module interfaces, exported exact
   functions are present, and operator candidates carry provider identity;
 - all AST and IR nodes retain precise source ranges;
-- malformed input recovers sufficiently to report multiple useful errors.
+- malformed input recovers sufficiently to report multiple useful errors;
+- `eval` over a standard operator records the same ticks as the C++
+  `eval_node` harness for the same call, dense and timed;
+- a program containing a runtime function is rejected by the direct-wiring
+  backend with a diagnostic that names the function;
+- `hgl run` of a composition-only entry produces the same ticks in
+  simulation as the equivalent hgraph `run_graph` call.
 
 ## Slice 2: C++ vertical slice
 
@@ -96,7 +113,9 @@ Deliverables:
   `resolve(date, zoned_time, ...)`, accessors,
   JSON and Arrow codecs, and a Python wrapper, as an amendment to RFC 0002;
 - generated CMake build manifest and source mapping;
-- `hgl emit-cpp` and `hgl build`.
+- `hgl emit-cpp` and `hgl build`;
+- the backend parity suite: every `hgl test` the direct-wiring backend
+  accepts is also run through generated C++ and must record the same ticks.
 
 The hgraph-side requirements above are tracked here while the language design
 is still moving. Once agreed they are promoted to an RFC in
@@ -124,9 +143,10 @@ Acceptance:
 Deliverables:
 
 - content-addressed native build cache;
-- `hgl run` in an isolated child process;
-- REPL sessions that accumulate declarations and rebuild through the same
-  backend;
+- `hgl run` and `hgl test` in an isolated child process for programs with
+  runtime functions;
+- REPL sessions that accumulate declarations and rebuild through either
+  backend as the session's classification requires;
 - transactional replacement of generated module registration handles without
   stale candidate or installer state;
 - testing sources and sinks suitable for exploration without defining native
@@ -134,8 +154,8 @@ Deliverables:
 
 Acceptance:
 
-- the same source produces identical ticks in `run`, REPL, and ahead-of-time
-  execution;
+- the same source produces identical ticks in direct wiring, child-process
+  `run`, REPL, and ahead-of-time execution;
 - failed compilation or execution cannot corrupt a later REPL session;
 - failed module replacement leaves the prior active module universe intact;
 - cache keys cover compiler, hgraph, extension, profile, and target inputs;
@@ -153,6 +173,8 @@ Candidates, in risk order:
   and cross-module implementation coherence;
 - the rolling-window runtime iteration surface and a parameter spelling that
   accepts either window kind;
+- an explicit end bound and approximate comparison for `eval`, and delta
+  spellings for set, map, and list harness elements;
 - incremental compilation or a JIT backend.
 
 Each capability must map to a first-class public C++ hgraph path and have
@@ -163,7 +185,7 @@ hgraph registry rather than add language-local dispatch.
 
 Before the language is described as production-ready:
 
-- scripted and AOT parity suites pass on supported platforms;
+- the backend parity suite passes on supported platforms;
 - generated applications build against an installed SDK, not only the
   repository tree;
 - module descriptors cover at least one independently packaged extension;

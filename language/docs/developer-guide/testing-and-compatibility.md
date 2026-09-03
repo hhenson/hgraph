@@ -28,6 +28,11 @@ Snapshots cover:
 - state declarations and grouped inject declarations;
 - `start`, ordered `when`, and `stop` blocks;
 - complete and projected output assignment;
+- `test` declarations, `assert`, `eval` with positional and named
+  arguments, dense sequences with `_`, timed sequences with duration and
+  datetime keys, sequence and tuple literals including the one-element
+  tuple's trailing comma, and rejection of `test`, `assert`, `eval`, and a
+  lone `_` as identifiers;
 - source ranges, recovery, and multiple diagnostics.
 
 Visibility cases include rejection of `export operator`, `export use`, export
@@ -183,6 +188,31 @@ complete new universe active, never a mixture. Module removal runs only at a
 quiescent wiring boundary; tests must not rely on concurrent mutation of the
 process-wide operator registry.
 
+## Direct-wiring backend and the harness
+
+The direct-wiring backend is tested against hgraph, not against a model of
+it:
+
+- for each standard operator used in the guides, `eval` over the operator
+  records the same ticks as the C++ `eval_node` harness in
+  `hgraph/lib/testing/eval_node.h` for the same arguments, dense and timed,
+  including padding, never-ticking outputs, and outputless callees;
+- exact-function inlining wires the same graph as calling the operators
+  directly (compare the wired node and edge sets, not only the ticks);
+- `const` folding produces the scalar arguments hgraph's resolver lifts,
+  including temporal constants and `[run.params]` values of every mapped
+  TOML type;
+- a runtime function anywhere in the evaluated closure is a `backend`
+  diagnostic naming the function, and a module without a loaded native
+  image is a `backend` diagnostic naming the module;
+- `hgl test` reports each failing assertion with the cycle or time, the
+  expected element, and the observed element, and exits non-zero;
+- `hgl run` in simulation over an entry with `[run.params]` prints the same
+  ticks as hgraph's `run_graph` for the equivalent graph, and the
+  command-line overrides win over the file.
+
+Every `test` in the guide examples runs under `hgl test` in CI.
+
 ## Generated C++
 
 Golden tests are useful for canonical formatting, includes, identifier
@@ -204,15 +234,20 @@ End-to-end tests must:
 For each classified function, keep a minimal equivalent native C++ graph or
 node and compare behavior at the same semantic level.
 
-## Execution-mode parity
+## Backend parity
 
 The same accepted example passes through:
 
 - `hgl check`;
-- `hgl emit-cpp` and a clean native build;
-- `hgl run` on cold and warm caches;
+- `hgl test` on the direct-wiring backend;
+- `hgl emit-cpp` and a clean native build, with the same tests run through
+  the generated code;
+- `hgl run` on both backends, cold and warm caches;
 - a REPL session;
 - `hgl build` and its packaged artifact.
+
+A tick recorded by one backend and not the other, or a differing value,
+is a compiler defect; the generated C++ is the reference.
 
 Compare semantic output rather than temporary paths. Failed compiles and
 interrupted execution must not corrupt caches or the last valid REPL session.
@@ -225,9 +260,10 @@ As compiler slices land, promote each example through:
 1. parser and type-shape coverage;
 2. function classification;
 3. typed IR;
-4. generated C++ build;
-5. native behavior;
-6. scripted/AOT parity.
+4. direct-wiring behaviour through `hgl test`;
+5. generated C++ build;
+6. native behavior;
+7. backend parity.
 
 CI should eventually extract fenced `hgl` blocks and parse them by language
 edition.

@@ -15,10 +15,13 @@ source
   -> function classification
   -> phase-checked typed HIR
   -> hgraph semantic IR
-  -> C++ source + build manifest
-  -> native compiler and linker
-  -> hgraph runtime
+  -> direct wiring (test, repl, run)  -> hgraph runtime, in process
+  -> C++ source + build manifest -> native compiler -> hgraph runtime
 ```
+
+The last two lines are the two backends over one semantic IR; the section
+"Direct-wiring backend" below records the first, and the architecture record
+("Two backends, one wiring") records which command uses which.
 
 The classification arrow is a semantic stage rather than a parser shortcut.
 Its first proposed rule classifies ordinary bodies as composition and bodies
@@ -33,8 +36,10 @@ src/
   syntax/       source manager, lexer, parser, AST
   semantics/    names, canonical types, temporal shapes, function classifier
   ir/           typed HIR and hgraph semantic IR
+  wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
+                harness sequences, test runner
   codegen/cpp/  generated C++ and source maps
-  driver/       check, emit-cpp, build, run
+  driver/       check, test, emit-cpp, build, run
   repl/         session assembly over the driver
 ```
 
@@ -552,6 +557,69 @@ must gain a first-class module registration transaction/handle, candidate
 provenance, removal, and lease contract. Generated language code must not reach
 into registry storage or attempt to coordinate several registries privately.
 
+## Direct-wiring backend
+
+Status: proposed (2026-09-03) with the test harness and run model in
+[Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
+
+The direct-wiring backend executes a composition-only program without
+generating C++. It is not an interpreter of hgraph behaviour: it walks the
+semantic IR of a composition function and asks hgraph to wire each operation
+through the erased entry that the Python bridge already uses,
+
+```cpp
+OperatorWireResult wire_operator(
+    Wiring &w, std::string_view name, std::span<const WiringArg> args,
+    std::optional<bool> output_required,
+    const TSValueTypeMetaData *expected_output);
+```
+
+so the registry lookup, resolver, and graph construction are hgraph's own
+and identical to the generated `wire<Operator>(...)` call for the same source.
+The backend owns exactly these steps:
+
+- constant folding of `const` expressions and literals into `Value`s with
+  their interned `ValueTypeMetaData`, which become `WiringArg::Kind::Scalar`
+  arguments;
+- the mapping from a resolved nominal operator identity to the registry name
+  hgraph knows it by (the same mapping the C++ backend bakes into a marker);
+- the argument order and names hgraph's resolver expects, including the
+  `expected_output` schema when the language has already fixed the result
+  type (a return annotation, a `replay` for a typed parameter);
+- calling an exact `fn` by walking its body with the caller's ports bound to
+  its parameters, so exact functions inline at wiring time exactly as the
+  generated C++ would;
+- the harness: an `eval` argument becomes a `replay` operator wired at the
+  parameter's expanded schema, the callee result becomes a `record`
+  operator, and the sequences seed and read the in-memory buffers through
+  the public `hgraph/lib/testing/record_replay.h` helpers.
+
+The harness uses the `"testing"` record/replay backend for dense sequences
+(`dense_record`; index i is evaluation cycle `MIN_ST + i*MIN_TD`, which is
+the alignment `eval` promises) and the sparse absolute-time entries of the
+`"memory"` backend for timed sequences. A test run is one
+`GraphExecutorBuilder` over the wired graph, evaluated in process; the
+observed sequence is read back with `get_recorded_deltas` or
+`get_recorded_sparse`, padded by the rule in the specification, and compared
+with `Value::equals` element by element.
+
+`hgl run` under this backend wires the entry function with its `[run.params]`
+constants as scalar arguments, applies the mode, start, and end to the
+executor builder, and prints each tick of the result port through a `record`
+sink read after the run (simulation) or a streaming sink (real time).
+
+The backend rejects, with a `backend` diagnostic that names the function, any
+evaluated closure that contains a runtime function, a source-defined operator
+whose selected candidate is a runtime function, or a `use` of a module whose
+descriptor has no loaded native image. Those programs need the C++ backend.
+It never emulates a node body.
+
+The backend depends only on public hgraph headers: `operator_dispatch.h`,
+`graph_wiring.h`, `executor.h`, `lib/testing/record_replay.h`, and the
+`stdlib` in-memory record/replay implementations for backend selection.
+Anything it needs beyond those is an hgraph-side ask recorded in the roadmap,
+not a private include.
+
 ## Source mapping and generated artifacts
 
 Every generated declaration and meaningful expression maps to its language
@@ -565,8 +633,12 @@ them.
 
 ## Scripted, REPL, and AOT drivers
 
-`hgl run`, `hgl repl`, and `hgl build` use the same type expansion, function
-classifier, typed IR, and C++ backend.
+`hgl test`, `hgl run`, `hgl repl`, and `hgl build` use the same type
+expansion, function classifier, and typed IR. `hgl build` always uses the
+C++ backend; the other three use the direct-wiring backend when the evaluated
+closure is composition-only and the C++ backend otherwise. The parity suite
+runs every test the direct-wiring backend accepts through both backends and
+compares the recorded ticks.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
@@ -577,5 +649,5 @@ rebuilds the registry from the active module set. If removal cannot complete,
 the old revision remains active and the replacement fails atomically. Retaining
 old native images is acceptable; retaining their candidates is not.
 
-A future JIT must consume the same classified semantic IR and pass cross-mode
-parity before it can replace compile-and-run.
+A future JIT must consume the same classified semantic IR and pass backend
+parity before it can replace either backend.

@@ -13,13 +13,14 @@ for hgraph, not a second runtime.
    `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
    `const` parameters, lexical bindings, canonical and rolling types, recursive
    temporalization, metadata, and collection iteration, plus provisional state,
-   injectable, lifecycle, activation, and output semantics.
+   injectable, lifecycle, activation, and output semantics, and the `test`,
+   `eval`, and run model.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
-   pipeline, function classification, public SDK lowering, generated module
-   lifecycle, source mapping, and build manifests.
+   pipeline, function classification, public SDK lowering, the direct-wiring
+   backend, generated module lifecycle, source mapping, and build manifests.
 3. [Testing and compatibility](testing-and-compatibility.md) defines syntax,
-   type-shape, classification, generated-code, installed-SDK, and cross-mode
-   acceptance.
+   type-shape, classification, harness, generated-code, installed-SDK, and
+   backend-parity acceptance.
 
 The design records provide project boundaries and rationale:
 

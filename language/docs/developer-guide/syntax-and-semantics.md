@@ -33,13 +33,14 @@ The hard reserved words for the current design surface are:
 
 ```text
 module use as export impl operator fn const let var state inject return if else
-start when stop for
+start when stop for test assert eval
 true false
 bool i64 f64 str date time datetime duration
 civil_datetime zoned_datetime zoned_time timezone
 ```
 
-Every word in that list is reserved everywhere, including the ones such as
+`_` on its own is the placeholder token, not an identifier. Every word in
+that list is reserved everywhere, including the ones such as
 `state`, `start`, `stop`, and `when` that are only meaningful at a particular
 position in a runtime function body. Variables are introduced by `let`, `var`,
 and `state`, and each block keyword carries its own placement rule, so there is
@@ -70,7 +71,7 @@ use_decl        = "use", module_path,
                   ( "::", import_set | "as", identifier );
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
-declaration     = operator_decl | function_decl;
+declaration     = operator_decl | function_decl | test_decl;
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature;
 function_decl   = [ "export" | "impl" ], "fn", identifier,
@@ -645,10 +646,26 @@ rolling_mean(value, period: window)
 analytics::rolling_mean(value, period: window)
 ```
 
+```ebnf
+argument         = [ identifier, ":" ], expression;
+sequence_literal = "[", [ sequence_element,
+                   { ",", sequence_element }, [ "," ] ], "]";
+sequence_element = expression
+                 | ( duration_literal | datetime_literal ), ":",
+                   expression;
+tuple_literal    = "(", expression, ",",
+                   [ expression, { ",", expression } ], [ "," ], ")";
+placeholder      = "_";
+```
+
 A qualified callee begins with an alias introduced by `use module.path as
 alias` and uses `::` between namespace and declaration names. Dots remain the
 syntax of canonical module paths in `module` and `use` declarations; they are
-not expression member access.
+not expression member access. A sequence literal is a constant `list` value
+of one element type, and a tuple literal a constant tuple; a single
+parenthesized expression is grouping, so a one-element tuple needs the
+trailing comma. Timed elements and the `_` placeholder are valid only in the
+harness sequences of the evaluation section below.
 
 Duplicate names, unknown names, positional arguments after named arguments,
 and missing required arguments are source diagnostics.
@@ -906,6 +923,143 @@ The classifier applies to named and anonymous functions wherever their body
 grammar admits runtime constructs. The first concise anonymous-function slice
 has no runtime block and therefore produces composition helpers only.
 
+## Tests and the evaluation harness
+
+Status: proposed (2026-09-03) so that the first compiler pass can execute
+programs; the project owner revises the spelling as needed.
+
+A `test` declaration is a named wiring-time block that exercises functions
+of its module with hgraph's evaluation harness:
+
+```hgl
+module examples.quotes
+
+fn midpoint(tob: tuple<f64, f64>) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
+
+test midpoint_ticks {
+    assert eval(midpoint, tob: [(1.0, 2.0), (2.0, 3.0)]) == [1.5, 2.5]
+}
+
+test midpoint_waits_for_both_sides {
+    assert eval(midpoint, tob: [(1.0, _), (_, 3.0), (2.0, _)])
+        == [_, 2.0, 2.5]
+}
+```
+
+```ebnf
+test_decl        = "test", identifier, block;
+assert_statement = "assert", expression;
+eval_expression  = "eval", "(", expression, { ",", argument }, ")";
+```
+
+`test`, `assert`, and `eval` are hard reserved words. `_` on its own is the
+placeholder token rather than an identifier; identifiers may still begin
+with an underscore. A `test` block sees its module's scope, including
+unexported functions, so tests live beside the code they cover; a test in
+another module sees only that module's public interface. Test names are
+unique within a module. A `test` body is a composition-phase block plus
+`assert` statements: `state`, `inject`, lifecycle, and `when` forms are
+`phase` diagnostics there. Test declarations never lower into the module's
+artifact; `hgl test` discovers and runs them, and `hgl build` omits them.
+
+`eval` is syntax, not a function, because its arguments are typed by the
+callee. The first argument names a function or operator, unqualified or
+qualified; the remaining arguments bind to that callee's parameters with the
+ordinary positional-then-named call rules. A `const` parameter receives a
+constant expression. A temporal parameter receives a *harness sequence*: a
+sequence literal whose elements are the per-cycle deltas of that input, with
+`_` for a cycle in which the input does not tick. An element's shape follows
+the parameter's canonical type, so a `tuple<f64, f64>` parameter takes tuple
+literals whose positions are values or `_` (that field did not tick). The
+result of `eval` is the harness sequence of the callee's output, compared
+with `==` against a sequence literal of the same shape. An outputless callee
+may still be evaluated as a statement, which runs it to completion; its
+result cannot be compared.
+
+Elements of a dense sequence are consecutive engine cycles: element `i` is
+the cycle at the run's start plus `i` engine steps, hgraph's `eval_node`
+alignment, so a test written this way means the same as the equivalent
+Python or C++ harness test. The observed output sequence has one element per
+cycle from the first cycle through the later of the last input cycle and the
+last output tick, with `_` where the output did not tick, and `==` requires
+equal length and element-wise equality under hgraph's canonical delta
+equality (`Value::equals`; scalars compare exactly).
+
+A *timed* sequence places each element at an explicit time: a `duration`
+key is an offset from the run's start and a `datetime` key is an absolute
+instant. Keys strictly increase, every element of a timed sequence is timed,
+`_` is not permitted (an untimed cycle is simply absent), and every input and
+the expected output of one `eval` are either all dense or all timed:
+
+```hgl
+test recent_mean_spans_five_minutes {
+    assert eval(recent_mean, price: [0s: 1.0, 2m: 3.0, 5m: 5.0, 9m: 7.0])
+        == [5m: 3.0, 9m: 5.0]
+}
+```
+
+A timed run seeds hgraph's absolute-time replay buffers and records sparsely,
+so a timed expected sequence lists exactly the ticks the output produced, at
+their times. The run's start is hgraph's simulation origin unless a
+`datetime` key fixes it; the run ends when nothing remains scheduled. An
+explicit end bound and approximate float comparison are open.
+
+`assert` accepts any wiring-time `bool` expression. A failing assertion
+reports the first differing cycle or time with the expected and observed
+elements. A harness sequence is a value only inside a `test` body: it can be
+bound with `let` and compared, but it cannot be passed to a function or
+placed in a temporal position, and `eval` outside a `test` body is a `phase`
+diagnostic. Outside a `test` body a sequence literal is a constant `list`
+value of one element type and a tuple literal a constant tuple; both reject
+`_`. Constructing a structural tuple from temporal values with a tuple
+literal, and delta spellings for set, map, and list elements in harness
+sequences, share the open delta-shape question below.
+
+## Running a module
+
+An *entry* is an `export fn` with no temporal parameters. Its `const`
+parameters, with or without defaults, are bound from the run configuration,
+and its result, if any, is the run's output. The language has no `main`, no
+`run(fn, config)` expression, and no in-source run configuration: a module
+describes graphs, and a run binds one entry to an evaluation mode, a clock,
+and parameter values from outside the source, so the same module runs
+unchanged as a simulation backtest and as a real-time process. Those
+alternatives were considered and rejected for that reason.
+
+```text
+hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
+        [--start <datetime>] [--end <datetime|duration>]
+        [--set name=<constant expression>]... [--config run.toml]
+```
+
+When a module has exactly one entry it is the default; otherwise `--entry`
+is required. `--set` values are HGL constant expressions checked against the
+parameter's declared type. The configuration file mirrors the command line
+and the command line overrides it:
+
+```toml
+[run]
+entry = "main_graph"
+mode = "realtime"
+start = 2026-09-03T08:00:00Z
+end = "1d"
+
+[run.params]
+window = 20
+symbols = ["AAPL", "MSFT"]
+```
+
+TOML integers, floats, strings, booleans, offset date-times, local dates,
+local times, local date-times, and arrays bind to `i64`, `f64`, `str`,
+`bool`, `datetime`, `date`, `time`, `civil_datetime`, and `list` parameters;
+a string binds to any temporal parameter type through the HGL literal
+spelling (`"1d"`, `"09:30[America/New_York]"`). Defaults are hgraph's
+`run_graph` defaults: a simulation starts at the engine origin and ends when
+nothing remains scheduled; a real-time run starts now and ends at `--end` or
+on interruption. Each tick of the entry's output is written as a `time value`
+line. The configuration file format is versioned with the command.
+
 ## Operator resolution
 
 Every operator call carries a resolved nominal identity before overload
@@ -973,6 +1127,8 @@ Every token and AST node retains a half-open source range. The AST preserves:
 - nominal operator declarations and explicit `impl` bindings;
 - explicit `export` on ordinary exact functions;
 - selective imports, module aliases, and qualified references;
+- `test` declarations, `assert` statements, `eval` forms, and dense or timed
+  harness sequences with `_` placeholders;
 - `let` versus `var` local mutability;
 - concise versus block function bodies;
 - tail expressions and explicit returns;
@@ -1025,6 +1181,9 @@ module: cannot remove provider user.money while 2 live graphs retain it
 type: rolling minimum size 25 exceeds maximum size 20
 type: rolling sizes must both be tick counts or both be durations
 type: rolling minimum span 10m exceeds maximum span 5m
+phase: eval is only valid inside a test body
+type: timed and dense sequences cannot be mixed in one eval
+test: midpoint_ticks failed at cycle 1: expected 2.0, observed _
 ```
 
 No-match and ambiguity diagnostics attach hgraph's candidate rejection reasons.
@@ -1047,4 +1206,7 @@ Before code generation, an RFC must also define:
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
 - ephemeral caches, lifecycle output access, and runtime sinks;
-- runtime scalar error behavior.
+- runtime scalar error behavior;
+- an explicit end bound and approximate comparison for `eval`, delta
+  spellings for set, map, and list harness elements, and tuple construction
+  from temporal values.

@@ -114,10 +114,15 @@ source
   -> phase/effect checking and operator candidate resolution
   -> typed high-level IR
   -> hgraph semantic IR
-  -> C++ source and build manifest
-  -> native compiler and linker
-  -> hgraph runtime
+  -> direct wiring         (test, repl, run)   -> hgraph runtime, in process
+  -> C++ source and build manifest -> native compiler -> hgraph runtime
 ```
+
+The two bottom lines are the two backends of the same semantic IR. The
+direct-wiring backend walks composition-phase IR and calls hgraph's public
+wiring API; the C++ backend emits source. Which one a command uses is decided
+by the program and the command, never by the language rules; the section
+"Two backends, one wiring" below records the split.
 
 The frontend owns language diagnostics, lexical scope, public function
 exposure, package membership, canonical types, function classification, phase
@@ -171,13 +176,53 @@ so native compiler diagnostics refer to language source. A compiler error in
 generated implementation detail is considered a compiler defect and should
 include a retained generated-artifact path for diagnosis.
 
+## Two backends, one wiring
+
+A composition function is wiring-time code: every call in its body either
+folds a constant or resolves an operator and asks hgraph to wire it. hgraph
+exposes that step as a runtime API. Generated C++ reaches it through the typed
+`wire<Operator>(...)` fronts, and the Python bridge reaches the same code
+through the erased `wire_operator(Wiring&, name, args, ...)` entry in
+`operator_dispatch.h`. Both paths run the same registry lookup, the same
+resolver, and the same graph construction.
+
+The direct-wiring backend uses the erased entry. It walks the semantic IR of a
+composition function, evaluates constant expressions, and for each wiring
+operation calls hgraph with the resolved operator name and the already-wired
+argument ports. Test sequences and run inputs become hgraph's own replay and
+record nodes (`replay_in_memory`, `dense_record`, `sparse_record`, the nodes
+behind the C++ `eval_node` harness), and the graph then evaluates on the
+unmodified hgraph runtime. Nothing in the language project runs at tick time.
+The non-goal "reimplementing hgraph behavior in an interpreter" therefore
+stands: the backend interprets wiring-time code only, and it interprets it
+by calling hgraph.
+
+Runtime functions are node bodies. They have no wiring-time form and need the
+C++ backend. Until that backend lands, a program whose evaluated closure
+contains a runtime function fails in the direct-wiring backend with a
+diagnostic that names the function and says it needs the native backend;
+it does not degrade to a slower path.
+
+The commands map onto the backends as follows:
+
+- `hgl test`, `hgl repl`, and `hgl run` use the direct-wiring backend for a
+  program whose evaluated closure is composition-only. They need the hgraph
+  shared library and the descriptors in the lock file, not a native toolchain.
+- `hgl build`, and `hgl run` for a program that contains a runtime function,
+  use the C++ backend.
+- Both backends must build the same graph for every program both accept. The
+  parity suite evaluates the test corpus through each backend and compares
+  the recorded ticks; a divergence is a compiler defect, and the C++ backend
+  is the reference.
+
 ## Scripted and compiled execution
 
-`hgl run` compiles a source package into a content-addressed cache and executes
-it in a child process. `hgl repl` accumulates source declarations and evaluates
-the current session through the same compile-and-run path. The initial REPL may
-rebuild the complete session; correctness and diagnostic quality precede
-incremental compilation.
+`hgl run` on a composition-only program wires and evaluates it in process.
+`hgl run` on a program with runtime functions compiles the source package into
+a content-addressed cache and executes it in a child process. `hgl repl`
+accumulates source declarations and evaluates the current session through the
+same two paths. The initial REPL may rebuild the complete session; correctness
+and diagnostic quality precede incremental compilation.
 
 Every mode derives the same candidate universe from the target and lock file.
 When the REPL replaces a module, it removes the old registration handle before
@@ -189,8 +234,8 @@ artifact using the same typed IR and C++ backend. Debug and release profiles may
 change optimization and retained diagnostics, never language semantics.
 
 A future JIT is permitted only as another backend for the same typed semantic
-IR. It must pass the scripted-versus-ahead-of-time parity suite before becoming
-the default interactive engine.
+IR. It must pass the backend parity suite before becoming the default
+interactive engine.
 
 ## Project layout
 

@@ -19,7 +19,10 @@ source calls reach hgraph.
    collection traversal.
 4. [Modules and tools](modules-and-tools.md) covers public declarations,
    implementation discovery, compiled module lifecycle, native modules,
-   `check`, `run`, `build`, and the REPL.
+   `check`, `test`, `run`, `build`, and the REPL.
+5. [Testing and running](testing-and-running.md) covers `test` declarations,
+   `eval` with dense and timed sequences, running an entry from the command
+   line or a configuration file, and the REPL.
 
 Source files are collected under [`language/examples`](../../examples). Until
 the frontend lands, they are checked documentation rather than executable

@@ -459,6 +459,36 @@ be represented as state, output, or a public function result.
 Inline iterator predicates are pure. They may capture readable surrounding
 bindings but cannot mutate `var`, `state`, or `out`, or invoke runtime effects.
 
+## Tests and running
+
+Status: proposed (2026-09-03); the record is
+[Syntax and semantics](../developer-guide/syntax-and-semantics.md#tests-and-the-evaluation-harness).
+
+A module carries its own tests. A `test` declaration is a named block in
+module scope that sees every declaration of the module, exported or not; its
+body is composition-phase code plus `assert`. The `eval` form drives a
+function through hgraph's replay and record harness:
+
+```hgl
+test midpoint_waits_for_both_sides {
+    assert eval(midpoint, tob: [(1.0, _), (_, 3.0), (2.0, _)])
+        == [_, 2.0, 2.5]
+}
+```
+
+A dense sequence is one element per engine cycle, `_` meaning "no tick" on
+the input side and "did not tick" on the output side; a timed sequence keys
+each element by an offset or absolute time. Both map exactly onto hgraph's
+own `eval_node` alignment and its sparse absolute-time recording, so a test
+in the language and a test of the same operator in C++ or Python observe the
+same ticks. Tests never lower into a build artifact; `hgl test` runs them.
+
+There is no `main` and no in-language run call. A module describes graphs;
+running binds an exported function without temporal parameters to a mode, a
+clock, and constant parameters from outside the module, through the `hgl
+run` command line or a TOML file. The same module therefore runs unchanged
+as a backtest and as a live process.
+
 ## Native boundary
 
 Language source cannot:
@@ -484,6 +514,9 @@ Later decisions must define:
 - general anonymous capture beyond inline runtime collection predicates;
 - rolling-window iteration and a parameter spelling that accepts either
   window kind;
+- an explicit end bound and approximate comparison for `eval`, delta
+  spellings for set, map, and list harness elements, and tuple construction
+  from temporal values;
 - structural temporal metadata and delta result shapes;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 
