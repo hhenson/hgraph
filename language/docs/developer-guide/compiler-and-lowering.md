@@ -225,10 +225,9 @@ position it lifts like any other scalar literal. Temporal arithmetic and
 comparison lower to the standard `add_`, `sub_`, `mul_`, `div_`, `neg_`, and
 comparison operators using exactly the overloads hgraph registers, so the
 language's operation table is hgraph's; in a runtime body the generated code
-calls the same checked helpers on canonical values. Two overloads the language
-table needs are not registered today and are recorded as hgraph-side asks:
-the reversed `i64 * duration` and `f64 * duration` operand order, and
-ordering and equality comparisons for `Time`.
+calls the same checked helpers on canonical values. One set of overloads the
+language table needs is not registered today and is recorded as a hgraph-side
+ask: ordering and equality comparisons for `Time`.
 
 An atomic tuple parameter lowers to one atomic endpoint. Indexing it must wire
 an imported or generated extraction operation rather than read a current tuple

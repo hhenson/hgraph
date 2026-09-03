@@ -85,9 +85,8 @@ Deliverables:
 - public hgraph provider-scoped candidate provenance, installer removal,
   registration removal, and live-plan lease support;
 - public hgraph TSW patterns that bind named maximum and minimum size generics;
-- standard-library `i64 * duration` and `f64 * duration` overloads and `Time`
-  comparison overloads, so the language's temporal operation table is
-  hgraph's;
+- standard-library `Time` comparison overloads, so the language's temporal
+  operation table is hgraph's;
 - generated CMake build manifest and source mapping;
 - `hgl emit-cpp` and `hgl build`.
 

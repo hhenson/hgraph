@@ -7,7 +7,7 @@ fn active_symbols(book: map<str, f64>) -> set<str> =>
 
 fn count_recent(
     book: map<str, f64>,
-    const some_time: datetime = @2026-01-01T00:00:00Z
+    const some_time: datetime = @2026-01-01T00:00Z
 ) -> i64 {
     inject logger
 

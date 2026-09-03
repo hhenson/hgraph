@@ -236,9 +236,10 @@ more: `date` and `time` are civil values, `datetime` is an instant on the UTC
 timeline (the engine clock type), and `duration` is elapsed microseconds. The
 civil date-time, calendar period, zone, zoned date-time, and range types stay
 library scalars under their registered hgraph names. Literals are single
-tokens, `@` plus an RFC 3339 shape (`@2026-09-03`, `@09:30:00`,
-`@2026-09-03T09:30:00Z`) or a unit-suffixed number (`5m`, `1.5h`), validated
-and normalized when lexed, with one canonical printed spelling per value. The
+tokens, `@` plus an RFC 3339 shape (`@2026-09-03`, `@09:30`,
+`@2026-09-03T09:30Z`) or unit-suffixed numbers (`5m`, `1.5h`, `1h30m`),
+validated and normalized when lexed, with one canonical printed spelling per
+value; shorthand is accepted wherever it stays unambiguous. The
 arithmetic table is hgraph's own, so an expression means the same thing in a
 composition body, a runtime body, and a constant expression.
 

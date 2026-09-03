@@ -198,8 +198,8 @@ would then need two candidates instead of one size-generic declaration.
 
 ## Temporal scalar types
 
-Status: proposed in the review of the scaffold. The type set follows RFC 0002
-and the literal spelling is open for decision.
+Status: agreed in the review of the scaffold (2026-09-03). The type set
+follows RFC 0002.
 
 HGL has four core temporal scalars. Each is one of hgraph's RFC 0002 core
 types, carries no time zone, and is an atomic endpoint when temporalized:
@@ -227,7 +227,9 @@ provide; the four core names are the only temporal reserved words.
 ### Literals
 
 `@` introduces a date, time, or instant written in its RFC 3339 form, and a
-number immediately followed by a unit is a duration:
+number immediately followed by a unit is a duration. Shorthand is supported
+wherever it stays unambiguous: seconds may be omitted, an offset may omit its
+minutes, and a duration may run several units together:
 
 ```ebnf
 temporal_literal = date_literal | time_literal | datetime_literal
@@ -236,22 +238,26 @@ date_literal     = "@", calendar_date;
 time_literal     = "@", clock_time;
 datetime_literal = "@", calendar_date, "T", clock_time, utc_offset;
 calendar_date    = digit4, "-", digit2, "-", digit2;
-clock_time       = digit2, ":", digit2, ":", digit2, [ ".", digit1to6 ];
-utc_offset       = "Z" | ( "+" | "-" ), digit2, ":", digit2;
-duration_literal = digits, [ ".", digits ], duration_unit;
+clock_time       = digit2, ":", digit2,
+                   [ ":", digit2, [ ".", digit1to6 ] ];
+utc_offset       = "Z" | ( "+" | "-" ), digit2, [ ":", digit2 ];
+duration_literal = duration_part, { duration_part };
+duration_part    = digits, [ ".", digits ], duration_unit;
 duration_unit    = "d" | "h" | "m" | "s" | "ms" | "us";
 ```
 
 ```hgl
 @2026-09-03                  // date
-@09:30:00                    // time
-@09:30:00.250                // time, 250 milliseconds past the second
-@2026-09-03T09:30:00Z        // datetime
+@09:30                       // time; seconds default to zero
+@09:30:15.250                // time, 250 milliseconds past the second
+@2026-09-03T09:30Z           // datetime
 @2026-09-03T10:30:00+01:00   // the same datetime written with an offset
+@2026-09-03T10:30+01         // the same again, both shorthands
 5m                           // duration: five minutes
-1.5h                         // duration: ninety minutes
+1h30m                        // duration: ninety minutes, as one token
+1.5h                         // the same value
 -250ms                       // unary minus applied to 250ms
-1h + 30m                     // a constant expression folded at compile time
+1h + 30m                     // the same value as a folded constant expression
 ```
 
 Every literal is validated and normalized when it is lexed:
@@ -262,21 +268,26 @@ Every literal is validated and normalized when it is lexed:
 - an instant must carry `Z` or an offset and is stored normalized to UTC;
   `@2026-09-03T09:30:00` is a diagnostic rather than a civil date-time, so
   Python's naive-means-UTC convention never enters the language;
-- `T` and `Z` are upper case, every field has exactly the digit count shown,
-  and the fraction has one to six digits;
-- a duration is its decimal number scaled by the unit using exact decimal
-  arithmetic; it must be a whole number of microseconds (`0.5us` is a
-  diagnostic) and fit the 64-bit range; the unit is lower case, and `m` is
-  minutes because calendar months are not durations;
-- a duration literal has no exponent, no internal whitespace, and exactly one
-  unit: `1h30m` is not a token, and `1h + 30m` folds to the same value.
+- `T` and `Z` are upper case, every field present has exactly the digit
+  count shown, omitted seconds and offset minutes are zero, and the fraction
+  has one to six digits;
+- a duration is the sum of its parts, each a decimal number scaled by its
+  unit using exact decimal arithmetic; the total must be a whole number of
+  microseconds (`0.5us` is a diagnostic) and fit the 64-bit range; units are
+  lower case, and `m` is minutes because calendar months are not durations;
+- the parts of a duration literal appear in strictly descending unit order,
+  each unit at most once, with a fraction only on the last part, and with no
+  exponent or internal whitespace: `1h30m` and `2m30.5s` are tokens, `30m1h`,
+  `1h1h`, and `1.5h30m` are diagnostics.
 
 Unary minus applies to the literal as an operator; there is no signed literal
 token. Because `@` is followed by a fixed digit pattern rather than a run of
 operator-free characters, `@2026-09-03-1d` lexes as `date - duration` and
-`@2026-09-03T09:30:00Z-1d` as `datetime - duration`, although both read better
-with spaces. An identifier directly after a number (`5min`, `2x`) is an
-unknown-unit diagnostic rather than a juxtaposition error.
+`@2026-09-03T09:30Z-1d` as `datetime - duration`, although both read better
+with spaces; an instant whose offset is directly followed by an operand, as in
+`@2026-09-03T09:30+01-1d`, needs the spaces. An identifier directly after a
+number (`5min`, `2x`) is an unknown-unit diagnostic rather than a
+juxtaposition error.
 
 Alternatives considered: bare ISO 8601 tokens conflict with subtraction
 (`2026-9-3`) and with named arguments and annotations (`09:30`); typed string
@@ -293,13 +304,15 @@ the lexer accepts every spelling above, so a value round-trips through its
 canonical form:
 
 - `date`: `@YYYY-MM-DD`;
-- `time`: `@HH:MM:SS`, with a six-digit `.ffffff` only when the microsecond
-  part is non-zero;
-- `datetime`: `@YYYY-MM-DDTHH:MM:SS[.ffffff]Z`, always in UTC; an offset is an
-  input convenience only;
-- `duration`: an integer count in the largest unit that divides the value
-  exactly, so `5400s` prints as `90m`, `1500000us` as `1500ms`, and zero as
-  `0s`.
+- `time`: `@HH:MM`, then `:SS` only when the seconds or fraction are
+  non-zero, then the fraction only when non-zero and with trailing zeros
+  removed, so `@09:30`, `@09:30:15`, and `@09:30:15.25`;
+- `datetime`: the date, `T`, the time in the same shortest form, and `Z`,
+  always in UTC; an offset is an input convenience only;
+- `duration`: the non-zero parts in descending unit order with integer counts,
+  so `5400s` prints as `1h30m`, `1500000us` as `1s500ms`, `36h` as `1d12h`,
+  and zero as `0s`; a negative value prints with a leading `-`, which
+  re-parses as unary minus.
 
 These are source spellings. Interchange forms (JSON, Arrow, recording) are
 hgraph's RFC 0002 codecs and are not part of the language.
@@ -319,7 +332,7 @@ fold at compile time with identical results.
 | `date + duration`, `date - duration` | `date` | uses the duration's floor-based whole-day component: `d + 36h` is `d + 1d` and `d - 1us` is `d - 1d`, matching Python `date` arithmetic |
 | `date - date` | `duration` | a whole number of days |
 | `duration + duration`, `duration - duration`, `-duration` | `duration` | checked overflow |
-| `duration * i64`, `duration * f64`, and the reversed operand order | `duration` | floating-point scaling rounds to the nearest microsecond, ties to even |
+| `duration * i64`, `duration * f64` | `duration` | floating-point scaling rounds to the nearest microsecond, ties to even |
 | `duration / i64`, `duration / f64` | `duration` | as above |
 | `duration / duration` | `f64` | ratio |
 | `<`, `<=`, `>`, `>=`, `==`, `!=` between two values of one type | `bool` | chronological order |
@@ -328,8 +341,12 @@ Everything else is a `type` diagnostic, in particular `datetime + datetime`,
 `time + duration` and `time - time` (crossing midnight needs a date),
 `date + time` (its result is the civil date-time, which is not a core scalar),
 `duration * duration`, `%` on any temporal type, and every comparison between
-different types. A `duration` in a `rolling` size position is likewise a
-`type` diagnostic until duration windows are designed.
+different types. Scaling is written duration first: `2 * cooldown` is a
+`type` diagnostic with a hint to write `cooldown * 2`. The operation is
+commutative, but one spelling reads better, hgraph registers only that order,
+and a permitted spelling is easy to add later and hard to withdraw. A
+`duration` in a `rolling` size position is likewise a `type` diagnostic until
+duration windows are designed.
 
 Overflow in a constant expression is a compile-time diagnostic. Overflow at
 runtime raises through hgraph's checked temporal arithmetic; the language's
@@ -876,6 +893,8 @@ parse: '@2026-02-29' is not a calendar date
 parse: '@2026-09-03T09:30:00' has no UTC offset; write 'Z' or '+HH:MM'
 parse: '0.5us' is not a whole number of microseconds
 parse: '5min' has unknown duration unit 'min'; units are d h m s ms us
+parse: '30m1h' lists duration units out of descending order
+type: 'i64 * duration' is not defined; write the duration first
 type: 'datetime + datetime' is not defined; subtract two instants for a duration
 type: 'date + time' has no core result type; civil_datetime is a library scalar
 type: cannot compare 'date' with 'datetime'

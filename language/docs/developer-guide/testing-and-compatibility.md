@@ -17,9 +17,10 @@ Snapshots cover:
 - `atomic<T>`, `set<T>`, `rolling<T, max_size[, min_size]>`, the four
   temporal scalars, and nested canonical types;
 - `@` date, time, and instant literals and unit-suffixed duration literals,
-  including rejection of non-calendar dates, `24:00:00`, instants without an
-  offset, fractional microseconds, exponents, composite units, and unknown
-  units, plus offset normalization and canonical re-spelling;
+  including omitted seconds and offset minutes, multi-part durations, and
+  rejection of non-calendar dates, `24:00`, instants without an offset,
+  fractional microseconds, exponents, out-of-order or repeated units, and
+  unknown units, plus offset normalization and canonical re-spelling;
 - contextual type keywords used as callable names, especially `map`;
 - calls, indexing, named arguments, and expression precedence;
 - tail expressions and explicit returns;
@@ -53,9 +54,10 @@ Table-driven tests cover recursive expansion:
 - rolling-window default minimum normalization, size validation, generic size
   binding, and exact TSW schema identity;
 - the temporal arithmetic table, including rejection of `datetime + datetime`,
-  `time ± duration`, `date + time`, cross-type comparison, and a `duration`
-  in a `rolling` size position, and constant folding that matches hgraph's
-  whole-day `date` arithmetic and ties-to-even duration scaling.
+  `time ± duration`, `date + time`, `i64 * duration`, cross-type comparison,
+  and a `duration` in a `rolling` size position, and constant folding that
+  matches hgraph's whole-day `date` arithmetic and ties-to-even duration
+  scaling.
 
 Type diagnostics show both the canonical source type and expanded temporal
 shape when that distinction explains the error.
