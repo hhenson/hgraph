@@ -183,35 +183,101 @@ The intended command surface is:
 
 ```text
 hgl check path/to/program.hgl
-hgl test path/to/program.hgl
+hgl test path/to/program.hgl [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
         [--set name=<constant expression>]... [--config run.toml]
-hgl build path/to/program.hgl --profile release
+hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
+        [--python <file.py> --python-native <module>] [--print]
 hgl repl
 ```
 
-| Command | Intended behavior |
+| Command | Behavior |
 | --- | --- |
 | `check` | Parse, resolve, phase-check, and type-check without compiling |
 | `test` | Run the module's `test` declarations and report failing assertions |
 | `run` | Bind an entry to a mode, clock, and parameters, then execute it |
-| `build` | Produce a reproducible ahead-of-time native artifact |
+| `emit-cpp` | Write the module as `program.h` and `program.cpp`, public hgraph C++ in the module's namespace |
 | `repl` | Accumulate declarations, run tests and `eval` forms interactively |
 
 [Testing and running](testing-and-running.md) shows `test`, `run`, and the
 run configuration file from the author's side.
 
 The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
-(without `--config`), and `repl` for composition-only programs over the
-`hgraph.std` and `hgraph.analytics` kernels; `build` is a documented
-target, not yet an available interface. `test` accepts test names after
-the file to run a selection. The first-pass limits are listed in
-[Testing and running](testing-and-running.md#first-pass-limits).
+(without `--config`), `emit-cpp`, and `repl` for composition-only programs
+over the `hgraph.std` and `hgraph.analytics` kernels. `test` accepts test
+names after the file to run a selection. The first-pass limits are listed in
+[Testing and running](testing-and-running.md#first-pass-limits); the
+constructs `emit-cpp` does not yet lower are listed under
+[Building a package](#building-a-package).
+
+## Building a package
+
+`hgl emit-cpp` turns a module into ordinary hgraph C++. `prices.hgl` with
+`module examples.prices` becomes `prices.h` and `prices.cpp`:
+
+```cpp
+namespace examples::prices
+{
+    namespace ops
+    {
+        struct smooth : hgraph::Operator<"examples.prices.smooth", ...> {};
+    }
+    struct smooth
+    {
+        static constexpr auto name = "examples.prices.smooth";
+        static auto defaults() { return std::tuple{hgraph::arg<"window">(hgraph::Int{20})}; }
+        static hgraph::Port<hgraph::TS<hgraph::Float>> compose(
+            hgraph::Wiring &, hgraph::Port<hgraph::TS<hgraph::Tuple<hgraph::Float, hgraph::Float>>>,
+            hgraph::Scalar<"window", hgraph::Int>);
+    };
+    void register_operators();
+}
+```
+
+Exported functions become graph structs a C++ author wires with
+`wire<examples::prices::smooth>(w, tob, hgraph::Int{20})`, and — after
+`register_operators()` — operators any hgraph front end reaches by name,
+`examples.prices.smooth`. Module-internal functions stay inside the `.cpp`.
+
+A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
+`lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
+the result beside any hand-written C++:
+
+```cmake
+find_package(hgraph CONFIG REQUIRED)
+include(${hgraph_DIR}/../hgl/HglLanguage.cmake)   # or list(APPEND CMAKE_MODULE_PATH ...)
+
+hgl_add_module(prices
+    HGL prices.hgl signals.hgl
+    SOURCES native_helpers.cpp
+    LINK_LIBRARIES hgraph::analytics
+    PYTHON_MODULE _prices)
+```
+
+The library `prices` publishes its generated headers; `PYTHON_MODULE` adds a
+stable-ABI extension module whose import registers every operator the HGL
+modules export, and a Python package directory with one generated wrapper
+module per source so that
+
+```python
+from prices import smooth      # operator_function("examples.prices.smooth")
+```
+
+works exactly as it does for `hgraph_analytics`. Placement is yours:
+`OUT_DIR` puts header and source in one directory, `INCLUDE_DIR` / `SRC_DIR`
+split them; the default is `${CMAKE_CURRENT_BINARY_DIR}/hgl/<target>/`.
+
+What `emit-cpp` lowers today is the composition-only subset `hgl test` runs,
+plus non-generic `operator` / `impl fn` declarations. It reports, by name,
+and writes nothing for: runtime functions (`state`, `inject`, `when`,
+lifecycle blocks, runtime traversal), generics, structs, duration rolling
+windows, tuple and list literals, `if` used as a value, and zoned or civil
+literals.
 
 ## One execution model
 
-`test`, `run`, `build`, and the REPL share one checked semantic IR and
+`test`, `run`, `emit-cpp`, and the REPL share one checked semantic IR and
 one hgraph runtime. A program made only of composition functions is wired
 onto the runtime directly, in process; a program with runtime functions goes
 through generated C++:

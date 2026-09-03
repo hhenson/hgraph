@@ -365,6 +365,19 @@ Golden tests are useful for canonical formatting, includes, identifier
 escaping, source maps, and deterministic manifests. They do not replace a
 native build.
 
+The first pass has both. `tests/codegen/emitter_tests.cpp` checks what the
+emitter prints (hgraph-free, over a table of kernel names like the resolver
+tests): the namespace, the markers and their selectors, declarations and
+out-of-line definitions, the folding rules, `const` wiring at a temporal
+parameter, marker and named-argument spelling, helper ordering, keyword
+escaping, the Python wrapper, determinism, and every fail-closed diagnostic.
+`tests/codegen/generated_tests.cpp` then compiles `tests/codegen/parity.hgl`
+through `hgl_add_module()` under the repository's warnings and evaluates the
+generated graphs with `eval_node` — directly by struct and by registry name,
+where the `const` defaults apply — asserting the ticks the module's own
+`test` blocks assert. The command itself is checked on the examples: the
+composition-only ones emit, a runtime function is rejected by name.
+
 End-to-end tests must:
 
 1. generate into a fresh directory;
@@ -386,11 +399,11 @@ The same accepted example passes through:
 
 - `hgl check`;
 - `hgl test` on the direct-wiring backend;
-- `hgl emit-cpp` and a clean native build, with the same tests run through
-  the generated code;
+- `hgl emit-cpp` and a clean native build through `hgl_add_module()`, with
+  the same tests run through the generated code;
 - `hgl run` on both backends, cold and warm caches;
 - a REPL session;
-- `hgl build` and its packaged artifact.
+- the packaged artifact a consumer's CMake produces from the emitted code.
 
 A tick recorded by one backend and not the other, or a differing value,
 is a compiler defect; the generated C++ is the reference.

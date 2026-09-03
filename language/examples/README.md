@@ -29,6 +29,10 @@ type-generic struct specializations also have executable unit coverage.
 
 As compiler slices land, each example should advance from parsing and typed IR
 coverage through `hgl test` to generated C++ behavior and backend parity.
+Today `midpoint.hgl` also emits (`hgl emit-cpp`, a CTest case); the others
+use constructs the C++ backend does not lower yet and are checked to fail
+closed. The backend-parity module that is built both ways lives in
+`../tests/codegen/parity.hgl`.
 The acceptance
 sequence is defined in the
 [Developer Guide](../docs/developer-guide/testing-and-compatibility.md#documentation-examples).

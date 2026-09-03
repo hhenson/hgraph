@@ -15,10 +15,19 @@ specializations, sparse scalar deltas, and simple field-wise temporal structs.
 The implementation fails closed where the public or language contract is not
 settled: multiple-parent field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, temporal deltas,
-callable generic substitution, source-defined operator candidates, and runtime
-function lowering. Slice numbering below still describes the intended
-end-to-end acceptance rather than a claim that all earlier deliverables are
-complete.
+callable generic substitution, source-defined operator candidates in the
+direct-wiring backend, and runtime function lowering. Slice numbering below
+still describes the intended end-to-end acceptance rather than a claim that
+all earlier deliverables are complete.
+
+The C++ backend exists as a first pass: `hgl emit-cpp` lowers the same
+composition-only subset the direct-wiring backend accepts (plus non-generic
+source `operator` / `impl fn` declarations) to a header/source pair, and
+`hgl_add_module()` builds it into a package with an optional Python module.
+Structs, generics, duration rolling windows (no compile-time hgraph marker
+yet), compound constant literals, `if` as a value, and runtime functions fail
+closed with a diagnostic that names the construct. The REPL edits lines with
+history and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,
@@ -82,7 +91,7 @@ Deliverables:
   `wire_operator`, and `replay`/`record` harness wiring;
 - `hgl check`, `hgl test`, `hgl run` with the command-line and TOML run
   configuration, and a first `hgl repl` that rebuilds the session per
-  input;
+  input, with line editing, history and completion on a terminal;
 - parser-check all first-slice guide examples and run their tests.
 
 Acceptance:
@@ -136,10 +145,15 @@ Deliverables:
   JSON and Arrow codecs, and a Python wrapper, as an amendment to RFC 0002;
 - public source-type resolution bindings for context-neutral HGL
   generics, plus open structural patterns for required-field matching;
-- generated CMake build manifest and source mapping;
-- `hgl emit-cpp` and `hgl build`;
+- source mapping (`#line` or a sidecar map; the first pass writes source
+  comments) and the module descriptor for generated packages;
+- `hgl emit-cpp` (done for the composition-only subset) and the
+  `hgl_add_module()` CMake function that builds packages, including the Python
+  extension module and wrappers (done); there is no `hgl build`;
 - the backend parity suite: every `hgl test` the direct-wiring backend
-  accepts is also run through generated C++ and must record the same ticks.
+  accepts is also run through generated C++ and must record the same ticks
+  (seeded by `tests/codegen/parity.hgl`; the examples follow as they become
+  emittable).
 
 The hgraph-side requirements above are tracked here while the language design
 is still moving. Once agreed they are promoted to an RFC in

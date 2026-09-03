@@ -1,7 +1,7 @@
 Specification
 =============
 
-The HGraph Language Design Specification is a precise, language-neutral
+The HGraph Runtime Design Specification is a precise, language-neutral
 definition of HGraph semantics: the type system, the wiring model, the runtime
 execution model, the time-series types, the node kinds, and the operator
 contracts. It is written so that a conforming HGraph runtime could be
