@@ -16,8 +16,9 @@ out tree and publishes nothing.
 | `homebrew/Formula/hgraph.rb` | The formula: builds the SDK, `hgl` and the analytics extension from a release tarball, stages isocline as a resource so the build runs with FetchContent disconnected, and tests `hgl test` and `hgl --version`. |
 | `homebrew/Aliases/hgl` | `brew install hhenson/hgraph/hgl` resolves to the same formula. |
 | `homebrew/README.md`, `homebrew/.github/workflows/` | The tap repository's README and its `brew test-bot` / `brew pr-pull` workflows. Copied verbatim into `hhenson/homebrew-hgraph` at the release switch. |
-| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` and `g++` so runtime functions compile inside the container; runs as the unprivileged user `hgl`. `Dockerfile.dockerignore` trims the build context. |
+| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` (with the fmt, spdlog, simdjson and date it was built against, so `find_package(hgraph)` resolves inside the image), CMake, Ninja and `g++` so runtime functions and downstream packages compile inside the container; runs as the unprivileged user `hgl`. `Dockerfile.dockerignore` trims the build context. |
 | `smoke/smoke.hgl` | The one-module smoke every channel runs after installing: `hgl test smoke.hgl` must report `twice_ticks ... ok`. |
+| `smoke/consumer/` | The installed-SDK consumer every channel builds: `find_package(hgraph)`, `hgl_add_module()` on `smoke.hgl`, and a `main.cpp` that evaluates the generated operator through the public harness and prints `hgl smoke consumer ok`. Homebrew installs the directory as `share/hgraph/smoke` and builds it in `brew test`; the Conan test package carries a copy (`test_package/smoke.hgl`, `hgl_consumer.cpp`) because an exported recipe cannot reach this directory. |
 
 The Conan recipe (`conanfile.py` at the repository root, `language=True`
 option) is part of the same distribution but stays at the root because Conan
@@ -35,8 +36,16 @@ expects it there.
   `lib/cmake/hgraph`, `lib/cmake/hgl`, `share/hgraph`).
 - Homebrew supplies Arrow, fmt, spdlog, simdjson, date and Boost from
   homebrew-core; the container takes Arrow from the Apache apt repository and
-  lets the tree fetch the rest because Debian's copies sit below the version
-  floors in `CMakeLists.txt`.
+  builds fmt, spdlog, simdjson and date at the tags `CMakeLists.txt` fetches
+  (Debian's copies sit below the version floors) into a `deps` stage that
+  both the build and the runtime image install under `/usr/local`. Only
+  Boost.Math, a build-interface-only header dependency, is still fetched.
+- Every channel leaves `find_package(hgraph)` usable: the installed
+  `hgraphConfig.cmake` calls `find_dependency` for fmt, Arrow, spdlog and
+  simdjson, so the packages the SDK was built against are installed beside it
+  (Homebrew and the container) or resolved through the package manager's
+  environment (Conan). `packaging/smoke/consumer` is the proof, built by
+  every channel's dry run.
 - Neither the core libraries nor the language set an absolute rpath. `hgl`
   carries `$ORIGIN/../lib` (`@loader_path/../lib`) so it finds the SDK
   libraries from any prefix; the libraries' own rpath comes from
@@ -53,10 +62,12 @@ directory, the root or language `CMakeLists.txt`, or `conanfile.py`, and on
   then the formula is copied into a throwaway local tap, pointed at a
   `git archive` of the checkout (a `file://` url with its digest and an
   explicit `version`), installed with `--build-from-source`, and put through
-  `brew test`, `brew linkage --test` and the smoke.
+  `brew test` (which builds `smoke/consumer` from `share/hgraph/smoke`),
+  `brew linkage --test`, the smoke and a second `smoke/consumer` build from
+  the checkout against `$(brew --prefix)`.
 - **Linux**: `conan export .`, `docker build` of the image, then
-  `hgl --version`, the smoke and `language/examples/midpoint.hgl` inside the
-  container.
+  `hgl --version`, the smoke, `language/examples/midpoint.hgl` and a
+  `smoke/consumer` build, all inside the container as the `hgl` user.
 
 The formula in the repository points at a tag that does not exist yet with an
 all-zero digest; the dry run rewrites those on the runner and never needs the

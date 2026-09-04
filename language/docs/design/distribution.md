@@ -51,11 +51,13 @@ Two facts about `hgl` itself shape everything below:
    plus fmt, spdlog, simdjson, and date/tz from the system. There is no
    single-file static binary without a static Arrow build, and this record
    does not propose one.
-2. **Scripted runtime functions compile C++ at run time.** The scripted
-   loader (#640, #641) lowers runtime functions to C++, compiles them with
-   the C++ compiler recorded when `hgl` was built, and loads the image. A
-   deployed `hgl` therefore needs a C++23 compiler, the SDK headers, and
-   every dependency's headers on the host, not only its libraries.
+2. **Scripted runtime functions will compile C++ at run time.** The
+   scripted loader is not on `main` yet: #640 and #641 (open) lower
+   runtime functions to C++, compile them with the C++ compiler recorded
+   when `hgl` was built, and load the image. Once they land, a deployed
+   `hgl` needs a C++23 compiler, the SDK headers, and every dependency's
+   headers on the host, not only its libraries; the channels below are
+   shaped for that from the start rather than retrofitted.
 
 ## Principles
 
@@ -158,12 +160,15 @@ Notes on the formula:
   backend across platforms instead of a per-machine probe.
 - The formula must be verified against the current homebrew-core versions
   before it is published: `find_package(fmt 11)` accepts fmt 12 through
-  fmt's `AnyNewerVersion` config, but the tree is only built against fmt
-  11 today, and the compiler is Apple Clang on macOS and the `gcc` formula
-  on Linux, neither of which is the CI toolchain.
-- `test do` is the formula's acceptance test and the smallest program the
-  first pass runs; it should keep working across editions or the formula
-  pins an edition.
+  fmt's `AnyNewerVersion` config (the tree fetches fmt 12.2 itself while
+  the Conan recipe pins 11.2, so both majors are built), and the compiler
+  is Apple Clang on macOS and the `gcc` formula on Linux, neither of which
+  is the CI toolchain.
+- `test do` is the formula's acceptance test: the smallest program the
+  first pass runs (`packaging/smoke/smoke.hgl`, installed as
+  `share/hgraph/smoke`) and a CMake build of its `consumer/` package
+  against the installed SDK. It should keep working across editions or
+  the formula pins an edition.
 
 **Runtime toolchain.** Homebrew presumes the Xcode command line tools on
 macOS and installs `gcc` on Linux, so the scripted compiler is available
@@ -176,20 +181,30 @@ The recipe already packages the SDK for C++ consumers. It gains a boolean
 option `language` (default off) that exports `language/*`, configures with
 `HGRAPH_BUILD_LANGUAGE=ON`, and installs `bin/hgl` and `lib/cmake/hgl` into
 the package; `test_package/` grows an `hgl_add_module` consumer when the
-option is on. This is the channel for teams that already build hgraph
-extensions with Conan and want the same lock file to carry the compiler.
+option is on. `hgl` runs at build time and its shared dependencies live
+in other cache entries, so a project that builds HGL modules activates
+the run environment for its build (the test package does this with
+`VirtualRunEnv(...).generate(scope="build")`). This is the channel for
+teams that already build hgraph extensions with Conan and want the same
+lock file to carry the compiler.
 
 ### Container image
 
 `packaging/docker/Dockerfile` builds `ghcr.io/hhenson/hgl:<release>`: a
-Debian (trixie) image with GCC 14, Arrow from the Apache apt repository,
-and the prefix installed to `/usr/local`, built from the formula's
-configure except that fmt, spdlog, simdjson, date and Boost.Math are
-fetched because Debian's packages sit below the tree's floors. The
-packaging workflow builds it on pull requests and runs the smoke inside it;
-pushing to the registry on tags is a release-switch step. It serves two
-things the formula does not: CI jobs that run `hgl test` on a project, and
-`hgl run` deployments of scripted programs, where the "host" is the image.
+Debian (trixie) image with GCC 14, CMake and Ninja, Arrow from the Apache
+apt repository, and the prefix installed to `/usr/local`, built from the
+formula's configure. Debian's fmt, spdlog, simdjson and date sit below
+the tree's floors, so a `deps` stage builds them at the tags the tree
+would fetch and installs them beside the SDK in the runtime image too:
+the installed `hgraphConfig.cmake` calls `find_dependency` on each, and
+an image in which `find_package(hgraph)` fails is not an SDK. Only
+Boost.Math, a build-interface-only header dependency, is fetched. The
+packaging workflow builds the image on pull requests, runs the smoke
+inside it and builds the `packaging/smoke/consumer` package against
+`/usr/local`; pushing to the registry on tags is a release-switch step.
+The image serves two things the formula does not: CI jobs that run
+`hgl test` or build an `hgl_add_module()` package, and `hgl run`
+deployments of scripted programs, where the "host" is the image.
 
 ### PyPI
 
@@ -210,17 +225,17 @@ archive later.
 
 ## Relocatable native context
 
-The scripted loader records, at build time, the compiler path, the compiler
-launcher, and the `hgl` target's include directories, definitions, compile
-options, and link options, then adds `<exe>/../include` at run time. On
-the machine that built `hgl` this works, and the installed-SDK checks in
-#640 and #641 ran there. On any other machine the recorded paths are
-somebody else's. The include list is the transitive closure of the `hgl`
-target's usage requirements, so it does name the dependency headers, but
-as absolute paths of the build machine: a bottle records the sandbox
-build tree, Cellar-versioned dependency directories that change on the
-next `brew upgrade fmt`, a CI compiler, and possibly `sccache`; a Conan
-package records the Conan cache.
+The scripted loader proposed in #640 and #641 records, at build time, the
+compiler path, the compiler launcher, and the `hgl` target's include
+directories, definitions, compile options, and link options, then adds
+`<exe>/../include` at run time. On the machine that built `hgl` this
+works, and the installed-SDK checks in those pull requests ran there. On
+any other machine the recorded paths are somebody else's. The include
+list is the transitive closure of the `hgl` target's usage requirements,
+so it does name the dependency headers, but as absolute paths of the
+build machine: a bottle records the sandbox build tree, Cellar-versioned
+dependency directories that change on the next `brew upgrade fmt`, a CI
+compiler, and possibly `sccache`; a Conan package records the Conan cache.
 
 The proposal is a native context file that the install step writes and
 `hgl` reads relative to its executable, `lib/hgl/native-context.json`:
@@ -229,10 +244,16 @@ The proposal is a native context file that the install step writes and
   overridden by `HGL_CXX` and then `CXX`; on macOS `xcrun --find clang++`
   is the fallback. No launcher.
 - **include and library directories**: the installed prefix, spelled
-  relative to the file so the prefix can move, plus the dependency prefixes
-  resolved when the package was configured (`find_dependency` results:
-  Arrow, fmt, spdlog, simdjson, date). Homebrew and Conan prefixes are
-  stable per platform, and the file is plain text a packager can patch.
+  relative to the file so the prefix can move, plus the dependency
+  prefixes (Arrow, fmt, spdlog, simdjson, date) *as the consuming host
+  resolves them*. Homebrew's `opt` paths and the container's `/usr/local`
+  are the same on every machine and are recorded as configured. Conan
+  cache paths are not: a package is built in one cache and consumed from
+  another, so a Conan install records no dependency paths and `hgl` reads
+  them from the run environment the recipe's `package_info` computes on
+  the consumer from the dependencies' `includedirs`. The file is plain
+  text a packager can patch, and a missing prefix falls through to the
+  CMake-configure fallback below.
 - **flags**: the language standard, PIC, visibility, and the definitions the
   generated code needs (`HGL_HAVE_ANALYTICS`, the API version). Not the
   repository's warning flags: `-Werror` against a compiler the tree was

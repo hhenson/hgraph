@@ -231,9 +231,19 @@ reads instead:
 * ``cmake --install`` writes ``<prefix>/lib/hgl/native-context.json`` with:
   ``compiler`` (a bare name such as ``c++`` or ``clang++`` -- never the
   build machine's absolute path), ``include_dirs`` (``${prefix}``-relative
-  for the SDK, absolute for dependency prefixes supplied by the package
-  manager), ``compile_definitions``, ``compile_options`` (no warning flags,
-  no launcher, no sanitizers) and ``link_options``.
+  for the SDK; for dependencies, the paths the *installed* SDK resolves
+  them at, see below), ``compile_definitions``, ``compile_options`` (no
+  warning flags, no launcher, no sanitizers) and ``link_options``.
+* Dependency prefixes are a property of the consuming host, not of the
+  build. Homebrew's ``opt`` paths and the container's ``/usr/local`` are
+  stable across machines and are recorded as they are. Conan's cache paths
+  are not: a package is built in one cache and consumed from another, so
+  a Conan install records no dependency paths and ``hgl`` takes them from
+  the ``package_info`` run environment (``HGRAPH_NATIVE_INCLUDE_DIRS``,
+  computed on the consumer from the dependencies' ``includedirs``). If no
+  source supplies a dependency prefix, ``hgl`` re-resolves it with a
+  CMake configure of a stub project against ``find_package(hgraph)`` and
+  caches the answer under ``HGL_ARTIFACT_DIR``.
 * ``hgl`` resolves the compiler in this order: ``HGL_CXX``; the context's
   ``compiler`` on ``PATH``; ``CXX``; ``xcrun --find clang++`` on macOS;
   ``c++`` on ``PATH``. The first that exists wins; none found is a
@@ -263,8 +273,12 @@ and ``ninja`` at build time; ``apache-arrow``, ``fmt``,
 Linux. isocline is a ``resource`` staged into the build directory and
 handed to CMake with ``FETCHCONTENT_SOURCE_DIR_ISOCLINE`` under
 ``FETCHCONTENT_FULLY_DISCONNECTED=ON`` (the Homebrew sandbox has no
-network). No formula options. The ``test do`` block runs ``hgl test`` on a
-two-line program and checks ``hgl --version`` reports the formula version.
+network). No formula options. ``packaging/smoke`` is installed as
+``share/hgraph/smoke``; the ``test do`` block runs ``hgl test`` on its
+program, checks ``hgl --version`` reports the formula version, and builds
+``smoke/consumer`` (``find_package(hgraph)`` + ``hgl_add_module()``) with
+CMake and Ninja, which are therefore test dependencies as well as build
+dependencies.
 Bottles are built by ``brew test-bot`` in the tap's own CI on ``macos-26``
 arm64 runners, the toolchain the rest of the macOS CI builds with, and
 serially: the hosted runners have 3 cores and 7 GB, and the std library's
@@ -274,26 +288,39 @@ Bottles are per macOS version, so macOS 15 builds from source until a
 ``macos-15`` leg is proven; Linux bottles are an open question.
 
 The formula builds against whatever versions homebrew-core carries (fmt
-12.x today while this tree pins fmt 11 when it fetches; Boost 1.92 against
-the 1.90 floor). The packaging dry-run workflow installs the formula itself
+12.x today, the major the tree also fetches, against a ``find_package``
+floor of 11; Boost 1.92 against the 1.90 floor; the Conan recipe pins
+fmt 11.2). The packaging dry-run workflow installs the formula itself
 from a tarball of the checkout, so a version bump in homebrew-core is
 caught in this repository, not by users.
 
 **Conan.** The existing recipe gains ``language`` (default ``False``): it
 exports ``language/*``, passes ``HGRAPH_BUILD_LANGUAGE=ON`` and adds
 ``bin`` to ``bindirs``. ``HGRAPH_RELEASE_VERSION`` is passed from the recipe
-version. Publishing to a remote is a release-switch step.
+version. With the option on, ``test_package`` builds an HGL package
+(``hgl_add_module()`` on a copy of the smoke) against the package; because
+``hgl`` executes at build time and its shared dependencies live in other
+cache entries, the test package activates the run environment for the
+build scope as well (``VirtualRunEnv(...).generate(scope="build")``), which
+is what a consuming project has to do too. Publishing to a remote is a
+release-switch step.
 
 **Container image.** ``packaging/docker/Dockerfile`` builds ``hgl`` on a
 Debian (trixie, GCC 14) base. Arrow with compute and Acero comes from the
-Apache apt repository; fmt, spdlog, simdjson, date and Boost.Math are
-fetched at configure time because Debian's copies sit below the floors in
-``CMakeLists.txt``. The prefix is installed to ``/usr/local`` and the final
-stage keeps ``g++`` and the Arrow ``-dev`` packages so runtime functions
-compile against the installed headers; it runs as an unprivileged user
-whose home holds the compiled-function cache. CI builds the image on pull
-requests touching packaging inputs and runs the smoke inside it; pushing
-to ``ghcr.io`` is a release-switch step.
+Apache apt repository. fmt, spdlog, simdjson and date sit below the floors
+in ``CMakeLists.txt`` in Debian, so a ``deps`` stage builds them at the
+tags the tree would fetch and installs them under ``/usr/local`` in both
+the build and the runtime image: the installed ``hgraphConfig.cmake``
+calls ``find_dependency`` on each of them, and an image whose SDK cannot
+be found by ``find_package(hgraph)`` is not an SDK. Only Boost.Math, a
+build-interface-only header dependency, is still fetched. The prefix is
+installed to ``/usr/local`` and the final stage keeps ``g++``, CMake,
+Ninja and the Arrow ``-dev`` packages so runtime functions and downstream
+packages compile against the installed headers; it runs as an unprivileged
+user whose home holds the compiled-function cache. CI builds the image on
+pull requests touching packaging inputs, runs the smoke inside it and
+builds ``packaging/smoke/consumer`` against ``/usr/local``; pushing to
+``ghcr.io`` is a release-switch step.
 
 **PyPI.** Unchanged.
 
@@ -384,8 +411,9 @@ P2
 P3
     In-repo packaging material: ``packaging/homebrew/`` (the formula, the
     ``hgl`` alias, the tap's README and its ``test-bot`` / ``pr-pull``
-    workflows), ``packaging/docker/Dockerfile``, ``packaging/smoke/`` and a
-    ``packaging/README.md`` that spells out the release switch.
+    workflows), ``packaging/docker/Dockerfile``, ``packaging/smoke/``
+    (the program and the installed-SDK consumer every channel builds) and
+    a ``packaging/README.md`` that spells out the release switch.
     Placeholder ``url`` / ``sha256`` until a tag contains ``language/``.
     The ``hgl`` install rpath gains ``../lib`` and honours
     ``CMAKE_INSTALL_RPATH``.
@@ -396,13 +424,14 @@ P4
     formula in a throwaway local tap, then the formula is pointed at a
     ``git archive`` of the checkout and installed with
     ``--build-from-source``, followed by ``brew test``, ``brew linkage
-    --test`` and the smoke. Linux: ``conan export``, ``docker build`` of the
-    image, then ``hgl --version``, the smoke and the analytics example
-    inside it. No publishing.
+    --test``, the smoke and a ``smoke/consumer`` build against
+    ``$(brew --prefix)``. Linux: ``conan export``, ``docker build`` of the
+    image, then ``hgl --version``, the smoke, the analytics example and a
+    ``smoke/consumer`` build inside it. No publishing.
 P5
     Conan ``language`` option (exports, ``HGRAPH_BUILD_LANGUAGE``,
-    ``bindirs``) and ``test_package`` coverage of ``hgl --version`` when the
-    option is on.
+    ``bindirs``) and ``test_package`` coverage of ``hgl --version`` and an
+    ``hgl_add_module()`` consumer when the option is on.
 P6
     Relocatable native context (after PR #641 lands): ``native-context.json``
     at install, compiler resolution order, ``--print-native-context``, and
@@ -442,9 +471,11 @@ Preparation is complete when all of the following hold in CI on ``main``:
   dependency versions of the day, including the offline isocline build,
   and ``brew style`` / ``brew audit --formula`` report no findings for the
   in-repo formula.
-* The container image builds and ``hgl test`` passes inside it.
+* The container image builds, and ``hgl test`` and the
+  ``packaging/smoke/consumer`` build pass inside it.
 * ``conan export .`` succeeds and ``test_package`` covers the ``language``
-  option (executed where Conan is available; the recipe is not yet in CI).
+  option including the HGL consumer (executed where Conan is available;
+  the recipe is not yet in CI).
 * After P6: the installed-elsewhere test in ``language.yml`` runs a program
   with a runtime function from a moved prefix with the build tree gone.
 

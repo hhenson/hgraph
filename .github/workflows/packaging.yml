@@ -6,7 +6,9 @@ name: Packaging dry run
 # a throwaway local tap so the resource staging, the offline isocline
 # configure, the formula's own `test do` block and `brew linkage` all run
 # for real. The Linux job builds the container image and runs the smoke
-# inside it, and checks the Conan recipe still exports. Nothing here pushes
+# inside it, and checks the Conan recipe still exports. Both jobs then build
+# packaging/smoke/consumer, the installed-SDK consumer every channel must
+# be able to compile (find_package(hgraph) + hgl_add_module()). Nothing pushes
 # a bottle, an image or a tap; those are release-switch steps (RFC 0032 R1-R5)
 # and stay manual until the release is wanted.
 
@@ -114,6 +116,14 @@ jobs:
           hgl test language/examples/midpoint.hgl
           test -f "$(brew --prefix hgraph)/lib/cmake/hgl/HglLanguage.cmake"
           test -f "$(brew --prefix hgraph)/lib/cmake/hgraph/hgraphConfig.cmake"
+      - name: Build an HGL package against the installed SDK
+        shell: bash
+        run: |
+          cmake -S packaging/smoke/consumer -B "$RUNNER_TEMP/consumer" \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          cmake --build "$RUNNER_TEMP/consumer"
+          ctest --test-dir "$RUNNER_TEMP/consumer" --output-on-failure
 
   container:
     name: Container image / Linux
@@ -147,5 +157,11 @@ jobs:
             hgl test smoke.hgl
           docker run --rm -v "$PWD/language/examples:/work" hgl:dry-run \
             hgl test midpoint.hgl
-          docker run --rm hgl:dry-run \
-            sh -c 'test -f /usr/local/lib/cmake/hgl/HglLanguage.cmake && c++ --version'
+      - name: Build an HGL package against the SDK inside the image
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD/packaging/smoke:/work:ro" hgl:dry-run sh -ec '
+            cmake -S /work/consumer -B "$HOME/consumer" \
+              -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build "$HOME/consumer"
+            ctest --test-dir "$HOME/consumer" --output-on-failure'

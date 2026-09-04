@@ -18,8 +18,8 @@ class Hgraph < Formula
   head "https://github.com/hhenson/hgraph.git", branch: "main"
 
   depends_on "boost" => :build # Boost.Math, header-only, analytics kernels
-  depends_on "cmake" => :build
-  depends_on "ninja" => :build
+  depends_on "cmake" => [:build, :test]
+  depends_on "ninja" => [:build, :test]
   depends_on "apache-arrow"
   depends_on "fmt"
   depends_on "howard-hinnant-date"
@@ -69,20 +69,20 @@ class Hgraph < Formula
     # because the largest std translation units need several GB each.
     system "cmake", "--build", "build", "--parallel", ENV.make_jobs.to_s
     system "cmake", "--install", "build"
+    # The smoke program and its installed-SDK consumer, shared with the
+    # container and Conan channels; `brew test` builds them from here.
+    pkgshare.install "packaging/smoke"
   end
 
   test do
-    # The same program as packaging/smoke/smoke.hgl.
-    (testpath/"smoke.hgl").write <<~HGL
-      module smoke
-
-      fn twice(x: f64) -> f64 => x * 2.0
-
-      test twice_ticks {
-          assert eval(twice, [1.0, 2.0]) == [2.0, 4.0]
-      }
-    HGL
-    assert_match "twice_ticks ... ok", shell_output("#{bin}/hgl test smoke.hgl")
+    assert_match "twice_ticks ... ok", shell_output("#{bin}/hgl test #{pkgshare}/smoke/smoke.hgl")
     assert_match version.to_s, shell_output("#{bin}/hgl --version")
+
+    # A downstream package: find_package(hgraph) + hgl_add_module() against
+    # the installed SDK, evaluated through the public harness.
+    system "cmake", "-S", pkgshare/"smoke/consumer", "-B", "consumer", "-G", "Ninja",
+           "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_PREFIX_PATH=#{HOMEBREW_PREFIX}"
+    system "cmake", "--build", "consumer"
+    assert_match "hgl smoke consumer ok", shell_output("consumer/hgl_smoke_consumer")
   end
 end
