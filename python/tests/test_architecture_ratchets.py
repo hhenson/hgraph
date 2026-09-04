@@ -84,7 +84,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=13,
+        baseline=7,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
