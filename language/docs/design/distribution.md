@@ -74,8 +74,8 @@ Two facts about `hgl` itself shape everything below:
    prebuilt.
 3. **One package carries `hgl` and the SDK.** `hgl` links the core
    libraries, the scripted path needs the SDK headers, and AOT packages
-   need `lib/cmake`. Splitting them into two packages would double the core build
-   and invite version skew between the two halves.
+   need `lib/cmake`. Splitting them into two packages would double the
+   core build and invite version skew between the two halves.
 4. **Native channels have no Python.** Python users get the wheel. Whether
    the wheel should also ship an `hgl` (the Python-embedded flavour) is an
    open decision recorded below, not a plan.
