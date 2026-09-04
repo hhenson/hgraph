@@ -300,6 +300,52 @@ namespace hgl::driver
             return hex_digest(hasher.finish());
         }
 
+        std::optional<std::filesystem::path> canonical_regular_file(const std::filesystem::path &path)
+        {
+            if (path.empty()) { return std::nullopt; }
+            std::error_code ec;
+            std::filesystem::path absolute = path;
+            if (absolute.is_relative())
+            {
+                absolute = std::filesystem::absolute(absolute, ec);
+                if (ec) { return std::nullopt; }
+            }
+            const std::filesystem::path canonical = std::filesystem::weakly_canonical(absolute, ec);
+            if (ec || !std::filesystem::is_regular_file(canonical, ec) || ec) { return std::nullopt; }
+            return canonical;
+        }
+
+        std::optional<std::filesystem::path> resolve_executable(std::string_view command)
+        {
+            const std::filesystem::path requested{command};
+            if (requested.has_parent_path())
+            {
+                const std::optional<std::filesystem::path> resolved = canonical_regular_file(requested);
+                return resolved && ::access(resolved->c_str(), X_OK) == 0 ? resolved : std::nullopt;
+            }
+
+            const char *path_value = std::getenv("PATH");
+            if (path_value == nullptr) { return std::nullopt; }
+            const std::string_view path{path_value};
+            std::size_t            begin = 0;
+            while (begin <= path.size())
+            {
+                const std::size_t end = path.find(':', begin);
+                const std::string_view directory =
+                    path.substr(begin, end == std::string_view::npos ? path.size() - begin : end - begin);
+                const std::filesystem::path candidate =
+                    (directory.empty() ? std::filesystem::path{"."} : std::filesystem::path{directory}) / requested;
+                if (const std::optional<std::filesystem::path> resolved = canonical_regular_file(candidate);
+                    resolved && ::access(resolved->c_str(), X_OK) == 0)
+                {
+                    return resolved;
+                }
+                if (end == std::string_view::npos) { break; }
+                begin = end + 1;
+            }
+            return std::nullopt;
+        }
+
         std::string probe_compiler(const std::vector<std::string> &prefix, std::string_view argument)
         {
             std::vector<std::string> command = prefix;
@@ -314,9 +360,17 @@ namespace hgl::driver
             std::vector<std::string> arguments{};
             std::string              compiler_version{};
             std::string              compiler_target{};
+            std::filesystem::path    compiler_executable{};
+            std::string              compiler_digest{};
             std::filesystem::path    executable{};
             std::string              executable_digest{};
+            std::string              cache_unavailable_reason{};
         };
+
+        void mark_cache_unavailable(BuildContext &context, std::string reason)
+        {
+            if (context.cache_unavailable_reason.empty()) { context.cache_unavailable_reason = std::move(reason); }
+        }
 
         BuildContext build_context()
         {
@@ -325,10 +379,25 @@ namespace hgl::driver
             context.compiler = compiler_override != nullptr && *compiler_override != '\0'
                                    ? std::string{compiler_override}
                                    : std::string{native_config::compiler};
-            context.arguments = split(native_config::compiler_launcher, ';');
-            context.arguments.push_back(context.compiler);
+            context.arguments = {context.compiler};
             context.compiler_version = probe_compiler(context.arguments, "--version");
             context.compiler_target = probe_compiler(context.arguments, "-dumpmachine");
+            if (const std::optional<std::filesystem::path> compiler = resolve_executable(context.compiler))
+            {
+                context.compiler_executable = *compiler;
+                if (const std::optional<std::string> digest = file_digest(*compiler))
+                {
+                    context.compiler_digest = *digest;
+                }
+                else
+                {
+                    mark_cache_unavailable(context, "compiler executable cannot be hashed");
+                }
+            }
+            else
+            {
+                mark_cache_unavailable(context, "compiler executable cannot be identified");
+            }
 
             context.arguments.emplace_back("-std=c++23");
             context.arguments.emplace_back("-fPIC");
@@ -346,20 +415,28 @@ namespace hgl::driver
                 context.arguments.push_back("-D" + definition);
             }
 
-            context.executable = executable_path();
-            if (!context.executable.empty())
+            if (const std::optional<std::filesystem::path> executable = canonical_regular_file(executable_path()))
             {
-                if (const std::optional<std::string> digest = file_digest(context.executable))
+                context.executable = *executable;
+                if (const std::optional<std::string> digest = file_digest(*executable))
                 {
                     context.executable_digest = *digest;
                 }
+                else
+                {
+                    mark_cache_unavailable(context, "hosting hgl executable cannot be hashed");
+                }
                 const std::filesystem::path installed_include =
-                    context.executable.parent_path().parent_path() / "include";
+                    (context.executable.parent_path() / native_config::install_include_from_bindir).lexically_normal();
                 std::error_code include_error;
                 if (std::filesystem::is_directory(installed_include, include_error))
                 {
                     context.arguments.push_back("-I" + installed_include.string());
                 }
+            }
+            else
+            {
+                mark_cache_unavailable(context, "hosting hgl executable cannot be identified");
             }
             for (const std::string &include : split(native_config::include_directories, ';'))
             {
@@ -392,6 +469,8 @@ namespace hgl::driver
             hash_field(hasher, "registration-symbol", registration_symbol);
             hash_field(hasher, "compiler-version", context.compiler_version);
             hash_field(hasher, "compiler-target", context.compiler_target);
+            hash_field(hasher, "compiler-executable", context.compiler_executable.string());
+            hash_field(hasher, "compiler-executable-digest", context.compiler_digest);
             for (std::size_t i = 0; i < context.arguments.size(); ++i)
             {
                 hash_field(hasher, "argument-" + std::to_string(i), context.arguments[i]);
@@ -441,13 +520,8 @@ namespace hgl::driver
             }
             else
             {
-                std::error_code ec;
-                root = std::filesystem::temp_directory_path(ec) / "hgl-cache" / "native";
-                if (ec)
-                {
-                    error = "cannot locate an HGL native cache directory: " + ec.message();
-                    return std::nullopt;
-                }
+                error = "no per-user cache directory is available; set HGL_CACHE_DIR, XDG_CACHE_HOME, or HOME";
+                return std::nullopt;
             }
             root /= "v1";
             std::error_code ec;
@@ -626,13 +700,25 @@ namespace hgl::driver
                   << registration_symbol << "()\n{\n    " << module.namespace_name << "::register_operators();\n}\n";
 
         const BuildContext context = build_context();
-        const std::string  key = cache_key(module, stem, bootstrap.str(), context);
+        std::string        key;
         std::string        cache_error;
-        const std::optional<std::filesystem::path> root = cache_root(cache_error);
-        if (!root && environment_flag("HGL_DISABLE_CACHE")) { trace_cache("disabled"); }
-        else if (!root && !cache_error.empty()) { trace_cache("unavailable: " + cache_error); }
+        std::optional<std::filesystem::path> root;
+        if (environment_flag("HGL_DISABLE_CACHE"))
+        {
+            trace_cache("disabled");
+        }
+        else if (!context.cache_unavailable_reason.empty())
+        {
+            trace_cache("unavailable: " + context.cache_unavailable_reason);
+        }
+        else
+        {
+            root = cache_root(cache_error);
+            if (!root && !cache_error.empty()) { trace_cache("unavailable: " + cache_error); }
+        }
         if (root)
         {
+            key = cache_key(module, stem, bootstrap.str(), context);
             const std::filesystem::path entry = *root / key;
             if (complete_cache_entry(entry, key))
             {

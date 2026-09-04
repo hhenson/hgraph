@@ -307,9 +307,12 @@ the shared composition subset to the same ticks and executes the runtime
 subset through both the scripted and ahead-of-time compiled paths.
 
 The native path caches complete images by a SHA-256 key over the emitted code,
-compiler/version/target and effective options, build profile, hgraph identity,
-relevant compiler environment, and the hosting `hgl` executable. The default
-root follows the platform cache convention; `HGL_CACHE_DIR` overrides it.
+the resolved compiler binary and its version/target and effective options,
+build profile, hgraph identity, relevant compiler environment, and the hosting
+`hgl` executable. The default root follows the platform per-user cache
+convention; `HGL_CACHE_DIR` overrides it. If either executable cannot be
+identified or no per-user cache root is available, the command uses a transient
+image instead of a shared temporary cache.
 `HGL_DISABLE_CACHE=1` forces a transient compile, while `HGL_CACHE_TRACE=1`
 prints cache hits, misses, and publication fallbacks. `HGL_ARTIFACT_DIR`
 selects where transient and failed builds are written, and `HGL_CXX` overrides

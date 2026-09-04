@@ -146,6 +146,7 @@ if(UNIX)
         NAME hgraph_language_native_cache
         COMMAND ${CMAKE_COMMAND}
             -DHGL=$<TARGET_FILE:hgl>
+            -DCXX=${CMAKE_CXX_COMPILER}
             -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
             -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-cache
             -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_cache.cmake

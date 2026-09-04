@@ -1,5 +1,5 @@
-if(NOT HGL OR NOT SOURCE OR NOT OUT)
-    message(FATAL_ERROR "HGL, SOURCE and OUT are required")
+if(NOT HGL OR NOT CXX OR NOT SOURCE OR NOT OUT)
+    message(FATAL_ERROR "HGL, CXX, SOURCE and OUT are required")
 endif()
 
 set(_cache "${OUT}/cache")
@@ -83,8 +83,8 @@ if(NOT _repaired_result EQUAL 0)
 endif()
 require_key("${_repaired_output}" "hit" _repaired_key)
 
-# Compiler selection and identity are part of the key. A failed build for a
-# different compiler cannot publish over the valid entry.
+# An unidentified compiler disables reuse. A failed build cannot publish over
+# the valid entry.
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "HGL_CACHE_DIR=${_cache}"
@@ -99,12 +99,52 @@ set(_compiler_output "${_compiler_stdout}\n${_compiler_stderr}")
 if(_compiler_result EQUAL 0)
     message(FATAL_ERROR "a missing compiler unexpectedly reused a cache entry")
 endif()
-require_key("${_compiler_output}" "miss" _compiler_key)
-if("${_compiler_key}" STREQUAL "${_original_key}")
-    message(FATAL_ERROR "a different compiler identity produced the original cache key")
+if(NOT _compiler_output MATCHES "hgl native cache unavailable: compiler executable cannot be identified")
+    message(FATAL_ERROR "an unidentified compiler did not disable caching:\n${_compiler_output}")
 endif()
 if(NOT EXISTS "${_entry}/complete")
     message(FATAL_ERROR "a failed compiler invocation damaged the valid cache entry")
+endif()
+
+# The compiler's bytes are part of its identity even when its path, reported
+# version, target and behavior stay the same.
+set(_wrapper "${OUT}/compiler-wrapper")
+set(_wrapper_cache "${OUT}/wrapper-cache")
+function(write_compiler_wrapper marker)
+    file(WRITE "${_wrapper}" "#!/bin/sh\n# ${marker}\nexec \"${CXX}\" \"$@\"\n")
+    file(CHMOD "${_wrapper}"
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endfunction()
+function(run_with_wrapper output_var result_var)
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "HGL_CACHE_DIR=${_wrapper_cache}"
+            "HGL_ARTIFACT_DIR=${_artifacts}"
+            "HGL_CACHE_TRACE=1"
+            "HGL_CXX=${_wrapper}"
+            "${HGL}" test "${SOURCE}"
+        RESULT_VARIABLE _result
+        OUTPUT_VARIABLE _stdout
+        ERROR_VARIABLE _stderr)
+    set(${output_var} "${_stdout}\n${_stderr}" PARENT_SCOPE)
+    set(${result_var} "${_result}" PARENT_SCOPE)
+endfunction()
+
+write_compiler_wrapper("first identity")
+run_with_wrapper(_wrapper_first_output _wrapper_first_result)
+if(NOT _wrapper_first_result EQUAL 0)
+    message(FATAL_ERROR "first compiler-wrapper run failed:\n${_wrapper_first_output}")
+endif()
+require_key("${_wrapper_first_output}" "miss" _wrapper_first_key)
+
+write_compiler_wrapper("changed identity")
+run_with_wrapper(_wrapper_second_output _wrapper_second_result)
+if(NOT _wrapper_second_result EQUAL 0)
+    message(FATAL_ERROR "changed compiler-wrapper run failed:\n${_wrapper_second_output}")
+endif()
+require_key("${_wrapper_second_output}" "miss" _wrapper_second_key)
+if("${_wrapper_second_key}" STREQUAL "${_wrapper_first_key}")
+    message(FATAL_ERROR "changed compiler bytes reused the original cache key")
 endif()
 
 # A checked source change must select a different digest and preserve the old
@@ -145,6 +185,31 @@ execute_process(
 set(_fallback_output "${_fallback_stdout}\n${_fallback_stderr}")
 if(NOT _fallback_result EQUAL 0 OR NOT _fallback_output MATCHES "hgl native cache unavailable")
     message(FATAL_ERROR "an unavailable cache did not fall back to a transient image:\n${_fallback_output}")
+endif()
+
+# Without an explicit or per-user cache root, never fall back to a predictable
+# shared directory under the system temporary root.
+set(_fallback_tmp "${OUT}/fallback-tmp")
+file(MAKE_DIRECTORY "${_fallback_tmp}")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+        --unset=HGL_CACHE_DIR
+        --unset=XDG_CACHE_HOME
+        --unset=HOME
+        "TMPDIR=${_fallback_tmp}"
+        "HGL_ARTIFACT_DIR=${_artifacts}"
+        "HGL_CACHE_TRACE=1"
+        "${HGL}" test "${SOURCE}"
+    RESULT_VARIABLE _no_user_cache_result
+    OUTPUT_VARIABLE _no_user_cache_stdout
+    ERROR_VARIABLE _no_user_cache_stderr)
+set(_no_user_cache_output "${_no_user_cache_stdout}\n${_no_user_cache_stderr}")
+if(NOT _no_user_cache_result EQUAL 0 OR
+   NOT _no_user_cache_output MATCHES "hgl native cache unavailable: no per-user cache directory")
+    message(FATAL_ERROR "missing per-user cache variables did not select a transient image:\n${_no_user_cache_output}")
+endif()
+if(EXISTS "${_fallback_tmp}/hgl-cache")
+    message(FATAL_ERROR "missing per-user cache variables created a shared-style temporary cache")
 endif()
 
 # Publication uses a complete staging directory followed by an atomic rename.
