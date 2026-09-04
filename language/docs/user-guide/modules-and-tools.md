@@ -206,7 +206,7 @@ run configuration file from the author's side.
 The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 (without `--config`), `emit-cpp`, and `repl` over the `hgraph.std` and
 `hgraph.analytics` kernels. File-based `test` and `run` compile/load the
-supported scalar runtime-node subset on Unix; the REPL remains
+supported scalar runtime-node subset through a native cache on Unix; the REPL remains
 composition-only. `test` accepts test names after the file to run a selection.
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
@@ -305,6 +305,16 @@ from the running `hgl` process, so it registers into that process's registry
 rather than linking a second static runtime. The compiler's parity suite holds
 the shared composition subset to the same ticks and executes the runtime
 subset through both the scripted and ahead-of-time compiled paths.
+
+The native path caches complete images by a SHA-256 key over the emitted code,
+compiler/version/target and effective options, build profile, hgraph identity,
+relevant compiler environment, and the hosting `hgl` executable. The default
+root follows the platform cache convention; `HGL_CACHE_DIR` overrides it.
+`HGL_DISABLE_CACHE=1` forces a transient compile, while `HGL_CACHE_TRACE=1`
+prints cache hits, misses, and publication fallbacks. `HGL_ARTIFACT_DIR`
+selects where transient and failed builds are written, and `HGL_CXX` overrides
+the compiler. Cache entries are immutable and safe for concurrent command
+processes; this prototype does not yet prune them automatically.
 
 The initial REPL may rebuild the whole session after each accepted declaration.
 That is slower than a JIT but guarantees that exploration sees the same

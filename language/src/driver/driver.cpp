@@ -55,7 +55,13 @@ namespace hgl::driver
                          "            authoring code, named after the file, in the module's namespace;\n"
                          "            --python also writes the Python wrapper module\n"
                          "  repl      accumulate declarations and evaluate expressions interactively\n"
-                         "            (line editing, history and completion on a terminal)\n";
+                         "            (line editing, history and completion on a terminal)\n\n"
+                         "Native runtime environment (Unix):\n"
+                         "  HGL_CACHE_DIR       override the content-addressed native cache root\n"
+                         "  HGL_DISABLE_CACHE   compile through a transient artifact when non-zero\n"
+                         "  HGL_CACHE_TRACE     report cache hits, misses and publication fallbacks\n"
+                         "  HGL_ARTIFACT_DIR    override the transient/failed artifact root\n"
+                         "  HGL_CXX             override the scripted native C++ compiler\n";
         }
 
         void print_version(std::string_view language_version)

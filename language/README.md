@@ -20,7 +20,7 @@ slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
 models nominal and generic structs, abstract-only inheritance, defaults and
 optional fields, `requires` constraints, and sparse `delta<S>` construction.
 `hgl test` and `hgl run` additionally execute the generated scalar
-runtime-node subset through a transient native image on Unix. `hgl repl` wires
+runtime-node subset through a content-addressed native image on Unix. `hgl repl` wires
 composition-only sessions straight onto the hgraph runtime through the
 direct-wiring backend. Both paths include scalar
 struct construction, type-generic Bundle specializations, `atomic<S>` values,
@@ -37,8 +37,8 @@ optionally, a Python extension module with generated wrappers. Every file under
 `examples/` is a CTest check case, `midpoint.hgl` runs its test, and the codegen
 fixtures compile and execute generated graph and runtime-node modules.
 
-Native artifact caching and safe runtime-module replacement in the REPL,
-constructor inference, typed `const` arguments in native generic Bundle
+Safe runtime-module replacement in the REPL, constructor inference, typed
+`const` arguments in native generic Bundle
 identity, multiple-parent field order, explicit optional-field clearing,
 runtime collection and callable lowering, structs and generics in generated
 C++, timed harness sequences, and TOML run configuration remain staged work

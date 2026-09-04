@@ -225,7 +225,7 @@ The commands map onto the backends as follows:
   installs (there is no `hgl build`: a second build tool would duplicate what
   CMake and the hgraph SDK already provide). File-based `hgl test` and
   `hgl run` use the same emitted C++ for the supported runtime subset through
-  a transient Unix image; persistent caching and the REPL route remain staged.
+  a cached Unix image; the REPL route remains staged.
 - Both backends must build the same graph for every program both accept. The
   parity suite evaluates the test corpus through each backend and compares
   the recorded ticks; a divergence is a compiler defect, and the C++ backend
@@ -238,10 +238,10 @@ The commands map onto the backends as follows:
 ## Scripted and compiled execution
 
 `hgl run` on a composition-only program wires and evaluates it in process.
-The current Unix prototype also compiles a unit with runtime functions to a
-transient image and loads it into that command process; the image shares the
-process registry and remains resident until command exit. The production route
-will add a content-addressed cache and portable child-process orchestration.
+The current Unix prototype compiles a unit with runtime functions to a
+content-addressed native cache and loads it into that command process; the
+image shares the process registry and remains resident until command exit.
+The production route still needs portable child-process orchestration.
 `hgl repl` currently remains composition-only; its compiled path must rebuild
 the complete session transactionally. Correctness and diagnostic quality
 precede incremental compilation.

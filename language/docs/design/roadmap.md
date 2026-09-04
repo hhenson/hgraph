@@ -18,7 +18,7 @@ and lifecycle hooks over state and `const` configuration.
 The implementation fails closed where the public or language contract is not
 settled: multiple-parent field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, temporal deltas,
-callable generic substitution, cached and replaceable runtime images, portable
+callable generic substitution, replaceable runtime images, portable
 scripted loading, and runtime collection or generic lowering. Slice numbering
 below still describes the intended end-to-end acceptance rather than a claim
 that all earlier deliverables are complete.
@@ -29,7 +29,7 @@ node subset, and non-generic source `operator` / `impl fn` declarations to a
 header/source pair, and `hgl_add_module()` builds it into a package with an
 optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
-runtime functions or implementations to a transient image and load its
+runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
 Structs, generics, duration rolling windows (no compile-time hgraph marker
 yet), compound constant literals, `if` as a value, and runtime constructs
@@ -189,16 +189,17 @@ Acceptance:
 
 ## Slice 3: scripted workflow
 
-Status: the first uncached Unix file-command layer is implemented. `hgl test`
+Status: the cached Unix file-command layer is implemented. `hgl test`
 and `hgl run` emit a unit containing runtime functions or implementations,
-compile a transient native image, load it into the command process's registry,
-and run through the ordinary wiring backend. Compile failures retain and report
-their artifacts. Persistent caching, Windows support, child orchestration, and
-replaceable REPL images remain.
+build or reuse a complete content-addressed native image, load it into the
+command process's registry, and run through the ordinary wiring backend. Cache
+publication is atomic, damaged entries are quarantined, and compile failures
+retain and report their artifacts. Windows support, child orchestration, cache
+pruning, and replaceable REPL images remain.
 
 Deliverables:
 
-- content-addressed native build cache;
+- content-addressed native build cache (implemented on Unix);
 - portable `hgl run` and `hgl test` child orchestration for programs with
   runtime functions;
 - REPL sessions that accumulate declarations and rebuild through either

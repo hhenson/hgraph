@@ -17,10 +17,10 @@ for hgraph, not a second runtime.
 > emits that composition subset and the first scalar runtime-node subset as
 > public hgraph C++, including activation, aggregate recordable state, output,
 > and lifecycle hooks over state and `const` configuration. The driver compiles
-> and loads that subset for file-based `test` and `run` on Unix. Typed HIR,
+> and caches/loads that subset for file-based `test` and `run` on Unix. Typed HIR,
 > constructor inference, `const` generic metadata, multiple-parent
 > linearization, explicit optional-field
-> clearing, cached/replaceable REPL runtime images, and broader runtime and
+> clearing, replaceable REPL runtime images, and broader runtime and
 > generated-C++ type support remain to be implemented.
 
 ## Guide map

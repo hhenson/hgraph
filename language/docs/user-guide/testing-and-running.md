@@ -204,9 +204,10 @@ on this page, are wired straight onto the hgraph runtime in process by
 `hgl test`, `hgl run`, and the REPL; no native toolchain is involved. For a
 file containing a runtime function (`state`, `inject`, `when`, ...) or an
 `impl fn`, `hgl test` and `hgl run` emit the complete module, compile a
-transient native image, load its candidates into the same hgraph registry,
-and then use the ordinary harness. A successful transient artifact is removed;
-a failed native build reports and retains its artifact directory. The REPL
+content-addressed native image or reuse a complete cached image, load its
+candidates into the same hgraph registry, and then use the ordinary harness.
+A failed native build reports and retains its artifact directory; incomplete or
+digest-mismatched cache entries are never loaded. The REPL
 does not yet load runtime images because safe replacement requires candidate
 and installer removal. The
 [Architecture](../design/architecture.md#two-backends-one-wiring) record

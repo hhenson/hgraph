@@ -367,6 +367,11 @@ runtime node. `hgraph_language_native_compile_failure` injects a missing
 compiler, checks the diagnostic and retained artifact directory, then removes
 the test artifact.
 
+`hgraph_language_native_cache` exercises the file-command cache as a black box:
+cold miss, warm hit, digest-corrupted entry quarantine and repair, compiler
+identity isolation, source invalidation, and two simultaneous cold publishers
+converging on one complete entry without leaked staging directories.
+
 ## Generated C++
 
 Golden tests are useful for canonical formatting, includes, identifier

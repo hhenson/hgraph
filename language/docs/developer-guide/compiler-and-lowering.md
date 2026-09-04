@@ -1166,12 +1166,35 @@ resolves the SDK include directory relative to its configured
 `CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
 the default `bin` and `include` names.
 `HGL_CXX` overrides the compiler for diagnostics/testing and
-`HGL_ARTIFACT_DIR` selects the temporary root. Successful images remain loaded
-for the short-lived command because registry callbacks point into them, while
-their files are removed; a compile failure retains its complete directory and
-reports the path. The executable exports hgraph symbols and the transient image
-does not link a second static hgraph, so both use one registry. This path is
-currently Unix-only and has no persistent cache.
+`HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
+exports hgraph symbols and the generated image does not link a second static
+hgraph, so both use one registry. This path is currently Unix-only.
+
+The native cache is format-versioned under a platform cache directory, or
+`HGL_CACHE_DIR/v1` when overridden. Its SHA-256 key covers the emitted header,
+source and registration bootstrap; the registration ABI; compiler executable,
+version, target, launcher and effective arguments; CMake system, processor and
+configuration; hgraph version/commit; relevant compiler search environment;
+and the path and digest of the hosting `hgl` executable. The executable digest
+also changes with built-in extension code linked into this first-pass command.
+External module descriptor fingerprints must join the key when scripted imports
+of separately built providers land.
+
+A miss compiles in the ordinary artifact directory, copies the generated
+sources, image and diagnostic manifest into a unique staging directory beside
+the cache, writes a completion marker containing the image digest, then
+atomically renames that complete directory to its digest. Concurrent publishers
+may both compile but converge on the first complete entry; partial directories
+are never visible at the final key. A reader verifies the image digest before
+loading. A damaged final entry is renamed with an `.incomplete-` prefix before
+replacement, preserving it for diagnosis. Failure to create or publish the
+cache falls back to the transient image; `HGL_CACHE_TRACE=1` reports that path.
+`HGL_DISABLE_CACHE=1` requests the transient path explicitly. Cache eviction is
+not automated in this prototype.
+
+Loaded images remain resident for the short-lived command because registry
+callbacks point into them. Successful transient build directories are removed;
+a compile failure retains its complete directory and reports the path.
 
 The REPL still uses only direct wiring. Loading its runtime declarations safely
 requires provider-scoped installer/candidate removal before a replacement image

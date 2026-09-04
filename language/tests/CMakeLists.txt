@@ -127,6 +127,11 @@ if(UNIX)
     set_tests_properties(hgraph_language_run_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "1970-01-01T00:00:00.000001Z 7"
     )
+    set_tests_properties(
+        hgraph_language_test_runtime
+        hgraph_language_run_runtime
+        PROPERTIES ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache"
+    )
 
     add_test(
         NAME hgraph_language_native_compile_failure
@@ -135,6 +140,15 @@ if(UNIX)
             -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
             -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-failure
             -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_failure.cmake
+    )
+
+    add_test(
+        NAME hgraph_language_native_cache
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-cache
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_cache.cmake
     )
 endif()
 

@@ -13,7 +13,8 @@ The language is still a design preview. Examples describe the target first
 vertical slice; the current `hgl` checks them (`hgl check`), runs composition
 functions directly, compiles and loads the documented scalar runtime-node
 subset for file-based `hgl test` and `hgl run`, and emits the same C++ through
-`hgl emit-cpp`. The REPL remains composition-only.
+`hgl emit-cpp`. Compiled file commands use a content-addressed native cache;
+the REPL remains composition-only.
 First-pass limits are listed in the user guide. Provisional syntax is called
 out so examples do not imply an implemented compatibility promise.
 

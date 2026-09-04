@@ -8,6 +8,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
         "HGL_CXX=${OUT}/missing-cxx"
         "HGL_ARTIFACT_DIR=${OUT}"
+        "HGL_CACHE_DIR=${OUT}/cache"
         "${HGL}" test "${SOURCE}"
     RESULT_VARIABLE _result
     OUTPUT_VARIABLE _stdout
