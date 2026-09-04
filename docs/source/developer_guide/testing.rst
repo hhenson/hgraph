@@ -251,8 +251,13 @@ oracle: the sweep wires the same consumer two ways and requires identical
    source is the oracle arm and is asserted on its own, so a consumer
    definition mistake cannot masquerade as a runtime defect. Its first run
    found #649 (``reduce`` and ``mesh_`` reject a REF-valued collection) and
-   #650 (a ``switch_`` that flips from a value body to a REF body goes
-   silent), neither of which any existing test or parity recipe reached.
+   #650 (a REF-output ``switch_`` goes silent after any branch change),
+   neither of which any existing test or parity recipe reached; both are
+   fixed and the sweep's gap tables are empty. A source that genuinely
+   re-points consumers to a different output (the value-then-REF switch
+   flip) samples that output at the flip, which on a collection is a
+   full-value tick by design; such a source sweeps only the shapes where
+   the trace oracle holds.
 
 Each sweep carries a ``KNOWN_GAPS`` table of products that fail today, marked
 ``xfail(strict=True)``: a fix must delete its entry in the same change, and a

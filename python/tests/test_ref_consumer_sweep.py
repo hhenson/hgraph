@@ -17,8 +17,8 @@ needed, so the sweep also covers C++-first-only shapes.
 ``KNOWN_GAPS`` lists the products that fail today and ``KNOWN_GAP_SOURCES``
 the sources that fail for every consumer, each ``xfail(strict=True)`` so a fix
 must remove its entry in the same change. The first run of this sweep found
-#649 (reduce/mesh_ over a REF-valued collection) and #650 (a switch that flips
-to a REF-bodied branch goes silent).
+#649 (reduce/mesh_ over a REF-valued collection) and #650 (a REF-output switch
+goes silent after a branch change); both are fixed and the tables are empty.
 """
 
 from __future__ import annotations
@@ -137,10 +137,31 @@ def _keyed(ts: REF[TIME_SERIES_TYPE]) -> TSD[str, REF[TIME_SERIES_TYPE]]:
     return {"k": ts.value}
 
 
+def _flip_key(ts):
+    return default(if_then_else(valid(lag(ts, 1)), const("b"), const("a")), const("a"))
+
+
 def _switch_flip(ts, tp):
-    """A switch whose active branch flips from a value body to a REF body."""
-    key = default(if_then_else(valid(lag(ts, 1)), const("ref"), const("value")), const("value"))
-    return switch_(key, {"value": lambda t: t, "ref": lambda t: _as_ref(t)}, ts)
+    """A REF-output switch whose active branch changes after the first tick.
+
+    Both branches publish a reference to the same outer source, so the flip
+    retires one token for an equal one: the trace must match the plain arm
+    exactly (#650 was this shape going silent after the flip).
+    """
+    return switch_(_flip_key(ts), {"a": lambda t: _as_ref(t), "b": lambda t: _as_ref(t)}, ts)
+
+
+def _switch_flip_mixed(ts, tp):
+    """A switch whose active branch flips from a value body to a REF body.
+
+    The value branch owns a copy of the value in its terminal and the switch
+    publishes a reference to that copy; the REF branch publishes a reference
+    to the outer source. The flip therefore re-points consumers to a different
+    output, which samples it: for a collection that is a full-value tick at
+    the flip (documented binding semantics), so this source only sweeps the
+    scalar shapes where a sample equals the tick it coincides with.
+    """
+    return switch_(_flip_key(ts), {"a": lambda t: t, "b": lambda t: _as_ref(t)}, ts)
 
 
 SOURCES: dict[str, Callable] = {
@@ -151,6 +172,7 @@ SOURCES: dict[str, Callable] = {
     "map_element": lambda ts, tp: map_(lambda v: v, _keyed(ts))[const("k")],
     "switch_branch": lambda ts, tp: switch_(const("a"), {"a": lambda t: t}, ts),
     "switch_flip": _switch_flip,
+    "switch_flip_mixed": _switch_flip_mixed,
     "if_true": lambda ts, tp: if_(const(True), ts).true,
     "default_ref": lambda ts, tp: default(nothing(tp), ts),
     # A collection whose ELEMENTS are references (the map_ output shape): the
@@ -161,6 +183,7 @@ SOURCES: dict[str, Callable] = {
 # Sources that only make sense for a subset of shapes.
 _SOURCE_SHAPES: dict[str, tuple[str, ...]] = {
     "map_nested": ("TSD[str, TS[int]]", "TSD[Key, TS[int]]", "TSL[TS[int], Size[2]]"),
+    "switch_flip_mixed": ("TS[int]", "TS[Point]", "TS[Point]/polymorphic", "TS[tuple[int, ...]]"),
 }
 
 
@@ -368,40 +391,15 @@ def _consumers_for(shape_id: str) -> dict[str, Callable]:
 # Known gaps: xfail(strict=True) so a fix must remove the entry
 # --------------------------------------------------------------------------
 
-_REF_COLLECTION_SOURCES = ("ref_node", "tsd_getitem", "map_element", "if_true", "default_ref")
-
-KNOWN_GAPS: dict[str, str] = {
-    **{
-        f"TSD[str, TS[int]]-{source}-mesh_": "#649 mesh_ fails at runtime on a REF-valued TSD (family 1)"
-        for source in _REF_COLLECTION_SOURCES
-    },
-}
+KNOWN_GAPS: dict[str, str] = {}
 
 # A source in this table fails for every consumer; the defect is the source
 # itself, so every one of its products is an expected failure.
-KNOWN_GAP_SOURCES: dict[str, str] = {
-    "switch_flip": "#650 switch_ goes silent after flipping to a REF-bodied branch (family 2)",
-}
+KNOWN_GAP_SOURCES: dict[str, str] = {}
 
-# Products of a gap source that nevertheless match the plain arm, because the
-# consumer is itself REF-transparent (default/race/if_then_else rebind through
-# the reference) or does not observe the lost ticks (valid, is_empty,
-# contains_, a bundle field read). They stay ordinary tests.
-KNOWN_GAP_SOURCE_PASSES: dict[str, frozenset[str]] = {
-    "switch_flip": frozenset(
-        {
-            "TS[int]-switch_flip-default",
-            "TS[int]-switch_flip-if_then_else",
-            "TS[int]-switch_flip-race",
-            "TS[int]-switch_flip-valid",
-            "TSD[str, TS[int]]-switch_flip-is_empty",
-            "TSS[int]-switch_flip-is_empty",
-            "TSS[int]-switch_flip-contains_",
-            "TSB[Pair]-switch_flip-field_a",
-            "TSB[Pair]-switch_flip-getattr_",
-        }
-    ),
-}
+# Products of a gap source that nevertheless match the plain arm. They stay
+# ordinary tests.
+KNOWN_GAP_SOURCE_PASSES: dict[str, frozenset[str]] = {}
 
 
 # --------------------------------------------------------------------------
