@@ -74,6 +74,16 @@ hgl_apply_warnings(hgl_wiring_tests)
 
 add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
 
+# The native module boundary translates registration failures through the
+# common scope/exception helper rather than maintaining a local catch ladder.
+add_executable(hgl_native_module_tests driver/native_module_tests.cpp)
+target_compile_features(hgl_native_module_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_module_tests PRIVATE hgl::driver Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_native_module_tests)
+hgl_apply_warnings(hgl_native_module_tests)
+
+add_test(NAME hgraph_language_native_module COMMAND hgl_native_module_tests)
+
 # The C++ backend, first pass: what `hgl emit-cpp` prints (hgraph-free, over a
 # table of kernel names like the resolver tests) ...
 add_executable(hgl_codegen_tests codegen/emitter_tests.cpp)

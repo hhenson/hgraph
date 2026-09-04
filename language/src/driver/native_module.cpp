@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
-#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -837,20 +836,18 @@ namespace hgl::driver
             return false;
         }
         hgraph::OperatorProviderHandle provider;
-        try
+        if (!hgraph::fallback_on_exception(
+                false,
+                [&] {
+                    registration_entry_(&provider);
+                    return true;
+                },
+                [&](std::string_view message) {
+                    error = "native module registration failed: ";
+                    error.append(message);
+                    error += "; artifacts retained in '" + artifact_directory.string() + "'";
+                }))
         {
-            registration_entry_(&provider);
-        }
-        catch (const std::exception &exception)
-        {
-            error = "native module registration failed: " + std::string{exception.what()} +
-                    "; artifacts retained in '" + artifact_directory.string() + "'";
-            return false;
-        }
-        catch (...)
-        {
-            error = "native module registration failed with an unknown exception; artifacts retained in '" +
-                    artifact_directory.string() + "'";
             return false;
         }
         if (!provider.valid() || !provider.active())
@@ -870,26 +867,21 @@ namespace hgl::driver
             provider_ = {};
             return true;
         }
-        try
-        {
-            if (!hgraph::OperatorRegistry::instance().remove_provider(provider_))
-            {
-                error = "native module provider is stale";
-                return false;
-            }
-            provider_ = {};
-            return true;
-        }
-        catch (const std::exception &exception)
-        {
-            error = "cannot deactivate native module: " + std::string{exception.what()};
-            return false;
-        }
-        catch (...)
-        {
-            error = "cannot deactivate native module: unknown error";
-            return false;
-        }
+        return hgraph::fallback_on_exception(
+            false,
+            [&] {
+                if (!hgraph::OperatorRegistry::instance().remove_provider(provider_))
+                {
+                    error = "native module provider is stale";
+                    return false;
+                }
+                provider_ = {};
+                return true;
+            },
+            [&](std::string_view message) {
+                error = "cannot deactivate native module: ";
+                error.append(message);
+            });
     }
 
     std::optional<NativeModule> compile_and_load_native_module(const codegen::EmittedModule &module,
