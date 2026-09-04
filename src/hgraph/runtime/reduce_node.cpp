@@ -181,7 +181,6 @@ namespace hgraph
         [[nodiscard]] TSOutputView list_leaf_output(TSInputView &input, TSOutputView source,
                                                     std::size_t leaf, const Value &key,
                                                     std::size_t source_slot);
-        [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source);
 
         struct ReduceNodeContext
         {
@@ -867,21 +866,6 @@ namespace hgraph
                     storage.publication_sample_all});
             storage.publication_full_reconcile = false;
             storage.publication_sample_all = false;
-        }
-
-        [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source)
-        {
-            if (!source.bound()) { return {}; }
-
-            TSOutputHandle current = source.handle();
-            while (source.forwarding())
-            {
-                TSOutputHandle target = source.forwarding_target();
-                if (!target.bound() || target.same_as(current)) { break; }
-                current = target;
-                source = target.view(source.evaluation_time());
-            }
-            return current;
         }
 
         /**

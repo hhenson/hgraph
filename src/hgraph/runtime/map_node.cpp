@@ -357,29 +357,6 @@ namespace hgraph
             return result;
         }
 
-        [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source)
-        {
-            if (!source.bound()) { return {}; }
-
-            TSOutputHandle current = source.handle();
-            while (source.forwarding())
-            {
-                TSOutputHandle target = source.forwarding_target();
-                if (!target.bound() || target.same_as(current)) { break; }
-                const auto *source_schema = source.schema();
-                const auto *target_schema = target.schema();
-                if (source_schema == nullptr || target_schema == nullptr ||
-                    source_schema->kind != target_schema->kind ||
-                    source.storage_type().ops_ref().kind != target.storage_type().ops_ref().kind)
-                {
-                    break;
-                }
-                current = target;
-                source = target.view(source.evaluation_time());
-            }
-            return current;
-        }
-
         [[nodiscard]] TSDDataView checked_dict_view(TSDataView data,
                                                     std::string_view stage,
                                                     std::size_t source_index)
