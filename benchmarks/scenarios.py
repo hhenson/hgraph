@@ -361,6 +361,142 @@ def construct_py(_cycle_scale: float, size_scale: float):
 
 
 # ---------------------------------------------------------------------------
+# A2. Wiring-time scaling: higher-order Python wiring, dispatch cases, overloads
+# ---------------------------------------------------------------------------
+# One-cycle workloads whose measured time is wiring + build. Added after the
+# 2026-09-04 retrospective: a real portfolio graph took 148 s to wire before
+# #636 and nothing in the pack could see it.
+
+
+@compute_node
+def _scale_py(ts: TS[int], factor: int) -> TS[int]:
+    return ts.value * factor
+
+
+def _make_keyed_cell_py(layer: int):
+    """A distinct Python child per layer, holding a nested switch with its own
+    lambdas: the callable shape that map_ and switch_ compiled repeatedly
+    during overload probing (#636). Distinct callables defeat the wiring
+    caches the way a real application's many graphs do."""
+
+    @graph
+    def keyed_cell(value: TS[int]) -> TS[int]:
+        doubled = _scale_py(value, 2)
+        return hg.switch_(
+            doubled > 10,
+            {True: lambda v: _add_one_py(v) + layer, False: lambda v: _scale_py(v, 3)},
+            doubled,
+        )
+
+    return keyed_cell
+
+
+def _layered_map_py(values, layers):
+    for layer in range(layers):
+        values = map_(_make_keyed_cell_py(layer), values)
+    return reduce(hg.add_, values, 0)
+
+
+def construct_higher_order_py(_cycle_scale: float, size_scale: float):
+    keys = max(4, int(20 * size_scale))
+    layers = max(2, int(40 * size_scale))
+
+    @graph
+    def g():
+        null_sink(_layered_map_py(_tsd_churn_pulse(1, keys, 0), layers))
+
+    return g, 1
+
+
+_EVENT_FAMILIES: dict = {}
+
+
+def _event_family(cases: int):
+    """A CompoundScalar hierarchy with ``cases`` leaves, a dispatch operator
+    with one graph overload per leaf, and an operator with one node overload
+    per leaf. Cached per size: named scalars intern on their name."""
+    family = _EVENT_FAMILIES.get(cases)
+    if family is not None:
+        return family
+
+    base = dataclass(frozen=True)(type(
+        f"BenchEvent{cases}", (CompoundScalar,),
+        {"__annotations__": {"amount": int}, "__module__": __name__}))
+    leaves = tuple(
+        dataclass(frozen=True)(type(
+            f"BenchEvent{cases}Leaf{index}", (base,),
+            {"__annotations__": {"extra": int}, "__module__": __name__}))
+        for index in range(cases)
+    )
+
+    @hg.dispatch
+    def describe(event: TS[base]) -> TS[int]:
+        return _scale_py(hg.getattr_(event, "amount"), 0)
+
+    @hg.operator
+    def score(event: TS[base]) -> TS[int]:
+        """One node overload per concrete leaf type."""
+
+    for index, leaf in enumerate(leaves):
+        def _register(index=index, leaf=leaf):
+            @graph(overloads=describe)
+            def describe_leaf(event: TS[leaf]) -> TS[int]:
+                return _scale_py(hg.getattr_(event, "amount"), index + 1)
+
+            @compute_node(overloads=score)
+            def score_leaf(event: TS[leaf]) -> TS[int]:
+                return event.value.amount * (index + 1)
+
+        _register()
+
+    family = (base, leaves, describe, score)
+    _EVENT_FAMILIES[cases] = family
+    return family
+
+
+def _dispatch_sites(cases, sites):
+    base, leaves, describe, _score = _event_family(cases)
+    total = None
+    for site in range(sites):
+        leaf = leaves[site % len(leaves)]
+        part = describe(hg.const(leaf(amount=site, extra=1), TS[base]))
+        total = part if total is None else total + part
+    return total
+
+
+def _overload_sites(overloads, sites):
+    _base, leaves, _describe, score = _event_family(overloads)
+    total = None
+    for site in range(sites):
+        leaf = leaves[site % len(leaves)]
+        part = score(hg.const(leaf(amount=site, extra=1)))
+        total = part if total is None else total + part
+    return total
+
+
+def construct_dispatch_cases(_cycle_scale: float, size_scale: float):
+    cases = max(4, int(24 * size_scale))
+    sites = max(4, int(40 * size_scale))
+
+    @graph
+    def g():
+        null_sink(_dispatch_sites(cases, sites))
+
+    return g, 1
+
+
+def construct_overloads(_cycle_scale: float, size_scale: float):
+    overloads = max(4, int(32 * size_scale))
+    sites = max(4, int(200 * size_scale))
+
+    @graph
+    def g():
+        null_sink(_overload_sites(overloads, sites))
+
+    return g, 1
+
+
+# ---------------------------------------------------------------------------
 # B. Fast ticking (hot loop)
 # ---------------------------------------------------------------------------
 
@@ -1593,6 +1729,15 @@ SCENARIOS = {
     "construct_py": _scenario(
         "Graph construction", "Wide/deep graph - Python nodes",
         construct_py, independent_size=True),
+    "construct_higher_order_py": _scenario(
+        "Graph construction", "Layered map_ of Python children with nested switch_",
+        construct_higher_order_py, independent_size=True),
+    "construct_dispatch_cases": _scenario(
+        "Graph construction", "dispatch with many registered cases",
+        construct_dispatch_cases, independent_size=True, modes=CPP_FIRST_ONLY),
+    "construct_overloads": _scenario(
+        "Graph construction", "Operator with many overloads at many call sites",
+        construct_overloads, independent_size=True, modes=CPP_FIRST_ONLY),
 
     "tick_std": _scenario(
         "Scheduler", "Feedback hot loop - native add", tick_std),

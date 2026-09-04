@@ -27,7 +27,11 @@ label, a report group, a suite, and the set of runtimes that support it.
 `*_std` scenarios are mostly graph/standard-operator workloads; `*_py`
 scenarios deliberately put work in Python-authored nodes.
 
-The **core** suite covers graph construction, scheduler hot loops, scalar and
+The **core** suite covers graph construction (a wide/deep graph, and three
+wiring-scale workloads added after the 2026-09-04 retrospective: layered
+`map_` of Python children with a nested `switch_`, `dispatch` with many
+registered cases, and an operator with many overloads at many call sites),
+scheduler hot loops, scalar and
 compound values, dense/sparse/churning TSDs, switch and mesh nested graphs,
 services, and adaptors. The **diagnostic** suite decomposes the hot paths and
 adds fan-in/fan-out/conflation, Python boundary costs, TSB/TSS/TSW behavior,

@@ -521,3 +521,16 @@ def test_hg_cpp_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
         [True],
         __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
     ) == [0, 20, 28, 36]
+
+
+def test_benchmark_wiring_scale_workloads_compute_their_totals():
+    # keys 0..3 through two layers of the keyed cell (layer offsets 0 and 1
+    # on the > 10 branch): 0, 14, 26, 38.
+    assert _published(eval_node(
+        _source_graph(lambda: bench._layered_map_py(bench._tsd_churn_pulse(1, 4, 0), 2)),
+        [True],
+        __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
+    ))[-1] == 78
+    # site s carries leaf s % 4; overload index multiplies by s + 1: 0 + 2 + 6 + 12.
+    assert eval_node(_source_graph(lambda: bench._dispatch_sites(4, 4)), [True])[-1] == 20
+    assert eval_node(_source_graph(lambda: bench._overload_sites(4, 4)), [True])[-1] == 20
