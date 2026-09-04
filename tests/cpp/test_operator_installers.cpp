@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <stdexcept>
 
@@ -96,6 +97,37 @@ namespace
             wire<stdlib::record>(w, source, Str{"out"});
         }
     };
+
+    struct provider_probe : Operator<"provider_lifecycle_probe", Out<TS<Int>>>
+    {
+    };
+
+    struct leased_provider_probe : Operator<"leased_provider_probe", Out<TS<Int>>>
+    {
+    };
+
+    struct provider_probe_impl
+    {
+        static constexpr auto name              = "provider_probe_impl";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<Int>> out) { out.set(1); }
+    };
+
+    void install_provider_probe()
+    {
+        register_overload<provider_probe, provider_probe_impl>();
+    }
+
+    void install_leased_provider_probe()
+    {
+        register_overload<leased_provider_probe, provider_probe_impl>();
+    }
+
+    [[nodiscard]] std::size_t provider_probe_count()
+    {
+        return OperatorRegistry::instance().overload_signatures("provider_lifecycle_probe").size();
+    }
 }  // namespace
 
 TEST_CASE("installers: a reset-and-rebuild replays extensions exactly as core")
@@ -183,4 +215,103 @@ TEST_CASE("installers: an external backend records and replays through the core 
     const auto state = view.graph().global_state();
     REQUIRE(state.get(":probe:out").valid());
     CHECK(state.get(":probe:out").checked_as<Int>() == 42);
+}
+
+TEST_CASE("installers: provider removal erases only its candidates and reset intent")
+{
+    auto &registry = OperatorRegistry::instance();
+
+    // A directly registered candidate has no provider and must survive
+    // removal of a provider contributing to the same overload set.
+    register_overload<provider_probe, provider_probe_impl>();
+    OperatorProviderHandle provider =
+        registry.register_installer("test.removable-provider", &install_provider_probe);
+    CHECK(provider.valid());
+    CHECK(provider.active());
+    CHECK(provider.key() == "test.removable-provider");
+    CHECK(provider.live_leases() == 0);
+
+    registry.run_installers();
+    CHECK(provider_probe_count() == 2);
+
+    CHECK(registry.remove_provider(provider));
+    CHECK_FALSE(provider.active());
+    CHECK(provider_probe_count() == 1);
+    CHECK_FALSE(registry.remove_provider(provider));
+
+    // The direct candidate is reset, while removed installer intent is not
+    // replayed. Reusing the key creates a new generation which the stale
+    // handle cannot remove.
+    reset_all_registries();
+    registry.run_installers();
+    CHECK(provider_probe_count() == 0);
+
+    OperatorProviderHandle replacement =
+        registry.register_installer("test.removable-provider", &install_provider_probe);
+    registry.run_installers();
+    CHECK(replacement.active());
+    CHECK(provider_probe_count() == 1);
+    CHECK_FALSE(registry.remove_provider(provider));
+    CHECK(provider_probe_count() == 1);
+    CHECK(registry.remove_provider(replacement));
+}
+
+TEST_CASE("installers: a throwing provider rolls back candidates before retry")
+{
+    auto &registry = OperatorRegistry::instance();
+    int   attempts = 0;
+    OperatorProviderHandle provider = registry.register_installer(
+        "test.transactional-provider", [&] {
+            register_overload<provider_probe, provider_probe_impl>();
+            ++attempts;
+            if (attempts == 1) { throw std::runtime_error("provider install failed"); }
+        });
+
+    CHECK_THROWS_AS(registry.run_installers(), std::runtime_error);
+    CHECK(attempts == 1);
+    CHECK(provider_probe_count() == 0);
+
+    registry.run_installers();
+    CHECK(attempts == 2);
+    CHECK(provider_probe_count() == 1);
+    CHECK(registry.remove_provider(provider));
+}
+
+TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")
+{
+    auto &registry = OperatorRegistry::instance();
+    OperatorProviderHandle provider =
+        registry.register_installer("test.leased-provider", &install_leased_provider_probe);
+    registry.run_installers();
+
+    GraphBuilder graph_builder;
+    {
+        Wiring wiring;
+        static_cast<void>(wire<leased_provider_probe, TS<Int>>(wiring));
+        CHECK(provider.live_leases() == 1);
+        CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+        graph_builder = std::move(wiring).finish();
+    }
+    CHECK(provider.live_leases() == 1);
+    CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+    CHECK(provider.active());
+
+    GraphExecutorValue executor;
+    {
+        GraphExecutorBuilder executor_builder;
+        executor_builder.graph_builder(std::move(graph_builder));
+        executor = executor_builder.make_executor();
+        CHECK(provider.live_leases() == 1);
+        CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+    }
+
+    // The reusable builder is gone, but the runtime graph independently
+    // retains the same lease until its executor is destroyed.
+    CHECK(provider.live_leases() == 1);
+    CHECK_THROWS_WITH(registry.remove_provider(provider),
+                      Catch::Matchers::ContainsSubstring("test.leased-provider") &&
+                          Catch::Matchers::ContainsSubstring("live lease"));
+    executor = GraphExecutorValue{};
+    CHECK(provider.live_leases() == 0);
+    CHECK(registry.remove_provider(provider));
 }

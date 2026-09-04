@@ -257,10 +257,12 @@ permitted only after all code and metadata references are gone. The initial
 implementation may perform logical registration removal while retaining the
 library image for process lifetime.
 
-The current hgraph registry supports keyed replayable installers but not
-provider-scoped candidate removal or installer unregistration. The language
-therefore requires a first-class public module-registration handle and lease
-contract in hgraph; it must not erase registry internals itself.
+The hgraph operator registry now supports keyed replayable installers,
+provider-scoped candidate and installer removal, failed-installer rollback, and
+leases retained by graph plans and instances. The language still requires a
+first-class module-registration transaction spanning the other owned surfaces
+(types, exact functions, associations, and native resources); it must not erase
+registry internals or privately compose several unrelated handles itself.
 
 ## Native adaptor boundary
 

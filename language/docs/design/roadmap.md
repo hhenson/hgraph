@@ -138,8 +138,10 @@ Deliverables:
 - generated module descriptors, initialization/bootstrap entry points,
   replayable installers, registration handles, and reverse-order
   deinitialization;
-- public hgraph provider-scoped candidate provenance, installer removal,
-  registration removal, and live-plan lease support;
+- public hgraph provider-scoped operator candidate provenance, installer and
+  candidate removal, failed-install rollback, and live-plan lease support
+  (implemented); registration ownership for the remaining module surfaces is
+  still required;
 - public hgraph TSW patterns that match a concrete duration window and bind
   named maximum and minimum size generics of either kind, and a compile-time
   duration `TSW` marker (the parity matrix records the gap);
@@ -195,7 +197,9 @@ build or reuse a complete content-addressed native image, load it into the
 command process's registry, and run through the ordinary wiring backend. Cache
 publication is atomic, damaged entries are quarantined, and compile failures
 retain and report their artifacts. Windows support, child orchestration, cache
-pruning, and replaceable REPL images remain.
+pruning, and replaceable REPL images remain. The underlying hgraph registry now
+has removable provider handles and graph-plan leases; generated HGL lifecycle
+and transactional replacement do not yet consume them.
 
 Deliverables:
 

@@ -300,6 +300,8 @@ A process-wide singleton maps an operator name to its candidates:
      public:
        static OperatorRegistry &instance();                    // plain static; single-threaded, no locks
        void register_overload(OperatorImpl);
+       OperatorProviderHandle register_installer(key, fn);
+       bool remove_provider(const OperatorProviderHandle&);    // rejects live graph/plan leases
        // Pick the unique best candidate and the ResolutionMap it produced.
        std::pair<const OperatorImpl*, ResolutionMap>
             resolve(std::string_view name,
@@ -327,6 +329,23 @@ vector preserves registration order, and no decision is ever made from
 hash-map iteration order. Rich rejected-candidate messages are produced from
 Phase 1 — operator misuse is the most common wiring error, and a bare "no
 overload" message is hostile.
+
+Installer callbacks also establish candidate provenance. Every overload
+registered while a keyed installer runs belongs to that provider generation.
+The opaque handle returned by ``register_installer`` can remove that exact
+generation without affecting direct registrations, another provider, or a
+later provider which reuses the same key. Removal erases both active candidates
+and installer intent, so reset cannot replay a removed provider. A throwing
+installer rolls back candidates contributed by its failed attempt before the
+next retry.
+
+Selecting a provider-owned overload retains one lease on the wiring result.
+That lease is carried from ``Wiring`` into the reusable ``GraphBuilder`` and
+then into every ``GraphValue`` made from it. ``remove_provider`` throws
+``OperatorProviderInUseError`` while any such plan or graph is live; a failed
+removal leaves the provider fully active. The registry performs logical
+operator removal only. A native module manager must separately coordinate
+other registries and may keep the image mapped after removal.
 
 
 Ranking (specificity)
@@ -538,6 +557,9 @@ schema pointers inside its candidates' patterns. The Catch2 reset listener
 It does **not** re-seed standard operators (that would collide with a test's own
 ad-hoc operators); a test that needs the ``lib/std`` family calls
 ``register_standard_operators()`` itself, after the reset, before wiring.
+Installer intent and provider identity survive reset, but a provider removed by
+its handle does not. Tests which install a temporary provider remove it before
+captured callbacks or native code can leave scope.
 
 
 The Python implementation path (Phase 4)
@@ -667,7 +689,9 @@ which since RFC 0025 checkpoint 3 records the whole list as the keyed
 installer ``"hgraph.stdlib"`` on ``OperatorRegistry`` and then runs every
 registered installer: a registry reset keeps installer intent, so one
 rebuild call replays core and every extension alike, idempotently
-between resets. The
+between resets. Keyed installers now also own the provenance and graph-plan
+leases needed for provider-scoped removal; process-lifetime callers may ignore
+the returned handle, while unloadable module managers retain it. The
 implemented subset currently covers scalar arithmetic (``impl/arithmetic_impl.h``),
 scalar comparison (``impl/comparison_impl.h``), scalar logical / bitwise operators
 (``impl/logical_impl.h``), string operators (``match_`` / ``replace`` /

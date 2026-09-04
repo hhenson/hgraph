@@ -323,6 +323,12 @@ complete new universe active, never a mixture. Module removal runs only at a
 quiescent wiring boundary; tests must not rely on concurrent mutation of the
 process-wide operator registry.
 
+The hgraph core suite now covers the operator-owned subset of this matrix:
+provider-specific candidate and installer removal, stale-handle isolation,
+failed-installer rollback and retry, reset non-resurrection, and leases retained
+by both reusable graph plans and runtime graph instances. The generated-module,
+multi-registry transaction and REPL replacement cases remain HGL work.
+
 ## Direct-wiring backend and the harness
 
 The first pass is covered by `tests/wiring/backend_tests.cpp`

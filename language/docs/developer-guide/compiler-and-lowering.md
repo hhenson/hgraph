@@ -849,11 +849,15 @@ allowed only when no installer callback, generated function, or type metadata
 points into that image. Logical removal may retain the image for process
 lifetime in the initial implementation.
 
-The current public hgraph `OperatorRegistry` provides keyed installers and
-reset replay but no provider-scoped removal or installer unregistration. Hgraph
-must gain a first-class module registration transaction/handle, candidate
-provenance, removal, and lease contract. Generated language code must not reach
-into registry storage or attempt to coordinate several registries privately.
+The public hgraph `OperatorRegistry` now returns an opaque provider handle from
+keyed installer registration, records candidate provenance while the installer
+runs, removes that provider's candidates and installer intent, rolls back a
+throwing installer's candidates, and carries provider leases through wired graph
+plans and runtime graphs. This is the operator-registry foundation, not yet the
+complete HGL module ABI: hgraph still needs one transaction/handle coordinating
+type associations, exact-function metadata, native resources, and operator
+registration. Generated language code must not reach into registry storage or
+coordinate those registries privately.
 
 ## Direct-wiring backend
 
@@ -1200,9 +1204,10 @@ Loaded images remain resident for the short-lived command because registry
 callbacks point into them. Successful transient build directories are removed;
 a compile failure retains its complete directory and reports the path.
 
-The REPL still uses only direct wiring. Loading its runtime declarations safely
-requires provider-scoped installer/candidate removal before a replacement image
-can become active. The parity suite runs every composition test accepted by
+The REPL still uses only direct wiring. Hgraph now provides provider-scoped
+operator installer/candidate removal and graph-plan leases; the HGL loader must
+retain those handles and add transactional replacement before a replacement
+image can become active. The parity suite runs every composition test accepted by
 both backends and compares the recorded ticks; the runtime fixture executes
 both as an ahead-of-time module and through the scripted loader.
 

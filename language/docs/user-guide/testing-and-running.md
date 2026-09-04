@@ -208,7 +208,8 @@ content-addressed native image or reuse a complete cached image, load its
 candidates into the same hgraph registry, and then use the ordinary harness.
 A failed native build reports and retains its artifact directory; incomplete or
 digest-mismatched cache entries are never loaded. The REPL
-does not yet load runtime images because safe replacement requires candidate
-and installer removal. The
+does not yet load runtime images: hgraph now supplies removable provider-owned
+operator candidates, but generated HGL module handles and transactional session
+replacement are not yet wired into the driver. The
 [Architecture](../design/architecture.md#two-backends-one-wiring) record
 describes the split; both backends must produce the same ticks.

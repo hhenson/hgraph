@@ -262,9 +262,10 @@ namespace
 
         // Registration intent recorded once; the rebuild call replays it —
         // including after a full registry reset (the extension contract).
-        OperatorRegistry::instance().register_installer("hgraph.test.probe",
-                                                        &install_probe_backend);
-        OperatorRegistry::instance().run_installers();
+        auto &operator_registry = OperatorRegistry::instance();
+        OperatorProviderHandle provider = operator_registry.register_installer(
+            "hgraph.test.probe", &install_probe_backend);
+        operator_registry.run_installers();
 
         const auto run_round_trip = [] {
             Wiring wiring;
@@ -299,6 +300,12 @@ namespace
         };
 
         run_round_trip();
+
+        if (provider.live_leases() != 0 || !operator_registry.remove_provider(provider) || provider.active())
+        {
+            throw std::runtime_error(
+                "installed operator provider did not release after its graph lifetime");
+        }
 
         // The reset-and-rebuild replay of this installer is covered by the
         // in-tree installer tests and the Python extension consumer:
