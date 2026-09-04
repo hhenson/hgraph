@@ -222,6 +222,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_graph_manifest.cpp
     test_graph_wiring.cpp
     test_nested_wiring.cpp
+    test_operator_calls.cpp
     test_operators.cpp
     test_race_semantics.cpp
     test_service_push_sources.cpp
@@ -249,6 +250,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_std_operators.cpp
     test_std_type_registration.cpp
     test_switch.cpp
+    test_switch_arguments.cpp
     test_temporal_operators.cpp
     test_tsl_nodes.cpp
     test_tss_nodes.cpp
@@ -297,6 +299,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
 
 hgraph_add_test_objects(hgraph_record_test_objects
     test_json.cpp
+    test_json_operators.cpp
     test_record_replay.cpp
     test_operator_installers.cpp
     test_record_replay_config.cpp
