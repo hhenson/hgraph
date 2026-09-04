@@ -194,6 +194,9 @@ struct GraphRuntimeBaseStorage {
   /** Selected with ``logger`` and cached through nested graphs in O(1). */
   const LoggerOps *logger_ops{nullptr};
   const TypeRealizationSnapshot *type_realization{nullptr};
+  /** Opaque extension/module state. The graph header is destroyed after node
+      storage, so code-bearing leases outlive every callback which can use it. */
+  std::vector<std::shared_ptr<void>> retained_extension_state{};
 };
 
 struct RootGraphRuntimeStorage : GraphRuntimeBaseStorage {
@@ -1729,6 +1732,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, ExecutorPtr root_executor) {
           state.logger = GraphExecutorView{root_executor}.logger();
           state.logger_ops = GraphExecutorView{root_executor}.logger_ops();
           state.type_realization = snapshot.get();
+          state.retained_extension_state = builder.retained_state_;
         });
   });
   pointer_ = type.writable(storage_.data());
@@ -1762,6 +1766,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node) {
           state.logger = NodeView{parent_node}.graph().logger();
           state.logger_ops = NodeView{parent_node}.graph().logger_ops();
           state.type_realization = effective_snapshot;
+          state.retained_extension_state = builder.retained_state_;
         });
   });
   pointer_ = type.writable(storage_.data());
@@ -1807,6 +1812,7 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node,
         state.logger = NodeView{parent_node}.graph().logger();
         state.logger_ops = NodeView{parent_node}.graph().logger_ops();
         state.type_realization = effective_snapshot;
+        state.retained_extension_state = builder.retained_state_;
       });
   auto rollback =
       make_scope_exit([&]() noexcept { type.destroy_at(external_memory); });
@@ -1963,6 +1969,16 @@ GraphBuilder &GraphBuilder::type_realization(
         "graph type realization snapshot must not be null");
   }
   type_realization_ = std::move(snapshot);
+  return *this;
+}
+
+GraphBuilder &
+GraphBuilder::retain_extension_state(std::shared_ptr<void> state) {
+  if (state == nullptr) {
+    throw std::invalid_argument(
+        "graph builder extension state must not be null");
+  }
+  retained_state_.push_back(std::move(state));
   return *this;
 }
 

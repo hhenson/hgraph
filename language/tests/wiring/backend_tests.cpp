@@ -392,7 +392,7 @@ test wrong_type {
     REQUIRE(results.size() == 3);
     for (const TestResult &result : results) { CHECK_FALSE(result.passed); }
     CHECK(unit.has(Category::Test, "timed sequences are not supported by the first pass"));
-    CHECK(unit.has(Category::Backend, "'counter' is a runtime function"));
+    CHECK(unit.has(Category::Operator, "t.counter"));
     CHECK(unit.has(Category::Type, "the sequence element expects Tuple[float,float], got str"));
 }
 

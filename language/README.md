@@ -7,31 +7,40 @@ hgraph, not for implementing transports, threads, callbacks, or arbitrary
 native extensions.
 
 Two backends share one frontend: the direct-wiring backend wires composition
-programs onto the hgraph runtime in process (`hgl test`, `hgl run`, `hgl repl`),
-and the C++ backend (`hgl emit-cpp`) writes the same programs as public hgraph
-C++ authoring code that a package builds with the `hgl_add_module()` CMake
-function. Both build the same graph; the parity tests hold them to it.
+programs onto the hgraph runtime in process, and the C++ backend writes
+composition functions and the first scalar runtime-node slice as public hgraph
+C++. `hgl test` and `hgl run` compile and load that generated C++ when a file
+contains runtime functions or source-defined implementations; `hgl emit-cpp`
+and `hgl_add_module()` expose the same route to package builds. The shared
+subset builds the same graph; the parity tests hold the two paths to it.
 
 The project is an intentionally changeable prototype in its first executable
 slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
 (`--dump-tokens` and `--dump-ast` show the frontend's view). That frontend now
 models nominal and generic structs, abstract-only inheritance, defaults and
 optional fields, `requires` constraints, and sparse `delta<S>` construction.
-`hgl test`, `hgl run`, and `hgl repl` wire composition-only programs straight
-onto the hgraph runtime through the direct-wiring backend, including scalar
+`hgl test`, `hgl run`, and `hgl repl` additionally execute the generated scalar
+runtime-node subset through a content-addressed native image on Unix; the REPL
+transactionally replaces that image as declarations join the session.
+Composition-only sessions retain the direct-wiring path. Both paths include scalar
 struct construction, type-generic Bundle specializations, `atomic<S>` values,
 and field-wise temporal struct composition. On a terminal the REPL has line
 editing, history (`~/.hgl_history`) and tab completion. `hgl emit-cpp` writes a
-composition-only module as `<name>.h` / `<name>.cpp` in the module's namespace,
-registering its exported functions as hgraph operators, and `hgl_add_module()`
+module as `<name>.h` / `<name>.cpp` in the module's namespace, registering
+composition functions as graph overloads and scalar runtime functions as node
+overloads. Runtime functions currently cover scalar temporal inputs and output,
+`modified`/`valid` guards, ordered `when` handlers, scalar recordable `state`,
+`return`, `inject out`, and lifecycle blocks over state and `const`
+configuration. `hgl_add_module()`
 builds such modules — together with hand-written C++ — into a library and,
 optionally, a Python extension module with generated wrappers. Every file under
-`examples/` is a CTest check case, `midpoint.hgl` runs its test, and the
-`tests/codegen/parity.hgl` module is built through both backends.
+`examples/` is a CTest check case, `midpoint.hgl` runs its test, and the codegen
+fixtures compile and execute generated graph and runtime-node modules.
 
-Constructor inference, typed `const` arguments in native generic Bundle
+Portable runtime-module loading, multi-registry module transactions,
+constructor inference, typed `const` arguments in native generic Bundle
 identity, multiple-parent field order, explicit optional-field clearing,
-runtime-function lowering (in both backends), structs and generics in generated
+runtime collection and callable lowering, structs and generics in generated
 C++, timed harness sequences, and TOML run configuration remain staged work
 ([roadmap](docs/design/roadmap.md)).
 

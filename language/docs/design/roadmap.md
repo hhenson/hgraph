@@ -2,7 +2,7 @@
 
 Status: initial design
 
-## Prototype checkpoint (2026-09-03)
+## Prototype checkpoint (2026-09-04)
 
 The prototype deliberately permits incompatible AST and implementation
 changes while these slices are being exercised. The current tree implements
@@ -11,23 +11,30 @@ abstract-only single inheritance, effective fields, constructor completeness,
 generic argument roles, and statically decidable closed requirements; and
 directly wires scalar Bundle values, `atomic<S>` values, type-only generic
 specializations, sparse scalar deltas, and simple field-wise temporal structs.
+The generated C++ backend also lowers the first scalar runtime-node subset:
+ordered activation, aggregate recordable state, direct and terminating output,
+and lifecycle hooks over state and `const` configuration.
 
 The implementation fails closed where the public or language contract is not
 settled: multiple-parent field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, temporal deltas,
-callable generic substitution, source-defined operator candidates in the
-direct-wiring backend, and runtime function lowering. Slice numbering below
-still describes the intended end-to-end acceptance rather than a claim that
-all earlier deliverables are complete.
+callable generic substitution, replaceable runtime images, portable
+scripted loading, and runtime collection or generic lowering. Slice numbering
+below still describes the intended end-to-end acceptance rather than a claim
+that all earlier deliverables are complete.
 
 The C++ backend exists as a first pass: `hgl emit-cpp` lowers the same
-composition-only subset the direct-wiring backend accepts (plus non-generic
-source `operator` / `impl fn` declarations) to a header/source pair, and
-`hgl_add_module()` builds it into a package with an optional Python module.
+composition subset the direct-wiring backend accepts, the first scalar runtime
+node subset, and non-generic source `operator` / `impl fn` declarations to a
+header/source pair, and `hgl_add_module()` builds it into a package with an
+optional Python module.
+On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
+runtime functions or implementations to a content-addressed image and load its
+candidates into the command process before wiring.
 Structs, generics, duration rolling windows (no compile-time hgraph marker
-yet), compound constant literals, `if` as a value, and runtime functions fail
-closed with a diagnostic that names the construct. The REPL edits lines with
-history and completion on a terminal.
+yet), compound constant literals, `if` as a value, and runtime constructs
+outside the scalar subset fail closed with a diagnostic that names the
+construct. The REPL edits lines with history and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,
@@ -109,8 +116,8 @@ Acceptance:
 - malformed input recovers sufficiently to report multiple useful errors;
 - `eval` over a standard operator records the same ticks as the C++
   `eval_node` harness for the same call, dense and timed;
-- a program containing a runtime function is rejected by the direct-wiring
-  backend with a diagnostic that names the function;
+- a runtime function without a loaded candidate is rejected by the
+  direct-wiring backend with a diagnostic that names its operator identity;
 - `hgl run` of a composition-only entry produces the same ticks in
   simulation as the equivalent hgraph `run_graph` call.
 
@@ -131,8 +138,10 @@ Deliverables:
 - generated module descriptors, initialization/bootstrap entry points,
   replayable installers, registration handles, and reverse-order
   deinitialization;
-- public hgraph provider-scoped candidate provenance, installer removal,
-  registration removal, and live-plan lease support;
+- public hgraph provider-scoped operator candidate provenance, installer and
+  candidate removal, failed-install rollback, and live-plan lease support
+  (implemented); registration ownership for the remaining module surfaces is
+  still required;
 - public hgraph TSW patterns that match a concrete duration window and bind
   named maximum and minimum size generics of either kind, and a compile-time
   duration `TSW` marker (the parity matrix records the gap);
@@ -147,7 +156,8 @@ Deliverables:
   generics, plus open structural patterns for required-field matching;
 - source mapping (`#line` or a sidecar map; the first pass writes source
   comments) and the module descriptor for generated packages;
-- `hgl emit-cpp` (done for the composition-only subset) and the
+- `hgl emit-cpp` (done for the composition subset and first scalar runtime-node
+  subset) and the
   `hgl_add_module()` CMake function that builds packages, including the Python
   extension module and wrappers (done); there is no `hgl build`;
 - the backend parity suite: every `hgl test` the direct-wiring backend
@@ -181,15 +191,26 @@ Acceptance:
 
 ## Slice 3: scripted workflow
 
+Status: the cached Unix command layer is implemented. `hgl test`, `hgl run`,
+and runtime-bearing REPL sessions emit a unit, build or reuse a complete
+content-addressed native image, load it into the command process's registry,
+and run through the ordinary wiring backend. Cache publication is atomic,
+damaged entries are quarantined, and compile failures retain and report their
+artifacts. Generated modules return removable provider handles and REPL
+replacement stages the new image before swapping providers, restoring the old
+one if activation fails. Windows support, child orchestration, cache pruning,
+and a transaction spanning non-operator module surfaces remain.
+
 Deliverables:
 
-- content-addressed native build cache;
-- `hgl run` and `hgl test` in an isolated child process for programs with
+- content-addressed native build cache (implemented on Unix);
+- portable `hgl run` and `hgl test` child orchestration for programs with
   runtime functions;
 - REPL sessions that accumulate declarations and rebuild through either
-  backend as the session's classification requires;
-- transactional replacement of generated module registration handles without
-  stale candidate or installer state;
+  backend as the session's classification requires (implemented on Unix);
+- transactional replacement of generated operator registration handles without
+  stale candidate or installer state (implemented at the quiescent REPL
+  boundary);
 - testing sources and sinks suitable for exploration without defining native
   adaptors in the language.
 

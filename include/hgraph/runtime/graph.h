@@ -391,6 +391,10 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         GraphBuilder &type_realization(std::shared_ptr<const TypeRealizationSnapshot> snapshot);
         [[nodiscard]] std::shared_ptr<const TypeRealizationSnapshot> type_realization() const;
 
+        /** Retain opaque extension/module state with this reusable plan and
+            every graph instance constructed from it. */
+        GraphBuilder &retain_extension_state(std::shared_ptr<void> state);
+
         /**
          * Set a graph trait (parent-chained key-value metadata; see
          * ``GraphView::trait_or``). Copied onto every graph instance the
@@ -435,6 +439,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         mutable GraphTypeRef          nested_type_{};
         mutable bool                  types_compiled_{false};
         mutable std::shared_ptr<const TypeRealizationSnapshot> type_realization_{};
+        std::vector<std::shared_ptr<void>> retained_state_{};
     };
 
     HGRAPH_EXPORT void clear_graph_runtime_types() noexcept;
