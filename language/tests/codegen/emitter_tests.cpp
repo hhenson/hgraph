@@ -313,7 +313,7 @@ export fn total(a: f64, b: f64) -> f64 {
 
 fn private_total(a: f64) -> f64 {
     state sum: f64 = 0.0
-    when modified(a) {
+    when modified(a) && valid(a) {
         sum += a
         return sum
     }

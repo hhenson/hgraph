@@ -249,12 +249,13 @@ namespace hgl::driver
             return std::nullopt;
         }
 
-        std::vector<std::string> command = split(native_config::compiler_launcher, ';');
         const char *compiler_override = std::getenv("HGL_CXX");
         const std::string compiler = compiler_override != nullptr && *compiler_override != '\0'
                                          ? std::string{compiler_override}
                                          : std::string{native_config::compiler};
-        command.push_back(compiler);
+        // A compiler launcher belongs to the machine that built hgl and is
+        // deliberately not persisted into the installed scripted compiler.
+        std::vector<std::string> command{compiler};
         command.emplace_back("-std=c++23");
         command.emplace_back("-fPIC");
         command.emplace_back("-fvisibility=hidden");
@@ -267,7 +268,8 @@ namespace hgl::driver
         const std::filesystem::path executable = executable_path();
         if (!executable.empty())
         {
-            const std::filesystem::path installed_include = executable.parent_path().parent_path() / "include";
+            const std::filesystem::path installed_include =
+                (executable.parent_path() / native_config::install_include_from_bindir).lexically_normal();
             std::error_code            include_error;
             if (std::filesystem::is_directory(installed_include, include_error))
             {

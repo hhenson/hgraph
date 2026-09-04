@@ -1160,8 +1160,11 @@ wires tests or the entry through the same backend and hgraph registry. There
 is no `hgl build`: a package builds emitted C++ with `hgl_add_module()`.
 
 The scripted compiler configuration is generated from the `hgl` CMake target:
-compiler launcher, compiler, preprocessor definitions, and evaluated include
-paths. An installed executable also probes its prefix's `include` directory.
+compiler, preprocessor definitions, and evaluated include paths. It does not
+retain the build machine's compiler launcher. An installed executable also
+resolves the SDK include directory relative to its configured
+`CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
+the default `bin` and `include` names.
 `HGL_CXX` overrides the compiler for diagnostics/testing and
 `HGL_ARTIFACT_DIR` selects the temporary root. Successful images remain loaded
 for the short-lived command because registry callbacks point into them, while
