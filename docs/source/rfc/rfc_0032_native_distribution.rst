@@ -508,6 +508,12 @@ Implementation status
   optional. No tap, bottle, image or install instructions exist -- the
   release switch has not been pulled.
 
+* 2026-09-04: ``conan create -o "hgraph/*:language=True"`` passes on macOS,
+  including compilation and execution of the installed ``hgl_add_module``
+  consumer. The full package test found that Conan 2 was pruning the public
+  fmt, spdlog, and Arrow usage requirements from consumers of the shared
+  package; the recipe now propagates their headers and libraries explicitly.
+
 References
 ----------
 
