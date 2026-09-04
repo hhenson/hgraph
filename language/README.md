@@ -89,6 +89,7 @@ and preserves those semantics through hgraph's public C++ APIs.
 - [Language model](docs/design/language-model.md)
 - [Modules and native extensions](docs/design/modules.md)
 - [Roadmap](docs/design/roadmap.md)
+- [Distribution and deployment](docs/design/distribution.md)
 
 Syntax remains provisional while the prototype evolves; compatibility is not
 yet a release constraint. Implemented forms are kept under grammar, semantic,
