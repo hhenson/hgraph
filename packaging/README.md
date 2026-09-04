@@ -16,7 +16,7 @@ out tree and publishes nothing.
 | `homebrew/Formula/hgraph.rb` | The formula: builds the SDK, `hgl` and the analytics extension from a release tarball, stages isocline as a resource so the build runs with FetchContent disconnected, and tests `hgl test` and `hgl --version`. |
 | `homebrew/Aliases/hgl` | `brew install hhenson/hgraph/hgl` resolves to the same formula. |
 | `homebrew/README.md`, `homebrew/.github/workflows/` | The tap repository's README and its `brew test-bot` / `brew pr-pull` workflows. Copied verbatim into `hhenson/homebrew-hgraph` at the release switch. |
-| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` and `g++` so runtime functions compile inside the container. `Dockerfile.dockerignore` trims the build context. |
+| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` and `g++` so runtime functions compile inside the container; runs as the unprivileged user `hgl`. `Dockerfile.dockerignore` trims the build context. |
 | `smoke/smoke.hgl` | The one-module smoke every channel runs after installing: `hgl test smoke.hgl` must report `twice_ticks ... ok`. |
 
 The Conan recipe (`conanfile.py` at the repository root, `language=True`

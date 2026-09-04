@@ -290,9 +290,10 @@ Apache apt repository; fmt, spdlog, simdjson, date and Boost.Math are
 fetched at configure time because Debian's copies sit below the floors in
 ``CMakeLists.txt``. The prefix is installed to ``/usr/local`` and the final
 stage keeps ``g++`` and the Arrow ``-dev`` packages so runtime functions
-compile against the installed headers. CI builds the image on pull requests
-touching packaging inputs and runs the smoke inside it; pushing to
-``ghcr.io`` is a release-switch step.
+compile against the installed headers; it runs as an unprivileged user
+whose home holds the compiled-function cache. CI builds the image on pull
+requests touching packaging inputs and runs the smoke inside it; pushing
+to ``ghcr.io`` is a release-switch step.
 
 **PyPI.** Unchanged.
 

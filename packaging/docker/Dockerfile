@@ -8,6 +8,10 @@
 #   docker build -f packaging/docker/Dockerfile \
 #       --build-arg HGRAPH_RELEASE_VERSION=0.8.23 -t hgl:0.8.23 .
 #   docker run --rm -v "$PWD:/work" hgl:0.8.23 hgl test smoke.hgl
+#
+# The image runs as the unprivileged user `hgl` (uid 1000, home /home/hgl,
+# where compiled runtime functions are cached). Pass --user root to install
+# extra packages or to write into a mounted directory owned by root.
 
 ARG DEBIAN_CODENAME=trixie
 
@@ -20,8 +24,9 @@ ARG DEBIAN_CODENAME=trixie
 FROM debian:${DEBIAN_CODENAME}-slim AS base
 ARG DEBIAN_CODENAME
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates wget \
- && wget -q "https://packages.apache.org/artifactory/arrow/debian/apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && curl -fsS --proto '=https' -o "apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
+      "https://packages.apache.org/artifactory/arrow/debian/apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
  && apt-get install -y --no-install-recommends "./apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
  && rm "./apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
  && apt-get update \
@@ -66,6 +71,10 @@ RUN cmake -S . -B build -G Ninja \
 # or environment is needed.
 FROM base AS runtime
 COPY --from=build /opt/hgraph/ /usr/local/
-RUN ldconfig
+RUN ldconfig \
+ && useradd --create-home --uid 1000 --shell /bin/sh hgl \
+ && mkdir -p /work \
+ && chown hgl:hgl /work
+USER hgl
 WORKDIR /work
 CMD ["hgl", "--help"]
