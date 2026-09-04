@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(hgraph_language VERSION 0.1.0 LANGUAGES CXX)
+project(hgraph_language VERSION 0.1.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -14,8 +14,34 @@ option(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS
     "${_hgraph_language_warnings_as_errors}")
 unset(_hgraph_language_warnings_as_errors)
 
+option(HGL_ENABLE_LINE_EDITING
+    "Give the REPL line editing, history and completion (isocline, fetched at configure time)"
+    ON)
+
 if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
+endif()
+
+# The line editor behind `hgl repl` (developer guide, "Scripted, REPL, and
+# AOT drivers"): isocline, MIT, one C translation unit. Fetched and compiled
+# here rather than added as a subproject so its own CMake (tests, install)
+# stays out of the build; without it the REPL reads plain lines.
+if(HGL_ENABLE_LINE_EDITING)
+    include(FetchContent)
+    FetchContent_Declare(
+        isocline
+        GIT_REPOSITORY https://github.com/daanx/isocline.git
+        GIT_TAG        v1.1.0
+        GIT_SHALLOW    TRUE
+        SOURCE_SUBDIR  hgl-no-cmake-project
+    )
+    FetchContent_MakeAvailable(isocline)
+    add_library(hgl_isocline STATIC ${isocline_SOURCE_DIR}/src/isocline.c)
+    target_include_directories(hgl_isocline SYSTEM PUBLIC ${isocline_SOURCE_DIR}/include)
+    set_target_properties(hgl_isocline PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+    if(NOT MSVC)
+        target_compile_options(hgl_isocline PRIVATE -w)
+    endif()
 endif()
 
 # Shared warning settings for every language target.
@@ -87,14 +113,31 @@ function(hgl_link_runtime_executable target)
     endif()
 endfunction()
 
-# The command driver (src/driver): check, test, run, repl and the dumps.
+# The C++ backend (src/codegen): emits a header/source pair of public hgraph
+# authoring code per module (developer guide, "C++ backend, first pass").
+# hgraph-free like the resolver: it prints types and names.
+add_library(hgl_codegen STATIC
+    src/codegen/cpp_emitter.cpp
+)
+add_library(hgl::codegen ALIAS hgl_codegen)
+target_compile_features(hgl_codegen PUBLIC cxx_std_23)
+target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_codegen PUBLIC hgl::semantics)
+hgl_apply_warnings(hgl_codegen)
+
+# The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.
 add_library(hgl_driver STATIC
     src/driver/driver.cpp
+    src/driver/line_reader.cpp
 )
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::wiring hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::wiring hgl::codegen hgraph::core)
+if(HGL_ENABLE_LINE_EDITING)
+    target_link_libraries(hgl_driver PRIVATE hgl_isocline)
+    target_compile_definitions(hgl_driver PRIVATE HGL_HAVE_ISOCLINE=1)
+endif()
 hgl_apply_warnings(hgl_driver)
 
 add_executable(hgl src/main.cpp)
@@ -103,8 +146,38 @@ target_compile_definitions(hgl PRIVATE
     HGRAPH_LANGUAGE_VERSION="${PROJECT_VERSION}"
 )
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
+# `hgl` is a build-time tool for installed consumers. Preserve runtime search
+# paths contributed by external shared dependencies when CMake installs the
+# executable; otherwise HglLanguage.cmake can find the compiler but a
+# pyarrow-backed build cannot launch it. The relative entry supports an SDK
+# installed beside the pyarrow package, while the concrete build path supports
+# ordinary prefix installs on the machine that configured them.
+if(UNIX)
+    if(APPLE)
+        set(_hgl_install_rpath "@loader_path/../pyarrow")
+    else()
+        set(_hgl_install_rpath "$ORIGIN/../pyarrow")
+    endif()
+    if(HGRAPH_PYARROW_LIBRARY_DIR)
+        list(APPEND _hgl_install_rpath "${HGRAPH_PYARROW_LIBRARY_DIR}")
+    elseif(TARGET hgraph::pyarrow_arrow)
+        get_target_property(_hgl_pyarrow_location hgraph::pyarrow_arrow IMPORTED_LOCATION)
+        if(_hgl_pyarrow_location AND NOT _hgl_pyarrow_location MATCHES "-NOTFOUND$")
+            get_filename_component(_hgl_pyarrow_dir "${_hgl_pyarrow_location}" DIRECTORY)
+            list(APPEND _hgl_install_rpath "${_hgl_pyarrow_dir}")
+        endif()
+    endif()
+    set_target_properties(hgl PROPERTIES
+        INSTALL_RPATH "${_hgl_install_rpath}"
+        INSTALL_RPATH_USE_LINK_PATH ON)
+endif()
 hgl_link_runtime_executable(hgl)
 hgl_apply_warnings(hgl)
+
+# `hgl_add_module()` for consumers building packages from .hgl sources
+# (user guide, "Building a package"). Included here so the repository's
+# own codegen tests use the same function an installed SDK ships.
+include(cmake/HglLanguage.cmake)
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
@@ -113,4 +186,10 @@ endif()
 install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES
+    cmake/HglLanguage.cmake
+    cmake/hgl_python_module.cpp.in
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl
+    COMPONENT Development
 )

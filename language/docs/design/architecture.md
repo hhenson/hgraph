@@ -28,7 +28,8 @@ the directory into a separate repository without changing hgraph core.
 - Make wiring-time and tick-time code visibly different and statically checked.
 - Produce ordinary C++ that uses public hgraph authoring APIs.
 - Offer source-first `check`, `run`, and REPL workflows for exploration.
-- Produce reproducible ahead-of-time artifacts for deployment.
+- Produce reproducible ahead-of-time artifacts for deployment through the
+  consumer's own CMake build (`hgl_add_module()`), not a second build tool.
 - Import capabilities from hgraph extensions without making them core
   dependencies of the compiler or generated programs that do not use them.
 - Preserve the same graph, node, type, overload, lifecycle, and record/replay
@@ -218,12 +219,20 @@ The commands map onto the backends as follows:
 - `hgl test`, `hgl repl`, and `hgl run` use the direct-wiring backend for a
   program whose evaluated closure is composition-only. They need the hgraph
   shared library and the descriptors in the lock file, not a native toolchain.
-- `hgl build`, and `hgl run` for a program that contains a runtime function,
-  use the C++ backend.
+- `hgl emit-cpp` is the C++ backend's command. It writes the module as a
+  header/source pair; building, linking and packaging that output is the
+  consumer's CMake build, through the `hgl_add_module()` function the language
+  installs (there is no `hgl build`: a second build tool would duplicate what
+  CMake and the hgraph SDK already provide). `hgl run` for a program that
+  contains a runtime function will use the same emitted C++ once the runtime
+  backend lands.
 - Both backends must build the same graph for every program both accept. The
   parity suite evaluates the test corpus through each backend and compares
   the recorded ticks; a divergence is a compiler defect, and the C++ backend
-  is the reference.
+  is the reference. Today `tests/codegen/parity.hgl` is that corpus: `hgl test`
+  runs its tests, and the same module, emitted and compiled through
+  `hgl_add_module()`, is driven through hgraph's `eval_node` to the same
+  ticks.
 
 ## Scripted and compiled execution
 
@@ -239,9 +248,12 @@ When the REPL replaces a module, it removes the old registration handle before
 activating the new revision and rebuilding dependent graphs; a registry reset
 must not replay a removed provider.
 
-`hgl build` emits a reproducible native build tree or installable application
-artifact using the same typed IR and C++ backend. Debug and release profiles may
-change optimization and retained diagnostics, never language semantics.
+A package is a CMake project: `hgl_add_module()` runs `hgl emit-cpp` as a
+build step, compiles the pair with any hand-written C++ into one library, and
+with `PYTHON_MODULE` adds a stable-ABI nanobind module whose import registers
+the package's operators, plus generated Python wrappers — the shape of every
+hand-written hgraph extension, produced from HGL. Debug and release profiles
+may change optimization and retained diagnostics, never language semantics.
 
 A future JIT is permitted only as another backend for the same typed semantic
 IR. It must pass the backend parity suite before becoming the default
@@ -258,9 +270,12 @@ The initial project owns:
 - `examples/` for provisional and later executable language programs;
 - `tests/` for compiler, diagnostic, generated-code, and parity coverage.
 
-Compiler components will be split into `syntax`, `semantics`, `ir`,
-`codegen/cpp`, `driver`, and `repl` as each component acquires executable code.
-Empty framework libraries are intentionally deferred.
+Compiler components are split into `syntax`, `semantics`, `wiring` (the
+direct-wiring backend), `codegen` (the C++ backend) and `driver` (the commands
+and the REPL); `ir` arrives when the two backends stop walking the resolved
+tree directly. Empty framework libraries are intentionally deferred. The
+`cmake/` directory holds the consumer-facing `HglLanguage.cmake` and the
+Python-module template it configures.
 
 ## Compatibility axes
 

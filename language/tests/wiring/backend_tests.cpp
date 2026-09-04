@@ -87,6 +87,52 @@ test folding {
     CHECK(result.passed);
 }
 
+TEST_CASE("var assignment retains the initializer's static type", "[wiring]")
+{
+    SECTION("an inferred i64 cannot be narrowed")
+    {
+        Unit unit{R"(
+module t
+test narrowing {
+    var y = 1
+    y = 2.5
+    assert y == 2
+}
+)"};
+        const TestResult result = only(unit.tests());
+        CHECK_FALSE(result.passed);
+        CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
+    }
+    SECTION("compound division cannot change i64 to f64")
+    {
+        Unit unit{R"(
+module t
+test narrowing {
+    var y = 4
+    y /= 2
+    assert y == 2
+}
+)"};
+        const TestResult result = only(unit.tests());
+        CHECK_FALSE(result.passed);
+        CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
+    }
+    SECTION("i64 widens into an f64 var")
+    {
+        Unit unit{R"(
+module t
+test widening {
+    var y = 1.0
+    y = 2
+    assert y == 2.0
+}
+)"};
+        const TestResult result = only(unit.tests());
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
 TEST_CASE("eval drives a composition through the harness", "[wiring]")
 {
     Unit unit{R"(

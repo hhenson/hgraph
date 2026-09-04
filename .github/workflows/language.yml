@@ -1,0 +1,171 @@
+name: Language toolchain
+
+# The hgraph language (language/) is an opt-in consumer of the core SDK. The
+# native legs configure with HGRAPH_BUILD_LANGUAGE=OFF, so nothing else in CI
+# compiles `hgl`; a core refactor could break it silently. This workflow
+# builds the toolchain against the in-tree core on both native platforms,
+# runs its suites (frontend, resolver, direct wiring, emit-cpp, the generated
+# parity package, the REPL over a pipe), and checks that the default build
+# still knows nothing about the language.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GCC_VERSION: "14"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  language:
+    name: Language / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            parallel: "2"
+          - os: macos-26
+            parallel: "1"
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: v0.15.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Configure current Clang on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          /usr/bin/clang++ --version
+      - name: Configure GCC 14 on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
+      - name: Install native build dependencies
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
+      - name: Expose Arrow runtime libraries
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          import pyarrow
+
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
+              path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
+      # Core plus the analytics kernel the examples import; the other
+      # extensions are not part of the language's contract.
+      - name: Configure the language toolchain
+        run: >-
+          cmake -S . -B build-language -GNinja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DHGRAPH_BUILD_LANGUAGE=ON
+          -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
+          -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
+          -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
+          -DHGRAPH_USE_PYARROW_ARROW=ON
+          -DHGRAPH_FETCH_SIMDJSON=ON
+          -DHGRAPH_FETCH_DATE=ON
+          -DHGRAPH_WARNINGS_AS_ERRORS=ON
+          -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
+          -DHGRAPH_BUILD_KAFKA_EXTENSION=OFF
+          -DHGRAPH_BUILD_WEB_EXTENSION=OFF
+          -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=OFF
+          -DHGRAPH_BUILD_FABRIC_EXTENSION=OFF
+      - name: Build hgl and its suites
+        run: >-
+          cmake --build build-language --parallel ${{ matrix.parallel }} --target
+          hgl hgl_syntax_tests hgl_semantics_tests hgl_wiring_tests
+          hgl_codegen_tests hgl_codegen_fixture hgl_generated_tests
+      - name: Run the language suites
+        run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ matrix.parallel }}
+      - name: hgl smoke
+        shell: bash
+        run: |
+          build-language/language/hgl --version
+          build-language/language/hgl check language/examples/midpoint.hgl
+          build-language/language/hgl emit-cpp language/examples/midpoint.hgl --out-dir build-language/emitted
+          test -f build-language/emitted/midpoint.h
+          test -f build-language/emitted/midpoint.cpp
+      - name: Installed hgl smoke
+        shell: bash
+        run: |
+          cmake --install build-language --prefix build-language/sdk --component Runtime
+          build-language/sdk/bin/hgl --version
+
+  language-off-by-default:
+    # Slice 0 acceptance: default hgraph builds remain independent of the
+    # language project. A configure without the option must produce no `hgl`.
+    name: Language / default build stays independent
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Configure GCC 14
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+      - name: Install native build dependencies
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
+      - name: Configure without the language
+        run: >-
+          cmake -S . -B build-default -GNinja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF
+          -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
+          -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
+          -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
+          -DHGRAPH_USE_PYARROW_ARROW=ON
+          -DHGRAPH_FETCH_SIMDJSON=ON
+          -DHGRAPH_FETCH_DATE=ON
+          -DHGRAPH_BUILD_KAFKA_EXTENSION=OFF
+          -DHGRAPH_BUILD_ANALYTICS_EXTENSION=OFF
+          -DHGRAPH_BUILD_WEB_EXTENSION=OFF
+          -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=OFF
+          -DHGRAPH_BUILD_FABRIC_EXTENSION=OFF
+      - name: Assert no language target
+        shell: bash
+        run: |
+          grep -q 'HGRAPH_BUILD_LANGUAGE:BOOL=OFF' build-default/CMakeCache.txt
+          if cmake --build build-default --target help | grep -qE '(^|[^a-z_])hgl([^a-z_]|$)'; then
+            echo "::error::the default build defines a language target; language/ must stay opt-in"
+            exit 1
+          fi
+          test ! -d build-default/language

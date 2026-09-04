@@ -167,6 +167,14 @@ valid state. `let` and `var` bindings entered at the prompt persist.
 Input continues on the next line while a bracket is open; `:list` shows the
 session, `:help` the commands, and `:quit` leaves.
 
+On a terminal the prompt is an editable line: the arrow keys move and recall
+earlier inputs, history persists across sessions in `~/.hgl_history` (or the
+file named by `HGL_HISTORY`), and tab completes the `:` commands, the
+declaration keywords, the kernel modules, and every name the session has
+declared or bound. Piped input (`hgl repl < session.hgl`) reads plain lines,
+so scripts behave as before; `HGL_NO_LINE_EDITING=1` forces that mode on a
+terminal too.
+
 ## First-pass limits
 
 The current `hgl` runs everything on this page that is written with

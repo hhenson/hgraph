@@ -1020,12 +1020,101 @@ or `MIN_ST`, `--mode realtime` from `--start` or the wall clock, until
 Registering that sink is not node emulation: it is the tool's output
 device. The TOML run configuration is not in the first pass.
 
+## C++ backend, first pass
+
+Status: implemented (2026-09-03) for the composition-only subset; the
+runtime backend is staged.
+
+`hgl emit-cpp <file.hgl>` writes one header/source pair named after the
+source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
+source by default, into one directory with `--out-dir`, or split with
+`--include-dir` and `--src-dir`; `--print` writes both to stdout for tooling
+and tests. The namespace is the module name: `module examples.prices` emits
+`namespace examples::prices`, and a C++ keyword or a name the generated code
+reserves (`w`, `ops`, `compose`, ...) gets a trailing underscore.
+
+What is emitted, in this order:
+
+- **Markers.** `namespace ops` holds one `hgraph::Operator<"module.name",
+  In<...>..., Scalar<...>..., Out<...>>` per source `operator` and per
+  `export fn`, so every public callable has a registry identity
+  (`examples.prices.smooth`) and a typed marker (`examples::prices::ops::smooth`).
+- **Graph structs.** Every function is a struct with `static constexpr auto
+  name` and a `compose(hgraph::Wiring &w, ...)`: `hgraph::Port<S>` for a
+  temporal parameter, `hgraph::Scalar<"n", T>` for a `const` one, returning
+  `hgraph::Port<S>` for the declared result. Exported functions are declared
+  in the header and defined out of line in the source; module-internal
+  functions and `impl fn` candidates are whole structs in an anonymous
+  namespace of the source, in dependency order (a recursive helper is a
+  diagnostic). `const` parameter defaults become `static auto defaults()`
+  so the registry applies them when the function is called by name.
+- **Bodies.** The same lowering the direct-wiring backend performs, printed:
+  a constant expression folds into a C++ expression with the same rules
+  (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
+  strings concatenate, durations and datetimes add and subtract); known
+  numeric values are retained far enough to reject zero divisors and invalid
+  compile-time rolling sizes before C++ is written; a
+  time-series expression is `hgraph::wire<marker>(w, args...)` — the
+  standard operator for each infix form (`add_`, `lt_`, `and_`, ...),
+  `getitem_` / `getattr_` for indexing and fields, `valid` / `modified` /
+  `all_valid` / `last_modified_time` / `keys_` for the intrinsics, the
+  kernel table's marker for an imported operator (`hgraph::stdlib::x`,
+  `hgraph::analytics::x`) and `hgraph::arg<"n">(...)` for a named argument;
+  a call to a module function is `hgraph::wire<name>(w, ...)` with defaults
+  folded in; a constant at a temporal position is
+  `hgraph::wire<hgraph::stdlib::const_, S>(w, value)`; a port whose schema
+  the registry decides is narrowed with `.as<S>()` at a typed boundary, which
+  the wiring checks. `let` / `var` are `const auto` / `auto` locals, but a
+  `var` keeps the static type fixed by its annotation or initializer and every
+  rebind is converted or checked at that boundary. `if` over a constant is a
+  C++ `if`; `return` and the tail expression return the result port.
+- **Registration.** `void register_operators()` registers each export and
+  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` through
+  a keyed `OperatorRegistry` installer named after the module, then runs the
+  installers, so a registry reset replays it and repeated calls are no-ops.
+- **Python.** With `--python <file> --python-native <module>` the wrapper
+  module imports the native module (which registers) and binds each export
+  to `hgraph.operator_function("module.name")`. Python keywords gain a
+  trailing underscore on this surface without changing the registry name;
+  mapping collisions and invalid native-module identifiers are diagnostics.
+
+The header includes the standard operator umbrella, the analytics header
+when the module imports from `hgraph.analytics`, and the wiring/dispatch
+headers; the source includes only the header. Every emitted function is
+preceded by a `// file:line` comment; output is deterministic (basenames,
+no timestamps).
+
+The first pass fails closed, before writing either file, on: a runtime
+function anywhere in the module (`state`, `inject`, lifecycle, `when`,
+runtime traversal), generics, struct declarations, duration rolling windows
+(hgraph has registry and runtime duration windows but no compile-time
+`TSW` marker for them — the parity matrix records the gap), tuple and list
+literals and other compound constants, `if` or a block used as a value,
+zoned and civil temporal literals, an `impl fn` of an imported operator,
+and a missing module declaration. Each is a `backend` diagnostic naming the
+construct.
+
+`hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
+`emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs
+with any `SOURCES` into one library that links `hgraph::core` and the
+`LINK_LIBRARIES` the module needs (`hgraph::analytics` when it imports
+from it), publishes the header directory, and with `PYTHON_MODULE`
+configures `cmake/hgl_python_module.cpp.in` into a nanobind module that
+calls every module's `register_operators()` on import and collects the
+generated wrappers into a package directory. The native module output path is
+expressed with a generator expression so multi-configuration builds do not add
+a configuration child directory, and an installed compiler executable is a
+file dependency of every generated output. The repository's codegen tests
+build `tests/codegen/parity.hgl` through exactly this function.
+
 ## Source mapping and generated artifacts
 
 Every generated declaration and meaningful expression maps to its language
-range through `#line` directives and/or a sidecar map. A native error in
-generated implementation detail is a compiler defect and reports the retained
-artifact path plus compiler, SDK, module, profile, and target versions.
+range through `#line` directives and/or a sidecar map; the first pass writes
+a `// file:line` comment before each function instead, which the native
+compiler's diagnostics do not consume. A native error in generated
+implementation detail is a compiler defect and reports the retained artifact
+path plus compiler, SDK, module, profile, and target versions.
 
 Generated output and manifests must be deterministic. Absolute developer
 paths, timestamps, random identifiers, and unordered iteration must not affect
@@ -1033,12 +1122,13 @@ them.
 
 ## Scripted, REPL, and AOT drivers
 
-`hgl test`, `hgl run`, `hgl repl`, and `hgl build` use the same type
-expansion, function classifier, and typed IR. `hgl build` always uses the
+`hgl test`, `hgl run`, `hgl repl`, and `hgl emit-cpp` use the same type
+expansion, function classifier, and typed IR. `emit-cpp` always uses the
 C++ backend; the other three use the direct-wiring backend when the evaluated
-closure is composition-only and the C++ backend otherwise. The parity suite
-runs every test the direct-wiring backend accepts through both backends and
-compares the recorded ticks.
+closure is composition-only and the C++ backend otherwise. There is no
+`hgl build`: a package builds emitted C++ with `hgl_add_module()`. The parity
+suite runs every test the direct-wiring backend accepts through both
+backends and compares the recorded ticks.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
@@ -1059,6 +1149,17 @@ retained bindings, `:help` the commands. Diagnostics locate into the
 session text as `<repl>:line:col`. The REPL never emits C++: a session
 that needs the C++ backend reports the `backend` diagnostic and keeps the
 last valid session.
+
+Input comes through `driver/line_reader`: on a terminal, with the tool
+built with `HGL_ENABLE_LINE_EDITING` (default on), it is an isocline line
+editor — cursor movement, up/down history persisted in `$HGL_HISTORY` or
+`~/.hgl_history`, and tab completion over the `:` commands, the declaration
+keywords, the kernel module names, and every name the session has declared
+or bound; the prompt carries its own marker and bracket continuation stays
+the REPL's loop. Off a terminal (a pipe, a file), or with the option off or
+`HGL_NO_LINE_EDITING` set, it is a plain `std::getline` with the prompt
+printed, so `tests/repl/repl_smoke.cmake` and scripted use see the same
+text they always did.
 
 Replacing a REPL module stops and destroys graphs holding its leases, removes
 the old module handle and installer intent, initializes the replacement, and

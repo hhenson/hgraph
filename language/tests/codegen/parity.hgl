@@ -1,0 +1,55 @@
+// The backend-parity fixture (developer guide, "Backend parity"): a
+// composition-only module built twice. `hgl test` runs these tests on the
+// direct-wiring backend; the codegen tests emit the module with
+// `hgl emit-cpp`, compile it as a package through `hgl_add_module`, and
+// drive the generated graphs through hgraph's `eval_node`, which must
+// record the same ticks these assertions expect.
+
+module hgl.codegen.parity
+
+fn scale(x: f64, const k: f64) -> f64 => x * k
+
+export fn plus(a: f64, b: f64) -> f64 => a + b
+
+export fn scaled_sum(a: f64, b: f64, const k: f64 = 2.0) -> f64 =>
+    scale(plus(a, b), k)
+
+export fn above(x: f64, const threshold: f64) -> bool =>
+    x > threshold
+
+export fn maybe_double(x: f64, const enabled: bool = true) -> f64 {
+    if enabled {
+        return x * 2.0
+    }
+    x
+}
+
+export fn offset_by(x: f64, const delta: i64) -> f64 {
+    let shift = delta * 2
+    x + shift
+}
+
+test plus_ticks {
+    assert eval(plus, a: [1.0, 2.0], b: [10.0, 20.0]) == [11.0, 22.0]
+}
+
+test scaled_sum_default {
+    assert eval(scaled_sum, a: [1.0], b: [2.0]) == [6.0]
+}
+
+test scaled_sum_explicit {
+    assert eval(scaled_sum, a: [1.0], b: [2.0], k: 3.0) == [9.0]
+}
+
+test above_ticks {
+    assert eval(above, x: [1.0, 3.0], threshold: 2.0) == [false, true]
+}
+
+test maybe_double_ticks {
+    assert eval(maybe_double, x: [1.5]) == [3.0]
+    assert eval(maybe_double, x: [1.5], enabled: false) == [1.5]
+}
+
+test offset_by_ticks {
+    assert eval(offset_by, x: [1.0, 2.5], delta: 3) == [7.0, 8.5]
+}

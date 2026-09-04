@@ -1,5 +1,7 @@
 #include "driver/driver.h"
 
+#include "codegen/cpp_emitter.h"
+#include "driver/line_reader.h"
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
@@ -13,6 +15,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -38,16 +41,20 @@ namespace hgl::driver
                          "  hgl run <file> [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
                          "          [--set <name>=<constant expression>]...\n"
+                         "  hgl emit-cpp <file> [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
+                         "               [--python <file.py> --python-native <module>] [--print]\n"
                          "  hgl repl\n"
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
-                         "  check    parse and resolve a module and report diagnostics\n"
-                         "  test     run the module's test declarations\n"
-                         "  run      bind an entry to a mode, clock and parameters, then execute it\n"
-                         "  repl     accumulate declarations and evaluate expressions interactively\n\n"
-                         "Planned (developer guide, \"Scripted, REPL, and AOT drivers\"):\n"
-                         "  emit-cpp, build\n";
+                         "  check     parse and resolve a module and report diagnostics\n"
+                         "  test      run the module's test declarations\n"
+                         "  run       bind an entry to a mode, clock and parameters, then execute it\n"
+                         "  emit-cpp  write the module as a C++ header/source pair of public hgraph\n"
+                         "            authoring code, named after the file, in the module's namespace;\n"
+                         "            --python also writes the Python wrapper module\n"
+                         "  repl      accumulate declarations and evaluate expressions interactively\n"
+                         "            (line editing, history and completion on a terminal)\n";
         }
 
         void print_version(std::string_view language_version)
@@ -301,6 +308,123 @@ namespace hgl::driver
             return exit_ok;
         }
 
+        // ------------------------------------------------------------ emit-cpp
+        // (developer guide, "C++ backend, first pass")
+
+        bool write_file(const std::filesystem::path &path, const std::string &text)
+        {
+            std::error_code error;
+            if (path.has_parent_path()) { std::filesystem::create_directories(path.parent_path(), error); }
+            std::ofstream out{path, std::ios::binary | std::ios::trunc};
+            if (!out)
+            {
+                std::cerr << "hgl: cannot write '" << path.string() << "'\n";
+                return false;
+            }
+            out << text;
+            return static_cast<bool>(out);
+        }
+
+        int emit_cpp(std::span<const std::string_view> arguments, std::string_view language_version)
+        {
+            std::optional<std::string> path;
+            std::optional<std::string> out_dir;
+            std::optional<std::string> include_dir;
+            std::optional<std::string> src_dir;
+            std::optional<std::string> python_path;
+            std::string                python_native;
+            bool                       print = false;
+            for (std::size_t i = 0; i < arguments.size(); ++i)
+            {
+                const std::string_view argument = arguments[i];
+                const auto             value    = [&]() -> std::optional<std::string_view> {
+                    if (i + 1 >= arguments.size()) { return std::nullopt; }
+                    return arguments[++i];
+                };
+                if (argument == "--out-dir")
+                {
+                    const auto dir = value();
+                    if (!dir) { return usage_error("--out-dir needs a directory"); }
+                    out_dir = std::string{*dir};
+                }
+                else if (argument == "--include-dir")
+                {
+                    const auto dir = value();
+                    if (!dir) { return usage_error("--include-dir needs a directory"); }
+                    include_dir = std::string{*dir};
+                }
+                else if (argument == "--src-dir")
+                {
+                    const auto dir = value();
+                    if (!dir) { return usage_error("--src-dir needs a directory"); }
+                    src_dir = std::string{*dir};
+                }
+                else if (argument == "--python")
+                {
+                    const auto file = value();
+                    if (!file) { return usage_error("--python needs a file"); }
+                    python_path = std::string{*file};
+                }
+                else if (argument == "--python-native")
+                {
+                    const auto name = value();
+                    if (!name) { return usage_error("--python-native needs a module name"); }
+                    python_native = std::string{*name};
+                }
+                else if (argument == "--print") { print = true; }
+                else if (argument.starts_with("--")) { return usage_error("unknown option '" + std::string{argument} + "'"); }
+                else if (path) { return usage_error("emit-cpp takes one file"); }
+                else { path = std::string{argument}; }
+            }
+            if (!path) { return usage_error("emit-cpp needs a file"); }
+            if (out_dir && (include_dir || src_dir)) { return usage_error("use --out-dir or --include-dir/--src-dir, not both"); }
+            if (python_path && python_native.empty()) { return usage_error("--python needs --python-native <module>"); }
+            if (!python_path && !python_native.empty()) { return usage_error("--python-native needs --python <file>"); }
+
+            std::optional<Unit> unit = load(*path);
+            if (!unit) { return exit_usage; }
+            if (!unit->ok)
+            {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
+
+            // The pair is named after the source: prices.hgl -> prices.h, prices.cpp.
+            const std::filesystem::path source{*path};
+            const std::string           stem = source.stem().string();
+            std::filesystem::path       header_path = source.parent_path() / (stem + ".h");
+            std::filesystem::path       source_path = source.parent_path() / (stem + ".cpp");
+            if (out_dir)
+            {
+                header_path = std::filesystem::path{*out_dir} / (stem + ".h");
+                source_path = std::filesystem::path{*out_dir} / (stem + ".cpp");
+            }
+            if (include_dir) { header_path = std::filesystem::path{*include_dir} / (stem + ".h"); }
+            if (src_dir) { source_path = std::filesystem::path{*src_dir} / (stem + ".cpp"); }
+
+            codegen::EmitOptions options;
+            options.header_name          = stem + ".h";
+            options.tool_version         = std::string{language_version};
+            options.python_native_module = python_native;
+            const std::optional<codegen::EmittedModule> emitted =
+                codegen::emit_cpp(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
+            if (!emitted)
+            {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
+            if (print)
+            {
+                std::cout << "// ==== " << header_path.filename().string() << '\n' << emitted->header;
+                std::cout << "// ==== " << source_path.filename().string() << '\n' << emitted->source;
+                if (python_path) { std::cout << "# ==== " << std::filesystem::path{*python_path}.filename().string() << '\n' << emitted->python; }
+                return exit_ok;
+            }
+            if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source)) { return exit_usage; }
+            if (python_path && !write_file(std::filesystem::path{*python_path}, emitted->python)) { return exit_usage; }
+            return exit_ok;
+        }
+
         // ---------------------------------------------------------- the REPL
         // (developer guide, "Scripted, REPL, and AOT drivers", first pass)
 
@@ -359,17 +483,20 @@ namespace hgl::driver
           public:
             int loop()
             {
-                std::cout << "hgl repl (hgraph " << hgraph::version_string << "); :help for commands\n";
+                std::cout << "hgl repl (hgraph " << hgraph::version_string << "); :help for commands";
+                if (reader_.interactive()) { std::cout << " (history in $HGL_HISTORY or ~/.hgl_history; tab completes)"; }
+                std::cout << '\n';
+                reader_.set_completions([this] { return completions(); });
                 std::string pending;
                 while (true)
                 {
-                    std::cout << (pending.empty() ? "hgl> " : "...> ") << std::flush;
-                    std::string line;
-                    if (!std::getline(std::cin, line))
+                    const std::optional<std::string> read = reader_.read(pending.empty() ? "hgl> " : "...> ");
+                    if (!read)
                     {
                         std::cout << '\n';
                         return exit_ok;
                     }
+                    const std::string &line = *read;
                     pending += line;
                     pending += '\n';
                     if (bracket_depth(pending) > 0) { continue; }
@@ -389,6 +516,40 @@ namespace hgl::driver
             }
 
           private:
+            /// Completion words: the REPL commands, the language's declaration
+            /// keywords, the kernel modules, and every name the session has
+            /// declared or bound.
+            std::vector<std::string> completions() const
+            {
+                std::vector<std::string> words{":help", ":list", ":quit", "fn", "export", "impl", "operator", "use", "test",
+                                               "let", "var", "assert", "eval", "const", "atomic", "rolling", "hgraph.std",
+                                               "hgraph.analytics"};
+                const auto declared = [&](const std::string &text) {
+                    // The declared name follows the first keyword(s): `fn name`,
+                    // `export fn name`, `impl fn name`, `operator name`,
+                    // `test name`, `let name`, `var name`, `use a.b::{x, y}`.
+                    std::istringstream words_in{text};
+                    std::string        word;
+                    std::string        previous;
+                    while (words_in >> word)
+                    {
+                        if (previous == "fn" || previous == "operator" || previous == "test" || previous == "let" ||
+                            previous == "var")
+                        {
+                            const auto end = word.find_first_of("(<:{=");
+                            words.push_back(word.substr(0, end));
+                            return;
+                        }
+                        previous = word;
+                    }
+                };
+                for (const std::string &declaration : declarations_) { declared(declaration); }
+                for (const std::string &binding : bindings_) { declared(binding); }
+                std::sort(words.begin(), words.end());
+                words.erase(std::unique(words.begin(), words.end()), words.end());
+                return words;
+            }
+
             std::string session_text() const
             {
                 std::string text = "module repl\n";
@@ -480,6 +641,7 @@ namespace hgl::driver
 
             std::vector<std::string> declarations_;
             std::vector<std::string> bindings_;
+            LineReader               reader_{};
         };
 
         int repl(std::span<const std::string_view> arguments)
@@ -516,9 +678,11 @@ namespace hgl::driver
         if (command == "test") { return test(rest); }
         if (command == "run") { return run_command(rest); }
         if (command == "repl") { return repl(rest); }
-        if (command == "emit-cpp" || command == "build")
+        if (command == "emit-cpp") { return emit_cpp(rest, language_version); }
+        if (command == "build")
         {
-            return usage_error("'" + std::string{command} + "' is not implemented yet");
+            return usage_error("'build' is not a command; build a package from emit-cpp output with the "
+                               "hgl_add_module() CMake function (user guide, \"Building a package\")");
         }
         return usage_error("unknown command '" + std::string{command} + "'");
     }

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- Add `hgl emit-cpp`: a composition-only module becomes a `<name>.h` /
+  `<name>.cpp` pair of public hgraph authoring code in the module's namespace,
+  with `--out-dir` or `--include-dir`/`--src-dir` placement, `--print`, and
+  `--python` for a generated Python wrapper module. Exported functions and
+  `impl fn` candidates register as hgraph operators under module-qualified
+  names through a replayable installer.
+- Add the `hgl_add_module()` CMake function (`cmake/HglLanguage.cmake`),
+  which compiles `.hgl` sources with `emit-cpp` at build time into a library
+  beside hand-written C++ and, with `PYTHON_MODULE`, a stable-ABI Python
+  extension module plus generated wrappers. It replaces the planned `hgl build`.
+- Give `hgl repl` line editing, history and tab completion on a terminal
+  (isocline, behind `HGL_ENABLE_LINE_EDITING`); piped input is unchanged.
+- Add the backend-parity fixture `tests/codegen/parity.hgl`, built through
+  `hgl test` and through generated C++, and a Linux/macOS CI workflow for the
+  toolchain.
+- Keep inferred `var` types stable across assignment, reject invalid rolling
+  sizes and zero constant divisors during C++ emission, produce valid Python
+  aliases for keyword exports, and make installed and multi-config
+  `hgl_add_module()` generation reproducible. Installed `hgl` also retains
+  external dependency search paths so it can run from an SDK prefix.
+
 ## 0.1.0
 
 - Establish the independently buildable language project and `hgl` command.

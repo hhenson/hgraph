@@ -217,7 +217,7 @@ An implementation may claim conformance at different levels:
 
 ## Reading Guide
 
-### For Language Implementers
+### For Runtime Implementers
 Start with: Overview → Type System → Runtime System → Time-Series Types → Advanced Concepts
 
 ### For Library Developers
