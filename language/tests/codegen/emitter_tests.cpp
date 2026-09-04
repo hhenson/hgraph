@@ -80,6 +80,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
 
     // The header declares the exported graphs and their operator markers.
+    CHECK(contains(emitted->header, "#pragma once"));
     CHECK(contains(emitted->header, "namespace hgl::codegen::parity"));
     CHECK(contains(emitted->header, "struct plus : hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
@@ -124,9 +125,50 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     options.python_native_module = "_parity";
     const auto emitted           = unit.emit(options);
     REQUIRE(emitted);
-    CHECK(contains(emitted->python, "from . import _parity as _native"));
-    CHECK(contains(emitted->python, "plus = operator_function(\"hgl.codegen.parity.plus\")"));
+    CHECK(contains(emitted->python, "from . import _parity as _hgl_native"));
+    CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
     CHECK(contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\"]"));
+}
+
+TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]")
+{
+    Unit unit{R"(
+module t
+export fn class(x: f64) -> f64 => x
+)"};
+    EmitOptions options;
+    options.python_native_module = "_t";
+    const auto emitted = unit.emit(options);
+    REQUIRE(emitted);
+    CHECK(contains(emitted->python, "\"class_\": _hgl_operator_function(\"t.class\")"));
+    CHECK(contains(emitted->python, "__all__ = [\"class_\"]"));
+}
+
+TEST_CASE("emit-cpp rejects ambiguous or invalid Python wrapper names", "[codegen]")
+{
+    SECTION("two exports map to one Python identifier")
+    {
+        Unit unit{R"(
+module t
+export fn def(x: f64) -> f64 => x
+export fn def_(x: f64) -> f64 => x
+)"};
+        EmitOptions options;
+        options.python_native_module = "_t";
+        CHECK_FALSE(unit.emit(options));
+        CHECK(unit.has(Category::Backend, "Python export 'def_' collides with 'def' as 'def_'"));
+    }
+    SECTION("the native module is one non-keyword identifier")
+    {
+        Unit unit{R"(
+module t
+export fn value(x: f64) -> f64 => x
+)"};
+        EmitOptions options;
+        options.python_native_module = "bad-name";
+        CHECK_FALSE(unit.emit(options));
+        CHECK(unit.has(Category::Backend, "not a valid Python native-module identifier"));
+    }
 }
 
 TEST_CASE("emit-cpp folds constants with the direct backend's rules", "[codegen]")
@@ -153,6 +195,72 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
     CHECK(contains(emitted->source, "total = (total - hgraph::Int{1});"));
     CHECK(contains(emitted->source, "if (((total > hgraph::Int{2}) && (label == hgraph::Str{\"hi!\"})))"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, x, half)"));
+}
+
+TEST_CASE("emit-cpp rejects type-changing var assignment", "[codegen]")
+{
+    SECTION("ordinary assignment cannot narrow an inferred i64")
+    {
+        Unit unit{R"(
+module t
+export fn f(x: f64) -> f64 {
+    var y = 1
+    y = 2.5
+    x + y
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
+    }
+    SECTION("compound division cannot change an inferred i64 to f64")
+    {
+        Unit unit{R"(
+module t
+export fn f(x: f64) -> f64 {
+    var y = 4
+    y /= 2
+    x + y
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
+    }
+    SECTION("i64 still widens into an f64 var")
+    {
+        Unit unit{R"(
+module t
+export fn f(x: f64) -> f64 {
+    var y = 1.0
+    y = 2
+    x + y
+}
+)"};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "y = static_cast<hgraph::Float>(hgraph::Int{2});"));
+    }
+}
+
+TEST_CASE("emit-cpp rejects zero constant divisors", "[codegen]")
+{
+    SECTION("division")
+    {
+        Unit unit{R"(
+module t
+export fn f(x: f64) -> f64 => x + 1 / (2 - 2)
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "division by zero"));
+    }
+    SECTION("remainder")
+    {
+        Unit unit{R"(
+module t
+export fn f(x: f64) -> f64 => x + 1 % 0
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "division by zero"));
+    }
 }
 
 TEST_CASE("emit-cpp wires constants at a temporal parameter and reads a kernel by marker", "[codegen]")
@@ -226,6 +334,24 @@ export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "duration rolling window"));
     }
+    SECTION("a non-positive rolling size")
+    {
+        Unit unit{R"(
+module t
+export fn recent(window: rolling<f64, 0>) -> f64 => window
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
+    }
+    SECTION("a negative rolling size")
+    {
+        Unit unit{R"(
+module t
+export fn recent(window: rolling<f64, -1>) -> f64 => window
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
+    }
     SECTION("a generic function")
     {
         Unit unit{R"(
@@ -257,4 +383,42 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     CHECK(contains(emitted->header, "struct w_ : hgraph::Operator<\"t.new.w\""));
     CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
+}
+
+TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]")
+{
+    SECTION("module functions")
+    {
+        Unit unit{R"(
+module t
+export fn class(x: f64) -> f64 => x
+export fn class_(x: f64) -> f64 => x
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "C++ function 'class_' collides with 'class' as 'class_'"));
+    }
+    SECTION("parameters")
+    {
+        Unit unit{R"(
+module t
+export fn value(class: f64, class_: f64) -> f64 => class + class_
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "C++ parameter 'class_' collides with 'class' as 'class_'"));
+    }
+}
+
+TEST_CASE("emit-cpp gives shadowing locals unique C++ names", "[codegen]")
+{
+    Unit unit{R"(
+module t
+export fn twice(x: f64) -> f64 {
+    let x = x * 2.0
+    x
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "const auto x_1 = hgraph::wire<hgraph::stdlib::mul_>(w, x, hgraph::Float{2.0});"));
+    CHECK(contains(emitted->source, "return x_1.as<hgraph::TS<hgraph::Float>>();"));
 }

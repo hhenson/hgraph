@@ -267,6 +267,12 @@ from prices import smooth      # operator_function("examples.prices.smooth")
 works exactly as it does for `hgraph_analytics`. Placement is yours:
 `OUT_DIR` puts header and source in one directory, `INCLUDE_DIR` / `SRC_DIR`
 split them; the default is `${CMAKE_CURRENT_BINARY_DIR}/hgl/<target>/`.
+The native extension is placed directly beside the wrappers for single- and
+multi-configuration generators. Replacing an installed `hgl` executable also
+invalidates the generated files. HGL export names that are Python keywords use
+a trailing underscore in this wrapper (`class` becomes `class_`) while their
+operator registry name remains unchanged; aliases that would collide are a
+generation error.
 
 What `emit-cpp` lowers today is the composition-only subset `hgl test` runs,
 plus non-generic `operator` / `impl fn` declarations. It reports, by name,

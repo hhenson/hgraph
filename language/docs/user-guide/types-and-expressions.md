@@ -605,7 +605,10 @@ block executes. Use `state`, not `var`, for a value that must survive into a
 later evaluation.
 
 An initializer is required in the first language slice. `let` cannot be
-assigned again. A `var` may use ordinary and compound assignment. Function
+assigned again. A `var` may use ordinary and compound assignment, but its type
+is fixed by its annotation or, when unannotated, by its initializer. The normal
+`i64`-to-`f64` widening is allowed when the fixed type is `f64`; assigning an
+`f64` to an `i64` variable, including through `/=`, is a type error. Function
 parameters and `for` bindings remain immutable.
 
 ## Calls and operators

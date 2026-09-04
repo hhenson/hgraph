@@ -33,6 +33,48 @@ include_guard(GLOBAL)
 
 set(_HGL_LANGUAGE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
+# Keep module namespace spelling in lockstep with emit-cpp's generated C++.
+# HGL identifiers are broader than C++ identifiers (`module prices.new` is
+# valid), while the generated code also reserves a few implementation names.
+function(_hgl_cpp_name out_var name)
+    set(_reserved
+        alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t char16_t char32_t class
+        compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default
+        delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable
+        namespace new noexcept not not_eq nullptr operator or or_eq private protected public register reinterpret_cast requires
+        return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try
+        typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq
+        w hgraph std ops register_operators compose name defaults)
+    list(FIND _reserved "${name}" _reserved_index)
+    if(_reserved_index EQUAL -1)
+        set(${out_var} "${name}" PARENT_SCOPE)
+    else()
+        set(${out_var} "${name}_" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(_hgl_module_namespace out_var source)
+    file(STRINGS "${source}" _module_lines
+        REGEX "^[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_.]*")
+    list(LENGTH _module_lines _module_count)
+    if(NOT _module_count EQUAL 1)
+        message(FATAL_ERROR
+            "hgl_add_module: '${source}' must contain exactly one module declaration")
+    endif()
+    list(GET _module_lines 0 _module_line)
+    string(REGEX REPLACE
+        "^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_.]*).*$" "\\1"
+        _module_name "${_module_line}")
+    string(REPLACE "." ";" _module_parts "${_module_name}")
+    set(_cpp_parts)
+    foreach(_part IN LISTS _module_parts)
+        _hgl_cpp_name(_cpp_part "${_part}")
+        list(APPEND _cpp_parts "${_cpp_part}")
+    endforeach()
+    list(JOIN _cpp_parts "::" _module_namespace)
+    set(${out_var} "${_module_namespace}" PARENT_SCOPE)
+endfunction()
+
 function(_hgl_resolve_compiler out_var)
     if(TARGET hgl)
         set(${out_var} "$<TARGET_FILE:hgl>" PARENT_SCOPE)
@@ -66,6 +108,20 @@ function(hgl_add_module target)
     if(_hgl_OUT_DIR AND (_hgl_INCLUDE_DIR OR _hgl_SRC_DIR))
         message(FATAL_ERROR "hgl_add_module(${target}): use OUT_DIR or INCLUDE_DIR/SRC_DIR, not both")
     endif()
+    if(_hgl_PYTHON_MODULE)
+        if(NOT _hgl_PYTHON_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+            message(FATAL_ERROR
+                "hgl_add_module(${target}): PYTHON_MODULE must be one Python identifier")
+        endif()
+        set(_python_keywords
+            False None True and as assert async await break class continue def del elif else except finally for from global if
+            import in is lambda nonlocal not or pass raise return try while with yield)
+        list(FIND _python_keywords "${_hgl_PYTHON_MODULE}" _python_keyword_index)
+        if(NOT _python_keyword_index EQUAL -1)
+            message(FATAL_ERROR
+                "hgl_add_module(${target}): PYTHON_MODULE cannot be the Python keyword '${_hgl_PYTHON_MODULE}'")
+        endif()
+    endif()
 
     # Where the generated files go: one directory, or a split include/src pair.
     if(_hgl_OUT_DIR)
@@ -92,14 +148,25 @@ function(hgl_add_module target)
     set(_hgl_compiler_dependency)
     if(TARGET hgl)
         set(_hgl_compiler_dependency hgl)
+    else()
+        # Installed consumers have no CMake target for the compiler. Its path
+        # is still an input: replacing hgl must invalidate generated output.
+        set(_hgl_compiler_dependency "${_hgl_compiler}")
     endif()
 
     set(_generated_headers)
     set(_generated_sources)
     set(_generated_python)
+    set(_generated_stems)
     foreach(_hgl_file IN LISTS _hgl_HGL)
         get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
         get_filename_component(_stem "${_hgl_abs}" NAME_WE)
+        list(FIND _generated_stems "${_stem}" _stem_index)
+        if(NOT _stem_index EQUAL -1)
+            message(FATAL_ERROR
+                "hgl_add_module(${target}): HGL sources must have unique filename stems; '${_stem}' is repeated")
+        endif()
+        list(APPEND _generated_stems "${_stem}")
         set(_header "${_include_dir}/${_stem}.h")
         set(_source "${_src_dir}/${_stem}.cpp")
         set(_outputs "${_header}" "${_source}")
@@ -142,12 +209,9 @@ function(hgl_add_module target)
             get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
             get_filename_component(_stem "${_hgl_abs}" NAME_WE)
             string(APPEND _includes "#include <${_stem}.h>\n")
-            # The module name is the first line of the .hgl; `hgl emit-cpp`
-            # turns `module a.b` into namespace a::b and registration a::b::register_operators.
-            file(STRINGS "${_hgl_abs}" _module_line REGEX "^module ")
-            list(GET _module_line 0 _module_line)
-            string(REGEX REPLACE "^module +([A-Za-z0-9_.]+).*$" "\\1" _module_name "${_module_line}")
-            string(REPLACE "." "::" _module_ns "${_module_name}")
+            # Read the module declaration at configure time because this
+            # bootstrap has to reference every generated registration function.
+            _hgl_module_namespace(_module_ns "${_hgl_abs}")
             string(APPEND _registrations "    ${_module_ns}::register_operators();\n")
         endforeach()
         set(HGL_PYTHON_MODULE "${_hgl_PYTHON_MODULE}")
@@ -166,9 +230,13 @@ function(hgl_add_module target)
                 "(hgraph_add_python_module) or nanobind (nanobind_add_module)")
         endif()
         target_link_libraries(${_hgl_PYTHON_MODULE} PRIVATE ${target})
+        # A generator expression suppresses the automatic Debug/Release child
+        # directory that multi-config generators otherwise append. Wrappers,
+        # __init__.py and the native extension therefore remain one package.
+        set(_python_output_dir "$<1:${_hgl_PYTHON_PACKAGE_DIR}>")
         set_target_properties(${_hgl_PYTHON_MODULE} PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY "${_hgl_PYTHON_PACKAGE_DIR}"
-            RUNTIME_OUTPUT_DIRECTORY "${_hgl_PYTHON_PACKAGE_DIR}")
+            LIBRARY_OUTPUT_DIRECTORY "${_python_output_dir}"
+            RUNTIME_OUTPUT_DIRECTORY "${_python_output_dir}")
         # The package's __init__ re-exports every wrapper module.
         set(_init_lines "\"\"\"${_hgl_PYTHON_MODULE}: hgraph operators generated from HGL by hgl_add_module.\"\"\"\n")
         set(_all_lines "\n__all__ = [\n")

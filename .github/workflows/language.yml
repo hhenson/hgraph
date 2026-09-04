@@ -115,6 +115,11 @@ jobs:
           build-language/language/hgl emit-cpp language/examples/midpoint.hgl --out-dir build-language/emitted
           test -f build-language/emitted/midpoint.h
           test -f build-language/emitted/midpoint.cpp
+      - name: Installed hgl smoke
+        shell: bash
+        run: |
+          cmake --install build-language --prefix build-language/sdk --component Runtime
+          build-language/sdk/bin/hgl --version
 
   language-off-by-default:
     # Slice 0 acceptance: default hgraph builds remain independent of the

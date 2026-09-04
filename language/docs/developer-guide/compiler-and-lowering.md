@@ -1051,7 +1051,9 @@ What is emitted, in this order:
 - **Bodies.** The same lowering the direct-wiring backend performs, printed:
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
-  strings concatenate, durations and datetimes add and subtract); a
+  strings concatenate, durations and datetimes add and subtract); known
+  numeric values are retained far enough to reject zero divisors and invalid
+  compile-time rolling sizes before C++ is written; a
   time-series expression is `hgraph::wire<marker>(w, args...)` — the
   standard operator for each infix form (`add_`, `lt_`, `and_`, ...),
   `getitem_` / `getattr_` for indexing and fields, `valid` / `modified` /
@@ -1062,16 +1064,19 @@ What is emitted, in this order:
   folded in; a constant at a temporal position is
   `hgraph::wire<hgraph::stdlib::const_, S>(w, value)`; a port whose schema
   the registry decides is narrowed with `.as<S>()` at a typed boundary, which
-  the wiring checks. `let` / `var` are `const auto` / `auto` locals, `if`
-  over a constant is a C++ `if`, `return` and the tail expression return the
-  result port.
+  the wiring checks. `let` / `var` are `const auto` / `auto` locals, but a
+  `var` keeps the static type fixed by its annotation or initializer and every
+  rebind is converted or checked at that boundary. `if` over a constant is a
+  C++ `if`; `return` and the tail expression return the result port.
 - **Registration.** `void register_operators()` registers each export and
   each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` through
   a keyed `OperatorRegistry` installer named after the module, then runs the
   installers, so a registry reset replays it and repeated calls are no-ops.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
-  to `hgraph.operator_function("module.name")`.
+  to `hgraph.operator_function("module.name")`. Python keywords gain a
+  trailing underscore on this surface without changing the registry name;
+  mapping collisions and invalid native-module identifiers are diagnostics.
 
 The header includes the standard operator umbrella, the analytics header
 when the module imports from `hgraph.analytics`, and the wiring/dispatch
@@ -1096,8 +1101,11 @@ with any `SOURCES` into one library that links `hgraph::core` and the
 from it), publishes the header directory, and with `PYTHON_MODULE`
 configures `cmake/hgl_python_module.cpp.in` into a nanobind module that
 calls every module's `register_operators()` on import and collects the
-generated wrappers into a package directory. The repository's codegen
-tests build `tests/codegen/parity.hgl` through exactly this function.
+generated wrappers into a package directory. The native module output path is
+expressed with a generator expression so multi-configuration builds do not add
+a configuration child directory, and an installed compiler executable is a
+file dependency of every generated output. The repository's codegen tests
+build `tests/codegen/parity.hgl` through exactly this function.
 
 ## Source mapping and generated artifacts
 

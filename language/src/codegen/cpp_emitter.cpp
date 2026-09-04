@@ -1,10 +1,12 @@
 #include "codegen/cpp_emitter.h"
 
 #include <algorithm>
-#include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -108,6 +110,12 @@ namespace hgl::codegen
             ast::DeclId decl{ast::no_node};
             std::string name{};
             SourceRange range{};
+            /// Known numeric value of a constant expression. Const parameters
+            /// deliberately leave this empty: they are values at composition
+            /// time, not compile-time literals. The emitter uses this only for
+            /// diagnostics that native C++ would otherwise defer or lose
+            /// (rolling sizes and zero divisors).
+            std::variant<std::monostate, std::int64_t, double> number{};
 
             [[nodiscard]] bool is_const() const noexcept { return kind == Kind::Const; }
             [[nodiscard]] bool is_port() const noexcept { return kind == Kind::Port; }
@@ -119,6 +127,9 @@ namespace hgl::codegen
             std::vector<Value>                    params{};
             std::unordered_map<ast::StmtId, Value> locals{};
         };
+
+        std::optional<double>       numeric_value(const Value &value);
+        std::optional<std::int64_t> integer_value(const Value &value);
 
         // --------------------------------------------------------- printing
 
@@ -137,6 +148,12 @@ namespace hgl::codegen
             "w", "hgraph", "std", "ops", "register_operators", "compose", "name", "defaults",
         };
 
+        constexpr std::string_view python_keywords[] = {
+            "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
+            "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in",
+            "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+        };
+
         /// An HGL identifier as a C++ identifier: a keyword or a name the
         /// generated code reserves gets a trailing underscore.
         std::string cpp_name(std::string_view name)
@@ -146,6 +163,31 @@ namespace hgl::codegen
                 if (keyword == name) { return std::string{name} + "_"; }
             }
             return std::string{name};
+        }
+
+        bool is_python_keyword(std::string_view name)
+        {
+            return std::find(std::begin(python_keywords), std::end(python_keywords), name) != std::end(python_keywords);
+        }
+
+        bool is_python_identifier(std::string_view name)
+        {
+            if (name.empty() || !((name.front() >= 'a' && name.front() <= 'z') ||
+                                  (name.front() >= 'A' && name.front() <= 'Z') || name.front() == '_'))
+            {
+                return false;
+            }
+            return std::all_of(name.begin() + 1, name.end(), [](char c) {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+            });
+        }
+
+        /// The normal Python spelling of an HGL export. Keywords and the
+        /// wrapper's public metadata name get a trailing underscore; a
+        /// collision after this mapping is diagnosed when the module emits.
+        std::string python_name(std::string_view name)
+        {
+            return is_python_keyword(name) || name == "__all__" ? std::string{name} + "_" : std::string{name};
         }
 
         std::string quote(std::string_view text)
@@ -324,6 +366,7 @@ namespace hgl::codegen
             bool                             uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int> local_counts_{};
+            std::unordered_set<std::string>      local_names_{};
         };
 
         // ------------------------------------------------------------ types
@@ -331,7 +374,8 @@ namespace hgl::codegen
         std::string Emitter::size_text(ast::ExprId id, Frame &frame, std::string_view what)
         {
             const Value value = eval_expr(id, frame);
-            if (!value.is_const() || !value.type.is(ast::ScalarType::I64))
+            const auto  size  = integer_value(value);
+            if (!value.is_const() || !value.type.is(ast::ScalarType::I64) || !size || *size < 0)
             {
                 fail(Category::Type, module_.expr(id).range, std::string{what} + " must be a non-negative i64 constant");
             }
@@ -390,6 +434,12 @@ namespace hgl::codegen
                         unsupported(type.range, "a duration rolling window (hgraph has no compile-time duration TSW marker)");
                     }
                     if (!size.is_const() || !size.type.is(ast::ScalarType::I64))
+                    {
+                        fail(Category::Type, module_.expr(type.size).range,
+                             "a rolling size is a positive i64 constant or a duration");
+                    }
+                    const auto max_size = integer_value(size);
+                    if (!max_size || *max_size <= 0)
                     {
                         fail(Category::Type, module_.expr(type.size).range,
                              "a rolling size is a positive i64 constant or a duration");
@@ -469,14 +519,102 @@ namespace hgl::codegen
 
         // ------------------------------------------------------------ values
 
-        Value make_const(std::string code, HType type, SourceRange range)
+        Value make_const(std::string code, HType type, SourceRange range,
+                         std::variant<std::monostate, std::int64_t, double> number = {})
         {
             Value value;
             value.kind  = Value::Kind::Const;
             value.code  = std::move(code);
             value.type  = std::move(type);
             value.range = range;
+            value.number = std::move(number);
             return value;
+        }
+
+        std::optional<double> numeric_value(const Value &value)
+        {
+            if (const auto *integer = std::get_if<std::int64_t>(&value.number)) { return static_cast<double>(*integer); }
+            if (const auto *floating = std::get_if<double>(&value.number)) { return *floating; }
+            return std::nullopt;
+        }
+
+        std::optional<std::int64_t> integer_value(const Value &value)
+        {
+            if (const auto *integer = std::get_if<std::int64_t>(&value.number)) { return *integer; }
+            return std::nullopt;
+        }
+
+        std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs)
+        {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
+            return lhs + rhs;
+        }
+
+        std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs)
+        {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
+            return lhs - rhs;
+        }
+
+        std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs)
+        {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if (lhs == 0 || rhs == 0) { return 0; }
+            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
+            if (lhs > 0)
+            {
+                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
+            }
+            else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) { return std::nullopt; }
+            return lhs * rhs;
+        }
+
+        std::variant<std::monostate, std::int64_t, double> folded_number(ast::BinaryOp op, const Value &lhs,
+                                                                        const Value &rhs)
+        {
+            const auto left_int  = integer_value(lhs);
+            const auto right_int = integer_value(rhs);
+            if (left_int && right_int)
+            {
+                std::optional<std::int64_t> result;
+                switch (op)
+                {
+                    case ast::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
+                    case ast::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
+                    case ast::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
+                    case ast::BinaryOp::Rem:
+                        if (*right_int != 0 &&
+                            !(*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1))
+                        {
+                            result = *left_int % *right_int;
+                        }
+                        break;
+                    case ast::BinaryOp::Div:
+                        if (*right_int != 0) { return static_cast<double>(*left_int) / static_cast<double>(*right_int); }
+                        return {};
+                    default: return {};
+                }
+                return result ? std::variant<std::monostate, std::int64_t, double>{*result}
+                              : std::variant<std::monostate, std::int64_t, double>{};
+            }
+            const auto left = numeric_value(lhs);
+            const auto right = numeric_value(rhs);
+            if (!left || !right) { return {}; }
+            switch (op)
+            {
+                case ast::BinaryOp::Add: return *left + *right;
+                case ast::BinaryOp::Sub: return *left - *right;
+                case ast::BinaryOp::Mul: return *left * *right;
+                case ast::BinaryOp::Div:
+                    if (*right != 0.0) { return *left / *right; }
+                    return {};
+                default: return {};
+            }
         }
 
         Value make_port(std::string code, HType type, SourceRange range)
@@ -554,7 +692,14 @@ namespace hgl::codegen
                 case ast::UnaryOp::Negate:
                     if (operand.type.numeric() || operand.type.is(ast::ScalarType::Duration))
                     {
-                        return make_const("(-" + operand.code + ")", operand.type, range);
+                        std::variant<std::monostate, std::int64_t, double> number;
+                        if (const auto integer = integer_value(operand);
+                            integer && *integer != std::numeric_limits<std::int64_t>::min())
+                        {
+                            number = -*integer;
+                        }
+                        else if (const auto *floating = std::get_if<double>(&operand.number)) { number = -*floating; }
+                        return make_const("(-" + operand.code + ")", operand.type, range, std::move(number));
                     }
                     fail(Category::Type, range, "unary '-' needs a number, got " + value_type(operand.type, range));
                 case ast::UnaryOp::Not:
@@ -576,7 +721,8 @@ namespace hgl::codegen
                          value_type(lhs.type, range) + " and " + value_type(rhs.type, range));
             };
             const auto binary = [&](std::string_view spelling, HType type) {
-                return make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range);
+                return make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range,
+                                  folded_number(op, lhs, rhs));
             };
             const HType float_t = scalar_type(ScalarType::F64);
             const HType bool_t  = scalar_type(ScalarType::Bool);
@@ -608,13 +754,24 @@ namespace hgl::codegen
                     // Like hgraph's `div_`: integer division is a float.
                     if (numeric)
                     {
+                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0)
+                        {
+                            fail(Category::Type, range, "division by zero");
+                        }
                         return make_const("(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" +
                                               rhs.code + "))",
-                                          float_t, range);
+                                          float_t, range, folded_number(op, lhs, rhs));
                     }
                     return type_error();
                 case BinaryOp::Rem:
-                    if (ints) { return binary("%", lhs.type); }
+                    if (ints)
+                    {
+                        if (const auto divisor = integer_value(rhs); divisor && *divisor == 0)
+                        {
+                            fail(Category::Type, range, "division by zero");
+                        }
+                        return binary("%", lhs.type);
+                    }
                     return type_error();
                 case BinaryOp::Equal:
                 case BinaryOp::NotEqual:
@@ -750,12 +907,12 @@ namespace hgl::codegen
                     if constexpr (std::is_same_v<T, ast::IntLiteral>)
                     {
                         return make_const("hgraph::Int{" + std::to_string(node.value) + "}", scalar_type(ast::ScalarType::I64),
-                                          expr.range);
+                                          expr.range, static_cast<std::int64_t>(node.value));
                     }
                     else if constexpr (std::is_same_v<T, ast::FloatLiteral>)
                     {
                         return make_const("hgraph::Float{" + float_literal(node.value) + "}", scalar_type(ast::ScalarType::F64),
-                                          expr.range);
+                                          expr.range, node.value);
                     }
                     else if constexpr (std::is_same_v<T, ast::StringLiteral>)
                     {
@@ -1043,9 +1200,11 @@ namespace hgl::codegen
                         }
                         // A unique C++ local per declaration: HGL lets a
                         // later `let` shadow an earlier one in a block.
-                        std::string local = cpp_name(node.name.text);
-                        const int   count = local_counts_[local]++;
-                        if (count != 0) { local += "_" + std::to_string(count); }
+                        const std::string base = cpp_name(node.name.text);
+                        std::string       local = base;
+                        int              &suffix = local_counts_[base];
+                        while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
+                        local_names_.insert(local);
                         out.line((node.mutable_ ? "auto " : "const auto ") + local + " = " + value.code + ";");
                         value.code       = local;
                         frame.locals[id] = std::move(value);
@@ -1077,7 +1236,25 @@ namespace hgl::codegen
                         }
                         if (current.kind != value.kind)
                         {
-                            unsupported(stmt.range, "reassigning a var between a constant and a time-series");
+                            fail(Category::Type, stmt.range,
+                                 "assignment to '" + slice(place.range) + "' changes its inferred type");
+                        }
+                        if (current.is_const())
+                        {
+                            value.code = as_const(value, current.type, value.range,
+                                                  "assignment to '" + slice(place.range) + "'");
+                            value.type = current.type;
+                        }
+                        else if (current.is_port())
+                        {
+                            // `auto` fixes the C++ port type at the declaration.
+                            // Retain that static HGL type after every rebind and
+                            // narrow an erased operator result at this boundary.
+                            if (current.type.kind != HType::Kind::Unknown)
+                            {
+                                value.code = as_port(value, current.type, value.range);
+                            }
+                            value.type = current.type;
                         }
                         out.line(current.code + " = " + value.code + ";");
                         Value updated       = value;
@@ -1286,11 +1463,14 @@ namespace hgl::codegen
 
             // The body.
             local_counts_.clear();
+            local_names_.clear();
+            local_names_.insert("w");
             frame.params.resize(fn.signature.parameters.size());
             for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
             {
                 const ast::Parameter &param = fn.signature.parameters[i];
                 const HType           type  = type_of(param.type, frame);
+                local_names_.insert(cpp_name(param.name.text));
                 if (param.is_const)
                 {
                     frame.params[i] = make_const(cpp_name(param.name.text) + ".value()", type, param.name.range);
@@ -1474,20 +1654,37 @@ namespace hgl::codegen
             basename_             = file_.path();
             if (const auto slash = basename_.find_last_of("/\\"); slash != std::string::npos) { basename_.erase(0, slash + 1); }
 
-            std::string guard = "HGL_GENERATED_";
-            for (const char c : result.module_name) { guard += c == '.' ? '_' : static_cast<char>(std::toupper(static_cast<unsigned char>(c))); }
-            guard += "_H";
-
             for (const ast::DeclId id : resolved_.structs) { unsupported(module_.decl(id).range, "a struct declaration"); }
 
             // Every emitted function is checked up front so the whole unit
             // fails closed before a partial pair is written.
             std::vector<ast::DeclId> exports;
             std::vector<ast::DeclId> impls;
+            std::map<std::string, std::string> cpp_functions;
             for (const ast::DeclId id : resolved_.functions)
             {
                 check_supported(id);
                 const ast::FunctionDecl &fn = function(id);
+                const std::string        source_name{fn.name.text};
+                const std::string        generated_name = cpp_name(source_name);
+                if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
+                    !inserted && found->second != source_name)
+                {
+                    backend(fn.name.range, "C++ function '" + source_name + "' collides with '" + found->second +
+                                               "' as '" + generated_name + "'");
+                }
+                std::map<std::string, std::string> cpp_parameters;
+                for (const ast::Parameter &param : fn.signature.parameters)
+                {
+                    const std::string parameter_name{param.name.text};
+                    const std::string generated_parameter = cpp_name(parameter_name);
+                    if (const auto [found, inserted] = cpp_parameters.emplace(generated_parameter, parameter_name);
+                        !inserted && found->second != parameter_name)
+                    {
+                        backend(param.name.range, "C++ parameter '" + parameter_name + "' collides with '" + found->second +
+                                                      "' as '" + generated_parameter + "'");
+                    }
+                }
                 if (fn.visibility == ast::FunctionVisibility::Export) { exports.push_back(id); }
                 if (fn.visibility == ast::FunctionVisibility::Impl) { impls.push_back(id); }
             }
@@ -1550,8 +1747,7 @@ namespace hgl::codegen
             Writer header;
             const std::string banner = "// Generated by hgl " + options_.tool_version + " from " + basename_ + "; do not edit.";
             header.line(banner);
-            header.line("#ifndef " + guard);
-            header.line("#define " + guard);
+            header.line("#pragma once");
             header.line();
             header.line("#include <hgraph/lib/std/operators/operators.h>");
             if (uses_analytics_) { header.line("#include <hgraph/analytics/operators.h>"); }
@@ -1598,8 +1794,6 @@ namespace hgl::codegen
             header.line("void register_operators();");
             header.dedent();
             header.line("}  // namespace " + namespace_);
-            header.line();
-            header.line("#endif  // " + guard);
 
             Writer source;
             source.line(banner);
@@ -1612,19 +1806,33 @@ namespace hgl::codegen
 
             if (!options_.python_native_module.empty())
             {
+                if (!is_python_identifier(options_.python_native_module) || is_python_keyword(options_.python_native_module))
+                {
+                    backend(SourceRange{0, 0}, "'" + options_.python_native_module +
+                                                        "' is not a valid Python native-module identifier");
+                }
                 std::string py;
                 py += "\"\"\"Generated by hgl " + options_.tool_version + " from " + basename_ + "; do not edit.\n\n";
                 py += "Python surface of HGL module ``" + result.module_name + "``: importing this module loads the\n";
                 py += "native registration module and exposes each exported function as an hgraph operator.\n\"\"\"\n\n";
-                py += "from hgraph import operator_function\n\n";
-                py += "from . import " + options_.python_native_module + " as _native  # noqa: F401  (registers the operators)\n\n";
+                py += "from hgraph import operator_function as _hgl_operator_function\n\n";
+                py += "from . import " + options_.python_native_module + " as _hgl_native  # noqa: F401  (registers the operators)\n\n";
+                py += "globals().update({\n";
                 std::vector<std::string> names;
-                for (const std::string &name : result.exports)
+                std::map<std::string, std::string> python_exports;
+                for (std::size_t i = 0; i < result.exports.size(); ++i)
                 {
-                    py += name + " = operator_function(" + quote(result.module_name + "." + name) + ")\n";
-                    names.push_back(quote(name));
+                    const std::string &name  = result.exports[i];
+                    const std::string  alias = python_name(name);
+                    if (const auto [found, inserted] = python_exports.emplace(alias, name); !inserted)
+                    {
+                        backend(module_.decl(exports[i]).range,
+                                "Python export '" + name + "' collides with '" + found->second + "' as '" + alias + "'");
+                    }
+                    py += "    " + quote(alias) + ": _hgl_operator_function(" + quote(result.module_name + "." + name) + "),\n";
+                    names.push_back(quote(alias));
                 }
-                py += "\n__all__ = [" + join(names, ", ") + "]\n";
+                py += "})\n\n__all__ = [" + join(names, ", ") + "]\n";
                 result.python = std::move(py);
             }
             return result;

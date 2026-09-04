@@ -1854,16 +1854,33 @@ namespace hgl::wiring
                         {
                             fail(Category::Type, place.range, "'" + slice(place.range) + "' is not a 'var'");
                         }
-                        Slot value = eval_expr(node.value, frame);
+                        const Slot &current = frame.locals.at(target);
+                        Slot        value   = eval_expr(node.value, frame);
                         if (node.op != ast::AssignOp::Assign)
                         {
-                            const Slot current = frame.locals.at(target);
                             const ast::BinaryOp op = node.op == ast::AssignOp::Add   ? ast::BinaryOp::Add
                                                      : node.op == ast::AssignOp::Sub ? ast::BinaryOp::Sub
                                                      : node.op == ast::AssignOp::Mul ? ast::BinaryOp::Mul
                                                                                      : ast::BinaryOp::Div;
                             value = current.is_const() && value.is_const() ? fold_binary(op, current, value, stmt.range)
                                                                            : wire_binary(op, current, value, stmt.range);
+                        }
+                        if (current.kind != value.kind)
+                        {
+                            fail(Category::Type, stmt.range,
+                                 "assignment to '" + slice(place.range) + "' changes its inferred type");
+                        }
+                        if (current.is_const())
+                        {
+                            value = make_const(convert(value.value, current.meta(), value.range,
+                                                       "assignment to '" + slice(place.range) + "'"),
+                                               value.range);
+                        }
+                        else if (current.is_port() && current.port.schema != value.port.schema)
+                        {
+                            fail(Category::Type, value.range,
+                                 "assignment to '" + slice(place.range) + "' expects " +
+                                     std::string{current.port.schema->name()} + ", got " + std::string{value.port.schema->name()});
                         }
                         frame.locals[target] = std::move(value);
                     }

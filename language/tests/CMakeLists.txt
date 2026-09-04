@@ -133,6 +133,23 @@ add_test(
         -P ${CMAKE_CURRENT_SOURCE_DIR}/repl/repl_smoke.cmake
 )
 
+# Configure the public package helper as an installed consumer would: there is
+# no `hgl` target, the compiler is a file dependency, a keyword module path is
+# escaped exactly like emit-cpp, and the Python native target stays beside its
+# wrappers even under a multi-config generator.
+add_test(
+    NAME hgraph_language_cmake_package
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DHELPER=${CMAKE_CURRENT_SOURCE_DIR}/../cmake/HglLanguage.cmake
+        -DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/../cmake/hgl_python_module.cpp.in
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/package
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/cmake-package
+        -DPYTHON=${Python_EXECUTABLE}
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_test.cmake
+)
+
 # The guide's test example passes end to end through the driver
 # (user guide, "Testing and running").
 add_test(

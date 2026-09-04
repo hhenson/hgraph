@@ -146,6 +146,31 @@ target_compile_definitions(hgl PRIVATE
     HGRAPH_LANGUAGE_VERSION="${PROJECT_VERSION}"
 )
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
+# `hgl` is a build-time tool for installed consumers. Preserve runtime search
+# paths contributed by external shared dependencies when CMake installs the
+# executable; otherwise HglLanguage.cmake can find the compiler but a
+# pyarrow-backed build cannot launch it. The relative entry supports an SDK
+# installed beside the pyarrow package, while the concrete build path supports
+# ordinary prefix installs on the machine that configured them.
+if(UNIX)
+    if(APPLE)
+        set(_hgl_install_rpath "@loader_path/../pyarrow")
+    else()
+        set(_hgl_install_rpath "$ORIGIN/../pyarrow")
+    endif()
+    if(HGRAPH_PYARROW_LIBRARY_DIR)
+        list(APPEND _hgl_install_rpath "${HGRAPH_PYARROW_LIBRARY_DIR}")
+    elseif(TARGET hgraph::pyarrow_arrow)
+        get_target_property(_hgl_pyarrow_location hgraph::pyarrow_arrow IMPORTED_LOCATION)
+        if(_hgl_pyarrow_location AND NOT _hgl_pyarrow_location MATCHES "-NOTFOUND$")
+            get_filename_component(_hgl_pyarrow_dir "${_hgl_pyarrow_location}" DIRECTORY)
+            list(APPEND _hgl_install_rpath "${_hgl_pyarrow_dir}")
+        endif()
+    endif()
+    set_target_properties(hgl PROPERTIES
+        INSTALL_RPATH "${_hgl_install_rpath}"
+        INSTALL_RPATH_USE_LINK_PATH ON)
+endif()
 hgl_link_runtime_executable(hgl)
 hgl_apply_warnings(hgl)
 

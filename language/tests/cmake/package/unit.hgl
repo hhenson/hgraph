@@ -1,0 +1,3 @@
+    module pkg.new
+
+export fn class(value: f64) -> f64 => value

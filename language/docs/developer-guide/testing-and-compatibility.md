@@ -370,13 +370,23 @@ emitter prints (hgraph-free, over a table of kernel names like the resolver
 tests): the namespace, the markers and their selectors, declarations and
 out-of-line definitions, the folding rules, `const` wiring at a temporal
 parameter, marker and named-argument spelling, helper ordering, keyword
-escaping, the Python wrapper, determinism, and every fail-closed diagnostic.
+escaping, Python keyword aliases and collisions, fixed-type `var` assignment,
+zero-divisor and rolling-size diagnostics, the Python wrapper, determinism,
+and every fail-closed diagnostic.
 `tests/codegen/generated_tests.cpp` then compiles `tests/codegen/parity.hgl`
 through `hgl_add_module()` under the repository's warnings and evaluates the
 generated graphs with `eval_node` — directly by struct and by registry name,
 where the `const` defaults apply — asserting the ticks the module's own
 `test` blocks assert. The command itself is checked on the examples: the
 composition-only ones emit, a runtime function is rejected by name.
+The CMake package test configures the installed-helper path without an `hgl`
+target, proves that touching the compiler regenerates outputs, checks keyword
+module namespace escaping, and asserts multi-config-safe native-module output.
+Acceptance also installs the SDK to a fresh prefix and builds a small
+`hgl_add_module()` consumer against it. That proves the installed compiler can
+resolve external shared dependencies before generating and compiling the
+consumer module. The language CI also launches `hgl` from a fresh Runtime
+component install on Linux and macOS.
 
 End-to-end tests must:
 

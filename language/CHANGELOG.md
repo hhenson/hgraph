@@ -17,6 +17,11 @@
 - Add the backend-parity fixture `tests/codegen/parity.hgl`, built through
   `hgl test` and through generated C++, and a Linux/macOS CI workflow for the
   toolchain.
+- Keep inferred `var` types stable across assignment, reject invalid rolling
+  sizes and zero constant divisors during C++ emission, produce valid Python
+  aliases for keyword exports, and make installed and multi-config
+  `hgl_add_module()` generation reproducible. Installed `hgl` also retains
+  external dependency search paths so it can run from an SDK prefix.
 
 ## 0.1.0
 
