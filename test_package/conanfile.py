@@ -27,3 +27,7 @@ class HgraphTestPackage(ConanFile):
         if can_run(self):
             self.run(os.path.join(self.cpp.build.bindir, "hgraph_conan_consumer"),
                      env="conanrun")
+            if self.dependencies["hgraph"].options.get_safe("language"):
+                # RFC 0032: the language option ships ``bin/hgl`` reporting
+                # the package's release version.
+                self.run("hgl --version", env="conanrun")
