@@ -47,8 +47,17 @@ ctest --preset cpp -R hgraph_language
 
 `HGL_ENABLE_LINE_EDITING=OFF` drops the REPL's line editor (isocline, MIT,
 fetched at configure time) and its network fetch; the REPL then reads plain
-lines. CI builds the toolchain on Linux and macOS
-(`.github/workflows/language.yml`).
+lines. A build with no network keeps the editor by handing CMake an
+unpacked isocline v1.1.0 source tree:
+`-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
+-DFETCHCONTENT_FULLY_DISCONNECTED=ON` (this is what the Homebrew formula in
+`packaging/homebrew/` does). CI builds the toolchain on Linux and macOS
+(`.github/workflows/language.yml`); `.github/workflows/packaging.yml`
+builds it the way the package channels do.
+
+`hgl --version` prints `hgl <release> (hgraph api <api>)`: the release
+version is hgraph's (`HGRAPH_RELEASE_VERSION`, derived from git tags when
+unset; see `build_system.rst`), and the tool has no version of its own.
 
 For an independent build against an installed hgraph SDK:
 

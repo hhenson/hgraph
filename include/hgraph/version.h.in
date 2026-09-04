@@ -9,10 +9,12 @@ inline constexpr int version_minor = @PROJECT_VERSION_MINOR@;
 inline constexpr int version_patch = @PROJECT_VERSION_PATCH@;
 
 inline constexpr std::string_view version_string = "@PROJECT_VERSION@";
+inline constexpr std::string_view release_version_string = "@HGRAPH_RELEASE_VERSION_STRING@";
 inline constexpr std::string_view git_branch = "@HGRAPH_GIT_BRANCH@";
 inline constexpr std::string_view git_commit_hash = "@HGRAPH_GIT_COMMIT_HASH@";
 inline constexpr std::string_view git_commit_date = "@HGRAPH_GIT_COMMIT_DATE@";
 
 std::string_view version() noexcept;
+std::string_view release_version() noexcept;
 
 }  // namespace hgraph

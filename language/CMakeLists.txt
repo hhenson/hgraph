@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(hgraph_language VERSION 0.1.0 LANGUAGES C CXX)
+# hgl rides the hgraph release train: it reports hgraph::release_version_string
+# (RFC 0032) and carries no version of its own.
+project(hgraph_language LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -142,9 +144,6 @@ hgl_apply_warnings(hgl_driver)
 
 add_executable(hgl src/main.cpp)
 target_compile_features(hgl PRIVATE cxx_std_23)
-target_compile_definitions(hgl PRIVATE
-    HGRAPH_LANGUAGE_VERSION="${PROJECT_VERSION}"
-)
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the

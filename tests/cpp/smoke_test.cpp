@@ -13,6 +13,14 @@ int main() {
         return 1;
     }
 
+    // The release version is stamped from the tag, git describe, or "<api>-dev";
+    // it is never empty and always starts with a digit.
+    if (hgraph::release_version() != hgraph::release_version_string ||
+        hgraph::release_version_string.empty() ||
+        hgraph::release_version_string.front() < '0' || hgraph::release_version_string.front() > '9') {
+        return 1;
+    }
+
     auto       &registry = hgraph::TypeRegistry::instance();
     const auto *int_meta = registry.value_type("int");
     if (int_meta == nullptr || int_meta != registry.scalar_type<hgraph::Int>().schema()) {
@@ -22,6 +30,6 @@ int main() {
         return 1;
     }
 
-    std::cout << "hgraph " << hgraph::version() << '\n';
+    std::cout << "hgraph " << hgraph::release_version() << " (api " << hgraph::version() << ")\n";
     return 0;
 }

@@ -11,7 +11,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> --version
 )
 set_tests_properties(hgraph_language_cli_version PROPERTIES
-    PASS_REGULAR_EXPRESSION "hgl ${PROJECT_VERSION} \\(hgraph [0-9]+\\.[0-9]+\\.[0-9]+\\)"
+    PASS_REGULAR_EXPRESSION "hgl [0-9][^ ]* \\(hgraph api [0-9]+\\.[0-9]+\\.[0-9]+\\)"
 )
 
 # Every guide example parses (developer guide, "Documentation examples").

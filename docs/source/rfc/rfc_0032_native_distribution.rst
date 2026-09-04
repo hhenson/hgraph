@@ -42,7 +42,8 @@ A user on macOS or Linux with no Python installed can:
    program -- including programs with runtime (``state`` / ``when``)
    functions, which are compiled at run time against the installed SDK;
 3. build a C++ program or extension against the installed SDK with
-   ``find_package(hgraph)`` and, for language modules, ``find_package(hgl)``;
+   ``find_package(hgraph)`` and, for language modules, ``hgl_add_module()``
+   from the installed ``HglLanguage.cmake``;
 4. see one version everywhere: the package version, ``hgl --version`` and
    the codegen banner all report the release tag that produced them.
 
@@ -145,7 +146,7 @@ plus one new file::
     <prefix>/lib/libhgraph_stdlib.*
     <prefix>/lib/libhgraph_analytics.*                 analytics kernels
     <prefix>/lib/cmake/hgraph/hgraphConfig.cmake       find_package(hgraph)
-    <prefix>/lib/cmake/hgl/HglLanguage.cmake           find_package(hgl)
+    <prefix>/lib/cmake/hgl/HglLanguage.cmake           hgl_add_module()
     <prefix>/lib/cmake/hgl/hgl_python_module.cpp.in
     <prefix>/lib/hgl/native-context.json               NEW (see below)
     <prefix>/share/hgraph/debugger                     debugger helpers
