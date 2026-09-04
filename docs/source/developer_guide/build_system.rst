@@ -172,7 +172,11 @@ behave identically to a plain CMake install. Dependencies (fmt, spdlog,
 simdjson, date/tz, Arrow 25 with compute + acero, all shared) come from
 Conan Center; the named-zone backend is pinned to ``date`` for
 deterministic behaviour across platforms, and the Python bridge is out of
-scope — wheels remain the Python distribution channel.
+scope — wheels remain the Python distribution channel. fmt, spdlog and
+Arrow are declared with transitive headers and libraries because the
+public headers include them (``hgraph::options`` links them for
+consumers); simdjson and date/tz are implementation details and stay
+private to the package.
 
 Build and test the package locally with::
 

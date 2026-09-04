@@ -90,12 +90,18 @@ class HgraphConan(ConanFile):
 
     def requirements(self):
         # The floors match CMakeLists.txt; fmt is forced because spdlog's
-        # recipe carries its own fmt pin.
-        self.requires("fmt/11.2.0", force=True)
-        self.requires("spdlog/1.15.3")
+        # recipe carries its own fmt pin. The public headers include fmt,
+        # spdlog and Arrow (hgraphConfig.cmake links them into
+        # hgraph::options), so consumers need their headers and libraries;
+        # simdjson and date/tz stay implementation details.
+        self.requires("fmt/11.2.0", force=True,
+                      transitive_headers=True, transitive_libs=True)
+        self.requires("spdlog/1.15.3",
+                      transitive_headers=True, transitive_libs=True)
         self.requires("simdjson/4.6.3")
         self.requires("date/3.0.4")
-        self.requires("arrow/25.0.0")
+        self.requires("arrow/25.0.0",
+                      transitive_headers=True, transitive_libs=True)
 
     def configure(self):
         # The SDK links Arrow's shared targets and needs compute + acero.
