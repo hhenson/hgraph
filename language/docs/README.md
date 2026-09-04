@@ -30,6 +30,9 @@ promise.
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.
 4. [Roadmap](design/roadmap.md) — vertical slices and their acceptance gates.
+5. [Distribution and deployment](design/distribution.md) — release train,
+   package channels (Homebrew first), the relocatable native context, and
+   what a host needs to run an HGL program.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language
