@@ -3016,6 +3016,12 @@ namespace hgraph::stdlib
         static void eval(Out<TsVar<"O">> out) { static_cast<void>(out); }  // never ticks
     };
 
+    // One translation unit per group (conversion_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_conversion_scalar_overloads();
+    void register_conversion_collection_overloads();
+    void register_conversion_combine_overloads();
+
     /** Register the conversion / utility operator overloads. */
     void register_conversion_operators();
 }  // namespace hgraph::stdlib

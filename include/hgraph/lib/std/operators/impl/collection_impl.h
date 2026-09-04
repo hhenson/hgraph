@@ -3986,6 +3986,12 @@ namespace hgraph::stdlib
         register_graph_overload<Operator, tsl_binary_lifted_map<lift<Kernel<Float, Int>>>>();
     }
 
+    // One translation unit per group (collection_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_collection_mapping_overloads();
+    void register_collection_sequence_overloads();
+    void register_collection_aggregate_overloads();
+    void register_collection_set_overloads();
     void register_collection_operators();
 }  // namespace hgraph::stdlib
 

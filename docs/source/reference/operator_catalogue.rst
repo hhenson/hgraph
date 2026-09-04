@@ -39,7 +39,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
    Input whose sign is removed.
 
 Returns
@@ -60,9 +60,9 @@ Accepted native overloads
 
    abs_(ts: TS[int]) -> TS[int]
    abs_(ts: TS[float]) -> TS[float]
-   abs_(ts: TS[timedelta]) -> TS[timedelta]
    abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
    abs_(ts: TIME_SERIES_TYPE) -> OUT
+   abs_(ts: TS[timedelta]) -> TS[timedelta]
 
 .. _python-operator-add_:
 
@@ -79,10 +79,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TSS[K]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TSS[K]``
    Left-hand value. A tick triggers a new result once the overload's validity requirements are met.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
    Right-hand value; compatible plain values are lifted to constants.
 
 ``month_end_policy`` : scalar; ``month_end_policy``
@@ -110,9 +110,13 @@ Accepted native overloads
    add_(lhs: TS[int], rhs: TS[int]) -> TS[int]
    add_(lhs: TS[float], rhs: TS[float]) -> TS[float]
    add_(lhs: TS[str], rhs: TS[str]) -> TS[str]
-   add_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
    add_(lhs: TS[int], rhs: TS[float]) -> TS[float]
    add_(lhs: TS[float], rhs: TS[int]) -> TS[float]
+   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   add_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
    add_(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]
    add_(lhs: TS[timedelta], rhs: TS[datetime]) -> TS[datetime]
    add_(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]
@@ -123,10 +127,6 @@ Accepted native overloads
    add_(lhs: TS[timedelta], rhs: TS[zoned_datetime]) -> TS[zoned_datetime]
    add_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]
    add_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]
-   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
-   add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
    add_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> OUT
    add_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT
@@ -1621,10 +1621,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
    Dividend.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``
    Divisor.
 
 ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -1651,16 +1651,16 @@ Accepted native overloads
    div_(lhs: TS[int], rhs: TS[float]) -> TS[float]
    div_(lhs: TS[float], rhs: TS[int]) -> TS[float]
    div_(lhs: TS[int], rhs: TS[int], divide_by_zero: DivideByZero = ...) -> TS[float]
-   div_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]
-   div_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]
    div_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]
    div_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]
    div_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = ...) -> TS[float]
-   div_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]
    div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
    div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
    div_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
    div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   div_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]
+   div_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]
+   div_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]
 
 .. _python-operator-divmod_:
 
@@ -4304,7 +4304,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``*ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+``*ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
    Value, collection, or variadic inputs to average.
 
 ``default_value`` : time-series; ``TS[SCALAR_1]``
@@ -4333,11 +4333,11 @@ Accepted native overloads
 
 .. code-block:: text
 
-   mean(ts: TS[SCALAR]) -> TS[SCALAR_1]
-   mean(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    mean(ts: TS[int]) -> TS[float]
    mean(ts: TS[float]) -> TS[float]
    mean(*ts: TIME_SERIES_TYPE) -> OUT
+   mean(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   mean(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    mean(ts: TIME_SERIES_TYPE) -> OUT
    mean(ts: TSS[int]) -> TS[float]
    mean(ts: TSS[float]) -> TS[float]
@@ -4947,7 +4947,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[period]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``
    Numeric, duration, or compatible collection input.
 
 Returns
@@ -4968,10 +4968,10 @@ Accepted native overloads
 
    neg_(ts: TS[int]) -> TS[int]
    neg_(ts: TS[float]) -> TS[float]
-   neg_(ts: TS[timedelta]) -> TS[timedelta]
-   neg_(ts: TS[period]) -> TS[period]
    neg_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
    neg_(ts: TIME_SERIES_TYPE) -> OUT
+   neg_(ts: TS[timedelta]) -> TS[timedelta]
+   neg_(ts: TS[period]) -> TS[period]
 
 .. _python-operator-not_:
 
@@ -5178,7 +5178,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
    Numeric or compatible collection input.
 
 Returns
@@ -5199,9 +5199,9 @@ Accepted native overloads
 
    pos_(ts: TS[int]) -> TS[int]
    pos_(ts: TS[float]) -> TS[float]
-   pos_(ts: TS[timedelta]) -> TS[timedelta]
    pos_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
    pos_(ts: TIME_SERIES_TYPE) -> OUT
+   pos_(ts: TS[timedelta]) -> TS[timedelta]
 
 .. _python-operator-pow_:
 
@@ -6869,10 +6869,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
    Value from which ``rhs`` is subtracted.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
    Value to subtract; compatible plain values are lifted to constants.
 
 ``month_end_policy`` : scalar; ``month_end_policy``
@@ -6902,9 +6902,13 @@ Accepted native overloads
 
    sub_(lhs: TS[int], rhs: TS[int]) -> TS[int]
    sub_(lhs: TS[float], rhs: TS[float]) -> TS[float]
-   sub_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
    sub_(lhs: TS[int], rhs: TS[float]) -> TS[float]
    sub_(lhs: TS[float], rhs: TS[int]) -> TS[float]
+   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   sub_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
    sub_(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]
    sub_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[timedelta]
    sub_(lhs: TS[date], rhs: TS[date]) -> TS[timedelta]
@@ -6914,10 +6918,6 @@ Accepted native overloads
    sub_(lhs: TS[zoned_datetime], rhs: TS[timedelta]) -> TS[zoned_datetime]
    sub_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]
    sub_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]
-   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
-   sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    sub_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
    sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1], cmp: callable = ...) -> TS[SCALAR]
    sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT
@@ -6984,14 +6984,14 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``*ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+``*ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
    Value, collection, or variadic inputs to sum.
-
-``default_value`` : time-series; ``TS[SCALAR_1]``
-   Value emitted when the primary input has no usable value.
 
 ``reset`` : time-series; ``TS[bool]``
    Optional signal that resets a running sum to its identity.
+
+``default_value`` : time-series; ``TS[SCALAR_1]``
+   Value emitted when the primary input has no usable value.
 
 ``lhs`` : time-series; ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
    The left-hand operand.
@@ -7016,13 +7016,13 @@ Accepted native overloads
 
 .. code-block:: text
 
-   sum_(ts: TS[SCALAR]) -> TS[SCALAR_1]
-   sum_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    sum_(ts: TS[int]) -> TS[int]
    sum_(ts: TS[float]) -> TS[float]
    sum_(ts: TS[int], reset: TS[bool]) -> TS[int]
    sum_(ts: TS[float], reset: TS[bool]) -> TS[float]
    sum_(*ts: TIME_SERIES_TYPE) -> OUT
+   sum_(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   sum_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    sum_(ts: TIME_SERIES_TYPE) -> OUT
    sum_(ts: TSS[int]) -> TS[int]
    sum_(ts: TSS[float]) -> TS[float]
