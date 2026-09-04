@@ -148,14 +148,21 @@ target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the
 # executable; otherwise HglLanguage.cmake can find the compiler but a
-# pyarrow-backed build cannot launch it. The relative entry supports an SDK
-# installed beside the pyarrow package, while the concrete build path supports
-# ordinary prefix installs on the machine that configured them.
+# pyarrow-backed build cannot launch it. The `../lib` entry is the standard
+# prefix layout (`bin/hgl` beside `lib/libhgraph_*` when HGRAPH_BUILD_SHARED
+# is on, RFC 0032); the `../pyarrow` entry supports an SDK installed beside
+# the pyarrow package; the packager's CMAKE_INSTALL_RPATH, if any, comes
+# first; and the concrete build path supports ordinary prefix installs on
+# the machine that configured them.
 if(UNIX)
     if(APPLE)
-        set(_hgl_install_rpath "@loader_path/../pyarrow")
+        set(_hgl_install_rpath "@loader_path/../${CMAKE_INSTALL_LIBDIR}" "@loader_path/../pyarrow")
     else()
-        set(_hgl_install_rpath "$ORIGIN/../pyarrow")
+        set(_hgl_install_rpath "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}" "$ORIGIN/../pyarrow")
+    endif()
+    if(CMAKE_INSTALL_RPATH)
+        list(PREPEND _hgl_install_rpath ${CMAKE_INSTALL_RPATH})
+        list(REMOVE_DUPLICATES _hgl_install_rpath)
     endif()
     if(HGRAPH_PYARROW_LIBRARY_DIR)
         list(APPEND _hgl_install_rpath "${HGRAPH_PYARROW_LIBRARY_DIR}")

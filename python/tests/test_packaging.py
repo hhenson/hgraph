@@ -220,6 +220,8 @@ def test_source_distribution_excludes_private_release_evidence():
     assert "reports/**" in excluded
     assert "ext/**" in excluded
     assert "extensions/**" in excluded
+    assert "language/**" in excluded
+    assert "packaging/**" in excluded
     assert "benchmarks/.venv*/**" in excluded
     assert "benchmarks/results/**" in excluded
 

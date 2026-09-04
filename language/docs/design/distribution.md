@@ -133,10 +133,11 @@ flags, neither of which the language has yet.
 
 **Formula.** Every dependency exists in homebrew-core already:
 `apache-arrow` (25.0.1, built with compute and acero), `fmt`, `spdlog`,
-`simdjson`, and `howard-hinnant-date` (built as the tz library over the
-system database, matching the Conan configuration). Isocline is not, and
-Homebrew's build sandbox has no network, so the REPL's line editor is a
-formula resource handed to FetchContent:
+`simdjson`, `howard-hinnant-date` (built as the tz library over the
+system database, matching the Conan configuration), and `boost` at build
+time only (the analytics kernels use header-only Boost.Math, floor 1.90).
+Isocline is not, and Homebrew's build sandbox has no network, so the
+REPL's line editor is a formula resource handed to FetchContent.
 
 The formula itself is kept in this repository as
 `packaging/homebrew/Formula/hgraph.rb`, next to the tap templates that
@@ -146,8 +147,9 @@ release-switch tasks say when. The notes below apply to it.
 Notes on the formula:
 
 - `HGRAPH_BUILD_SHARED=ON` so the SDK libraries in the prefix are the ones
-  `hgl` and AOT packages share; Homebrew's `std_cmake_args` sets the
-  install rpath.
+  `hgl` and AOT packages share. `hgl` carries `@loader_path/../lib`
+  (`$ORIGIN/../lib`) itself; the libraries' rpath comes from
+  `CMAKE_INSTALL_RPATH`, which Homebrew's `std_cmake_args` sets.
 - Analytics is on because the examples import `hgraph.analytics` and the
   language CI builds it; the other first-party extensions bring
   dependencies (librdkafka, object stores) that stay out of the formula
@@ -180,8 +182,10 @@ extensions with Conan and want the same lock file to carry the compiler.
 ### Container image
 
 `packaging/docker/Dockerfile` builds `ghcr.io/hhenson/hgl:<release>`: a
-Debian image with GCC 14, the installed prefix, and the distribution's
-dependency packages, built from the same configure the formula uses. The
+Debian (trixie) image with GCC 14, Arrow from the Apache apt repository,
+and the prefix installed to `/usr/local`, built from the formula's
+configure except that fmt, spdlog, simdjson, date and Boost.Math are
+fetched because Debian's packages sit below the tree's floors. The
 packaging workflow builds it on pull requests and runs the smoke inside it;
 pushing to the registry on tags is a release-switch step. It serves two
 things the formula does not: CI jobs that run `hgl test` on a project, and
