@@ -1100,14 +1100,16 @@ What is emitted, in this order:
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
   block.
-- **Registration.** `void register_operators()` registers each export and
+- **Registration.** `hgraph::OperatorProviderHandle register_operators()`
+  registers each export and
   each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
   composition or `hgraph::register_overload<ops::x, x>()` for a runtime node.
   Private runtime helpers get translation-unit-local markers under the same
   module-qualified identities so direct wiring can compose them without
-  exposing them in the module header. Registration uses a keyed
-  `OperatorRegistry` installer named after the module and then runs the
-  installers, so a registry reset replays them and repeated calls are no-ops.
+  exposing them in the module header. Registration creates a keyed provider
+  installer named after the module, activates exactly that provider, and
+  returns its opaque handle. A failed activation removes the new provider;
+  registry reset replays active installers without resurrecting a removed one.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
   to `hgraph.operator_function("module.name")`. Python keywords gain a
@@ -1181,7 +1183,7 @@ exports hgraph symbols and the generated image does not link a second static
 hgraph, so both use one registry. This path is currently Unix-only.
 
 The native cache is format-versioned under a platform per-user cache directory,
-or `HGL_CACHE_DIR/v1` when overridden. Its SHA-256 key covers the emitted
+or `HGL_CACHE_DIR/v2` when overridden. Its SHA-256 key covers the emitted
 header, source and registration bootstrap; the registration ABI; the resolved
 compiler executable path and digest, reported version and target, and effective
 arguments; CMake system, processor and configuration; hgraph version/commit;
@@ -1206,16 +1208,16 @@ and hashed, or when no per-user cache location is available. There is no shared
 temporary-directory cache fallback. `HGL_DISABLE_CACHE=1` requests the
 transient path explicitly. Cache eviction is not automated in this prototype.
 
-Loaded images remain resident for the short-lived command because registry
-callbacks point into them. Successful transient build directories are removed;
-a compile failure retains its complete directory and reports the path.
+Loaded images remain resident for the process because registry callbacks may
+still point into them. Logical provider removal controls visibility; physical
+unloading is deliberately deferred. Successful transient build directories are
+removed; a compile failure retains its complete directory and reports the path.
 
-The REPL still uses only direct wiring. Hgraph now provides provider-scoped
-operator installer/candidate removal and graph-plan leases; the HGL loader must
-retain those handles and add transactional replacement before a replacement
-image can become active. The parity suite runs every composition test accepted by
-both backends and compares the recorded ticks; the runtime fixture executes
-both as an ahead-of-time module and through the scripted loader.
+The REPL uses direct wiring for composition-only sessions and the same cached
+native loader for a session containing runtime functions or implementations.
+The parity suite runs every composition test accepted by both backends and
+compares the recorded ticks; the runtime fixture executes both as an
+ahead-of-time module and through the scripted loader.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
@@ -1233,9 +1235,9 @@ prints as a constant, the schema name of a port, or a harness sequence.
 Input continues onto following lines while brackets are open (the prompt
 becomes `...> `); `:quit` leaves, `:list` shows the session and the
 retained bindings, `:help` the commands. Diagnostics locate into the
-session text as `<repl>:line:col`. The REPL never emits C++: a session
-that needs the C++ backend reports the `backend` diagnostic and keeps the
-last valid session.
+session text as `<repl>:line:col`. A declaration whose complete session needs
+the C++ backend is emitted and staged before it is accepted. Failure keeps both
+the last valid session text and its active native provider.
 
 Input comes through `driver/line_reader`: on a terminal, with the tool
 built with `HGL_ENABLE_LINE_EDITING` (default on), it is an isocline line
@@ -1248,11 +1250,12 @@ the REPL's loop. Off a terminal (a pipe, a file), or with the option off or
 printed, so `tests/repl/repl_smoke.cmake` and scripted use see the same
 text they always did.
 
-Replacing a REPL module stops and destroys graphs holding its leases, removes
-the old module handle and installer intent, initializes the replacement, and
-rebuilds the registry from the active module set. If removal cannot complete,
-the old revision remains active and the replacement fails atomically. Retaining
-old native images is acceptable; retaining their candidates is not.
+Replacement happens between evaluations, after temporary graphs and plans have
+released their leases. The driver compiles and loads a candidate image first,
+removes the old provider handle and installer intent, and activates the new
+provider. If activation throws, it reactivates the old image and reports the
+failure. Old native images remain mapped; their candidates do not remain
+selectable or return after reset.
 
 A future JIT must consume the same classified semantic IR and pass backend
 parity before it can replace either backend.

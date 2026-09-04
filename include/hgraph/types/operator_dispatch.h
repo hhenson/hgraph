@@ -494,6 +494,9 @@ namespace hgraph
          */
         OperatorProviderHandle register_installer(std::string_view key, std::function<void()> installer);
 
+        /** Apply one exact provider without running unrelated pending installers. */
+        void activate_provider(const OperatorProviderHandle &provider);
+
         /** Apply every installer not applied since the last reset. */
         void run_installers();
 
@@ -601,6 +604,8 @@ namespace hgraph
         // reset point for all wiring-time global state.
 
       private:
+        void run_installer(std::size_t index);
+
         void erase_provider_candidates(
             const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider) noexcept;
 

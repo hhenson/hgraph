@@ -290,6 +290,31 @@ TEST_CASE("installers: a throwing provider rolls back candidates before retry")
     CHECK(registry.remove_provider(provider));
 }
 
+TEST_CASE("installers: targeted provider activation leaves unrelated intent pending")
+{
+    auto &registry = OperatorRegistry::instance();
+    int   selected_attempts = 0;
+    int   unrelated_attempts = 0;
+    OperatorProviderHandle selected = registry.register_installer("test.targeted-provider", [&] {
+        ++selected_attempts;
+        register_overload<provider_probe, provider_probe_impl>();
+    });
+    OperatorProviderHandle unrelated = registry.register_installer("test.unrelated-pending-provider", [&] {
+        ++unrelated_attempts;
+        throw std::runtime_error("unrelated provider must remain pending");
+    });
+
+    registry.activate_provider(selected);
+    CHECK(selected_attempts == 1);
+    CHECK(unrelated_attempts == 0);
+    CHECK(provider_probe_count() == 1);
+    CHECK(registry.remove_provider(selected));
+
+    CHECK_THROWS_AS(registry.activate_provider(unrelated), std::runtime_error);
+    CHECK(unrelated_attempts == 1);
+    CHECK(registry.remove_provider(unrelated));
+}
+
 TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")
 {
     auto &registry = OperatorRegistry::instance();

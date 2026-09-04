@@ -265,7 +265,7 @@ namespace
         auto &operator_registry = OperatorRegistry::instance();
         OperatorProviderHandle provider = operator_registry.register_installer(
             "hgraph.test.probe", &install_probe_backend);
-        operator_registry.run_installers();
+        operator_registry.activate_provider(provider);
 
         const auto run_round_trip = [] {
             Wiring wiring;

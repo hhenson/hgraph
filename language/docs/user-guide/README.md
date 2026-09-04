@@ -7,8 +7,9 @@ source calls reach hgraph.
 > **Design preview:** the current `hgl` command checks these examples and
 > runs composition functions directly and, for file-based `hgl test` and
 > `hgl run`, compiles, caches, and loads the documented scalar runtime-node
-> subset on Unix.
-> The REPL remains composition-only within the limits listed in
+> subset on Unix. The REPL uses the same native route and transactionally
+> replaces the session image when a runtime declaration is accepted.
+> The remaining limits are listed in
 > [Testing and running](testing-and-running.md#first-pass-limits). The
 > documents record syntax agreed during design discussion, not a source
 > compatibility promise.

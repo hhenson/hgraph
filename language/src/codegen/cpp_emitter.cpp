@@ -2238,7 +2238,8 @@ namespace hgl::codegen
             frame.runtime = true;
             out.line("// " + where(module_.decl(decl).range));
             out.open("struct " + cpp_name(fn.name.text));
-            out.line("static constexpr auto name = " + quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+            out.line("[[maybe_unused]] static constexpr auto name = " +
+                     quote(module_name_ + "." + std::string{fn.name.text}) + ";");
             emit_runtime_defaults(decl, out);
             if (!info.states.empty())
             {
@@ -2385,7 +2386,8 @@ namespace hgl::codegen
             else
             {
                 out.open("struct " + name);
-                out.line("static constexpr auto name = " + quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+                out.line("[[maybe_unused]] static constexpr auto name = " +
+                         quote(module_name_ + "." + std::string{fn.name.text}) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 std::vector<std::string> defaults;
@@ -2683,9 +2685,9 @@ namespace hgl::codegen
             // Registration: exported functions and operator implementations
             // become registry candidates under module-qualified names, and
             // the installer replays them after a registry reset.
-            body.open("void register_operators()");
-            body.open("static const bool once = []");
-            body.open("hgraph::OperatorRegistry::instance().register_installer(" + quote(result.module_name) + ", []");
+            body.open("hgraph::OperatorProviderHandle register_operators()");
+            body.line("auto &registry = hgraph::OperatorRegistry::instance();");
+            body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
             for (const ast::DeclId id : exports)
             {
                 const std::string name = cpp_name(function(id).name.text);
@@ -2722,10 +2724,14 @@ namespace hgl::codegen
                 body.line(registration + "<ops::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
             }
             body.close(");");
-            body.line("hgraph::OperatorRegistry::instance().run_installers();");
-            body.line("return true;");
-            body.close("();");
-            body.line("(void)once;");
+            body.open("try");
+            body.line("registry.activate_provider(provider);");
+            body.close();
+            body.open("catch (...)");
+            body.line("(void)registry.remove_provider(provider);");
+            body.line("throw;");
+            body.close();
+            body.line("return provider;");
             body.close();
             body.dedent();
             body.line("}  // namespace " + namespace_);
@@ -2778,8 +2784,8 @@ namespace hgl::codegen
                 result.exports.push_back(std::string{function(id).name.text});
             }
             header.line("/// Register the module's operators and implementations with the hgraph");
-            header.line("/// registry (idempotent; replayed after a registry reset).");
-            header.line("void register_operators();");
+            header.line("/// registry and return the exact removable provider generation.");
+            header.line("hgraph::OperatorProviderHandle register_operators();");
             header.dedent();
             header.line("}  // namespace " + namespace_);
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Make generated operator registration return a provider handle, add targeted
+  provider activation, and use those handles for transactional runtime-bearing
+  REPL sessions. The native loader ABI and cache advance to v2; a replacement
+  is compiled and loaded before the active provider is swapped, activation can
+  restore the prior provider, and rejected declarations leave the prior session
+  usable.
 - Lower the first scalar runtime-function slice through `hgl emit-cpp` as
   native static nodes: activation from `modified`, variadic `valid` checks,
   ordered `when` handlers, replay-aware aggregate scalar state, `return`,

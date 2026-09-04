@@ -259,9 +259,12 @@ library image for process lifetime.
 
 The hgraph operator registry now supports keyed replayable installers,
 provider-scoped candidate and installer removal, failed-installer rollback, and
-leases retained by graph plans and instances. The language still requires a
-first-class module-registration transaction spanning the other owned surfaces
-(types, exact functions, associations, and native resources); it must not erase
+leases retained by graph plans and instances. Generated operator-only modules
+now return that provider handle, and the scripted/REPL loader uses it for
+logical deactivation and transactional replacement while retaining native
+images for process lifetime. The language still requires a first-class
+module-registration transaction spanning the other owned surfaces (types,
+exact functions, associations, and native resources); it must not erase
 registry internals or privately compose several unrelated handles itself.
 
 ## Native adaptor boundary

@@ -326,8 +326,11 @@ process-wide operator registry.
 The hgraph core suite now covers the operator-owned subset of this matrix:
 provider-specific candidate and installer removal, stale-handle isolation,
 failed-installer rollback and retry, reset non-resurrection, and leases retained
-by both reusable graph plans and runtime graph instances. The generated-module,
-multi-registry transaction and REPL replacement cases remain HGL work.
+by both reusable graph plans and runtime graph instances. Generated-runtime and
+REPL tests additionally cover returned provider handles, logical removal, and a
+failed candidate compilation leaving the previous session active. Multi-registry
+transactions, dependency ordering, and activation-fault injection remain HGL
+work.
 
 ## Direct-wiring backend and the harness
 

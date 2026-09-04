@@ -301,6 +301,7 @@ A process-wide singleton maps an operator name to its candidates:
        static OperatorRegistry &instance();                    // plain static; single-threaded, no locks
        void register_overload(OperatorImpl);
        OperatorProviderHandle register_installer(key, fn);
+       void activate_provider(const OperatorProviderHandle&);  // run exactly this pending installer
        bool remove_provider(const OperatorProviderHandle&);    // rejects live graph/plan leases
        // Pick the unique best candidate and the ResolutionMap it produced.
        std::pair<const OperatorImpl*, ResolutionMap>
@@ -338,6 +339,11 @@ later provider which reuses the same key. Removal erases both active candidates
 and installer intent, so reset cannot replay a removed provider. A throwing
 installer rolls back candidates contributed by its failed attempt before the
 next retry.
+
+``activate_provider`` runs only the installer identified by the supplied
+generation-stable handle. Generated and dynamically loaded modules use it to
+stage a provider without also activating unrelated pending installers, then
+retain the handle for transactional removal or replacement.
 
 Selecting a provider-owned overload retains one lease on the wiring result.
 That lease is carried from ``Wiring`` into the reusable ``GraphBuilder`` and

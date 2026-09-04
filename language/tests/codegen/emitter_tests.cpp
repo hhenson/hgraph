@@ -85,12 +85,12 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->header, "struct plus : hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
                                     "hgraph::Out<hgraph::TS<hgraph::Float>>> {};"));
-    CHECK(contains(emitted->header, "static constexpr auto name = \"hgl.codegen.parity.plus\";"));
+    CHECK(contains(emitted->header, "[[maybe_unused]] static constexpr auto name = \"hgl.codegen.parity.plus\";"));
     CHECK(contains(emitted->header, "static hgraph::Port<hgraph::TS<hgraph::Float>> compose(hgraph::Wiring &, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
     CHECK(contains(emitted->header, "hgraph::Scalar<\"k\", hgraph::Float>"));
     CHECK(contains(emitted->header, "static auto defaults() { return std::tuple{hgraph::arg<\"k\">(hgraph::Float{2.0})}; }"));
-    CHECK(contains(emitted->header, "void register_operators();"));
+    CHECK(contains(emitted->header, "hgraph::OperatorProviderHandle register_operators();"));
     CHECK_FALSE(contains(emitted->header, "struct scale\n"));  // module-internal (scaled_sum is exported)
 
     // The source defines the exports out of line, keeps the helper internal,
@@ -106,6 +106,9 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "if (enabled.value())"));
     CHECK(contains(emitted->source, "const auto shift = (delta.value() * hgraph::Int{2});"));
     CHECK(contains(emitted->source, "register_installer(\"hgl.codegen.parity\""));
+    CHECK(contains(emitted->source, "registry.activate_provider(provider);"));
+    CHECK(contains(emitted->source, "(void)registry.remove_provider(provider);"));
+    CHECK(contains(emitted->source, "return provider;"));
     CHECK(contains(emitted->source, "hgraph::register_graph_overload<ops::plus, plus>();"));
     CHECK(contains(emitted->source, "// parity.hgl:"));
 

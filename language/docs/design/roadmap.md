@@ -191,15 +191,15 @@ Acceptance:
 
 ## Slice 3: scripted workflow
 
-Status: the cached Unix file-command layer is implemented. `hgl test`
-and `hgl run` emit a unit containing runtime functions or implementations,
-build or reuse a complete content-addressed native image, load it into the
-command process's registry, and run through the ordinary wiring backend. Cache
-publication is atomic, damaged entries are quarantined, and compile failures
-retain and report their artifacts. Windows support, child orchestration, cache
-pruning, and replaceable REPL images remain. The underlying hgraph registry now
-has removable provider handles and graph-plan leases; generated HGL lifecycle
-and transactional replacement do not yet consume them.
+Status: the cached Unix command layer is implemented. `hgl test`, `hgl run`,
+and runtime-bearing REPL sessions emit a unit, build or reuse a complete
+content-addressed native image, load it into the command process's registry,
+and run through the ordinary wiring backend. Cache publication is atomic,
+damaged entries are quarantined, and compile failures retain and report their
+artifacts. Generated modules return removable provider handles and REPL
+replacement stages the new image before swapping providers, restoring the old
+one if activation fails. Windows support, child orchestration, cache pruning,
+and a transaction spanning non-operator module surfaces remain.
 
 Deliverables:
 
@@ -207,9 +207,10 @@ Deliverables:
 - portable `hgl run` and `hgl test` child orchestration for programs with
   runtime functions;
 - REPL sessions that accumulate declarations and rebuild through either
-  backend as the session's classification requires;
-- transactional replacement of generated module registration handles without
-  stale candidate or installer state;
+  backend as the session's classification requires (implemented on Unix);
+- transactional replacement of generated operator registration handles without
+  stale candidate or installer state (implemented at the quiescent REPL
+  boundary);
 - testing sources and sinks suitable for exploration without defining native
   adaptors in the language.
 

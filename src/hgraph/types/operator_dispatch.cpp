@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <exception>
+#include <iterator>
 #include <limits>
 
 namespace hgraph
@@ -762,6 +763,53 @@ namespace hgraph
         return OperatorProviderHandle{std::move(provider)};
     }
 
+    void OperatorRegistry::run_installer(std::size_t index)
+    {
+        if (installers_[index].applied || installers_[index].running || !installers_[index].fn) { return; }
+
+        // ``running`` guards re-entrancy; ``applied`` is set only AFTER
+        // success so a throwing installer remains eligible for retry.
+        installers_[index].running = true;
+        const auto provider = installers_[index].provider;
+        const auto previous_provider = std::exchange(active_provider_, provider);
+        try
+        {
+            // Copy: the stored entry may move if the callback appends.
+            const std::function<void()> fn = installers_[index].fn;
+            fn();
+        }
+        catch (...)
+        {
+            active_provider_ = previous_provider;
+            installers_[index].running = false;
+            erase_provider_candidates(provider);
+            throw;
+        }
+        active_provider_ = previous_provider;
+        installers_[index].running = false;
+        installers_[index].applied = true;
+    }
+
+    void OperatorRegistry::activate_provider(const OperatorProviderHandle &handle)
+    {
+        const auto provider = handle.state_;
+        if (provider == nullptr || !provider->active.load(std::memory_order_acquire))
+        {
+            throw std::invalid_argument("cannot activate an empty or inactive operator provider");
+        }
+        if (active_provider_ != nullptr)
+        {
+            throw std::logic_error("cannot activate an operator provider while another installer is running");
+        }
+        const auto installer = std::find_if(installers_.begin(), installers_.end(),
+                                            [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end())
+        {
+            throw std::invalid_argument("cannot activate a stale operator provider");
+        }
+        run_installer(static_cast<std::size_t>(std::distance(installers_.begin(), installer)));
+    }
+
     void OperatorRegistry::run_installers()
     {
         // Indexed iteration: an installer may register further installers
@@ -769,33 +817,7 @@ namespace hgraph
         // freshly appended entries are picked up in the same pass.
         for (std::size_t i = 0; i < installers_.size(); ++i)
         {
-            if (installers_[i].applied || installers_[i].running || !installers_[i].fn)
-            {
-                continue;
-            }
-            // ``running`` guards re-entrancy (an installer that indirectly
-            // re-enters the rebuild must not replay itself); ``applied`` is
-            // set only AFTER success so a throwing installer is retried by
-            // the next rebuild rather than silently stranded.
-            installers_[i].running = true;
-            const auto provider = installers_[i].provider;
-            const auto previous_provider = std::exchange(active_provider_, provider);
-            try
-            {
-                // Copy: the stored entry may move if the callback appends.
-                const std::function<void()> fn = installers_[i].fn;
-                fn();
-            }
-            catch (...)
-            {
-                active_provider_ = previous_provider;
-                installers_[i].running = false;
-                erase_provider_candidates(provider);
-                throw;
-            }
-            active_provider_ = previous_provider;
-            installers_[i].running = false;
-            installers_[i].applied = true;
+            run_installer(i);
         }
     }
 

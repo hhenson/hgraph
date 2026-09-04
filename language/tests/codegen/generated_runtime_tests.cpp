@@ -20,6 +20,25 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("generated module registration owns a removable provider generation", "[codegen][runtime][lifecycle]")
+{
+    hgl::wiring::ensure_session();
+    auto provider = runtime::register_operators();
+    auto same = runtime::register_operators();
+    CHECK(provider.valid());
+    CHECK(provider.active());
+    CHECK(same.active());
+    CHECK(provider.key() == "hgl.codegen.runtime");
+    CHECK(OperatorRegistry::instance().remove_provider(provider));
+    CHECK_FALSE(provider.active());
+    CHECK_FALSE(same.active());
+
+    auto replacement = runtime::register_operators();
+    CHECK(replacement.active());
+    CHECK_FALSE(OperatorRegistry::instance().remove_provider(provider));
+    CHECK(OperatorRegistry::instance().remove_provider(replacement));
+}
+
 TEST_CASE("generated runtime impl functions register as node overloads", "[codegen][runtime]")
 {
     session();

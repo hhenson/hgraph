@@ -206,8 +206,9 @@ run configuration file from the author's side.
 The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 (without `--config`), `emit-cpp`, and `repl` over the `hgraph.std` and
 `hgraph.analytics` kernels. File-based `test` and `run` compile/load the
-supported scalar runtime-node subset through a native cache on Unix; the REPL remains
-composition-only. `test` accepts test names after the file to run a selection.
+supported scalar runtime-node subset through a native cache on Unix; the REPL
+uses the same route when its session contains runtime declarations. `test`
+accepts test names after the file to run a selection.
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
@@ -233,14 +234,15 @@ namespace examples::prices
             hgraph::Wiring &, hgraph::Port<hgraph::TS<hgraph::Tuple<hgraph::Float, hgraph::Float>>>,
             hgraph::Scalar<"window", hgraph::Int>);
     };
-    void register_operators();
+    hgraph::OperatorProviderHandle register_operators();
 }
 ```
 
 Exported functions become graph structs a C++ author wires with
 `wire<examples::prices::smooth>(w, tob, hgraph::Int{20})`, and — after
 `register_operators()` — operators any hgraph front end reaches by name,
-`examples.prices.smooth`. Module-internal functions stay inside the `.cpp`.
+`examples.prices.smooth`. The returned provider handle owns that registration.
+Module-internal functions stay inside the `.cpp`.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
@@ -293,7 +295,7 @@ tuple and list literals, `if` used as a value, and zoned or civil literals.
 hgraph runtime. A program made only of composition functions is wired onto the
 runtime directly, in process. A file-based `test` or `run` containing supported
 runtime functions goes through generated C++, as does an ahead-of-time package.
-The REPL's compiled route remains staged:
+The REPL selects the same two routes from the complete accepted session:
 
 ```text
 source -> checked semantic IR -> direct wiring          -> hgraph runtime
@@ -319,15 +321,18 @@ selects where transient and failed builds are written, and `HGL_CXX` overrides
 the compiler. Cache entries are immutable and safe for concurrent command
 processes; this prototype does not yet prune them automatically.
 
-The initial REPL may rebuild the whole session after each accepted declaration.
+The initial REPL rebuilds the whole session after each accepted runtime
+declaration.
 That is slower than a JIT but guarantees that exploration sees the same
 function classification, overload, graph, node, and scheduling semantics as an
 ahead-of-time production binary.
 
-When a REPL module changes, the driver stops graphs using its old revision,
-removes that revision's registration handle, initializes the replacement, and
-rebuilds from the resulting active module set. Removed candidates must not
-survive through an installer replay.
+When a REPL module changes, the driver first compiles and loads the complete
+candidate image without activating it, then removes the old revision's provider
+at the quiescent prompt boundary and activates the replacement. An activation
+failure reactivates the old image; a frontend, emission, or native compile
+failure never touches it. Native images remain mapped for process lifetime,
+while removed candidates and installer intent cannot survive a registry reset.
 
 External input is supplied by imported native facilities or purpose-built
 testing sources. A REPL convenience must not become an interpreter-only push

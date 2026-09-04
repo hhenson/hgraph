@@ -186,9 +186,9 @@ The current `hgl` runs everything on this page that is written with
 - `eval` takes a module `fn`; wrap an operator in a `fn` to evaluate it;
 - `hgl run` takes its configuration from the command line only; the
   `--config` file is not read yet;
-- file-based `test` and `run` compile supported runtime functions and
-  non-generic `impl fn` candidates on Unix; the REPL still reports them as
-  unsupported, and generic functions remain unsupported by every backend;
+- file-based `test` and `run`, and the REPL, compile supported runtime
+  functions and non-generic `impl fn` candidates on Unix; generic functions
+  remain unsupported by every backend;
 - complete scalar struct values, type-only generic struct specializations,
   `atomic<S>` harness values, and simple field-wise temporal struct
   construction run; generic constructor inference, `const` generic struct
@@ -207,9 +207,10 @@ file containing a runtime function (`state`, `inject`, `when`, ...) or an
 content-addressed native image or reuse a complete cached image, load its
 candidates into the same hgraph registry, and then use the ordinary harness.
 A failed native build reports and retains its artifact directory; incomplete or
-digest-mismatched cache entries are never loaded. The REPL
-does not yet load runtime images: hgraph now supplies removable provider-owned
-operator candidates, but generated HGL module handles and transactional session
-replacement are not yet wired into the driver. The
+digest-mismatched cache entries are never loaded. The REPL uses the same image
+format and cache. It compiles a complete candidate session before removing the
+old provider, restores that provider if activating the replacement fails, and
+keeps native images mapped for process lifetime so removed callbacks cannot
+dangle. The
 [Architecture](../design/architecture.md#two-backends-one-wiring) record
 describes the split; both backends must produce the same ticks.

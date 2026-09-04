@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -41,8 +42,8 @@ namespace hgl::driver
 {
     namespace
     {
-        constexpr std::string_view registration_symbol = "hgl_register_module_v1";
-        constexpr std::string_view cache_format = "hgl-native-cache-v1";
+        constexpr std::string_view registration_symbol = "hgl_register_module_v2";
+        constexpr std::string_view cache_format = "hgl-native-cache-v2";
 
         std::atomic<std::uint64_t> next_directory{0};
 
@@ -523,7 +524,7 @@ namespace hgl::driver
                 error = "no per-user cache directory is available; set HGL_CACHE_DIR, XDG_CACHE_HOME, or HOME";
                 return std::nullopt;
             }
-            root /= "v1";
+            root /= "v2";
             std::error_code ec;
             std::filesystem::create_directories(root, ec);
             if (ec)
@@ -640,7 +641,8 @@ namespace hgl::driver
         }
 
         bool load_native_image(const std::filesystem::path &image_path,
-                               const std::filesystem::path &retained_directory, std::string &error)
+                               const std::filesystem::path &retained_directory,
+                               NativeModule::RegistrationEntry &registration_entry, std::string &error)
         {
             void *image = ::dlopen(image_path.c_str(), RTLD_NOW | RTLD_LOCAL);
             if (image == nullptr)
@@ -660,31 +662,15 @@ namespace hgl::driver
                 ::dlclose(image);
                 return false;
             }
-            using Register = void (*)();
             resident_images().push_back(image);
-            try
-            {
-                reinterpret_cast<Register>(symbol)();
-            }
-            catch (const std::exception &exception)
-            {
-                error = "native module registration failed: " + std::string{exception.what()} +
-                        "; artifacts retained in '" + retained_directory.string() + "'";
-                return false;
-            }
-            catch (...)
-            {
-                error = "native module registration failed with an unknown exception; artifacts retained in '" +
-                        retained_directory.string() + "'";
-                return false;
-            }
+            registration_entry = reinterpret_cast<NativeModule::RegistrationEntry>(symbol);
             return true;
         }
 #endif
     }  // namespace
 
-    std::optional<NativeModule> compile_and_load_native_module(const codegen::EmittedModule &module,
-                                                                std::string_view source_stem, std::string &error)
+    static std::optional<NativeModule> compile_native_module(const codegen::EmittedModule &module,
+                                                              std::string_view source_stem, std::string &error)
     {
 #if defined(_WIN32)
         (void)module;
@@ -697,7 +683,8 @@ namespace hgl::driver
         std::ostringstream bootstrap;
         bootstrap << "#include \"" << stem << ".h\"\n\n"
                      "extern \"C\" __attribute__((visibility(\"default\"))) void "
-                  << registration_symbol << "()\n{\n    " << module.namespace_name << "::register_operators();\n}\n";
+                  << registration_symbol << "(hgraph::OperatorProviderHandle *provider)\n"
+                  << "{\n    *provider = " << module.namespace_name << "::register_operators();\n}\n";
 
         const BuildContext context = build_context();
         std::string        key;
@@ -723,8 +710,9 @@ namespace hgl::driver
             if (complete_cache_entry(entry, key))
             {
                 trace_cache("hit " + key);
-                if (!load_native_image(entry / image_name(), entry, error)) { return std::nullopt; }
-                return NativeModule{entry, key, true};
+                NativeModule::RegistrationEntry registration_entry = nullptr;
+                if (!load_native_image(entry / image_name(), entry, registration_entry, error)) { return std::nullopt; }
+                return NativeModule{entry, key, true, registration_entry};
             }
             trace_cache("miss " + key);
         }
@@ -785,7 +773,8 @@ namespace hgl::driver
                 trace_cache("publish skipped: " + warning);
             }
         }
-        if (!load_native_image(load_path, result_directory, error))
+        NativeModule::RegistrationEntry registration_entry = nullptr;
+        if (!load_native_image(load_path, result_directory, registration_entry, error))
         {
             if (load_path != image_path)
             {
@@ -795,7 +784,152 @@ namespace hgl::driver
         }
         std::error_code cleanup_error;
         std::filesystem::remove_all(*artifact_directory, cleanup_error);
-        return NativeModule{result_directory, key, reused};
+        return NativeModule{result_directory, key, reused, registration_entry};
 #endif
+    }
+
+    NativeModule::NativeModule(std::filesystem::path artifact_directory, std::string cache_key, bool cache_hit,
+                               RegistrationEntry registration_entry) noexcept
+        : artifact_directory(std::move(artifact_directory)), cache_key(std::move(cache_key)), cache_hit(cache_hit),
+          registration_entry_(registration_entry)
+    {
+    }
+
+    NativeModule::NativeModule(NativeModule &&other) noexcept
+        : artifact_directory(std::move(other.artifact_directory)), cache_key(std::move(other.cache_key)),
+          cache_hit(other.cache_hit), registration_entry_(std::exchange(other.registration_entry_, nullptr)),
+          provider_(std::move(other.provider_))
+    {
+    }
+
+    NativeModule &NativeModule::operator=(NativeModule &&other)
+    {
+        if (this != &other)
+        {
+            std::string error;
+            if (!deactivate(error)) { throw std::runtime_error(std::move(error)); }
+            artifact_directory = std::move(other.artifact_directory);
+            cache_key = std::move(other.cache_key);
+            cache_hit = other.cache_hit;
+            registration_entry_ = std::exchange(other.registration_entry_, nullptr);
+            provider_ = std::move(other.provider_);
+        }
+        return *this;
+    }
+
+    NativeModule::~NativeModule()
+    {
+        try
+        {
+            std::string ignored;
+            static_cast<void>(deactivate(ignored));
+        }
+        catch (...)
+        {
+        }
+    }
+
+    bool NativeModule::active() const noexcept { return provider_.active(); }
+
+    bool NativeModule::activate(std::string &error)
+    {
+        if (active()) { return true; }
+        if (registration_entry_ == nullptr)
+        {
+            error = "native module has no registration entry point";
+            return false;
+        }
+        hgraph::OperatorProviderHandle provider;
+        try
+        {
+            registration_entry_(&provider);
+        }
+        catch (const std::exception &exception)
+        {
+            error = "native module registration failed: " + std::string{exception.what()} +
+                    "; artifacts retained in '" + artifact_directory.string() + "'";
+            return false;
+        }
+        catch (...)
+        {
+            error = "native module registration failed with an unknown exception; artifacts retained in '" +
+                    artifact_directory.string() + "'";
+            return false;
+        }
+        if (!provider.valid() || !provider.active())
+        {
+            error = "native module registration returned no active provider; artifacts retained in '" +
+                    artifact_directory.string() + "'";
+            return false;
+        }
+        provider_ = std::move(provider);
+        return true;
+    }
+
+    bool NativeModule::deactivate(std::string &error)
+    {
+        if (!provider_.valid() || !provider_.active())
+        {
+            provider_ = {};
+            return true;
+        }
+        try
+        {
+            if (!hgraph::OperatorRegistry::instance().remove_provider(provider_))
+            {
+                error = "native module provider is stale";
+                return false;
+            }
+            provider_ = {};
+            return true;
+        }
+        catch (const std::exception &exception)
+        {
+            error = "cannot deactivate native module: " + std::string{exception.what()};
+            return false;
+        }
+        catch (...)
+        {
+            error = "cannot deactivate native module: unknown error";
+            return false;
+        }
+    }
+
+    std::optional<NativeModule> compile_and_load_native_module(const codegen::EmittedModule &module,
+                                                                std::string_view source_stem, std::string &error)
+    {
+        std::optional<NativeModule> native = compile_native_module(module, source_stem, error);
+        if (!native || !native->activate(error)) { return std::nullopt; }
+        return native;
+    }
+
+    bool compile_and_replace_native_module(const codegen::EmittedModule &module, std::string_view source_stem,
+                                           std::optional<NativeModule> &active, std::string &error)
+    {
+        std::optional<NativeModule> replacement = compile_native_module(module, source_stem, error);
+        if (!replacement) { return false; }
+        if (!active)
+        {
+            if (!replacement->activate(error)) { return false; }
+            active = std::move(*replacement);
+            return true;
+        }
+
+        if (!active->deactivate(error)) { return false; }
+        if (replacement->activate(error))
+        {
+            active = std::move(*replacement);
+            return true;
+        }
+
+        const std::string replacement_error = error;
+        std::string       restore_error;
+        if (!active->activate(restore_error))
+        {
+            error = replacement_error + "; previous module restore also failed: " + restore_error;
+            return false;
+        }
+        error = replacement_error;
+        return false;
     }
 }  // namespace hgl::driver
