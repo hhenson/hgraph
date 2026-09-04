@@ -44,7 +44,7 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
     cmake = (ROOT / "CMakeLists.txt").read_text()
     conan = (ROOT / "conanfile.py").read_text()
     assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in cmake
-    assert 'self.requires("arrow/25.0.0")' in conan
+    assert re.search(r'self\.requires\("arrow/25\.0\.0"[,)]', conan) is not None
 
 
 def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
