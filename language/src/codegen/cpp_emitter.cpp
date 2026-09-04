@@ -386,6 +386,13 @@ namespace hgl::codegen
             void emit_if(const ast::If &branch, Frame &frame, Writer &out);
             [[nodiscard]] RuntimeInfo runtime_info(ast::DeclId decl);
             void collect_runtime_activation(ast::ExprId id, ast::DeclId decl, RuntimeInfo &info);
+            using RuntimeValidSet = std::unordered_set<std::size_t>;
+            void check_runtime_expr(ast::ExprId id, ast::DeclId decl, const RuntimeValidSet &valid);
+            [[nodiscard]] RuntimeValidSet runtime_true_valid(ast::ExprId id, ast::DeclId decl,
+                                                             const RuntimeValidSet &valid);
+            void check_runtime_block(ast::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid,
+                                     bool allow_when = false);
+            void check_runtime_stmt(ast::StmtId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when);
             [[nodiscard]] std::string runtime_signature(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, bool with_names,
                                                         bool include_inputs, bool include_output);
             void prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
@@ -1763,6 +1770,209 @@ namespace hgl::codegen
                 expr.node);
         }
 
+        void Emitter::check_runtime_expr(ast::ExprId id, ast::DeclId decl, const RuntimeValidSet &valid)
+        {
+            const ast::Expr &expr = module_.expr(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::NameRef> || std::is_same_v<T, ast::QualifiedRef>)
+                    {
+                        const semantics::Binding &binding = resolved_.binding(id);
+                        if (binding.kind == BindingKind::Parameter && binding.decl == decl &&
+                            binding.index < function(decl).signature.parameters.size() &&
+                            !function(decl).signature.parameters[binding.index].is_const && !valid.contains(binding.index))
+                        {
+                            fail(Category::Type, expr.range, "temporal input '" + slice(expr.range) +
+                                                                 "' may be invalid here; guard the read with valid(" +
+                                                                 slice(expr.range) + ")");
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Unary>)
+                    {
+                        check_runtime_expr(node.operand, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Binary>)
+                    {
+                        check_runtime_expr(node.lhs, decl, valid);
+                        const RuntimeValidSet rhs_valid =
+                            node.op == ast::BinaryOp::And ? runtime_true_valid(node.lhs, decl, valid) : valid;
+                        check_runtime_expr(node.rhs, decl, rhs_valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Call>)
+                    {
+                        const semantics::Binding &callee = resolved_.binding(node.callee);
+                        if (callee.kind == BindingKind::Intrinsic &&
+                            (callee.registry_name == "valid" || callee.registry_name == "all_valid" ||
+                             callee.registry_name == "modified" || callee.registry_name == "last_modified"))
+                        {
+                            // Metadata intrinsics inspect endpoint selectors; they do not read payloads.
+                            return;
+                        }
+                        check_runtime_expr(node.callee, decl, valid);
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Index>)
+                    {
+                        check_runtime_expr(node.target, decl, valid);
+                        check_runtime_expr(node.index, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Field>)
+                    {
+                        check_runtime_expr(node.target, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::SequenceLiteral>)
+                    {
+                        for (const ast::SequenceElement &element : node.elements)
+                        {
+                            if (element.key != ast::no_node) { check_runtime_expr(element.key, decl, valid); }
+                            check_runtime_expr(element.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::TupleLiteral>)
+                    {
+                        for (const ast::ExprId element : node.elements)
+                        {
+                            check_runtime_expr(element, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AnonymousFn>)
+                    {
+                        check_runtime_expr(node.body, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::If>)
+                    {
+                        const RuntimeValidSet then_valid = runtime_true_valid(node.condition, decl, valid);
+                        check_runtime_block(node.then_block, decl, then_valid);
+                        if (node.otherwise != ast::no_node)
+                        {
+                            check_runtime_expr(node.otherwise, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::BlockExpr>)
+                    {
+                        check_runtime_block(node.block, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Eval>)
+                    {
+                        check_runtime_expr(node.callee, decl, valid);
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Construct>)
+                    {
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                },
+                expr.node);
+        }
+
+        Emitter::RuntimeValidSet Emitter::runtime_true_valid(ast::ExprId id, ast::DeclId decl,
+                                                              const RuntimeValidSet &valid)
+        {
+            check_runtime_expr(id, decl, valid);
+            RuntimeValidSet result = valid;
+            const ast::Expr &expr  = module_.expr(id);
+            if (const auto *call = std::get_if<ast::Call>(&expr.node))
+            {
+                const semantics::Binding &callee = resolved_.binding(call->callee);
+                if (callee.kind == BindingKind::Intrinsic &&
+                    (callee.registry_name == "valid" || callee.registry_name == "all_valid"))
+                {
+                    for (const ast::Argument &argument : call->arguments)
+                    {
+                        const semantics::Binding &binding = resolved_.binding(argument.value);
+                        if (binding.kind == BindingKind::Parameter && binding.decl == decl &&
+                            binding.index < function(decl).signature.parameters.size() &&
+                            !function(decl).signature.parameters[binding.index].is_const)
+                        {
+                            result.insert(binding.index);
+                        }
+                    }
+                }
+                return result;
+            }
+            const auto *binary = std::get_if<ast::Binary>(&expr.node);
+            if (binary == nullptr) { return result; }
+            if (binary->op == ast::BinaryOp::And)
+            {
+                result = runtime_true_valid(binary->lhs, decl, valid);
+                return runtime_true_valid(binary->rhs, decl, result);
+            }
+            if (binary->op == ast::BinaryOp::Or)
+            {
+                const RuntimeValidSet lhs = runtime_true_valid(binary->lhs, decl, valid);
+                const RuntimeValidSet rhs = runtime_true_valid(binary->rhs, decl, valid);
+                RuntimeValidSet       intersection;
+                for (const std::size_t index : lhs)
+                {
+                    if (rhs.contains(index)) { intersection.insert(index); }
+                }
+                return intersection;
+            }
+            return result;
+        }
+
+        void Emitter::check_runtime_stmt(ast::StmtId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when)
+        {
+            const ast::Stmt &stmt = module_.stmt(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::LocalDecl>)
+                    {
+                        check_runtime_expr(node.init, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::WhenStmt>)
+                    {
+                        if (!allow_when)
+                        {
+                            backend(stmt.range, "a 'when' block must be at function top level");
+                        }
+                        const RuntimeValidSet body_valid = runtime_true_valid(node.condition, decl, valid);
+                        check_runtime_block(node.block, decl, body_valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ForStmt>)
+                    {
+                        check_runtime_expr(node.iterable, decl, valid);
+                        check_runtime_block(node.block, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssignStmt>)
+                    {
+                        check_runtime_expr(node.value, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ReturnStmt>)
+                    {
+                        if (node.value != ast::no_node) { check_runtime_expr(node.value, decl, valid); }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssertStmt>)
+                    {
+                        check_runtime_expr(node.condition, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ExprStmt>)
+                    {
+                        check_runtime_expr(node.expr, decl, valid);
+                    }
+                },
+                stmt.node);
+        }
+
+        void Emitter::check_runtime_block(ast::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when)
+        {
+            for (const ast::StmtId stmt : module_.block(id).statements)
+            {
+                check_runtime_stmt(stmt, decl, valid, allow_when);
+            }
+        }
+
         RuntimeInfo Emitter::runtime_info(ast::DeclId decl)
         {
             const ast::FunctionDecl &fn = function(decl);
@@ -1873,6 +2083,19 @@ namespace hgl::codegen
                         info.active_parameters.insert(i);
                     }
                 }
+            }
+            RuntimeValidSet valid;
+            if (!info.has_when) { valid = info.active_parameters; }
+            for (const ast::StmtId id : module_.block(fn.block_body).statements)
+            {
+                const ast::Stmt &stmt = module_.stmt(id);
+                if (std::holds_alternative<ast::StateDecl>(stmt.node) ||
+                    std::holds_alternative<ast::InjectDecl>(stmt.node) ||
+                    std::holds_alternative<ast::LifecycleBlock>(stmt.node))
+                {
+                    continue;
+                }
+                check_runtime_stmt(id, decl, valid, true);
             }
             return info;
         }

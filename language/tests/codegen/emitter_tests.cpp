@@ -325,6 +325,63 @@ export fn total(a: f64, b: f64) -> f64 {
     CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
 }
 
+TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]")
+{
+    SECTION("a when and nested if establish validity for their bodies")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(trigger: f64, sample: f64) -> f64 {
+    when modified(trigger) && valid(trigger) {
+        if valid(sample) && sample > 0.0 {
+            return trigger + sample
+        }
+    }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("an unchecked temporal payload read fails closed")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(trigger: f64, sample: f64) -> f64 {
+    when modified(trigger) {
+        return sample
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'sample' may be invalid here; guard the read with valid(sample)"));
+    }
+    SECTION("validity must precede a payload read in a short-circuit condition")
+    {
+        Unit unit{R"(
+module t
+export fn positive(value: f64) -> f64 {
+    when modified(value) && value > 0.0 && valid(value) {
+        return value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here; guard the read with valid(value)"));
+    }
+    SECTION("when blocks are function-level handlers")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(value: f64) -> f64 {
+    if valid(value) {
+        when modified(value) { return value }
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "a 'when' block must be at function top level"));
+    }
+}
+
 TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
 {
     SECTION("a runtime call")
@@ -333,7 +390,7 @@ TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codeg
 module t
 fn twice(x: f64) -> f64 => x * 2.0
 export fn sampled(x: f64) -> f64 {
-    when modified(x) { return twice(x) }
+    when modified(x) && valid(x) { return twice(x) }
 }
 )"};
         CHECK_FALSE(unit.emit());
@@ -370,7 +427,7 @@ module t
 export fn seeded(x: f64) -> f64 {
     state seed: f64 = 0.0
     start { seed = x }
-    when modified(x) { return x }
+    when modified(x) && valid(x) { return x }
 }
 )"};
         CHECK_FALSE(unit.emit());
