@@ -74,8 +74,8 @@ class HgraphConan(ConanFile):
                 ["git", "describe", "--tags", "--match", "[0-9]*"],
                 cwd=self.recipe_folder, text=True,
                 stderr=subprocess.DEVNULL).strip()
-            match = re.fullmatch(r"(.+?)(?:-(\d+)-g[0-9a-f]+)?", described)
-            version, ahead = match.group(1), match.group(2)
+            match = re.fullmatch(r"(.*)-(\d+)-g[0-9a-f]+", described)
+            version, ahead = match.groups() if match else (described, None)
             numeric = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
             if numeric and tuple(map(int, numeric.groups())) < MINIMUM_RELEASE_VERSION:
                 # The merge preserves the 0.5 history and its reachable tags,

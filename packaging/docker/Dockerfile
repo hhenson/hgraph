@@ -41,7 +41,7 @@ RUN apt-get update \
  && rm "./apache-arrow-apt-source-latest-${DEBIAN_CODENAME}.deb" \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
-      cmake g++ libarrow-dev libarrow-compute-dev libarrow-acero-dev ninja-build tzdata \
+      cmake g++ libarrow-acero-dev libarrow-compute-dev libarrow-dev ninja-build tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
