@@ -2651,6 +2651,20 @@ namespace hgl::codegen
             {
                 body.indent();
                 body.open("namespace");
+                for (const ast::DeclId id : internal)
+                {
+                    if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
+                    Frame frame;
+                    frame.fn = id;
+                    body.line("struct hgl_internal_operator_" + std::to_string(id) + " : " +
+                              marker(id, result.module_name + "." + std::string{function(id).name.text}, frame) + " {};");
+                }
+                if (std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
+                        return resolved_.kind(id) == semantics::FunctionKind::Runtime;
+                    }))
+                {
+                    body.line();
+                }
                 for (const ast::DeclId id : internal) { emit_function(id, body, Form::InlineStruct); }
                 for (const ast::DeclId id : impls) { emit_function(id, body, Form::InlineStruct); }
                 body.close("  // namespace");
@@ -2679,6 +2693,12 @@ namespace hgl::codegen
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
                 body.line(registration + "<ops::" + name + ", " + name + ">();");
+            }
+            for (const ast::DeclId id : internal)
+            {
+                if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
+                body.line("hgraph::register_overload<hgl_internal_operator_" + std::to_string(id) + ", " +
+                          cpp_name(function(id).name.text) + ">();");
             }
             for (const ast::DeclId id : impls)
             {

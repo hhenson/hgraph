@@ -331,7 +331,7 @@ backend against the live registry: constant folding of every folded
 operator, `eval` of a composition through the harness with `_`, defaults,
 and literal conversion, the failure detail of a wrong value and of a wrong
 length, selected tests and the REPL's described tail, the first-pass
-limits as diagnostics (timed sequences, runtime functions, element types),
+limits as diagnostics (timed sequences, an unloaded runtime function, element types),
 `run_program` into a stream with `--set`, `--start`, and a duration end,
 and `format_time`. `hgraph_language_test_midpoint` runs `hgl test` over
 the guide's `midpoint.hgl`.
@@ -348,9 +348,9 @@ it:
 - `const` folding produces the scalar arguments hgraph's resolver lifts,
   including temporal constants and `[run.params]` values of every mapped
   TOML type;
-- a runtime function anywhere in the evaluated closure is a `backend`
-  diagnostic naming the function, and a module without a loaded native
-  image is a `backend` diagnostic naming the module;
+- a runtime function without a loaded native image is an operator diagnostic
+  naming its module-qualified identity; the file driver loads the supported
+  runtime subset before invoking this backend;
 - `hgl test` reports each failing assertion with the cycle or time, the
   expected element, and the observed element, and exits non-zero;
 - `hgl run` in simulation over an entry with `[run.params]` prints the same
@@ -358,6 +358,14 @@ it:
   command-line overrides win over the file.
 
 Every `test` in the guide examples runs under `hgl test` in CI.
+
+`hgraph_language_test_runtime` and `hgraph_language_run_runtime` compile and
+load the runtime fixture through the actual CLI, covering an exported node, a
+private runtime helper, a source-defined operator implementation, lifecycle and
+state code in the compiled unit, and a const-only entry whose graph contains a
+runtime node. `hgraph_language_native_compile_failure` injects a missing
+compiler, checks the diagnostic and retained artifact directory, then removes
+the test artifact.
 
 ## Generated C++
 

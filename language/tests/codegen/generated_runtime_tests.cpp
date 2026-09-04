@@ -27,6 +27,13 @@ TEST_CASE("generated runtime impl functions register as node overloads", "[codeg
                  values<Float>(2.0, 3.0));
 }
 
+TEST_CASE("a generated composition can wire a generated operator implementation", "[codegen][runtime]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::ops::absolute_graph>(values<Float>(-2.0, 3.0)),
+                 values<Float>(2.0, 3.0));
+}
+
 TEST_CASE("generated runtime predicates use modified-or and valid-and semantics", "[codegen][runtime]")
 {
     session();
@@ -91,5 +98,12 @@ TEST_CASE("generated runtime functions without when use ordinary input policy", 
 {
     session();
     CHECK_OUTPUT(eval_node<runtime::ops::unconditional_total>(values<Float>(1.0, 2.0, 3.0)),
+                 values<Float>(1.0, 3.0, 6.0));
+}
+
+TEST_CASE("a generated composition can wire a private generated runtime node", "[codegen][runtime]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::ops::private_total_graph>(values<Float>(1.0, 2.0, 3.0)),
                  values<Float>(1.0, 3.0, 6.0));
 }

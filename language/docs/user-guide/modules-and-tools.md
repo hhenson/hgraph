@@ -204,9 +204,11 @@ hgl repl
 run configuration file from the author's side.
 
 The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
-(without `--config`), `emit-cpp`, and `repl` for composition-only programs
-over the `hgraph.std` and `hgraph.analytics` kernels. `test` accepts test
-names after the file to run a selection. The first-pass limits are listed in
+(without `--config`), `emit-cpp`, and `repl` over the `hgraph.std` and
+`hgraph.analytics` kernels. File-based `test` and `run` compile/load the
+supported scalar runtime-node subset on Unix; the REPL remains
+composition-only. `test` accepts test names after the file to run a selection.
+The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
 [Building a package](#building-a-package).
@@ -289,18 +291,20 @@ tuple and list literals, `if` used as a value, and zoned or civil literals.
 
 `test`, `run`, `emit-cpp`, and the REPL share one checked semantic IR and one
 hgraph runtime. A program made only of composition functions is wired onto the
-runtime directly, in process. An ahead-of-time package containing supported
-runtime functions goes through generated C++; using that same route from
-`test`, `run`, and the REPL is the next scripted-driver slice:
+runtime directly, in process. A file-based `test` or `run` containing supported
+runtime functions goes through generated C++, as does an ahead-of-time package.
+The REPL's compiled route remains staged:
 
 ```text
 source -> checked semantic IR -> direct wiring          -> hgraph runtime
                               -> generated C++ -> native -> hgraph runtime
 ```
 
-Both paths build the same graph. The compiler's parity suite holds the shared
-composition subset to the same ticks and executes the runtime subset through
-the compiled path.
+Both paths build the same graph. The scripted image resolves hgraph symbols
+from the running `hgl` process, so it registers into that process's registry
+rather than linking a second static runtime. The compiler's parity suite holds
+the shared composition subset to the same ticks and executes the runtime
+subset through both the scripted and ahead-of-time compiled paths.
 
 The initial REPL may rebuild the whole session after each accepted declaration.
 That is slower than a JIT but guarantees that exploration sees the same

@@ -208,12 +208,11 @@ The non-goal "reimplementing hgraph behavior in an interpreter" therefore
 stands: the backend interprets wiring-time code only, and it interprets it
 by calling hgraph.
 
-Runtime functions are node bodies. They have no wiring-time form and need the
-C++ backend. The first scalar subset is emitted as native static nodes. A
-program whose evaluated closure contains a runtime function still fails in the
-direct-wiring backend with a diagnostic that names the function and says it
-needs the native backend; it does not degrade to a slower path. Scripted
-commands will compile and load the emitted artifact in the next slice.
+Runtime functions are node bodies. They have no interpreted tick-time form and
+need the C++ backend. The first scalar subset is emitted as native static nodes.
+For file-based `test` and `run` on Unix, the driver compiles and loads that
+emitted artifact before direct wiring reaches the function's module-qualified
+operator identity. The backend still never evaluates the body itself.
 
 The commands map onto the backends as follows:
 
@@ -224,9 +223,9 @@ The commands map onto the backends as follows:
   header/source pair; building, linking and packaging that output is the
   consumer's CMake build, through the `hgl_add_module()` function the language
   installs (there is no `hgl build`: a second build tool would duplicate what
-  CMake and the hgraph SDK already provide). `hgl run` for a program that
-  contains a runtime function will use the same emitted C++ once the scripted
-  compile/load driver lands.
+  CMake and the hgraph SDK already provide). File-based `hgl test` and
+  `hgl run` use the same emitted C++ for the supported runtime subset through
+  a transient Unix image; persistent caching and the REPL route remain staged.
 - Both backends must build the same graph for every program both accept. The
   parity suite evaluates the test corpus through each backend and compares
   the recorded ticks; a divergence is a compiler defect, and the C++ backend
@@ -234,16 +233,18 @@ The commands map onto the backends as follows:
   runs its tests, and the same module, emitted and compiled through
   `hgl_add_module()`, is driven through hgraph's `eval_node` to the same
   ticks. `tests/codegen/runtime.hgl` separately exercises supported runtime
-  functions through the generated and compiled path.
+  functions through both the generated package and scripted compiled paths.
 
 ## Scripted and compiled execution
 
 `hgl run` on a composition-only program wires and evaluates it in process.
-`hgl run` on a program with runtime functions compiles the source package into
-a content-addressed cache and executes it in a child process. `hgl repl`
-accumulates source declarations and evaluates the current session through the
-same two paths. The initial REPL may rebuild the complete session; correctness
-and diagnostic quality precede incremental compilation.
+The current Unix prototype also compiles a unit with runtime functions to a
+transient image and loads it into that command process; the image shares the
+process registry and remains resident until command exit. The production route
+will add a content-addressed cache and portable child-process orchestration.
+`hgl repl` currently remains composition-only; its compiled path must rebuild
+the complete session transactionally. Correctness and diagnostic quality
+precede incremental compilation.
 
 Every mode derives the same candidate universe from the target and lock file.
 When the REPL replaces a module, it removes the old registration handle before

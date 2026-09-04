@@ -310,6 +310,16 @@ export fn total(a: f64, b: f64) -> f64 {
         }
     }
 }
+
+fn private_total(a: f64) -> f64 {
+    state sum: f64 = 0.0
+    when modified(a) {
+        sum += a
+        return sum
+    }
+}
+
+export fn through_private(a: f64) -> f64 => private_total(a)
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
@@ -323,6 +333,10 @@ export fn total(a: f64, b: f64) -> f64 {
     CHECK(contains(emitted->header, "hgl_output.set(sum.value().checked_as<hgraph::Float>());"));
     CHECK(contains(emitted->source, "hgraph::register_overload<ops::total, total>();"));
     CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
+    CHECK_FALSE(contains(emitted->header, "private_total"));
+    CHECK(contains(emitted->source, "struct hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]")

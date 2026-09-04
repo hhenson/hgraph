@@ -906,11 +906,12 @@ constants as scalar arguments, applies the mode, start, and end to the
 executor builder, and prints each tick of the result port through a `record`
 sink read after the run (simulation) or a streaming sink (real time).
 
-The backend rejects, with a `backend` diagnostic that names the function, any
-evaluated closure that contains a runtime function, a source-defined operator
-whose selected candidate is a runtime function, or a `use` of a module whose
-descriptor has no loaded native image. Those programs need the C++ backend.
-It never emulates a node body.
+The backend never emulates a node body. A runtime function or source-defined
+operator is wired by its module-qualified registry name, so the driver must
+first load the generated native image which supplies that candidate. Calling
+the backend API directly without such an image produces an operator-resolution
+diagnostic. Imported modules whose descriptors have no loaded image remain an
+error.
 
 The backend depends only on public hgraph headers: `operator_dispatch.h`,
 `graph_wiring.h`, `executor.h`, `lib/testing/record_replay.h`, and the
@@ -1026,8 +1027,9 @@ device. The TOML run configuration is not in the first pass.
 ## C++ backend, first pass
 
 Status: implemented for the composition subset and, as of 2026-09-04, the
-first scalar runtime-node subset. Broader runtime lowering and the scripted
-compile/load driver remain staged.
+first scalar runtime-node subset. File-based `test` and `run` compile/load that
+subset on Unix; broader runtime lowering, caching, Windows loading, and REPL
+replacement remain staged.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1090,10 +1092,12 @@ What is emitted, in this order:
   block.
 - **Registration.** `void register_operators()` registers each export and
   each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
-  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node,
-  through a keyed `OperatorRegistry` installer named after the module. It then
-  runs the installers, so a registry reset replays them and repeated calls are
-  no-ops.
+  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node.
+  Private runtime helpers get translation-unit-local markers under the same
+  module-qualified identities so direct wiring can compose them without
+  exposing them in the module header. Registration uses a keyed
+  `OperatorRegistry` installer named after the module and then runs the
+  installers, so a registry reset replays them and repeated calls are no-ops.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
   to `hgraph.operator_function("module.name")`. Python keywords gain a
@@ -1147,13 +1151,30 @@ them.
 ## Scripted, REPL, and AOT drivers
 
 `hgl test`, `hgl run`, `hgl repl`, and `hgl emit-cpp` use the same type
-expansion, function classifier, and typed IR. `emit-cpp` always uses the C++
-backend. The other three currently use the direct-wiring backend and therefore
-still reject a runtime function in the evaluated closure. The next scripted
-slice will invoke the C++ backend, build or reuse a native artifact, load it,
-and run the same hgraph graph. There is no `hgl build`: a package builds emitted
-C++ with `hgl_add_module()`. The parity suite runs every test the direct-wiring
-backend accepts through both backends and compares the recorded ticks.
+expansion, function classifier, and checked tree. `emit-cpp` always uses the
+C++ backend. File-based `test` and `run` keep the direct-wiring path for a
+composition-only unit; when a unit contains a runtime function or `impl fn`,
+the driver emits the whole unit, invokes the configured C++ compiler, loads
+the resulting image, invokes its fixed registration entry point, and then
+wires tests or the entry through the same backend and hgraph registry. There
+is no `hgl build`: a package builds emitted C++ with `hgl_add_module()`.
+
+The scripted compiler configuration is generated from the `hgl` CMake target:
+compiler launcher, compiler, preprocessor definitions, and evaluated include
+paths. An installed executable also probes its prefix's `include` directory.
+`HGL_CXX` overrides the compiler for diagnostics/testing and
+`HGL_ARTIFACT_DIR` selects the temporary root. Successful images remain loaded
+for the short-lived command because registry callbacks point into them, while
+their files are removed; a compile failure retains its complete directory and
+reports the path. The executable exports hgraph symbols and the transient image
+does not link a second static hgraph, so both use one registry. This path is
+currently Unix-only and has no persistent cache.
+
+The REPL still uses only direct wiring. Loading its runtime declarations safely
+requires provider-scoped installer/candidate removal before a replacement image
+can become active. The parity suite runs every composition test accepted by
+both backends and compares the recorded ticks; the runtime fixture executes
+both as an ahead-of-time module and through the scripted loader.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.

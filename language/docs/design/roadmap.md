@@ -18,17 +18,19 @@ and lifecycle hooks over state and `const` configuration.
 The implementation fails closed where the public or language contract is not
 settled: multiple-parent field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, temporal deltas,
-callable generic substitution, source-defined operator candidates in the
-direct-wiring backend, scripted runtime compilation/loading, and runtime
-collection or generic lowering. Slice numbering below still describes the
-intended end-to-end acceptance rather than a claim that all earlier
-deliverables are complete.
+callable generic substitution, cached and replaceable runtime images, portable
+scripted loading, and runtime collection or generic lowering. Slice numbering
+below still describes the intended end-to-end acceptance rather than a claim
+that all earlier deliverables are complete.
 
 The C++ backend exists as a first pass: `hgl emit-cpp` lowers the same
 composition subset the direct-wiring backend accepts, the first scalar runtime
 node subset, and non-generic source `operator` / `impl fn` declarations to a
 header/source pair, and `hgl_add_module()` builds it into a package with an
 optional Python module.
+On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
+runtime functions or implementations to a transient image and load its
+candidates into the command process before wiring.
 Structs, generics, duration rolling windows (no compile-time hgraph marker
 yet), compound constant literals, `if` as a value, and runtime constructs
 outside the scalar subset fail closed with a diagnostic that names the
@@ -114,8 +116,8 @@ Acceptance:
 - malformed input recovers sufficiently to report multiple useful errors;
 - `eval` over a standard operator records the same ticks as the C++
   `eval_node` harness for the same call, dense and timed;
-- a program containing a runtime function is rejected by the direct-wiring
-  backend with a diagnostic that names the function;
+- a runtime function without a loaded candidate is rejected by the
+  direct-wiring backend with a diagnostic that names its operator identity;
 - `hgl run` of a composition-only entry produces the same ticks in
   simulation as the equivalent hgraph `run_graph` call.
 
@@ -187,10 +189,17 @@ Acceptance:
 
 ## Slice 3: scripted workflow
 
+Status: the first uncached Unix file-command layer is implemented. `hgl test`
+and `hgl run` emit a unit containing runtime functions or implementations,
+compile a transient native image, load it into the command process's registry,
+and run through the ordinary wiring backend. Compile failures retain and report
+their artifacts. Persistent caching, Windows support, child orchestration, and
+replaceable REPL images remain.
+
 Deliverables:
 
 - content-addressed native build cache;
-- `hgl run` and `hgl test` in an isolated child process for programs with
+- portable `hgl run` and `hgl test` child orchestration for programs with
   runtime functions;
 - REPL sessions that accumulate declarations and rebuild through either
   backend as the session's classification requires;

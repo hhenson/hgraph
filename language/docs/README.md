@@ -10,9 +10,10 @@ The documentation is split by audience:
   the delivery roadmap.
 
 The language is still a design preview. Examples describe the target first
-vertical slice; the current `hgl` checks them (`hgl check`), runs the
-composition-only ones through `hgl test`, `hgl run`, and `hgl repl`, and
-emits the documented scalar runtime-node subset through `hgl emit-cpp`.
+vertical slice; the current `hgl` checks them (`hgl check`), runs composition
+functions directly, compiles and loads the documented scalar runtime-node
+subset for file-based `hgl test` and `hgl run`, and emits the same C++ through
+`hgl emit-cpp`. The REPL remains composition-only.
 First-pass limits are listed in the user guide. Provisional syntax is called
 out so examples do not imply an implemented compatibility promise.
 

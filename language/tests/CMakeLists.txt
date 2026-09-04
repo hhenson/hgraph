@@ -107,6 +107,37 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
 )
 
+if(UNIX)
+    # Runtime-node modules take the scripted compile/load path, then use the
+    # same direct harness as composition-only tests to wire the registered
+    # candidates. The prototype loader is currently Unix-only.
+    add_test(
+        NAME hgraph_language_test_runtime
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+    )
+    set_tests_properties(hgraph_language_test_runtime PROPERTIES
+        PASS_REGULAR_EXPRESSION "3 tests, 0 failed"
+    )
+
+    add_test(
+        NAME hgraph_language_run_runtime
+        COMMAND $<TARGET_FILE:hgl> run ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            --entry configured_app --set value=2.0 --set initial=5.0 --end 1us
+    )
+    set_tests_properties(hgraph_language_run_runtime PROPERTIES
+        PASS_REGULAR_EXPRESSION "1970-01-01T00:00:00.000001Z 7"
+    )
+
+    add_test(
+        NAME hgraph_language_native_compile_failure
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-failure
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_failure.cmake
+    )
+endif()
+
 # The command itself: composition and the first scalar runtime-node slice emit.
 add_test(
     NAME hgraph_language_emit_midpoint

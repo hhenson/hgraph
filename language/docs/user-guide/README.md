@@ -5,11 +5,12 @@ view: how functions and types look, which values change over time, and how
 source calls reach hgraph.
 
 > **Design preview:** the current `hgl` command checks these examples and
-> runs the composition-only ones (`hgl test`, `hgl run`, `hgl repl`) within
-> the limits listed in [Testing and running](testing-and-running.md#first-pass-limits).
-> `hgl emit-cpp` additionally compiles the documented scalar runtime-node
-> subset. The documents record syntax agreed during design discussion, not a
-> source compatibility promise.
+> runs composition functions directly and, for file-based `hgl test` and
+> `hgl run`, compiles and loads the documented scalar runtime-node subset.
+> The REPL remains composition-only within the limits listed in
+> [Testing and running](testing-and-running.md#first-pass-limits). The
+> documents record syntax agreed during design discussion, not a source
+> compatibility promise.
 
 ## Read in this order
 
@@ -30,8 +31,7 @@ source calls reach hgraph.
    line or a configuration file, and the REPL.
 
 Source files are collected under [`language/examples`](../../examples). The
-frontend checks every example; the direct-wiring backend runs the supported
-composition subset described in
+frontend checks every example; the scripted backends run the supported subset described in
 [Testing and running](testing-and-running.md#first-pass-limits).
 
 ## Current language shape

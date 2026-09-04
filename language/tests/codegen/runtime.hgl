@@ -1,6 +1,6 @@
-// The first runtime-node backend fixture. Unlike parity.hgl this cannot yet
-// run through the direct-wiring `hgl test` path: it is emitted, compiled, and
-// evaluated through hgraph's public C++ authoring surface.
+// The first runtime-node backend fixture. It is emitted and compiled both as
+// a package through hgl_add_module() and as a transient scripted image through
+// `hgl test`, then evaluated through hgraph's public wiring/runtime surface.
 
 module hgl.codegen.runtime
 
@@ -14,6 +14,8 @@ impl fn absolute(value: f64) -> f64 {
         return value
     }
 }
+
+export fn absolute_graph(value: f64) -> f64 => absolute(value)
 
 export fn add_when_ready(a: f64, b: f64) -> f64 {
     when modified(a, b) && valid(a, b) {
@@ -90,8 +92,34 @@ export fn configured_total(value: f64, const initial: f64 = 10.0) -> f64 {
     }
 }
 
+export fn configured_app(const value: f64 = 2.0, const initial: f64 = 5.0) -> f64 =>
+    configured_total(value, initial)
+
 export fn unconditional_total(value: f64) -> f64 {
     state total: f64 = 0.0
     total += value
     return total
+}
+
+fn private_total(value: f64) -> f64 {
+    state total: f64 = 0.0
+
+    when modified(value) && valid(value) {
+        total += value
+        return total
+    }
+}
+
+export fn private_total_graph(value: f64) -> f64 => private_total(value)
+
+test scripted_runtime_node {
+    assert eval(add_when_ready, a: [1.0, _, 3.0], b: [_, 10.0, 20.0]) == [_, 11.0, 23.0]
+}
+
+test scripted_operator_impl {
+    assert eval(absolute_graph, value: [-2.0, 3.0]) == [2.0, 3.0]
+}
+
+test scripted_private_runtime_node {
+    assert eval(private_total_graph, value: [1.0, 2.0, 3.0]) == [1.0, 3.0, 6.0]
 }

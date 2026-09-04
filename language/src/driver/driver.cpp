@@ -2,6 +2,7 @@
 
 #include "codegen/cpp_emitter.h"
 #include "driver/line_reader.h"
+#include "driver/native_module.h"
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
@@ -125,6 +126,38 @@ namespace hgl::driver
             return unit;
         }
 
+        bool needs_native_module(const Unit &unit)
+        {
+            return std::any_of(unit.resolved.functions.begin(), unit.resolved.functions.end(), [&](syntax::ast::DeclId id) {
+                const auto &fn = std::get<syntax::ast::FunctionDecl>(unit.module.decl(id).node);
+                return unit.resolved.kind(id) == semantics::FunctionKind::Runtime ||
+                       fn.visibility == syntax::ast::FunctionVisibility::Impl;
+            });
+        }
+
+        /// The scripted path for runtime functions: lower the whole resolved
+        /// unit, compile a transient native image, load it into this process,
+        /// and register its overloads before the direct harness wires tests or
+        /// an entry point. Composition-only units retain the fast direct path.
+        bool load_native_module(Unit &unit, std::string_view language_version)
+        {
+            if (!needs_native_module(unit)) { return true; }
+            wiring::ensure_session();
+            codegen::EmitOptions options;
+            options.header_name  = "module.h";
+            options.tool_version = std::string{language_version};
+            const std::optional<codegen::EmittedModule> emitted =
+                codegen::emit_cpp(unit.file, unit.module, unit.resolved, options, unit.diagnostics);
+            if (!emitted) { return false; }
+            std::string error;
+            if (!compile_and_load_native_module(*emitted, "module", error))
+            {
+                unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(error));
+                return false;
+            }
+            return true;
+        }
+
         int check(std::span<const std::string_view> arguments)
         {
             std::optional<std::string> path;
@@ -180,7 +213,7 @@ namespace hgl::driver
             out << results.size() << (results.size() == 1 ? " test" : " tests") << ", " << failed << " failed\n";
         }
 
-        int test(std::span<const std::string_view> arguments)
+        int test(std::span<const std::string_view> arguments, std::string_view language_version)
         {
             std::optional<std::string> path;
             wiring::TestOptions        options;
@@ -207,6 +240,11 @@ namespace hgl::driver
                                                });
                 if (!known) { return usage_error("no test named '" + name + "'"); }
             }
+            if (!load_native_module(*unit, language_version))
+            {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
             const std::vector<wiring::TestResult> results =
                 wiring::run_tests(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
             print_test_results(results, std::cout);
@@ -229,7 +267,7 @@ namespace hgl::driver
             return parsed.value;
         }
 
-        int run_command(std::span<const std::string_view> arguments)
+        int run_command(std::span<const std::string_view> arguments, std::string_view language_version)
         {
             std::optional<std::string> path;
             wiring::RunOptions         options;
@@ -295,7 +333,7 @@ namespace hgl::driver
             if (!path) { return usage_error("run needs a file"); }
             std::optional<Unit> unit = load(*path);
             if (!unit) { return exit_usage; }
-            if (unit->ok)
+            if (unit->ok && load_native_module(*unit, language_version))
             {
                 (void)wiring::run_program(unit->file, unit->module, unit->resolved, options, unit->diagnostics,
                                           std::cout);
@@ -675,8 +713,8 @@ namespace hgl::driver
             return exit_ok;
         }
         if (command == "check") { return check(rest); }
-        if (command == "test") { return test(rest); }
-        if (command == "run") { return run_command(rest); }
+        if (command == "test") { return test(rest, language_version); }
+        if (command == "run") { return run_command(rest, language_version); }
         if (command == "repl") { return repl(rest); }
         if (command == "emit-cpp") { return emit_cpp(rest, language_version); }
         if (command == "build")
