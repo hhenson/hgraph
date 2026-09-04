@@ -11,12 +11,19 @@ for hgraph, not a second runtime.
 > structured `delta` forms. `src/semantics/` binds constraint names, resolves
 > struct families and effective fields, validates hierarchy and construction,
 > rejects decidably false closed requirements, and classifies functions.
-> `src/wiring/` executes the composition-only subset for `test`, `run`, and the
+> `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
-> specializations, and field-wise temporal struct composition. Typed HIR,
+> specializations, and field-wise temporal struct composition. `src/codegen/`
+> emits that composition subset and the first scalar runtime-node subset as
+> public hgraph C++, including activation, aggregate recordable state, output,
+> and lifecycle hooks over state and `const` configuration. The driver compiles
+> and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
+> Unix. REPL replacement stages the new image, swaps removable provider handles
+> at a quiescent boundary, and restores the old revision if activation fails. Typed HIR,
 > constructor inference, `const` generic metadata, multiple-parent
-> linearization, explicit optional-field clearing, runtime-function lowering,
-> and generated C++ remain to be implemented.
+> linearization, explicit optional-field
+> clearing, multi-registry module transactions, and broader runtime and
+> generated-C++ type support remain to be implemented.
 
 ## Guide map
 

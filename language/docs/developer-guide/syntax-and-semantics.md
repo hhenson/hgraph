@@ -883,7 +883,9 @@ assignment_operator
 
 State and inject declarations precede executable blocks. The first slice
 requires a state initializer and permits at most one `start` and one `stop`
-block. It permits multiple `when` blocks and preserves their source order.
+block. It permits multiple function-level `when` blocks and preserves their
+source order; a `when` nested in another block is rejected because it cannot
+contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
 can identify the misplaced or duplicate construct precisely.
 
@@ -1256,9 +1258,11 @@ body. In a runtime expression it denotes the current admitted payload, while
 `modified(parameter)`, `valid(parameter)`, `last_modified(parameter)`, and
 `delta(parameter)` retain access to its endpoint metadata.
 
-Runtime validity checking is flow-sensitive. A payload read is valid when the
-input is statically admitted by the outer `when` predicate or the read is
-dominated by a successful `valid(input)` check. Otherwise it is a diagnostic.
+Runtime validity checking is flow-sensitive and follows Boolean short-circuit
+order. A payload read is valid when the node's ordinary no-`when` policy admits
+the input, or the read is dominated by a successful `valid(input)` check in an
+enclosing `when` or `if`. Otherwise it is a diagnostic; in particular,
+`value > 0.0 && valid(value)` is not safe, while the reversed order is.
 
 Multiple `when` blocks execute as independent ordered conditions. Classification
 and phase checking derive one safe node policy across the complete body:

@@ -323,6 +323,15 @@ complete new universe active, never a mixture. Module removal runs only at a
 quiescent wiring boundary; tests must not rely on concurrent mutation of the
 process-wide operator registry.
 
+The hgraph core suite now covers the operator-owned subset of this matrix:
+provider-specific candidate and installer removal, stale-handle isolation,
+failed-installer rollback and retry, reset non-resurrection, and leases retained
+by both reusable graph plans and runtime graph instances. Generated-runtime and
+REPL tests additionally cover returned provider handles, logical removal, and a
+failed candidate compilation leaving the previous session active. Multi-registry
+transactions, dependency ordering, and activation-fault injection remain HGL
+work.
+
 ## Direct-wiring backend and the harness
 
 The first pass is covered by `tests/wiring/backend_tests.cpp`
@@ -331,7 +340,7 @@ backend against the live registry: constant folding of every folded
 operator, `eval` of a composition through the harness with `_`, defaults,
 and literal conversion, the failure detail of a wrong value and of a wrong
 length, selected tests and the REPL's described tail, the first-pass
-limits as diagnostics (timed sequences, runtime functions, element types),
+limits as diagnostics (timed sequences, an unloaded runtime function, element types),
 `run_program` into a stream with `--set`, `--start`, and a duration end,
 and `format_time`. `hgraph_language_test_midpoint` runs `hgl test` over
 the guide's `midpoint.hgl`.
@@ -348,9 +357,9 @@ it:
 - `const` folding produces the scalar arguments hgraph's resolver lifts,
   including temporal constants and `[run.params]` values of every mapped
   TOML type;
-- a runtime function anywhere in the evaluated closure is a `backend`
-  diagnostic naming the function, and a module without a loaded native
-  image is a `backend` diagnostic naming the module;
+- a runtime function without a loaded native image is an operator diagnostic
+  naming its module-qualified identity; the file driver loads the supported
+  runtime subset before invoking this backend;
 - `hgl test` reports each failing assertion with the cycle or time, the
   expected element, and the observed element, and exits non-zero;
 - `hgl run` in simulation over an entry with `[run.params]` prints the same
@@ -358,6 +367,19 @@ it:
   command-line overrides win over the file.
 
 Every `test` in the guide examples runs under `hgl test` in CI.
+
+`hgraph_language_test_runtime` and `hgraph_language_run_runtime` compile and
+load the runtime fixture through the actual CLI, covering an exported node, a
+private runtime helper, a source-defined operator implementation, lifecycle and
+state code in the compiled unit, and a const-only entry whose graph contains a
+runtime node. `hgraph_language_native_compile_failure` injects a missing
+compiler, checks the diagnostic and retained artifact directory, then removes
+the test artifact.
+
+`hgraph_language_native_cache` exercises the file-command cache as a black box:
+cold miss, warm hit, digest-corrupted entry quarantine and repair, compiler
+identity isolation, source invalidation, and two simultaneous cold publishers
+converging on one complete entry without leaked staging directories.
 
 ## Generated C++
 
@@ -377,8 +399,12 @@ and every fail-closed diagnostic.
 through `hgl_add_module()` under the repository's warnings and evaluates the
 generated graphs with `eval_node` — directly by struct and by registry name,
 where the `const` defaults apply — asserting the ticks the module's own
-`test` blocks assert. The command itself is checked on the examples: the
-composition-only ones emit, a runtime function is rejected by name.
+`test` blocks assert. `tests/codegen/runtime.hgl` and
+`generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
+valid-and predicates, passive sampling, ordered state mutation and final-write
+behavior, selector metadata, prior-output access, lifecycle configuration, and
+ordinary no-`when` policy. The command itself is checked on both a composition
+and a runtime fixture.
 The CMake package test configures the installed-helper path without an `hgl`
 target, proves that touching the compiler regenerates outputs, checks keyword
 module namespace escaping, and asserts multi-config-safe native-module output.

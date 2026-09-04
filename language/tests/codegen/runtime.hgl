@@ -1,0 +1,125 @@
+// The first runtime-node backend fixture. It is emitted and compiled both as
+// a package through hgl_add_module() and as a transient scripted image through
+// `hgl test`, then evaluated through hgraph's public wiring/runtime surface.
+
+module hgl.codegen.runtime
+
+operator absolute(value: f64) -> f64
+
+impl fn absolute(value: f64) -> f64 {
+    when modified(value) && valid(value) {
+        if value < 0.0 {
+            return -value
+        }
+        return value
+    }
+}
+
+export fn absolute_graph(value: f64) -> f64 => absolute(value)
+
+export fn add_when_ready(a: f64, b: f64) -> f64 {
+    when modified(a, b) && valid(a, b) {
+        return a + b
+    }
+}
+
+export fn sample_on_trigger(trigger: f64, sample: f64) -> f64 {
+    when modified(trigger) && valid(trigger, sample) {
+        return sample
+    }
+}
+
+export fn updated_at(value: f64) -> datetime {
+    when modified(value) {
+        return last_modified(value)
+    }
+}
+
+export fn combined_total(a: f64, b: f64) -> f64 {
+    state total: f64 = 0.0
+    inject out
+
+    when modified(a) && valid(a) {
+        total += a
+        out = total
+    }
+
+    when modified(b) && valid(b) {
+        total -= b
+        out = total
+    }
+}
+
+export fn combined_total_graph(a: f64, b: f64) -> f64 =>
+    combined_total(a, b)
+
+export fn running_total(value: f64) -> f64 {
+    inject out
+
+    when modified(value) && valid(value) {
+        if valid(out) {
+            out += value
+        } else {
+            out = value
+        }
+    }
+}
+
+export fn lifecycle_value(value: f64) -> f64 {
+    state ready: bool = false
+
+    start {
+        ready = true
+    }
+
+    when modified(value) && valid(value) {
+        if ready {
+            return value
+        }
+    }
+
+    stop {
+        ready = false
+    }
+}
+
+export fn configured_total(value: f64, const initial: f64 = 10.0) -> f64 {
+    state total: f64 = initial
+
+    when modified(value) && valid(value) {
+        total += value
+        return total
+    }
+}
+
+export fn configured_app(const value: f64 = 2.0, const initial: f64 = 5.0) -> f64 =>
+    configured_total(value, initial)
+
+export fn unconditional_total(value: f64) -> f64 {
+    state total: f64 = 0.0
+    total += value
+    return total
+}
+
+fn private_total(value: f64) -> f64 {
+    state total: f64 = 0.0
+
+    when modified(value) && valid(value) {
+        total += value
+        return total
+    }
+}
+
+export fn private_total_graph(value: f64) -> f64 => private_total(value)
+
+test scripted_runtime_node {
+    assert eval(add_when_ready, a: [1.0, _, 3.0], b: [_, 10.0, 20.0]) == [_, 11.0, 23.0]
+}
+
+test scripted_operator_impl {
+    assert eval(absolute_graph, value: [-2.0, 3.0]) == [2.0, 3.0]
+}
+
+test scripted_private_runtime_node {
+    assert eval(private_total_graph, value: [1.0, 2.0, 3.0]) == [1.0, 3.0, 6.0]
+}

@@ -18,6 +18,7 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -249,6 +250,45 @@ namespace hgraph
         }
     };
 
+    namespace operator_dispatch_detail
+    {
+        struct OperatorProviderState;
+    }
+
+    /**
+     * Opaque identity for one keyed operator-registration provider.
+     *
+     * ``register_installer`` returns this handle. Keeping it does not keep the
+     * provider active; it identifies the exact registration generation so a
+     * stale handle can never remove a later provider which reused the same
+     * key. Removal is explicit through ``OperatorRegistry::remove_provider``.
+     */
+    class HGRAPH_CLASS_EXPORT OperatorProviderHandle
+    {
+      public:
+        OperatorProviderHandle() noexcept = default;
+
+        [[nodiscard]] bool valid() const noexcept;
+        [[nodiscard]] bool active() const noexcept;
+        [[nodiscard]] std::string_view key() const noexcept;
+        [[nodiscard]] std::size_t live_leases() const noexcept;
+
+      private:
+        explicit OperatorProviderHandle(
+            std::shared_ptr<operator_dispatch_detail::OperatorProviderState> state) noexcept;
+
+        std::shared_ptr<operator_dispatch_detail::OperatorProviderState> state_{};
+
+        friend class OperatorRegistry;
+    };
+
+    /** Provider removal was requested while a graph or cached plan still uses it. */
+    class HGRAPH_CLASS_EXPORT OperatorProviderInUseError : public std::runtime_error
+    {
+      public:
+        using std::runtime_error::runtime_error;
+    };
+
     /** A type-erased operator candidate (a C++ or, later, a Python implementation). */
     struct OperatorImpl
     {
@@ -297,6 +337,10 @@ namespace hgraph
         std::function<OperatorWireResult(Wiring &, const ResolutionMap &, std::span<const WiringArg>,
                                          std::span<const std::pair<std::string, WiringPortRef>>)>
             wire{};
+        /** Internal provenance installed by ``OperatorRegistry`` while a keyed
+            provider callback is running. Directly registered candidates have
+            no provider and retain the historical process-lifetime behavior. */
+        std::shared_ptr<operator_dispatch_detail::OperatorProviderState> provider{};
     };
 
     struct OperatorCallableShape
@@ -430,20 +474,40 @@ namespace hgraph
          * module-lifetime ``nb`` class handles. Build-time machinery only;
          * nothing here touches the per-tick path.
          *
+         * The returned ``OperatorProviderHandle`` identifies that exact keyed
+         * provider generation. Candidates registered while its callback runs
+         * inherit its provenance; successful operator resolution retains a
+         * provider lease through the resulting graph plan and runtime graph.
+         * ``remove_provider`` rejects a live lease, then removes both the
+         * active candidates and installer intent so reset cannot resurrect it.
+         * Native image unloading remains the module manager's responsibility.
+         *
          * Keys are unique: re-registering a key replaces the callback
          * without re-applying an already-applied entry (registration entry
          * points stay idempotent between resets). Installers run in
          * first-registration order. An installer is marked applied only
          * AFTER it returns: a throwing installer stays unapplied so a retry
-         * (or the next rebuild) runs it again — but the registry has no
-         * unregister, so whatever it registered before throwing remains;
-         * the safe recovery from a partial installation is
-         * reset-and-rebuild, which this mechanism makes cheap.
+         * (or the next rebuild) runs it again. Candidates contributed by a
+         * throwing provider are rolled back before that retry. Side effects
+         * in registries outside ``OperatorRegistry`` remain the provider's
+         * transaction/module-manager responsibility.
          */
-        void register_installer(std::string_view key, std::function<void()> installer);
+        OperatorProviderHandle register_installer(std::string_view key, std::function<void()> installer);
+
+        /** Apply one exact provider without running unrelated pending installers. */
+        void activate_provider(const OperatorProviderHandle &provider);
 
         /** Apply every installer not applied since the last reset. */
         void run_installers();
+
+        /**
+         * Remove one exact provider generation: first reject the operation
+         * while any wired graph/plan lease is live, then erase the provider's
+         * active candidates and installer intent. Returns false when the
+         * handle is empty, stale, or already removed. A later registry reset
+         * cannot resurrect a successfully removed provider.
+         */
+        bool remove_provider(const OperatorProviderHandle &provider);
 
         /** Select the unique best candidate, with the normalised call it accepted. */
         [[nodiscard]] ResolvedOperatorCall resolve(
@@ -540,6 +604,12 @@ namespace hgraph
         // reset point for all wiring-time global state.
 
       private:
+        void run_installer(
+            const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider);
+
+        void erase_provider_candidates(
+            const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider) noexcept;
+
         struct MeshScope
         {
             const TSValueTypeMetaData *element_schema{nullptr};
@@ -551,6 +621,7 @@ namespace hgraph
         {
             std::string           key{};
             std::function<void()> fn{};
+            std::shared_ptr<operator_dispatch_detail::OperatorProviderState> provider{};
             bool                  applied{false};
             bool                  running{false};
         };
@@ -560,6 +631,7 @@ namespace hgraph
         std::vector<MeshScope>                                     mesh_scopes_{};
         std::vector<ContextScopeEntry>                             context_scopes_{};
         std::vector<Installer>                                     installers_{};
+        std::shared_ptr<operator_dispatch_detail::OperatorProviderState> active_provider_{};
     };
 
     namespace operator_dispatch_detail
