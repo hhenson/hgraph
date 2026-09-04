@@ -49,11 +49,13 @@ Two facts about `hgl` itself shape everything below:
    plus fmt, spdlog, simdjson, and date/tz from the system. There is no
    single-file static binary without a static Arrow build, and this record
    does not propose one.
-2. **Scripted runtime functions compile C++ at run time.** The scripted
-   loader (#640, #641) lowers runtime functions to C++, compiles them with
-   the C++ compiler recorded when `hgl` was built, and loads the image. A
-   deployed `hgl` therefore needs a C++23 compiler, the SDK headers, and
-   every dependency's headers on the host, not only its libraries.
+2. **Scripted runtime functions will compile C++ at run time.** The
+   scripted loader is not on `main` yet: #640 and #641 (open) lower
+   runtime functions to C++, compile them with the C++ compiler recorded
+   when `hgl` was built, and load the image. Once they land, a deployed
+   `hgl` needs a C++23 compiler, the SDK headers, and every dependency's
+   headers on the host, not only its libraries; the channels below are
+   shaped for that from the start rather than retrofitted.
 
 ## Principles
 
@@ -131,10 +133,13 @@ flags, neither of which the language has yet.
 
 **Formula sketch.** Every dependency exists in homebrew-core already:
 `apache-arrow` (25.0.1, built with compute and acero), `fmt`, `spdlog`,
-`simdjson`, and `howard-hinnant-date` (built as the tz library over the
-system database, matching the Conan configuration). Isocline is not, and
-Homebrew's build sandbox has no network, so the REPL's line editor is a
-formula resource handed to FetchContent:
+`simdjson`, `howard-hinnant-date` (built as the tz library over the
+system database, matching the Conan configuration), and `boost` at build
+time only: the analytics kernels use header-only Boost.Math (floor 1.90),
+which the tree otherwise fetches, and `FETCHCONTENT_FULLY_DISCONNECTED`
+would fail the configure without it. Isocline is not, and Homebrew's
+build sandbox has no network, so the REPL's line editor is a formula
+resource handed to FetchContent:
 
 ```ruby
 class Hgraph < Formula
@@ -145,6 +150,7 @@ class Hgraph < Formula
   license "MIT"
   head "https://github.com/hhenson/hgraph.git", branch: "main"
 
+  depends_on "boost" => :build # Boost.Math, header-only, analytics kernels
   depends_on "cmake" => :build
   depends_on "ninja" => :build
   depends_on "apache-arrow"
@@ -263,17 +269,17 @@ archive later.
 
 ## Relocatable native context
 
-The scripted loader records, at build time, the compiler path, the compiler
-launcher, and the `hgl` target's include directories, definitions, compile
-options, and link options, then adds `<exe>/../include` at run time. On
-the machine that built `hgl` this works, and the installed-SDK checks in
-#640 and #641 ran there. On any other machine the recorded paths are
-somebody else's. The include list is the transitive closure of the `hgl`
-target's usage requirements, so it does name the dependency headers, but
-as absolute paths of the build machine: a bottle records the sandbox
-build tree, Cellar-versioned dependency directories that change on the
-next `brew upgrade fmt`, a CI compiler, and possibly `sccache`; a Conan
-package records the Conan cache.
+The scripted loader proposed in #640 and #641 records, at build time, the
+compiler path, the compiler launcher, and the `hgl` target's include
+directories, definitions, compile options, and link options, then adds
+`<exe>/../include` at run time. On the machine that built `hgl` this
+works, and the installed-SDK checks in those pull requests ran there. On
+any other machine the recorded paths are somebody else's. The include
+list is the transitive closure of the `hgl` target's usage requirements,
+so it does name the dependency headers, but as absolute paths of the
+build machine: a bottle records the sandbox build tree, Cellar-versioned
+dependency directories that change on the next `brew upgrade fmt`, a CI
+compiler, and possibly `sccache`; a Conan package records the Conan cache.
 
 The proposal is a native context file that the install step writes and
 `hgl` reads relative to its executable, `lib/hgl/native-context.json`:
@@ -282,10 +288,16 @@ The proposal is a native context file that the install step writes and
   overridden by `HGL_CXX` and then `CXX`; on macOS `xcrun --find clang++`
   is the fallback. No launcher.
 - **include and library directories**: the installed prefix, spelled
-  relative to the file so the prefix can move, plus the dependency prefixes
-  resolved when the package was configured (`find_dependency` results:
-  Arrow, fmt, spdlog, simdjson, date). Homebrew and Conan prefixes are
-  stable per platform, and the file is plain text a packager can patch.
+  relative to the file so the prefix can move, plus the dependency
+  prefixes (Arrow, fmt, spdlog, simdjson, date) *as the consuming host
+  resolves them*. Homebrew's `opt` paths and the container's `/usr/local`
+  are the same on every machine and are recorded as configured. Conan
+  cache paths are not: a package is built in one cache and consumed from
+  another, so a Conan install records no dependency paths and `hgl` reads
+  them from the run environment the recipe's `package_info` computes on
+  the consumer from the dependencies' `includedirs`. The file is plain
+  text a packager can patch, and a missing prefix falls through to the
+  CMake-configure fallback below.
 - **flags**: the language standard, PIC, visibility, and the definitions the
   generated code needs (`HGL_HAVE_ANALYTICS`, the API version). Not the
   repository's warning flags: `-Werror` against a compiler the tree was
