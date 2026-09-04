@@ -384,10 +384,8 @@ namespace hgraph
         key_arg.kind = WiringArg::Kind::TimeSeries;
         key_arg.port = adapted_key;
         std::array<WiringArg, 2> item_args{dict_arg, key_arg};
-        ResolvedOperatorCall resolved = OperatorRegistry::instance().resolve(
-            "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()});
-        WiringPortRef output =
-            resolved.impl->wire(w, resolved.map, resolved.args, resolved.kwargs).output;
+        WiringPortRef output = wire_operator(
+            w, "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()}).output;
         output.schema = descriptor.value_schema;
         WiringPortRef gated = keyed_service_transport::defer_subscription_client(
             w,
@@ -596,10 +594,8 @@ namespace hgraph
         id_arg.kind = WiringArg::Kind::TimeSeries;
         id_arg.port = request_id;
         std::array<WiringArg, 2> item_args{dict_arg, id_arg};
-        ResolvedOperatorCall resolved = OperatorRegistry::instance().resolve(
-            "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()});
-        WiringPortRef output =
-            resolved.impl->wire(w, resolved.map, resolved.args, resolved.kwargs).output;
+        WiringPortRef output = wire_operator(
+            w, "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()}).output;
         output.schema = descriptor.response_schema;
         return output;
     }
@@ -1306,10 +1302,8 @@ namespace hgraph
         id_arg.kind = WiringArg::Kind::TimeSeries;
         id_arg.port = request_id;
         std::array<WiringArg, 2> item_args{dict_arg, id_arg};
-        ResolvedOperatorCall resolved = OperatorRegistry::instance().resolve(
-            "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()});
-        WiringPortRef output =
-            resolved.impl->wire(w, resolved.map, resolved.args, resolved.kwargs).output;
+        WiringPortRef output = wire_operator(
+            w, "getitem_", std::span<const WiringArg>{item_args.data(), item_args.size()}).output;
         output.schema = descriptor.output_schema;
         return output;
     }

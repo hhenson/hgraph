@@ -27,9 +27,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            parallel: "2"
+            parallel: "4"
           - os: macos-26
-            parallel: "1"
+            parallel: "2"
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

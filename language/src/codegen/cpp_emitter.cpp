@@ -17,12 +17,11 @@
 #include <variant>
 #include <vector>
 
-// The C++ backend of the first pass. It mirrors the direct-wiring backend
-// construct by construct (the same operator names, the same folding rules,
-// the same fail-closed list) so that a program both backends accept builds
-// the same graph; where the direct backend consults the live registry, this
-// backend prints the public marker and lets the native compiler and the
-// registry check it when the package is built and wired.
+// The C++ backend of the first pass. Its composition subset mirrors the
+// direct-wiring backend construct by construct so that programs both accept
+// build the same graph. It additionally lowers the first scalar runtime
+// subset to public static-node selectors; the native compiler and hgraph
+// registry check the emitted implementation when its package is built.
 namespace hgl::codegen
 {
     namespace
@@ -96,6 +95,7 @@ namespace hgl::codegen
                 Void,
                 Const,
                 Port,
+                Runtime,  ///< an evaluation-time scalar, optionally backed by a selector
                 Function,
                 Operator,       ///< an imported kernel operator: `name` is the C++ marker
                 LocalOperator,  ///< a module `operator`: `name` is the C++ marker
@@ -104,6 +104,9 @@ namespace hgl::codegen
 
             Kind        kind{Kind::Void};
             std::string code{};
+            /// Runtime values backed by an endpoint keep its selector spelling
+            /// so metadata intrinsics and assignments do not read the payload.
+            std::string selector{};
             /// Const: the value type. Port: the temporal type, Unknown when the
             /// registry decides it (an operator result).
             HType       type{};
@@ -119,6 +122,7 @@ namespace hgl::codegen
 
             [[nodiscard]] bool is_const() const noexcept { return kind == Kind::Const; }
             [[nodiscard]] bool is_port() const noexcept { return kind == Kind::Port; }
+            [[nodiscard]] bool is_runtime() const noexcept { return kind == Kind::Runtime; }
         };
 
         struct Frame
@@ -126,6 +130,29 @@ namespace hgl::codegen
             ast::DeclId                           fn{ast::no_node};
             std::vector<Value>                    params{};
             std::unordered_map<ast::StmtId, Value> locals{};
+            std::unordered_map<std::string, Value> injects{};
+            bool                                   runtime{false};
+            bool                                   runtime_inputs_available{true};
+            bool                                   output_available{false};
+        };
+
+        struct RuntimeState
+        {
+            ast::StmtId id{ast::no_node};
+            std::string name{};
+            HType       type{};
+            ast::ExprId init{ast::no_node};
+            SourceRange range{};
+        };
+
+        struct RuntimeInfo
+        {
+            std::vector<RuntimeState>       states{};
+            std::vector<ast::StmtId>        start_blocks{};
+            std::vector<ast::StmtId>        stop_blocks{};
+            std::unordered_set<std::size_t> active_parameters{};
+            bool                            inject_out{false};
+            bool                            has_when{false};
         };
 
         std::optional<double>       numeric_value(const Value &value);
@@ -145,7 +172,8 @@ namespace hgl::codegen
             "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile",
             "wchar_t", "while", "xor", "xor_eq",
             // names the generated code uses itself
-            "w", "hgraph", "std", "ops", "register_operators", "compose", "name", "defaults",
+            "w", "hgraph", "std", "ops", "register_operators", "compose", "name", "defaults", "recordable_state",
+            "hgl_state", "hgl_output",
         };
 
         constexpr std::string_view python_keywords[] = {
@@ -333,6 +361,10 @@ namespace hgl::codegen
             void emit_block(ast::BlockId id, Frame &frame, Writer &out, bool function_body);
             void emit_stmt(ast::StmtId id, Frame &frame, Writer &out);
             void emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range);
+            void emit_runtime_stmt(ast::StmtId id, Frame &frame, Writer &out);
+            void emit_runtime_block(ast::BlockId id, Frame &frame, Writer &out);
+            void emit_runtime_if(const ast::If &branch, Frame &frame, Writer &out);
+            [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what);
 
             // -- declarations
             void check_supported(ast::DeclId decl);
@@ -350,7 +382,22 @@ namespace hgl::codegen
                 OutOfLine,
             };
             void emit_function(ast::DeclId decl, Writer &out, Form form);
+            void emit_runtime_function(ast::DeclId decl, Writer &out);
             void emit_if(const ast::If &branch, Frame &frame, Writer &out);
+            [[nodiscard]] RuntimeInfo runtime_info(ast::DeclId decl);
+            void collect_runtime_activation(ast::ExprId id, ast::DeclId decl, RuntimeInfo &info);
+            using RuntimeValidSet = std::unordered_set<std::size_t>;
+            void check_runtime_expr(ast::ExprId id, ast::DeclId decl, const RuntimeValidSet &valid);
+            [[nodiscard]] RuntimeValidSet runtime_true_valid(ast::ExprId id, ast::DeclId decl,
+                                                             const RuntimeValidSet &valid);
+            void check_runtime_block(ast::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid,
+                                     bool allow_when = false);
+            void check_runtime_stmt(ast::StmtId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when);
+            [[nodiscard]] std::string runtime_signature(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, bool with_names,
+                                                        bool include_inputs, bool include_output);
+            void prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
+                                       bool include_output);
+            void emit_runtime_defaults(ast::DeclId decl, Writer &out);
             [[nodiscard]] std::vector<ast::DeclId> ordered_internal_functions();
             void collect_calls(ast::ExprId id, std::set<ast::DeclId> &calls);
             void collect_calls_block(ast::BlockId id, std::set<ast::DeclId> &calls);
@@ -627,12 +674,26 @@ namespace hgl::codegen
             return value;
         }
 
+        Value make_runtime(std::string code, HType type, SourceRange range, std::string selector = {})
+        {
+            Value value;
+            value.kind     = Value::Kind::Runtime;
+            value.code     = std::move(code);
+            value.selector = std::move(selector);
+            value.type     = std::move(type);
+            value.range    = range;
+            return value;
+        }
+
         std::string Emitter::argument_code(const Value &value)
         {
             switch (value.kind)
             {
                 case Value::Kind::Const:
-                case Value::Kind::Port: return value.code;
+                case Value::Kind::Port:
+                    return value.code;
+                case Value::Kind::Runtime:
+                    backend(value.range, "an evaluation-time value cannot be passed while wiring");
                 case Value::Kind::Function:
                 case Value::Kind::Operator:
                 case Value::Kind::LocalOperator:
@@ -641,6 +702,23 @@ namespace hgl::codegen
                 case Value::Kind::Void: break;
             }
             backend(value.range, "this expression produces no value");
+        }
+
+        std::string Emitter::as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what)
+        {
+            if (!value.is_const() && !value.is_runtime())
+            {
+                fail(Category::Type, range, what + " needs an evaluation-time scalar value");
+            }
+            if (same_type(value.type, target))
+            {
+                return value.code;
+            }
+            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64))
+            {
+                return "static_cast<hgraph::Float>(" + value.code + ")";
+            }
+            fail(Category::Type, range, what + " expects " + value_type(target, range) + ", got " + value_type(value.type, range));
         }
 
         /// The value as a constant of `target` (a `const` parameter): the
@@ -687,6 +765,15 @@ namespace hgl::codegen
 
         Value Emitter::fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range)
         {
+            const bool runtime = operand.is_runtime();
+            const auto result  = [&](Value value) {
+                if (runtime)
+                {
+                    value.kind   = Value::Kind::Runtime;
+                    value.number = {};
+                }
+                return value;
+            };
             switch (op)
             {
                 case ast::UnaryOp::Negate:
@@ -699,11 +786,14 @@ namespace hgl::codegen
                             number = -*integer;
                         }
                         else if (const auto *floating = std::get_if<double>(&operand.number)) { number = -*floating; }
-                        return make_const("(-" + operand.code + ")", operand.type, range, std::move(number));
+                        return result(make_const("(-" + operand.code + ")", operand.type, range, std::move(number)));
                     }
                     fail(Category::Type, range, "unary '-' needs a number, got " + value_type(operand.type, range));
                 case ast::UnaryOp::Not:
-                    if (operand.type.is(ast::ScalarType::Bool)) { return make_const("(!" + operand.code + ")", operand.type, range); }
+                    if (operand.type.is(ast::ScalarType::Bool))
+                    {
+                        return result(make_const("(!" + operand.code + ")", operand.type, range));
+                    }
                     fail(Category::Type, range, "'!' needs a bool, got " + value_type(operand.type, range));
             }
             backend(range, "unsupported unary operator");
@@ -715,14 +805,20 @@ namespace hgl::codegen
             using ast::ScalarType;
             const bool numeric = lhs.type.numeric() && rhs.type.numeric();
             const bool ints    = lhs.type.is(ScalarType::I64) && rhs.type.is(ScalarType::I64);
+            const bool runtime = lhs.is_runtime() || rhs.is_runtime();
             const auto type_error = [&]() -> Value {
                 fail(Category::Type, range,
                      std::string{"'"} + std::string{ast::binary_op_spelling(op)} + "' is not defined for " +
                          value_type(lhs.type, range) + " and " + value_type(rhs.type, range));
             };
             const auto binary = [&](std::string_view spelling, HType type) {
-                return make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range,
-                                  folded_number(op, lhs, rhs));
+                Value value = make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range,
+                                         runtime ? std::variant<std::monostate, std::int64_t, double>{} : folded_number(op, lhs, rhs));
+                if (runtime)
+                {
+                    value.kind = Value::Kind::Runtime;
+                }
+                return value;
             };
             const HType float_t = scalar_type(ScalarType::F64);
             const HType bool_t  = scalar_type(ScalarType::Bool);
@@ -758,9 +854,16 @@ namespace hgl::codegen
                         {
                             fail(Category::Type, range, "division by zero");
                         }
-                        return make_const("(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" +
-                                              rhs.code + "))",
-                                          float_t, range, folded_number(op, lhs, rhs));
+                        Value value = make_const("(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" +
+                                                     rhs.code + "))",
+                                                 float_t, range,
+                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
+                                                         : folded_number(op, lhs, rhs));
+                        if (runtime)
+                        {
+                            value.kind = Value::Kind::Runtime;
+                        }
+                        return value;
                     }
                     return type_error();
                 case BinaryOp::Rem:
@@ -837,7 +940,17 @@ namespace hgl::codegen
             {
                 case BindingKind::Local: {
                     const auto found = frame.locals.find(binding.stmt);
-                    if (found == frame.locals.end()) { backend(range, "'" + slice(range) + "' is not bound in this function"); }
+                    if (found == frame.locals.end())
+                    {
+                        const auto injected = frame.injects.find(slice(range));
+                        if (injected == frame.injects.end())
+                        {
+                            backend(range, "'" + slice(range) + "' is not bound in this function");
+                        }
+                        Value value = injected->second;
+                        value.range = range;
+                        return value;
+                    }
                     Value value = found->second;
                     value.range = range;
                     return value;
@@ -846,6 +959,12 @@ namespace hgl::codegen
                     if (binding.decl != frame.fn || binding.index >= frame.params.size())
                     {
                         backend(range, "'" + slice(range) + "' is not a parameter of this function");
+                    }
+                    if (frame.runtime && !frame.runtime_inputs_available &&
+                        !function(frame.fn).signature.parameters[binding.index].is_const)
+                    {
+                        fail(Category::Phase, range,
+                             "temporal parameters are not available in runtime lifecycle blocks");
                     }
                     Value value = frame.params[binding.index];
                     value.range = range;
@@ -958,8 +1077,14 @@ namespace hgl::codegen
                     else if constexpr (std::is_same_v<T, ast::Unary>)
                     {
                         const Value operand = eval_expr(node.operand, frame);
-                        if (operand.is_const()) { return fold_unary(node.op, operand, expr.range); }
-                        if (!operand.is_port()) { backend(expr.range, "this operand has no value"); }
+                        if (operand.is_const() || operand.is_runtime())
+                        {
+                            return fold_unary(node.op, operand, expr.range);
+                        }
+                        if (!operand.is_port())
+                        {
+                            backend(expr.range, "this operand has no value");
+                        }
                         return wire(node.op == ast::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_",
                                     {operand.code}, expr.range);
                     }
@@ -967,7 +1092,10 @@ namespace hgl::codegen
                     {
                         const Value lhs = eval_expr(node.lhs, frame);
                         const Value rhs = eval_expr(node.rhs, frame);
-                        if (lhs.is_const() && rhs.is_const()) { return fold_binary(node.op, lhs, rhs, expr.range); }
+                        if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime()))
+                        {
+                            return fold_binary(node.op, lhs, rhs, expr.range);
+                        }
                         return wire_binary(node.op, lhs, rhs, expr.range);
                     }
                     else if constexpr (std::is_same_v<T, ast::Call>) { return eval_call(node, expr.range, frame); }
@@ -1017,6 +1145,10 @@ namespace hgl::codegen
         Value Emitter::eval_call(const ast::Call &call, SourceRange range, Frame &frame)
         {
             const Value callee = eval_expr(call.callee, frame);
+            if (frame.runtime && callee.kind != Value::Kind::Intrinsic)
+            {
+                backend(range, "calls in a runtime function are not supported by emit-cpp yet");
+            }
             switch (callee.kind)
             {
                 case Value::Kind::Operator:
@@ -1038,7 +1170,9 @@ namespace hgl::codegen
                 case Value::Kind::Intrinsic: return eval_intrinsic(callee, call, range, frame);
                 case Value::Kind::Const:
                 case Value::Kind::Port:
-                case Value::Kind::Void: break;
+                case Value::Kind::Runtime:
+                case Value::Kind::Void:
+                    break;
             }
             fail(Category::Type, module_.expr(call.callee).range,
                  "'" + slice(module_.expr(call.callee).range) + "' is not callable");
@@ -1049,7 +1183,29 @@ namespace hgl::codegen
             const std::string &name = callee.name;
             if (name == "valid" || name == "modified" || name == "all_valid")
             {
-                if (call.arguments.empty()) { fail(Category::Type, range, "'" + name + "' takes at least one time-series argument"); }
+                if (call.arguments.empty())
+                {
+                    fail(Category::Type, range, "'" + name + "' takes at least one time-series argument");
+                }
+                if (frame.runtime)
+                {
+                    std::vector<std::string> tests;
+                    tests.reserve(call.arguments.size());
+                    for (const ast::Argument &argument : call.arguments)
+                    {
+                        const Value value = eval_expr(argument.value, frame);
+                        if (!value.is_runtime() || value.selector.empty())
+                        {
+                            fail(Category::Type, module_.expr(argument.value).range,
+                                 "'" + name + "' takes time-series selectors in a runtime function");
+                        }
+                        const std::string method =
+                            name == "modified" ? "modified()" : name == "all_valid" ? "all_valid()" : "valid()";
+                        tests.push_back(value.selector + "." + method);
+                    }
+                    return make_runtime("(" + join(tests, name == "modified" ? " || " : " && ") + ")", scalar_type(ast::ScalarType::Bool),
+                                        range);
+                }
                 const std::string op   = name == "modified" ? "hgraph::stdlib::modified" : "hgraph::stdlib::valid";
                 const std::string fold = name == "modified" ? "hgraph::stdlib::or_" : "hgraph::stdlib::and_";
                 std::optional<Value> result;
@@ -1069,6 +1225,19 @@ namespace hgl::codegen
             {
                 if (call.arguments.size() != 1) { fail(Category::Type, range, "'" + name + "' takes one time-series argument"); }
                 const Value value = eval_expr(call.arguments[0].value, frame);
+                if (frame.runtime)
+                {
+                    if (name == "key_set")
+                    {
+                        backend(range, "runtime collection traversal is not supported by emit-cpp yet");
+                    }
+                    if (!value.is_runtime() || value.selector.empty())
+                    {
+                        fail(Category::Type, module_.expr(call.arguments[0].value).range,
+                             "'last_modified' takes a time-series selector in a runtime function");
+                    }
+                    return make_runtime(value.selector + ".last_modified_time()", scalar_type(ast::ScalarType::DateTime), range);
+                }
                 if (!value.is_port())
                 {
                     fail(Category::Type, module_.expr(call.arguments[0].value).range, "'" + name + "' takes a time-series argument");
@@ -1076,7 +1245,8 @@ namespace hgl::codegen
                 return wire(name == "last_modified" ? "hgraph::stdlib::last_modified_time" : "hgraph::stdlib::keys_", {value.code},
                             range);
             }
-            backend(range, "'" + name + "' is a runtime traversal; it is not available in a composition body of the first pass");
+            backend(range, "'" + name +
+                               "' is a runtime traversal; it is not available in a composition body of the first pass");
         }
 
         std::vector<ast::ExprId> Emitter::bind_arguments(const ast::FunctionDecl &fn, const std::vector<ast::Argument> &arguments,
@@ -1340,19 +1510,792 @@ namespace hgl::codegen
             }
         }
 
+        void Emitter::emit_runtime_if(const ast::If &branch, Frame &frame, Writer &out)
+        {
+            const Value condition = eval_expr(branch.condition, frame);
+            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(ast::ScalarType::Bool))
+            {
+                fail(Category::Type, module_.expr(branch.condition).range, "an 'if' condition is a bool scalar");
+            }
+            out.open("if (" + condition.code + ")");
+            emit_runtime_block(branch.then_block, frame, out);
+            out.close();
+            if (branch.otherwise == ast::no_node)
+            {
+                return;
+            }
+            const ast::Expr &otherwise = module_.expr(branch.otherwise);
+            if (const auto *block = std::get_if<ast::BlockExpr>(&otherwise.node))
+            {
+                out.open("else");
+                emit_runtime_block(block->block, frame, out);
+                out.close();
+            }
+            else if (const auto *chained = std::get_if<ast::If>(&otherwise.node))
+            {
+                out.open("else");
+                emit_runtime_if(*chained, frame, out);
+                out.close();
+            }
+            else
+            {
+                unsupported(otherwise.range, "this runtime 'else' form");
+            }
+        }
+
+        void Emitter::emit_runtime_stmt(ast::StmtId id, Frame &frame, Writer &out)
+        {
+            const ast::Stmt &stmt = module_.stmt(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::LocalDecl>)
+                    {
+                        Value value = eval_expr(node.init, frame);
+                        if (!value.is_const() && !value.is_runtime())
+                        {
+                            fail(Category::Type, stmt.range, "a runtime local needs a scalar value");
+                        }
+                        if (node.type != ast::no_node)
+                        {
+                            const HType declared = type_of(node.type, frame);
+                            value.code           = as_runtime(value, declared, value.range, "'" + std::string{node.name.text} + "'");
+                            value.type           = declared;
+                        }
+                        const std::string base   = cpp_name(node.name.text);
+                        std::string       local  = base;
+                        int              &suffix = local_counts_[base];
+                        while (local_names_.contains(local))
+                        {
+                            local = base + "_" + std::to_string(++suffix);
+                        }
+                        local_names_.insert(local);
+                        out.line((node.mutable_ ? "auto " : "const auto ") + local + " = " + value.code + ";");
+                        value.code = local;
+                        value.selector.clear();
+                        value.kind       = Value::Kind::Runtime;
+                        value.number     = {};
+                        frame.locals[id] = std::move(value);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssignStmt>)
+                    {
+                        const ast::Expr &place = module_.expr(node.place);
+                        if (!std::holds_alternative<ast::NameRef>(place.node) || resolved_.binding(node.place).kind != BindingKind::Local)
+                        {
+                            backend(place.range, "runtime assignment currently targets a "
+                                                 "local, state value, or 'out'");
+                        }
+                        const semantics::Binding &binding = resolved_.binding(node.place);
+                        const ast::StmtId         target  = binding.stmt;
+                        const auto                local   = frame.locals.find(target);
+                        Value                     current;
+                        bool                      selector_assignment = false;
+                        if (local != frame.locals.end())
+                        {
+                            current = local->second;
+                            if (const auto *decl = std::get_if<ast::LocalDecl>(&module_.stmt(target).node);
+                                decl != nullptr && !decl->mutable_)
+                            {
+                                fail(Category::Type, place.range, "'" + slice(place.range) + "' is not a 'var'");
+                            }
+                            selector_assignment = std::holds_alternative<ast::StateDecl>(module_.stmt(target).node);
+                        }
+                        else
+                        {
+                            const auto injected = frame.injects.find(slice(place.range));
+                            if (injected == frame.injects.end())
+                            {
+                                backend(place.range, "'" + slice(place.range) + "' is not writable in this hook");
+                            }
+                            current             = injected->second;
+                            selector_assignment = true;
+                        }
+                        Value value = eval_expr(node.value, frame);
+                        if (node.op != ast::AssignOp::Assign)
+                        {
+                            const ast::BinaryOp op = node.op == ast::AssignOp::Add   ? ast::BinaryOp::Add
+                                                     : node.op == ast::AssignOp::Sub ? ast::BinaryOp::Sub
+                                                     : node.op == ast::AssignOp::Mul ? ast::BinaryOp::Mul
+                                                                                     : ast::BinaryOp::Div;
+                            value                  = fold_binary(op, current, value, stmt.range);
+                        }
+                        const std::string converted =
+                            as_runtime(value, current.type, value.range, "assignment to '" + slice(place.range) + "'");
+                        if (selector_assignment)
+                        {
+                            if (current.selector.empty())
+                            {
+                                backend(place.range, "this runtime value is not writable");
+                            }
+                            out.line(current.selector + ".set(" + converted + ");");
+                        }
+                        else
+                        {
+                            out.line(current.code + " = " + converted + ";");
+                            Value updated        = current;
+                            updated.kind         = Value::Kind::Runtime;
+                            updated.number       = {};
+                            frame.locals[target] = std::move(updated);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ReturnStmt>)
+                    {
+                        if (!frame.output_available)
+                        {
+                            fail(Category::Phase, stmt.range, "'return' is not available in a lifecycle block");
+                        }
+                        if (node.value != ast::no_node)
+                        {
+                            const ast::FunctionDecl &fn = function(frame.fn);
+                            if (fn.signature.result == ast::no_node)
+                            {
+                                fail(Category::Type, stmt.range, "'" + std::string{fn.name.text} + "' has no result");
+                            }
+                            const HType result = type_of(fn.signature.result, frame);
+                            const Value value  = eval_expr(node.value, frame);
+                            out.line("hgl_output.set(" + as_runtime(value, result, value.range, "return value") + ");");
+                        }
+                        out.line("return;");
+                    }
+                    else if constexpr (std::is_same_v<T, ast::WhenStmt>)
+                    {
+                        const Value condition = eval_expr(node.condition, frame);
+                        if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(ast::ScalarType::Bool))
+                        {
+                            fail(Category::Type, module_.expr(node.condition).range, "a 'when' condition is a bool scalar");
+                        }
+                        out.open("if (" + condition.code + ")");
+                        emit_runtime_block(node.block, frame, out);
+                        out.close();
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ExprStmt>)
+                    {
+                        const ast::Expr &expr = module_.expr(node.expr);
+                        if (const auto *branch = std::get_if<ast::If>(&expr.node))
+                        {
+                            emit_runtime_if(*branch, frame, out);
+                            return;
+                        }
+                        const Value value = eval_expr(node.expr, frame);
+                        if (value.kind == Value::Kind::Void)
+                        {
+                            out.line(value.code + ";");
+                        }
+                        else
+                        {
+                            out.line("(void)" + value.code + ";");
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssertStmt>)
+                    {
+                        fail(Category::Type, stmt.range, "'assert' is only valid in a test");
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ForStmt>)
+                    {
+                        backend(stmt.range, "runtime collection traversal is not supported by emit-cpp yet");
+                    }
+                    else
+                    {
+                        backend(stmt.range, "state, inject, start, and stop are "
+                                            "function-level runtime declarations");
+                    }
+                },
+                stmt.node);
+        }
+
+        void Emitter::emit_runtime_block(ast::BlockId id, Frame &frame, Writer &out)
+        {
+            for (const ast::StmtId stmt : module_.block(id).statements)
+            {
+                emit_runtime_stmt(stmt, frame, out);
+            }
+        }
+
         // ------------------------------------------------------ declarations
+
+        void Emitter::collect_runtime_activation(ast::ExprId id, ast::DeclId decl, RuntimeInfo &info)
+        {
+            const ast::Expr &expr = module_.expr(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::Call>)
+                    {
+                        const semantics::Binding &callee = resolved_.binding(node.callee);
+                        if (callee.kind == BindingKind::Intrinsic && callee.registry_name == "modified")
+                        {
+                            for (const ast::Argument &argument : node.arguments)
+                            {
+                                const semantics::Binding &binding = resolved_.binding(argument.value);
+                                if (binding.kind != BindingKind::Parameter || binding.decl != decl ||
+                                    binding.index >= function(decl).signature.parameters.size() ||
+                                    function(decl).signature.parameters[binding.index].is_const)
+                                {
+                                    backend(module_.expr(argument.value).range, "the first runtime-node slice requires 'modified' "
+                                                                                "arguments to be temporal parameters");
+                                }
+                                info.active_parameters.insert(binding.index);
+                            }
+                            return;
+                        }
+                        collect_runtime_activation(node.callee, decl, info);
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            collect_runtime_activation(argument.value, decl, info);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Unary>)
+                    {
+                        collect_runtime_activation(node.operand, decl, info);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Binary>)
+                    {
+                        collect_runtime_activation(node.lhs, decl, info);
+                        collect_runtime_activation(node.rhs, decl, info);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Index>)
+                    {
+                        collect_runtime_activation(node.target, decl, info);
+                        collect_runtime_activation(node.index, decl, info);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Field>)
+                    {
+                        collect_runtime_activation(node.target, decl, info);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::If>)
+                    {
+                        collect_runtime_activation(node.condition, decl, info);
+                    }
+                },
+                expr.node);
+        }
+
+        void Emitter::check_runtime_expr(ast::ExprId id, ast::DeclId decl, const RuntimeValidSet &valid)
+        {
+            const ast::Expr &expr = module_.expr(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::NameRef> || std::is_same_v<T, ast::QualifiedRef>)
+                    {
+                        const semantics::Binding &binding = resolved_.binding(id);
+                        if (binding.kind == BindingKind::Parameter && binding.decl == decl &&
+                            binding.index < function(decl).signature.parameters.size() &&
+                            !function(decl).signature.parameters[binding.index].is_const && !valid.contains(binding.index))
+                        {
+                            fail(Category::Type, expr.range, "temporal input '" + slice(expr.range) +
+                                                                 "' may be invalid here; guard the read with valid(" +
+                                                                 slice(expr.range) + ")");
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Unary>)
+                    {
+                        check_runtime_expr(node.operand, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Binary>)
+                    {
+                        check_runtime_expr(node.lhs, decl, valid);
+                        const RuntimeValidSet rhs_valid =
+                            node.op == ast::BinaryOp::And ? runtime_true_valid(node.lhs, decl, valid) : valid;
+                        check_runtime_expr(node.rhs, decl, rhs_valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Call>)
+                    {
+                        const semantics::Binding &callee = resolved_.binding(node.callee);
+                        if (callee.kind == BindingKind::Intrinsic &&
+                            (callee.registry_name == "valid" || callee.registry_name == "all_valid" ||
+                             callee.registry_name == "modified" || callee.registry_name == "last_modified"))
+                        {
+                            // Metadata intrinsics inspect endpoint selectors; they do not read payloads.
+                            return;
+                        }
+                        check_runtime_expr(node.callee, decl, valid);
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Index>)
+                    {
+                        check_runtime_expr(node.target, decl, valid);
+                        check_runtime_expr(node.index, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Field>)
+                    {
+                        check_runtime_expr(node.target, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::SequenceLiteral>)
+                    {
+                        for (const ast::SequenceElement &element : node.elements)
+                        {
+                            if (element.key != ast::no_node) { check_runtime_expr(element.key, decl, valid); }
+                            check_runtime_expr(element.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::TupleLiteral>)
+                    {
+                        for (const ast::ExprId element : node.elements)
+                        {
+                            check_runtime_expr(element, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AnonymousFn>)
+                    {
+                        check_runtime_expr(node.body, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::If>)
+                    {
+                        const RuntimeValidSet then_valid = runtime_true_valid(node.condition, decl, valid);
+                        check_runtime_block(node.then_block, decl, then_valid);
+                        if (node.otherwise != ast::no_node)
+                        {
+                            check_runtime_expr(node.otherwise, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::BlockExpr>)
+                    {
+                        check_runtime_block(node.block, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Eval>)
+                    {
+                        check_runtime_expr(node.callee, decl, valid);
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::Construct>)
+                    {
+                        for (const ast::Argument &argument : node.arguments)
+                        {
+                            check_runtime_expr(argument.value, decl, valid);
+                        }
+                    }
+                },
+                expr.node);
+        }
+
+        Emitter::RuntimeValidSet Emitter::runtime_true_valid(ast::ExprId id, ast::DeclId decl,
+                                                              const RuntimeValidSet &valid)
+        {
+            check_runtime_expr(id, decl, valid);
+            RuntimeValidSet result = valid;
+            const ast::Expr &expr  = module_.expr(id);
+            if (const auto *call = std::get_if<ast::Call>(&expr.node))
+            {
+                const semantics::Binding &callee = resolved_.binding(call->callee);
+                if (callee.kind == BindingKind::Intrinsic &&
+                    (callee.registry_name == "valid" || callee.registry_name == "all_valid"))
+                {
+                    for (const ast::Argument &argument : call->arguments)
+                    {
+                        const semantics::Binding &binding = resolved_.binding(argument.value);
+                        if (binding.kind == BindingKind::Parameter && binding.decl == decl &&
+                            binding.index < function(decl).signature.parameters.size() &&
+                            !function(decl).signature.parameters[binding.index].is_const)
+                        {
+                            result.insert(binding.index);
+                        }
+                    }
+                }
+                return result;
+            }
+            const auto *binary = std::get_if<ast::Binary>(&expr.node);
+            if (binary == nullptr) { return result; }
+            if (binary->op == ast::BinaryOp::And)
+            {
+                result = runtime_true_valid(binary->lhs, decl, valid);
+                return runtime_true_valid(binary->rhs, decl, result);
+            }
+            if (binary->op == ast::BinaryOp::Or)
+            {
+                const RuntimeValidSet lhs = runtime_true_valid(binary->lhs, decl, valid);
+                const RuntimeValidSet rhs = runtime_true_valid(binary->rhs, decl, valid);
+                RuntimeValidSet       intersection;
+                for (const std::size_t index : lhs)
+                {
+                    if (rhs.contains(index)) { intersection.insert(index); }
+                }
+                return intersection;
+            }
+            return result;
+        }
+
+        void Emitter::check_runtime_stmt(ast::StmtId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when)
+        {
+            const ast::Stmt &stmt = module_.stmt(id);
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ast::LocalDecl>)
+                    {
+                        check_runtime_expr(node.init, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::WhenStmt>)
+                    {
+                        if (!allow_when)
+                        {
+                            backend(stmt.range, "a 'when' block must be at function top level");
+                        }
+                        const RuntimeValidSet body_valid = runtime_true_valid(node.condition, decl, valid);
+                        check_runtime_block(node.block, decl, body_valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ForStmt>)
+                    {
+                        check_runtime_expr(node.iterable, decl, valid);
+                        check_runtime_block(node.block, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssignStmt>)
+                    {
+                        check_runtime_expr(node.value, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ReturnStmt>)
+                    {
+                        if (node.value != ast::no_node) { check_runtime_expr(node.value, decl, valid); }
+                    }
+                    else if constexpr (std::is_same_v<T, ast::AssertStmt>)
+                    {
+                        check_runtime_expr(node.condition, decl, valid);
+                    }
+                    else if constexpr (std::is_same_v<T, ast::ExprStmt>)
+                    {
+                        check_runtime_expr(node.expr, decl, valid);
+                    }
+                },
+                stmt.node);
+        }
+
+        void Emitter::check_runtime_block(ast::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when)
+        {
+            for (const ast::StmtId stmt : module_.block(id).statements)
+            {
+                check_runtime_stmt(stmt, decl, valid, allow_when);
+            }
+        }
+
+        RuntimeInfo Emitter::runtime_info(ast::DeclId decl)
+        {
+            const ast::FunctionDecl &fn = function(decl);
+            RuntimeInfo              info;
+            Frame                    frame;
+            frame.fn      = decl;
+            frame.runtime = true;
+
+            if (fn.concise_body != ast::no_node || fn.block_body == ast::no_node)
+            {
+                backend(module_.decl(decl).range, "a runtime function needs a block body");
+            }
+            if (fn.signature.result == ast::no_node)
+            {
+                backend(fn.name.range, "generated runtime sinks are not supported by emit-cpp yet");
+            }
+            const HType result = type_of(fn.signature.result, frame);
+            if (result.kind != HType::Kind::Scalar)
+            {
+                backend(module_.type(fn.signature.result).range, "the first runtime-node slice supports scalar time-series outputs");
+            }
+
+            std::size_t temporal_count = 0;
+            for (const ast::Parameter &param : fn.signature.parameters)
+            {
+                const HType type = type_of(param.type, frame);
+                if (type.kind != HType::Kind::Scalar)
+                {
+                    backend(module_.type(param.type).range, "the first runtime-node slice supports scalar parameters");
+                }
+                if (!param.is_const)
+                {
+                    ++temporal_count;
+                }
+            }
+            if (temporal_count == 0)
+            {
+                backend(fn.name.range, "generated runtime sources are not supported by emit-cpp yet");
+            }
+
+            for (const ast::StmtId id : module_.block(fn.block_body).statements)
+            {
+                const ast::Stmt &stmt = module_.stmt(id);
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, ast::StateDecl>)
+                        {
+                            if (node.type == ast::no_node)
+                            {
+                                backend(node.name.range, "a generated runtime state declaration "
+                                                         "needs an explicit scalar type");
+                            }
+                            const HType type = type_of(node.type, frame);
+                            if (type.kind != HType::Kind::Scalar)
+                            {
+                                backend(module_.type(node.type).range, "the first runtime-node slice supports scalar state fields");
+                            }
+                            if (node.init == ast::no_node)
+                            {
+                                backend(node.name.range, "a generated runtime state field needs an initializer");
+                            }
+                            info.states.push_back(RuntimeState{
+                                .id = id, .name = std::string{node.name.text}, .type = type, .init = node.init, .range = node.name.range});
+                        }
+                        else if constexpr (std::is_same_v<T, ast::InjectDecl>)
+                        {
+                            for (const ast::Name &name : node.names)
+                            {
+                                if (name.text != "out")
+                                {
+                                    backend(name.range, "injectable '" + std::string{name.text} + "' is not supported by emit-cpp yet");
+                                }
+                                info.inject_out = true;
+                            }
+                        }
+                        else if constexpr (std::is_same_v<T, ast::LifecycleBlock>)
+                        {
+                            (node.is_stop ? info.stop_blocks : info.start_blocks).push_back(id);
+                        }
+                        else if constexpr (std::is_same_v<T, ast::WhenStmt>)
+                        {
+                            info.has_when = true;
+                            collect_runtime_activation(node.condition, decl, info);
+                        }
+                    },
+                    stmt.node);
+            }
+            if (info.start_blocks.size() > 1)
+            {
+                backend(module_.stmt(info.start_blocks[1]).range, "a runtime function has at most one 'start' block");
+            }
+            if (info.stop_blocks.size() > 1)
+            {
+                backend(module_.stmt(info.stop_blocks[1]).range, "a runtime function has at most one 'stop' block");
+            }
+            if (info.has_when && info.active_parameters.empty())
+            {
+                backend(fn.name.range, "a generated runtime function with 'when' needs a "
+                                       "temporal parameter in 'modified(...)'");
+            }
+            if (!info.has_when)
+            {
+                for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
+                {
+                    if (!fn.signature.parameters[i].is_const)
+                    {
+                        info.active_parameters.insert(i);
+                    }
+                }
+            }
+            RuntimeValidSet valid;
+            if (!info.has_when) { valid = info.active_parameters; }
+            for (const ast::StmtId id : module_.block(fn.block_body).statements)
+            {
+                const ast::Stmt &stmt = module_.stmt(id);
+                if (std::holds_alternative<ast::StateDecl>(stmt.node) ||
+                    std::holds_alternative<ast::InjectDecl>(stmt.node) ||
+                    std::holds_alternative<ast::LifecycleBlock>(stmt.node))
+                {
+                    continue;
+                }
+                check_runtime_stmt(id, decl, valid, true);
+            }
+            return info;
+        }
 
         void Emitter::check_supported(ast::DeclId decl)
         {
             const ast::FunctionDecl &fn    = function(decl);
             const SourceRange        range = module_.decl(decl).range;
+            if (!fn.generics.empty())
+            {
+                unsupported(range, "a generic function");
+            }
             if (resolved_.kind(decl) == semantics::FunctionKind::Runtime)
             {
-                backend(range, "'" + std::string{fn.name.text} +
-                                   "' is a runtime function; emit-cpp lowers compositions in the first pass (the runtime "
-                                   "backend is staged)");
+                static_cast<void>(runtime_info(decl));
             }
-            if (!fn.generics.empty()) { unsupported(range, "a generic function"); }
+        }
+
+        std::string Emitter::runtime_signature(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, bool with_names,
+                                               bool include_inputs, bool include_output)
+        {
+            const ast::FunctionDecl &fn = function(decl);
+            std::vector<std::string> params;
+            for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
+            {
+                const ast::Parameter &param  = fn.signature.parameters[i];
+                const HType           type   = type_of(param.type, frame);
+                const std::string     name   = with_names ? " " + cpp_name(param.name.text) : "";
+                const std::string     unused = with_names ? "[[maybe_unused]] " : "";
+                if (param.is_const)
+                {
+                    params.push_back(unused + "hgraph::Scalar<" + quote(param.name.text) + ", " +
+                                     value_type(type, module_.type(param.type).range) + ">" + name);
+                    continue;
+                }
+                if (!include_inputs) { continue; }
+                std::string selector =
+                    unused + "hgraph::In<" + quote(param.name.text) + ", " + schema(type, module_.type(param.type).range);
+                if (!info.active_parameters.contains(i))
+                {
+                    selector += ", hgraph::InputActivity::Passive";
+                }
+                if (info.has_when)
+                {
+                    selector += ", hgraph::InputValidity::Unchecked";
+                }
+                selector += ">" + name;
+                params.push_back(std::move(selector));
+            }
+            if (!info.states.empty())
+            {
+                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::RecordableState<recordable_state>" +
+                                 std::string{with_names ? " hgl_state" : ""});
+            }
+            if (include_output)
+            {
+                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::Out<" +
+                                 schema(type_of(fn.signature.result, frame), module_.type(fn.signature.result).range) + ">" +
+                                 std::string{with_names ? " hgl_output" : ""});
+            }
+            return join(params, ", ");
+        }
+
+        void Emitter::prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
+                                            bool include_output)
+        {
+            const ast::FunctionDecl &fn    = function(decl);
+            frame.fn                       = decl;
+            frame.runtime                  = true;
+            frame.runtime_inputs_available = include_inputs;
+            frame.output_available         = include_output;
+            frame.params.resize(fn.signature.parameters.size());
+            frame.locals.clear();
+            frame.injects.clear();
+            local_counts_.clear();
+            local_names_.clear();
+            local_names_.insert("hgl_state");
+            local_names_.insert("hgl_output");
+            for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
+            {
+                const ast::Parameter &param = fn.signature.parameters[i];
+                const HType           type  = type_of(param.type, frame);
+                const std::string     name  = cpp_name(param.name.text);
+                local_names_.insert(name);
+                frame.params[i] = param.is_const ? make_const(name + ".value()", type, param.name.range)
+                                                 : make_runtime(name + ".value()", type, param.name.range, name);
+            }
+            for (const RuntimeState &state : info.states)
+            {
+                const std::string base   = cpp_name(state.name);
+                std::string       local  = base;
+                int              &suffix = local_counts_[base];
+                while (local_names_.contains(local))
+                {
+                    local = base + "_" + std::to_string(++suffix);
+                }
+                local_names_.insert(local);
+                out.line("auto " + local + " = hgl_state.field<" + quote(state.name) + ">();");
+                frame.locals[state.id] = make_runtime(local + ".value().checked_as<" + value_type(state.type, state.range) + ">()",
+                                                      state.type, state.range, local);
+            }
+            if (include_output && info.inject_out)
+            {
+                const HType result = type_of(fn.signature.result, frame);
+                frame.injects.emplace("out", make_runtime("hgl_output.value().checked_as<" +
+                                                              value_type(result, module_.type(fn.signature.result).range) + ">()",
+                                                          result, fn.name.range, "hgl_output"));
+            }
+        }
+
+        void Emitter::emit_runtime_defaults(ast::DeclId decl, Writer &out)
+        {
+            const ast::FunctionDecl &fn = function(decl);
+            std::vector<std::string> defaults;
+            for (const ast::Parameter &param : fn.signature.parameters)
+            {
+                if (!param.is_const || param.default_value == ast::no_node)
+                {
+                    continue;
+                }
+                Frame scratch;
+                scratch.fn        = decl;
+                const Value value = eval_expr(param.default_value, scratch);
+                const HType type  = type_of(param.type, scratch);
+                defaults.push_back("hgraph::arg<" + quote(param.name.text) + ">(" +
+                                   as_const(value, type, value.range, "default of '" + std::string{param.name.text} + "'") + ")");
+            }
+            if (!defaults.empty())
+            {
+                out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }");
+            }
+        }
+
+        void Emitter::emit_runtime_function(ast::DeclId decl, Writer &out)
+        {
+            const ast::FunctionDecl &fn   = function(decl);
+            const RuntimeInfo        info = runtime_info(decl);
+            Frame                    frame;
+            frame.fn      = decl;
+            frame.runtime = true;
+            out.line("// " + where(module_.decl(decl).range));
+            out.open("struct " + cpp_name(fn.name.text));
+            out.line("[[maybe_unused]] static constexpr auto name = " +
+                     quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+            emit_runtime_defaults(decl, out);
+            if (!info.states.empty())
+            {
+                std::vector<std::string> fields;
+                for (const RuntimeState &state : info.states)
+                {
+                    fields.push_back("hgraph::Field<" + quote(state.name) + ", " + schema(state.type, state.range) + ">");
+                }
+                out.line("using recordable_state = hgraph::TSB<" + quote(module_name_ + "." + std::string{fn.name.text} + ".state") + ", " +
+                         join(fields, ", ") + ">;");
+            }
+
+            if (!info.states.empty() || !info.start_blocks.empty())
+            {
+                out.line("static void start(" + runtime_signature(decl, info, frame, true, false, false) + ")");
+                out.open("");
+                prepare_runtime_frame(decl, info, frame, out, false, false);
+                for (const RuntimeState &state : info.states)
+                {
+                    const Value &target = frame.locals.at(state.id);
+                    const Value  init   = eval_expr(state.init, frame);
+                    out.line("if (!" + target.selector + ".valid()) { " + target.selector + ".set(" +
+                             as_runtime(init, state.type, init.range, "initializer of '" + state.name + "'") + "); }");
+                }
+                for (const ast::StmtId id : info.start_blocks)
+                {
+                    emit_runtime_block(std::get<ast::LifecycleBlock>(module_.stmt(id).node).block, frame, out);
+                }
+                out.close();
+            }
+
+            out.line("static void eval(" + runtime_signature(decl, info, frame, true, true, true) + ")");
+            out.open("");
+            prepare_runtime_frame(decl, info, frame, out, true, true);
+            for (const ast::StmtId id : module_.block(fn.block_body).statements)
+            {
+                const ast::StmtNode &node = module_.stmt(id).node;
+                if (std::holds_alternative<ast::StateDecl>(node) || std::holds_alternative<ast::InjectDecl>(node) ||
+                    std::holds_alternative<ast::LifecycleBlock>(node))
+                {
+                    continue;
+                }
+                emit_runtime_stmt(id, frame, out);
+            }
+            out.close();
+
+            if (!info.stop_blocks.empty())
+            {
+                out.line("static void stop(" + runtime_signature(decl, info, frame, true, false, false) + ")");
+                out.open("");
+                prepare_runtime_frame(decl, info, frame, out, false, false);
+                emit_runtime_block(std::get<ast::LifecycleBlock>(module_.stmt(info.stop_blocks.front()).node).block, frame, out);
+                out.close();
+            }
+            out.close(";");
+            out.line();
         }
 
         std::string Emitter::signature(ast::DeclId decl, Frame &frame, bool with_names)
@@ -1420,6 +2363,16 @@ namespace hgl::codegen
         void Emitter::emit_function(ast::DeclId decl, Writer &out, Form form)
         {
             check_supported(decl);
+            if (resolved_.kind(decl) == semantics::FunctionKind::Runtime)
+            {
+                if (form != Form::InlineStruct)
+                {
+                    backend(module_.decl(decl).range, "a generated runtime node must be "
+                                                      "emitted as a complete static struct");
+                }
+                emit_runtime_function(decl, out);
+                return;
+            }
             const ast::FunctionDecl &fn = function(decl);
             Frame                    frame;
             frame.fn = decl;
@@ -1433,7 +2386,8 @@ namespace hgl::codegen
             else
             {
                 out.open("struct " + name);
-                out.line("static constexpr auto name = " + quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+                out.line("[[maybe_unused]] static constexpr auto name = " +
+                         quote(module_name_ + "." + std::string{fn.name.text}) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 std::vector<std::string> defaults;
@@ -1699,6 +2653,20 @@ namespace hgl::codegen
             {
                 body.indent();
                 body.open("namespace");
+                for (const ast::DeclId id : internal)
+                {
+                    if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
+                    Frame frame;
+                    frame.fn = id;
+                    body.line("struct hgl_internal_operator_" + std::to_string(id) + " : " +
+                              marker(id, result.module_name + "." + std::string{function(id).name.text}, frame) + " {};");
+                }
+                if (std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
+                        return resolved_.kind(id) == semantics::FunctionKind::Runtime;
+                    }))
+                {
+                    body.line();
+                }
                 for (const ast::DeclId id : internal) { emit_function(id, body, Form::InlineStruct); }
                 for (const ast::DeclId id : impls) { emit_function(id, body, Form::InlineStruct); }
                 body.close("  // namespace");
@@ -1706,18 +2674,33 @@ namespace hgl::codegen
                 body.dedent();
             }
             body.indent();
-            for (const ast::DeclId id : exports) { emit_function(id, body, Form::OutOfLine); }
+            for (const ast::DeclId id : exports)
+            {
+                if (resolved_.kind(id) == semantics::FunctionKind::Composition)
+                {
+                    emit_function(id, body, Form::OutOfLine);
+                }
+            }
 
             // Registration: exported functions and operator implementations
             // become registry candidates under module-qualified names, and
             // the installer replays them after a registry reset.
-            body.open("void register_operators()");
-            body.open("static const bool once = []");
-            body.open("hgraph::OperatorRegistry::instance().register_installer(" + quote(result.module_name) + ", []");
+            body.open("hgraph::OperatorProviderHandle register_operators()");
+            body.line("auto &registry = hgraph::OperatorRegistry::instance();");
+            body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
             for (const ast::DeclId id : exports)
             {
                 const std::string name = cpp_name(function(id).name.text);
-                body.line("hgraph::register_graph_overload<ops::" + name + ", " + name + ">();");
+                const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
+                                                     ? "hgraph::register_overload"
+                                                     : "hgraph::register_graph_overload";
+                body.line(registration + "<ops::" + name + ", " + name + ">();");
+            }
+            for (const ast::DeclId id : internal)
+            {
+                if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
+                body.line("hgraph::register_overload<hgl_internal_operator_" + std::to_string(id) + ", " +
+                          cpp_name(function(id).name.text) + ">();");
             }
             for (const ast::DeclId id : impls)
             {
@@ -1731,14 +2714,22 @@ namespace hgl::codegen
                         break;
                     }
                 }
-                if (!bound) { unsupported(module_.decl(id).range, "an impl fn of an imported operator"); }
-                body.line("hgraph::register_graph_overload<ops::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
+                if (!bound)
+                {
+                    unsupported(module_.decl(id).range, "an impl fn of an imported operator");
+                }
+                const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
+                                                     ? "hgraph::register_overload"
+                                                     : "hgraph::register_graph_overload";
+                body.line(registration + "<ops::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
             }
             body.close(");");
-            body.line("hgraph::OperatorRegistry::instance().run_installers();");
-            body.line("return true;");
-            body.close("();");
-            body.line("(void)once;");
+            body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
+            body.line("(void)registry.remove_provider(provider);");
+            body.close(");");
+            body.line("registry.activate_provider(provider);");
+            body.line("rollback.release();");
+            body.line("return provider;");
             body.close();
             body.dedent();
             body.line("}  // namespace " + namespace_);
@@ -1786,12 +2777,13 @@ namespace hgl::codegen
             header.line();
             for (const ast::DeclId id : exports)
             {
-                emit_function(id, header, Form::Declaration);
+                emit_function(id, header,
+                              resolved_.kind(id) == semantics::FunctionKind::Runtime ? Form::InlineStruct : Form::Declaration);
                 result.exports.push_back(std::string{function(id).name.text});
             }
             header.line("/// Register the module's operators and implementations with the hgraph");
-            header.line("/// registry (idempotent; replayed after a registry reset).");
-            header.line("void register_operators();");
+            header.line("/// registry and return the exact removable provider generation.");
+            header.line("hgraph::OperatorProviderHandle register_operators();");
             header.dedent();
             header.line("}  // namespace " + namespace_);
 
@@ -1800,6 +2792,7 @@ namespace hgl::codegen
             source.line("#include \"" + options_.header_name + "\"");
             source.line();
             source.line("#include <hgraph/types/operator_dispatch.h>");
+            source.line("#include <hgraph/util/scope.h>");
             source.line();
             result.header = header.str();
             result.source = source.str() + body.str();

@@ -1192,6 +1192,7 @@ struct Wiring::Impl {
   bool live_seeded{false};
   std::vector<std::shared_ptr<void>> extension_state{};
   std::unordered_map<std::type_index, std::shared_ptr<void>> keyed_extension_state{};
+  std::vector<std::shared_ptr<void>> graph_state{};
   std::vector<std::function<void(Wiring &)>> pre_rank_finalizers{};
   std::shared_ptr<WiringObserverRegistry> observers{};
   std::vector<std::string> wiring_path{};
@@ -1374,6 +1375,13 @@ void Wiring::retain_extension_state(std::shared_ptr<void> state) {
     throw std::invalid_argument("Wiring extension state must not be null");
   }
   impl_->extension_state.push_back(std::move(state));
+}
+
+void Wiring::retain_graph_state(std::shared_ptr<void> state) {
+  if (state == nullptr) {
+    throw std::invalid_argument("Wiring graph state must not be null");
+  }
+  impl_->graph_state.push_back(std::move(state));
 }
 
 std::shared_ptr<void> Wiring::acquire_extension_state(
@@ -2560,6 +2568,9 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   for (const auto [key, boxed] : traits_map) {
     build.graph_builder.trait(key.checked_as<Str>(), boxed.as_any().get());
   }
+  for (const auto &state : impl_->graph_state) {
+    build.graph_builder.retain_extension_state(state);
+  }
   return std::move(build.graph_builder);
 }
 
@@ -2763,6 +2774,9 @@ CompiledSubGraph Wiring::finish_subgraph(
   const auto traits_map = traits_value.as_map();
   for (const auto [key, boxed] : traits_map) {
     build.graph_builder.trait(key.checked_as<Str>(), boxed.as_any().get());
+  }
+  for (const auto &state : impl_->graph_state) {
+    build.graph_builder.retain_extension_state(state);
   }
   compiled.graph_builder = std::move(build.graph_builder);
   const auto &index_of = build.index_of;

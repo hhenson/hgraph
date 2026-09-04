@@ -1243,6 +1243,14 @@ namespace hgraph::stdlib
         }
     }  // namespace arithmetic_impl_detail
 
+    // One translation unit per group (arithmetic_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_arithmetic_numeric_overloads();
+    void register_arithmetic_division_overloads();
+    void register_arithmetic_temporal_overloads();
+    void register_arithmetic_container_overloads();
+    void register_arithmetic_aggregate_overloads();
+
     /** Register the arithmetic operator overloads (``add_`` / ``sub_`` / ``div_``). */
     void register_arithmetic_operators();
 }  // namespace hgraph::stdlib

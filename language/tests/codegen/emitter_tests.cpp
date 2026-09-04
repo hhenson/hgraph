@@ -85,12 +85,12 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->header, "struct plus : hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
                                     "hgraph::Out<hgraph::TS<hgraph::Float>>> {};"));
-    CHECK(contains(emitted->header, "static constexpr auto name = \"hgl.codegen.parity.plus\";"));
+    CHECK(contains(emitted->header, "[[maybe_unused]] static constexpr auto name = \"hgl.codegen.parity.plus\";"));
     CHECK(contains(emitted->header, "static hgraph::Port<hgraph::TS<hgraph::Float>> compose(hgraph::Wiring &, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
     CHECK(contains(emitted->header, "hgraph::Scalar<\"k\", hgraph::Float>"));
     CHECK(contains(emitted->header, "static auto defaults() { return std::tuple{hgraph::arg<\"k\">(hgraph::Float{2.0})}; }"));
-    CHECK(contains(emitted->header, "void register_operators();"));
+    CHECK(contains(emitted->header, "hgraph::OperatorProviderHandle register_operators();"));
     CHECK_FALSE(contains(emitted->header, "struct scale\n"));  // module-internal (scaled_sum is exported)
 
     // The source defines the exports out of line, keeps the helper internal,
@@ -106,6 +106,12 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "if (enabled.value())"));
     CHECK(contains(emitted->source, "const auto shift = (delta.value() * hgraph::Int{2});"));
     CHECK(contains(emitted->source, "register_installer(\"hgl.codegen.parity\""));
+    CHECK(contains(emitted->source, "#include <hgraph/util/scope.h>"));
+    CHECK(contains(emitted->source, "auto rollback = hgraph::make_scope_exit<true>([&]"));
+    CHECK(contains(emitted->source, "registry.activate_provider(provider);"));
+    CHECK(contains(emitted->source, "(void)registry.remove_provider(provider);"));
+    CHECK(contains(emitted->source, "rollback.release();"));
+    CHECK(contains(emitted->source, "return provider;"));
     CHECK(contains(emitted->source, "hgraph::register_graph_overload<ops::plus, plus>();"));
     CHECK(contains(emitted->source, "// parity.hgl:"));
 
@@ -296,23 +302,156 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
-TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
+TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
 {
-    SECTION("a runtime function")
-    {
-        Unit unit{R"(
+    Unit unit{R"(
 module t
-fn total(a: f64) -> f64 {
+export fn total(a: f64, b: f64) -> f64 {
     state sum: f64 = 0.0
-    when modified(a) {
+    inject out
+    when modified(a, b) && valid(a) {
+        if valid(b) {
+            sum += a + b
+            out = sum
+        }
+    }
+}
+
+fn private_total(a: f64) -> f64 {
+    state sum: f64 = 0.0
+    when modified(a) && valid(a) {
         sum += a
         return sum
     }
 }
-export fn twice(x: f64) -> f64 => x * 2.0
+
+export fn through_private(a: f64) -> f64 => private_total(a)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "using recordable_state = hgraph::TSB<\"t.total.state\", "
+                                    "hgraph::Field<\"sum\", hgraph::TS<hgraph::Float>>>;"));
+    CHECK(contains(emitted->header, "hgraph::InputValidity::Unchecked"));
+    CHECK(contains(emitted->header, "if (((a.modified() || b.modified()) && (a.valid())))"));
+    CHECK(contains(emitted->header, "if (!sum.valid())"));
+    CHECK(contains(emitted->header, "sum.set((sum.value().checked_as<hgraph::Float>() + (a.value() + b.value())));"));
+    CHECK(contains(emitted->header, "hgl_output.set(sum.value().checked_as<hgraph::Float>());"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<ops::total, total>();"));
+    CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
+    CHECK_FALSE(contains(emitted->header, "private_total"));
+    CHECK(contains(emitted->source, "struct hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
+}
+
+TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]")
+{
+    SECTION("a when and nested if establish validity for their bodies")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(trigger: f64, sample: f64) -> f64 {
+    when modified(trigger) && valid(trigger) {
+        if valid(sample) && sample > 0.0 {
+            return trigger + sample
+        }
+    }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("an unchecked temporal payload read fails closed")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(trigger: f64, sample: f64) -> f64 {
+    when modified(trigger) {
+        return sample
+    }
+}
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "'total' is a runtime function"));
+        CHECK(unit.has(Category::Type, "temporal input 'sample' may be invalid here; guard the read with valid(sample)"));
+    }
+    SECTION("validity must precede a payload read in a short-circuit condition")
+    {
+        Unit unit{R"(
+module t
+export fn positive(value: f64) -> f64 {
+    when modified(value) && value > 0.0 && valid(value) {
+        return value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here; guard the read with valid(value)"));
+    }
+    SECTION("when blocks are function-level handlers")
+    {
+        Unit unit{R"(
+module t
+export fn sampled(value: f64) -> f64 {
+    if valid(value) {
+        when modified(value) { return value }
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "a 'when' block must be at function top level"));
+    }
+}
+
+TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
+{
+    SECTION("a runtime call")
+    {
+        Unit unit{R"(
+module t
+fn twice(x: f64) -> f64 => x * 2.0
+export fn sampled(x: f64) -> f64 {
+    when modified(x) && valid(x) { return twice(x) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
+    }
+    SECTION("an unsupported runtime injectable")
+    {
+        Unit unit{R"(
+module t
+export fn logged(x: f64) -> f64 {
+    inject logger
+    when modified(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "injectable 'logger' is not supported by emit-cpp yet"));
+    }
+    SECTION("runtime state without an explicit type")
+    {
+        Unit unit{R"(
+module t
+export fn total(x: f64) -> f64 {
+    state sum = 0.0
+    when modified(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "runtime state declaration needs an explicit scalar type"));
+    }
+    SECTION("a temporal input in a lifecycle block")
+    {
+        Unit unit{R"(
+module t
+export fn seeded(x: f64) -> f64 {
+    state seed: f64 = 0.0
+    start { seed = x }
+    when modified(x) && valid(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
     SECTION("a struct declaration")
     {

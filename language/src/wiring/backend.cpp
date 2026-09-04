@@ -357,6 +357,7 @@ namespace hgl::wiring
             [[nodiscard]] Slot eval_eval(const ast::Eval &eval, SourceRange range, Frame &frame);
             [[nodiscard]] Slot call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments, SourceRange range,
                                              Frame &frame);
+            [[nodiscard]] Slot wire_function(ast::DeclId decl, Frame &callee, SourceRange range);
             [[nodiscard]] Slot invoke(ast::DeclId decl, Frame &callee);
             [[nodiscard]] Slot exec_block(ast::BlockId id, Frame &frame);
             void               exec_stmt(ast::StmtId id, Frame &frame);
@@ -1425,7 +1426,14 @@ namespace hgl::wiring
                     return slot;
                 }
                 case BindingKind::LocalOperator:
-                    backend(range, "source-defined operators are not supported by the first pass");
+                {
+                    const auto &op = std::get<ast::OperatorDecl>(module_.decl(binding.decl).node);
+                    Slot        slot;
+                    slot.kind  = Slot::Kind::Operator;
+                    slot.name  = resolved_.module_path + "." + std::string{op.name.text};
+                    slot.range = range;
+                    return slot;
+                }
                 case BindingKind::Intrinsic:
                 {
                     Slot slot;
@@ -1752,14 +1760,9 @@ namespace hgl::wiring
                                      Frame &frame)
         {
             const ast::FunctionDecl &fn = function(decl);
-            if (resolved_.kind(decl) == semantics::FunctionKind::Runtime)
-            {
-                backend(range, "'" + std::string{fn.name.text} +
-                                   "' is a runtime function; the first pass composes graphs from kernel operators");
-            }
             if (fn.visibility == ast::FunctionVisibility::Impl)
             {
-                backend(range, "source-defined operators are not supported by the first pass");
+                backend(range, "an impl fn is reached through its operator, not called directly");
             }
             if (!fn.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
             const std::vector<ast::ExprId> bound = bind_arguments(fn, arguments, range);
@@ -1778,9 +1781,22 @@ namespace hgl::wiring
                     callee.params[i] = bind_parameter(params[i], arg, callee, arg.range);
                 }
             }
-            Slot result  = invoke(decl, callee);
+            Slot result = resolved_.kind(decl) == semantics::FunctionKind::Runtime ? wire_function(decl, callee, range)
+                                                                                   : invoke(decl, callee);
             result.range = range;
             return result;
+        }
+
+        Slot Compiler::wire_function(ast::DeclId decl, Frame &callee, SourceRange range)
+        {
+            const ast::FunctionDecl       &fn = function(decl);
+            std::vector<hgraph::WiringArg> arguments;
+            arguments.reserve(fn.signature.parameters.size());
+            for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
+            {
+                arguments.push_back(argument_of(callee.params[i], std::string{fn.signature.parameters[i].name.text}));
+            }
+            return wire(resolved_.module_path + "." + std::string{fn.name.text}, std::move(arguments), range);
         }
 
         Slot Compiler::invoke(ast::DeclId decl, Frame &callee)
@@ -1930,10 +1946,6 @@ namespace hgl::wiring
                 fail(Category::Type, module_.expr(eval.callee).range, "eval takes a function");
             }
             const ast::FunctionDecl &fn = function(callee.fn);
-            if (resolved_.kind(callee.fn) == semantics::FunctionKind::Runtime)
-            {
-                backend(range, "'" + std::string{fn.name.text} + "' is a runtime function; the first pass evaluates compositions");
-            }
             if (!fn.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
             const std::vector<ast::ExprId> bound = bind_arguments(fn, eval.arguments, range);
             const auto                    &params = fn.signature.parameters;
@@ -2007,7 +2019,9 @@ namespace hgl::wiring
                 }
             }
 
-            Slot result = invoke(callee.fn, callee_frame);
+            Slot result = resolved_.kind(callee.fn) == semantics::FunctionKind::Runtime
+                              ? wire_function(callee.fn, callee_frame, range)
+                              : invoke(callee.fn, callee_frame);
             if (result.is_const()) { result = wire_constant(result, registry_.ts(result.meta())); }
             const hgraph::TSValueTypeMetaData *out_schema = nullptr;
             if (result.is_port())
@@ -2193,10 +2207,6 @@ namespace hgl::wiring
                 }
                 const ast::DeclId        entry = candidates.front();
                 const ast::FunctionDecl &fn    = function(entry);
-                if (resolved_.kind(entry) == semantics::FunctionKind::Runtime)
-                {
-                    backend(module_.decl(entry).range, "'" + std::string{fn.name.text} + "' is a runtime function");
-                }
                 for (const Setting &setting : options.settings)
                 {
                     const auto &params = fn.signature.parameters;
@@ -2238,7 +2248,9 @@ namespace hgl::wiring
                                                         std::string{param.name.text} + "=<value>");
                     }
                 }
-                Slot result = invoke(entry, frame);
+                Slot result = resolved_.kind(entry) == semantics::FunctionKind::Runtime
+                                  ? wire_function(entry, frame, module_.decl(entry).range)
+                                  : invoke(entry, frame);
                 if (result.is_const()) { result = wire_constant(result, registry_.ts(result.meta())); }
                 if (!result.is_port())
                 {

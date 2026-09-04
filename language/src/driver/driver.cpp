@@ -2,6 +2,7 @@
 
 #include "codegen/cpp_emitter.h"
 #include "driver/line_reader.h"
+#include "driver/native_module.h"
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
@@ -54,7 +55,13 @@ namespace hgl::driver
                          "            authoring code, named after the file, in the module's namespace;\n"
                          "            --python also writes the Python wrapper module\n"
                          "  repl      accumulate declarations and evaluate expressions interactively\n"
-                         "            (line editing, history and completion on a terminal)\n";
+                         "            (line editing, history and completion on a terminal)\n\n"
+                         "Native runtime environment (Unix):\n"
+                         "  HGL_CACHE_DIR       override the content-addressed native cache root\n"
+                         "  HGL_DISABLE_CACHE   compile through a transient artifact when non-zero\n"
+                         "  HGL_CACHE_TRACE     report cache hits, misses and publication fallbacks\n"
+                         "  HGL_ARTIFACT_DIR    override the transient/failed artifact root\n"
+                         "  HGL_CXX             override the scripted native C++ compiler\n";
         }
 
         void print_version(std::string_view tool_version)
@@ -125,6 +132,46 @@ namespace hgl::driver
             return unit;
         }
 
+        bool needs_native_module(const Unit &unit)
+        {
+            return std::any_of(unit.resolved.functions.begin(), unit.resolved.functions.end(), [&](syntax::ast::DeclId id) {
+                const auto &fn = std::get<syntax::ast::FunctionDecl>(unit.module.decl(id).node);
+                return unit.resolved.kind(id) == semantics::FunctionKind::Runtime ||
+                       fn.visibility == syntax::ast::FunctionVisibility::Impl;
+            });
+        }
+
+        std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version)
+        {
+            wiring::ensure_session();
+            codegen::EmitOptions options;
+            options.header_name  = "module.h";
+            options.tool_version = std::string{language_version};
+            const std::optional<codegen::EmittedModule> emitted =
+                codegen::emit_cpp(unit.file, unit.module, unit.resolved, options, unit.diagnostics);
+            return emitted;
+        }
+
+        /// The scripted path for runtime functions: lower the whole resolved
+        /// unit, compile a transient native image, load it into this process,
+        /// and register its overloads before the direct harness wires tests or
+        /// an entry point. Composition-only units retain the fast direct path.
+        bool load_native_module(Unit &unit, std::string_view language_version, NativeModule &native_module)
+        {
+            if (!needs_native_module(unit)) { return true; }
+            const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version);
+            if (!emitted) { return false; }
+            std::string error;
+            std::optional<NativeModule> loaded = compile_and_load_native_module(*emitted, "module", error);
+            if (!loaded)
+            {
+                unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(error));
+                return false;
+            }
+            native_module = std::move(*loaded);
+            return true;
+        }
+
         int check(std::span<const std::string_view> arguments)
         {
             std::optional<std::string> path;
@@ -180,7 +227,7 @@ namespace hgl::driver
             out << results.size() << (results.size() == 1 ? " test" : " tests") << ", " << failed << " failed\n";
         }
 
-        int test(std::span<const std::string_view> arguments)
+        int test(std::span<const std::string_view> arguments, std::string_view language_version)
         {
             std::optional<std::string> path;
             wiring::TestOptions        options;
@@ -207,6 +254,12 @@ namespace hgl::driver
                                                });
                 if (!known) { return usage_error("no test named '" + name + "'"); }
             }
+            NativeModule native_module;
+            if (!load_native_module(*unit, language_version, native_module))
+            {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
             const std::vector<wiring::TestResult> results =
                 wiring::run_tests(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
             print_test_results(results, std::cout);
@@ -229,7 +282,7 @@ namespace hgl::driver
             return parsed.value;
         }
 
-        int run_command(std::span<const std::string_view> arguments)
+        int run_command(std::span<const std::string_view> arguments, std::string_view language_version)
         {
             std::optional<std::string> path;
             wiring::RunOptions         options;
@@ -295,7 +348,8 @@ namespace hgl::driver
             if (!path) { return usage_error("run needs a file"); }
             std::optional<Unit> unit = load(*path);
             if (!unit) { return exit_usage; }
-            if (unit->ok)
+            NativeModule native_module;
+            if (unit->ok && load_native_module(*unit, language_version, native_module))
             {
                 (void)wiring::run_program(unit->file, unit->module, unit->resolved, options, unit->diagnostics,
                                           std::cout);
@@ -481,6 +535,8 @@ namespace hgl::driver
         class Repl
         {
           public:
+            explicit Repl(std::string_view language_version) : language_version_(language_version) {}
+
             int loop()
             {
                 std::cout << "hgl repl " << hgraph::release_version_string << " (hgraph api " << hgraph::version_string
@@ -601,6 +657,11 @@ namespace hgl::driver
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
                 }
+                if (!replace_native_module(unit))
+                {
+                    std::cout << unit.diagnostics.render(unit.file);
+                    return;
+                }
                 declarations_.push_back(input);
                 if (input.starts_with("test"))
                 {
@@ -618,6 +679,12 @@ namespace hgl::driver
                 Unit unit{"<repl>", session_text() + "test __repl {\n" + bindings_text() + "    " + input + "}\n"};
                 frontend(unit);
                 if (!unit.ok)
+                {
+                    std::cout << unit.diagnostics.render(unit.file);
+                    return;
+                }
+                if (needs_native_module(unit) && (!native_module_ || !native_module_->active()) &&
+                    !replace_native_module(unit))
                 {
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
@@ -640,16 +707,32 @@ namespace hgl::driver
                 if (!results.empty() && results.front().passed && is_binding(input)) { bindings_.push_back(input); }
             }
 
-            std::vector<std::string> declarations_;
-            std::vector<std::string> bindings_;
-            LineReader               reader_{};
+            bool replace_native_module(Unit &unit)
+            {
+                if (!needs_native_module(unit)) { return true; }
+                const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version_);
+                if (!emitted) { return false; }
+                std::string error;
+                if (!compile_and_replace_native_module(*emitted, "module", native_module_, error))
+                {
+                    unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(error));
+                    return false;
+                }
+                return true;
+            }
+
+            std::vector<std::string>    declarations_;
+            std::vector<std::string>    bindings_;
+            std::string                 language_version_;
+            std::optional<NativeModule> native_module_{};
+            LineReader                  reader_{};
         };
 
-        int repl(std::span<const std::string_view> arguments)
+        int repl(std::span<const std::string_view> arguments, std::string_view language_version)
         {
             if (!arguments.empty()) { return usage_error("repl takes no arguments"); }
             wiring::ensure_session();
-            Repl session;
+            Repl session{language_version};
             return session.loop();
         }
     }  // namespace
@@ -676,9 +759,9 @@ namespace hgl::driver
             return exit_ok;
         }
         if (command == "check") { return check(rest); }
-        if (command == "test") { return test(rest); }
-        if (command == "run") { return run_command(rest); }
-        if (command == "repl") { return repl(rest); }
+        if (command == "test") { return test(rest, tool_version); }
+        if (command == "run") { return run_command(rest, tool_version); }
+        if (command == "repl") { return repl(rest, tool_version); }
         if (command == "emit-cpp") { return emit_cpp(rest, tool_version); }
         if (command == "build")
         {

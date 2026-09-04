@@ -300,6 +300,9 @@ A process-wide singleton maps an operator name to its candidates:
      public:
        static OperatorRegistry &instance();                    // plain static; single-threaded, no locks
        void register_overload(OperatorImpl);
+       OperatorProviderHandle register_installer(key, fn);
+       void activate_provider(const OperatorProviderHandle&);  // run exactly this pending installer
+       bool remove_provider(const OperatorProviderHandle&);    // rejects live graph/plan leases
        // Pick the unique best candidate and the ResolutionMap it produced.
        std::pair<const OperatorImpl*, ResolutionMap>
             resolve(std::string_view name,
@@ -327,6 +330,39 @@ vector preserves registration order, and no decision is ever made from
 hash-map iteration order. Rich rejected-candidate messages are produced from
 Phase 1 — operator misuse is the most common wiring error, and a bare "no
 overload" message is hostile.
+
+Installer callbacks also establish candidate provenance. Every overload
+registered while a keyed installer runs belongs to that provider generation.
+The opaque handle returned by ``register_installer`` can remove that exact
+generation without affecting direct registrations, another provider, or a
+later provider which reuses the same key. Removal erases both active candidates
+and installer intent, so reset cannot replay a removed provider. A throwing
+installer rolls back candidates contributed by its failed attempt before the
+next retry.
+
+``activate_provider`` runs only the installer identified by the supplied
+generation-stable handle. Generated and dynamically loaded modules use it to
+stage a provider without also activating unrelated pending installers, then
+retain the handle for transactional removal or replacement. Targeted
+activation may nest inside an aggregate installer: the registry restores the
+enclosing provider context after the nested callback, so each candidate keeps
+the provider which actually registered it. A non-running nested provider may
+also be removed while its enclosing installer is active; removal of the
+currently running provider remains an error.
+
+Selecting a provider-owned overload retains one lease on the wiring result.
+That lease is carried from ``Wiring`` into the reusable ``GraphBuilder`` and
+then into every ``GraphValue`` made from it. ``remove_provider`` throws
+``OperatorProviderInUseError`` while any such plan or graph is live; a failed
+removal leaves the provider fully active. The registry performs logical
+operator removal only. A native module manager must separately coordinate
+other registries and may keep the image mapped after removal.
+
+An indirect wiring helper must therefore resolve through ``wire_operator`` or
+pass its active ``Wiring`` to ``OperatorRegistry::resolve``. This includes a
+helper which retains only a selected ``LiftedKernel`` pointer in a node plan;
+the pointer still names provider code. A schema-only probe may omit the wiring
+only when no candidate callback or metadata pointer escapes the probe.
 
 
 Ranking (specificity)
@@ -538,6 +574,9 @@ schema pointers inside its candidates' patterns. The Catch2 reset listener
 It does **not** re-seed standard operators (that would collide with a test's own
 ad-hoc operators); a test that needs the ``lib/std`` family calls
 ``register_standard_operators()`` itself, after the reset, before wiring.
+Installer intent and provider identity survive reset, but a provider removed by
+its handle does not. Tests which install a temporary provider remove it before
+captured callbacks or native code can leave scope.
 
 
 The Python implementation path (Phase 4)
@@ -667,7 +706,9 @@ which since RFC 0025 checkpoint 3 records the whole list as the keyed
 installer ``"hgraph.stdlib"`` on ``OperatorRegistry`` and then runs every
 registered installer: a registry reset keeps installer intent, so one
 rebuild call replays core and every extension alike, idempotently
-between resets. The
+between resets. Keyed installers now also own the provenance and graph-plan
+leases needed for provider-scoped removal; process-lifetime callers may ignore
+the returned handle, while unloadable module managers retain it. The
 implemented subset currently covers scalar arithmetic (``impl/arithmetic_impl.h``),
 scalar comparison (``impl/comparison_impl.h``), scalar logical / bitwise operators
 (``impl/logical_impl.h``), string operators (``match_`` / ``replace`` /
@@ -683,6 +724,82 @@ higher-order subset (``reduce``, ``switch_`` and ``map_`` in
 ``impl/<family>_impl.h`` (and a registration call) as they land. The
 ``<hgraph/lib/std/std_operators.h>`` umbrella pulls in both the definitions and the
 implementations, plus opt-in expression sugar in ``operators/syntax.h``.
+
+Registration translation units
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``register_<family>_operators()`` is defined in
+``src/hgraph/lib/std/operators/<family>_impl.cpp``. Every
+``register_overload<Op, Impl>()`` instantiates the wiring plan for one
+overload, and those instantiations — not the header — set what the compiler
+needs for the file: an impl header on its own costs about 0.5 GB of peak
+compiler memory and each registered overload adds 5–8 MB on top (GCC 14,
+``-O3``, thin LTO, precompiled headers; ``-O0`` is no cheaper, because the
+cost is front-end instantiation). A family with a hundred and fifty
+overloads in one file therefore needs about 1.7 GB, which is what made the
+largest std files fail side by side on the 3-core / 7 GB hosted macOS
+runners.
+
+A registration translation unit is budgeted at **1 GB peak compiler memory**
+(the measurement recipe is in :doc:`build_system`). The budget applies to
+every registration file that ships — the std families and the extension
+registrations alike. A family whose registration would exceed it is split
+by operator group:
+
+- ``<family>_impl.cpp`` keeps ``register_<family>_operators()``, which only
+  calls the groups in sequence — plus any family-level registration that is
+  not an overload, such as the runtime value conversions in
+  ``conversion_impl.cpp``.
+- ``<family>_impl_<group>.cpp`` defines
+  ``register_<family>_<group>_overloads()``, declared beside
+  ``register_<family>_operators()`` in ``impl/<family>_impl.h``, and holds
+  the ``register_overload`` calls for one coherent group of operators.
+- A new overload goes in the group that owns its operators; a new group is
+  added when the owning file would leave the budget. Every group file is
+  listed in ``src/CMakeLists.txt``.
+
+Registration order does not affect resolution — ``resolve`` selects by rank
+and a tie is an ambiguity error — so the split may interleave the overloads
+of one operator differently from the single-file layout; each group keeps
+its original relative order. The order is visible in two places: the
+candidate list in diagnostics, and the generated API files
+(``tools/api_inventory.py`` lists an operator's overloads in registry
+order in ``docs/source/reference/operator_catalogue.rst``, the
+``_operator_typing.pyi`` stub and ``_operator_docs.py``). Moving a
+registration between files therefore means regenerating those files,
+which ``python/tests/test_api_inventory.py`` checks.
+
+The current groups:
+
+- ``arithmetic``: ``numeric`` (numeric ``add_`` / ``sub_`` / ``mul_``,
+  string concatenation and repetition, the unary numeric operators),
+  ``division`` (``div_`` / ``floordiv_`` / ``mod_`` / ``divmod_`` /
+  ``pow_``), ``temporal`` (duration, instant, date, period, civil and zoned
+  arithmetic), ``container`` (list / set / map operators and the running
+  sums and means) and ``aggregate`` (``min_`` / ``max_`` / ``sum_`` /
+  ``mean`` over ``TS[list | set | map]``).
+- ``collection``: ``mapping`` (TSD and map key / value operators and
+  ``combine_tsd`` / ``combine_map``), ``sequence`` (TSL, tuple and TSB
+  operators), ``aggregate`` (``min_`` / ``max_`` / ``sum_`` / ``mean`` over
+  TSS, TSD and TSL, and the item-wise ``sum_`` / ``mean`` maps) and ``set``
+  (TSS / TSD logic, equality and set algebra).
+- ``comparison``: ``equality`` (``eq_`` / ``ne_`` / ``cmp_``), ``ordering``
+  (``lt_`` / ``le_`` / ``gt_`` / ``ge_`` including the enum orderings) and
+  ``extremum`` (``min_`` / ``max_``).
+- ``conversion``: ``scalar`` (sources, scalar ``convert`` / ``str_``, the
+  up- and downcasts), ``collection`` (``convert`` between collections, TSS,
+  TSD, TSB and TSL) and ``combine`` (``combine`` / ``collect`` / ``emit``).
+- ``stream``: ``flow`` (sampling, lag, scheduling, gating, take / drop /
+  step / slice, ``dedup``, ``batch``) and ``window`` (``to_window``, the
+  ``TSW`` aggregates and ``window``).
+- ``temporal``: ``components`` (date / time attributes,
+  ``evaluation_time_in_range`` and the time-series properties) and
+  ``instants`` (zone resolution, range algebra and quantisation).
+- ``hgraph-analytics`` ``statistics`` (``extensions/analytics/src/``,
+  declared in its ``operator_registration.h``): ``container`` (``std_`` /
+  ``var_`` over ``TS[map | set | list]`` and the running moments),
+  ``collection`` (TSB, TSS, TSD and TSL statistics and the item-wise maps)
+  and ``window`` (``TSW`` deviation, ``rolling_mean`` and ``resample``).
 
 
 Higher-order operators and the ``WiredFn`` scalar

@@ -46,6 +46,50 @@ reject 4.6.x). The installed ``hgraphConfig.cmake`` carries the same floor.
 third-party dependencies such as simdjson build with their own flags and are
 not expected to be warning-clean under ours.
 
+Translation-Unit Budget
+-----------------------
+
+Compiler memory, not source size, is what bounds build parallelism on the
+hosted CI runners (3 cores and 7 GB on macOS arm64; the workflows pass
+``--parallel`` explicitly rather than taking Ninja's cores + 2 default).
+The operator registration files are the heaviest library translation
+units in the tree because each registered overload instantiates its wiring
+plan; :doc:`operators` ("Registration translation units") gives the layout
+rule that keeps every one of them — the std families and the extension
+registrations alike — under **1 GB peak compiler memory** at ``-O3`` with
+thin LTO and the private precompiled headers.
+
+Measure against a configured and built tree — the precompiled headers must
+exist — with ``tools/measure_tu_cost.py``, which replays each compile
+command and records the compiler's peak resident set size::
+
+   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+   cmake --build build
+   python tools/measure_tu_cost.py build --filter lib/std/operators \
+       --budget 1024 --exempt data_frame_impl.cpp
+
+Reference figures (GCC 14, Linux x86_64, ``HGRAPH_BUILD_SHARED=ON``): an
+impl header alone costs 0.5–0.7 GB (the Arrow-backed families are the
+heavier end) and each registered overload adds 5–8 MB. The single-file
+families measured 1.05–1.73 GB before the split; the split registration
+files sit between 0.7 and 0.95 GB (``hgraph-analytics``'s
+``statistics.cpp`` went from 1.25 GB to three files of at most 0.95 GB).
+``data_frame_impl.cpp`` (about 1.1 GB) is Arrow header weight rather than
+registrations and is the one documented exception — ``--exempt`` reports it
+without failing the run — and it still leaves three parallel jobs well
+inside the runner's memory.
+
+The Catch2 suites are heavier than any library unit because every wired
+test graph instantiates its plans: ``tests/cpp/test_std_operators.cpp``
+peaks at about 2.3 GB, ``test_map.cpp`` at 1.6 GB, and a further eight
+suites sit between 1.1 and 1.5 GB (run the tool without ``--filter`` for
+the list). They are outside the registration budget — a packaged build
+(``BUILD_TESTING=OFF``) never compiles them — and they set the parallelism
+of the ``BUILD_TESTING=ON`` workflow jobs: two jobs on the 7 GB macOS
+runners, four on the 16 GB Linux runners. Splitting the largest suites by
+operator family would let those jobs use every core.
+
 Version Header
 --------------
 

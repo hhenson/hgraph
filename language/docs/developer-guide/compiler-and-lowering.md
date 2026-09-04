@@ -653,10 +653,13 @@ that every payload read is dominated by a static or flow-sensitive validity
 check.
 
 State initializers become `start` work that only seeds invalid fields, so
-record/replay restoration is preserved. Explicit source `start` and `stop`
-blocks become the corresponding static hooks. All state variables share one
-typed state schema. A future ephemeral-cache form must lower separately and
-must not cause one node to mix incompatible state selectors.
+record/replay restoration is preserved. They may read scalar `const`
+parameters, which are included in the generated lifecycle signature. Explicit
+source `start` and `stop` blocks become the corresponding static hooks and may
+likewise read state and `const` parameters, but not temporal inputs or output.
+All state variables share one typed state schema. A future ephemeral-cache form
+must lower separately and must not cause one node to mix incompatible state
+selectors.
 
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
@@ -846,11 +849,21 @@ allowed only when no installer callback, generated function, or type metadata
 points into that image. Logical removal may retain the image for process
 lifetime in the initial implementation.
 
-The current public hgraph `OperatorRegistry` provides keyed installers and
-reset replay but no provider-scoped removal or installer unregistration. Hgraph
-must gain a first-class module registration transaction/handle, candidate
-provenance, removal, and lease contract. Generated language code must not reach
-into registry storage or attempt to coordinate several registries privately.
+The public hgraph `OperatorRegistry` now returns an opaque provider handle from
+keyed installer registration, records candidate provenance while the installer
+runs, removes that provider's candidates and installer intent, rolls back a
+throwing installer's candidates, and carries provider leases through wired graph
+plans and runtime graphs. This is the operator-registry foundation, not yet the
+complete HGL module ABI: hgraph still needs one transaction/handle coordinating
+type associations, exact-function metadata, native resources, and operator
+registration. Generated language code must not reach into registry storage or
+coordinate those registries privately.
+
+Indirect resolution follows the same rule as direct operator wiring. In
+particular, selecting a lifted kernel for a reduce or map node passes the active
+`Wiring` to the registry before the kernel pointer is stored in the node plan.
+A schema-only resolution probe may omit the wiring only when no provider-owned
+callback or metadata pointer escapes the probe.
 
 ## Direct-wiring backend
 
@@ -903,11 +916,12 @@ constants as scalar arguments, applies the mode, start, and end to the
 executor builder, and prints each tick of the result port through a `record`
 sink read after the run (simulation) or a streaming sink (real time).
 
-The backend rejects, with a `backend` diagnostic that names the function, any
-evaluated closure that contains a runtime function, a source-defined operator
-whose selected candidate is a runtime function, or a `use` of a module whose
-descriptor has no loaded native image. Those programs need the C++ backend.
-It never emulates a node body.
+The backend never emulates a node body. A runtime function or source-defined
+operator is wired by its module-qualified registry name, so the driver must
+first load the generated native image which supplies that candidate. Calling
+the backend API directly without such an image produces an operator-resolution
+diagnostic. Imported modules whose descriptors have no loaded image remain an
+error.
 
 The backend depends only on public hgraph headers: `operator_dispatch.h`,
 `graph_wiring.h`, `executor.h`, `lib/testing/record_replay.h`, and the
@@ -1022,8 +1036,10 @@ device. The TOML run configuration is not in the first pass.
 
 ## C++ backend, first pass
 
-Status: implemented (2026-09-03) for the composition-only subset; the
-runtime backend is staged.
+Status: implemented for the composition subset and, as of 2026-09-04, the
+first scalar runtime-node subset. File-based `test` and `run` compile/load that
+subset on Unix; broader runtime lowering, caching, Windows loading, and REPL
+replacement remain staged.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1048,6 +1064,13 @@ What is emitted, in this order:
   namespace of the source, in dependency order (a recursive helper is a
   diagnostic). `const` parameter defaults become `static auto defaults()`
   so the registry applies them when the function is called by name.
+- **Runtime-node structs.** A runtime function in the supported scalar subset
+  is an empty static node struct in the generated header. Its `eval` signature
+  carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
+  union of `modified(...)` parameters selects active inputs; other temporal
+  inputs are passive. A function with `when` conservatively admits unchecked
+  inputs and retains its complete ordered predicates in `eval`. A function
+  without `when` uses ordinary active/valid input policy.
 - **Bodies.** The same lowering the direct-wiring backend performs, printed:
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
@@ -1068,10 +1091,28 @@ What is emitted, in this order:
   `var` keeps the static type fixed by its annotation or initializer and every
   rebind is converted or checked at that boundary. `if` over a constant is a
   C++ `if`; `return` and the tail expression return the result port.
-- **Registration.** `void register_operators()` registers each export and
-  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` through
-  a keyed `OperatorRegistry` installer named after the module, then runs the
-  installers, so a registry reset replays it and repeated calls are no-ops.
+- **Runtime bodies.** Scalar payload expressions use the same checked type and
+  widening rules, while `modified`, `valid`, and `all_valid` call selector
+  metadata directly. `valid(a, b)` is an `&&` fold and `modified(a, b)` is
+  an `||` fold. Ordered `when` blocks become independent `if` statements.
+  `return value` sets the output and returns; assignment through `inject out`
+  sets it and continues, so the final whole-output write wins. Scalar state
+  fields form one named `TSB` behind `RecordableState`; `start` seeds only
+  invalid fields before running an explicit state-and-configuration start
+  block.
+- **Registration.** `hgraph::OperatorProviderHandle register_operators()`
+  registers each export and
+  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
+  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node.
+  Private runtime helpers get translation-unit-local markers under the same
+  module-qualified identities so direct wiring can compose them without
+  exposing them in the module header. Registration creates a keyed provider
+  installer named after the module, activates exactly that provider, and
+  returns its opaque handle. Activation can nest under an aggregate library
+  installer while preserving each provider's provenance. A scoped rollback
+  removes a provider whose activation fails without masking the original
+  exception; registry reset replays active installers without resurrecting a
+  removed one.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
   to `hgraph.operator_function("module.name")`. Python keywords gain a
@@ -1080,13 +1121,15 @@ What is emitted, in this order:
 
 The header includes the standard operator umbrella, the analytics header
 when the module imports from `hgraph.analytics`, and the wiring/dispatch
-headers; the source includes only the header. Every emitted function is
-preceded by a `// file:line` comment; output is deterministic (basenames,
-no timestamps).
+headers; the source includes the header plus the scope-guard utility used by
+registration rollback. Every emitted function is preceded by a `// file:line`
+comment; output is deterministic (basenames, no timestamps).
 
-The first pass fails closed, before writing either file, on: a runtime
-function anywhere in the module (`state`, `inject`, lifecycle, `when`,
-runtime traversal), generics, struct declarations, duration rolling windows
+The first pass fails closed, before writing either file, on: runtime sources
+and sinks, non-scalar runtime parameters, output, or state, runtime calls and
+collection traversal, injectables other than `out`, lifecycle access to
+temporal inputs or output, generics, struct declarations, duration rolling
+windows
 (hgraph has registry and runtime duration windows but no compile-time
 `TSW` marker for them — the parity matrix records the gap), tuple and list
 literals and other compound constants, `if` or a block used as a value,
@@ -1123,12 +1166,61 @@ them.
 ## Scripted, REPL, and AOT drivers
 
 `hgl test`, `hgl run`, `hgl repl`, and `hgl emit-cpp` use the same type
-expansion, function classifier, and typed IR. `emit-cpp` always uses the
-C++ backend; the other three use the direct-wiring backend when the evaluated
-closure is composition-only and the C++ backend otherwise. There is no
-`hgl build`: a package builds emitted C++ with `hgl_add_module()`. The parity
-suite runs every test the direct-wiring backend accepts through both
-backends and compares the recorded ticks.
+expansion, function classifier, and checked tree. `emit-cpp` always uses the
+C++ backend. File-based `test` and `run` keep the direct-wiring path for a
+composition-only unit; when a unit contains a runtime function or `impl fn`,
+the driver emits the whole unit, invokes the configured C++ compiler, loads
+the resulting image, invokes its fixed registration entry point, and then
+wires tests or the entry through the same backend and hgraph registry. There
+is no `hgl build`: a package builds emitted C++ with `hgl_add_module()`.
+
+The scripted compiler configuration is generated from the `hgl` CMake target:
+compiler, preprocessor definitions, and evaluated include paths. It does not
+retain the build machine's compiler launcher. An installed executable also
+resolves the SDK include directory relative to its configured
+`CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
+the default `bin` and `include` names.
+`HGL_CXX` overrides the compiler for diagnostics/testing and
+`HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
+exports hgraph symbols and the generated image does not link a second static
+hgraph, so both use one registry. This path is currently Unix-only.
+
+The native cache is format-versioned under a platform per-user cache directory,
+or `HGL_CACHE_DIR/v2` when overridden. Its SHA-256 key covers the emitted
+header, source and registration bootstrap; the registration ABI; the resolved
+compiler executable path and digest, reported version and target, and effective
+arguments; CMake system, processor and configuration; hgraph version/commit;
+relevant compiler search environment; and the hosting `hgl` executable path
+and digest. The executable digests prevent an image built by a changed tool or
+against one host executable's exported symbols from being reused even when its
+path and reported version remain unchanged. External module descriptor
+fingerprints must join the key when scripted imports of separately built
+providers land.
+
+A miss compiles in the ordinary artifact directory, copies the generated
+sources, image and diagnostic manifest into a unique staging directory beside
+the cache, writes a completion marker containing the image digest, then
+atomically renames that complete directory to its digest. Concurrent publishers
+may both compile but converge on the first complete entry; partial directories
+are never visible at the final key. A reader verifies the image digest before
+loading. A damaged final entry is renamed with an `.incomplete-` prefix before
+replacement, preserving it for diagnosis. Failure to create or publish the
+cache falls back to the transient image; `HGL_CACHE_TRACE=1` reports that path.
+Caching is likewise skipped when either executable identity cannot be resolved
+and hashed, or when no per-user cache location is available. There is no shared
+temporary-directory cache fallback. `HGL_DISABLE_CACHE=1` requests the
+transient path explicitly. Cache eviction is not automated in this prototype.
+
+Loaded images remain resident for the process because registry callbacks may
+still point into them. Logical provider removal controls visibility; physical
+unloading is deliberately deferred. Successful transient build directories are
+removed; a compile failure retains its complete directory and reports the path.
+
+The REPL uses direct wiring for composition-only sessions and the same cached
+native loader for a session containing runtime functions or implementations.
+The parity suite runs every composition test accepted by both backends and
+compares the recorded ticks; the runtime fixture executes both as an
+ahead-of-time module and through the scripted loader.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.
@@ -1146,9 +1238,9 @@ prints as a constant, the schema name of a port, or a harness sequence.
 Input continues onto following lines while brackets are open (the prompt
 becomes `...> `); `:quit` leaves, `:list` shows the session and the
 retained bindings, `:help` the commands. Diagnostics locate into the
-session text as `<repl>:line:col`. The REPL never emits C++: a session
-that needs the C++ backend reports the `backend` diagnostic and keeps the
-last valid session.
+session text as `<repl>:line:col`. A declaration whose complete session needs
+the C++ backend is emitted and staged before it is accepted. Failure keeps both
+the last valid session text and its active native provider.
 
 Input comes through `driver/line_reader`: on a terminal, with the tool
 built with `HGL_ENABLE_LINE_EDITING` (default on), it is an isocline line
@@ -1161,11 +1253,12 @@ the REPL's loop. Off a terminal (a pipe, a file), or with the option off or
 printed, so `tests/repl/repl_smoke.cmake` and scripted use see the same
 text they always did.
 
-Replacing a REPL module stops and destroys graphs holding its leases, removes
-the old module handle and installer intent, initializes the replacement, and
-rebuilds the registry from the active module set. If removal cannot complete,
-the old revision remains active and the replacement fails atomically. Retaining
-old native images is acceptable; retaining their candidates is not.
+Replacement happens between evaluations, after temporary graphs and plans have
+released their leases. The driver compiles and loads a candidate image first,
+removes the old provider handle and installer intent, and activates the new
+provider. If activation throws, it reactivates the old image and reports the
+failure. Old native images remain mapped; their candidates do not remain
+selectable or return after reset.
 
 A future JIT must consume the same classified semantic IR and pass backend
 parity before it can replace either backend.

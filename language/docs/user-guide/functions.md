@@ -342,6 +342,11 @@ read permits `b` to be invalid. In a runtime function, `return value` writes
 one output tick and terminates the current evaluation. Reaching the end without
 writing or returning produces no output tick.
 
+`when` is a function-level handler rather than a nested control-flow form.
+Use `if valid(value) { ... }` inside a handler when only part of that handler
+needs a value. Validity guards follow normal left-to-right short-circuit order,
+so place `valid(value)` before reading `value` in the same `&&` condition.
+
 This can deliberately fuse work that would otherwise become several
 primitive nodes and intermediate endpoints. Graph composition still flattens;
 the possible saving comes from eliminating intermediate nodes, bindings,

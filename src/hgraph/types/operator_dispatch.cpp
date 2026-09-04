@@ -6,13 +6,42 @@
 #include <fmt/ranges.h>
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
+#include <iterator>
 #include <limits>
 
 namespace hgraph
 {
+    namespace operator_dispatch_detail
+    {
+        struct OperatorProviderState
+        {
+            std::string              key{};
+            std::atomic<std::size_t> live_leases{0};
+            std::atomic<bool>        active{true};
+        };
+    }  // namespace operator_dispatch_detail
+
     namespace
     {
+        struct OperatorProviderLease
+        {
+            explicit OperatorProviderLease(
+                std::shared_ptr<operator_dispatch_detail::OperatorProviderState> provider)
+                : provider(std::move(provider))
+            {
+                this->provider->live_leases.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            ~OperatorProviderLease()
+            {
+                provider->live_leases.fetch_sub(1, std::memory_order_release);
+            }
+
+            std::shared_ptr<operator_dispatch_detail::OperatorProviderState> provider;
+        };
+
         /** Render a constrained scalar variable as its actual accepted public
             type when it has exactly one constraint. The variable name is an
             implementation detail in that case; exposing ``PN`` instead of
@@ -667,8 +696,32 @@ namespace hgraph
         return *registry;
     }
 
+    OperatorProviderHandle::OperatorProviderHandle(
+        std::shared_ptr<operator_dispatch_detail::OperatorProviderState> state) noexcept
+        : state_(std::move(state))
+    {
+    }
+
+    bool OperatorProviderHandle::valid() const noexcept { return state_ != nullptr; }
+
+    bool OperatorProviderHandle::active() const noexcept
+    {
+        return state_ != nullptr && state_->active.load(std::memory_order_acquire);
+    }
+
+    std::string_view OperatorProviderHandle::key() const noexcept
+    {
+        return state_ != nullptr ? std::string_view{state_->key} : std::string_view{};
+    }
+
+    std::size_t OperatorProviderHandle::live_leases() const noexcept
+    {
+        return state_ != nullptr ? state_->live_leases.load(std::memory_order_acquire) : 0;
+    }
+
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
+        impl.provider = active_provider_;
         const std::string name = impl.name;
         auto &overloads = overloads_[name];
         overloads.push_back(std::move(impl));
@@ -683,8 +736,11 @@ namespace hgraph
         }
     }
 
-    void OperatorRegistry::register_installer(std::string_view key, std::function<void()> installer)
+    OperatorProviderHandle OperatorRegistry::register_installer(
+        std::string_view key, std::function<void()> installer)
     {
+        if (key.empty()) { throw std::invalid_argument("operator installer key must not be empty"); }
+        if (!installer) { throw std::invalid_argument("operator installer callback must not be empty"); }
         for (Installer &entry : installers_)
         {
             if (entry.key == key)
@@ -694,42 +750,135 @@ namespace hgraph
                 // attempt left applied=false, so a replaced callback runs on
                 // the next rebuild.
                 entry.fn = std::move(installer);
-                return;
+                return OperatorProviderHandle{entry.provider};
             }
         }
-        installers_.push_back(Installer{.key = std::string{key}, .fn = std::move(installer)});
+        auto provider = std::make_shared<operator_dispatch_detail::OperatorProviderState>();
+        provider->key = key;
+        installers_.push_back(Installer{
+            .key = std::string{key},
+            .fn = std::move(installer),
+            .provider = provider,
+        });
+        return OperatorProviderHandle{std::move(provider)};
+    }
+
+    void OperatorRegistry::run_installer(
+        const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider)
+    {
+        auto installer = std::find_if(installers_.begin(), installers_.end(),
+                                      [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end() || installer->applied || installer->running || !installer->fn) { return; }
+
+        // ``running`` guards re-entrancy; ``applied`` is set only AFTER
+        // success so a throwing installer remains eligible for retry.
+        installer->running = true;
+        const auto previous_provider = std::exchange(active_provider_, provider);
+        auto restore_context = make_scope_exit([&]() noexcept {
+            active_provider_ = previous_provider;
+            const auto current = std::find_if(installers_.begin(), installers_.end(),
+                                              [&](const Installer &entry) { return entry.provider == provider; });
+            if (current != installers_.end()) { current->running = false; }
+        });
+        auto rollback = make_scope_exit([&]() noexcept { erase_provider_candidates(provider); });
+
+        // Copy: the stored entry may move if the callback mutates the installer
+        // list, including by activating or removing another provider.
+        const std::function<void()> fn = installer->fn;
+        fn();
+
+        installer = std::find_if(installers_.begin(), installers_.end(),
+                                 [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end())
+        {
+            throw std::logic_error("operator provider was removed while its installer was running");
+        }
+        installer->applied = true;
+        rollback.release();
+    }
+
+    void OperatorRegistry::activate_provider(const OperatorProviderHandle &handle)
+    {
+        const auto provider = handle.state_;
+        if (provider == nullptr || !provider->active.load(std::memory_order_acquire))
+        {
+            throw std::invalid_argument("cannot activate an empty or inactive operator provider");
+        }
+        const auto installer = std::find_if(installers_.begin(), installers_.end(),
+                                            [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end())
+        {
+            throw std::invalid_argument("cannot activate a stale operator provider");
+        }
+        run_installer(provider);
     }
 
     void OperatorRegistry::run_installers()
     {
-        // Indexed iteration: an installer may register further installers
-        // (an entry point that fans out), which reallocates the vector — and
-        // freshly appended entries are picked up in the same pass.
-        for (std::size_t i = 0; i < installers_.size(); ++i)
+        // Select by provider rather than retaining an index: an installer may
+        // append, activate, or remove other providers while it runs.
+        while (true)
         {
-            if (installers_[i].applied || installers_[i].running || !installers_[i].fn)
+            const auto installer = std::find_if(installers_.begin(), installers_.end(), [](const Installer &entry) {
+                return !entry.applied && !entry.running && static_cast<bool>(entry.fn);
+            });
+            if (installer == installers_.end()) { return; }
+            run_installer(installer->provider);
+        }
+    }
+
+    void OperatorRegistry::erase_provider_candidates(
+        const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider) noexcept
+    {
+        for (auto entry = overloads_.begin(); entry != overloads_.end();)
+        {
+            auto &overloads = entry->second;
+            std::erase_if(overloads, [&](const OperatorImpl &impl) { return impl.provider == provider; });
+            if (overloads.empty())
             {
+                suffix_min_ranks_.erase(entry->first);
+                entry = overloads_.erase(entry);
                 continue;
             }
-            // ``running`` guards re-entrancy (an installer that indirectly
-            // re-enters the rebuild must not replay itself); ``applied`` is
-            // set only AFTER success so a throwing installer is retried by
-            // the next rebuild rather than silently stranded.
-            installers_[i].running = true;
-            try
+
+            auto suffix = suffix_min_ranks_.find(entry->first);
+            if (suffix != suffix_min_ranks_.end())
             {
-                // Copy: the stored entry may move if the callback appends.
-                const std::function<void()> fn = installers_[i].fn;
-                fn();
+                suffix->second.resize(overloads.size());
+                int minimum = std::numeric_limits<int>::max();
+                for (std::size_t i = overloads.size(); i-- > 0;)
+                {
+                    minimum = std::min(minimum, overloads[i].rank);
+                    suffix->second[i] = minimum;
+                }
             }
-            catch (...)
-            {
-                installers_[i].running = false;
-                throw;
-            }
-            installers_[i].running = false;
-            installers_[i].applied = true;
+            ++entry;
         }
+    }
+
+    bool OperatorRegistry::remove_provider(const OperatorProviderHandle &handle)
+    {
+        const auto provider = handle.state_;
+        if (provider == nullptr || !provider->active.load(std::memory_order_acquire)) { return false; }
+        const auto installer = std::find_if(installers_.begin(), installers_.end(),
+                                            [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end()) { return false; }
+        if (installer->running)
+        {
+            throw std::logic_error("cannot remove an operator provider while its installer is running");
+        }
+
+        const std::size_t leases = provider->live_leases.load(std::memory_order_acquire);
+        if (leases != 0)
+        {
+            throw OperatorProviderInUseError(fmt::format(
+                "cannot remove operator provider '{}' while {} live lease(s) retain it", provider->key, leases));
+        }
+
+        erase_provider_candidates(provider);
+        installers_.erase(installer);
+        provider->active.store(false, std::memory_order_release);
+        return true;
     }
 
     Value OperatorRegistry::evaluate_const(std::string_view name, std::span<const WiringArg> args,
@@ -1282,11 +1431,16 @@ namespace hgraph
             WiringArg positional = kw_arg;
             positional.name.clear();   // const takes the value positionally
             ResolvedOperatorCall lifted =
-                resolve("const", std::span<const WiringArg>{&positional, 1}, true, nullptr, {}, global_state);
+                resolve("const", std::span<const WiringArg>{&positional, 1}, true, nullptr, {}, global_state,
+                        wiring);
             OperatorWireResult source = lifted.impl->wire(*wiring, lifted.map, lifted.args, lifted.kwargs);
             kwargs.emplace_back(kw_name, source.output.erased());
         }
 
+        if (wiring != nullptr && winner.impl->provider != nullptr)
+        {
+            wiring->retain_graph_state(std::make_shared<OperatorProviderLease>(winner.impl->provider));
+        }
         return ResolvedOperatorCall{winner.impl, std::move(winner.map), std::move(winner.call.args),
                                     std::move(kwargs)};
     }
