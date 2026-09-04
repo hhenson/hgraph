@@ -265,8 +265,13 @@ handed to CMake with ``FETCHCONTENT_SOURCE_DIR_ISOCLINE`` under
 ``FETCHCONTENT_FULLY_DISCONNECTED=ON`` (the Homebrew sandbox has no
 network). No formula options. The ``test do`` block runs ``hgl test`` on a
 two-line program and checks ``hgl --version`` reports the formula version.
-Bottles are built by ``brew test-bot`` in the tap's own CI on macOS arm64
-runners; Linux bottles are an open question.
+Bottles are built by ``brew test-bot`` in the tap's own CI on ``macos-26``
+arm64 runners, the toolchain the rest of the macOS CI builds with, and
+serially: the hosted runners have 3 cores and 7 GB, and the std library's
+largest translation units do not fit side by side at ``-O3`` with thin
+LTO (the formula passes ``--parallel`` from ``HOMEBREW_MAKE_JOBS``).
+Bottles are per macOS version, so macOS 15 builds from source until a
+``macos-15`` leg is proven; Linux bottles are an open question.
 
 The formula builds against whatever versions homebrew-core carries (fmt
 12.x today while this tree pins fmt 11 when it fetches; Boost 1.92 against

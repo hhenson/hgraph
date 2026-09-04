@@ -65,7 +65,9 @@ class Hgraph < Formula
     ]
 
     system "cmake", "-S", ".", "-B", "build", "-G", "Ninja", *args, *std_cmake_args
-    system "cmake", "--build", "build"
+    # Ninja defaults to cores+2 jobs; keep the build inside HOMEBREW_MAKE_JOBS
+    # because the largest std translation units need several GB each.
+    system "cmake", "--build", "build", "--parallel", ENV.make_jobs.to_s
     system "cmake", "--install", "build"
   end
 

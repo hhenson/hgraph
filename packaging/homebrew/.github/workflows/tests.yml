@@ -19,9 +19,15 @@ jobs:
     strategy:
       matrix:
         os:
-          - macos-15
+          # macos-26 is where hgraph's own macOS CI builds. The hosted
+          # arm64 runners have 3 cores and 7 GB; the std library's largest
+          # translation units do not fit side by side, so the build is
+          # serial (the formula passes --parallel to cmake --build).
+          - macos-26
           - ubuntu-24.04
     runs-on: ${{ matrix.os }}
+    env:
+      HOMEBREW_MAKE_JOBS: "1"
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
