@@ -158,13 +158,17 @@ package-manager build sets ``HGRAPH_FETCH_*=OFF`` and installs none of them;
 
 Nothing in the tree bakes an absolute rpath. ``hgl`` carries
 ``$ORIGIN/../lib`` (``@loader_path/../lib`` on macOS) so it finds the SDK
-libraries from any prefix, and prepends ``CMAKE_INSTALL_RPATH`` when the
-packager sets one. The core libraries set no rpath of their own: a packager
-passes ``CMAKE_INSTALL_RPATH`` (Homebrew does through ``std_cmake_args``) or
-installs to a default search path (the container installs to
-``/usr/local``). Without one of those the executable's rpath does not reach
-the libraries' own dependencies (``DT_RUNPATH`` is not transitive), which is
-what a bare ``cmake --install`` to an arbitrary prefix exhibits today.
+libraries from any prefix, and the shared core libraries carry ``$ORIGIN``
+(``@loader_path``) so each finds its siblings from the directory it was
+installed to; both prepend ``CMAKE_INSTALL_RPATH`` when the packager sets
+one. The libraries need that rpath of their own because their install names
+are ``@rpath/libhgraph_*.dylib`` on macOS and ``DT_RUNPATH`` is not
+transitive on ELF: a consumer's rpath reaches ``libhgraph_wiring`` but not
+``libhgraph_wiring``'s reference to ``libhgraph_runtime``. Homebrew does not
+set ``CMAKE_INSTALL_RPATH`` (``std_cmake_args`` carries no rpath) and leaves
+``@rpath`` references alone when it relocates a keg, so the first ``brew
+test`` of the installed-SDK consumer failed with ``no LC_RPATH's found``
+until the libraries carried the entry themselves.
 
 Versioning
 ~~~~~~~~~~
@@ -415,7 +419,8 @@ P3
     (the program and the installed-SDK consumer every channel builds) and
     a ``packaging/README.md`` that spells out the release switch.
     Placeholder ``url`` / ``sha256`` until a tag contains ``language/``.
-    The ``hgl`` install rpath gains ``../lib`` and honours
+    The ``hgl`` install rpath gains ``../lib``, the shared core libraries
+    gain ``$ORIGIN`` / ``@loader_path``, and both honour
     ``CMAKE_INSTALL_RPATH``.
 P4
     Packaging dry-run workflow (``.github/workflows/packaging.yml``): on

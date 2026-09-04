@@ -48,9 +48,11 @@ expects it there.
   every channel's dry run.
 - Neither the core libraries nor the language set an absolute rpath. `hgl`
   carries `$ORIGIN/../lib` (`@loader_path/../lib`) so it finds the SDK
-  libraries from any prefix; the libraries' own rpath comes from
-  `CMAKE_INSTALL_RPATH`, which Homebrew passes, or from installing to a
-  default search path, which the container does.
+  libraries from any prefix, and the shared core libraries carry `$ORIGIN`
+  (`@loader_path`) so each finds its siblings; a packager's
+  `CMAKE_INSTALL_RPATH` is prepended to both. Homebrew sets no rpath of its
+  own and leaves `@rpath` install names alone, so the libraries' entry is
+  what makes a Homebrew-built SDK loadable by a consumer.
 
 ## The dry run
 

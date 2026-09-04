@@ -253,19 +253,33 @@ if(HGRAPH_BUILD_SHARED)
         target_compile_definitions(hgraph_stdlib PRIVATE hgraph_EXPORTS)
     endif()
 
-    if(HGRAPH_BUILD_PYTHON_BINDINGS)
-        if(APPLE)
-            set(_hgraph_core_install_rpath "@loader_path;@loader_path/../pyarrow")
-        elseif(UNIX)
-            set(_hgraph_core_install_rpath "$ORIGIN;$ORIGIN/../pyarrow")
-        else()
-            set(_hgraph_core_install_rpath "")
+    # The shared components reference each other through their install names
+    # (@rpath/... on macOS, bare sonames on ELF), so each carries a relative
+    # rpath to its own directory: an installed SDK then resolves from any
+    # prefix without an absolute path baked in. The packager's
+    # CMAKE_INSTALL_RPATH, if any, comes first; the ../pyarrow entry supports
+    # the wheel layout, where Arrow is loaded from the pyarrow package.
+    if(APPLE)
+        set(_hgraph_core_install_rpath "@loader_path")
+        set(_hgraph_core_pyarrow_rpath "@loader_path/../pyarrow")
+    elseif(UNIX)
+        set(_hgraph_core_install_rpath "$ORIGIN")
+        set(_hgraph_core_pyarrow_rpath "$ORIGIN/../pyarrow")
+    else()
+        set(_hgraph_core_install_rpath "")
+        set(_hgraph_core_pyarrow_rpath "")
+    endif()
+    if(_hgraph_core_install_rpath)
+        if(HGRAPH_BUILD_PYTHON_BINDINGS)
+            list(APPEND _hgraph_core_install_rpath "${_hgraph_core_pyarrow_rpath}")
         endif()
-        if(_hgraph_core_install_rpath)
-            set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
-                INSTALL_RPATH "${_hgraph_core_install_rpath}"
-            )
+        if(CMAKE_INSTALL_RPATH)
+            list(PREPEND _hgraph_core_install_rpath ${CMAKE_INSTALL_RPATH})
+            list(REMOVE_DUPLICATES _hgraph_core_install_rpath)
         endif()
+        set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
+            INSTALL_RPATH "${_hgraph_core_install_rpath}"
+        )
     endif()
 endif()
 
