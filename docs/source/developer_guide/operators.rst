@@ -717,10 +717,16 @@ by operator group:
   added when the owning file would leave the budget. Every group file is
   listed in ``src/CMakeLists.txt``.
 
-Registration order only affects the order in which candidates are listed in
-diagnostics — ``resolve`` selects by rank and a tie is an ambiguity error —
-so the split may interleave the overloads of one operator differently from
-the single-file layout; each group keeps its original relative order.
+Registration order does not affect resolution — ``resolve`` selects by rank
+and a tie is an ambiguity error — so the split may interleave the overloads
+of one operator differently from the single-file layout; each group keeps
+its original relative order. The order is visible in two places: the
+candidate list in diagnostics, and the generated API files
+(``tools/api_inventory.py`` lists an operator's overloads in registry
+order in ``docs/source/reference/operator_catalogue.rst``, the
+``_operator_typing.pyi`` stub and ``_operator_docs.py``). Moving a
+registration between files therefore means regenerating those files,
+which ``python/tests/test_api_inventory.py`` checks.
 
 The current groups:
 
