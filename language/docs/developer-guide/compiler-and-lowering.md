@@ -1108,8 +1108,11 @@ What is emitted, in this order:
   module-qualified identities so direct wiring can compose them without
   exposing them in the module header. Registration creates a keyed provider
   installer named after the module, activates exactly that provider, and
-  returns its opaque handle. A failed activation removes the new provider;
-  registry reset replays active installers without resurrecting a removed one.
+  returns its opaque handle. Activation can nest under an aggregate library
+  installer while preserving each provider's provenance. A scoped rollback
+  removes a provider whose activation fails without masking the original
+  exception; registry reset replays active installers without resurrecting a
+  removed one.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
   to `hgraph.operator_function("module.name")`. Python keywords gain a
@@ -1118,9 +1121,9 @@ What is emitted, in this order:
 
 The header includes the standard operator umbrella, the analytics header
 when the module imports from `hgraph.analytics`, and the wiring/dispatch
-headers; the source includes only the header. Every emitted function is
-preceded by a `// file:line` comment; output is deterministic (basenames,
-no timestamps).
+headers; the source includes the header plus the scope-guard utility used by
+registration rollback. Every emitted function is preceded by a `// file:line`
+comment; output is deterministic (basenames, no timestamps).
 
 The first pass fails closed, before writing either file, on: runtime sources
 and sinks, non-scalar runtime parameters, output, or state, runtime calls and

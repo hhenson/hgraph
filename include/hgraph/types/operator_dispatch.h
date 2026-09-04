@@ -604,7 +604,8 @@ namespace hgraph
         // reset point for all wiring-time global state.
 
       private:
-        void run_installer(std::size_t index);
+        void run_installer(
+            const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider);
 
         void erase_provider_candidates(
             const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider) noexcept;

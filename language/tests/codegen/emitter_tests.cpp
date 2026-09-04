@@ -106,8 +106,11 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "if (enabled.value())"));
     CHECK(contains(emitted->source, "const auto shift = (delta.value() * hgraph::Int{2});"));
     CHECK(contains(emitted->source, "register_installer(\"hgl.codegen.parity\""));
+    CHECK(contains(emitted->source, "#include <hgraph/util/scope.h>"));
+    CHECK(contains(emitted->source, "auto rollback = hgraph::make_scope_exit<true>([&]"));
     CHECK(contains(emitted->source, "registry.activate_provider(provider);"));
     CHECK(contains(emitted->source, "(void)registry.remove_provider(provider);"));
+    CHECK(contains(emitted->source, "rollback.release();"));
     CHECK(contains(emitted->source, "return provider;"));
     CHECK(contains(emitted->source, "hgraph::register_graph_overload<ops::plus, plus>();"));
     CHECK(contains(emitted->source, "// parity.hgl:"));

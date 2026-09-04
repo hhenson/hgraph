@@ -343,7 +343,12 @@ next retry.
 ``activate_provider`` runs only the installer identified by the supplied
 generation-stable handle. Generated and dynamically loaded modules use it to
 stage a provider without also activating unrelated pending installers, then
-retain the handle for transactional removal or replacement.
+retain the handle for transactional removal or replacement. Targeted
+activation may nest inside an aggregate installer: the registry restores the
+enclosing provider context after the nested callback, so each candidate keeps
+the provider which actually registered it. A non-running nested provider may
+also be removed while its enclosing installer is active; removal of the
+currently running provider remains an error.
 
 Selecting a provider-owned overload retains one lease on the wiring result.
 That lease is carried from ``Wiring`` into the reusable ``GraphBuilder`` and

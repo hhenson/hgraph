@@ -2,6 +2,7 @@
 
 #include "hgl_native_compile_config.h"
 
+#include <hgraph/util/scope.h>
 #include <hgraph/util/sha256.h>
 #include <hgraph/version.h>
 
@@ -819,14 +820,10 @@ namespace hgl::driver
 
     NativeModule::~NativeModule()
     {
-        try
-        {
+        static_cast<void>(hgraph::fallback_on_exception(false, [this] {
             std::string ignored;
-            static_cast<void>(deactivate(ignored));
-        }
-        catch (...)
-        {
-        }
+            return deactivate(ignored);
+        }));
     }
 
     bool NativeModule::active() const noexcept { return provider_.active(); }

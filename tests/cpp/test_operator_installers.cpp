@@ -9,6 +9,7 @@
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/util/scope.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -313,6 +314,51 @@ TEST_CASE("installers: targeted provider activation leaves unrelated intent pend
     CHECK_THROWS_AS(registry.activate_provider(unrelated), std::runtime_error);
     CHECK(unrelated_attempts == 1);
     CHECK(registry.remove_provider(unrelated));
+}
+
+TEST_CASE("installers: targeted provider activation nests under an aggregate installer")
+{
+    auto &registry = OperatorRegistry::instance();
+    int   aggregate_attempts = 0;
+    int   nested_attempts    = 0;
+    OperatorProviderHandle nested;
+    OperatorProviderHandle aggregate = registry.register_installer("test.aggregate-provider", [&] {
+        ++aggregate_attempts;
+        nested = registry.register_installer("test.nested-provider", [&] {
+            ++nested_attempts;
+            register_overload<provider_probe, provider_probe_impl>();
+        });
+        registry.activate_provider(nested);
+    });
+
+    registry.activate_provider(aggregate);
+    CHECK(aggregate_attempts == 1);
+    CHECK(nested_attempts == 1);
+    CHECK(provider_probe_count() == 1);
+
+    CHECK(registry.remove_provider(nested));
+    CHECK(registry.remove_provider(aggregate));
+}
+
+TEST_CASE("installers: nested activation failure preserves the error and removes its provider")
+{
+    auto &registry = OperatorRegistry::instance();
+    OperatorProviderHandle nested;
+    OperatorProviderHandle aggregate = registry.register_installer("test.failing-aggregate-provider", [&] {
+        nested = registry.register_installer("test.failing-nested-provider", [&] {
+            register_overload<provider_probe, provider_probe_impl>();
+            throw std::runtime_error("nested provider failed");
+        });
+        auto rollback = make_scope_exit<true>([&] { static_cast<void>(registry.remove_provider(nested)); });
+        registry.activate_provider(nested);
+        rollback.release();
+    });
+
+    CHECK_THROWS_WITH(registry.activate_provider(aggregate), "nested provider failed");
+    CHECK(nested.valid());
+    CHECK_FALSE(nested.active());
+    CHECK(provider_probe_count() == 0);
+    CHECK(registry.remove_provider(aggregate));
 }
 
 TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")

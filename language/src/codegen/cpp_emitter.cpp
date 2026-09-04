@@ -2724,13 +2724,11 @@ namespace hgl::codegen
                 body.line(registration + "<ops::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
             }
             body.close(");");
-            body.open("try");
-            body.line("registry.activate_provider(provider);");
-            body.close();
-            body.open("catch (...)");
+            body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
             body.line("(void)registry.remove_provider(provider);");
-            body.line("throw;");
-            body.close();
+            body.close(");");
+            body.line("registry.activate_provider(provider);");
+            body.line("rollback.release();");
             body.line("return provider;");
             body.close();
             body.dedent();
@@ -2794,6 +2792,7 @@ namespace hgl::codegen
             source.line("#include \"" + options_.header_name + "\"");
             source.line();
             source.line("#include <hgraph/types/operator_dispatch.h>");
+            source.line("#include <hgraph/util/scope.h>");
             source.line();
             result.header = header.str();
             result.source = source.str() + body.str();

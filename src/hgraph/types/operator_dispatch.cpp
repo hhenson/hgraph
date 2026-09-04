@@ -763,31 +763,38 @@ namespace hgraph
         return OperatorProviderHandle{std::move(provider)};
     }
 
-    void OperatorRegistry::run_installer(std::size_t index)
+    void OperatorRegistry::run_installer(
+        const std::shared_ptr<operator_dispatch_detail::OperatorProviderState> &provider)
     {
-        if (installers_[index].applied || installers_[index].running || !installers_[index].fn) { return; }
+        auto installer = std::find_if(installers_.begin(), installers_.end(),
+                                      [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end() || installer->applied || installer->running || !installer->fn) { return; }
 
         // ``running`` guards re-entrancy; ``applied`` is set only AFTER
         // success so a throwing installer remains eligible for retry.
-        installers_[index].running = true;
-        const auto provider = installers_[index].provider;
+        installer->running = true;
         const auto previous_provider = std::exchange(active_provider_, provider);
-        try
-        {
-            // Copy: the stored entry may move if the callback appends.
-            const std::function<void()> fn = installers_[index].fn;
-            fn();
-        }
-        catch (...)
-        {
+        auto restore_context = make_scope_exit([&]() noexcept {
             active_provider_ = previous_provider;
-            installers_[index].running = false;
-            erase_provider_candidates(provider);
-            throw;
+            const auto current = std::find_if(installers_.begin(), installers_.end(),
+                                              [&](const Installer &entry) { return entry.provider == provider; });
+            if (current != installers_.end()) { current->running = false; }
+        });
+        auto rollback = make_scope_exit([&]() noexcept { erase_provider_candidates(provider); });
+
+        // Copy: the stored entry may move if the callback mutates the installer
+        // list, including by activating or removing another provider.
+        const std::function<void()> fn = installer->fn;
+        fn();
+
+        installer = std::find_if(installers_.begin(), installers_.end(),
+                                 [&](const Installer &entry) { return entry.provider == provider; });
+        if (installer == installers_.end())
+        {
+            throw std::logic_error("operator provider was removed while its installer was running");
         }
-        active_provider_ = previous_provider;
-        installers_[index].running = false;
-        installers_[index].applied = true;
+        installer->applied = true;
+        rollback.release();
     }
 
     void OperatorRegistry::activate_provider(const OperatorProviderHandle &handle)
@@ -797,27 +804,26 @@ namespace hgraph
         {
             throw std::invalid_argument("cannot activate an empty or inactive operator provider");
         }
-        if (active_provider_ != nullptr)
-        {
-            throw std::logic_error("cannot activate an operator provider while another installer is running");
-        }
         const auto installer = std::find_if(installers_.begin(), installers_.end(),
                                             [&](const Installer &entry) { return entry.provider == provider; });
         if (installer == installers_.end())
         {
             throw std::invalid_argument("cannot activate a stale operator provider");
         }
-        run_installer(static_cast<std::size_t>(std::distance(installers_.begin(), installer)));
+        run_installer(provider);
     }
 
     void OperatorRegistry::run_installers()
     {
-        // Indexed iteration: an installer may register further installers
-        // (an entry point that fans out), which reallocates the vector — and
-        // freshly appended entries are picked up in the same pass.
-        for (std::size_t i = 0; i < installers_.size(); ++i)
+        // Select by provider rather than retaining an index: an installer may
+        // append, activate, or remove other providers while it runs.
+        while (true)
         {
-            run_installer(i);
+            const auto installer = std::find_if(installers_.begin(), installers_.end(), [](const Installer &entry) {
+                return !entry.applied && !entry.running && static_cast<bool>(entry.fn);
+            });
+            if (installer == installers_.end()) { return; }
+            run_installer(installer->provider);
         }
     }
 
@@ -854,11 +860,6 @@ namespace hgraph
     {
         const auto provider = handle.state_;
         if (provider == nullptr || !provider->active.load(std::memory_order_acquire)) { return false; }
-        if (active_provider_ != nullptr)
-        {
-            throw std::logic_error("cannot remove an operator provider while installers are running");
-        }
-
         const auto installer = std::find_if(installers_.begin(), installers_.end(),
                                             [&](const Installer &entry) { return entry.provider == provider; });
         if (installer == installers_.end()) { return false; }
