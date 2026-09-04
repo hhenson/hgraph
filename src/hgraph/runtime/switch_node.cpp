@@ -439,10 +439,12 @@ bool switch_evaluate(const NodeView &view, DateTime evaluation_time) {
     bind_branch_inputs(view, spec, active->view(), evaluation_time);
     bool bound = bind_branch_output(view, context, spec, active->view(), evaluation_time);
     const bool complete = active->view().evaluate(evaluation_time);
-    // A REF terminal can become valid or repoint while evaluating the child.
-    // Refresh the copied switch boundary after that mutation; value terminals
-    // propagate through their forwarding endpoints without this extra sample.
-    bound = bind_branch_output(view, context, spec, active->view(), evaluation_time) || bound;
+    if (context.spec.output_mode == SwitchOutputMode::RefCopy) {
+      // A REF terminal can become valid or repoint while evaluating the
+      // child. Refresh the copied token after that mutation; value terminals
+      // propagate through their forwarding endpoints without a second bind.
+      bound = bind_branch_output(view, context, spec, active->view(), evaluation_time) || bound;
+    }
     if (storage.output_token_pending) {
       // The newly selected branch supplied no token this cycle: only now is
       // the previous token retired, as the single transition of the cycle.
