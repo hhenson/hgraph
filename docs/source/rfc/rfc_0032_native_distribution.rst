@@ -462,7 +462,11 @@ Implementation status
   ``hgl test`` on the smoke and on the analytics example from the prefix,
   ``conan export`` / ``conan source`` with ``language=True``. The Homebrew
   install and the container build run only in the dry-run workflow (no
-  ``brew`` or ``docker`` on the development box). P6 waits for PR #641
+  ``brew`` or ``docker`` on the development box); its first green run
+  (2026-09-04) installed the formula from source on ``macos-26`` in eight
+  minutes, passed ``brew audit --strict``, ``brew test`` and ``brew
+  linkage --test``, and built the Debian image with the smoke and the
+  analytics example passing inside it. P6 waits for PR #641
   (native artifact cache), which owns the code the context replaces; P7 is
   optional. No tap, bottle, image or install instructions exist -- the
   release switch has not been pulled.
