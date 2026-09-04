@@ -151,9 +151,6 @@ namespace hgl::driver
                 for (const std::string &argument : arguments) { argv.push_back(const_cast<char *>(argument.c_str())); }
                 argv.push_back(nullptr);
                 ::execvp(argv.front(), argv.data());
-                const std::string message =
-                    "cannot execute '" + arguments.front() + "': " + std::string{std::strerror(errno)} + "\n";
-                (void)::write(STDERR_FILENO, message.data(), message.size());
                 _exit(127);
             }
 
