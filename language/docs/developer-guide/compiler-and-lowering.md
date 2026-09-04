@@ -653,10 +653,13 @@ that every payload read is dominated by a static or flow-sensitive validity
 check.
 
 State initializers become `start` work that only seeds invalid fields, so
-record/replay restoration is preserved. Explicit source `start` and `stop`
-blocks become the corresponding static hooks. All state variables share one
-typed state schema. A future ephemeral-cache form must lower separately and
-must not cause one node to mix incompatible state selectors.
+record/replay restoration is preserved. They may read scalar `const`
+parameters, which are included in the generated lifecycle signature. Explicit
+source `start` and `stop` blocks become the corresponding static hooks and may
+likewise read state and `const` parameters, but not temporal inputs or output.
+All state variables share one typed state schema. A future ephemeral-cache form
+must lower separately and must not cause one node to mix incompatible state
+selectors.
 
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
@@ -1022,8 +1025,9 @@ device. The TOML run configuration is not in the first pass.
 
 ## C++ backend, first pass
 
-Status: implemented (2026-09-03) for the composition-only subset; the
-runtime backend is staged.
+Status: implemented for the composition subset and, as of 2026-09-04, the
+first scalar runtime-node subset. Broader runtime lowering and the scripted
+compile/load driver remain staged.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1048,6 +1052,13 @@ What is emitted, in this order:
   namespace of the source, in dependency order (a recursive helper is a
   diagnostic). `const` parameter defaults become `static auto defaults()`
   so the registry applies them when the function is called by name.
+- **Runtime-node structs.** A runtime function in the supported scalar subset
+  is an empty static node struct in the generated header. Its `eval` signature
+  carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
+  union of `modified(...)` parameters selects active inputs; other temporal
+  inputs are passive. A function with `when` conservatively admits unchecked
+  inputs and retains its complete ordered predicates in `eval`. A function
+  without `when` uses ordinary active/valid input policy.
 - **Bodies.** The same lowering the direct-wiring backend performs, printed:
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
@@ -1068,10 +1079,21 @@ What is emitted, in this order:
   `var` keeps the static type fixed by its annotation or initializer and every
   rebind is converted or checked at that boundary. `if` over a constant is a
   C++ `if`; `return` and the tail expression return the result port.
+- **Runtime bodies.** Scalar payload expressions use the same checked type and
+  widening rules, while `modified`, `valid`, and `all_valid` call selector
+  metadata directly. `valid(a, b)` is an `&&` fold and `modified(a, b)` is
+  an `||` fold. Ordered `when` blocks become independent `if` statements.
+  `return value` sets the output and returns; assignment through `inject out`
+  sets it and continues, so the final whole-output write wins. Scalar state
+  fields form one named `TSB` behind `RecordableState`; `start` seeds only
+  invalid fields before running an explicit state-and-configuration start
+  block.
 - **Registration.** `void register_operators()` registers each export and
-  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` through
-  a keyed `OperatorRegistry` installer named after the module, then runs the
-  installers, so a registry reset replays it and repeated calls are no-ops.
+  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
+  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node,
+  through a keyed `OperatorRegistry` installer named after the module. It then
+  runs the installers, so a registry reset replays them and repeated calls are
+  no-ops.
 - **Python.** With `--python <file> --python-native <module>` the wrapper
   module imports the native module (which registers) and binds each export
   to `hgraph.operator_function("module.name")`. Python keywords gain a
@@ -1084,9 +1106,11 @@ headers; the source includes only the header. Every emitted function is
 preceded by a `// file:line` comment; output is deterministic (basenames,
 no timestamps).
 
-The first pass fails closed, before writing either file, on: a runtime
-function anywhere in the module (`state`, `inject`, lifecycle, `when`,
-runtime traversal), generics, struct declarations, duration rolling windows
+The first pass fails closed, before writing either file, on: runtime sources
+and sinks, non-scalar runtime parameters, output, or state, runtime calls and
+collection traversal, injectables other than `out`, lifecycle access to
+temporal inputs or output, generics, struct declarations, duration rolling
+windows
 (hgraph has registry and runtime duration windows but no compile-time
 `TSW` marker for them — the parity matrix records the gap), tuple and list
 literals and other compound constants, `if` or a block used as a value,
@@ -1123,12 +1147,13 @@ them.
 ## Scripted, REPL, and AOT drivers
 
 `hgl test`, `hgl run`, `hgl repl`, and `hgl emit-cpp` use the same type
-expansion, function classifier, and typed IR. `emit-cpp` always uses the
-C++ backend; the other three use the direct-wiring backend when the evaluated
-closure is composition-only and the C++ backend otherwise. There is no
-`hgl build`: a package builds emitted C++ with `hgl_add_module()`. The parity
-suite runs every test the direct-wiring backend accepts through both
-backends and compares the recorded ticks.
+expansion, function classifier, and typed IR. `emit-cpp` always uses the C++
+backend. The other three currently use the direct-wiring backend and therefore
+still reject a runtime function in the evaluated closure. The next scripted
+slice will invoke the C++ backend, build or reuse a native artifact, load it,
+and run the same hgraph graph. There is no `hgl build`: a package builds emitted
+C++ with `hgl_add_module()`. The parity suite runs every test the direct-wiring
+backend accepts through both backends and compares the recorded ticks.
 
 The initial REPL may materialize a synthetic module and rebuild the full
 session. A failed declaration must not replace the last valid session.

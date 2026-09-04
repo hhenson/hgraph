@@ -84,14 +84,14 @@ hgl_apply_warnings(hgl_codegen_tests)
 
 add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 
-# ... and what that C++ does once built: the parity fixture emitted and compiled
-# through the same `hgl_add_module()` a package uses, under the repository's
-# warnings, then evaluated with hgraph's harness beside `hgl test` on the same
-# module (developer guide, "Backend parity").
-hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl)
+# ... and what that C++ does once built: the parity and scalar runtime fixtures
+# emitted and compiled through the same `hgl_add_module()` a package uses,
+# under the repository's warnings. hgraph's harness evaluates graph parity
+# beside `hgl test` and the native-only runtime-node behavior.
+hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl codegen/runtime.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
 
-add_executable(hgl_generated_tests codegen/generated_tests.cpp)
+add_executable(hgl_generated_tests codegen/generated_tests.cpp codegen/generated_runtime_tests.cpp)
 target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_generated_tests PRIVATE hgl_codegen_fixture hgl::wiring Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_generated_tests)
@@ -107,8 +107,7 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
 )
 
-# The command itself: a composition-only example emits; a runtime function
-# fails closed with a diagnostic that names it.
+# The command itself: composition and the first scalar runtime-node slice emit.
 add_test(
     NAME hgraph_language_emit_midpoint
     COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl --print
@@ -117,11 +116,11 @@ set_tests_properties(hgraph_language_emit_midpoint PROPERTIES
     PASS_REGULAR_EXPRESSION "namespace examples::prices"
 )
 add_test(
-    NAME hgraph_language_emit_rejects_runtime
-    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --print
+    NAME hgraph_language_emit_runtime
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl --print
 )
-set_tests_properties(hgraph_language_emit_rejects_runtime PROPERTIES
-    PASS_REGULAR_EXPRESSION "is a runtime function"
+set_tests_properties(hgraph_language_emit_runtime PROPERTIES
+    PASS_REGULAR_EXPRESSION "struct combined_total"
 )
 
 # The REPL over a pipe: the plain-line path of the line reader.

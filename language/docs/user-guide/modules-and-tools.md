@@ -274,27 +274,33 @@ a trailing underscore in this wrapper (`class` becomes `class_`) while their
 operator registry name remains unchanged; aliases that would collide are a
 generation error.
 
-What `emit-cpp` lowers today is the composition-only subset `hgl test` runs,
-plus non-generic `operator` / `impl fn` declarations. It reports, by name,
-and writes nothing for: runtime functions (`state`, `inject`, `when`,
-lifecycle blocks, runtime traversal), generics, structs, duration rolling
-windows, tuple and list literals, `if` used as a value, and zoned or civil
-literals.
+What `emit-cpp` lowers today is the composition subset `hgl test` runs, the
+first scalar runtime-node subset, and non-generic `operator` / `impl fn`
+declarations. The runtime subset supports scalar temporal inputs and output,
+`modified`/`valid` guards, ordered `when` handlers, scalar recordable `state`,
+`return`, `inject out`, and lifecycle blocks over state and `const`
+configuration. It reports, by name,
+and writes nothing for runtime sources or sinks, non-scalar runtime signatures
+or state, runtime calls or collection traversal, other injectables, lifecycle
+temporal-input/output access, generics, structs, duration rolling windows,
+tuple and list literals, `if` used as a value, and zoned or civil literals.
 
 ## One execution model
 
-`test`, `run`, `emit-cpp`, and the REPL share one checked semantic IR and
-one hgraph runtime. A program made only of composition functions is wired
-onto the runtime directly, in process; a program with runtime functions goes
-through generated C++:
+`test`, `run`, `emit-cpp`, and the REPL share one checked semantic IR and one
+hgraph runtime. A program made only of composition functions is wired onto the
+runtime directly, in process. An ahead-of-time package containing supported
+runtime functions goes through generated C++; using that same route from
+`test`, `run`, and the REPL is the next scripted-driver slice:
 
 ```text
 source -> checked semantic IR -> direct wiring          -> hgraph runtime
                               -> generated C++ -> native -> hgraph runtime
 ```
 
-Both paths build the same graph, and the compiler's parity suite holds them
-to the same ticks.
+Both paths build the same graph. The compiler's parity suite holds the shared
+composition subset to the same ticks and executes the runtime subset through
+the compiled path.
 
 The initial REPL may rebuild the whole session after each accepted declaration.
 That is slower than a JIT but guarantees that exploration sees the same

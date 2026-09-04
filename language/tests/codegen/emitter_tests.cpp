@@ -296,23 +296,85 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
+TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
+{
+    Unit unit{R"(
+module t
+export fn total(a: f64, b: f64) -> f64 {
+    state sum: f64 = 0.0
+    inject out
+    when modified(a, b) && valid(a) {
+        if valid(b) {
+            sum += a + b
+            out = sum
+        }
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "using recordable_state = hgraph::TSB<\"t.total.state\", "
+                                    "hgraph::Field<\"sum\", hgraph::TS<hgraph::Float>>>;"));
+    CHECK(contains(emitted->header, "hgraph::InputValidity::Unchecked"));
+    CHECK(contains(emitted->header, "if (((a.modified() || b.modified()) && (a.valid())))"));
+    CHECK(contains(emitted->header, "if (!sum.valid())"));
+    CHECK(contains(emitted->header, "sum.set((sum.value().checked_as<hgraph::Float>() + (a.value() + b.value())));"));
+    CHECK(contains(emitted->header, "hgl_output.set(sum.value().checked_as<hgraph::Float>());"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<ops::total, total>();"));
+    CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
+}
+
 TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
 {
-    SECTION("a runtime function")
+    SECTION("a runtime call")
     {
         Unit unit{R"(
 module t
-fn total(a: f64) -> f64 {
-    state sum: f64 = 0.0
-    when modified(a) {
-        sum += a
-        return sum
-    }
+fn twice(x: f64) -> f64 => x * 2.0
+export fn sampled(x: f64) -> f64 {
+    when modified(x) { return twice(x) }
 }
-export fn twice(x: f64) -> f64 => x * 2.0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "'total' is a runtime function"));
+        CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
+    }
+    SECTION("an unsupported runtime injectable")
+    {
+        Unit unit{R"(
+module t
+export fn logged(x: f64) -> f64 {
+    inject logger
+    when modified(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "injectable 'logger' is not supported by emit-cpp yet"));
+    }
+    SECTION("runtime state without an explicit type")
+    {
+        Unit unit{R"(
+module t
+export fn total(x: f64) -> f64 {
+    state sum = 0.0
+    when modified(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "runtime state declaration needs an explicit scalar type"));
+    }
+    SECTION("a temporal input in a lifecycle block")
+    {
+        Unit unit{R"(
+module t
+export fn seeded(x: f64) -> f64 {
+    state seed: f64 = 0.0
+    start { seed = x }
+    when modified(x) { return x }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
     SECTION("a struct declaration")
     {

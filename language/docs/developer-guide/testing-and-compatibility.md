@@ -377,8 +377,12 @@ and every fail-closed diagnostic.
 through `hgl_add_module()` under the repository's warnings and evaluates the
 generated graphs with `eval_node` — directly by struct and by registry name,
 where the `const` defaults apply — asserting the ticks the module's own
-`test` blocks assert. The command itself is checked on the examples: the
-composition-only ones emit, a runtime function is rejected by name.
+`test` blocks assert. `tests/codegen/runtime.hgl` and
+`generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
+valid-and predicates, passive sampling, ordered state mutation and final-write
+behavior, selector metadata, prior-output access, lifecycle configuration, and
+ordinary no-`when` policy. The command itself is checked on both a composition
+and a runtime fixture.
 The CMake package test configures the installed-helper path without an `hgl`
 target, proves that touching the compiler regenerates outputs, checks keyword
 module namespace escaping, and asserts multi-config-safe native-module output.

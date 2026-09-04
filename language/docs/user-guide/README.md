@@ -7,8 +7,9 @@ source calls reach hgraph.
 > **Design preview:** the current `hgl` command checks these examples and
 > runs the composition-only ones (`hgl test`, `hgl run`, `hgl repl`) within
 > the limits listed in [Testing and running](testing-and-running.md#first-pass-limits).
-> The documents record syntax agreed during design discussion, not a source
-> compatibility promise.
+> `hgl emit-cpp` additionally compiles the documented scalar runtime-node
+> subset. The documents record syntax agreed during design discussion, not a
+> source compatibility promise.
 
 ## Read in this order
 

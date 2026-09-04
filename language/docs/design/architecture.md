@@ -209,10 +209,11 @@ stands: the backend interprets wiring-time code only, and it interprets it
 by calling hgraph.
 
 Runtime functions are node bodies. They have no wiring-time form and need the
-C++ backend. Until that backend lands, a program whose evaluated closure
-contains a runtime function fails in the direct-wiring backend with a
-diagnostic that names the function and says it needs the native backend;
-it does not degrade to a slower path.
+C++ backend. The first scalar subset is emitted as native static nodes. A
+program whose evaluated closure contains a runtime function still fails in the
+direct-wiring backend with a diagnostic that names the function and says it
+needs the native backend; it does not degrade to a slower path. Scripted
+commands will compile and load the emitted artifact in the next slice.
 
 The commands map onto the backends as follows:
 
@@ -224,15 +225,16 @@ The commands map onto the backends as follows:
   consumer's CMake build, through the `hgl_add_module()` function the language
   installs (there is no `hgl build`: a second build tool would duplicate what
   CMake and the hgraph SDK already provide). `hgl run` for a program that
-  contains a runtime function will use the same emitted C++ once the runtime
-  backend lands.
+  contains a runtime function will use the same emitted C++ once the scripted
+  compile/load driver lands.
 - Both backends must build the same graph for every program both accept. The
   parity suite evaluates the test corpus through each backend and compares
   the recorded ticks; a divergence is a compiler defect, and the C++ backend
   is the reference. Today `tests/codegen/parity.hgl` is that corpus: `hgl test`
   runs its tests, and the same module, emitted and compiled through
   `hgl_add_module()`, is driven through hgraph's `eval_node` to the same
-  ticks.
+  ticks. `tests/codegen/runtime.hgl` separately exercises supported runtime
+  functions through the generated and compiled path.
 
 ## Scripted and compiled execution
 

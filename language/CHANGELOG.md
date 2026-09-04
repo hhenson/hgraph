@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Lower the first scalar runtime-function slice through `hgl emit-cpp` as
+  native static nodes: activation from `modified`, variadic `valid` checks,
+  ordered `when` handlers, replay-aware aggregate scalar state, `return`,
+  `inject out`, state-and-configuration lifecycle blocks, passive sampled
+  inputs, and ordinary policy for functions without `when`. Runtime exports and
+  `impl fn`
+  candidates register as node overloads; generated execution tests exercise
+  their tick behavior through hgraph's public APIs.
 - Add `hgl emit-cpp`: a composition-only module becomes a `<name>.h` /
   `<name>.cpp` pair of public hgraph authoring code in the module's namespace,
   with `--out-dir` or `--include-dir`/`--src-dir` placement, `--print`, and

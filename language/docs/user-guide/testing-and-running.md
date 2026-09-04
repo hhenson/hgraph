@@ -202,6 +202,8 @@ Programs made only of composition functions, which includes every example
 on this page, are wired straight onto the hgraph runtime in process by
 `hgl test`, `hgl run`, and the REPL; no native toolchain is involved. A
 program that contains a runtime function (`state`, `inject`, `when`, ...)
-needs generated C++, which the C++ backend supplies once it lands. The
+needs generated C++. `hgl emit-cpp` supplies the supported scalar runtime-node
+subset for ahead-of-time packages; teaching these three scripted commands to
+build and load that artifact is the next implementation slice. The
 [Architecture](../design/architecture.md#two-backends-one-wiring) record
 describes the split; both backends must produce the same ticks.

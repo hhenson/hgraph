@@ -10,11 +10,11 @@ The documentation is split by audience:
   the delivery roadmap.
 
 The language is still a design preview. Examples describe the target first
-vertical slice; the current `hgl` checks them (`hgl check`), and runs the
-composition-only ones through `hgl test`, `hgl run`, and `hgl repl` within
-the first-pass limits listed in the user guide. Provisional syntax is called
-out in the guides so that examples do not imply an implemented compatibility
-promise.
+vertical slice; the current `hgl` checks them (`hgl check`), runs the
+composition-only ones through `hgl test`, `hgl run`, and `hgl repl`, and
+emits the documented scalar runtime-node subset through `hgl emit-cpp`.
+First-pass limits are listed in the user guide. Provisional syntax is called
+out so examples do not imply an implemented compatibility promise.
 
 ## Design records
 

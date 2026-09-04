@@ -13,10 +13,14 @@ for hgraph, not a second runtime.
 > rejects decidably false closed requirements, and classifies functions.
 > `src/wiring/` executes the composition-only subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
-> specializations, and field-wise temporal struct composition. Typed HIR,
+> specializations, and field-wise temporal struct composition. `src/codegen/`
+> emits that composition subset and the first scalar runtime-node subset as
+> public hgraph C++, including activation, aggregate recordable state, output,
+> and lifecycle hooks over state and `const` configuration. Typed HIR,
 > constructor inference, `const` generic metadata, multiple-parent
-> linearization, explicit optional-field clearing, runtime-function lowering,
-> and generated C++ remain to be implemented.
+> linearization, explicit optional-field
+> clearing, scripted runtime compilation/loading, and broader runtime and
+> generated-C++ type support remain to be implemented.
 
 ## Guide map
 
