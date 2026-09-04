@@ -372,15 +372,7 @@ _REF_COLLECTION_SOURCES = ("ref_node", "tsd_getitem", "map_element", "if_true", 
 
 KNOWN_GAPS: dict[str, str] = {
     **{
-        f"TSD[str, TS[int]]-{source}-reduce": "#649 reduce rejects a REF-valued TSD (family 1)"
-        for source in _REF_COLLECTION_SOURCES
-    },
-    **{
         f"TSD[str, TS[int]]-{source}-mesh_": "#649 mesh_ fails at runtime on a REF-valued TSD (family 1)"
-        for source in _REF_COLLECTION_SOURCES
-    },
-    **{
-        f"TSL[TS[int], Size[2]]-{source}-reduce": "#649 reduce rejects a REF-valued TSL (family 1)"
         for source in _REF_COLLECTION_SOURCES
     },
 }

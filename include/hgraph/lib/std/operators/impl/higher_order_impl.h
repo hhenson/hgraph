@@ -3597,7 +3597,9 @@ namespace hgraph::stdlib
                 throw std::invalid_argument(
                     "mesh lookup key type does not match the enclosing mesh key type");
             }
-            WiringPortRef item = graph_wiring_detail::value_consumer_source(key);
+            // The key is a value input of the subscribe node: the from-REF rule is
+            // applied where every input gets it, not by hand here.
+            WiringPortRef item = graph_wiring_detail::adapt_source_for_input(w, key_schema, key);
 
             // {item, value}: ``item`` is the requested key (wired); ``value`` starts at a
             // never-ticking ``nothing<OUT>`` placeholder and is rebound at runtime to

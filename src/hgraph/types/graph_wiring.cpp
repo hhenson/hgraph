@@ -979,8 +979,31 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
 }
 } // namespace
 
+namespace {
+// ``value_consumer`` is true while the declared input being adapted asks for
+// a value: it is cleared once adaptation descends inside a declared REF, so a
+// reference-constructing node keeps its children's reference identity.
+WiringPortRef adapt_source_for_input_impl(Wiring &w,
+                                          const TSValueTypeMetaData *input_schema,
+                                          WiringPortRef source,
+                                          bool value_consumer);
+} // namespace
+
 WiringPortRef graph_wiring_detail::adapt_source_for_input(
     Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source) {
+  const bool value_consumer =
+      input_schema != nullptr && !TypeRegistry::contains_ref(input_schema);
+  return adapt_source_for_input_impl(w, input_schema, std::move(source),
+                                     value_consumer);
+}
+
+namespace {
+WiringPortRef adapt_source_for_input_impl(Wiring &w,
+                                          const TSValueTypeMetaData *input_schema,
+                                          WiringPortRef source,
+                                          const bool value_consumer) {
+  using graph_wiring_detail::input_accepts_output_schema;
+  using graph_wiring_detail::value_consumer_source;
   if (input_schema == nullptr) {
     return source;
   }
@@ -1015,6 +1038,17 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
   }
 
   if (!source.is_structural_source()) {
+    // A value consumer observes the referenced value, never the REF token
+    // used to reach it (writing_nodes.rst, "Where the rule is applied"). A
+    // peered source that carries a REF is therefore described by the value
+    // schema, so ordinary input binding installs the from-REF adaptation
+    // instead of every hand-wired consumer dereferencing for itself (#649).
+    // A REF declared anywhere in the input keeps the source as supplied: the
+    // declaration wins.
+    if (value_consumer && source.schema != nullptr &&
+        TypeRegistry::contains_ref(source.schema)) {
+      return value_consumer_source(std::move(source));
+    }
     return source;
   }
 
@@ -1025,7 +1059,9 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
           "wire<T>: structural source schema does not match REF input target");
     }
 
-    source = adapt_source_for_input(w, target_schema, std::move(source));
+    // Inside a declared REF the children keep their reference identity.
+    source = adapt_source_for_input_impl(w, target_schema, std::move(source),
+                                         false);
     std::array<WiringPortRef, 1> inputs{std::move(source)};
     NodeBuilder builder = structural_ref_node_builder(target_schema, inputs[0]);
     return w.add_node(
@@ -1043,8 +1079,8 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
     }
     adapted.reserve(source_children.size());
     for (const WiringPortRef &child : source_children) {
-      adapted.push_back(
-          adapt_source_for_input(w, input_schema->element_ts(), child));
+      adapted.push_back(adapt_source_for_input_impl(
+          w, input_schema->element_ts(), child, value_consumer));
     }
     return WiringPortRef::structural_source(input_schema, std::move(adapted));
 
@@ -1054,8 +1090,9 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
     }
     adapted.reserve(source_children.size());
     for (std::size_t index = 0; index < source_children.size(); ++index) {
-      adapted.push_back(adapt_source_for_input(
-          w, input_schema->fields()[index].type, source_children[index]));
+      adapted.push_back(adapt_source_for_input_impl(
+          w, input_schema->fields()[index].type, source_children[index],
+          value_consumer));
     }
     return WiringPortRef::structural_source(input_schema, std::move(adapted));
 
@@ -1063,6 +1100,7 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
     return source;
   }
 }
+} // namespace
 
 WiringPortRef
 graph_wiring_detail::resolve_context_source(Wiring &w, std::string_view name) {

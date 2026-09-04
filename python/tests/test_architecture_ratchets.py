@@ -77,8 +77,9 @@ RATCHETS: tuple[Ratchet, ...] = (
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bvalue_consumer_source\(",
-        owner="value_argument is the sole caller; declaration + definition + "
-        "that caller is the floor",
+        owner="value_argument (variadic tails) and adapt_source_for_input "
+        "(ordinary inputs) are the two rule sites; declaration + those two "
+        "is the floor",
     ),
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
