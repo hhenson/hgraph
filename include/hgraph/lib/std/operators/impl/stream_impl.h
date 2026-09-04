@@ -1990,6 +1990,10 @@ namespace hgraph::stdlib
         }
     };
 
+    // One translation unit per group (stream_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_stream_flow_overloads();
+    void register_stream_window_overloads();
     void register_stream_operators();
 }  // namespace hgraph::stdlib
 

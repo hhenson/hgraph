@@ -830,6 +830,10 @@ namespace hgraph::stdlib
         }
     };
 
+    // One translation unit per group (temporal_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_temporal_components_overloads();
+    void register_temporal_instants_overloads();
     void register_temporal_operators();
 }  // namespace hgraph::stdlib
 

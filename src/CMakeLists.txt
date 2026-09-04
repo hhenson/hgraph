@@ -116,11 +116,26 @@ set(HGRAPH_STDLIB_SOURCES
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp
     hgraph/lib/std/operators/arithmetic_impl.cpp
+    hgraph/lib/std/operators/arithmetic_impl_numeric.cpp
+    hgraph/lib/std/operators/arithmetic_impl_division.cpp
+    hgraph/lib/std/operators/arithmetic_impl_temporal.cpp
+    hgraph/lib/std/operators/arithmetic_impl_container.cpp
+    hgraph/lib/std/operators/arithmetic_impl_aggregate.cpp
     hgraph/lib/std/operators/collection_impl.cpp
+    hgraph/lib/std/operators/collection_impl_mapping.cpp
+    hgraph/lib/std/operators/collection_impl_sequence.cpp
+    hgraph/lib/std/operators/collection_impl_aggregate.cpp
+    hgraph/lib/std/operators/collection_impl_set.cpp
     hgraph/lib/std/operators/comparison_impl.cpp
+    hgraph/lib/std/operators/comparison_impl_equality.cpp
+    hgraph/lib/std/operators/comparison_impl_ordering.cpp
+    hgraph/lib/std/operators/comparison_impl_extremum.cpp
     hgraph/lib/std/operators/container_impl.cpp
     hgraph/lib/std/operators/control_impl.cpp
     hgraph/lib/std/operators/conversion_impl.cpp
+    hgraph/lib/std/operators/conversion_impl_scalar.cpp
+    hgraph/lib/std/operators/conversion_impl_collection.cpp
+    hgraph/lib/std/operators/conversion_impl_combine.cpp
     hgraph/lib/std/operators/higher_order_impl.cpp
     hgraph/lib/std/operators/io_impl.cpp
     hgraph/lib/std/operators/data_frame_impl.cpp
@@ -129,10 +144,14 @@ set(HGRAPH_STDLIB_SOURCES
     hgraph/lib/std/operators/record_replay_memory_impl.cpp
     hgraph/lib/std/operators/registration.cpp
     hgraph/lib/std/operators/stream_impl.cpp
+    hgraph/lib/std/operators/stream_impl_flow.cpp
+    hgraph/lib/std/operators/stream_impl_window.cpp
     hgraph/lib/std/operators/series_impl.cpp
     hgraph/lib/std/operators/string_impl.cpp
     hgraph/lib/std/operators/table_impl.cpp
     hgraph/lib/std/operators/temporal_impl.cpp
+    hgraph/lib/std/operators/temporal_impl_components.cpp
+    hgraph/lib/std/operators/temporal_impl_instants.cpp
     hgraph/lib/std/operators/convert_target.cpp
 )
 

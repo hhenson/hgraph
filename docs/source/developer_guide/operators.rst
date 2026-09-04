@@ -684,6 +684,76 @@ higher-order subset (``reduce``, ``switch_`` and ``map_`` in
 ``<hgraph/lib/std/std_operators.h>`` umbrella pulls in both the definitions and the
 implementations, plus opt-in expression sugar in ``operators/syntax.h``.
 
+Registration translation units
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``register_<family>_operators()`` is defined in
+``src/hgraph/lib/std/operators/<family>_impl.cpp``. Every
+``register_overload<Op, Impl>()`` instantiates the wiring plan for one
+overload, and those instantiations — not the header — set what the compiler
+needs for the file: an impl header on its own costs about 0.5 GB of peak
+compiler memory and each registered overload adds 5–8 MB on top (GCC 14,
+``-O3``, thin LTO, precompiled headers; ``-O0`` is no cheaper, because the
+cost is front-end instantiation). A family with a hundred and fifty
+overloads in one file therefore needs about 1.7 GB, which is what made the
+largest std files fail side by side on the 3-core / 7 GB hosted macOS
+runners.
+
+A registration translation unit is budgeted at **1 GB peak compiler memory**
+(the measurement recipe is in :doc:`build_system`). The budget applies to
+every registration file that ships — the std families and the extension
+registrations alike. A family whose registration would exceed it is split
+by operator group:
+
+- ``<family>_impl.cpp`` keeps ``register_<family>_operators()``, which only
+  calls the groups in sequence — plus any family-level registration that is
+  not an overload, such as the runtime value conversions in
+  ``conversion_impl.cpp``.
+- ``<family>_impl_<group>.cpp`` defines
+  ``register_<family>_<group>_overloads()``, declared beside
+  ``register_<family>_operators()`` in ``impl/<family>_impl.h``, and holds
+  the ``register_overload`` calls for one coherent group of operators.
+- A new overload goes in the group that owns its operators; a new group is
+  added when the owning file would leave the budget. Every group file is
+  listed in ``src/CMakeLists.txt``.
+
+Registration order only affects the order in which candidates are listed in
+diagnostics — ``resolve`` selects by rank and a tie is an ambiguity error —
+so the split may interleave the overloads of one operator differently from
+the single-file layout; each group keeps its original relative order.
+
+The current groups:
+
+- ``arithmetic``: ``numeric`` (numeric ``add_`` / ``sub_`` / ``mul_``,
+  string concatenation and repetition, the unary numeric operators),
+  ``division`` (``div_`` / ``floordiv_`` / ``mod_`` / ``divmod_`` /
+  ``pow_``), ``temporal`` (duration, instant, date, period, civil and zoned
+  arithmetic), ``container`` (list / set / map operators and the running
+  sums and means) and ``aggregate`` (``min_`` / ``max_`` / ``sum_`` /
+  ``mean`` over ``TS[list | set | map]``).
+- ``collection``: ``mapping`` (TSD and map key / value operators and
+  ``combine_tsd`` / ``combine_map``), ``sequence`` (TSL, tuple and TSB
+  operators), ``aggregate`` (``min_`` / ``max_`` / ``sum_`` / ``mean`` over
+  TSS, TSD and TSL, and the item-wise ``sum_`` / ``mean`` maps) and ``set``
+  (TSS / TSD logic, equality and set algebra).
+- ``comparison``: ``equality`` (``eq_`` / ``ne_`` / ``cmp_``), ``ordering``
+  (``lt_`` / ``le_`` / ``gt_`` / ``ge_`` including the enum orderings) and
+  ``extremum`` (``min_`` / ``max_``).
+- ``conversion``: ``scalar`` (sources, scalar ``convert`` / ``str_``, the
+  up- and downcasts), ``collection`` (``convert`` between collections, TSS,
+  TSD, TSB and TSL) and ``combine`` (``combine`` / ``collect`` / ``emit``).
+- ``stream``: ``flow`` (sampling, lag, scheduling, gating, take / drop /
+  step / slice, ``dedup``, ``batch``) and ``window`` (``to_window``, the
+  ``TSW`` aggregates and ``window``).
+- ``temporal``: ``components`` (date / time attributes,
+  ``evaluation_time_in_range`` and the time-series properties) and
+  ``instants`` (zone resolution, range algebra and quantisation).
+- ``hgraph-analytics`` ``statistics`` (``extensions/analytics/src/``,
+  declared in its ``operator_registration.h``): ``container`` (``std_`` /
+  ``var_`` over ``TS[map | set | list]`` and the running moments),
+  ``collection`` (TSB, TSS, TSD and TSL statistics and the item-wise maps)
+  and ``window`` (``TSW`` deviation, ``rolling_mean`` and ``resample``).
+
 
 Higher-order operators and the ``WiredFn`` scalar
 -------------------------------------------------

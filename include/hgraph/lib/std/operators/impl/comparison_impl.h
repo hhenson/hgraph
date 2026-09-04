@@ -404,6 +404,12 @@ namespace hgraph::stdlib
         };
     }  // namespace comparison_impl_detail
 
+    // One translation unit per group (comparison_impl_<group>.cpp); see
+    // "Registration translation units" in the operators developer guide.
+    void register_comparison_equality_overloads();
+    void register_comparison_ordering_overloads();
+    void register_comparison_extremum_overloads();
+
     /** Register the comparison operator overloads. */
     void register_comparison_operators();
 }  // namespace hgraph::stdlib
