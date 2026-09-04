@@ -1040,13 +1040,17 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
   if (!source.is_structural_source()) {
     // A value consumer observes the referenced value, never the REF token
     // used to reach it (writing_nodes.rst, "Where the rule is applied"). A
-    // peered source that carries a REF is therefore described by the value
-    // schema, so ordinary input binding installs the from-REF adaptation
-    // instead of every hand-wired consumer dereferencing for itself (#649).
-    // A REF declared anywhere in the input keeps the source as supplied: the
+    // peered REFERENCE source is therefore described by the value schema, so
+    // ordinary input binding installs the from-REF adaptation instead of
+    // every hand-wired consumer dereferencing for itself (#649). Only the
+    // top-level reference: a value collection whose elements are references
+    // (a map_ output) is left as supplied - its element links dereference on
+    // access, and describing it by element values would install a from-REF
+    // link per element for a consumer that may only hold tokens. A REF
+    // declared anywhere in the input keeps the source as supplied: the
     // declaration wins.
     if (value_consumer && source.schema != nullptr &&
-        TypeRegistry::contains_ref(source.schema)) {
+        source.schema->kind == TSTypeKind::REF) {
       return value_consumer_source(std::move(source));
     }
     return source;
