@@ -129,11 +129,15 @@ hgl_apply_warnings(hgl_codegen)
 add_library(hgl_driver STATIC
     src/driver/driver.cpp
     src/driver/line_reader.cpp
+    src/driver/native_module.cpp
 )
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_driver PUBLIC hgl::wiring hgl::codegen hgraph::core)
+if(UNIX)
+    target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
+endif()
 if(HGL_ENABLE_LINE_EDITING)
     target_link_libraries(hgl_driver PRIVATE hgl_isocline)
     target_compile_definitions(hgl_driver PRIVATE HGL_HAVE_ISOCLINE=1)
@@ -146,6 +150,24 @@ target_compile_definitions(hgl PRIVATE
     HGRAPH_LANGUAGE_VERSION="${PROJECT_VERSION}"
 )
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
+# Scripted modules are loadable images which resolve the hgraph symbols from
+# this process. Export those symbols so every module shares this process's
+# operator registry rather than linking a second static runtime.
+set_target_properties(hgl PROPERTIES ENABLE_EXPORTS ON)
+
+# Capture the compiler context needed by the scripted module builder. The
+# executable-prefix include path is added at runtime for an installed SDK;
+# these evaluated paths also support the in-tree compiler and external/system
+# dependencies selected by this build.
+set(_hgl_native_config_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
+file(RELATIVE_PATH _hgl_install_include_from_bindir
+    "${CMAKE_INSTALL_FULL_BINDIR}/"
+    "${CMAKE_INSTALL_FULL_INCLUDEDIR}/")
+file(GENERATE
+    OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
+    CONTENT "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>)hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>)hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view link_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n"
+    TARGET hgl)
+target_include_directories(hgl_driver PRIVATE "${_hgl_native_config_dir}")
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the
 # executable; otherwise HglLanguage.cmake can find the compiler but a

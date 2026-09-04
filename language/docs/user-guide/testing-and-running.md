@@ -186,8 +186,9 @@ The current `hgl` runs everything on this page that is written with
 - `eval` takes a module `fn`; wrap an operator in a `fn` to evaluate it;
 - `hgl run` takes its configuration from the command line only; the
   `--config` file is not read yet;
-- a program with a runtime function, an `impl fn`, or a generic function
-  checks, but running it is reported as unsupported;
+- file-based `test` and `run`, and the REPL, compile supported runtime
+  functions and non-generic `impl fn` candidates on Unix; generic functions
+  remain unsupported by every backend;
 - complete scalar struct values, type-only generic struct specializations,
   `atomic<S>` harness values, and simple field-wise temporal struct
   construction run; generic constructor inference, `const` generic struct
@@ -200,8 +201,16 @@ The current `hgl` runs everything on this page that is written with
 
 Programs made only of composition functions, which includes every example
 on this page, are wired straight onto the hgraph runtime in process by
-`hgl test`, `hgl run`, and the REPL; no native toolchain is involved. A
-program that contains a runtime function (`state`, `inject`, `when`, ...)
-needs generated C++, which the C++ backend supplies once it lands. The
+`hgl test`, `hgl run`, and the REPL; no native toolchain is involved. For a
+file containing a runtime function (`state`, `inject`, `when`, ...) or an
+`impl fn`, `hgl test` and `hgl run` emit the complete module, compile a
+content-addressed native image or reuse a complete cached image, load its
+candidates into the same hgraph registry, and then use the ordinary harness.
+A failed native build reports and retains its artifact directory; incomplete or
+digest-mismatched cache entries are never loaded. The REPL uses the same image
+format and cache. It compiles a complete candidate session before removing the
+old provider, restores that provider if activating the replacement fails, and
+keeps native images mapped for process lifetime so removed callbacks cannot
+dangle. The
 [Architecture](../design/architecture.md#two-backends-one-wiring) record
 describes the split; both backends must produce the same ticks.

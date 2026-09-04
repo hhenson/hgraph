@@ -13,8 +13,9 @@
 /// The C++ backend, first pass (developer guide, "C++ backend, first pass"):
 /// one header/source pair of public hgraph authoring code per module. It is
 /// hgraph-free like the resolver — it prints names and types — so what it
-/// emits is checked by the native compiler that builds the package, and by
-/// the parity tests that run the generated graphs beside `hgl test`.
+/// emits is checked by the native compiler that builds the package. Tests run
+/// generated graphs beside `hgl test` and exercise generated runtime nodes
+/// directly through hgraph's public harness.
 namespace hgl::codegen
 {
     namespace ast = syntax::ast;

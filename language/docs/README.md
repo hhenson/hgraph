@@ -10,11 +10,14 @@ The documentation is split by audience:
   the delivery roadmap.
 
 The language is still a design preview. Examples describe the target first
-vertical slice; the current `hgl` checks them (`hgl check`), and runs the
-composition-only ones through `hgl test`, `hgl run`, and `hgl repl` within
-the first-pass limits listed in the user guide. Provisional syntax is called
-out in the guides so that examples do not imply an implemented compatibility
-promise.
+vertical slice; the current `hgl` checks them (`hgl check`), runs composition
+functions directly, compiles and loads the documented scalar runtime-node
+subset for file-based `hgl test` and `hgl run`, and emits the same C++ through
+`hgl emit-cpp`. Compiled file commands use a content-addressed native cache;
+on Unix the REPL uses the same cache and transactionally replaces generated
+runtime images as declarations join the session.
+First-pass limits are listed in the user guide. Provisional syntax is called
+out so examples do not imply an implemented compatibility promise.
 
 ## Design records
 
@@ -30,6 +33,9 @@ promise.
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.
 4. [Roadmap](design/roadmap.md) — vertical slices and their acceptance gates.
+5. [Distribution and deployment](design/distribution.md) — release train,
+   package channels (Homebrew first), the relocatable native context, and
+   what a host needs to run an HGL program.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language

@@ -879,6 +879,14 @@ namespace hgraph
         void retain_extension_state(std::shared_ptr<void> state);
 
         /**
+         * Retain opaque state through the produced ``GraphBuilder`` and every
+         * graph instance built from it. Operator-provider leases use this to
+         * keep module code logically active for as long as a selected plan can
+         * call it. The runtime never inspects the retained value.
+         */
+        void retain_graph_state(std::shared_ptr<void> state);
+
+        /**
          * Return wiring-lifetime state for ``key``, creating it once on first
          * use. Native wiring extensions use this to share planning state
          * without process globals; the state is owned by this Wiring.

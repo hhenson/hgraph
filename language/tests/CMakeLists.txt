@@ -74,6 +74,16 @@ hgl_apply_warnings(hgl_wiring_tests)
 
 add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
 
+# The native module boundary translates registration failures through the
+# common scope/exception helper rather than maintaining a local catch ladder.
+add_executable(hgl_native_module_tests driver/native_module_tests.cpp)
+target_compile_features(hgl_native_module_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_module_tests PRIVATE hgl::driver Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_native_module_tests)
+hgl_apply_warnings(hgl_native_module_tests)
+
+add_test(NAME hgraph_language_native_module COMMAND hgl_native_module_tests)
+
 # The C++ backend, first pass: what `hgl emit-cpp` prints (hgraph-free, over a
 # table of kernel names like the resolver tests) ...
 add_executable(hgl_codegen_tests codegen/emitter_tests.cpp)
@@ -84,14 +94,14 @@ hgl_apply_warnings(hgl_codegen_tests)
 
 add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 
-# ... and what that C++ does once built: the parity fixture emitted and compiled
-# through the same `hgl_add_module()` a package uses, under the repository's
-# warnings, then evaluated with hgraph's harness beside `hgl test` on the same
-# module (developer guide, "Backend parity").
-hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl)
+# ... and what that C++ does once built: the parity and scalar runtime fixtures
+# emitted and compiled through the same `hgl_add_module()` a package uses,
+# under the repository's warnings. hgraph's harness evaluates graph parity
+# beside `hgl test` and the native-only runtime-node behavior.
+hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl codegen/runtime.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
 
-add_executable(hgl_generated_tests codegen/generated_tests.cpp)
+add_executable(hgl_generated_tests codegen/generated_tests.cpp codegen/generated_runtime_tests.cpp)
 target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_generated_tests PRIVATE hgl_codegen_fixture hgl::wiring Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_generated_tests)
@@ -107,8 +117,53 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
 )
 
-# The command itself: a composition-only example emits; a runtime function
-# fails closed with a diagnostic that names it.
+if(UNIX)
+    # Runtime-node modules take the scripted compile/load path, then use the
+    # same direct harness as composition-only tests to wire the registered
+    # candidates. The prototype loader is currently Unix-only.
+    add_test(
+        NAME hgraph_language_test_runtime
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+    )
+    set_tests_properties(hgraph_language_test_runtime PROPERTIES
+        PASS_REGULAR_EXPRESSION "3 tests, 0 failed"
+    )
+
+    add_test(
+        NAME hgraph_language_run_runtime
+        COMMAND $<TARGET_FILE:hgl> run ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            --entry configured_app --set value=2.0 --set initial=5.0 --end 1us
+    )
+    set_tests_properties(hgraph_language_run_runtime PROPERTIES
+        PASS_REGULAR_EXPRESSION "1970-01-01T00:00:00.000001Z 7"
+    )
+    set_tests_properties(
+        hgraph_language_test_runtime
+        hgraph_language_run_runtime
+        PROPERTIES ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache"
+    )
+
+    add_test(
+        NAME hgraph_language_native_compile_failure
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-failure
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_failure.cmake
+    )
+
+    add_test(
+        NAME hgraph_language_native_cache
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DCXX=${CMAKE_CXX_COMPILER}
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-cache
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_cache.cmake
+    )
+endif()
+
+# The command itself: composition and the first scalar runtime-node slice emit.
 add_test(
     NAME hgraph_language_emit_midpoint
     COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl --print
@@ -117,11 +172,11 @@ set_tests_properties(hgraph_language_emit_midpoint PROPERTIES
     PASS_REGULAR_EXPRESSION "namespace examples::prices"
 )
 add_test(
-    NAME hgraph_language_emit_rejects_runtime
-    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --print
+    NAME hgraph_language_emit_runtime
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl --print
 )
-set_tests_properties(hgraph_language_emit_rejects_runtime PROPERTIES
-    PASS_REGULAR_EXPRESSION "is a runtime function"
+set_tests_properties(hgraph_language_emit_runtime PROPERTIES
+    PASS_REGULAR_EXPRESSION "struct combined_total"
 )
 
 # The REPL over a pipe: the plain-line path of the line reader.

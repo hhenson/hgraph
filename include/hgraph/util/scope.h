@@ -1,17 +1,16 @@
-// Since OSX does not fully support c++23, this is a temporary solution for scope implementations.
-#ifndef HGRAPH_CPP_ENGINE_SCOPE_H
-#define HGRAPH_CPP_ENGINE_SCOPE_H
+#ifndef HGRAPH_UTIL_SCOPE_H
+#define HGRAPH_UTIL_SCOPE_H
 
 #include <exception>
 #include <type_traits>
 #include <utility>
 
-namespace hgraph {
+namespace hgraph
+{
     /**
      * RAII helper that runs a cleanup function on scope exit unless explicitly
-     * released. Equivalent to ``std::experimental::scope_exit`` from the C++23
-     * Library Fundamentals TS, provided here so the runtime does not depend on
-     * a TS implementation.
+     * released. Equivalent to C++23 ``std::scope_exit``, provided here while
+     * the supported platform standard libraries do not all supply ``<scope>``.
      *
      * Construct via ``make_scope_exit`` so the function type is deduced.
      * The optional ``HideExceptions`` template parameter makes destruction
@@ -19,16 +18,22 @@ namespace hgraph {
      * an already-failing path where a cleanup exception must not replace the
      * primary failure.
      */
-    template<class F, bool HideExceptions = false>
-    class scope_exit {
-    public:
+    template <class F, bool HideExceptions = false>
+    class scope_exit
+    {
+      public:
         /** Capture ``f`` and arm the guard. */
-        explicit scope_exit(F f) noexcept(std::is_nothrow_move_constructible_v<F>) : fn_(std::move(f)), active_(true) {
+        explicit scope_exit(F f) noexcept(std::is_nothrow_move_constructible_v<F>)
+            : fn_(std::move(f)), active_(true)
+        {
         }
 
         /** Move construction transfers ownership of the cleanup; the source is released. */
         scope_exit(scope_exit &&other) noexcept(std::is_nothrow_move_constructible_v<F>)
-            : fn_(std::move(other.fn_)), active_(other.active_) { other.release(); }
+            : fn_(std::move(other.fn_)), active_(other.active_)
+        {
+            other.release();
+        }
 
         scope_exit(const scope_exit &) = delete;
 
@@ -37,14 +42,21 @@ namespace hgraph {
         scope_exit &operator=(scope_exit &&) = delete;
 
         /** Invoke the cleanup if still armed. */
-        ~scope_exit() noexcept(HideExceptions || std::is_nothrow_invocable_v<F &>) {
+        ~scope_exit() noexcept(HideExceptions || std::is_nothrow_invocable_v<F &>)
+        {
             if (!active_) { return; }
-            if constexpr (HideExceptions) {
-                try {
+            if constexpr (HideExceptions)
+            {
+                try
+                {
                     fn_();
-                } catch (...) {
                 }
-            } else {
+                catch (...)
+                {
+                }
+            }
+            else
+            {
                 fn_();
             }
         }
@@ -52,27 +64,18 @@ namespace hgraph {
         /** Disarm the guard so the destructor does not run the cleanup. */
         void release() noexcept { active_ = false; }
 
-    private:
+      private:
         F fn_;
         bool active_;
     };
 
     /** Deduction helper that constructs a ``scope_exit`` from a callable. */
-    template<bool HideExceptions = false, class F>
-    scope_exit<std::decay_t<F>, HideExceptions> make_scope_exit(F &&f)
+    template <bool HideExceptions = false, class F>
+    [[nodiscard]] scope_exit<std::decay_t<F>, HideExceptions> make_scope_exit(F &&f)
     {
         return scope_exit<std::decay_t<F>, HideExceptions>(std::forward<F>(f));
     }
 
-    /**
-     * Run ``f`` and return its result. If ``f`` throws, suppress the
-     * exception and return ``fallback`` instead.
-     *
-     * Use this only at deliberate exception boundaries where the fallback is a
-     * valid domain result, such as a comparison operation returning
-     * ``std::partial_ordering::unordered`` when a structural fallback cannot be
-     * evaluated.
-     */
     /**
      * Run ``f`` and return its result. If ``f`` throws, invoke ``annotate``
      * from inside the catch — typically a ``[[noreturn]]`` helper that
@@ -85,9 +88,12 @@ namespace hgraph {
     template <typename F, typename Annotate>
     decltype(auto) annotate_on_exception(F &&f, Annotate &&annotate)
     {
-        try {
+        try
+        {
             return std::forward<F>(f)();
-        } catch (...) {
+        }
+        catch (...)
+        {
             std::forward<Annotate>(annotate)();
             throw;
         }
@@ -99,20 +105,35 @@ namespace hgraph {
     template <typename Exception, typename F, typename Annotate>
     decltype(auto) annotate_on_exception(F &&f, Annotate &&annotate)
     {
-        try {
+        try
+        {
             return std::forward<F>(f)();
-        } catch (const Exception &error) {
+        }
+        catch (const Exception &error)
+        {
             std::forward<Annotate>(annotate)(error);
             throw;
         }
     }
 
+    /**
+     * Run ``f`` and return its result. If ``f`` throws, suppress the
+     * exception and return ``fallback`` instead.
+     *
+     * Use this only at deliberate exception boundaries where the fallback is a
+     * valid domain result, such as a comparison operation returning
+     * ``std::partial_ordering::unordered`` when a structural fallback cannot be
+     * evaluated.
+     */
     template <typename Result, typename F>
     [[nodiscard]] Result fallback_on_exception(Result fallback, F &&f) noexcept
     {
-        try {
+        try
+        {
             return std::forward<F>(f)();
-        } catch (...) {
+        }
+        catch (...)
+        {
             return fallback;
         }
     }
@@ -125,12 +146,17 @@ namespace hgraph {
     template <typename Result, typename F, typename OnError>
     [[nodiscard]] Result fallback_on_exception(Result fallback, F &&f, OnError &&on_error)
     {
-        try {
+        try
+        {
             return std::forward<F>(f)();
-        } catch (const std::exception &error) {
+        }
+        catch (const std::exception &error)
+        {
             std::forward<OnError>(on_error)(error.what());
             return fallback;
-        } catch (...) {
+        }
+        catch (...)
+        {
             std::forward<OnError>(on_error)("unknown error");
             return fallback;
         }
@@ -151,7 +177,7 @@ namespace hgraph {
     {
       public:
         /** Capture ``f`` and snapshot the current uncaught-exception count. */
-        explicit UnwindCleanupGuard(F f) noexcept
+        explicit UnwindCleanupGuard(F f) noexcept(std::is_nothrow_move_constructible_v<F>)
             : fn_(std::move(f)), uncaught_exceptions_(std::uncaught_exceptions())
         {
         }
@@ -175,9 +201,12 @@ namespace hgraph {
         {
             if (!active_ || std::uncaught_exceptions() <= uncaught_exceptions_) { return; }
 
-            try {
+            try
+            {
                 fn_();
-            } catch (...) {
+            }
+            catch (...)
+            {
             }
         }
 
@@ -203,9 +232,12 @@ namespace hgraph {
         template <class F>
         void capture(F &&f) noexcept
         {
-            try {
+            try
+            {
                 std::forward<F>(f)();
-            } catch (...) {
+            }
+            catch (...)
+            {
                 if (first_exception_ == nullptr) { first_exception_ = std::current_exception(); }
             }
         }
@@ -216,13 +248,11 @@ namespace hgraph {
             if (first_exception_ != nullptr) { std::rethrow_exception(first_exception_); }
         }
 
-        [[nodiscard]] bool has_exception() const noexcept
-        {
-            return first_exception_ != nullptr;
-        }
+        [[nodiscard]] bool has_exception() const noexcept { return first_exception_ != nullptr; }
 
       private:
         std::exception_ptr first_exception_;
     };
-} // namespace hgraph
-#endif  // HGRAPH_CPP_ENGINE_SCOPE_H
+}  // namespace hgraph
+
+#endif  // HGRAPH_UTIL_SCOPE_H
