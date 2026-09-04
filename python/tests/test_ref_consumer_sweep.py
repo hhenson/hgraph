@@ -83,46 +83,43 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
-pytestmark = pytest.mark.smoke
-
-
 # --------------------------------------------------------------------------
 # Scalar and bundle schemas used by the shapes
 # --------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class Point(CompoundScalar):
+class SweepPoint(CompoundScalar):
     x: int
     label: str
 
 
 @dataclass(frozen=True)
-class Derived(Point):
+class SweepDerived(SweepPoint):
     extra: int
 
 
 @dataclass(frozen=True)
-class Key(CompoundScalar):
+class SweepKey(CompoundScalar):
     key: str
     group: str
 
 
 @dataclass(frozen=True)
-class DerivedKey(Key):
-    """Registered so ``Key`` is polymorphic in the realized type system (#521)."""
+class SweepDerivedKey(SweepKey):
+    """Registered so ``SweepKey`` is polymorphic in the realized type system (#521)."""
 
     detail: str
 
 
-class Pair(TimeSeriesSchema):
+class SweepPair(TimeSeriesSchema):
     a: TS[int]
     b: TS[str]
 
 
 @dataclass(frozen=True)
-class Holder(CompoundScalar):
-    point: Point
+class SweepHolder(CompoundScalar):
+    point: SweepPoint
 
 
 # --------------------------------------------------------------------------
@@ -178,7 +175,7 @@ def _py_int(ts: TS[int]) -> TS[int]:
 
 
 @compute_node
-def _py_point(ts: TS[Point]) -> TS[int]:
+def _py_point(ts: TS[SweepPoint]) -> TS[int]:
     return ts.value.x
 
 
@@ -193,7 +190,7 @@ def _py_tsd(ts: TSD[str, TS[int]]) -> TS[int]:
 
 
 @compute_node
-def _py_keyed_tsd(ts: TSD[Key, TS[int]]) -> TS[str]:
+def _py_keyed_tsd(ts: TSD[SweepKey, TS[int]]) -> TS[str]:
     return ",".join(sorted(k.key for k in ts.value))
 
 
@@ -208,22 +205,22 @@ def _py_tsl(ts: TSL[TS[int], Size[2]]) -> TS[int]:
 
 
 @compute_node
-def _py_tsb(ts: TSB[Pair]) -> TS[str]:
+def _py_tsb(ts: TSB[SweepPair]) -> TS[str]:
     return f"{ts.a.value if ts.a.valid else None}:{ts.b.value if ts.b.valid else None}"
 
 
 @compute_node
-def _describe_default(p: TS[Point]) -> TS[str]:
+def _describe_default(p: TS[SweepPoint]) -> TS[str]:
     return f"point:{p.value.x}"
 
 
 @dispatch
-def _describe(p: TS[Point]) -> TS[str]:
+def _describe(p: TS[SweepPoint]) -> TS[str]:
     return _describe_default(p)
 
 
 @graph(overloads=_describe)
-def _describe_derived(p: TS[Derived]) -> TS[str]:
+def _describe_derived(p: TS[SweepDerived]) -> TS[str]:
     return const("derived")
 
 
@@ -260,7 +257,7 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
     "TS[Point]": {
         "field": lambda ts: ts.x,
         "getattr_": lambda ts: getattr_(ts, "label"),
-        "combine_compound": lambda ts: combine[TS[Holder]](point=ts),
+        "combine_compound": lambda ts: combine[TS[SweepHolder]](point=ts),
         "str_": lambda ts: str_(ts),
         "eq_": lambda ts: eq_(ts, ts),
         "dispatch": lambda ts: _describe(ts),
@@ -280,7 +277,9 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
         "keys_": lambda ts: keys_(ts),
         "reduce": lambda ts: reduce(add_, ts, 0),
         "map_": lambda ts: map_(lambda v: v + 1, ts),
-        "mesh_": lambda ts: mesh_(lambda v: v + 1, ts),
+        # Not ``v + 1``: a ported test registers a mesh_ overload whose
+        # ``requires`` captures that exact lambda for the rest of the process.
+        "mesh_": lambda ts: mesh_(lambda v: v * 3, ts),
         "merge": lambda ts: merge(ts, ts),
         "filter_": lambda ts: filter_(const(True), ts),
         "flip": lambda ts: flip(ts),
@@ -295,7 +294,7 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
         "key_set": lambda ts: ts.key_set,
         "merge": lambda ts: merge(ts, ts),
         "filter_": lambda ts: filter_(const(True), ts),
-        "default": lambda ts: default(nothing(TSD[Key, TS[int]]), ts),
+        "default": lambda ts: default(nothing(TSD[SweepKey, TS[int]]), ts),
         "collect_tsd": lambda ts: collect[TSD](ts),
         "python_node": lambda ts: _py_keyed_tsd(ts),
     },
@@ -318,7 +317,7 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
         "field_a": lambda ts: ts.a,
         "field_b": lambda ts: ts.b,
         "getattr_": lambda ts: getattr_(ts, "a"),
-        "recombine": lambda ts: combine[TSB[Pair]](a=ts.a, b=ts.b),
+        "recombine": lambda ts: combine[TSB[SweepPair]](a=ts.a, b=ts.b),
         "python_node": lambda ts: _py_tsb(ts),
     },
 }
@@ -332,28 +331,28 @@ class Shape:
 
 SHAPES: dict[str, Shape] = {
     "TS[int]": Shape(TS[int], [1, 2, None, 4]),
-    "TS[Point]": Shape(TS[Point], [Point(1, "a"), Point(2, "b"), None, Point(4, "d")]),
+    "TS[Point]": Shape(TS[SweepPoint], [SweepPoint(1, "a"), SweepPoint(2, "b"), None, SweepPoint(4, "d")]),
     "TS[Point]/polymorphic": Shape(
-        TS[Point], [Point(1, "a"), Derived(2, "b", 3), None, Derived(4, "d", 5)]
+        TS[SweepPoint], [SweepPoint(1, "a"), SweepDerived(2, "b", 3), None, SweepDerived(4, "d", 5)]
     ),
     "TS[tuple[int, ...]]": Shape(TS[Tuple[int, ...]], [(1, 2), (3,), None, (4, 5, 6)]),
     "TSD[str, TS[int]]": Shape(
         TSD[str, TS[int]], [{"a": 1, "b": 2}, {"a": 3}, None, {"b": REMOVE, "c": 5}]
     ),
     "TSD[Key, TS[int]]": Shape(
-        TSD[Key, TS[int]],
+        TSD[SweepKey, TS[int]],
         [
-            {Key("one", "a"): 1, Key("two", "b"): 2},
-            {Key("one", "a"): 3},
+            {SweepKey("one", "a"): 1, SweepKey("two", "b"): 2},
+            {SweepKey("one", "a"): 3},
             None,
-            {Key("two", "b"): REMOVE, Key("three", "c"): 5},
+            {SweepKey("two", "b"): REMOVE, SweepKey("three", "c"): 5},
         ],
     ),
     "TSS[int]": Shape(TSS[int], [{1, 2}, {3}, None, {Removed(1), 4}]),
     "TSL[TS[int], Size[2]]": Shape(
         TSL[TS[int], Size[2]], [(1, 2), (3, None), None, (None, 4)]
     ),
-    "TSB[Pair]": Shape(TSB[Pair], [{"a": 1, "b": "x"}, {"a": 2}, None, {"b": "y"}]),
+    "TSB[Pair]": Shape(TSB[SweepPair], [{"a": 1, "b": "x"}, {"a": 2}, None, {"b": "y"}]),
 }
 
 _CONSUMER_SHAPE = {
