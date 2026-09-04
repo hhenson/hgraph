@@ -156,6 +156,14 @@ SOURCES: dict[str, Callable] = {
     "switch_flip": _switch_flip,
     "if_true": lambda ts, tp: if_(const(True), ts).true,
     "default_ref": lambda ts, tp: default(nothing(tp), ts),
+    # A collection whose ELEMENTS are references (the map_ output shape): the
+    # top level is a value, the REF is nested one level down.
+    "map_nested": lambda ts, tp: map_(lambda v: v, ts),
+}
+
+# Sources that only make sense for a subset of shapes.
+_SOURCE_SHAPES: dict[str, tuple[str, ...]] = {
+    "map_nested": ("TSD[str, TS[int]]", "TSD[Key, TS[int]]", "TSL[TS[int], Size[2]]"),
 }
 
 
@@ -439,6 +447,8 @@ def _cases():
         for consumer_id in _consumers_for(shape_id):
             for source_id in SOURCES:
                 if source_id == "plain":
+                    continue
+                if source_id in _SOURCE_SHAPES and shape_id not in _SOURCE_SHAPES[source_id]:
                     continue
                 yield shape_id, source_id, consumer_id
 
