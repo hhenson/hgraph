@@ -156,6 +156,16 @@ Headers for fetched dependencies (``include/fmt``, ``include/spdlog``,
 package-manager build sets ``HGRAPH_FETCH_*=OFF`` and installs none of them;
 ``hgraphConfig.cmake`` then resolves them with ``find_dependency``.
 
+Nothing in the tree bakes an absolute rpath. ``hgl`` carries
+``$ORIGIN/../lib`` (``@loader_path/../lib`` on macOS) so it finds the SDK
+libraries from any prefix, and prepends ``CMAKE_INSTALL_RPATH`` when the
+packager sets one. The core libraries set no rpath of their own: a packager
+passes ``CMAKE_INSTALL_RPATH`` (Homebrew does through ``std_cmake_args``) or
+installs to a default search path (the container installs to
+``/usr/local``). Without one of those the executable's rpath does not reach
+the libraries' own dependencies (``DT_RUNPATH`` is not transitive), which is
+what a bare ``cmake --install`` to an arbitrary prefix exhibits today.
+
 Versioning
 ~~~~~~~~~~
 
@@ -247,7 +257,8 @@ Channels
 **Homebrew** (primary). Formula ``hgraph`` in the tap
 ``hhenson/homebrew-hgraph`` with alias ``hgl``; the source of truth is
 ``packaging/homebrew/Formula/hgraph.rb`` in this repository. Dependencies:
-``cmake`` and ``ninja`` at build time; ``apache-arrow``, ``fmt``,
+``boost`` (Boost.Math, header-only, for the analytics kernels), ``cmake``
+and ``ninja`` at build time; ``apache-arrow``, ``fmt``,
 ``howard-hinnant-date``, ``simdjson``, ``spdlog`` at run time; ``gcc`` on
 Linux. isocline is a ``resource`` staged into the build directory and
 handed to CMake with ``FETCHCONTENT_SOURCE_DIR_ISOCLINE`` under
@@ -258,9 +269,10 @@ Bottles are built by ``brew test-bot`` in the tap's own CI on macOS arm64
 runners; Linux bottles are an open question.
 
 The formula builds against whatever versions homebrew-core carries (fmt
-12.x today while this tree pins fmt 11 when it fetches). The packaging
-dry-run workflow builds with the Homebrew dependency set so a version bump
-in homebrew-core is caught in this repository, not by users.
+12.x today while this tree pins fmt 11 when it fetches; Boost 1.92 against
+the 1.90 floor). The packaging dry-run workflow installs the formula itself
+from a tarball of the checkout, so a version bump in homebrew-core is
+caught in this repository, not by users.
 
 **Conan.** The existing recipe gains ``language`` (default ``False``): it
 exports ``language/*``, passes ``HGRAPH_BUILD_LANGUAGE=ON`` and adds
@@ -268,10 +280,13 @@ exports ``language/*``, passes ``HGRAPH_BUILD_LANGUAGE=ON`` and adds
 version. Publishing to a remote is a release-switch step.
 
 **Container image.** ``packaging/docker/Dockerfile`` builds ``hgl`` on a
-Debian/Ubuntu base from the distribution's Arrow, fmt, spdlog and simdjson
-packages (date fetched, since distributions lag), installs the prefix and
-keeps ``g++`` so runtime functions compile. CI builds the image on pull
-requests touching packaging inputs and runs the smoke inside it; pushing to
+Debian (trixie, GCC 14) base. Arrow with compute and Acero comes from the
+Apache apt repository; fmt, spdlog, simdjson, date and Boost.Math are
+fetched at configure time because Debian's copies sit below the floors in
+``CMakeLists.txt``. The prefix is installed to ``/usr/local`` and the final
+stage keeps ``g++`` and the Arrow ``-dev`` packages so runtime functions
+compile against the installed headers. CI builds the image on pull requests
+touching packaging inputs and runs the smoke inside it; pushing to
 ``ghcr.io`` is a release-switch step.
 
 **PyPI.** Unchanged.
@@ -361,18 +376,23 @@ P2
     ``FETCHCONTENT_FULLY_DISCONNECTED=ON`` path configures and builds,
     documented in ``language/README.md``.
 P3
-    In-repo Homebrew material under ``packaging/homebrew/``: the formula,
-    the ``hgl`` alias, the tap's README and its ``test-bot`` workflow, and
-    a ``README.md`` that spells out the release switch. Placeholder
-    ``url`` / ``sha256`` until a tag contains ``language/``.
+    In-repo packaging material: ``packaging/homebrew/`` (the formula, the
+    ``hgl`` alias, the tap's README and its ``test-bot`` / ``pr-pull``
+    workflows), ``packaging/docker/Dockerfile``, ``packaging/smoke/`` and a
+    ``packaging/README.md`` that spells out the release switch.
+    Placeholder ``url`` / ``sha256`` until a tag contains ``language/``.
+    The ``hgl`` install rpath gains ``../lib`` and honours
+    ``CMAKE_INSTALL_RPATH``.
 P4
     Packaging dry-run workflow (``.github/workflows/packaging.yml``): on
-    ``workflow_dispatch`` and on pull requests touching packaging inputs,
-    build on macOS with the Homebrew dependency set using the formula's
-    CMake arguments, install to a prefix, run the formula's smoke test,
-    and run ``brew style`` / ``brew audit`` on the formula in a throwaway
-    local tap. Build the container image on Linux and run the smoke inside
-    it. No publishing.
+    ``workflow_dispatch``, on pull requests touching packaging inputs and
+    on ``main``. macOS: ``brew style`` / ``brew audit --strict`` on the
+    formula in a throwaway local tap, then the formula is pointed at a
+    ``git archive`` of the checkout and installed with
+    ``--build-from-source``, followed by ``brew test``, ``brew linkage
+    --test`` and the smoke. Linux: ``conan export``, ``docker build`` of the
+    image, then ``hgl --version``, the smoke and the analytics example
+    inside it. No publishing.
 P5
     Conan ``language`` option (exports, ``HGRAPH_BUILD_LANGUAGE``,
     ``bindirs``) and ``test_package`` coverage of ``hgl --version`` when the
@@ -430,11 +450,17 @@ hgl --version`` agrees.
 Implementation status
 ---------------------
 
-* 2026-09-04: Proposed. Preparation items P1-P5 are in flight in the
-  branch that adds this RFC; P6 waits for PR #641 (native artifact cache),
-  which owns the code the context replaces; P7 is optional. No tap,
-  bottle, image or install instructions exist -- the release switch has
-  not been pulled.
+* 2026-09-04: Proposed. Preparation items P1-P5 land with the branch
+  that adds this RFC. Verified locally on Linux: the formula-equivalent
+  configure/build/install with FetchContent disconnected, ``hgl 0.8.22
+  (hgraph api 0.8.0)`` from the installed prefix and from a copy of it,
+  ``hgl test`` on the smoke and on the analytics example from the prefix,
+  ``conan export`` / ``conan source`` with ``language=True``. The Homebrew
+  install and the container build run only in the dry-run workflow (no
+  ``brew`` or ``docker`` on the development box). P6 waits for PR #641
+  (native artifact cache), which owns the code the context replaces; P7 is
+  optional. No tap, bottle, image or install instructions exist -- the
+  release switch has not been pulled.
 
 References
 ----------

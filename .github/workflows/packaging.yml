@@ -1,0 +1,147 @@
+name: Packaging dry run
+
+# RFC 0032 preparation: prove the native distribution channels build from
+# this tree without publishing anything. The macOS job audits the in-repo
+# Homebrew formula, then installs it from a tarball of the checkout through
+# a throwaway local tap so the resource staging, the offline isocline
+# configure, the formula's own `test do` block and `brew linkage` all run
+# for real. The Linux job builds the container image and runs the smoke
+# inside it, and checks the Conan recipe still exports. Nothing here pushes
+# a bottle, an image or a tap; those are release-switch steps (RFC 0032 R1-R5)
+# and stay manual until the release is wanted.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packaging/**
+      - .github/workflows/packaging.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - language/CMakeLists.txt
+  pull_request:
+    paths:
+      - packaging/**
+      - .github/workflows/packaging.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - language/CMakeLists.txt
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  homebrew:
+    name: Homebrew formula / macOS
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+      HOMEBREW_MAKE_JOBS: "2"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Create a throwaway tap holding the in-repo formula
+        shell: bash
+        run: |
+          brew tap-new --no-git local/hgraph
+          tap_dir="$(brew --repository local/hgraph)"
+          cp packaging/homebrew/Formula/hgraph.rb "$tap_dir/Formula/hgraph.rb"
+          mkdir -p "$tap_dir/Aliases"
+          ln -s ../Formula/hgraph.rb "$tap_dir/Aliases/hgl"
+      - name: Audit the formula as written
+        shell: bash
+        run: |
+          brew style local/hgraph/hgraph
+          brew audit --strict --formula local/hgraph/hgraph
+      - name: Point the formula at a tarball of this checkout
+        shell: bash
+        run: |
+          version="$(git describe --tags --match '[0-9]*')"
+          tarball="$RUNNER_TEMP/hgraph-${version}.tar.gz"
+          git archive --format=tar.gz --prefix="hgraph-${version}/" -o "$tarball" HEAD
+          digest="$(shasum -a 256 "$tarball" | cut -d' ' -f1)"
+          formula="$(brew --repository local/hgraph)/Formula/hgraph.rb"
+          python3 - "$formula" "$tarball" "$digest" "$version" <<'PY'
+          import re
+          import sys
+
+          path, tarball, digest, version = sys.argv[1:]
+          text = open(path).read()
+          text, n_url = re.subn(
+              r'^  url ".*"$',
+              f'  url "file://{tarball}"\n  version "{version}"',
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          text, n_sha = re.subn(
+              r'^  sha256 "0{64}"$', f'  sha256 "{digest}"', text, count=1, flags=re.MULTILINE
+          )
+          assert n_url == 1 and n_sha == 1, (n_url, n_sha)
+          open(path, "w").write(text)
+          PY
+          echo "HGRAPH_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          sed -n '1,12p' "$formula"
+      - name: Install from source through the formula
+        shell: bash
+        run: brew install --build-from-source --verbose local/hgraph/hgraph
+      - name: Run the formula test block and linkage check
+        shell: bash
+        run: |
+          brew test --verbose local/hgraph/hgraph
+          brew linkage --test local/hgraph/hgraph
+      - name: Exercise the installed toolchain
+        shell: bash
+        run: |
+          hgl --version
+          hgl --version | grep -F "hgl ${HGRAPH_RELEASE_VERSION} (hgraph api "
+          hgl test packaging/smoke/smoke.hgl
+          hgl test language/examples/midpoint.hgl
+          test -f "$(brew --prefix hgraph)/lib/cmake/hgl/HglLanguage.cmake"
+          test -f "$(brew --prefix hgraph)/lib/cmake/hgraph/hgraphConfig.cmake"
+
+  container:
+    name: Container image / Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check the Conan recipe exports
+        shell: bash
+        run: pipx run --spec conan conan export .
+      - name: Build the image
+        shell: bash
+        run: |
+          version="$(git describe --tags --match '[0-9]*')"
+          echo "HGRAPH_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          docker build \
+            --file packaging/docker/Dockerfile \
+            --build-arg "HGRAPH_RELEASE_VERSION=$version" \
+            --tag hgl:dry-run \
+            .
+      - name: Exercise the image
+        shell: bash
+        run: |
+          docker run --rm hgl:dry-run hgl --version
+          docker run --rm hgl:dry-run hgl --version \
+            | grep -F "hgl ${HGRAPH_RELEASE_VERSION} (hgraph api "
+          docker run --rm -v "$PWD/packaging/smoke:/work" hgl:dry-run \
+            hgl test smoke.hgl
+          docker run --rm -v "$PWD/language/examples:/work" hgl:dry-run \
+            hgl test midpoint.hgl
+          docker run --rm hgl:dry-run \
+            sh -c 'test -f /usr/local/lib/cmake/hgl/HglLanguage.cmake && c++ --version'
