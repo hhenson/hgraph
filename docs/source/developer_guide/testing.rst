@@ -192,6 +192,39 @@ The continuously evolving released-hgraph comparison is documented in
 verified mismatch into the ordinary Python and native C++ regression layers;
 it does not replace either acceptance suite.
 
+Architecture ratchets
+---------------------
+
+``python/tests/test_architecture_ratchets.py`` pins the number of occurrences
+of a small set of source patterns that the 2026-09-04 fix-series retrospective
+(PRs #525, #555, #610, #636) identified as a rule applied at the wrong layer.
+Each entry names the layer that owns the rule:
+
+* a std operator dereferencing its own ``REF`` input, or Python wiring
+  handling ``is_ref``/``dereferenced`` by hand, when binding inserts the
+  from-REF adaptation and the type-pattern matcher binds the dereferenced
+  schema;
+* the runtime probing ``TSTypeKind::REF`` per tick, when a node's REF handling
+  mode is fixed when the node is built;
+* Python wiring choosing a type carrier by operator name, or keeping a shadow
+  schema-to-Python-type dictionary, when the resolver and the registry own
+  both;
+* a second or third ancestry walker beside ``TypeRegistry::value_is_a``;
+* operators recomputing ``value_type_for_active_realization`` instead of
+  reading the binding from their bound views;
+* Python-object hashing in more than one translation unit, and
+  ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer;
+* ``thread_local`` in the runtime.
+
+The test fails when a count moves in either direction. A rise is a new copy
+of a rule that already has an owner: fix it at the owning layer, or record the
+deliberate exception in the relevant developer-guide page and raise the
+baseline in the same change. A fall is the intended outcome of a
+consolidation: lower the baseline in the same change so the ratchet stays
+tight. ``HGRAPH_RATCHET_REPORT=1`` prints the current table with a per-file
+breakdown instead of asserting. The test reads the source tree and skips when
+run against an installed wheel outside the repository.
+
 Commands
 --------
 
