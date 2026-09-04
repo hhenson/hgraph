@@ -859,6 +859,12 @@ type associations, exact-function metadata, native resources, and operator
 registration. Generated language code must not reach into registry storage or
 coordinate those registries privately.
 
+Indirect resolution follows the same rule as direct operator wiring. In
+particular, selecting a lifted kernel for a reduce or map node passes the active
+`Wiring` to the registry before the kernel pointer is stored in the node plan.
+A schema-only resolution probe may omit the wiring only when no provider-owned
+callback or metadata pointer escapes the probe.
+
 ## Direct-wiring backend
 
 Status: executable prototype (2026-09-03) with the test harness and run model in

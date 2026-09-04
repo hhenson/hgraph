@@ -347,6 +347,12 @@ removal leaves the provider fully active. The registry performs logical
 operator removal only. A native module manager must separately coordinate
 other registries and may keep the image mapped after removal.
 
+An indirect wiring helper must therefore resolve through ``wire_operator`` or
+pass its active ``Wiring`` to ``OperatorRegistry::resolve``. This includes a
+helper which retains only a selected ``LiftedKernel`` pointer in a node plan;
+the pointer still names provider code. A schema-only probe may omit the wiring
+only when no candidate callback or metadata pointer escapes the probe.
+
 
 Ranking (specificity)
 ----------------------

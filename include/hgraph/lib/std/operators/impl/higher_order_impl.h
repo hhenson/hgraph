@@ -210,7 +210,8 @@ namespace hgraph::stdlib
         [[nodiscard]] inline const LiftedKernel *resolve_lifted_kernel_for_schemas(
             const WiredFn &func,
             std::span<const TSValueTypeMetaData *const> input_schemas,
-            const TSValueTypeMetaData *expected_output = nullptr)
+            const TSValueTypeMetaData *expected_output = nullptr,
+            Wiring *wiring = nullptr)
         {
             if (func.lifted != nullptr) { return func.lifted->valid() ? func.lifted : nullptr; }
             if (func.operator_name.empty()) { return nullptr; }
@@ -235,7 +236,10 @@ namespace hgraph::stdlib
                     OperatorRegistry::instance().resolve(func.operator_name,
                                                          std::span<const WiringArg>{args.data(), args.size()},
                                                          func.has_output,
-                                                         expected_output);
+                                                         expected_output,
+                                                         {},
+                                                         wiring != nullptr ? wiring->operator_state() : GlobalStateView{},
+                                                         wiring);
                 const LiftedKernel *kernel = resolved.impl != nullptr ? resolved.impl->lifted_kernel : nullptr;
                 return kernel != nullptr && kernel->valid() ? kernel : nullptr;
             });
@@ -407,7 +411,8 @@ namespace hgraph::stdlib
                     resolve_lifted_kernel_for_schemas(func.value(),
                                                       std::span<const TSValueTypeMetaData *const>{
                                                           input_schemas.data(), input_schemas.size()},
-                                                      element);
+                                                      element,
+                                                      &w);
                 return wire_lifted_reduce_tsl(w, func.value(), kernel, ts_ref);
             }
         };
@@ -657,7 +662,7 @@ namespace hgraph::stdlib
             spec.child.input_bindings = std::move(combiner_graph.input_bindings);
             spec.child.output_binding = combiner_graph.output_binding;
             spec.lifted_kernel = resolve_lifted_kernel_for_schemas(
-                combiner, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()}, element);
+                combiner, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()}, element, &w);
             if (spec.lifted_kernel != nullptr &&
                 (spec.lifted_kernel->arity != 2 || !spec.lifted_kernel->associative))
             {
@@ -2239,11 +2244,8 @@ namespace hgraph::stdlib
             arg.kind = WiringArg::Kind::TimeSeries;
             arg.port = source;
             std::array<WiringArg, 1> args{std::move(arg)};
-            ResolvedOperatorCall resolved = OperatorRegistry::instance().resolve(
-                "downcast_",
-                std::span<const WiringArg>{args.data(), args.size()}, true, target);
-            OperatorWireResult result = resolved.impl->wire(
-                w, resolved.map, resolved.args, resolved.kwargs);
+            OperatorWireResult result = wire_operator(
+                w, "downcast_", std::span<const WiringArg>{args.data(), args.size()}, true, target);
             if (!result.has_output)
             {
                 throw std::logic_error("dispatch_: checked downcast produced no output");
@@ -4020,7 +4022,8 @@ namespace hgraph::stdlib
             const WiredFn &func,
             std::span<const TSValueTypeMetaData *const> schemas,
             std::span<const std::uint8_t> arg_tags,
-            bool takes_key)
+            bool takes_key,
+            Wiring *wiring = nullptr)
         {
             if (takes_key || !func.has_output ||
                 (func.variadic ? schemas.size() < func.arity : func.arity != schemas.size()))
@@ -4069,7 +4072,9 @@ namespace hgraph::stdlib
             const LiftedKernel *kernel =
                 resolve_lifted_kernel_for_schemas(func,
                                                   std::span<const TSValueTypeMetaData *const>{expected_schemas.data(),
-                                                                                              expected_schemas.size()});
+                                                                                              expected_schemas.size()},
+                                                  nullptr,
+                                                  wiring);
             if (kernel == nullptr || kernel->arity != schemas.size()) { return std::nullopt; }
 
             for (std::size_t i = 0; i < expected_schemas.size(); ++i)
@@ -4117,7 +4122,8 @@ namespace hgraph::stdlib
                 lifted_map_tsl_plan(func,
                                     {schemas.data(), schemas.size()},
                                     {arg_tags.data(), arg_tags.size()},
-                                    /*takes_key=*/false);
+                                    /*takes_key=*/false,
+                                    &w);
             if (!plan.has_value())
             {
                 throw std::invalid_argument("map_: lifted TSL fast path requires a compatible lifted scalar function");

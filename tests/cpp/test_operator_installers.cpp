@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -106,6 +107,13 @@ namespace
     {
     };
 
+    struct provider_lifted_add : Operator<"provider_lifted_add",
+                                          In<"lhs", TS<Int>>,
+                                          In<"rhs", TS<Int>>,
+                                          Out<TS<Int>>>
+    {
+    };
+
     struct provider_probe_impl
     {
         static constexpr auto name              = "provider_probe_impl";
@@ -122,6 +130,11 @@ namespace
     void install_leased_provider_probe()
     {
         register_overload<leased_provider_probe, provider_probe_impl>();
+    }
+
+    void install_provider_lifted_add()
+    {
+        register_overload<provider_lifted_add, lift<stdlib::scalar_add<Int>>>();
     }
 
     [[nodiscard]] std::size_t provider_probe_count()
@@ -312,6 +325,34 @@ TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")
                       Catch::Matchers::ContainsSubstring("test.leased-provider") &&
                           Catch::Matchers::ContainsSubstring("live lease"));
     executor = GraphExecutorValue{};
+    CHECK(provider.live_leases() == 0);
+    CHECK(registry.remove_provider(provider));
+}
+
+TEST_CASE("installers: lifted-kernel plans retain their operator provider")
+{
+    stdlib::register_standard_operators();
+    auto &registry = OperatorRegistry::instance();
+    OperatorProviderHandle provider =
+        registry.register_installer("test.lifted-provider", &install_provider_lifted_add);
+    registry.run_installers();
+
+    {
+        GraphBuilder graph_builder;
+        {
+            Wiring wiring;
+            auto values = wire<stdlib::const_, TSL<TS<Int>, 3>>(
+                wiring, stdlib::make_list<Int>({Int{1}, Int{2}, Int{3}}));
+            static_cast<void>(wire<stdlib::reduce_>(
+                wiring, fn<provider_lifted_add>(), values));
+            CHECK(provider.live_leases() > 0);
+            CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+            graph_builder = std::move(wiring).finish();
+        }
+        CHECK(provider.live_leases() > 0);
+        CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+    }
+
     CHECK(provider.live_leases() == 0);
     CHECK(registry.remove_provider(provider));
 }
