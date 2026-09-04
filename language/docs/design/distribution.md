@@ -1,7 +1,9 @@
 # Distribution and deployment
 
-Status: proposed (2026-09-04). Nothing in this record is implemented unless
-a section says so; the work items at the end are the implementation order.
+Status: proposed (2026-09-04). The normative contract and the task list
+live in RFC 0032 (`docs/source/rfc/rfc_0032_native_distribution.rst` in the
+hgraph tree); this record keeps the language-side motivation, the channel
+notes, and the deployment shapes, and defers to the RFC where they differ.
 
 This record covers how the toolchain reaches users, how its versions are
 named, and what a host needs to run an HGL program. It does not cover module
@@ -49,13 +51,11 @@ Two facts about `hgl` itself shape everything below:
    plus fmt, spdlog, simdjson, and date/tz from the system. There is no
    single-file static binary without a static Arrow build, and this record
    does not propose one.
-2. **Scripted runtime functions will compile C++ at run time.** The
-   scripted loader is not on `main` yet: #640 and #641 (open) lower
-   runtime functions to C++, compile them with the C++ compiler recorded
-   when `hgl` was built, and load the image. Once they land, a deployed
-   `hgl` needs a C++23 compiler, the SDK headers, and every dependency's
-   headers on the host, not only its libraries; the channels below are
-   shaped for that from the start rather than retrofitted.
+2. **Scripted runtime functions compile C++ at run time.** The scripted
+   loader (#640, #641) lowers runtime functions to C++, compiles them with
+   the C++ compiler recorded when `hgl` was built, and loads the image. A
+   deployed `hgl` therefore needs a C++23 compiler, the SDK headers, and
+   every dependency's headers on the host, not only its libraries.
 
 ## Principles
 
@@ -131,84 +131,19 @@ Linux, so installs do not compile the core locally. homebrew-core is a
 1.0 question: it wants a stable release history and no experimental
 flags, neither of which the language has yet.
 
-**Formula sketch.** Every dependency exists in homebrew-core already:
+**Formula.** Every dependency exists in homebrew-core already:
 `apache-arrow` (25.0.1, built with compute and acero), `fmt`, `spdlog`,
-`simdjson`, `howard-hinnant-date` (built as the tz library over the
-system database, matching the Conan configuration), and `boost` at build
-time only: the analytics kernels use header-only Boost.Math (floor 1.90),
-which the tree otherwise fetches, and `FETCHCONTENT_FULLY_DISCONNECTED`
-would fail the configure without it. Isocline is not, and Homebrew's
-build sandbox has no network, so the REPL's line editor is a formula
-resource handed to FetchContent:
+`simdjson`, and `howard-hinnant-date` (built as the tz library over the
+system database, matching the Conan configuration). Isocline is not, and
+Homebrew's build sandbox has no network, so the REPL's line editor is a
+formula resource handed to FetchContent:
 
-```ruby
-class Hgraph < Formula
-  desc "hgraph runtime SDK and the hgl language toolchain"
-  homepage "https://github.com/hhenson/hgraph"
-  url "https://github.com/hhenson/hgraph/archive/refs/tags/0.8.23.tar.gz"
-  sha256 "<archive digest>"
-  license "MIT"
-  head "https://github.com/hhenson/hgraph.git", branch: "main"
+The formula itself is kept in this repository as
+`packaging/homebrew/Formula/hgraph.rb`, next to the tap templates that
+the release switch copies into `hhenson/homebrew-hgraph`; the RFC's
+release-switch tasks say when. The notes below apply to it.
 
-  depends_on "boost" => :build # Boost.Math, header-only, analytics kernels
-  depends_on "cmake" => :build
-  depends_on "ninja" => :build
-  depends_on "apache-arrow"
-  depends_on "fmt"
-  depends_on "howard-hinnant-date"
-  depends_on "simdjson"
-  depends_on "spdlog"
-  on_linux do
-    depends_on "gcc"   # scripted runtime functions compile at run time
-  end
-
-  resource "isocline" do
-    url "https://github.com/daanx/isocline/archive/refs/tags/v1.1.0.tar.gz"
-    sha256 "<archive digest>"
-  end
-
-  def install
-    (buildpath/"isocline").install resource("isocline")
-    args = %W[
-      -DHGRAPH_RELEASE_VERSION=#{version}
-      -DHGRAPH_BUILD_LANGUAGE=ON
-      -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
-      -DHGRAPH_BUILD_SHARED=ON
-      -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
-      -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
-      -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
-      -DHGRAPH_USE_PYARROW_ARROW=OFF
-      -DHGRAPH_FETCH_SIMDJSON=OFF
-      -DHGRAPH_FETCH_DATE=OFF
-      -DHGRAPH_TIME_ZONE_BACKEND=date
-      -DHGRAPH_ENABLE_COMPILER_CACHE=OFF
-      -DBUILD_TESTING=OFF
-      -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-      -DFETCHCONTENT_SOURCE_DIR_ISOCLINE=#{buildpath}/isocline
-    ]
-    system "cmake", "-S", ".", "-B", "build", "-G", "Ninja",
-           *args, *std_cmake_args
-    system "cmake", "--build", "build"
-    system "cmake", "--install", "build"
-  end
-
-  test do
-    (testpath/"smoke.hgl").write <<~HGL
-      module smoke
-
-      fn twice(x: f64) -> f64 => x * 2.0
-
-      test twice_ticks {
-          assert eval(twice, [1.0, 2.0]) == [2.0, 4.0]
-      }
-    HGL
-    assert_match "twice_ticks ... ok", shell_output("#{bin}/hgl test smoke.hgl")
-    assert_match version.to_s, shell_output("#{bin}/hgl --version")
-  end
-end
-```
-
-Notes on the sketch:
+Notes on the formula:
 
 - `HGRAPH_BUILD_SHARED=ON` so the SDK libraries in the prefix are the ones
   `hgl` and AOT packages share; Homebrew's `std_cmake_args` sets the
@@ -244,11 +179,13 @@ extensions with Conan and want the same lock file to carry the compiler.
 
 ### Container image
 
-`language.yml` publishes `ghcr.io/hhenson/hgl:<release>` on tags: an Ubuntu
-image with GCC 14, the installed prefix, and the dependency packages, built
-from the same configure the formula uses. It serves two things the formula
-does not: CI jobs that run `hgl test` on a project, and `hgl run`
-deployments of scripted programs, where the "host" is the image.
+`packaging/docker/Dockerfile` builds `ghcr.io/hhenson/hgl:<release>`: a
+Debian image with GCC 14, the installed prefix, and the distribution's
+dependency packages, built from the same configure the formula uses. The
+packaging workflow builds it on pull requests and runs the smoke inside it;
+pushing to the registry on tags is a release-switch step. It serves two
+things the formula does not: CI jobs that run `hgl test` on a project, and
+`hgl run` deployments of scripted programs, where the "host" is the image.
 
 ### PyPI
 
@@ -269,17 +206,17 @@ archive later.
 
 ## Relocatable native context
 
-The scripted loader proposed in #640 and #641 records, at build time, the
-compiler path, the compiler launcher, and the `hgl` target's include
-directories, definitions, compile options, and link options, then adds
-`<exe>/../include` at run time. On the machine that built `hgl` this
-works, and the installed-SDK checks in those pull requests ran there. On
-any other machine the recorded paths are somebody else's. The include
-list is the transitive closure of the `hgl` target's usage requirements,
-so it does name the dependency headers, but as absolute paths of the
-build machine: a bottle records the sandbox build tree, Cellar-versioned
-dependency directories that change on the next `brew upgrade fmt`, a CI
-compiler, and possibly `sccache`; a Conan package records the Conan cache.
+The scripted loader records, at build time, the compiler path, the compiler
+launcher, and the `hgl` target's include directories, definitions, compile
+options, and link options, then adds `<exe>/../include` at run time. On
+the machine that built `hgl` this works, and the installed-SDK checks in
+#640 and #641 ran there. On any other machine the recorded paths are
+somebody else's. The include list is the transitive closure of the `hgl`
+target's usage requirements, so it does name the dependency headers, but
+as absolute paths of the build machine: a bottle records the sandbox
+build tree, Cellar-versioned dependency directories that change on the
+next `brew upgrade fmt`, a CI compiler, and possibly `sccache`; a Conan
+package records the Conan cache.
 
 The proposal is a native context file that the install step writes and
 `hgl` reads relative to its executable, `lib/hgl/native-context.json`:
@@ -288,16 +225,10 @@ The proposal is a native context file that the install step writes and
   overridden by `HGL_CXX` and then `CXX`; on macOS `xcrun --find clang++`
   is the fallback. No launcher.
 - **include and library directories**: the installed prefix, spelled
-  relative to the file so the prefix can move, plus the dependency
-  prefixes (Arrow, fmt, spdlog, simdjson, date) *as the consuming host
-  resolves them*. Homebrew's `opt` paths and the container's `/usr/local`
-  are the same on every machine and are recorded as configured. Conan
-  cache paths are not: a package is built in one cache and consumed from
-  another, so a Conan install records no dependency paths and `hgl` reads
-  them from the run environment the recipe's `package_info` computes on
-  the consumer from the dependencies' `includedirs`. The file is plain
-  text a packager can patch, and a missing prefix falls through to the
-  CMake-configure fallback below.
+  relative to the file so the prefix can move, plus the dependency prefixes
+  resolved when the package was configured (`find_dependency` results:
+  Arrow, fmt, spdlog, simdjson, date). Homebrew and Conan prefixes are
+  stable per platform, and the file is plain text a packager can patch.
 - **flags**: the language standard, PIC, visibility, and the definitions the
   generated code needs (`HGL_HAVE_ANALYTICS`, the API version). Not the
   repository's warning flags: `-Werror` against a compiler the tree was
@@ -339,24 +270,16 @@ Two shapes, matching the two backends in [Architecture](architecture.md):
 The Python-facing shape, `PYTHON_MODULE` in `hgl_add_module()`, produces a
 wheel-shaped package and belongs to the wheel channel, not to this record.
 
-## Work items, in order
+## Work items
 
-1. Release version stamping: `HGRAPH_RELEASE_VERSION`, `version.h`, the
-   `hgl --version` line, and the Conan `set_version` tag pattern (core
-   CMake, `language/`, `conanfile.py`; `build_system.rst` records it).
-2. Offline isocline: honour `FETCHCONTENT_SOURCE_DIR_ISOCLINE` and
-   `FETCHCONTENT_FULLY_DISCONNECTED`, or fall back to the plain line reader
-   when the fetch is impossible, so a sandboxed build succeeds.
-3. Relocatable native context, as above, in the #640/#641 stack or directly
-   after it, with an installed-elsewhere test: install to a prefix, move
-   the prefix, run a runtime-function test from it.
-4. The tap: repository, formula, bottle workflow, and an "Installing"
-   section in the user guide's [Modules and tools](../user-guide/modules-and-tools.md)
-   naming the formula and the container image.
-5. A release-checklist line in `release_readiness.rst`: after a tag, bump
-   the formula's `url`/`sha256` and let the tap build bottles.
-6. The Conan `language` option and its `test_package` consumer.
-7. The container image job in `language.yml`.
+RFC 0032 owns the task list. It splits the work into *preparation*
+(version stamping, the offline isocline build, the in-repo formula and
+tap templates, the packaging dry-run workflow, the container build, the
+Conan `language` option, and the relocatable native context) -- all of
+which land without opening a channel -- and the *release switch* (create
+the tap, publish bottles and the image, add the user-guide "Installing"
+page and the release-checklist line), which runs only when the language
+is ready to be exposed.
 
 ## Open decisions
 
