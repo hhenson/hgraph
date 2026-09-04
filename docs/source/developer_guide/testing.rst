@@ -225,6 +225,42 @@ tight. ``HGRAPH_RATCHET_REPORT=1`` prints the current table with a per-file
 breakdown instead of asserting. The test reads the source tree and skips when
 run against an installed wheel outside the repository.
 
+Authoring-shape sweeps
+----------------------
+
+The differential parity harness (:doc:`parity_testing`) varies tick sequences
+over fixed authoring shapes. The defects in the 2026-09-04 retrospective sat on
+the axes it does not generate: how a signature is spelled, how a type
+hierarchy is declared, and how a ``REF`` nests through a consumer. The
+authoring-shape sweeps cover those axes in the ordinary Python suite, on every
+pull request, with a **self-consistency oracle** rather than a released-hgraph
+oracle: the sweep wires the same consumer two ways and requires identical
+``eval_node`` traces. That also lets them cover C++-first-only shapes.
+
+``python/tests/test_ref_consumer_sweep.py``
+   The rule: a consumer that does not declare ``REF`` observes the
+   dereferenced value, because binding inserts the from-REF adaptation and the
+   type-pattern matcher binds the dereferenced schema. Axes: input shape
+   (``TS`` scalar, ``CompoundScalar`` including derived leaves, tuple, ``TSD``
+   with string and polymorphic compound keys, ``TSS``, fixed ``TSL``, ``TSB``)
+   × REF-producing source (a ``REF``-typed node, a fixed ``TSL`` projection,
+   ``TSD`` item lookup, a ``map_`` element, a ``switch_`` branch, a switch that
+   flips from a value body to a REF body, ``if_``, ``default``) × consumer
+   (every std operator that accepts the shape, field access, ``combine``,
+   ``collect``, ``mesh_``, ``dispatch``, a Python compute node). The plain
+   source is the oracle arm and is asserted on its own, so a consumer
+   definition mistake cannot masquerade as a runtime defect. Its first run
+   found #649 (``reduce`` and ``mesh_`` reject a REF-valued collection) and
+   #650 (a ``switch_`` that flips from a value body to a REF body goes
+   silent), neither of which any existing test or parity recipe reached.
+
+Each sweep carries a ``KNOWN_GAPS`` table of products that fail today, marked
+``xfail(strict=True)``: a fix must delete its entry in the same change, and a
+regression turns the entry from an expected failure into a failing test. When
+a new product is found in production, add it to the relevant sweep's axes
+first and let the sweep reproduce it; the fix then lands with the gap entry
+removed and the matching architecture ratchet lowered.
+
 Commands
 --------
 
