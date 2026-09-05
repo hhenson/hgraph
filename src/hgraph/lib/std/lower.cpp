@@ -414,8 +414,8 @@ namespace hgraph::stdlib
     LowerExecution::LowerExecution(LowerExecution &&) noexcept = default;
     LowerExecution &LowerExecution::operator=(LowerExecution &&) noexcept = default;
 
-    LowerExecution::LowerExecution(GraphExecutorValue executor, bool has_output)
-        : executor_(std::move(executor)), has_output_(has_output)
+    LowerExecution::LowerExecution(GraphExecutorValue executor, bool has_output, GlobalSeed seed)
+        : executor_(std::move(executor)), has_output_(has_output), seed_(std::move(seed))
     {
     }
 
@@ -442,9 +442,9 @@ namespace hgraph::stdlib
             result_ = stored.checked_as<Frame>();
             graph_state.erase(lower_detail::RESULT_KEY);
         }
-        if (GlobalState *state = GlobalContext::active_state())
+        if (GlobalState *seed = seed_ ? seed_->state() : nullptr; seed != nullptr)
         {
-            state->view().copy_from(graph_state);
+            seed->view().copy_from(graph_state);
         }
         ran_ = true;
     }
@@ -474,7 +474,10 @@ namespace hgraph::stdlib
     {
         lower_detail::validate(function, inputs, options);
 
-        Wiring wiring;
+        // The lowered wiring binds the caller's seed (a bridge's state), else
+        // the active C++ authoring context's; results copy back into it.
+        Wiring wiring = options.global_state != nullptr ? Wiring{*options.global_state} : Wiring{};
+        GlobalSeed seed = wiring.seed();
         const DateTime invocation_as_of = options.as_of.value_or(lower_detail::current_time());
         std::vector<WiringPortRef> ports;
         ports.reserve(inputs.size());
@@ -513,7 +516,7 @@ namespace hgraph::stdlib
         {
             builder.add_lifecycle_observer(options.observer);
         }
-        return LowerExecution{builder.make_executor(), has_output};
+        return LowerExecution{builder.make_executor(), has_output, seed};
     }
 
     std::optional<Frame> lower(const WiredFn &function, std::span<const Frame> inputs, LowerOptions options)

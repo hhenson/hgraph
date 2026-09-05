@@ -1468,14 +1468,11 @@ value_type_for_active_realization(const ValueTypeMetaData *schema) {
                                  : active_snapshot->type_for(schema);
 }
 
-ValueTypeRef value_type_for_wiring(const ValueTypeMetaData *schema) {
+ValueTypeRef value_type_for_wiring(const ValueTypeMetaData *schema,
+                                   const TypeRealizationOptions &options) {
   if (active_snapshot != nullptr) {
     return active_snapshot->type_for(schema);
   }
-  GlobalState *state = GlobalContext::active_state();
-  const TypeRealizationOptions options =
-      state != nullptr ? type_realization_options(state->view())
-                       : TypeRealizationOptions{};
   return TypeRealizationSnapshot::capture(TypeRegistry::instance(), options)
       ->type_for(schema);
 }

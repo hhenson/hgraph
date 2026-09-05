@@ -21,17 +21,24 @@ wiring seed, and each root graph instance receives its own copy exactly as it
 does on the unseeded path.  Nested graphs continue to resolve the root graph's
 state and never own a separate copy.
 
-``GlobalContext`` is optional pre-wiring shorthand.  It selects one seed per
-thread and rejects nesting; new top-level wiring/builders copy that seed, while
-the context itself is not retained by the graph or runner.  C++ callers read the
-completed owned copy from the executor's root ``GraphView`` as before; automatic
-copy-back is a language-bridge concern.
+``GlobalContext`` is optional C++ authoring shorthand.  It selects one seed in
+one process-wide slot (the build is single-threaded; there is no thread-local
+anywhere in the runtime, ruling 2026-09-05) and rejects nesting.  A top-level
+``Wiring`` constructed while it is active *binds* the selected state at
+construction (``Wiring::seed_state``) and reads and writes it through that
+binding; a context that exits early detaches every wiring it seeded, so reads
+fall back to the wiring's own store and the build fails loudly rather than
+dereferencing a dead state.  The context itself is not retained by the graph or
+runner.  C++ callers read the completed owned copy from the executor's root
+``GraphView`` as before; automatic copy-back is a language-bridge concern.
 
-Language bridges may begin that lifecycle earlier without changing the C++
-model.  The Python bridge keeps a seed in thread-local Python state, copies it
-into each top-level ``Wiring``, and copies the root graph's final state back only
-after the runner finishes.  The graph never borrows the Python seed and there is
-no alternate external-state path in ``GraphBuilder`` or the runtime.
+Language bridges do not use the context.  The Python bridge keeps a seed in
+thread-local *Python* state, hands it to each top-level ``Wiring`` directly
+(``Wiring(GlobalState &)``), and copies the root graph's final state back only
+after the runner finishes; a child wiring reads the root's seed through its own
+binding.  That explicit binding is what lets distinct runs proceed on distinct
+threads.  The graph never borrows the Python seed and there is no alternate
+external-state path in ``GraphBuilder`` or the runtime.
 
 Clock And Execution Mode
 ------------------------

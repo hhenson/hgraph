@@ -1153,14 +1153,15 @@ namespace hgraph
 
         // Assemble the resolved scalar-configuration bundle from the erased scalar args.
         template <typename Impl>
-        [[nodiscard]] Value assemble_scalars(const ResolutionMap &map, std::span<const WiringArg> args)
+        [[nodiscard]] Value assemble_scalars(const ResolutionMap &map, std::span<const WiringArg> args,
+                                             const TypeRealizationOptions &options)
         {
             using sig = StaticNodeSignature<Impl>;
             if constexpr (sig::scalar_count() == 0) { return Value{}; }
             else
             {
                 using wire_params   = typename sig::wire_param_types;
-                const auto binding = value_type_for_wiring(sig::scalar_schema(map));
+                const auto binding = value_type_for_wiring(sig::scalar_schema(map), options);
                 BundleBuilder bundle{binding};
                 [&]<std::size_t... I>(std::index_sequence<I...>) {
                     (
@@ -1229,7 +1230,7 @@ namespace hgraph
             map.bind_ts("S", target_schema);
 
             const auto binding = value_type_for_wiring(
-                StaticNodeSignature<operator_auto_const>::scalar_schema(map));
+                StaticNodeSignature<operator_auto_const>::scalar_schema(map), w.realization_options());
             BundleBuilder bundle{binding};
             bundle.set("value", lifted_value->view());
 
@@ -1907,7 +1908,7 @@ namespace hgraph
             NodeBuilder builder;
             builder.template implementation<Impl>(map);
             w.apply_pending_node_label(operator_name, builder);
-            Value scalars = operator_dispatch_detail::assemble_scalars<Impl>(map, args);
+            Value scalars = operator_dispatch_detail::assemble_scalars<Impl>(map, args, w.realization_options());
             std::vector<WiringPortRef> inputs = operator_dispatch_detail::collect_node_inputs<Impl>(w, map, args);
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                 builder.type().schema() != nullptr ? builder.type().schema()->input_schema : nullptr,

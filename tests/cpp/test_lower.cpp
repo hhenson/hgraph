@@ -268,6 +268,28 @@ TEST_CASE("lower can retain one fixed as-of column and keeps private state priva
     CHECK_FALSE(context.state().view().contains("__hgraph.lower.result__"));
 }
 
+TEST_CASE("lower: a prepared execution run after its context exited copies nothing back")
+{
+    // Review finding on the seed binding: prepare/run may be split across the
+    // context's lifetime; the execution holds the shared binding, which the
+    // context detaches on exit, so the deferred run never writes through a
+    // dead state and still produces its result.
+    stdlib::register_standard_operators();
+    const std::array inputs{
+        input_frame({{MIN_ST, Int{1}}}),
+        input_frame({{MIN_ST, Int{2}}}),
+    };
+    stdlib::LowerExecution execution;
+    {
+        GlobalContext context;
+        context.state().view().set("seed", Value{Int{7}});
+        execution = stdlib::prepare_lower(fn<AddGraph>(), inputs, {});
+    }
+    execution.run();
+    REQUIRE(execution.ran());
+    CHECK(execution.result().has_value());
+}
+
 TEST_CASE("lower supports sink graphs and validates frame arity")
 {
     stdlib::register_standard_operators();

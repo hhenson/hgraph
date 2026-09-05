@@ -129,9 +129,12 @@ namespace hgraph
     value_type_for_active_realization(const ValueTypeMetaData *schema);
 
     /** Resolve storage for a wiring-time value. Reuse an enclosing graph's
-        closed-union snapshot, or capture the current registered hierarchy. */
+        closed-union snapshot, or capture the current registered hierarchy
+        under ``options`` (the wiring's ``realization_options()``: its bound
+        seed's configuration -- never an ambient state). */
     [[nodiscard]] HGRAPH_EXPORT ValueTypeRef
-    value_type_for_wiring(const ValueTypeMetaData *schema);
+    value_type_for_wiring(const ValueTypeMetaData *schema,
+                          const TypeRealizationOptions &options = {});
 
     /** Test-only registry teardown hook; call after TypeRecordRegistry reset. */
     HGRAPH_EXPORT void clear_type_realization_snapshots() noexcept;

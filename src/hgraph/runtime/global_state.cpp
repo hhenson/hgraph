@@ -5,29 +5,44 @@
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace hgraph
 {
     namespace
     {
-        thread_local GlobalContext *active_global_context = nullptr;
+        // The active C++ authoring context: one process-wide slot, never a
+        // thread-local (the build is single-threaded; bridges hand the state
+        // to the Wiring directly and never touch this).
+        GlobalContext *active_global_context = nullptr;
 
-        // Canonical binding for the GlobalState backing: a mutable Map<string, Any>.
+        // Canonical binding for the GlobalState backing: a mutable Map<string,
+        // Any>. Generation-checked cache shared by every thread (no
+        // thread-local: ruling 2026-09-05): readers take one acquire load and
+        // stay off the registry mutexes; a stale generation (a test-only
+        // registry reset) resolves again under the registry and publishes a
+        // fresh immutable record. The record a reset retires is left to the
+        // process rather than freed under a concurrent reader -- a few bytes
+        // per test-only reset.
+        struct CachedBinding
+        {
+            std::uint64_t generation{0};
+            ValueTypeRef  binding{};
+        };
+
         ValueTypeRef global_state_binding()
         {
-            struct CachedBinding
-            {
-                std::uint64_t generation{0};
-                ValueTypeRef  binding{};
-            };
-            thread_local CachedBinding cached{};
+            static std::atomic<const CachedBinding *> cache{nullptr};
 
-            auto &registry = TypeRegistry::instance();
+            auto               &registry   = TypeRegistry::instance();
             const std::uint64_t generation = registry.reset_generation();
-            if (cached.binding.bound() && cached.generation == generation)
+            if (const CachedBinding *cached = cache.load(std::memory_order_acquire);
+                cached != nullptr && cached->generation == generation && cached->binding.bound())
             {
-                return cached.binding;
+                return cached->binding;
             }
 
             const auto *str_meta = registry.register_scalar<std::string>("str");
@@ -35,7 +50,16 @@ namespace hgraph
             const auto *schema   = registry.mutable_map(str_meta, any_meta);
             auto binding = ValuePlanFactory::instance().type_for(schema);
             if (!binding) { throw std::logic_error("GlobalState: no binding for Map<string, Any>"); }
-            cached = CachedBinding{generation, binding};
+            auto *fresh = new CachedBinding{generation, binding};
+            const CachedBinding *expected = cache.load(std::memory_order_acquire);
+            while (!cache.compare_exchange_weak(expected, fresh, std::memory_order_acq_rel, std::memory_order_acquire))
+            {
+                if (expected != nullptr && expected->generation == generation)
+                {
+                    delete fresh;   // a concurrent refresh published the same interned binding
+                    return expected->binding;
+                }
+            }
             return binding;
         }
     }  // namespace
@@ -104,6 +128,9 @@ namespace hgraph
 
     GlobalContext::~GlobalContext()
     {
+        // Detach the binding handed to every wiring, child and prepared
+        // execution seeded from this context: none may outlive the state.
+        if (seed_) { seed_->detach(); }
         if (active_global_context == this) { active_global_context = nullptr; }
     }
 
@@ -113,11 +140,16 @@ namespace hgraph
         {
             throw std::logic_error("GlobalContext does not support nested activation");
         }
+        seed_                 = std::make_shared<GlobalSeedBinding>(state_);
         active_global_context = this;
     }
+
+    GlobalContext *GlobalContext::active() noexcept { return active_global_context; }
 
     GlobalState *GlobalContext::active_state() noexcept
     {
         return active_global_context != nullptr ? &active_global_context->state() : nullptr;
     }
+
+
 }  // namespace hgraph

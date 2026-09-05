@@ -199,7 +199,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Rulings (family 8) ---
     Ratchet(
         id="runtime-thread-locals",
-        baseline=2,
+        baseline=0,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bthread_local\b",
