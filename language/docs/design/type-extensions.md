@@ -82,24 +82,29 @@ evaluation.
 
 ## Selecting and forwarding a reference
 
-The routing example from the discussion illustrates the intended use. This
-is a signature/body fragment; its enclosing generic declaration is omitted:
+The routing example from the discussion illustrates the intended use. It is
+deliberately fixed-size so that every bound in the guard is numeric:
 
 ```text
-route(r: i64, l: list<ref<T>, S>) -> ref<T> {
-    when valid(r) && r >= 0 && r < S && valid(l[r]) && (modified(r) || modified(l[r])) {
+fn route3<T>(r: i64, l: list<ref<T>, 3>) -> ref<T> {
+    when valid(r) && r >= 0 && r < 3 && valid(l[r]) && (modified(r) || modified(l[r])) {
         return l[r]
     }
 }
 ```
 
 The first guard establishes that the index can be read, and the next two prove
-that it is in the fixed list's half-open range `[0, S)`. Short-circuit order
+that it is in the fixed list's half-open range `[0, 3)`. Short-circuit order
 therefore makes the selected entry available safely to its own validity and
 modification checks. The list itself is accessible, and indexing it obtains one
 opaque `ref<T>` element. This does not cross that element's reference boundary
 or read a value of `T`. The node returns the selected reference, establishing
 the connection through which consumers observe the selected time series.
+
+A `const` list-size generic may also bind `unbounded`, whose sentinel is not a
+numeric upper bound. The language has not yet decided the dynamic-list size and
+safe-indexing surface, so this example does not generalise the comparison to
+`list<ref<T>, S>` or invent a constraint that excludes `unbounded`.
 
 After that connection is established, value ticks from the selected target
 do not require this routing node to evaluate, copy the value, or emit it
