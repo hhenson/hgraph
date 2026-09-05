@@ -955,8 +955,70 @@ namespace hgl::codegen
 
         Value Emitter::planned_field_value(gir::ConstExprId id, SourceRange fallback, const PlannedTypeBindings *bindings) {
             const gir::ConstExpr &expression = graph_constant(id, fallback);
-            if (expression.kind == gir::ConstExprKind::Construct) { return planned_construct(expression, fallback, bindings); }
-            return planned_constant(id, fallback);
+            const SourceRange     range      = expression.range.end > expression.range.begin ? expression.range : fallback;
+            switch (expression.kind) {
+                case gir::ConstExprKind::Unary:
+                    {
+                        const Value        operand = planned_field_value(expression.lhs, range, bindings);
+                        const ast::UnaryOp op =
+                            expression.unary == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
+                        if (operand.is_const() || operand.is_runtime()) { return fold_unary(op, operand, range); }
+                        if (!operand.is_port()) { backend(range, "this operand has no value"); }
+                        return wire(op == ast::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_", {operand.code},
+                                    range);
+                    }
+                case gir::ConstExprKind::Binary:
+                    {
+                        const Value         lhs = planned_field_value(expression.lhs, range, bindings);
+                        const Value         rhs = planned_field_value(expression.rhs, range, bindings);
+                        const ast::BinaryOp op  = [&] {
+                            switch (expression.binary) {
+                                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
+                                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
+                                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
+                                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
+                                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
+                                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
+                                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
+                                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
+                                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
+                                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
+                                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
+                                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
+                                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
+                            }
+                            std::unreachable();
+                        }();
+                        if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
+                            return fold_binary(op, lhs, rhs, range);
+                        }
+                        return wire_binary(op, lhs, rhs, range);
+                    }
+                case gir::ConstExprKind::Index:
+                    {
+                        const Value target = planned_field_value(expression.lhs, range, bindings);
+                        const Value index  = planned_field_value(expression.rhs, range, bindings);
+                        if (target.is_port()) {
+                            return wire("hgraph::stdlib::getitem_", {target.code, argument_code(index)}, range);
+                        }
+                        unsupported(range, "indexing a constant");
+                    }
+                case gir::ConstExprKind::Field:
+                    {
+                        const Value target = planned_field_value(expression.lhs, range, bindings);
+                        if (target.is_port()) {
+                            return wire("hgraph::stdlib::getattr_", {target.code, "hgraph::Str{" + quote(expression.member) + "}"},
+                                        range);
+                        }
+                        unsupported(range, "field access on a constant");
+                    }
+                case gir::ConstExprKind::Construct: return planned_construct(expression, fallback, bindings);
+                case gir::ConstExprKind::Literal:
+                case gir::ConstExprKind::Parameter:
+                case gir::ConstExprKind::Sequence:
+                case gir::ConstExprKind::Tuple: return planned_constant(id, fallback);
+            }
+            std::unreachable();
         }
 
         Value Emitter::planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
@@ -965,13 +1027,21 @@ namespace hgl::codegen
             if (expression.delta) { unsupported(range, "a sparse delta in a struct field default"); }
 
             HType type = planned_type(expression.constructed_type, range, bindings);
+            if (type.kind == HType::Kind::Atomic) {
+                if (type.children.size() != 1U) { backend(range, "an atomic constructed type requires one value type"); }
+                HType inner = std::move(type.children.front());
+                type        = std::move(inner);
+            }
             if (type.kind != HType::Kind::Struct) { backend(range, "a constructed hgraph IR default does not name a struct type"); }
             const gir::StructContract &contract = planned_structure(type.nominal_identity, range);
             if (contract.abstract) {
                 fail(Category::Type, range,
                      "abstract struct '" + std::string{local_identity(contract.identity)} + "' is not constructible");
             }
-            const PlannedTypeBindings generics = planned_struct_bindings(contract, type, range);
+            PlannedTypeBindings generics = bindings != nullptr ? *bindings : PlannedTypeBindings{};
+            for (auto &&[binding, value] : planned_struct_bindings(contract, type, range)) {
+                generics.insert_or_assign(binding, std::move(value));
+            }
 
             std::unordered_map<std::string_view, gir::ConstExprId> supplied;
             supplied.reserve(expression.arguments.size());

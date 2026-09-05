@@ -345,6 +345,77 @@ export fn make_outer() -> Outer => Outer()
     CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Outer::time_series>"));
 }
 
+TEST_CASE("emit-cpp constructs atomic hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module atomic_struct_defaults
+
+struct Inner {
+    amount: f64
+}
+
+struct Outer {
+    inner: atomic<Inner> = Inner(amount: 1.0)
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Inner::time_series>"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::combine_cs, hgraph::TS<typename Inner::value_type>"));
+}
+
+TEST_CASE("emit-cpp projects nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module projected_struct_defaults
+
+struct Inner {
+    amount: f64
+}
+
+struct Outer {
+    amount: f64 = Inner(amount: 1.0).amount
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"amount\"}"));
+}
+
+TEST_CASE("emit-cpp preserves outer bindings in nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module generic_struct_defaults
+
+struct Leaf<U> {
+    marker: i64 = 1
+}
+
+struct Middle<U> {
+    leaf: Leaf<U>
+}
+
+struct Outer<U> {
+    middle: Middle<U> = Middle<U>(leaf: Leaf<U>())
+}
+
+export fn make_outer() -> Outer<f64> => Outer<f64>()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "typename Leaf<hgraph::Float>::time_series"));
+    CHECK(contains(emitted->source, "typename Middle<hgraph::Float>::time_series"));
+    CHECK_FALSE(contains(emitted->source, "ScalarVar<\"U\">"));
+}
+
 TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {
     Unit unit{R"(
 module planned_defaults
