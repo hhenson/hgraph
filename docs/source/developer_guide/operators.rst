@@ -1004,6 +1004,16 @@ carried pattern's variables are priced in their own key space (the
 accumulator keeps the minimum per variable), so ``type[SCHEMA]`` never
 cheapens the ``SCHEMA`` a ``TS[Frame[SCHEMA]]`` input already prices.
 
+**A type the call does not name.** ``apply(fn, ...)`` with no requested
+output resolves it from the callable's declared result type: the
+``ValueCallable`` scalar reports ``output_schema()`` (a lifted kernel's
+output, a Python callable's return annotation) and ``apply``'s
+``default_resolver`` binds the output variable from it. ``const(value)``
+infers ``T`` from the value's schema; a Python object whose class the
+registries have never seen is typed by the DSL on demand (the bridge's
+annotation-schema resolver), so a ``CompoundScalar`` instance infers its
+nominal Bundle and any other class its opaque nominal type.
+
 **Family consistency.** A parameter name that is a ``TypeArg`` in one
 candidate must be a ``TypeArg`` in every candidate of the family that
 declares it; ``register_overload`` rejects a candidate that disagrees, and

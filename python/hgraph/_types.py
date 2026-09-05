@@ -1545,6 +1545,17 @@ def _bind_python_type(value_type, scalar):
     _hgraph.bind_python_type(value_type, python_scalar)
 
 
+def _annotation_schema_or_none(annotation):
+    """The bridge's view of ``_value_type`` (RFC 0033): schema-free
+    conversion asks for a class it has never seen and a Python value
+    callable for its declared result type; ``None`` for anything the DSL
+    cannot type, so the value stays an ``object`` as before."""
+    try:
+        return _value_type(annotation)
+    except Exception:
+        return None
+
+
 def _records_reverse_binding(produce):
     """Wrap a schema producer so every schema it returns is recorded against
     the annotation that produced it (the reverse binding, RFC 0033)."""
@@ -1817,6 +1828,9 @@ def _value_type(scalar):
         raise TypeError(f"unsupported scalar type for hgraph: {scalar!r}")
     return _hgraph.value_type(name)
 
+
+
+_hgraph.set_python_annotation_schema_resolver(_annotation_schema_or_none)
 
 class _TsExpr:
     def from_ts(self, *ports, **kwargs):

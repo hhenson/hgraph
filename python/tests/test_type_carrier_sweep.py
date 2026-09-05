@@ -1096,6 +1096,72 @@ class TestBareSubscriptOrder:
 
 
 class TestNameKeyedCarriers:
+    """The operator-name branches of the wiring layer are gone (RFC 0033,
+    PR E): what each did is now a property of the family in the registry."""
+
+    def test_apply_output_resolves_from_the_callables_return_annotation(self):
+        # was: the ``apply`` branch reading ``inspect.signature(fn).return_annotation``
+        # into ``output_type``; now the Python value callable reports its
+        # declared result type and ``apply``'s registry resolver binds the output.
+        def half(x: int) -> float:
+            return x / 2
+
+        @graph
+        def g(ts: TS[int]) -> TS[float]:
+            return hg.apply(half, ts)
+
+        assert eval_node(g, [3]) == [1.5]
+
+    def test_const_of_a_compound_scalar_instance_infers_its_nominal_bundle(self):
+        # was: the ``const`` branch promoting ``TS[type(value)]`` to
+        # ``output_type``; now schema-free conversion asks the DSL for the
+        # class's schema and infers the nominal Bundle itself.
+        @graph
+        def g() -> TS[SweepRow]:
+            return const(SweepRow(4))
+
+        assert eval_node(g) == [SweepRow(4)]
+
+    def test_with_columns_bare_subscript_names_the_projected_row(self):
+        # was: a ``with_columns`` branch rewriting ``[Row]`` into
+        # ``TS[Frame[Row]]``; now the public signature's DEFAULT[ROW_1] takes
+        # the bare item through the one subscript rule.
+        import pyarrow as pa
+        from hgraph import Frame
+        from hgraph.adaptors.data_frame import with_columns
+
+        class Projected(CompoundScalar):
+            value: int
+            doubled: int
+
+        @graph
+        def g(ts: TS[Frame[SweepRow]], doubled: TS[int]) -> TS[Frame[Projected]]:
+            return with_columns[Projected](ts, doubled=doubled)
+
+        frame = pa.table({"value": [2]})
+        result = eval_node(g, [frame], [4])
+        assert result[0].to_pydict() == {"value": [2], "doubled": [4]}
+
+    def test_getattr_named_subscript_pins_the_descriptor_output(self):
+        # was: a ``getattr_`` branch turning ``[SCALAR: X]`` into the
+        # requested output; now the pin binds SCALAR and the descriptor
+        # overload's ``TS[SCALAR]`` output resolves from it.
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class WithProperty(CompoundScalar):
+            value: int
+
+            @property
+            def doubled(self) -> int:
+                return self.value * 2
+
+        @graph
+        def g(ts: TS[WithProperty]) -> TS[int]:
+            return hg.getattr_[SCALAR: int](ts, "doubled")
+
+        assert eval_node(g, [WithProperty(3)]) == [6]
+
     def test_const_positional_ts_type_selects_the_output_type(self):
         @graph
         def g() -> TS[float]:

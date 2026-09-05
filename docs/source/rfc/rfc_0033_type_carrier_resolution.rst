@@ -1,7 +1,7 @@
 RFC 0033: Type Carriers Resolved by the Registry
 ================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-05
 :Target: ``include/hgraph/types/type_resolution.h``,
@@ -1006,9 +1006,26 @@ that stays absent; and a bare Python variable follows the form the map
 binds inside the core matcher (``follow_carrier_form``), so the bridge's
 ``match_carrier``/``materialise`` carry no form rule of their own.
 The operator-name branches (``apply``, ``const``, ``with_columns``,
-``getattr_``; ``wiring-operator-name-branches`` 8 to 4) move to a follow-up
-PR so that PR D stays a review of one thing; the RFC moves to ``Accepted``
-with it. The PRs record these deviations from the text above:
+``getattr_``; ``wiring-operator-name-branches`` 8 to 4) landed in PR E, and
+the RFC is Accepted with it: ``apply`` resolves its output in the registry
+from the callable's declared result type (the Python value callable now
+reports its return annotation through ``ValueCallable::output_schema``);
+schema-free conversion asks the DSL for the schema of a class it has never
+seen (``python_annotation_schema_resolver_slot``, registered by
+``_types.py``), so ``const(Row(...))`` infers the nominal Bundle and an
+unregistered class its opaque nominal type without a Python-side
+pre-registration; ``with_columns`` declares a public signature with
+``DEFAULT[ROW_1]`` and ``_OperatorFunction.__getitem__`` takes a bare
+non-time-series item through the one subscript rule when the public
+signature has a ``DEFAULT``; ``getattr_[SCALAR: X]`` is an ordinary named
+pin, and a pin on a variable the public return annotation mentions makes
+that annotation, resolved, the requested output (``getattr_`` declares a
+public ``-> TS[SCALAR]``; ``with_columns`` ``-> TS[Frame[ROW_1]]``), which
+is the general form of ``op[OUT: X]``.
+The four remaining ``self.__name__`` sites are the two record/replay
+durability hooks and the ``getattr_``/``getitem_`` call fast paths, which
+belong to other families. The PRs record these deviations from the text
+above:
 
 * ``TypeCarrier`` and ``ResolutionKind`` live in
   ``include/hgraph/types/type_carrier.h`` (dependency-free) rather than in

@@ -414,6 +414,24 @@ rule of its own any more (``wiring-type-carrier-sites`` is at zero):
   as the type it carries and a still-deferred one as its declared default
   (``AUTO_RESOLVE`` or the variable), the upstream ``if tp is AUTO_RESOLVE``
   idiom; the wire trampoline always receives the materialised value.
+* No operator-name branch decides a type. ``apply`` resolves its output in
+  the registry from the callable's declared result type (a Python value
+  callable reports its return annotation through
+  ``ValueCallable::output_schema``); schema-free conversion asks the DSL for
+  the schema of a class it has never seen through the annotation-schema
+  resolver ``_types.py`` registers at import
+  (``set_python_annotation_schema_resolver``), so ``const(Row(...))`` infers
+  the nominal Bundle; ``with_columns[Row]`` is the one subscript rule over a
+  public signature that declares ``DEFAULT[ROW_1]``; ``getattr_[SCALAR: X]``
+  is an ordinary named pin. A pin on a variable the public return
+  annotation mentions makes that annotation, resolved, the requested output
+  (``_OperatorFunction._requested_output``: ``getattr_[SCALAR: str]`` asks
+  for ``TS[str]``, ``with_columns[Row]`` for ``TS[Frame[Row]]``), the rule
+  ``op[OUT: X]`` is one case of; it is how the descriptor overload of
+  ``getattr_`` still wins over a native field read when the caller asks for
+  a type the declared field does not have. The ``wiring-operator-name-branches`` ratchet is
+  at four: the record/replay durability hooks and the ``getattr_`` /
+  ``getitem_`` call fast paths, which belong to other families.
 * Arrival is role-directed (``_core.wire`` → ``_apply_type_argument_roles``):
   the family's ``operator_carrier_parameters`` name the type-argument slots,
   and a class, ``TimeSeriesSchema`` or size handed to one crosses as the

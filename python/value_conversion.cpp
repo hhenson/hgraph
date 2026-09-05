@@ -4,6 +4,8 @@
 #include <hgraph/python/object_semantics.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/util/scope.h>
+#include "py_carriers.h"   // PyValueType: the resolver hands back the DSL's ValueType carrier
 
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/io.h>
@@ -270,6 +272,20 @@ namespace hgraph::python_bridge
                     if (result.is_none() || output_schema == nullptr) { return Value{}; }
                     return py_to_value_as(result, output_schema);
                 },
+                .output_schema = [](const void *context) -> const ValueTypeMetaData * {
+                    // The callable's declared result type: ``apply(fn, ...)``
+                    // resolves its output from it when the call requests
+                    // none (RFC 0033, PR E; was an operator-name branch).
+                    nb::gil_scoped_acquire gil;
+                    const auto &callable = *static_cast<const PyObj *>(context);
+                    return fallback_on_exception(static_cast<const ValueTypeMetaData *>(nullptr), [&] {
+                        nb::object signature = nb::module_::import_("inspect").attr("signature")(
+                            callable.get(), nb::arg("eval_str") = true);
+                        nb::object annotation = signature.attr("return_annotation");
+                        if (annotation.is(signature.attr("empty"))) { return static_cast<const ValueTypeMetaData *>(nullptr); }
+                        return python_annotation_schema(annotation);
+                    });
+                },
             };
             return ops;
         }
@@ -289,6 +305,20 @@ namespace hgraph::python_bridge
                 .variadic = true,
             };
         }
+    }  // namespace
+
+    const ValueTypeMetaData *python_annotation_schema(nb::handle annotation)
+    {
+        const nb::object &resolver = python_bridge::python_annotation_schema_resolver_slot();
+        if (!resolver.is_valid() || resolver.is_none() || !annotation.is_valid()) { return nullptr; }
+        return fallback_on_exception(static_cast<const ValueTypeMetaData *>(nullptr), [&]() -> const ValueTypeMetaData * {
+            nb::object resolved = resolver(annotation);
+            return resolved.is_none() ? nullptr : nb::cast<PyValueType &>(resolved).meta;
+        });
+    }
+
+    namespace
+    {
 
         struct PythonDateTimeTypes
         {
@@ -642,6 +672,20 @@ namespace hgraph::python_bridge
                 nb::handle(Py_TYPE(object.ptr()))))
         {
             return box_python_object(object, opaque);
+        }
+        // A class the registries have never seen: the DSL names its schema
+        // (a CompoundScalar's nominal Bundle, an opaque nominal type for any
+        // other class) and registers it, exactly as annotating ``TS[cls]``
+        // would, so ``const(Row(...))`` infers ``TS[Row]`` in the registry
+        // (RFC 0033, PR E). A class the DSL cannot type stays ``object``.
+        if (python_annotation_schema(nb::handle(reinterpret_cast<PyObject *>(Py_TYPE(object.ptr())))) != nullptr)
+        {
+            if (auto bundle = try_python_bundle_value(object)) { return std::move(*bundle); }
+            if (const auto *opaque = python_bridge::opaque_type_for_python(
+                    nb::handle(reinterpret_cast<PyObject *>(Py_TYPE(object.ptr())))))
+            {
+                return box_python_object(object, opaque);
+            }
         }
         return box_python_object(object);
     }

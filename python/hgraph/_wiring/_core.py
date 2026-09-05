@@ -286,9 +286,25 @@ def _from_json_public_signature(ts):
     """The released public call shape; the subscript selects the output type."""
 
 
+def _getattr_public_signature(ts, attr, default_value=None):
+    """The released public call shape: ``getattr_[SCALAR: X](ts, "attr")``
+    names the attribute's scalar type, which is the output's payload."""
+
+
+def _annotate_getattr_public_signature():
+    from .._types import SCALAR, TIME_SERIES_TYPE, TS
+
+    _getattr_public_signature.__annotations__ = {
+        "ts": TIME_SERIES_TYPE, "attr": str, "default_value": TS[SCALAR], "return": TS[SCALAR]}
+
+
+_annotate_getattr_public_signature()
+
+
 _PUBLIC_OPERATOR_SIGNATURES = {
     "to_json": _to_json_public_signature,
     "from_json": _from_json_public_signature,
+    "getattr_": _getattr_public_signature,
 }
 
 
@@ -522,7 +538,8 @@ class _OperatorFunction:
     requested output type of the call."""
 
     __slots__ = ("__dict__", "__name__", "__qualname__", "__signature__", "_output_type",
-                 "_sizes", "_ts_hint", "_resolutions")
+                 "_sizes", "_ts_hint", "_resolutions", "_type_variables", "_default_type_var",
+                 "_public_return")
 
     def __init__(self, name, output_type=None, sizes=None, ts_hint=None,
                  resolutions=None, signature=None, documentation=None):
@@ -531,10 +548,23 @@ class _OperatorFunction:
         self.__name__ = name
         self.__qualname__ = name
         signatures = _operator_overload_signatures(name) if documentation is None else ()
+        self._type_variables, self._default_type_var = (), None
+        self._public_return = inspect.Signature.empty
+        if callable(signature):
+            # A public signature may declare type variables and a DEFAULT[...]
+            # (``with_columns(ts: TS[Frame[ROW]], _tp_out: type[ROW_1] =
+            # DEFAULT[ROW_1], **columns)``): they drive the subscript rule.
+            # Introspection keeps the signature as written, marker included.
+            from .._types import wiring_signature_of
+            from ._resolution import _signature_type_variables
+
+            wiring_signature, self._default_type_var = wiring_signature_of(signature)
+            self._type_variables = _signature_type_variables(
+                wiring_signature.parameters.values(), wiring_signature.return_annotation)
+            self._public_return = wiring_signature.return_annotation
+            signature = inspect.signature(signature)
         self.__signature__ = (
-            inspect.signature(signature)
-            if callable(signature)
-            else signature if signature is not None
+            signature if signature is not None
             else _operator_runtime_signature(signatures)
         )
         self.__doc__ = (
@@ -568,37 +598,6 @@ class _OperatorFunction:
             # loads (RFC 0025: core wiring must not import adaptor modules) and
             # is a no-op unless a compatibility storage is active.
             kwargs = _record_replay_wiring_adapter(self.__name__, args, kwargs)
-        if (self.__name__ == "apply" and args
-                and "tp" not in kwargs and "output_type" not in kwargs
-                and self._output_type is None and callable(args[0])
-                and not isinstance(args[0], WiringPort)):
-            import inspect
-            from .._types import TS
-
-            result_type = inspect.signature(args[0], eval_str=True).return_annotation
-            if result_type is not inspect.Signature.empty:
-                kwargs["output_type"] = TS[result_type]
-        if (self.__name__ == "const" and args
-                and "tp" not in kwargs and "output_type" not in kwargs
-                and not (len(args) > 1 and isinstance(args[1], _TsExpr))):
-            from .._compat import CompoundScalar
-            from .._types import TS, _GenericType, _value_type
-
-            if isinstance(args[0], CompoundScalar):
-                # Schema-free C++ value inference intentionally treats an
-                # arbitrary Python object as ``object``. A CompoundScalar's
-                # Python class is its nominal Bundle schema, so retain that
-                # information at the Python boundary before wiring const.
-                kwargs["output_type"] = TS[type(args[0])]
-            else:
-                # Ensure an arbitrary Python class has a nominal registration
-                # before native schema-free inference sees the value. Native
-                # inference still owns precedence for containers, callables,
-                # Arrow values, and every other concrete representation.
-                try:
-                    _value_type(type(args[0]))
-                except _GenericType:
-                    pass
         if self._output_type is not None and "tp" not in kwargs and "output_type" not in kwargs:
             kwargs["output_type"] = self._output_type
         if self._sizes is not None:
@@ -642,15 +641,18 @@ class _OperatorFunction:
         # inputs). A plain type subscript is the requested output type.
         from .._types import OUT, TS, _type_var_name
 
-        # ``with_columns[RowSchema](...)`` is the released hgraph spelling:
-        # its plain subscript selects the Frame row schema, not a bare Bundle
-        # output.  Keep this as Python syntax adaptation; native dispatch still
-        # receives the complete TS[Frame[RowSchema]] output constraint once.
-        if (self.__name__ == "with_columns" and isinstance(item, type)):
-            from .._compat import CompoundScalar
-            if issubclass(item, CompoundScalar):
-                from .._types import Frame, TS
-                item = TS[Frame[item]]
+        # A public signature with a DEFAULT[...] variable (``with_columns[Row]``
+        # names ROW_1) takes a bare non-time-series item through the one
+        # subscript rule (RFC 0033); the pin seeds the call's resolution and
+        # the registry resolves the output from it.
+        if self._default_type_var is not None and not isinstance(item, (slice, tuple, _TsExpr)):
+            from ._resolution import _pin_type_arguments
+
+            pins = _pin_type_arguments(
+                self._type_variables, item,
+                default_var=self._default_type_var, owner=self.__name__)
+            by_name = {_type_var_name(variable): variable for variable in self._type_variables}
+            item = tuple(slice(by_name.get(name, name), value) for name, value in pins.items())
 
         output_type = None
         sizes = []
@@ -667,13 +669,15 @@ class _OperatorFunction:
                     # positional hint remains for eval_node input seeding.
                     resolutions[_type_var_name(i.start)] = i.stop
                     ts_hints.append(i.stop)
-                    if (self.__name__ == "getattr_"
-                            and _type_var_name(i.start) == "SCALAR"
-                            and output_type is None):
-                        output_type = TS[i.stop]
                 continue
             if output_type is None:
                 output_type = i
+        if output_type is None and resolutions:
+            # A pin on a variable the public return annotation mentions makes
+            # that annotation, resolved, the requested output -- the rule
+            # ``op[OUT: X]`` is one case of (``getattr_[SCALAR: str]`` asks for
+            # ``TS[str]``, ``with_columns[Row]`` for ``TS[Frame[Row]]``).
+            output_type = self._requested_output(resolutions)
         if output_type is not None and not _hgraph.operator_output_is_selective(self.__name__):
             # The REGISTRY decides what a bare subscript type means: when no
             # candidate's output can be influenced by it (sinks, or every
@@ -681,10 +685,39 @@ class _OperatorFunction:
             # type is an INPUT constraint; otherwise it names the output.
             ts_hints.append(output_type)
             output_type = None
-        return _OperatorFunction(
+        derived = _OperatorFunction(
             self.__name__, output_type=output_type, sizes=sizes or None,
             ts_hint=ts_hints or None, resolutions=resolutions or None,
             signature=self.__signature__, documentation=self.__doc__)
+        derived._type_variables, derived._default_type_var = self._type_variables, self._default_type_var
+        derived._public_return = self._public_return
+        return derived
+
+    def _requested_output(self, resolutions):
+        """The public return annotation resolved from the pinned variables,
+        as a ``TS[...]`` expression; ``None`` when there is no public return
+        annotation, it mentions no pinned variable, or the pins leave part of
+        it unresolved."""
+        import inspect
+
+        from .._types import _pattern_of, _type_var_name, _type_variables_of
+        from ._resolution import _bind_resolution
+
+        annotation = self._public_return
+        if annotation is inspect.Signature.empty or annotation is None:
+            return None
+        mentioned = {_type_var_name(variable) for variable in _type_variables_of(annotation)}
+        if not mentioned or not (mentioned & set(resolutions)):
+            return None
+        try:
+            scope = _hgraph.ResolutionScope()
+            for name, value in resolutions.items():
+                if name in mentioned:
+                    _bind_resolution(scope, name, value)
+            resolved = scope.resolve_ts(_pattern_of(annotation))
+        except (RuntimeError, ValueError, TypeError):
+            return None
+        return None if resolved is None else _TsExpr(resolved, repr(resolved))
 
     def __repr__(self):
         return f"<operator {self.__name__}>"
