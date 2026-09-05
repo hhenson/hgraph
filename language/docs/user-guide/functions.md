@@ -415,9 +415,10 @@ when it is known to process the input, an ordinary temporal input is sufficient.
 This determines the generated branch's contract without changing the author's
 declaration. It forwards the pre-conditional connection, not remembered state
 from a previously selected branch. For a bundled multi-result switch, each
-forwarded field is dereferenced at the branch-output boundary to the escaped
-variable's ordinary temporal schema. REF remains an input-capture property;
-both branch output bundles have the same non-REF field schemas.
+forwarded field uses the escaped variable's declared temporal schema. An
+ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
+declared `ref<T>` result preserves the reference. Both branch output bundles
+have the same field schemas.
 
 Every escaping variable must have a binding on every path reaching its use:
 either a prior binding to forward or an assignment on that path. Otherwise

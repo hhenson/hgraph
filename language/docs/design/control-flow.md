@@ -444,11 +444,12 @@ The agreed derivation then has both input and output sides:
    reject a used variable when a path supplies neither an assignment nor an
    incoming binding. Count the expression result alongside the escaping
    variables: zero results require no output, one is returned directly, and
-   several use a common generated bundle. For every result slot, select the
-   declared non-`REF` temporal schema as the common output schema and insert an
-   explicit dereference at a forwarding branch's output boundary. Preserve
-   REF qualification on the branch input capture, but never emit branch result
-   bundles that differ only because one field still carries that wrapper.
+   several use a common generated bundle. For every result slot, preserve its
+   resolved declared temporal schema as the common output schema. When that
+   schema is non-`REF`, insert an explicit dereference at a forwarding branch's
+   output boundary; when it is explicitly `ref<T>`, preserve the reference in
+   the result. Never emit branch result bundles whose corresponding fields have
+   different schemas.
 5. For branches that rejoin, supply the expression result to its consumer and
    remap the enclosing variables from the switch output or its bundle fields,
    then continue composing the statements after the conditional. Both result
