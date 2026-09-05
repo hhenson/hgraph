@@ -3772,7 +3772,6 @@ namespace hgl::codegen
         }
 
         void Emitter::collect_calls(gir::ValueId id, PlannedCalls &calls, SourceRange fallback) {
-            if (!id.valid()) { return; }
             const gir::Value &value = planned_value(id, fallback);
             if (!calls.values.insert(id.value).second) { return; }
             if (value.operation.kind == gir::OperationKind::ExactFunction) {
@@ -3801,7 +3800,7 @@ namespace hgl::codegen
                         collect_calls(node.target, calls, value.range);
                     } else if constexpr (std::is_same_v<T, gir::Sequence>) {
                         for (const gir::SequenceElement &element : node.elements) {
-                            collect_calls(element.key, calls, value.range);
+                            if (element.key.valid()) { collect_calls(element.key, calls, value.range); }
                             collect_calls(element.value, calls, value.range);
                         }
                     } else if constexpr (std::is_same_v<T, gir::Tuple>) {
@@ -3811,7 +3810,7 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Conditional>) {
                         collect_calls(node.condition, calls, value.range);
                         collect_calls(node.then_block, calls, value.range);
-                        collect_calls(node.otherwise, calls, value.range);
+                        if (node.otherwise.valid()) { collect_calls(node.otherwise, calls, value.range); }
                     } else if constexpr (std::is_same_v<T, gir::BlockValue>) {
                         collect_calls(node.block, calls, value.range);
                     } else if constexpr (std::is_same_v<T, gir::Construct>) {
@@ -3824,7 +3823,6 @@ namespace hgl::codegen
         }
 
         void Emitter::collect_calls(gir::BlockId id, PlannedCalls &calls, SourceRange fallback) {
-            if (!id.valid()) { return; }
             const gir::Block &block = planned_block(id, fallback);
             if (!calls.blocks.insert(id.value).second) { return; }
             for (gir::StatementId statement_id : block.statements) {
@@ -3846,7 +3844,7 @@ namespace hgl::codegen
                             collect_calls(node.place, calls, statement.range);
                             collect_calls(node.value, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Return>) {
-                            collect_calls(node.value, calls, statement.range);
+                            if (node.value.valid()) { collect_calls(node.value, calls, statement.range); }
                         } else if constexpr (std::is_same_v<T, gir::Assert>) {
                             collect_calls(node.condition, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
@@ -3855,7 +3853,7 @@ namespace hgl::codegen
                     },
                     statement.node);
             }
-            collect_calls(block.tail, calls, block.range);
+            if (block.tail.valid()) { collect_calls(block.tail, calls, block.range); }
         }
 
         /// Internal functions in dependency order: C++ needs a helper defined
@@ -3871,8 +3869,15 @@ namespace hgl::codegen
             {
                 const gir::Callable &fn = callable(id);
                 PlannedCalls         calls;
-                collect_calls(fn.concise_body, calls, fn.range);
-                collect_calls(fn.block_body, calls, fn.range);
+                if (fn.concise_body.valid() == fn.block_body.valid()) {
+                    backend(fn.range, "hgraph IR callable '" + std::string{callable_name(id)} +
+                                          "' must have exactly one concise or block body");
+                }
+                if (fn.concise_body.valid()) {
+                    collect_calls(fn.concise_body, calls, fn.range);
+                } else {
+                    collect_calls(fn.block_body, calls, fn.range);
+                }
                 std::set<ast::DeclId> filtered;
                 for (const std::uint32_t call_id : calls.calls) {
                     const ast::DeclId call = syntax_callable(gir::CallableId{call_id}, fn.range);
