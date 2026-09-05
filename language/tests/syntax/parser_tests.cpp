@@ -275,6 +275,9 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]") {
 
     Parsed with_body{"module t\noperator f(x: f64) -> f64 => x\n"};
     REQUIRE(with_body.messages() == std::vector<std::string>{"an operator declaration has no body; implement it with 'impl fn'"});
+
+    REQUIRE(Parsed{"module t\noperator bad<T>() requires T -> f64\n"}.messages() ==
+            std::vector<std::string>{"the left side of an operator requirement is a call"});
 }
 
 TEST_CASE("the declarative grammar preserves trailing parenthesized newlines", "[parser]") {
@@ -1163,6 +1166,10 @@ TEST_CASE("contextual keywords are ordinary names", "[parser]") {
                                                                                                     "    Parameter atomic\n"
                                                                                                     "      type: Type scalar f64\n"
                                                                                                     "    body: NameRef in\n");
+    CHECK(body_dump("    for key, in in values {\n        in\n    }").find("For key, in") != std::string::npos);
+    const std::string category = dump_clean("module t\noperator category<T>() requires T is in\n");
+    CHECK(category.find("ConstraintRelation is") != std::string::npos);
+    CHECK(category.find("Category in") != std::string::npos);
 }
 
 TEST_CASE("diagnostics carry the offending range", "[parser]") {

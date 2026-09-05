@@ -663,7 +663,11 @@ namespace hgl::syntax
                         {
                             ast::ForStmt           result;
                             std::vector<ast::Name> names = direct_names(statement);
-                            std::erase_if(names, [](const ast::Name &candidate) { return candidate.text == "in"; });
+                            // The grammar's contextual `in` separator is the
+                            // final direct name. Earlier occurrences remain
+                            // ordinary pattern names (`for key, in in xs`).
+                            require(!names.empty() && names.back().text == "in", "for statement has no 'in' separator");
+                            names.pop_back();
                             require(names.size() == 1 || names.size() == 2, "for statement has an invalid pattern");
                             result.first = names[0];
                             if (names.size() == 2) { result.second = names[1]; }
@@ -763,7 +767,12 @@ namespace hgl::syntax
                     std::ranges::find_if(tokens, [&](SyntaxTokenId token) { return source_token(token).kind == TokenKind::Arrow; });
                 if (arrow != tokens.end()) {
                     auto *call = std::get_if<ast::ConstraintCall>(&module_.constraints[lhs].node);
-                    require(call != nullptr, "operator requirement does not start with a call");
+                    if (call == nullptr) {
+                        diagnostics_.report(Category::Parse, module_.constraint(lhs).range,
+                                            "the left side of an operator requirement is a call");
+                        (void)project_type(only_child(id, SyntaxKind::Type), true);
+                        return lhs;
+                    }
                     ast::OperatorRequirement requirement;
                     requirement.qualifier    = call->qualifier;
                     requirement.name         = call->name;
@@ -781,7 +790,7 @@ namespace hgl::syntax
                         relation = ast::ConstraintRelationOp::Equal;
                     } else if (source.kind == TokenKind::KwIs) {
                         relation = ast::ConstraintRelationOp::Is;
-                    } else if (source.kind == TokenKind::Identifier && source.text == "in") {
+                    } else if (!relation.has_value() && source.kind == TokenKind::Identifier && source.text == "in") {
                         relation = ast::ConstraintRelationOp::In;
                     }
                 }
