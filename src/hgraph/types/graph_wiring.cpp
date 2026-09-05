@@ -991,10 +991,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
 
 WiringPortRef graph_wiring_detail::adapt_source_for_input(
     Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source) {
-  const bool value_consumer =
-      input_schema != nullptr && !TypeRegistry::contains_ref(input_schema);
-  return adapt_source_for_input_impl(w, input_schema, std::move(source),
-                                     value_consumer);
+  return adapt_source_for_input_impl(w, input_schema, std::move(source), true);
 }
 
 namespace {
@@ -1007,6 +1004,8 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
   if (input_schema == nullptr) {
     return source;
   }
+  const bool consumes_value =
+      value_consumer && input_schema->kind != TSTypeKind::REF;
 
   auto &registry = TypeRegistry::instance();
   const auto *input = registry.dereference(input_schema);
@@ -1043,15 +1042,17 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
     // peered REFERENCE source is therefore described by the value schema, so
     // ordinary input binding installs the from-REF adaptation instead of
     // every hand-wired consumer dereferencing for itself (#649). Only the
-    // top-level reference: a value collection whose elements are references
-    // (a map_ output) is left as supplied - its element links dereference on
-    // access, and describing it by element values would install a from-REF
-    // link per element for a consumer that may only hold tokens. A REF
-    // declared anywhere in the input keeps the source as supplied: the
-    // declaration wins.
-    if (value_consumer && source.schema != nullptr &&
+    // declared REF at the current path keeps the token; other paths expose
+    // the declared value schema. This matters for mixed bundles such as
+    // ``{keep: REF<TS<Int>>, read: TS<Int>}``: a bundle-wide contains-REF
+    // decision would incorrectly leave ``read`` described as a reference.
+    if (consumes_value && source.schema != nullptr &&
         source.schema->kind == TSTypeKind::REF) {
       return value_consumer_source(std::move(source));
+    }
+    if (consumes_value && source.schema != nullptr &&
+        TypeRegistry::contains_ref(source.schema)) {
+      source.schema = input_schema;
     }
     return source;
   }
@@ -1084,7 +1085,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
     adapted.reserve(source_children.size());
     for (const WiringPortRef &child : source_children) {
       adapted.push_back(adapt_source_for_input_impl(
-          w, input_schema->element_ts(), child, value_consumer));
+          w, input_schema->element_ts(), child, consumes_value));
     }
     return WiringPortRef::structural_source(input_schema, std::move(adapted));
 
@@ -1096,7 +1097,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
     for (std::size_t index = 0; index < source_children.size(); ++index) {
       adapted.push_back(adapt_source_for_input_impl(
           w, input_schema->fields()[index].type, source_children[index],
-          value_consumer));
+          consumes_value));
     }
     return WiringPortRef::structural_source(input_schema, std::move(adapted));
 
