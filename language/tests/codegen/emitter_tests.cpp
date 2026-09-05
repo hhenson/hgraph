@@ -214,6 +214,39 @@ TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codege
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "syntax body adapter's parameter roles"));
     }
+    SECTION("a changed default shape") {
+        Unit unit{"module t\nexport fn value(x: f64, const factor: f64 = 2.0) -> f64 => x * factor\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.callables.front().parameters.back().default_value = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax body adapter's default shape"));
+    }
+}
+
+TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {
+    Unit unit{R"(
+module planned_defaults
+
+fn scaled(value: f64, const factor: f64 = 2.0) -> f64 => value * factor
+export fn result(value: f64) -> f64 => scaled(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    const auto scaled = std::find_if(unit.graph.callables.begin(), unit.graph.callables.end(),
+                                     [](const auto &callable) { return callable.identity == "planned_defaults.scaled"; });
+    REQUIRE(scaled != unit.graph.callables.end());
+    REQUIRE(scaled->parameters.size() == 2);
+    const hgl::hgraph_ir::ConstExprId default_value = scaled->parameters.back().default_value;
+    REQUIRE(default_value.valid());
+    REQUIRE(default_value.value < unit.graph.const_exprs.size());
+    unit.graph.const_exprs[default_value.value].literal = std::int64_t{7};
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::arg<\"factor\">(static_cast<hgraph::Float>(hgraph::Int{7}))"));
+    CHECK(contains(emitted->source, "hgraph::wire<scaled>(w, value, static_cast<hgraph::Float>(hgraph::Int{7}))"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::Float{2.0}"));
 }
 
 TEST_CASE("emit-cpp gives operator implementations distinct readable C++ names", "[codegen][hgraph-ir][operators]") {

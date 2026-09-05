@@ -209,14 +209,16 @@ bindings, exports, and registration plans. A declaration range maps each
 planned callable or local operator back to exactly one source declaration; a
 missing, duplicate, or extra mapping is a backend diagnostic. Callable and
 operator parameter/result names, roles, canonical types, rolling-window shapes,
-and generated selector signatures now come from hgraph IR. The range mapping is
-the explicitly temporary adapter through which the existing printer still
-reads syntax bodies, local annotations, default expressions, struct layouts,
-and expression dependencies from the AST and `ResolvedModule`.
+generated selector signatures, and supported callable parameter defaults now
+come from hgraph IR. The range mapping is the explicitly temporary adapter
+through which the existing printer still reads syntax bodies, local
+annotations, struct layouts and construction defaults, and expression
+dependencies from the AST and `ResolvedModule`.
 
 This seam keeps the generated package readable while preventing declaration
 policy from drifting between execution paths. The next Stage E checkpoints
-move struct/default printing and then body/dependency emission to hgraph IR.
+move struct layout and construction-default printing and then body/dependency
+emission to hgraph IR.
 Only after those moves may `codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
@@ -1218,8 +1220,9 @@ collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as does callable/operator interface
-printing. Body-local types, defaults, struct layouts, and dependency discovery
-remain behind the temporary AST adapter.
+printing. Body-local types, struct layouts and construction defaults, and
+dependency discovery remain behind the temporary AST adapter; callable
+parameter defaults do not.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1240,10 +1243,12 @@ What is emitted, in this order:
 Before emission, hgraph IR determines the module namespace, source-order
 callable set, visibility, composition/runtime classification, canonical
 callable and operator identities, export surface, registry bindings, and all
-callable/operator parameter and result types. The adapter uses retained source
-ranges only to locate the legacy syntax body, defaults, local annotations, and
-struct layout that must still be printed; it cannot silently add or omit a
-planned declaration.
+callable/operator parameter and result types. Supported callable parameter
+defaults and omitted local-call arguments also use the graph-IR compile-time
+expression arena. The adapter uses retained source ranges only to locate the
+legacy syntax body, local annotations, and struct layout and construction
+defaults that must still be printed; it cannot silently add or omit a planned
+declaration.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",
@@ -1260,8 +1265,10 @@ planned declaration.
   in the header and defined out of line in the source; module-internal
   functions and `impl fn` candidates are whole structs in an anonymous
   namespace of the source, in dependency order (a recursive helper is a
-  diagnostic). `const` parameter defaults become `static auto defaults()`
-  so the registry applies them when the function is called by name.
+  diagnostic). Supported `const` parameter defaults are rendered from hgraph IR
+  into `static auto defaults()` so the registry applies them when the function
+  is called by name. Omitted calls inside another generated function use the
+  same graph-IR default rather than re-reading its syntax expression.
 - **Structural types.** An exported source struct becomes a readable C++
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic

@@ -16,12 +16,13 @@ them.
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
 During migration, `ResolvedModule` and the syntax AST remain a compatibility
-boundary only for C++ bodies, local annotations, default-expression printing,
-struct layouts, and dependency discovery. Module identity, callable visibility
-and classification, operator binding, exports, registration planning, and
-callable/operator interface types and parameter roles already come from hgraph
-IR. New language semantics belong in HIR construction, not in either backend.
-The remaining adapter is named here and must be removed as Stage E advances.
+boundary only for C++ bodies, local annotations, struct layouts and construction
+defaults, and dependency discovery. Module identity, callable visibility and
+classification, operator binding, exports, registration planning,
+callable/operator interfaces, and supported callable parameter defaults already
+come from hgraph IR. New language semantics belong in HIR construction, not in
+either backend. The remaining adapter is named here and must be removed as Stage
+E advances.
 
 Every new pass documents:
 
