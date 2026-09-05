@@ -4,7 +4,8 @@ Status: proposed; lexy is the provisional front-runner pending production qualif
 
 ## Context
 
-The prototype uses a hand-written recursive-descent parser. It is small and has
+At the time of this decision, the prototype used a hand-written
+recursive-descent parser. It was small and had
 useful recovery, but grammar, recovery, AST construction, and newline policy are
 encoded together. HGL syntax is still changing and will need formatting, REPL,
 diagnostic, and editor support.
@@ -116,6 +117,14 @@ substantial parser infrastructure already supplied by lexy.
   verbosity and template diagnostics are accepted implementation costs.
 - The parser does not classify functions or perform name and type resolution.
 - The current AST contract is preserved during the initial parser replacement.
+
+## Implementation status
+
+The replacement is complete. Lexy materializes the source-accurate HGL syntax
+arena, HGL-owned code translates recovery issues and projects complete
+productions into `ast::Module`, and the recursive-descent parser has been
+removed. This does not complete the frontend migration: `ast::Module` remains
+an interim input until typed HIR becomes the semantic-pass output.
 
 ## Alternatives
 

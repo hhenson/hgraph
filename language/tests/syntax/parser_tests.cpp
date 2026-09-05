@@ -65,11 +65,6 @@ namespace
         INFO(projection_diagnostics.render(parsed.file));
         REQUIRE_FALSE(projection_diagnostics.has_errors());
         REQUIRE(print_ast(projected) == print_ast(parsed.module));
-        DiagnosticSink    legacy_diagnostics;
-        const ast::Module legacy = parse_with_legacy_parser(parsed.file, legacy_diagnostics);
-        INFO(legacy_diagnostics.render(parsed.file));
-        REQUIRE_FALSE(legacy_diagnostics.has_errors());
-        REQUIRE(print_ast(projected) == print_ast(legacy));
         return dump(parsed);
     }
 

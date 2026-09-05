@@ -147,7 +147,7 @@ fn broken(a f64, b i64, c str) -> f64 => a
 }
 
 TEST_CASE("the source syntax tree preserves structure and every source byte", "[token-grammar][source-accurate]") {
-    SourceFile file{"tree.hgl", R"(module example.tree
+    SourceFile      file{"tree.hgl", R"(module example.tree
 
 // retained trivia
 export fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
@@ -167,8 +167,7 @@ export fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
     REQUIRE(parsed.tree.reconstruct(file) == file.text());
     REQUIRE(parsed.tree.issues.empty());
 
-    REQUIRE(std::ranges::none_of(parsed.tree.nodes,
-                                 [](const SyntaxNode &node) { return node.kind == SyntaxKind::Unknown; }));
+    REQUIRE(std::ranges::none_of(parsed.tree.nodes, [](const SyntaxNode &node) { return node.kind == SyntaxKind::Unknown; }));
 
     std::vector<bool> retained(lexed.tokens.size() - 1, false);
     for (const SyntaxToken &token : parsed.tree.tokens) {
@@ -186,7 +185,7 @@ export fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
 }
 
 TEST_CASE("fatal syntax still retains the complete source", "[token-grammar][source-accurate][recovery]") {
-    SourceFile file{"fatal.hgl", R"(module fatal
+    SourceFile      file{"fatal.hgl", R"(module fatal
 fn broken() => )
 )"};
     DiagnosticSink  diagnostics;

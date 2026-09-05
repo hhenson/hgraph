@@ -14,6 +14,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::Newlines, "newlines"},
             KindName{SyntaxKind::LineEnd, "line_end"},
             KindName{SyntaxKind::CommaSeparator, "comma_separator"},
+            KindName{SyntaxKind::Name, "name"},
             KindName{SyntaxKind::ModulePath, "module_path"},
             KindName{SyntaxKind::QualifiedName, "qualified_name"},
             KindName{SyntaxKind::GenericArguments, "generic_arguments"},
@@ -86,6 +87,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::TestDecl, "test_decl"},
             KindName{SyntaxKind::Declaration, "declaration"},
             KindName{SyntaxKind::DeclarationLine, "declaration_line"},
+            KindName{SyntaxKind::InvalidDeclarationLine, "invalid_declaration_line"},
             KindName{SyntaxKind::ModuleDecl, "module_decl"},
             KindName{SyntaxKind::Module, "module"},
         };

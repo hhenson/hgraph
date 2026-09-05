@@ -22,6 +22,7 @@ namespace hgl::syntax
         Newlines,
         LineEnd,
         CommaSeparator,
+        Name,
         ModulePath,
         QualifiedName,
         GenericArguments,
@@ -94,6 +95,7 @@ namespace hgl::syntax
         TestDecl,
         Declaration,
         DeclarationLine,
+        InvalidDeclarationLine,
         ModuleDecl,
         Module,
     };

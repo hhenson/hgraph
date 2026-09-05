@@ -27,9 +27,8 @@ namespace hgl::syntax
         SyntaxTree    tree{};
     };
 
-    /// Parse a complete, EOF-terminated token stream. The current AST parser
-    /// remains the projection path while the lexy grammar is introduced in
-    /// verified slices; this entry point is the shadow/conformance boundary.
+    /// Parse a complete, EOF-terminated token stream without materializing a
+    /// source tree. Intended for grammar conformance tests and probes.
     [[nodiscard]] GrammarResult parse_token_grammar(std::span<const Token> tokens);
 
     /// Parse the lossless lexer result and materialize the HGL-owned source
