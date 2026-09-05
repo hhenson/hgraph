@@ -175,10 +175,17 @@ namespace hgl::ir
 
           private:
             [[nodiscard]] hir::SymbolId add_symbol(hir::SymbolKind kind, std::string_view name, syntax::SourceRange range,
-                                                   ast::DeclId owner, std::uint32_t index = 0, std::string external_name = {}) {
+                                                   ast::DeclId owner, std::uint32_t index = 0, std::string external_name = {},
+                                                   std::string canonical_name = {}) {
                 const hir::SymbolId symbol{static_cast<std::uint32_t>(result_.symbols.size())};
-                result_.symbols.push_back(hir::Symbol{
-                    kind, std::string{name}, std::move(external_name), id<hir::DeclarationId>(owner), range, {}, index});
+                result_.symbols.push_back(hir::Symbol{kind,
+                                                      std::string{name},
+                                                      std::move(external_name),
+                                                      std::move(canonical_name),
+                                                      id<hir::DeclarationId>(owner),
+                                                      range,
+                                                      {},
+                                                      index});
                 return symbol;
             }
 
@@ -371,7 +378,8 @@ namespace hgl::ir
                                 declare_generics(declaration, node.generics);
                             } else if constexpr (std::is_same_v<T, ast::OperatorDecl>) {
                                 declaration_symbols_[declaration] =
-                                    add_symbol(hir::SymbolKind::Operator, node.name.text, node.name.range, declaration);
+                                    add_symbol(hir::SymbolKind::Operator, node.name.text, node.name.range, declaration, 0, {},
+                                               result_.path + "." + std::string{node.name.text});
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
@@ -493,10 +501,12 @@ namespace hgl::ir
             }
 
             [[nodiscard]] hir::SymbolId external_symbol(hir::SymbolKind kind, std::string_view name, std::string_view external_name,
-                                                        syntax::SourceRange range) {
-                const std::string key = std::to_string(static_cast<unsigned>(kind)) + ':' + std::string{external_name};
+                                                        std::string_view canonical_name, syntax::SourceRange range) {
+                const std::string identity = canonical_name.empty() ? std::string{external_name} : std::string{canonical_name};
+                const std::string key      = std::to_string(static_cast<unsigned>(kind)) + ':' + identity;
                 if (const auto found = external_symbols_.find(key); found != external_symbols_.end()) { return found->second; }
-                const hir::SymbolId symbol = add_symbol(kind, name, range, ast::no_node, 0, std::string{external_name});
+                const hir::SymbolId symbol =
+                    add_symbol(kind, name, range, ast::no_node, 0, std::string{external_name}, std::string{canonical_name});
                 external_symbols_.emplace(key, symbol);
                 return symbol;
             }
@@ -533,9 +543,10 @@ namespace hgl::ir
                         if (binding.decl < declaration_symbols_.size()) { return declaration_symbols_[binding.decl]; }
                         break;
                     case BindingKind::Operator:
-                        return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name, range);
+                        return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
+                                               binding.operator_identity, range);
                     case BindingKind::Intrinsic:
-                        return external_symbol(hir::SymbolKind::Intrinsic, spelling, binding.registry_name, range);
+                        return external_symbol(hir::SymbolKind::Intrinsic, spelling, binding.registry_name, {}, range);
                     case BindingKind::Unbound: break;
                 }
                 diagnostics_.report(syntax::Category::Name, range,
@@ -986,11 +997,21 @@ namespace hgl::ir
                                 hir::OperatorDecl{lower_generics(index, node.generics), lower_signature(index, node.signature),
                                                   id<hir::ConstraintId>(node.requirements)};
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
-                            target.node = hir::FunctionDecl{
-                                lower_visibility(node.visibility),        lower_function_kind(resolved_.kind(index)),
-                                lower_generics(index, node.generics),     lower_signature(index, node.signature),
-                                id<hir::ConstraintId>(node.requirements), id<hir::ExprId>(node.concise_body),
-                                id<hir::BlockId>(node.block_body)};
+                            hir::FunctionDecl function;
+                            function.visibility = lower_visibility(node.visibility);
+                            function.kind       = lower_function_kind(resolved_.kind(index));
+                            if (function.visibility == hir::Visibility::Implementation) {
+                                const semantics::Binding &binding = resolved_.implementation_binding(index);
+                                if (binding.kind != semantics::BindingKind::Unbound) {
+                                    function.operator_contract = symbol_for(binding, node.name.range, node.name.text);
+                                }
+                            }
+                            function.generics     = lower_generics(index, node.generics);
+                            function.signature    = lower_signature(index, node.signature);
+                            function.requirements = id<hir::ConstraintId>(node.requirements);
+                            function.concise_body = id<hir::ExprId>(node.concise_body);
+                            function.block_body   = id<hir::BlockId>(node.block_body);
+                            target.node           = std::move(function);
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             target.node = hir::TestDecl{id<hir::BlockId>(node.block)};
                         }

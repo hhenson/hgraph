@@ -117,6 +117,7 @@ namespace hgl::ir::detail
         [[nodiscard]] bool                             same_value(hir::ExprId lhs, hir::ExprId rhs) const;
         [[nodiscard]] bool                             same_symbolic_type(hir::TypeId lhs, hir::TypeId rhs) const noexcept;
         [[nodiscard]] std::string                      operator_identity(hir::SymbolId symbol) const;
+        [[nodiscard]] std::string                      operator_registry_name(hir::SymbolId symbol) const;
         [[nodiscard]] static bool                      identity_matches(std::string_view lhs, std::string_view rhs) noexcept;
         [[nodiscard]] std::optional<RequiredOperation> find_required_operation(hir::ConstraintId               requirement,
                                                                                std::string_view                identity,

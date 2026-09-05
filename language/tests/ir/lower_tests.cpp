@@ -303,6 +303,18 @@ fn apply_it(value: f64) -> f64 => choose(value)
     require_clean(lowered);
     REQUIRE(complete(lowered));
 
+    bool implementation_found = false;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        const auto *implementation = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (implementation == nullptr || implementation->visibility != hir::Visibility::Implementation) { continue; }
+        implementation_found = true;
+        REQUIRE(implementation->operator_contract.valid());
+        const hir::Symbol &contract = lowered.hir.symbol(implementation->operator_contract);
+        CHECK(contract.kind == hir::SymbolKind::Operator);
+        CHECK(contract.canonical_name == "checks.operators.choose");
+    }
+    CHECK(implementation_found);
+
     bool found = false;
     for (const hir::Expr &expression : lowered.hir.exprs) {
         if (expression.operation.kind != hir::OperationKind::NominalOperator || !expression.operation.target.valid() ||
@@ -315,6 +327,30 @@ fn apply_it(value: f64) -> f64 => choose(value)
         CHECK_FALSE(expression.operation.deferred);
     }
     CHECK(found);
+}
+
+TEST_CASE("HIR preserves an imported implementation's nominal operator identity", "[ir][operators][imports]") {
+    Lowered lowered{R"(
+module checks.imported_impl
+
+use hgraph.std::{valid}
+
+impl fn valid(value: f64) -> bool => true
+)"};
+    require_clean(lowered);
+
+    const hir::FunctionDecl *implementation = nullptr;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        const auto *candidate = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (candidate != nullptr && candidate->visibility == hir::Visibility::Implementation) { implementation = candidate; }
+    }
+    REQUIRE(implementation != nullptr);
+    REQUIRE(implementation->operator_contract.valid());
+    const hir::Symbol &contract = lowered.hir.symbol(implementation->operator_contract);
+    CHECK(contract.kind == hir::SymbolKind::ImportedOperator);
+    CHECK(contract.name == "valid");
+    CHECK(contract.external_name == "valid");
+    CHECK(contract.canonical_name == "hgraph.std.valid");
 }
 
 TEST_CASE("typed HIR defers source overload ranking to hgraph", "[ir][typed][operators]") {
