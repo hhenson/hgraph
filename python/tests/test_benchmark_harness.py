@@ -151,7 +151,7 @@ def test_benchmark_report_groups_readable_names_and_marks_unsupported_modes():
     assert "+/- 0.200s" in report
 
 
-def test_default_benchmark_report_compares_fixed_release_with_current_source():
+def test_default_benchmark_report_compares_fixed_release_with_current_hgraph():
     release = orchestrate.aggregate_samples(
         [_sample(2.0), _sample(2.0), _sample(2.0)]
     )
@@ -169,8 +169,9 @@ def test_default_benchmark_report_compares_fixed_release_with_current_source():
     assert orchestrate.DEFAULT_MODES == ("release", "hg-cpp")
     assert (
         "| workload | cycles | hgraph "
-        f"{orchestrate.FIXED_RELEASE_HGRAPH_VERSION} | current source |"
+        f"{orchestrate.FIXED_RELEASE_HGRAPH_VERSION} | current hgraph |"
     ) in report
+    assert f"current hgraph (`hg-cpp`)" not in report
     assert (
         f"speed-up vs hgraph {orchestrate.FIXED_RELEASE_HGRAPH_VERSION}"
     ) in report
@@ -401,7 +402,7 @@ def test_cpp_first_only_report_section_does_not_claim_a_0_5_comparison():
 
     section = report.split("## C++-first - dynamic TSL", 1)[1]
     assert "not a cross-implementation comparison" in section
-    assert "| workload | cycles | current source |" in section
+    assert "| workload | cycles | current hgraph |" in section
     assert "upstream-py" not in section
 
 

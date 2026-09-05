@@ -408,16 +408,16 @@ def construct_higher_order_py(_cycle_scale: float, size_scale: float):
     return g, 1
 
 
-_EVENT_FAMILIES: dict = {}
+_EVENT_TYPES: dict = {}
+_DISPATCH_FAMILIES: dict = {}
+_OVERLOAD_FAMILIES: dict = {}
 
 
-def _event_family(cases: int):
-    """A CompoundScalar hierarchy with ``cases`` leaves, a dispatch operator
-    with one graph overload per leaf, and an operator with one node overload
-    per leaf. Cached per size: named scalars intern on their name."""
-    family = _EVENT_FAMILIES.get(cases)
-    if family is not None:
-        return family
+def _event_types(cases: int):
+    """Return the shared CompoundScalar hierarchy for a wiring-scale family."""
+    event_types = _EVENT_TYPES.get(cases)
+    if event_types is not None:
+        return event_types
 
     base = dataclass(frozen=True)(type(
         f"BenchEvent{cases}", (CompoundScalar,),
@@ -428,14 +428,22 @@ def _event_family(cases: int):
             {"__annotations__": {"extra": int}, "__module__": __name__}))
         for index in range(cases)
     )
+    event_types = (base, leaves)
+    _EVENT_TYPES[cases] = event_types
+    return event_types
+
+
+def _dispatch_event_family(cases: int):
+    """Build and cache a dispatch operator with one graph case per leaf."""
+    family = _DISPATCH_FAMILIES.get(cases)
+    if family is not None:
+        return family
+
+    base, leaves = _event_types(cases)
 
     @hg.dispatch
     def describe(event: TS[base]) -> TS[int]:
         return _scale_py(hg.getattr_(event, "amount"), 0)
-
-    @hg.operator
-    def score(event: TS[base]) -> TS[int]:
-        """One node overload per concrete leaf type."""
 
     for index, leaf in enumerate(leaves):
         def _register(index=index, leaf=leaf):
@@ -443,19 +451,39 @@ def _event_family(cases: int):
             def describe_leaf(event: TS[leaf]) -> TS[int]:
                 return _scale_py(hg.getattr_(event, "amount"), index + 1)
 
+        _register()
+
+    family = (base, leaves, describe)
+    _DISPATCH_FAMILIES[cases] = family
+    return family
+
+
+def _overload_event_family(overloads: int):
+    """Build and cache an operator with one node overload per leaf."""
+    family = _OVERLOAD_FAMILIES.get(overloads)
+    if family is not None:
+        return family
+
+    base, leaves = _event_types(overloads)
+
+    @hg.operator
+    def score(event: TS[base]) -> TS[int]:
+        """One node overload per concrete leaf type."""
+
+    for index, leaf in enumerate(leaves):
+        def _register(index=index, leaf=leaf):
             @compute_node(overloads=score)
             def score_leaf(event: TS[leaf]) -> TS[int]:
                 return event.value.amount * (index + 1)
 
         _register()
 
-    family = (base, leaves, describe, score)
-    _EVENT_FAMILIES[cases] = family
+    family = (base, leaves, score)
+    _OVERLOAD_FAMILIES[overloads] = family
     return family
 
 
-def _dispatch_sites(cases, sites):
-    base, leaves, describe, _score = _event_family(cases)
+def _dispatch_sites(base, leaves, describe, sites):
     total = None
     for site in range(sites):
         leaf = leaves[site % len(leaves)]
@@ -464,8 +492,7 @@ def _dispatch_sites(cases, sites):
     return total
 
 
-def _overload_sites(overloads, sites):
-    _base, leaves, _describe, score = _event_family(overloads)
+def _overload_sites(leaves, score, sites):
     total = None
     for site in range(sites):
         leaf = leaves[site % len(leaves)]
@@ -477,10 +504,11 @@ def _overload_sites(overloads, sites):
 def construct_dispatch_cases(_cycle_scale: float, size_scale: float):
     cases = max(4, int(24 * size_scale))
     sites = max(4, int(40 * size_scale))
+    base, leaves, describe = _dispatch_event_family(cases)
 
     @graph
     def g():
-        null_sink(_dispatch_sites(cases, sites))
+        null_sink(_dispatch_sites(base, leaves, describe, sites))
 
     return g, 1
 
@@ -488,10 +516,11 @@ def construct_dispatch_cases(_cycle_scale: float, size_scale: float):
 def construct_overloads(_cycle_scale: float, size_scale: float):
     overloads = max(4, int(32 * size_scale))
     sites = max(4, int(200 * size_scale))
+    _base, leaves, score = _overload_event_family(overloads)
 
     @graph
     def g():
-        null_sink(_overload_sites(overloads, sites))
+        null_sink(_overload_sites(leaves, score, sites))
 
     return g, 1
 

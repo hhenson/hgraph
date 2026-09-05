@@ -3,6 +3,7 @@
 from collections import Counter
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 import hgraph as hg
 from hgraph import Size, TS, TSD, TSL, compute_node, graph, mesh_, reduce
@@ -532,5 +533,46 @@ def test_benchmark_wiring_scale_workloads_compute_their_totals():
         __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
     ))[-1] == 78
     # site s carries leaf s % 4; overload index multiplies by s + 1: 0 + 2 + 6 + 12.
-    assert eval_node(_source_graph(lambda: bench._dispatch_sites(4, 4)), [True])[-1] == 20
-    assert eval_node(_source_graph(lambda: bench._overload_sites(4, 4)), [True])[-1] == 20
+    dispatch_base, dispatch_leaves, describe = bench._dispatch_event_family(4)
+    _overload_base, overload_leaves, score = bench._overload_event_family(4)
+    assert eval_node(
+        _source_graph(
+            lambda: bench._dispatch_sites(dispatch_base, dispatch_leaves, describe, 4)
+        ),
+        [True],
+    )[-1] == 20
+    assert eval_node(
+        _source_graph(lambda: bench._overload_sites(overload_leaves, score, 4)),
+        [True],
+    )[-1] == 20
+
+
+def test_benchmark_wiring_scale_families_are_registered_before_graph_timing():
+    dispatch_calls = []
+    overload_calls = []
+    dispatch_family = bench._dispatch_event_family
+    overload_family = bench._overload_event_family
+
+    def observe_dispatch(cases):
+        dispatch_calls.append(cases)
+        return dispatch_family(cases)
+
+    def observe_overloads(overloads):
+        overload_calls.append(overloads)
+        return overload_family(overloads)
+
+    with (
+        patch.object(bench, "_dispatch_event_family", observe_dispatch),
+        patch.object(bench, "_overload_event_family", observe_overloads),
+    ):
+        dispatch_graph, _ = bench.construct_dispatch_cases(1.0, 0.1)
+        overload_graph, _ = bench.construct_overloads(1.0, 0.1)
+        assert dispatch_calls == [4]
+        assert overload_calls == [4]
+
+        dispatch_calls.clear()
+        overload_calls.clear()
+        hg.run_graph(dispatch_graph, end_time=hg.MIN_ST + 2 * hg.MIN_TD)
+        hg.run_graph(overload_graph, end_time=hg.MIN_ST + 2 * hg.MIN_TD)
+        assert dispatch_calls == []
+        assert overload_calls == []

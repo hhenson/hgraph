@@ -101,7 +101,7 @@ MODE_LABELS = {
     "upstream-py": "Python",
     "upstream-cpp": "legacy C++",
     "release": f"hgraph {FIXED_RELEASE_HGRAPH_VERSION}",
-    "hg-cpp": "current source",
+    "hg-cpp": "current hgraph",
 }
 BASELINE_CACHE_SCHEMA = 1
 BASELINE_CACHE = RESULTS_DIR / f"baseline-{ENVIRONMENT_KEY}.json"
@@ -111,6 +111,13 @@ BASELINE_INPUTS = (
     RUNNER,
     VALIDATOR,
 )
+
+
+def report_mode_label(mode: str) -> str:
+    """Return the user-facing implementation label for report metadata."""
+    if mode == "hg-cpp":
+        return MODE_LABELS[mode]
+    return f"{MODE_LABELS[mode]} (`{mode}`)"
 
 
 def _sanitize_local_paths(value: str) -> str:
@@ -706,7 +713,7 @@ def render(
         for result in per_mode.values()
     )
     mode_summary = ", ".join(
-        f"{MODE_LABELS[mode]} (`{mode}`)" for mode in display_modes
+        report_mode_label(mode) for mode in display_modes
     )
     lines = [
         "# hgraph performance matrix",
@@ -838,7 +845,7 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact report group name")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="restrict to mode(s); default fixed 0.8.19 and current source")
+                        help="restrict to mode(s); default fixed 0.8.19 and current hgraph")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
     parser.add_argument("--baseline-cache", type=result_path_argument,

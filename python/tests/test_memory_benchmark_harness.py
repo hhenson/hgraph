@@ -116,8 +116,8 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
 
     assert "Peak delta" in report
     assert "native-accounted bytes, not RSS" in report
-    assert "current source/Python" in report
-    assert "current source/hgraph C++" in report
+    assert "current hgraph/Python" in report
+    assert "current hgraph/hgraph C++" in report
     assert "0.33x" in report
     assert "0.50x" in report
     assert "| 64.0 | 32.0 |" in report
@@ -135,8 +135,8 @@ def test_python_reference_remains_reportable_on_demand():
     assert "Python peak delta" in report
     assert "Python retained" in report
     assert "30.0 +/- 0.0" in report
-    assert "current source/Python" not in report
-    assert "current source/hgraph C++" not in report
+    assert "current hgraph/Python" not in report
+    assert "current hgraph/hgraph C++" not in report
 
 
 def test_process_lifetime_profiles_report_first_to_last_growth():
@@ -155,7 +155,7 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     )
 
     assert "hgraph C++ first-to-last growth" in report
-    assert "current source first-to-last growth" in report
+    assert "current hgraph first-to-last growth" in report
     assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
 
 

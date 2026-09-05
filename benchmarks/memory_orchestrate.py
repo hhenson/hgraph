@@ -294,7 +294,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         f"- fresh-process samples: {samples}",
         f"- RSS sampling interval: {interval_ms:g} ms",
         "- modes: " + ", ".join(
-            f"{MODE_LABELS[mode]} (`{mode}`)" for mode in display_modes
+            performance.report_mode_label(mode) for mode in display_modes
         ),
         f"- reused fixed baseline cells: {reused}",
         "",
@@ -325,7 +325,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             value["runtime_load_increment_mb"] for value in values
         )
         lines.append(
-            f"| {MODE_LABELS[mode]} (`{mode}`) | {process_floor:.1f} | "
+            f"| {performance.report_mode_label(mode)} | {process_floor:.1f} | "
             f"{ready:.1f} | {load_delta:.1f} |"
         )
     current_group = None
