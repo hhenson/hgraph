@@ -522,7 +522,10 @@ Value and reference crossings
   entry lives on the bridge (``src/hgraph/python/impl/retained_value.cpp``,
   ``include/hgraph/python/retained_value.h``) and reaches the plan factory
   only through the ``ValuePlanFactory::PythonStorageProvider`` table it
-  registers at module initialisation: which schemas may retain, whether an
+  registers when the unit is loaded (it is compiled in exactly when Python
+  user nodes are enabled, so a standalone ``HGRAPH_ENABLE_PYTHON_USER_NODES``
+  build without the ``_hgraph`` module has the policy too; the module
+  initializer registers it again, idempotently): which schemas may retain, whether an
   inline cache pays, the retained and Python-owned-Bundle bindings, the
   holder's plan and the reset hook, as plain function pointers. The factory
   carries no Python type and no build-time conditional for that policy, and

@@ -12,9 +12,13 @@ namespace hgraph::python_bridge
      * ``PyObject`` retained as the value itself behind a supported schema --
      * and the policy that says which schemas may retain. It lives on the
      * bridge and reaches the plan factory only through the
-     * ``PythonStorageProvider`` table it registers (``register_python_storage_provider``,
-     * called once at module initialisation): the type layer sees Python only
-     * through registered ops tables, never through a conditional of its own.
+     * ``PythonStorageProvider`` table it registers: the unit registers the
+     * table when it is loaded (it is compiled in exactly when Python user
+     * nodes are enabled, with or without the ``_hgraph`` module, so a
+     * standalone Python-user-node build has the policy too), and the module
+     * initializer calls ``register_python_storage_provider`` again,
+     * idempotently. The type layer sees Python only through registered ops
+     * tables, never through a conditional of its own.
      */
     HGRAPH_EXPORT void register_python_storage_provider() noexcept;
 

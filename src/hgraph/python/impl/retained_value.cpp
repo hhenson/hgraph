@@ -436,6 +436,21 @@ namespace hgraph::python_bridge
         ValuePlanFactory::set_python_storage_provider(&provider_table());
     }
 
+    namespace
+    {
+        // Linking this unit is what makes the policy active: it is compiled in
+        // exactly when Python user nodes are enabled, with or without the
+        // ``_hgraph`` module's initializer (the ``python-user-nodes`` preset
+        // embeds the bridge without the module), so it registers itself at
+        // load and the module's explicit registration is idempotent. Both
+        // targets are function-local statics, so there is no ordering to get
+        // wrong.
+        [[maybe_unused]] const bool provider_registered_at_load = [] {
+            register_python_storage_provider();
+            return true;
+        }();
+    }  // namespace
+
     nb::object prepare_python_storage_value(const ValueTypeMetaData *schema, nb::handle source)
     {
         if (!retained_python_supported(schema))
