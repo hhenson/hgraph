@@ -292,6 +292,38 @@ fn generic<const N: i64>(values: list<f64, N + 1>) -> f64 => 1.0
     REQUIRE(complete(lowered));
 }
 
+TEST_CASE("typed HIR preserves fixed list sizes during assignment", "[ir][typed][types][list]") {
+    Lowered valid{R"(
+module checks.fixed_list_assignment
+
+fn pair() -> list<f64, 2> => [1.0, 2.0]
+fn dynamic() -> list<f64> => pair()
+)"};
+    require_clean(valid);
+    REQUIRE(complete(valid));
+
+    Lowered wrong_literal{R"(
+module checks.fixed_list_literal
+
+fn triple() -> list<f64, 3> => [1.0, 2.0]
+)"};
+    require_clean(wrong_literal);
+    CHECK_FALSE(complete(wrong_literal));
+    CHECK(wrong_literal.diagnostics.render(wrong_literal.file).find("list literal has 2 elements, expected 3") !=
+          std::string::npos);
+
+    Lowered wrong_result{R"(
+module checks.fixed_list_result
+
+fn pair() -> list<f64, 2> => [1.0, 2.0]
+fn triple() -> list<f64, 3> => pair()
+)"};
+    require_clean(wrong_result);
+    CHECK_FALSE(complete(wrong_result));
+    CHECK(wrong_result.diagnostics.render(wrong_result.file).find("function result has type list, expected list") !=
+          std::string::npos);
+}
+
 TEST_CASE("typed HIR selects a source operator implementation", "[ir][typed][operators]") {
     Lowered lowered{R"(
 module checks.operators

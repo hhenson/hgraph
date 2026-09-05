@@ -242,6 +242,9 @@ namespace hgl::ir::detail
         if (from.kind == TypeKind::Atomic && !from.children.empty()) { return assignable(expected, from.children.front()); }
         const bool sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
                                    (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
+        if (to.kind == TypeKind::List && from.kind == TypeKind::List && to.size.valid()) {
+            if (to.unbounded || from.unbounded || !from.size.valid() || !same_value(to.size, from.size)) { return false; }
+        }
         if ((to.kind == from.kind || sequence_pair) &&
             (to.kind == TypeKind::Tuple || to.kind == TypeKind::List || to.kind == TypeKind::Set || to.kind == TypeKind::Map ||
              to.kind == TypeKind::HarnessSequence) &&

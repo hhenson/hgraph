@@ -217,6 +217,7 @@ test generic_value {
 
 test generic_atomic {
     assert eval(same_box, value: [Box<f64>(value: 1.5), _]) == [Box<f64>(value: 1.5), _]
+    assert eval(same_box, value: [Box(value: 2.5), _]) == [Box<f64>(value: 2.5), _]
 }
 )"};
     for (const TestResult &result : unit.tests()) {
@@ -270,6 +271,35 @@ test sparse {
     CHECK(result.tail.starts_with("delta "));
     CHECK(result.tail.find("1.5") != std::string::npos);
     CHECK(result.tail.find("XNAS") == std::string::npos);
+}
+
+TEST_CASE("a structured delta preserves nested sparse deltas", "[wiring]") {
+    Unit unit{R"(
+module suite.nested_struct_deltas
+
+struct Quote {
+    bid: f64
+    ask: f64
+}
+
+struct Book {
+    best: Quote
+    depth: i64
+}
+
+test nested_sparse {
+    delta<Book>(best: delta<Quote>(bid: 100.5))
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    TestOptions options;
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(result.tail.starts_with("delta "));
+    CHECK(result.tail.find("100.5") != std::string::npos);
 }
 
 TEST_CASE("unavailable structural operations are explicit diagnostics", "[wiring]") {
