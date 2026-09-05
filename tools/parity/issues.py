@@ -72,21 +72,23 @@ def failure_fingerprint(failure: dict[str, Any]) -> str:
 
 
 def failure_origin(failure: dict[str, Any]) -> str | None:
-    """The generated case a failure was reduced from: ``template:seed``.
+    """The generated case a failure was reduced from: its recipe ``id``.
 
     Eight shards reducing one seeded failure each minimise it to a slightly
     different shape, and every shape mints a fresh fingerprint; on 2026-08-27
     that filed 35 issues (#570-#604) for one defect. The origin is stable
     across those variants, so the publisher files one issue per origin and
-    folds the variants into it. A corpus recipe has no seed and keeps
-    fingerprint identity only.
+    folds the variants into it. The key is the *original* (pre-reduction)
+    recipe's id, which hashes that case's payload: one campaign seed
+    produces thousands of cases, so the seed alone would fold unrelated
+    failures of one template into the first issue filed. A corpus recipe is
+    not generated and keeps fingerprint identity only.
     """
-    recipe = failure.get("minimized_recipe") or {}
-    seed = recipe.get("seed")
-    template = recipe.get("template")
-    if seed is None or template is None:
+    original = failure.get("original_recipe") or failure.get("minimized_recipe") or {}
+    if original.get("seed") is None:
         return None
-    return f"{template}:{seed}"
+    case_id = original.get("id")
+    return case_id if isinstance(case_id, str) and case_id else None
 
 
 def issue_title(failure: dict[str, Any]) -> str:
@@ -117,6 +119,7 @@ and was reduced before this issue was created.
 - Reference: `{reference.get('implementation', {})}`
 - Candidate: `{candidate.get('implementation', {})}`
 - Original seed: `{recipe.get('seed')}`
+- Origin case: `{origin or recipe.get('id')}`
 - Reduction: {reduction.get('accepted', 0)} accepted changes from {reduction.get('attempts', 0)} attempts
 - Failure fingerprint: `{fingerprint}`
 
@@ -251,8 +254,8 @@ def publish_failures(
             actions.append(known)
             continue
         # One issue per fingerprint per publish, and one per generated origin
-        # (template + seed): every minimized variant of one seeded failure
-        # folds into the first issue filed for it.
+        # (the original case's recipe id): every minimized variant of one
+        # generated failure folds into the first issue filed for it.
         folded = handled_this_run.get(fingerprint) or (
             handled_origins.get(origin) if origin else None
         )

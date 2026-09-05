@@ -419,13 +419,17 @@ For the same reason the generator does not explore ruled parameter spaces which
 carry no independent signal (for example non-identity reduce zeros or
 undeduplicated key-set size); the corpus keeps explicit deviation recipes as
 permanently known mismatches.  The publisher additionally files at most one
-issue per fingerprint per run and at most one per generated **origin**
-(template plus seed): eight shards reducing one seeded failure each minimise
-it to a slightly different shape, and every shape mints a fresh fingerprint,
-which on 2026-08-27 filed 35 issues for one defect.  Every issue body carries
+issue per fingerprint per run and at most one per generated **origin**, the
+id of the original (pre-reduction) generated case: eight shards reducing one
+generated failure each minimise it to a slightly different shape, and every
+shape mints a fresh fingerprint, which on 2026-08-27 filed 35 issues for one
+defect.  The id hashes the case's own payload rather than the campaign seed,
+which one nightly shares across thousands of cases, so two defects surfaced
+by different cases of one template stay two issues.  Every issue body carries
 an origin marker beside its fingerprint marker, so a later run that reduces
-the same seed to yet another shape finds the open issue instead of filing a
-new one.  A corpus recipe has no seed and keeps fingerprint identity only.
+the same case to yet another shape finds the open issue instead of filing a
+new one.  A corpus recipe is not generated and keeps fingerprint identity
+only.
 
 A fix for Python-visible behavior must promote the minimized case to ordinary
 public Python wiring coverage and add equivalent native C++ ``eval_node``

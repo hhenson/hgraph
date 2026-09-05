@@ -17,7 +17,12 @@ from tools.parity.cli import CAMPAIGN_PROFILES, _path
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
 from tools.parity.environments import ParityEnvironments, prepare_environments
-from tools.parity.issues import failure_fingerprint, issue_body, publish_failures
+from tools.parity.issues import (
+    failure_fingerprint,
+    failure_origin,
+    issue_body,
+    publish_failures,
+)
 from tools.parity.known import is_known_family_failure
 from tools.parity.model import Recipe, RecipeError, load_corpus
 from tools.parity.reduce import reduce_recipe
@@ -1383,18 +1388,23 @@ def test_issue_publisher_deduplicates_same_fingerprint_within_one_run(
     )
 
 
-def test_issue_publisher_folds_minimized_variants_of_one_seed_into_one_issue(
+def test_issue_publisher_folds_minimized_variants_of_one_case_into_one_issue(
     monkeypatch,
 ):
     # 2026-08-27: eight shards reduced one seeded failure to eight shapes and
-    # filed 35 issues (#570-#604). The origin (template + seed) is what stays
-    # stable across variants, so it is the second dedup key.
-    def variant(fingerprint, path, seed):
-        recipe = _scalar_recipe().to_dict()
-        recipe["seed"] = seed
+    # filed 35 issues (#570-#604). The origin (the original generated case's
+    # id) is what stays stable across variants, so it is the second dedup key.
+    # The campaign seed is NOT the key: one nightly generates thousands of
+    # cases from one seed, so two cases of one template must stay two issues.
+    def variant(fingerprint, path, case_id, seed=18):
+        original = _scalar_recipe().to_dict()
+        original["id"] = case_id
+        original["seed"] = seed
+        minimized = dict(original, inputs={"x": (1,)})
         return {
             "failure_fingerprint": fingerprint,
-            "minimized_recipe": recipe,
+            "original_recipe": original,
+            "minimized_recipe": minimized,
             "difference": {
                 "classification": "value",
                 "path": path,
@@ -1420,10 +1430,10 @@ def test_issue_publisher_folds_minimized_variants_of_one_seed_into_one_issue(
 
     actions = publish_failures(
         [
-            variant("shape-a", "$.trace[0]", 18),
-            variant("shape-b", "$.trace[1]", 18),
-            variant("shape-c", "$.trace[2]", 18),
-            variant("other-seed", "$.trace[0]", 19),
+            variant("shape-a", "$.trace[0]", "generated-scalar-expression-aaa111"),
+            variant("shape-b", "$.trace[1]", "generated-scalar-expression-aaa111"),
+            variant("shape-c", "$.trace[2]", "generated-scalar-expression-aaa111"),
+            variant("other-case", "$.trace[0]", "generated-scalar-expression-bbb222"),
         ],
         repo="hhenson/hgraph",
         publish=True,
@@ -1439,14 +1449,32 @@ def test_issue_publisher_folds_minimized_variants_of_one_seed_into_one_issue(
     )
 
 
+def test_failure_origin_is_the_original_case_not_the_seed():
+    original = _scalar_recipe().to_dict()
+    original["id"] = "generated-scalar-expression-aaa111"
+    original["seed"] = 18
+    minimized = dict(original, id="generated-scalar-expression-min000")
+    failure = {"original_recipe": original, "minimized_recipe": minimized}
+    assert failure_origin(failure) == "generated-scalar-expression-aaa111"
+    # A corpus recipe is not generated: no origin, fingerprint identity only.
+    corpus = _scalar_recipe().to_dict()
+    assert failure_origin({"minimized_recipe": corpus}) is None
+    # A record without the original (older campaign output) falls back to
+    # the minimized recipe, which still carries the seed and the template.
+    assert failure_origin({"minimized_recipe": minimized}) == "generated-scalar-expression-min000"
+
+
 def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
-    # A later nightly reduces the same seed to yet another shape: the open
-    # issue for that origin is found by its origin marker, not refiled.
-    recipe = _scalar_recipe().to_dict()
-    recipe["seed"] = 18
+    # A later nightly reduces the same generated case to yet another shape:
+    # the open issue for that origin is found by its origin marker, not
+    # refiled.
+    original = _scalar_recipe().to_dict()
+    original["id"] = "generated-scalar-expression-aaa111"
+    original["seed"] = 18
     failure = {
         "failure_fingerprint": "yet-another-shape",
-        "minimized_recipe": recipe,
+        "original_recipe": original,
+        "minimized_recipe": dict(original, inputs={"x": (1,)}),
         "difference": {
             "classification": "value",
             "path": "$.trace[3]",
@@ -1461,7 +1489,7 @@ def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
         "number": 570,
         "state": "OPEN",
         "title": "[parity] scalar_expression differs from released hgraph",
-        "body": "<!-- hgraph-parity:first-shape -->\n<!-- hgraph-parity-origin:scalar_expression:18 -->",
+        "body": "<!-- hgraph-parity:first-shape -->\n<!-- hgraph-parity-origin:generated-scalar-expression-aaa111 -->",
         "url": "https://github.com/hhenson/hgraph/issues/570",
     }
     calls = []
