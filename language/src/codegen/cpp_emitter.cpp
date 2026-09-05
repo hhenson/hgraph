@@ -1,6 +1,7 @@
 #include "codegen/cpp_emitter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -176,6 +177,9 @@ namespace hgl::codegen
             bool                            has_when{false};
         };
 
+        Value                       make_const(std::string code, HType type, SourceRange range,
+                                               std::variant<std::monostate, std::int64_t, double> number = {});
+        std::optional<Value>        temporal_constant(syntax::TemporalValue literal, SourceRange range);
         std::optional<double>       numeric_value(const Value &value);
         std::optional<std::int64_t> integer_value(const Value &value);
 
@@ -264,8 +268,16 @@ namespace hgl::codegen
             return out + "\"";
         }
 
-        std::string float_literal(double value)
-        {
+        std::string integer_literal(std::int64_t value) {
+            if (value == std::numeric_limits<std::int64_t>::min()) { return "std::numeric_limits<hgraph::Int>::min()"; }
+            return "hgraph::Int{" + std::to_string(value) + "}";
+        }
+
+        std::string float_literal(double value) {
+            if (std::isnan(value)) { return "std::numeric_limits<hgraph::Float>::quiet_NaN()"; }
+            if (std::isinf(value)) {
+                return std::string{std::signbit(value) ? "-" : ""} + "std::numeric_limits<hgraph::Float>::infinity()";
+            }
             char buffer[64];
             std::snprintf(buffer, sizeof buffer, "%.17g", value);
             std::string text{buffer};
@@ -373,6 +385,7 @@ namespace hgl::codegen
             [[nodiscard]] const gir::ConstExpr       &graph_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
+            [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
             [[nodiscard]] std::string value_type(const HType &type, SourceRange range);
             [[nodiscard]] std::string schema(const HType &type, SourceRange range);
             [[nodiscard]] std::string size_text(ast::ExprId id, Frame &frame, std::string_view what);
@@ -395,8 +408,8 @@ namespace hgl::codegen
             [[nodiscard]] std::string argument_code(const Value &value);
             [[nodiscard]] std::string as_port(const Value &value, const HType &temporal, SourceRange range);
             [[nodiscard]] std::string as_const(const Value &value, const HType &target, SourceRange range, const std::string &what);
-            [[nodiscard]] std::vector<ast::ExprId> bind_arguments(const ast::FunctionDecl &fn,
-                                                                  const std::vector<ast::Argument> &arguments, SourceRange range);
+            [[nodiscard]] std::vector<ast::ExprId> bind_arguments(ast::DeclId decl, const std::vector<ast::Argument> &arguments,
+                                                                  SourceRange range);
 
             // -- statements
             void emit_block(ast::BlockId id, Frame &frame, Writer &out, bool function_body);
@@ -442,7 +455,7 @@ namespace hgl::codegen
                                                         bool include_inputs, bool include_output);
             void prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
                                        bool include_output);
-            void emit_runtime_defaults(ast::DeclId decl, Writer &out);
+            void emit_defaults(const gir::Callable &callable, Writer &out);
             [[nodiscard]] std::vector<ast::DeclId> ordered_internal_functions();
             void collect_calls(ast::ExprId id, std::set<ast::DeclId> &calls);
             void collect_calls_block(ast::BlockId id, std::set<ast::DeclId> &calls);
@@ -522,6 +535,10 @@ namespace hgl::codegen
                         backend(item.range, "hgraph IR callable '" + item.identity +
                                                 "' disagrees with the syntax body adapter's parameter roles");
                     }
+                    if (item.parameters[index].default_value.valid() != (source.parameters[index].default_value != ast::no_node)) {
+                        backend(item.range, "hgraph IR callable '" + item.identity +
+                                                "' disagrees with the syntax body adapter's default shape");
+                    }
                 }
                 if (!callables_.emplace(id, &item).second) {
                     backend(item.range, "more than one hgraph IR callable maps to the same syntax declaration");
@@ -591,6 +608,75 @@ namespace hgl::codegen
             if (expression.kind != gir::ConstExprKind::Literal || !expression.literal) { return std::nullopt; }
             if (const auto *value = std::get_if<std::int64_t>(&*expression.literal)) { return *value; }
             return std::nullopt;
+        }
+
+        Value Emitter::planned_constant(gir::ConstExprId id, SourceRange fallback) {
+            const gir::ConstExpr &expression = graph_constant(id, fallback);
+            const SourceRange     range      = expression.range.end > expression.range.begin ? expression.range : fallback;
+            if (expression.literal) {
+                return std::visit(
+                    [&](const auto &literal) -> Value {
+                        using T = std::decay_t<decltype(literal)>;
+                        if constexpr (std::is_same_v<T, ir::hir::NullValue>) {
+                            unsupported(range, "'null' in a parameter default");
+                        } else if constexpr (std::is_same_v<T, ir::hir::PlaceholderValue>) {
+                            fail(Category::Type, range, "'_' is only valid in a harness sequence");
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            return make_const(literal ? "true" : "false", scalar_type(ast::ScalarType::Bool), range);
+                        } else if constexpr (std::is_same_v<T, std::int64_t>) {
+                            return make_const(integer_literal(literal), scalar_type(ast::ScalarType::I64), range, literal);
+                        } else if constexpr (std::is_same_v<T, double>) {
+                            return make_const("hgraph::Float{" + float_literal(literal) + "}", scalar_type(ast::ScalarType::F64),
+                                              range, literal);
+                        } else if constexpr (std::is_same_v<T, std::string>) {
+                            return make_const("hgraph::Str{" + quote(literal) + "}", scalar_type(ast::ScalarType::Str), range);
+                        } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                            if (std::optional<Value> value = temporal_constant(literal, range)) { return std::move(*value); }
+                            backend(range, "zoned and civil literals are not supported by the first pass");
+                        }
+                    },
+                    *expression.literal);
+            }
+
+            switch (expression.kind) {
+                case gir::ConstExprKind::Unary:
+                    {
+                        const ast::UnaryOp op =
+                            expression.unary == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
+                        return fold_unary(op, planned_constant(expression.lhs, range), range);
+                    }
+                case gir::ConstExprKind::Binary:
+                    {
+                        const ast::BinaryOp op = [&] {
+                            switch (expression.binary) {
+                                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
+                                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
+                                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
+                                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
+                                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
+                                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
+                                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
+                                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
+                                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
+                                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
+                                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
+                                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
+                                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
+                            }
+                            std::unreachable();
+                        }();
+                        return fold_binary(op, planned_constant(expression.lhs, range), planned_constant(expression.rhs, range),
+                                           range);
+                    }
+                case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a parameter default");
+                case gir::ConstExprKind::Index: unsupported(range, "an indexed parameter default");
+                case gir::ConstExprKind::Field: unsupported(range, "a field-read parameter default");
+                case gir::ConstExprKind::Sequence: unsupported(range, "a list or map parameter default");
+                case gir::ConstExprKind::Tuple: unsupported(range, "a tuple parameter default");
+                case gir::ConstExprKind::Construct: unsupported(range, "a struct parameter default");
+                case gir::ConstExprKind::Literal: break;
+            }
+            backend(range, "hgraph IR contains an incomplete constant expression");
         }
 
         HType Emitter::planned_type(gir::TypeId id, SourceRange fallback) {
@@ -978,8 +1064,7 @@ namespace hgl::codegen
         // ------------------------------------------------------------ values
 
         Value make_const(std::string code, HType type, SourceRange range,
-                         std::variant<std::monostate, std::int64_t, double> number = {})
-        {
+                         std::variant<std::monostate, std::int64_t, double> number) {
             Value value;
             value.kind  = Value::Kind::Const;
             value.code  = std::move(code);
@@ -987,6 +1072,29 @@ namespace hgl::codegen
             value.range = range;
             value.number = std::move(number);
             return value;
+        }
+
+        std::optional<Value> temporal_constant(syntax::TemporalValue literal, SourceRange range) {
+            const std::string micros = literal.micros == std::numeric_limits<std::int64_t>::min()
+                                           ? "std::numeric_limits<hgraph::TimeDelta::rep>::min()"
+                                           : std::to_string(literal.micros);
+            switch (literal.kind) {
+                case syntax::TemporalKind::Date:
+                    return make_const("hgraph::Date{std::chrono::sys_days{std::chrono::days{" + micros + "}}}",
+                                      scalar_type(ast::ScalarType::Date), range);
+                case syntax::TemporalKind::Time:
+                    return make_const("hgraph::Time{" + micros + "}", scalar_type(ast::ScalarType::Time), range);
+                case syntax::TemporalKind::DateTime:
+                    return make_const("hgraph::DateTime{std::chrono::microseconds{" + micros + "}}",
+                                      scalar_type(ast::ScalarType::DateTime), range);
+                case syntax::TemporalKind::Duration:
+                    return make_const("hgraph::TimeDelta{" + micros + "}", scalar_type(ast::ScalarType::Duration), range);
+                case syntax::TemporalKind::CivilDateTime:
+                case syntax::TemporalKind::ZonedDateTime:
+                case syntax::TemporalKind::ZonedTime:
+                case syntax::TemporalKind::TimeZone: return std::nullopt;
+            }
+            return std::nullopt;
         }
 
         std::optional<double> numeric_value(const Value &value)
@@ -1480,8 +1588,8 @@ namespace hgl::codegen
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, ast::IntLiteral>)
                     {
-                        return make_const("hgraph::Int{" + std::to_string(node.value) + "}", scalar_type(ast::ScalarType::I64),
-                                          expr.range, static_cast<std::int64_t>(node.value));
+                        return make_const(integer_literal(node.value), scalar_type(ast::ScalarType::I64), expr.range,
+                                          static_cast<std::int64_t>(node.value));
                     }
                     else if constexpr (std::is_same_v<T, ast::FloatLiteral>)
                     {
@@ -1499,26 +1607,7 @@ namespace hgl::codegen
                     else if constexpr (std::is_same_v<T, ast::NullLiteral>) { unsupported(expr.range, "'null'"); }
                     else if constexpr (std::is_same_v<T, ast::TemporalLiteral>)
                     {
-                        using syntax::TemporalKind;
-                        const std::string micros = std::to_string(node.value.micros);
-                        switch (node.value.kind)
-                        {
-                            case TemporalKind::Date:
-                                return make_const("hgraph::Date{std::chrono::sys_days{std::chrono::days{" + micros + "}}}",
-                                                  scalar_type(ast::ScalarType::Date), expr.range);
-                            case TemporalKind::Time:
-                                return make_const("hgraph::Time{" + micros + "}", scalar_type(ast::ScalarType::Time), expr.range);
-                            case TemporalKind::DateTime:
-                                return make_const("hgraph::DateTime{std::chrono::microseconds{" + micros + "}}",
-                                                  scalar_type(ast::ScalarType::DateTime), expr.range);
-                            case TemporalKind::Duration:
-                                return make_const("hgraph::TimeDelta{" + micros + "}", scalar_type(ast::ScalarType::Duration),
-                                                  expr.range);
-                            case TemporalKind::CivilDateTime:
-                            case TemporalKind::ZonedDateTime:
-                            case TemporalKind::ZonedTime:
-                            case TemporalKind::TimeZone: break;
-                        }
+                        if (std::optional<Value> value = temporal_constant(node.value, expr.range)) { return std::move(*value); }
                         backend(expr.range, "zoned and civil literals are not supported by the first pass");
                     }
                     else if constexpr (std::is_same_v<T, ast::Placeholder>)
@@ -1963,10 +2052,10 @@ namespace hgl::codegen
                                "' is a runtime traversal; it is not available in a composition body of the first pass");
         }
 
-        std::vector<ast::ExprId> Emitter::bind_arguments(const ast::FunctionDecl &fn, const std::vector<ast::Argument> &arguments,
-                                                         SourceRange range)
-        {
-            const auto              &params = fn.signature.parameters;
+        std::vector<ast::ExprId> Emitter::bind_arguments(ast::DeclId decl, const std::vector<ast::Argument> &arguments,
+                                                         SourceRange range) {
+            const gir::Callable     &fn     = callable(decl);
+            const auto              &params = fn.parameters;
             std::vector<ast::ExprId> bound(params.size(), ast::no_node);
             std::size_t              next = 0;
             for (const ast::Argument &argument : arguments)
@@ -1976,18 +2065,20 @@ namespace hgl::codegen
                 {
                     if (next >= params.size())
                     {
-                        fail(Category::Type, at, "'" + std::string{fn.name.text} + "' takes " + std::to_string(params.size()) + " arguments");
+                        fail(Category::Type, at,
+                             "'" + std::string{callable_name(decl)} + "' takes " + std::to_string(params.size()) + " arguments");
                     }
                     if (bound[next] != ast::no_node) { fail(Category::Type, at, "positional argument after a named one"); }
                     bound[next++] = argument.value;
                     continue;
                 }
                 const auto found = std::find_if(params.begin(), params.end(),
-                                                [&](const ast::Parameter &param) { return param.name.text == argument.name.text; });
+                                                [&](const gir::Parameter &param) { return param.name == argument.name.text; });
                 if (found == params.end())
                 {
                     fail(Category::Name, argument.name.range,
-                         "'" + std::string{fn.name.text} + "' has no parameter named '" + std::string{argument.name.text} + "'");
+                         "'" + std::string{callable_name(decl)} + "' has no parameter named '" + std::string{argument.name.text} +
+                             "'");
                 }
                 const auto index = static_cast<std::size_t>(found - params.begin());
                 if (bound[index] != ast::no_node)
@@ -1999,10 +2090,9 @@ namespace hgl::codegen
             }
             for (std::size_t i = 0; i < params.size(); ++i)
             {
-                if (bound[i] == ast::no_node && params[i].default_value == ast::no_node)
-                {
+                if (bound[i] == ast::no_node && !params[i].default_value.valid()) {
                     fail(Category::Type, range,
-                         "'" + std::string{fn.name.text} + "' needs an argument for '" + std::string{params[i].name.text} + "'");
+                         "'" + std::string{callable_name(decl)} + "' needs an argument for '" + params[i].name + "'");
                 }
             }
             return bound;
@@ -2015,21 +2105,17 @@ namespace hgl::codegen
         Value Emitter::call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments, SourceRange range, Frame &frame)
         {
             check_supported(decl);
-            const ast::FunctionDecl       &fn    = function(decl);
             const gir::Callable           &planned = callable(decl);
-            const std::vector<ast::ExprId> bound = bind_arguments(fn, arguments, range);
-            const auto                    &params = fn.signature.parameters;
-            Frame                          callee;
-            callee.fn = decl;
-            std::vector<std::string> args(params.size());
-            for (std::size_t i = 0; i < params.size(); ++i)
-            {
-                const ast::Parameter &param = params[i];
-                Value arg = bound[i] != ast::no_node ? eval_expr(bound[i], frame) : eval_expr(param.default_value, callee);
-                const HType           type  = planned_type(planned.parameters[i].type, planned.range);
+            const std::vector<ast::ExprId> bound   = bind_arguments(decl, arguments, range);
+            std::vector<std::string>       args(planned.parameters.size());
+            for (std::size_t i = 0; i < planned.parameters.size(); ++i) {
+                const gir::Parameter &param = planned.parameters[i];
+                Value                 arg =
+                    bound[i] != ast::no_node ? eval_expr(bound[i], frame) : planned_constant(param.default_value, planned.range);
+                const HType type = planned_type(param.type, planned.range);
                 if (param.is_const)
                 {
-                    args[i] = as_const(arg, type, arg.range, "parameter '" + planned.parameters[i].name + "'");
+                    args[i] = as_const(arg, type, arg.range, "parameter '" + param.name + "'");
                 }
                 else { args[i] = as_port(arg, type, arg.range); }
             }
@@ -3043,28 +3129,16 @@ namespace hgl::codegen
             }
         }
 
-        void Emitter::emit_runtime_defaults(ast::DeclId decl, Writer &out)
-        {
-            const ast::FunctionDecl &fn = function(decl);
-            const gir::Callable     &planned = callable(decl);
+        void Emitter::emit_defaults(const gir::Callable &planned, Writer &out) {
             std::vector<std::string> defaults;
-            for (std::size_t index = 0; index < fn.signature.parameters.size(); ++index) {
-                const ast::Parameter &param = fn.signature.parameters[index];
-                if (!param.is_const || param.default_value == ast::no_node)
-                {
-                    continue;
-                }
-                Frame scratch;
-                scratch.fn        = decl;
-                const Value value = eval_expr(param.default_value, scratch);
-                const HType type  = planned_type(planned.parameters[index].type, planned.range);
-                defaults.push_back("hgraph::arg<" + quote(planned.parameters[index].name) + ">(" +
-                                   as_const(value, type, value.range, "default of '" + std::string{param.name.text} + "'") + ")");
+            for (const gir::Parameter &param : planned.parameters) {
+                if (!param.is_const || !param.default_value.valid()) { continue; }
+                const Value value = planned_constant(param.default_value, planned.range);
+                const HType type  = planned_type(param.type, planned.range);
+                defaults.push_back("hgraph::arg<" + quote(param.name) + ">(" +
+                                   as_const(value, type, value.range, "default of '" + param.name + "'") + ")");
             }
-            if (!defaults.empty())
-            {
-                out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }");
-            }
+            if (!defaults.empty()) { out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }"); }
         }
 
         void Emitter::emit_runtime_function(ast::DeclId decl, Writer &out)
@@ -3077,7 +3151,7 @@ namespace hgl::codegen
             out.line("// " + where(module_.decl(decl).range));
             out.open("struct " + callable_cpp_name(decl));
             out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
-            emit_runtime_defaults(decl, out);
+            emit_defaults(callable(decl), out);
             if (!info.states.empty())
             {
                 std::vector<std::string> fields;
@@ -3272,22 +3346,7 @@ namespace hgl::codegen
                 out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
-                std::vector<std::string> defaults;
-                for (std::size_t index = 0; index < fn.signature.parameters.size(); ++index) {
-                    const ast::Parameter &param = fn.signature.parameters[index];
-                    if (!param.is_const || param.default_value == ast::no_node) { continue; }
-                    Frame scratch;
-                    scratch.fn        = decl;
-                    const Value value = eval_expr(param.default_value, scratch);
-                    const HType type  = planned_type(callable(decl).parameters[index].type, callable(decl).range);
-                    defaults.push_back("hgraph::arg<" + quote(callable(decl).parameters[index].name) + ">(" +
-                                       as_const(value, type, value.range, "default of '" + std::string{param.name.text} + "'") +
-                                       ")");
-                }
-                if (!defaults.empty())
-                {
-                    out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }");
-                }
+                emit_defaults(callable(decl), out);
                 out.line("static " + result_type(decl) + " compose(" + signature(decl, form != Form::Declaration) +
                          (form == Form::Declaration ? ");" : ")"));
                 if (form == Form::Declaration)
@@ -3631,6 +3690,7 @@ namespace hgl::codegen
             header.line();
             header.line("#include <chrono>");
             header.line("#include <cstdint>");
+            header.line("#include <limits>");
             header.line("#include <stdexcept>");
             header.line("#include <tuple>");
             header.line();
