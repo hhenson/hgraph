@@ -184,15 +184,24 @@ a use on one path is not proof that the input is processed on every path.
 This is the compiler specifying the intent of a generated component, not a
 change to the author's `var r: i64` declaration or a general rule for rewriting
 user-declared types. Explicit reference access restrictions still apply.
-Branch signatures can differ in REF qualification while remaining compatible
-in underlying type. Their native boundary bindings must preserve the
+Branch input signatures can differ in REF qualification while remaining
+compatible in underlying type. Their native input bindings must preserve the
 forwarding connection and adapt it for value-consuming downstream nodes.
 Deduplicating a captured source must not discard these per-branch contracts.
 
 The same forwarding rule applies independently to each escaping field when
 multiple results are bundled. A branch can supply a newly computed binding
 for one field and forward another field's incoming binding by reference.
-It does not imply an outer reference over the whole bundle.
+It does not imply an outer reference over the whole bundle, nor may it leave a
+`REF` wrapper on that field of the branch output. Lowering chooses the escaped
+binding's declared, non-`REF` temporal schema as the common output schema for
+each result slot. A forwarding branch retains its `REF` capture, then explicitly
+dereferences that connection at the branch-output boundary before packing the
+field; a computed branch already supplies the same ordinary temporal schema.
+The two branch bundles consequently have identical schemas at every field, not
+merely compatible root types. If the public native API cannot express that
+per-field reference adaptation, HGL must reject the conditional until the
+native support exists rather than send mismatched bundles to `switch_`.
 
 The corresponding design-corpus source is
 [conditional-results.hgl](../../stdlib/examples/conditional-results.hgl).
@@ -432,8 +441,11 @@ The agreed derivation then has both input and output sides:
    reject a used variable when a path supplies neither an assignment nor an
    incoming binding. Count the expression result alongside the escaping
    variables: zero results require no output, one is returned directly, and
-   several use a common generated bundle. Resolve output compatibility while
-   preserving the declared reference/access contracts.
+   several use a common generated bundle. For every result slot, select the
+   declared non-`REF` temporal schema as the common output schema and insert an
+   explicit dereference at a forwarding branch's output boundary. Preserve
+   REF qualification on the branch input capture, but never emit branch result
+   bundles that differ only because one field still carries that wrapper.
 5. For branches that rejoin, supply the expression result to its consumer and
    remap the enclosing variables from the switch output or its bundle fields,
    then continue composing the statements after the conditional. Both result

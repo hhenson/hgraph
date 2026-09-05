@@ -917,6 +917,13 @@ compiler-generated bundle. The grammar above still
 describes the current initializer-required implementation. No default value
 or runtime state cell is implied by the new declaration form.
 
+For each escaping result, lowering uses the declared non-`REF` temporal schema
+as the common branch-output slot. A branch that forwards an incoming binding
+still captures it through `REF`, but explicitly dereferences it before returning
+the slot or packing its field into a generated multi-result bundle. REF is not
+allowed to leak into only one branch's output schema; branch bundles must match
+recursively before they reach the native switch.
+
 The target design also requires definite-assignment analysis for escaping
 variables. At a use, every path reaching it must supply a binding, either by
 assignment or by forwarding an existing incoming binding. Otherwise reject
