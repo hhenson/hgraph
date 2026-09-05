@@ -65,11 +65,6 @@ namespace
         INFO(projection_diagnostics.render(parsed.file));
         REQUIRE_FALSE(projection_diagnostics.has_errors());
         REQUIRE(print_ast(projected) == print_ast(parsed.module));
-        DiagnosticSink    legacy_diagnostics;
-        const ast::Module legacy = parse_with_legacy_parser(parsed.file, legacy_diagnostics);
-        INFO(legacy_diagnostics.render(parsed.file));
-        REQUIRE_FALSE(legacy_diagnostics.has_errors());
-        REQUIRE(print_ast(projected) == print_ast(legacy));
         return dump(parsed);
     }
 
@@ -1151,6 +1146,18 @@ TEST_CASE("reserved words cannot be used as names", "[parser]") {
             std::vector<std::string>{"'state' is a reserved word and cannot be used as a variable name"});
     REQUIRE(Parsed{"module t\nuse a.b::{fn}\n"}.messages() ==
             std::vector<std::string>{"'fn' is a reserved word and cannot be used as an imported name"});
+    REQUIRE(Parsed{"module t\nfn f() {\n    state let = 1\n}\n"}.messages() ==
+            std::vector<std::string>{"'let' is a reserved word and cannot be used as a state variable name"});
+    REQUIRE(Parsed{"module t\nfn f() {\n    inject return\n}\n"}.messages() ==
+            std::vector<std::string>{"'return' is a reserved word and cannot be used as an injectable name"});
+    REQUIRE(Parsed{"module t\nstruct fn {\n    let: i64\n}\n"}.messages() ==
+            std::vector<std::string>{"'fn' is a reserved word and cannot be used as a struct name",
+                                     "'let' is a reserved word and cannot be used as a field name"});
+}
+
+TEST_CASE("constraint sets allow a trailing newline", "[parser]") {
+    const std::string tree = dump_clean("module t\noperator numeric<T>() requires T in {\n    i64,\n    f64\n}\n");
+    CHECK(tree.find("ConstraintSet") != std::string::npos);
 }
 
 TEST_CASE("contextual keywords are ordinary names", "[parser]") {

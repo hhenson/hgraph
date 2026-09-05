@@ -1,10 +1,11 @@
 # ADR 0001: Declarative parser and source-accurate syntax
 
-Status: proposed; lexy is the provisional front-runner pending production qualification
+Status: accepted
 
 ## Context
 
-The prototype uses a hand-written recursive-descent parser. It is small and has
+At the time of this decision, the prototype used a hand-written
+recursive-descent parser. It was small and had
 useful recovery, but grammar, recovery, AST construction, and newline policy are
 encoded together. HGL syntax is still changing and will need formatting, REPL,
 diagnostic, and editor support.
@@ -17,7 +18,7 @@ recursive-descent parsers. Cppfront likewise keeps a custom token parser in a
 Their useful precedents are source fidelity, diagnostics, inspectable trees,
 and strict layer ownership.
 
-## Proposed decision
+## Decision
 
 Use [lexy](https://github.com/foonathan/lexy), initially pinned to its
 `v2025.05.0` release, as a private implementation dependency of `hgl_syntax`.
@@ -62,8 +63,8 @@ PEG. Repeated parse timings were not used to rank the tools because the spikes
 built different tree shapes: a lossless lexy tree, cpp-peglib's optimized AST,
 and PEGTL's unfiltered rule tree.
 
-This spike does **not** by itself accept the parser. Acceptance remains pending
-until the production grammar records all of the following evidence:
+The spike did **not** by itself accept the parser. Acceptance required the
+production grammar to record all of the following evidence:
 
 - the complete valid syntax and documentation-example corpus, including exact
   newline continuation and nested generic closers;
@@ -72,9 +73,35 @@ until the production grammar records all of the following evidence:
 - isolated debug and release compiler-time and object-size measurements;
 - representative Clang, GCC, and MSVC builds.
 
-The production-parser pull request updates this ADR to accepted only after
-those gates pass. Keeping selection and qualification separate lets the
-implementation proceed without presenting a toy grammar as conclusive evidence.
+Keeping selection and qualification separate allowed the implementation to
+proceed without presenting a toy grammar as conclusive evidence.
+
+## Production qualification
+
+The production grammar passed the acceptance gates on 2026-09-05:
+
+- `hgl_syntax_tests` passed 131 cases and 2,894 assertions. The corpus covers
+  every checked-in HGL guide example, exact newline continuation, nested
+  generic closers, the complete parser-independent AST projection, source
+  ranges, comments, and lossless source reconstruction.
+- One malformed module produces three independent missing-colon diagnostics
+  while retaining a recovered lossless tree. Additional cases retain
+  unexpected tokens, explicit missing syntax, and the complete source after a
+  fatal parse.
+- An isolated, compiler-cache-free Apple Clang 21.0.0 build of
+  `token_grammar.cpp` took 1.43 s at `-O0` and produced a 7,291,544-byte object;
+  the release compile took 3.84 s and produced a 736,976-byte object.
+- The syntax target and suite passed with warnings as errors under Apple Clang
+  21.0.0, GCC 14.3.0, and MSVC 19.51. The GCC release grammar object was
+  603,848 bytes. MSVC qualification used `/W4 /WX` with the independently
+  optional analytics extension disabled, proving the language project can
+  configure and build without that extension.
+
+Compiler time and object size are local observations for regression tracking,
+not comparisons across machines or promises to downstream users. GCC's lexy
+instantiation requires two source-scoped suppressions for overloaded-parser-DSL
+`-Wparentheses` and parse-handler `-Wdangling-pointer` false positives; all
+other language sources and diagnostics remain under the normal warning policy.
 
 ### Why not cpp-peglib
 
@@ -102,13 +129,15 @@ substantial parser infrastructure already supplied by lexy.
   translation unit becomes expensive. HGL tests include the public syntax API,
   not the parser DSL.
 - The dependency is fetched only when the opt-in language project is enabled.
-- Warnings originating in the third-party headers are treated as system-header
-  concerns; HGL grammar and projection code remains under normal warnings.
+- Warnings originating in third-party headers are treated as system-header
+  concerns. Any compiler false-positive suppression caused by the parser DSL
+  is documented and scoped to the grammar implementation translation unit;
+  projection code and every other HGL source remain under normal warnings.
 - Recovery tests must assert both diagnostics and the retained source shape.
 - A future replacement remains possible behind the source-accurate syntax
   contract; downstream passes must not depend on lexy node types.
 
-## Consequences if accepted
+## Consequences
 
 - The grammar becomes independently reviewable and testable.
 - Unexpected and missing syntax are retained for diagnostics and tooling.
@@ -116,6 +145,14 @@ substantial parser infrastructure already supplied by lexy.
   verbosity and template diagnostics are accepted implementation costs.
 - The parser does not classify functions or perform name and type resolution.
 - The current AST contract is preserved during the initial parser replacement.
+
+## Implementation status
+
+The replacement is complete. Lexy materializes the source-accurate HGL syntax
+arena, HGL-owned code translates recovery issues and projects complete
+productions into `ast::Module`, and the recursive-descent parser has been
+removed. This does not complete the frontend migration: `ast::Module` remains
+an interim input until typed HIR becomes the semantic-pass output.
 
 ## Alternatives
 

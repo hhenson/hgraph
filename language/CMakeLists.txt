@@ -84,6 +84,7 @@ add_library(hgl_syntax STATIC
     src/syntax/syntax_tree.cpp
     src/syntax/ast.cpp
     src/syntax/ast_projection.cpp
+    src/syntax/syntax_diagnostics.cpp
     src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp
@@ -193,10 +194,36 @@ find_program(HGL_CLANG_FORMAT_EXECUTABLE
 file(RELATIVE_PATH _hgl_install_include_from_bindir
     "${CMAKE_INSTALL_FULL_BINDIR}/"
     "${CMAKE_INSTALL_FULL_INCLUDEDIR}/")
-file(GENERATE
-    OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
-    CONTENT "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>)hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>)hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view link_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n"
-    TARGET hgl)
+set(_hgl_native_definitions "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>")
+set(_hgl_native_include_directories "$<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>")
+set(_hgl_native_compile_options "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>")
+set(_hgl_native_link_options "$<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>")
+if(WIN32)
+    # Scripted native modules are currently Unix-only. Avoid evaluating the
+    # executable's language-dependent compile and link properties on Windows:
+    # CMake otherwise attempts to generate different content at the same path.
+    set(_hgl_native_definitions "")
+    set(_hgl_native_include_directories "")
+    set(_hgl_native_compile_options "")
+    set(_hgl_native_link_options "")
+endif()
+set(_hgl_native_config_content
+    "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl(${_hgl_native_definitions})hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl(${_hgl_native_include_directories})hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl(${_hgl_native_compile_options})hgl\";\n    inline constexpr std::string_view link_options = R\"hgl(${_hgl_native_link_options})hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n")
+if(WIN32)
+    file(GENERATE
+        OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
+        CONTENT "${_hgl_native_config_content}")
+else()
+    file(GENERATE
+        OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
+        CONTENT "${_hgl_native_config_content}"
+        TARGET hgl)
+endif()
+unset(_hgl_native_config_content)
+unset(_hgl_native_definitions)
+unset(_hgl_native_include_directories)
+unset(_hgl_native_compile_options)
+unset(_hgl_native_link_options)
 target_include_directories(hgl_driver PRIVATE "${_hgl_native_config_dir}")
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the
