@@ -1447,9 +1447,9 @@ struct harness_replay {
   static void start(Scalar<"key", std::string> key,
                     Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
                     State<stdlib::record_replay_memory_detail::ReplayCursorState> cursor) {
-    stdlib::replay_impl::start(std::move(key), std::move(recordable_id),
-                               Scalar<"model", Str>{Str{}}, std::move(traits),
-                               std::move(cursor));
+    stdlib::replay_impl::start(std::move(key), TypeArg<"tp", TsVar<"S">, AutoResolve>{},
+                               std::move(recordable_id), Scalar<"model", Str>{Str{}},
+                               std::move(traits), std::move(cursor));
   }
 
   static void eval(Scalar<"key", std::string> key,
@@ -1460,9 +1460,9 @@ struct harness_replay {
     // The harness never selects a backend: it is the dense in-memory path by
     // construction, so it forwards an empty model ("use the graph's").
     stdlib::replay_impl::eval(
-        std::move(key), std::move(recordable_id), Scalar<"model", Str>{Str{}},
-        std::move(traits), std::move(gs), std::move(sched), std::move(cursor), now,
-        std::move(out));
+        std::move(key), TypeArg<"tp", TsVar<"S">, AutoResolve>{}, std::move(recordable_id),
+        Scalar<"model", Str>{Str{}}, std::move(traits), std::move(gs), std::move(sched),
+        std::move(cursor), now, std::move(out));
   }
 };
 

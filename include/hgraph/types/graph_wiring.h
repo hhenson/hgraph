@@ -1622,6 +1622,39 @@ namespace hgraph
 
     namespace graph_wiring_detail
     {
+        /**
+         * Direct ``wire<T>`` of a ``TypeArg`` parameter (RFC 0033): the type
+         * the caller supplies -- a time-series schema, a scalar schema or a
+         * ``TypeCarrier`` -- binds the carried pattern's variables, as
+         * ``type_carrier_match`` does on the registry path. A form the
+         * pattern does not carry unifies nothing (the unifier primaries are
+         * no-ops); a size carrier resolves only through the registry.
+         */
+        template <typename Pattern, typename A>
+        void unify_type_argument(const A &argument, ResolutionMap &map)
+        {
+            using Arg = std::remove_cvref_t<A>;
+            if constexpr (std::is_same_v<Arg, TypeCarrier>)
+            {
+                if (argument.ts() != nullptr) { ts_unifier<Pattern>::unify(argument.ts(), map); }
+                else if (argument.scalar() != nullptr) { scalar_unifier<Pattern>::unify(argument.scalar(), map); }
+                else { throw std::invalid_argument("wire<T>: a size type argument resolves only through the registry"); }
+            }
+            else if constexpr (std::is_convertible_v<Arg, const TSValueTypeMetaData *>)
+            {
+                ts_unifier<Pattern>::unify(argument, map);
+            }
+            else if constexpr (std::is_convertible_v<Arg, const ValueTypeMetaData *>)
+            {
+                scalar_unifier<Pattern>::unify(argument, map);
+            }
+            else
+            {
+                static_assert(static_schema_detail::always_false_v<Arg>,
+                              "wire<T>: a type argument takes a time-series schema, a scalar schema or a TypeCarrier");
+            }
+        }
+
         // A graph definition is a struct with a static ``compose(Wiring &, ...)``; a
         // node definition has a static ``eval(...)`` instead.
         template <typename X>
@@ -3066,6 +3099,18 @@ namespace hgraph
                                     {
                                         scalar_unifier<ST>::unify(graph_wiring_detail::scalar_argument_meta(
                                             call_args_detail::payload_at<default_index>(default_args)), map);
+                                    }
+                                }
+                                else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+                                {
+                                    // A supplied type argument binds its carried
+                                    // pattern; a deferred one (no argument, RFC
+                                    // 0033) resolves from the ports and the
+                                    // explicit output schema.
+                                    if constexpr (arg_index != call_args_detail::npos)
+                                    {
+                                        graph_wiring_detail::unify_type_argument<typename P::pattern_type>(
+                                            call_args_detail::payload_at<arg_index>(arg_tuple), map);
                                     }
                                 }
                             }

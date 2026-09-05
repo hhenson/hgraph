@@ -671,7 +671,7 @@ whose curated signatures remain authoritative.
      - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`replay <python-operator-replay>`
-     - ``replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT``
+     - ``replay(key: str, tp: type[OUT] = ..., recordable_id: str = ..., model: str = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`replay_data_frame <python-operator-replay_data_frame>`
      - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT``

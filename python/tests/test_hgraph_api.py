@@ -285,24 +285,25 @@ def test_documented_positional_type_carriers_select_output_types():
         hg.nothing(TS[int])
         hg.replay("prices", TSD[str, TS[float]], "recording")
 
-    # const and nothing declare ``tp`` natively (RFC 0033, PR B): the
-    # positional type stays in place as a type argument for the dispatcher
-    # and the output constraint is set as well. replay does not declare it
-    # yet, so its positional type still moves into output selection.
+    # const, nothing and replay declare ``tp`` natively (RFC 0033): the
+    # positional type stays in place as a type argument for the dispatcher,
+    # which binds the output from it; no Python-side name table moves it
+    # into output selection any more.
     check(seen[0][0] == "const" and len(seen[0][1]) == 2
           and seen[0][1][1] == TSD[str, TS[int]].handle,
           f"const positional type argument was not retained: {seen[0]}")
-    check(seen[0][3] == TSD[str, TS[int]].handle,
-          f"const positional type was not selected: {seen[0]}")
+    check(seen[0][3] is None,
+          f"const positional type was promoted to output_type: {seen[0]}")
     check(seen[1][0] == "nothing" and len(seen[1][1]) == 1
           and seen[1][1][0] == TS[int].handle,
           f"nothing positional type argument was not retained: {seen[1]}")
-    check(seen[1][3] == TS[int].handle,
-          f"nothing positional type was not selected: {seen[1]}")
-    check(seen[2][0] == "replay" and seen[2][1] == ("prices", "recording"),
-          f"replay positional arguments were not normalized: {seen[2]}")
-    check(seen[2][3] == TSD[str, TS[float]].handle,
-          f"replay positional type was not selected: {seen[2]}")
+    check(seen[1][3] is None,
+          f"nothing positional type was promoted to output_type: {seen[1]}")
+    check(seen[2][0] == "replay"
+          and seen[2][1] == ("prices", TSD[str, TS[float]].handle, "recording"),
+          f"replay positional type argument was not retained: {seen[2]}")
+    check(seen[2][3] is None,
+          f"replay positional type was promoted to output_type: {seen[2]}")
 
 
 def test_operator_does_not_promote_positional_types_generically():

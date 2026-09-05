@@ -1486,7 +1486,12 @@ namespace hgraph
         }
 
         /** A type argument ranks by its carried pattern: ``type[TS[int]]`` beats
-            ``type[TS[SCALAR]]``; a size variable costs one point. */
+            ``type[TS[SCALAR]]``; a size variable costs one point. The carried
+            pattern's variables are priced in their own key space: a variable
+            the inputs already price (``TS[Frame[SCHEMA]]``) must not be
+            cheapened by ``type[SCHEMA]`` re-mentioning it at a scalar's
+            weight, or the generic ``TS[SCHEMA]`` overload would outrank the
+            frame one (the accumulator keeps the minimum per key). */
         inline void collect_param_rank(const ParamPattern &param, RankAccumulator &acc)
         {
             switch (param.kind)
@@ -1494,15 +1499,20 @@ namespace hgraph
                 case ParamPattern::Kind::Input: collect_ts_rank(param.ts, acc); break;
                 case ParamPattern::Kind::Scalar: collect_scalar_rank(param.scalar, acc, 1); break;
                 case ParamPattern::Kind::TypeArg:
+                {
+                    RankAccumulator carried;
                     switch (param.carrier)
                     {
-                        case ResolutionKind::TimeSeries: collect_ts_rank(param.ts, acc); break;
-                        case ResolutionKind::Scalar: collect_scalar_rank(param.scalar, acc, 1); break;
+                        case ResolutionKind::TimeSeries: collect_ts_rank(param.ts, carried); break;
+                        case ResolutionKind::Scalar: collect_scalar_rank(param.scalar, carried, 1); break;
                         default:
-                            if (param.ts.size_var) { acc.add_var("size:" + param.ts.size_name, 1); }
+                            if (param.ts.size_var) { carried.add_var("size:" + param.ts.size_name, 1); }
                             break;
                     }
+                    acc.structural += carried.structural;
+                    for (const auto &[key, rank] : carried.vars) { acc.add_var("typearg:" + key, rank); }
                     break;
+                }
             }
         }
 

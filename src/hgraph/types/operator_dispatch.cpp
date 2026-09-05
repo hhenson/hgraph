@@ -50,14 +50,95 @@ namespace hgraph
         }
     }
 
-    bool type_carrier_match(const ParamPattern &param, const TypeCarrier &carrier, ResolutionMap &map,
+    namespace
+    {
+        /**
+         * A Python ``type[X]`` whose ``X`` is a bare, unconstrained variable
+         * lowers to a scalar variable pattern, but Python type variables are
+         * untyped: the signature's other patterns may bind the same name as a
+         * time series (``type[OUT]``) or a size (``TSL[TS[int], N]`` with
+         * ``type[N]``). The one matcher follows the form the map already
+         * binds, or the form of the carrier being supplied, so the registry
+         * path and the direct node/graph paths agree (RFC 0033, review on PR D).
+         */
+        void follow_carrier_form(ParamPattern &param, const ResolutionMap &map,
+                                 std::optional<ResolutionKind> supplied)
+        {
+            if (param.carrier != ResolutionKind::Scalar || param.scalar.kind != ScalarPattern::Kind::Var ||
+                !param.scalar.constraints.empty() || param.scalar.bound != nullptr)
+            {
+                return;
+            }
+            const std::string &name = param.scalar.name;
+            if (map.find_scalar(name) != nullptr) { return; }
+            if (supplied == ResolutionKind::TimeSeries || map.find_ts(name) != nullptr)
+            {
+                param.carrier = ResolutionKind::TimeSeries;
+                param.ts      = TypePattern::var(name);
+            }
+            else if (supplied == ResolutionKind::Size || map.find_size(name).has_value())
+            {
+                param.carrier = ResolutionKind::Size;
+                param.ts      = TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), name);
+            }
+        }
+
+        /** The default pattern of a deferred type argument as a carried pattern of its own. */
+        ParamPattern deferred_as_param(const ParamPattern &param)
+        {
+            ParamPattern as_default = param;
+            as_default.ts           = param.default_pattern->ts;
+            as_default.scalar       = param.default_pattern->scalar;
+            as_default.default_pattern.reset();
+            return as_default;
+        }
+
+        bool carried_pattern_match(const ParamPattern &param, const TypeCarrier &carrier, ResolutionMap &map)
+        {
+            switch (param.carrier)
+            {
+                case ResolutionKind::TimeSeries:
+                    // A carried type is a schema value, not an input edge: a
+                    // top-level REF binds verbatim (output-direction semantics),
+                    // so ``nothing[REF[TS[int]]]`` produces the reference it names.
+                    return carrier.ts() != nullptr && output_ts_pattern_match(param.ts, carrier.ts(), map);
+                case ResolutionKind::Scalar:
+                    return carrier.scalar() != nullptr && scalar_pattern_match(param.scalar, carrier.scalar(), map);
+                case ResolutionKind::Size:
+                    return carrier.size().has_value() && size_pattern_match(param.ts, *carrier.size(), map);
+                default: return false;
+            }
+        }
+
+        /** A supplied carrier is also the value of its deferred default (RFC 0033, "Deferred defaults"). */
+        bool deferred_pattern_match(const ParamPattern &param, const TypeCarrier &carrier, ResolutionMap &map,
+                                    std::string *why)
+        {
+            if (param.kind != ParamPattern::Kind::TypeArg || !param.default_pattern.has_value()) { return true; }
+            ParamPattern as_default = deferred_as_param(param);
+            follow_carrier_form(as_default, map, carrier.kind());
+            const bool matched = as_default.carrier == carrier.kind() && carried_pattern_match(as_default, carrier, map);
+            if (!matched && why != nullptr)
+            {
+                std::ostringstream carried;
+                carried << carrier;
+                *why = fmt::format("{} does not agree with its default {}", carried.str(),
+                                   type_arg_pattern_to_string(as_default));
+            }
+            return matched;
+        }
+    }  // namespace
+
+    bool type_carrier_match(const ParamPattern &declared, const TypeCarrier &carrier, ResolutionMap &map,
                             std::string *why)
     {
-        if (param.kind != ParamPattern::Kind::TypeArg)
+        if (declared.kind != ParamPattern::Kind::TypeArg)
         {
             if (why != nullptr) { *why = "parameter is not a type argument"; }
             return false;
         }
+        ParamPattern param = declared;
+        follow_carrier_form(param, map, carrier.kind());
         if (carrier.kind() != param.carrier)
         {
             if (why != nullptr)
@@ -67,23 +148,7 @@ namespace hgraph
             }
             return false;
         }
-        bool matched = false;
-        switch (param.carrier)
-        {
-            case ResolutionKind::TimeSeries:
-                // A carried type is a schema value, not an input edge: a
-                // top-level REF binds verbatim (output-direction semantics),
-                // so ``nothing[REF[TS[int]]]`` produces the reference it names.
-                matched = carrier.ts() != nullptr && output_ts_pattern_match(param.ts, carrier.ts(), map);
-                break;
-            case ResolutionKind::Scalar:
-                matched = carrier.scalar() != nullptr && scalar_pattern_match(param.scalar, carrier.scalar(), map);
-                break;
-            case ResolutionKind::Size:
-                matched = carrier.size().has_value() && size_pattern_match(param.ts, *carrier.size(), map);
-                break;
-            default: break;
-        }
+        const bool matched = carried_pattern_match(param, carrier, map);
         if (!matched && why != nullptr)
         {
             std::ostringstream carried;
@@ -96,8 +161,11 @@ namespace hgraph
     std::optional<TypeCarrier> materialise_deferred_carrier(const ParamPattern &param, const ResolutionMap &map)
     {
         if (param.kind != ParamPattern::Kind::TypeArg || !param.default_pattern.has_value()) { return std::nullopt; }
-        const ParamPattern::DeferredCarrier &deferred = *param.default_pattern;
-        switch (param.carrier)
+        // A bare default variable (``= OUT``, ``= N``, ``AUTO_RESOLVE`` on
+        // ``type[N]``) takes whichever form the map binds it in.
+        ParamPattern deferred = deferred_as_param(param);
+        follow_carrier_form(deferred, map, std::nullopt);
+        switch (deferred.carrier)
         {
             case ResolutionKind::TimeSeries:
             {
@@ -568,7 +636,11 @@ namespace hgraph
                     }
                     if (!arg.scalar_value.has_value())
                     {
-                        deferred.push_back(i);
+                        // Deferred when the parameter has a default pattern;
+                        // otherwise an absent optional type argument
+                        // (``tp: type[X] = None``, or None supplied), which
+                        // the body receives as None like any absent scalar.
+                        if (param.default_pattern.has_value()) { deferred.push_back(i); }
                         continue;
                     }
                     const auto *carrier = arg.scalar_value.try_as<TypeCarrier>();
@@ -584,6 +656,15 @@ namespace hgraph
                     }
                     std::string reason;
                     if (!type_carrier_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
+                    {
+                        if (why != nullptr) { *why = fmt::format("type argument {}: {}", i, reason); }
+                        return false;
+                    }
+                    // A supplied carrier is also the value of its deferred
+                    // default (``to: type[TS[SCALAR]] = OUT`` supplied binds
+                    // ``OUT``): the "must agree" rule of the retired Python
+                    // pass, once (RFC 0033, "Deferred defaults").
+                    if (!deferred_pattern_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
                     {
                         if (why != nullptr) { *why = fmt::format("type argument {}: {}", i, reason); }
                         return false;
@@ -785,6 +866,83 @@ namespace hgraph
                 }
             }
 
+            // Deferred type arguments and the output resolve together to a
+            // fixed point: a carrier defaulting to the output variable needs
+            // the output resolved first, and a carrier may supply a variable
+            // the output needs (RFC 0033, "Dispatch order"). The pass runs
+            // before the resolvers, so they see every variable the inputs,
+            // the supplied carriers and the requested output determine
+            // (``to: type[TS[SCALAR]] = OUT`` binds ``SCALAR`` from the
+            // requested output), and again after them for the carriers a
+            // resolver completes. Every carrier the winning candidate's
+            // wire receives is then a concrete value.
+            bool               output_resolved = !impl.has_output;
+            std::vector<bool>  materialised(deferred.size(), false);
+            std::size_t        pending = deferred.size();
+            // ``OUT`` is the DSL's conventional output variable (``-> OUT``,
+            // ``DEFAULT[OUT]``, ``to: type[OUT] = OUT``): a deferred carrier
+            // defaulting to a bare ``OUT`` that nothing else bound takes the
+            // candidate's own resolved output, so an overload whose output is
+            // concrete (``-> TS[RestRequest]``) still resolves it. This is the
+            // retired Python pass's "OUT special case", once, in the registry.
+            const auto defaults_to_bare_out = [](const ParamPattern &param) {
+                if (!param.default_pattern.has_value()) { return false; }
+                const ParamPattern::DeferredCarrier &d = *param.default_pattern;
+                return (param.carrier == ResolutionKind::TimeSeries && d.ts.kind == TypePattern::Kind::Var &&
+                        d.ts.name == "OUT" && d.ts.constraints.empty()) ||
+                       (param.carrier == ResolutionKind::Scalar && d.scalar.kind == ScalarPattern::Kind::Var &&
+                        d.scalar.name == "OUT" && d.scalar.constraints.empty() && d.scalar.bound == nullptr);
+            };
+            const auto materialise_pass = [&]() -> bool {
+                for (bool progress = true; progress;)
+                {
+                    progress = false;
+                    for (std::size_t d = 0; d < deferred.size(); ++d)
+                    {
+                        if (materialised[d]) { continue; }
+                        const std::size_t   i     = deferred[d];
+                        const ParamPattern &param = impl.params[i];
+                        std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, map);
+                        if (!carrier.has_value()) { continue; }
+                        std::string reason;
+                        if (!type_carrier_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
+                        {
+                            if (why != nullptr)
+                            {
+                                *why = fmt::format("default for type argument '{}': {}", param.name, reason);
+                            }
+                            return false;
+                        }
+                        args[i].scalar_value = Value{*carrier};
+                        args[i].scalar_meta  = args[i].scalar_value.schema();
+                        materialised[d]      = true;
+                        --pending;
+                        progress = true;
+                    }
+                    const TSValueTypeMetaData *resolved_output =
+                        impl.has_output ? ts_pattern_resolve(impl.output, map) : nullptr;
+                    if (!output_resolved && resolved_output != nullptr)
+                    {
+                        output_resolved = true;
+                        progress        = true;
+                    }
+                    if (resolved_output != nullptr && map.find_ts("OUT") == nullptr)
+                    {
+                        for (std::size_t d = 0; d < deferred.size(); ++d)
+                        {
+                            if (!materialised[d] && defaults_to_bare_out(impl.params[deferred[d]]))
+                            {
+                                map.bind_ts("OUT", resolved_output);
+                                progress = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return true;
+            };
+            if (!materialise_pass()) { return false; }
+
             OperatorCallContext context{args, impl.params, kwargs, global_state,
                                         wiring};
             if (impl.default_resolver)
@@ -801,45 +959,7 @@ namespace hgraph
                 if (!resolved) { return false; }
             }
 
-            // Deferred type arguments and the output resolve together to a
-            // fixed point: a carrier defaulting to the output variable needs
-            // the output resolved first, and a carrier may supply a variable
-            // the output needs (RFC 0033, "Dispatch order"). Every carrier the
-            // winning candidate's wire receives is then a concrete value.
-            bool               output_resolved = !impl.has_output;
-            std::vector<bool>  materialised(deferred.size(), false);
-            std::size_t        pending = deferred.size();
-            for (bool progress = true; progress;)
-            {
-                progress = false;
-                for (std::size_t d = 0; d < deferred.size(); ++d)
-                {
-                    if (materialised[d]) { continue; }
-                    const std::size_t   i     = deferred[d];
-                    const ParamPattern &param = impl.params[i];
-                    std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, map);
-                    if (!carrier.has_value()) { continue; }
-                    std::string reason;
-                    if (!type_carrier_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
-                    {
-                        if (why != nullptr)
-                        {
-                            *why = fmt::format("default for type argument '{}': {}", param.name, reason);
-                        }
-                        return false;
-                    }
-                    args[i].scalar_value = Value{*carrier};
-                    args[i].scalar_meta  = args[i].scalar_value.schema();
-                    materialised[d]      = true;
-                    --pending;
-                    progress = true;
-                }
-                if (!output_resolved && ts_pattern_resolve(impl.output, map) != nullptr)
-                {
-                    output_resolved = true;
-                    progress        = true;
-                }
-            }
+            if (!materialise_pass()) { return false; }
             if (pending != 0)
             {
                 if (why != nullptr)

@@ -94,6 +94,14 @@ namespace hgraph::python_bridge
         TypePattern pattern{};
     };
 
+    /** A ``type[...]`` parameter of a Python overload (RFC 0033): the carried
+        pattern, its form and an optional deferred default, as one
+        ``ParamPattern`` of kind ``TypeArg``. */
+    struct PyTypeArgPattern
+    {
+        ParamPattern param{};
+    };
+
     struct PyWiredFn
     {
         WiredFn fn{};

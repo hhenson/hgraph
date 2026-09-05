@@ -6192,6 +6192,9 @@ class _replay_Operator(_Protocol):
     ``key`` : scalar; ``str``
        Wiring-time name within the current recordable context.
 
+    ``tp`` : type-argument; ``type[OUT]``
+       The output time-series type, a type argument at the 0.5 position (``replay("price", TS[float])`` or ``replay[TS[float]]("price")``); resolved from the requested output when omitted. Optional in overloads that show ``= ...``.
+
     ``recordable_id`` : scalar; ``str``
        Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
@@ -6214,14 +6217,14 @@ class _replay_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT``
+    - ``replay(key: str, tp: type[OUT] = ..., recordable_id: str = ..., model: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, key: str, recordable_id: str = ..., model: str = ...) -> _WiringPort: ...
+    def __call__(self, key: str, tp: object = ..., recordable_id: str = ..., model: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay: _replay_Operator

@@ -166,6 +166,59 @@ def _unwrap(value):
     return value
 
 
+def _is_type_like(value):
+    """A value that names a type: a class, a parameterised generic, a
+    ``Size``-like object, or a plain size. Plain values (a ``str``
+    ``recordable_id`` in the slot a sibling overload declares as ``tp``) are
+    not, and stay what they are: ``_value_type`` would otherwise read a string
+    as a forward reference."""
+    import typing
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (type, int)) or typing.get_origin(value) is not None:
+        return True
+    return isinstance(getattr(value, "SIZE", None), int)
+
+
+def _type_argument_carrier(value):
+    """Role-directed arrival (RFC 0033): the value handed to a parameter the
+    family declares as a type argument crosses as the type it names. A
+    ``TS[...]`` expression is minted by the bridge itself; a class, a
+    ``TimeSeriesSchema``, a size or a ``Size``-like object becomes a carrier
+    here; ``AUTO_RESOLVE`` and a type variable defer to the registry; a port,
+    a plain value or an unconvertible type is left for the dispatcher (an
+    overload that declares the slot as a type argument rejects it; a sibling
+    that declares it as a scalar may take it)."""
+    from .._types import AUTO_RESOLVE, _TypeVarSentinel
+    from ._resolution import _carrier_value
+
+    if value is None or isinstance(value, (WiringPort, _TsExpr, _hgraph.TsType, _hgraph.Port)):
+        return value
+    if value is AUTO_RESOLVE or isinstance(value, _TypeVarSentinel):
+        return None
+    if not _is_type_like(value):
+        return value
+    carrier = _carrier_value(value)
+    return value if carrier is None else _hgraph.type_carrier(carrier)
+
+
+def _apply_type_argument_roles(name, args, kwargs):
+    """Convert the arguments at the family's type-argument positions/names."""
+    names, positions = _hgraph.operator_carrier_parameters(name)
+    if not names:
+        return args, kwargs
+    if positions:
+        args = tuple(
+            _type_argument_carrier(value) if index in positions else value
+            for index, value in enumerate(args))
+    if any(key in kwargs for key in names):
+        kwargs = {
+            key: _type_argument_carrier(value) if key in names else value
+            for key, value in kwargs.items()}
+    return args, kwargs
+
+
 def wire(name, *args, __output_type__=None, **kwargs):
     """Wire operator ``name`` by registry resolution (the erased contract)."""
     out_type = kwargs.pop("tp", None) or kwargs.pop("output_type", None) or __output_type__
@@ -193,6 +246,7 @@ def wire(name, *args, __output_type__=None, **kwargs):
                 resolution_scope.bind_size(variable, resolved)
             else:
                 resolution_scope.bind_scalar(variable, _value_type(resolved))
+    args, kwargs = _apply_type_argument_roles(name, args, kwargs)
     unwrapped = tuple(_unwrap(a) for a in args)
     unwrapped_kw = {k: _unwrap(v) for k, v in kwargs.items()}
     try:
@@ -236,15 +290,6 @@ _PUBLIC_OPERATOR_SIGNATURES = {
     "to_json": _to_json_public_signature,
     "from_json": _from_json_public_signature,
 }
-
-
-def _operator_carrier_positions(name):
-    """Positions at which the native family declares a type argument."""
-    try:
-        return set(_hgraph.operator_carrier_parameters(name)[1])
-    except AttributeError:
-        # Allows source imports against an older extension while rebuilding.
-        return set()
 
 
 def _operator_overload_signatures(name):
@@ -516,11 +561,6 @@ class _OperatorFunction:
         # parameter's default" (upstream defaults optional scalars to None).
         while args and args[-1] is None:
             args = args[:-1]
-        # These three compatibility APIs declare a positional type carrier.
-        # Normalize it before the record/replay adapter inspects positional
-        # arguments so replay(key, tp, recordable_id) presents the adapter
-        # with the native (key, recordable_id) call shape.
-        args, kwargs = self._normalise_type_arguments(args, kwargs)
         if self.__name__ in ("record", "replay") and _record_replay_wiring_adapter is not None:
             # release/0.5's data-frame override registry is translated at the
             # Python wiring boundary into native scalar options. The adapter is
@@ -539,7 +579,8 @@ class _OperatorFunction:
             if result_type is not inspect.Signature.empty:
                 kwargs["output_type"] = TS[result_type]
         if (self.__name__ == "const" and args
-                and "tp" not in kwargs and "output_type" not in kwargs):
+                and "tp" not in kwargs and "output_type" not in kwargs
+                and not (len(args) > 1 and isinstance(args[1], _TsExpr))):
             from .._compat import CompoundScalar
             from .._types import TS, _GenericType, _value_type
 
@@ -617,7 +658,7 @@ class _OperatorFunction:
         resolutions = {}
         for i in (item if isinstance(item, tuple) else (item,)):
             if isinstance(i, slice):
-                if i.start is OUT and output_type is None:
+                if _type_var_name(i.start) == "OUT" and output_type is None:
                     output_type = i.stop
                 elif isinstance(i.stop, int):
                     sizes.append(i.stop)   # op[SIZE: Size[4]] pins size vars
@@ -644,32 +685,6 @@ class _OperatorFunction:
             self.__name__, output_type=output_type, sizes=sizes or None,
             ts_hint=ts_hints or None, resolutions=resolutions or None,
             signature=self.__signature__, documentation=self.__doc__)
-
-    def _normalise_type_arguments(self, args, kwargs):
-        """Move documented positional type carriers into output selection.
-
-        Type expressions are ordinary scalar values for some operators, so
-        this compatibility adaptation is deliberately name- and position-
-        specific rather than scanning every operator call. A family that
-        declares the type argument natively (RFC 0033: ``const``,
-        ``nothing``) keeps it in place -- the dispatcher binds the output
-        from it and a positional ``delay`` after it lands on ``delay`` -- and
-        the output constraint is set as well so the remaining Python-side
-        rules see the same call; only a family that does not declare it yet
-        (``replay``) has the type removed from the positional list.
-        """
-        if "tp" in kwargs or "output_type" in kwargs:
-            return args, kwargs
-        type_index = {"const": 1, "nothing": 0, "replay": 1}.get(
-            self.__name__)
-        if (type_index is None or type_index >= len(args)
-                or not isinstance(args[type_index], _TsExpr)):
-            return args, kwargs
-        kwargs = dict(kwargs)
-        kwargs["output_type"] = args[type_index]
-        if type_index in _operator_carrier_positions(self.__name__):
-            return args, kwargs
-        return (*args[:type_index], *args[type_index + 1:]), kwargs
 
     def __repr__(self):
         return f"<operator {self.__name__}>"

@@ -1272,6 +1272,38 @@ namespace hgraph::python_bridge
           },
           nb::arg("schema_variable"), nb::arg("qualified_origin"), nb::arg("arguments"));
 
+    nb::class_<PyTypeArgPattern>(m, "TypeArgPattern")
+        .def("__repr__", [](const PyTypeArgPattern &self) {
+            return "type[" + type_arg_pattern_to_string(self.param) + "]" +
+                   (self.param.default_pattern.has_value() ? std::string{"=..."} : std::string{});
+        });
+    m.def(
+        "type_arg_pattern",
+        [](nb::object carried, nb::object default_pattern) {
+            // A Python overload's ``type[...]`` parameter (RFC 0033): the
+            // carried pattern (TypePattern / ScalarPattern / SizePattern) and,
+            // when the default is a pattern (AUTO_RESOLVE, DEFAULT[X], = X,
+            // = TS[K]), the deferred default the dispatcher materialises after
+            // the resolvers. A bare-variable default of another form (an
+            // OUT default on a scalar-lowered carrier) is reconciled at
+            // materialisation from the map's binding kind.
+            PyTypeArgPattern result;
+            result.param = carried_param_from_python(carried, "type_arg_pattern");
+            if (!default_pattern.is_none())
+            {
+                ParamPattern deferred = carried_param_from_python(default_pattern, "type_arg_pattern default");
+                result.param.default_pattern = ParamPattern::DeferredCarrier{deferred.ts, deferred.scalar};
+                if (deferred.carrier != result.param.carrier)
+                {
+                    // Keep the carried form; the deferred form follows the map at
+                    // materialisation (a bare variable named as OUT/SIZE).
+                    result.param.default_pattern->ts     = deferred.ts;
+                    result.param.default_pattern->scalar = deferred.scalar;
+                }
+            }
+            return result;
+        },
+        nb::arg("carried"), nb::arg("default_pattern") = nb::none());
     m.def("size_pattern_var", [](const std::string &name) {
         return PySizePattern{true, name, 0};
     });
@@ -1313,8 +1345,11 @@ namespace hgraph::python_bridge
                  [](PyResolutionScope &self, nb::object pattern, nb::object value) -> bool {
                      // The one carrier matcher (RFC 0033): a type argument
                      // against its carried pattern, binding into this scope.
-                     ParamPattern param = carried_param_from_python(pattern, "match_carrier");
-                     TypeCarrier  carrier;
+                     // A bare variable follows the carrier's form inside the
+                     // matcher itself (``type[OUT]`` given a time series,
+                     // ``type[SIZE]`` given a size).
+                     const ParamPattern param = carried_param_from_python(pattern, "match_carrier");
+                     TypeCarrier        carrier;
                      if (nb::isinstance<PyTsType>(value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
                      else if (nb::isinstance<PyValueType>(value))
                      {
@@ -1666,6 +1701,41 @@ namespace hgraph::python_bridge
             {
                 auto         entry = nb::cast<nb::tuple>(item);
                 ParamPattern pp;
+                if (nb::isinstance<PyTypeArgPattern>(entry[1]))
+                {
+                    // A type argument (RFC 0033): the parameter is the
+                    // carried pattern; a concrete default is a carrier.
+                    pp      = nb::cast<PyTypeArgPattern &>(entry[1]).param;
+                    pp.name = nb::cast<std::string>(entry[0]);
+                    if (nb::len(entry) > 2 && entry[2].is_none())
+                    {
+                        // ``tp: type[X] = None``: an optional type argument
+                        // that stays absent when omitted (the body sees None).
+                        pp.default_value = Value{};
+                    }
+                    else if (nb::len(entry) > 2)
+                    {
+                        nb::handle  default_value = entry[2];
+                        TypeCarrier carrier;
+                        if (nb::isinstance<PyTsType>(default_value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(default_value).meta); }
+                        else if (nb::isinstance<PyValueType>(default_value))
+                        {
+                            carrier = TypeCarrier::of_scalar(nb::cast<PyValueType &>(default_value).meta);
+                        }
+                        else if (nb::isinstance<nb::int_>(default_value))
+                        {
+                            carrier = TypeCarrier::of_size(nb::cast<std::size_t>(default_value));
+                        }
+                        else
+                        {
+                            throw nb::type_error("a type argument's concrete default must be a TsType, ValueType or size");
+                        }
+                        static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+                        pp.default_value = Value{carrier};
+                    }
+                    impl.params.push_back(std::move(pp));
+                    continue;
+                }
                 pp.name = nb::cast<std::string>(entry[0]);
                 if (nb::isinstance<PyTypePattern>(entry[1]))
                 {
@@ -1701,10 +1771,15 @@ namespace hgraph::python_bridge
                 {
                     if (i != 0) { out += ", "; }
                     if (impl.variadic && i + 1 == impl.params.size()) { out += "*"; }
-                    out += impl.params[i].kind == ParamPattern::Kind::Input
-                               ? ts_pattern_to_string(impl.params[i].ts)
-                               : scalar_pattern_to_string(impl.params[i].scalar);
-                    if (impl.params[i].default_value.has_value()) { out += "=…"; }
+                    switch (impl.params[i].kind)
+                    {
+                        case ParamPattern::Kind::Input: out += ts_pattern_to_string(impl.params[i].ts); break;
+                        case ParamPattern::Kind::TypeArg:
+                            out += "type[" + type_arg_pattern_to_string(impl.params[i]) + "]";
+                            break;
+                        default: out += scalar_pattern_to_string(impl.params[i].scalar); break;
+                    }
+                    if (impl.params[i].has_default()) { out += "=…"; }
                 }
                 if (impl.has_kwargs)
                 {

@@ -112,13 +112,13 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Type carriers are matched by the resolver (family 3) ---
     Ratchet(
         id="wiring-type-carrier-sites",
-        baseline=20,
+        baseline=0,
         roots=("python/hgraph/_wiring", "python/hgraph/_types.py"),
         suffixes=(".py",),
         pattern=r"\b(_binding_for_type_value|_match_type_argument|apply_type_carriers|"
         r"_resolved_placeholder_value|_bind_native_resolution)\b",
-        owner="type carriers are matched by the resolver (blueprint PR B/C); "
-        "these Python-side binding sites are the copies to retire",
+        owner="type arguments are matched and materialised by the registry "
+        "(RFC 0033); the Python side only lowers patterns and pins",
     ),
     # --- One ancestry walker (family 4) ---
     Ratchet(
