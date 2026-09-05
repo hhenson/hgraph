@@ -16,10 +16,11 @@
 /// planned from hgraph IR and prints names and types without linking the hgraph
 /// runtime, so what it emits is checked by the native compiler that builds the
 /// package. Body-local let, var, and state binding types also come from hgraph
-/// IR. A temporary syntax adapter still supplies executable bodies,
-/// expression-level type syntax, and dependency discovery during the Stage E
-/// migration. Tests run generated graphs beside `hgl test` and exercise
-/// generated runtime nodes directly through hgraph's public harness.
+/// IR. Internal callable dependencies are read from reachable hgraph-IR body
+/// operations. A temporary syntax adapter still supplies executable bodies and
+/// expression-level type syntax during the Stage E migration. Tests run
+/// generated graphs beside `hgl test` and exercise generated runtime nodes
+/// directly through hgraph's public harness.
 namespace hgl::codegen
 {
     namespace ast = syntax::ast;

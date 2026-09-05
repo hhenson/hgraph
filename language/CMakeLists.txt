@@ -189,8 +189,8 @@ endfunction()
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
 # authoring code per module (developer guide, "C++ backend, first pass").
 # Hgraph IR owns module and callable/operator interfaces, struct layouts,
-# construction defaults, and local/state binding types while a temporary
-# syntax adapter prints executable bodies and discovers dependencies.
+# construction defaults, local/state binding types, and dependency order while
+# a temporary syntax adapter prints executable bodies.
 add_library(hgl_codegen STATIC
     src/codegen/cpp_emitter.cpp
 )
