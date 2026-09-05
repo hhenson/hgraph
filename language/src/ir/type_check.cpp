@@ -544,6 +544,14 @@ namespace hgl::ir
                 if (op == BinaryOp::Add && same(lhs, scalar(ScalarType::Str)) && same(rhs, scalar(ScalarType::Str))) {
                     return scalar(ScalarType::Str);
                 }
+                const TypeId duration = scalar(ScalarType::Duration);
+                const TypeId datetime = scalar(ScalarType::DateTime);
+                if (op == BinaryOp::Add && same(lhs, duration) && same(rhs, duration)) { return duration; }
+                if (op == BinaryOp::Add && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
+                if (op == BinaryOp::Sub && same(lhs, duration) && same(rhs, duration)) { return duration; }
+                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
+                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, datetime)) { return duration; }
+                if (op == BinaryOp::Mul && same(lhs, duration) && same(rhs, scalar(ScalarType::I64))) { return duration; }
                 const bool lhs_numeric = numeric(lhs) || active_proves_numeric(lhs);
                 const bool rhs_numeric = numeric(rhs) || active_proves_numeric(rhs);
                 if (!lhs_numeric || !rhs_numeric) {
@@ -578,6 +586,42 @@ namespace hgl::ir
                     const bool equal    = a == b;
                     expression.constant = Constant{op == BinaryOp::Equal ? equal : !equal};
                     return;
+                }
+                const auto *left_temporal  = std::get_if<syntax::TemporalValue>(&a);
+                const auto *right_temporal = std::get_if<syntax::TemporalValue>(&b);
+                if (left_temporal && right_temporal) {
+                    syntax::TemporalValue result = *left_temporal;
+                    if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::Duration &&
+                        right_temporal->kind == syntax::TemporalKind::Duration) {
+                        result.micros += right_temporal->micros;
+                        expression.constant = Constant{result};
+                    } else if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        result.micros += right_temporal->micros;
+                        expression.constant = Constant{result};
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::Duration &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        result.micros -= right_temporal->micros;
+                        expression.constant = Constant{result};
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        result.micros -= right_temporal->micros;
+                        expression.constant = Constant{result};
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::DateTime) {
+                        result.kind = syntax::TemporalKind::Duration;
+                        result.micros -= right_temporal->micros;
+                        expression.constant = Constant{result};
+                    }
+                    if (expression.constant) { return; }
+                }
+                if (left_temporal && left_temporal->kind == syntax::TemporalKind::Duration && op == BinaryOp::Mul) {
+                    if (const auto *factor = std::get_if<std::int64_t>(&b)) {
+                        syntax::TemporalValue result = *left_temporal;
+                        result.micros *= *factor;
+                        expression.constant = Constant{result};
+                        return;
+                    }
                 }
                 const std::optional<double> left  = as_double(a);
                 const std::optional<double> right = as_double(b);
@@ -1368,9 +1412,13 @@ namespace hgl::ir
                     const TypeId unwrapped = unwrap_atomic(expected);
                     if (type(unwrapped).kind == TypeKind::Symbol && type(unwrapped).symbol == target) { applied = expected; }
                 }
-                applied               = check_constructor_arguments(expression, applied, call.arguments, false);
-                expression.type       = canonical(applied);
-                expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
+                applied          = check_constructor_arguments(expression, applied, call.arguments, false);
+                expression.type  = canonical(applied);
+                expression.phase = Phase::Constant;
+                for (const Argument &argument : call.arguments) {
+                    expression.phase = join_phase(expression.phase, module_.expr(argument.value).phase);
+                }
+                if (runtime_owner(expression.owner)) { expression.phase = Phase::Runtime; }
                 expression.value_kind = value_kind_for_phase(expression.phase);
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                 expression.operation = Operation{.kind     = OperationKind::Constructor,
@@ -1381,9 +1429,13 @@ namespace hgl::ir
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
                 if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
-                applied               = check_constructor_arguments(expression, applied, node.arguments, node.delta);
-                expression.type       = applied;
-                expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
+                applied          = check_constructor_arguments(expression, applied, node.arguments, node.delta);
+                expression.type  = applied;
+                expression.phase = Phase::Constant;
+                for (const Argument &argument : node.arguments) {
+                    expression.phase = join_phase(expression.phase, module_.expr(argument.value).phase);
+                }
+                if (runtime_owner(expression.owner)) { expression.phase = Phase::Runtime; }
                 expression.value_kind = value_kind_for_phase(expression.phase);
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                 const TypeId nominal = unwrap_atomic(applied);

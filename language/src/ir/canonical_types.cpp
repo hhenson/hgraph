@@ -23,6 +23,22 @@ namespace hgl::ir::detail
         source_visiting_.resize(source_count);
         for (std::uint32_t index = 0; index < source_count; ++index) { (void)canonicalize(TypeId{index}); }
         void_type_ = make(TypeKind::Void);
+        // Native operator resolution can infer a scalar output that does not
+        // otherwise occur in source (for example schedule(duration) -> bool).
+        // Seed the finite scalar universe so the read-only registry adapter
+        // can always map that runtime schema back to an arena-owned HIR type.
+        (void)scalar(ScalarType::Bool);
+        (void)scalar(ScalarType::I64);
+        (void)scalar(ScalarType::F64);
+        (void)scalar(ScalarType::Str);
+        (void)scalar(ScalarType::Date);
+        (void)scalar(ScalarType::Time);
+        (void)scalar(ScalarType::DateTime);
+        (void)scalar(ScalarType::Duration);
+        (void)scalar(ScalarType::CivilDateTime);
+        (void)scalar(ScalarType::ZonedDateTime);
+        (void)scalar(ScalarType::ZonedTime);
+        (void)scalar(ScalarType::TimeZone);
         rewrite_type_references();
     }
 
@@ -222,8 +238,19 @@ namespace hgl::ir::detail
             from.scalar == ScalarType::I64) {
             return true;
         }
-        if (to.kind == TypeKind::Atomic && !to.children.empty() && same(to.children.front(), actual)) { return true; }
-        if (from.kind == TypeKind::Atomic && !from.children.empty() && same(expected, from.children.front())) { return true; }
+        if (to.kind == TypeKind::Atomic && !to.children.empty()) { return assignable(to.children.front(), actual); }
+        if (from.kind == TypeKind::Atomic && !from.children.empty()) { return assignable(expected, from.children.front()); }
+        const bool sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
+                                   (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
+        if ((to.kind == from.kind || sequence_pair) &&
+            (to.kind == TypeKind::Tuple || to.kind == TypeKind::List || to.kind == TypeKind::Set || to.kind == TypeKind::Map ||
+             to.kind == TypeKind::HarnessSequence) &&
+            to.children.size() == from.children.size()) {
+            for (std::size_t index = 0; index < to.children.size(); ++index) {
+                if (!assignable(to.children[index], from.children[index])) { return false; }
+            }
+            return true;
+        }
         return false;
     }
 

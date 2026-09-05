@@ -30,6 +30,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace hgl::driver
@@ -273,7 +274,7 @@ namespace hgl::driver
                 return exit_diagnostics;
             }
             const std::vector<wiring::TestResult> results =
-                wiring::run_tests(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
+                wiring::run_tests(unit->file, *unit->hgraph, options, unit->diagnostics);
             print_test_results(results, std::cout);
             if (unit->diagnostics.has_errors()) { std::cerr << unit->diagnostics.render(unit->file); }
             const bool failed = unit->diagnostics.has_errors() ||
@@ -290,8 +291,9 @@ namespace hgl::driver
         }
 
         int run_command(std::span<const std::string_view> arguments, std::string_view language_version) {
-            std::optional<std::string> path;
-            wiring::RunOptions         options;
+            std::optional<std::string>                       path;
+            wiring::RunOptions                               options;
+            std::vector<std::pair<std::string, std::string>> raw_settings;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
                 const std::string_view argument = arguments[i];
                 const auto             value    = [&]() -> std::optional<std::string_view> {
@@ -334,8 +336,7 @@ namespace hgl::driver
                     if (!text || eq == std::string_view::npos || eq == 0) {
                         return usage_error("--set takes name=<constant expression>");
                     }
-                    options.settings.push_back(
-                        wiring::Setting{std::string{text->substr(0, eq)}, std::string{text->substr(eq + 1)}});
+                    raw_settings.emplace_back(std::string{text->substr(0, eq)}, std::string{text->substr(eq + 1)});
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -347,9 +348,25 @@ namespace hgl::driver
             if (!path) { return usage_error("run needs a file"); }
             std::optional<Unit> unit = load(*path);
             if (!unit) { return exit_usage; }
+            for (const auto &[name, text] : raw_settings) {
+                Unit setting{"--set " + name, "module hgl.cli\ntest __set { " + text + " }\n"};
+                frontend(setting);
+                std::optional<hgraph::Value> value;
+                if (setting.ok) {
+                    const hgraph_ir::Block &body = setting.hgraph->blocks[setting.hgraph->tests.front().body.value];
+                    value = wiring::evaluate_constant(setting.file, *setting.hgraph, body.tail, setting.diagnostics);
+                }
+                if (!value || setting.diagnostics.has_errors()) {
+                    unit->diagnostics.report(syntax::Category::Type, syntax::SourceRange{},
+                                             "--set " + name + ": invalid value\n" + setting.diagnostics.render(setting.file));
+                    unit->ok = false;
+                    continue;
+                }
+                options.settings.push_back(wiring::Setting{name, std::move(*value)});
+            }
             NativeModule native_module;
             if (unit->ok && load_native_module(*unit, language_version, native_module)) {
-                (void)wiring::run_program(unit->file, unit->module, unit->resolved, options, unit->diagnostics, std::cout);
+                (void)wiring::run_program(unit->file, *unit->hgraph, options, unit->diagnostics, std::cout);
             }
             if (unit->diagnostics.has_errors()) {
                 std::cerr << unit->diagnostics.render(unit->file);
@@ -643,8 +660,7 @@ namespace hgl::driver
                 if (input.starts_with("test")) {
                     wiring::TestOptions options;
                     options.names.push_back(test_name_of(input));
-                    print_test_results(wiring::run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics),
-                                       std::cout);
+                    print_test_results(wiring::run_tests(unit.file, *unit.hgraph, options, unit.diagnostics), std::cout);
                     if (unit.diagnostics.has_errors()) { std::cout << unit.diagnostics.render(unit.file); }
                 }
             }
@@ -664,7 +680,7 @@ namespace hgl::driver
                 options.names.push_back("__repl");
                 options.describe_tail = true;
                 const std::vector<wiring::TestResult> results =
-                    wiring::run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics);
+                    wiring::run_tests(unit.file, *unit.hgraph, options, unit.diagnostics);
                 if (unit.diagnostics.has_errors()) {
                     std::cout << unit.diagnostics.render(unit.file);
                     return;

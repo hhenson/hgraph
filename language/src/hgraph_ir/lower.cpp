@@ -106,6 +106,14 @@ namespace hgl::hgraph_ir
                 } else if (const auto *tuple = std::get_if<hir::Tuple>(&source.node)) {
                     target.kind = ConstExprKind::Tuple;
                     for (hir::ExprId item : tuple->elements) { target.items.push_back(lower_const_expr(item, source.range, role)); }
+                } else if (const auto *call = std::get_if<hir::Call>(&source.node);
+                           call != nullptr && source.operation.kind == hir::OperationKind::Constructor) {
+                    target.kind             = ConstExprKind::Construct;
+                    target.constructed_type = lower_type(source.type);
+                    for (const hir::Argument &argument : call->arguments) {
+                        target.arguments.push_back(
+                            ConstArgument{argument.name, lower_const_expr(argument.value, argument.range, role)});
+                    }
                 } else if (const auto *construct = std::get_if<hir::Construct>(&source.node)) {
                     target.kind             = ConstExprKind::Construct;
                     target.constructed_type = lower_type(construct->type);
@@ -272,6 +280,14 @@ namespace hgl::hgraph_ir
                     target.kind = ConstExprKind::Tuple;
                     for (hir::ExprId item : tuple->elements) {
                         target.items.push_back(lower_const_expr(item, bindings, source.range, role));
+                    }
+                } else if (const auto *call = std::get_if<hir::Call>(&source.node);
+                           call != nullptr && source.operation.kind == hir::OperationKind::Constructor) {
+                    target.kind             = ConstExprKind::Construct;
+                    target.constructed_type = lower_type(source.type, bindings);
+                    for (const hir::Argument &argument : call->arguments) {
+                        target.arguments.push_back(
+                            ConstArgument{argument.name, lower_const_expr(argument.value, bindings, argument.range, role)});
                     }
                 } else if (const auto *construct = std::get_if<hir::Construct>(&source.node)) {
                     target.kind             = ConstExprKind::Construct;
