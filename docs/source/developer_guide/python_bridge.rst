@@ -391,15 +391,29 @@ rule of its own any more (``wiring-type-carrier-sites`` is at zero):
   (``_match_type_carrier``; a mismatch against the whole carried pattern is
   a ``WiringError``), and ``AUTO_RESOLVE`` / variable defaults materialise
   after them (``_materialise_type_carrier`` over
-  ``ResolutionScope.materialise``).
+  ``ResolutionScope.materialise``). Both bridge calls are thin: a bare
+  variable following the form the map binds (``type[OUT]``, ``type[SIZE]``,
+  an unbounded ``TypeVar`` used as a size) is the core matcher's rule, not
+  the bridge's. A ``None`` value or default is an absent optional type
+  argument: nothing is matched and the body receives ``None``.
 * Subscripts obey one rule for every decorator kind, ``_pin_type_arguments``
   (``_resolution.py``): ``fn[VAR: X]`` pins the named variable; bare items
   fill the ``DEFAULT[...]`` variable first, then the remaining variables in
   order of first appearance; ambiguity or excess is a ``WiringError``. The
   variables come from the one collector, ``_signature_type_variables`` over
-  ``_type_variables_of``. Registry operators without a Python signature keep
-  only ``_OperatorFunction``'s registry-driven bare-item rule
-  (``operator_output_is_selective``).
+  ``_type_variables_of``; a variable that appears only in a ``*args`` /
+  ``**kwargs`` collector annotation binds from the supplied arguments and is
+  not a bare-item target (``publish[Row]`` names ``SCHEMA``, not the
+  ``**options: TSB[TS_SCHEMA]`` schema). Registry operators without a Python
+  signature keep only ``_OperatorFunction``'s registry-driven bare-item rule
+  (``operator_output_is_selective``). An overload whose own output is
+  concrete still resolves its ``to: type[OUT] = OUT`` parameter: the
+  registry binds a bare ``OUT`` default to the candidate's resolved output
+  when nothing else bound it (``operators.rst``, "Type arguments").
+* A Python resolver sees a supplied or already-materialised type argument
+  as the type it carries and a still-deferred one as its declared default
+  (``AUTO_RESOLVE`` or the variable), the upstream ``if tp is AUTO_RESOLVE``
+  idiom; the wire trampoline always receives the materialised value.
 * Arrival is role-directed (``_core.wire`` → ``_apply_type_argument_roles``):
   the family's ``operator_carrier_parameters`` name the type-argument slots,
   and a class, ``TimeSeriesSchema`` or size handed to one crosses as the

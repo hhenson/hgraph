@@ -357,9 +357,7 @@ def _specialization(item, owner, signature, resolvers=None):
 def _service_type_variables(signature):
     """The public type variables of a service signature, in order of first
     appearance (the one collector, RFC 0033)."""
-    annotations = [parameter.annotation for parameter in signature.parameters.values()]
-    annotations.append(signature.return_annotation)
-    return _signature_type_variables(annotations)
+    return _signature_type_variables(signature.parameters.values(), signature.return_annotation)
 
 
 def _copy_service_resolution(resolution):

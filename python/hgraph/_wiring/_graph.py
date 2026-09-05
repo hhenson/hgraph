@@ -307,9 +307,9 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         annotation_args = typing.get_args(param.annotation)
         if typing.get_origin(param.annotation) is not type or not annotation_args:
             continue
-        if name not in arguments or value is AUTO_RESOLVE or isinstance(
+        if name not in arguments or value is None or value is AUTO_RESOLVE or isinstance(
                 value, (_TypeVarSentinel, typing.TypeVar)):
-            continue
+            continue   # None: an absent optional type argument
         # A supplied type argument binds before the resolvers and must match
         # the whole carried pattern (RFC 0033), not only bind its variables.
         if not _match_type_carrier(scope, annotation_args[0], value):
@@ -491,11 +491,10 @@ class _GraphFn:
         from .._types import AUTO_RESOLVE, _TypeVarSentinel
         import typing
 
-        annotations = [param.annotation for param in self._signature.parameters.values()]
-        annotations.append(self._signature.return_annotation)
         resolved_names = _pin_type_arguments(
-            _signature_type_variables(annotations), item,
-            default_var=self._default_type_var, owner=self.__name__)
+            _signature_type_variables(self._signature.parameters.values(),
+                                      self._signature.return_annotation),
+            item, default_var=self._default_type_var, owner=self.__name__)
 
         def resolve(annotation):
             if isinstance(annotation, (_TypeVarSentinel, typing.TypeVar)):

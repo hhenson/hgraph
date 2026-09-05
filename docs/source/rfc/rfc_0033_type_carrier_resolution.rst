@@ -309,13 +309,28 @@ It dispatches on ``param.carrier``:
 A form mismatch (a TS carried where the parameter expects a scalar, or the
 reverse) is a candidate failure with the message *"parameter 'to' expects a
 time-series type, got scalar type 'int'"*. This is precisely the "outer kind
-must agree" rule of today's Python ``_match_type_argument``, once.
+must agree" rule of today's Python ``_match_type_argument``, once. One
+exception, inside the matcher: a Python ``type[X]`` whose ``X`` is a bare,
+unconstrained variable lowers to a scalar variable, but Python type
+variables are untyped and the signature's other patterns may bind the same
+name as a time series (``type[OUT]``) or a size (``TSL[TS[int], N]`` with
+``type[N]``). ``type_carrier_match`` and ``materialise_deferred_carrier``
+follow the form the map already binds, or the form of the carrier being
+supplied (``follow_carrier_form``), so the registry path and the direct
+node/graph paths agree; C++ families never hit this because their variables
+are typed (``TsVar``/``ScalarVar``/``SizeVar``).
 
 In the candidate loop of ``OperatorRegistry::resolve``
 (``operator_dispatch.cpp``), the ``TypeArg`` branch requires the supplied
 argument to be a scalar whose schema is the ``TypeCarrier`` schema and calls
 ``type_carrier_match``. Any other argument fails the candidate as a type
 mismatch, exactly as a wrong scalar does today.
+
+A resolver (``default_resolver``) sees a deferred type argument the
+dispatcher could not materialise before it ran as the declared default
+(``AUTO_RESOLVE``, the variable) -- ``if tp is AUTO_RESOLVE`` is the
+upstream resolver idiom (``with_columns``'s ``_columns_output_type``) --
+and a materialised one as the type it carries.
 
 A ``Scalar`` parameter never receives a ``TypeCarrier``. Arrival mints a
 carrier only for an argument that targets a ``TypeArg`` parameter (see
@@ -329,9 +344,14 @@ Ranking
 A ``TypeArg`` parameter contributes the rank of its carried pattern
 (``ts_pattern_rank`` for TS and size carriers; the scalar pattern's rank for
 scalar carriers), so ``type[TS[int]]`` is more specific than
-``type[TS[SCALAR]]``. An omitted carrier that fell back on a default costs one
-rank point like every other default (``operators.rst`` "Named arguments,
-defaults and ``**kwargs``", rule 3).
+``type[TS[SCALAR]]``. Its variables are priced in their own key space: the
+rank accumulator keeps the minimum weight per variable, so a
+``type[SCHEMA]`` re-mentioning the variable of a ``TS[Frame[SCHEMA]]``
+input at a scalar's weight would otherwise let the generic ``TS[SCHEMA]``
+overload outrank the frame one (``publish``, review on PR D). An omitted
+carrier that fell back on a default costs one rank point like every other
+default (``operators.rst`` "Named arguments, defaults and ``**kwargs``",
+rule 3).
 
 Deferred defaults
 ~~~~~~~~~~~~~~~~~
@@ -355,12 +375,22 @@ A carrier the call omitted takes, in this order:
    ``TS[X]``, and a default already bound to something else fails the
    candidate with *"does not agree with its default"* -- the "must agree"
    rule of the retired Python pass, once.
-3. Neither -- the candidate fails with *"missing required argument 'to'"*.
+3. ``= None`` -- an *optional* type argument: registered with an empty
+   default value, it stays absent when omitted (and when ``None`` is
+   supplied) and the body receives ``None``, like any absent scalar
+   (``cs_tp: type[REST_DATA] = None`` on the REST adaptors).
+4. Neither -- the candidate fails with *"missing required argument 'to'"*.
 
 Deferred carriers are materialised to a fixed point interleaved with output
 resolution (see the order below), so a carrier defaulting to ``OUT`` sees the
 resolved output and a carrier that supplies a variable the output needs is
-materialised first. A deferred carrier still unresolved when a pass makes no
+materialised first. ``OUT`` is the DSL's conventional output variable
+(``-> OUT``, ``DEFAULT[OUT]``, ``to: type[OUT] = OUT``): when the
+candidate's output has resolved and nothing bound ``OUT``, a deferred
+carrier defaulting to a bare ``OUT`` binds it to that resolved output
+(``convert_to_rest_request(ts, to: type[OUT] = OUT, ...) -> TS[RestRequest]``
+under ``convert[TS[RestRequest]]``), the retired Python pass's ``OUT``
+special case, once, in the registry. A deferred carrier still unresolved when a pass makes no
 progress fails the candidate: *"type variable 'K' for parameter 'key_type'
 could not be resolved"*. This replaces the Python two-pass in
 ``apply_type_carriers`` and the ``OUT`` special case.
@@ -614,7 +644,11 @@ bare-item target):
 2. bare items fill the ``DEFAULT[...]`` variable first, then the remaining
    variables in order of first appearance in the signature; a single bare
    item with no ``DEFAULT`` and more than one remaining variable, or more
-   bare items than remaining variables, raises ``WiringError``;
+   bare items than remaining variables, raises ``WiringError``. A variable
+   that appears only in a ``*args`` / ``**kwargs`` collector annotation is
+   not a bare-item target -- it binds from the supplied arguments -- so
+   ``publish[Row]`` on ``publish(..., _schema: type[SCHEMA], **options:
+   TSB[TS_SCHEMA])`` names ``SCHEMA``;
 3. each pinned value is classified: ``Size[n]``/``int`` is a size pin; a
    ``TS`` expression is a TS pin; a class is a scalar pin; a
    ``TimeSeriesSchema`` subclass is ``TSB[cls]``.
@@ -963,10 +997,14 @@ reverse-binding registry with its own reset method,
 cutover: ``type_arg_pattern`` registration, ``_pin_type_arguments`` and the
 one collector, the deletion list, ``replay`` declaring ``tp``, the name
 table gone, the compatibility cells flipped, ``wiring-type-carrier-sites``
-at zero) is in review. Two refinements to the contract came out of the
-sweep during PR D and are folded into the text above: a supplied carrier
-also matches its deferred default pattern (``deferred_pattern_match``), and
-the deferred fixed point runs before the resolvers as well as after them.
+at zero) is in review. Four refinements to the contract came out of the
+sweep and the review during PR D and are folded into the text above: a
+supplied carrier also matches its deferred default pattern
+(``deferred_pattern_match``); the deferred fixed point runs before the
+resolvers as well as after them; ``= None`` is an optional type argument
+that stays absent; and a bare Python variable follows the form the map
+binds inside the core matcher (``follow_carrier_form``), so the bridge's
+``match_carrier``/``materialise`` carry no form rule of their own.
 The operator-name branches (``apply``, ``const``, ``with_columns``,
 ``getattr_``; ``wiring-operator-name-branches`` 8 to 4) move to a follow-up
 PR so that PR D stays a review of one thing; the RFC moves to ``Accepted``

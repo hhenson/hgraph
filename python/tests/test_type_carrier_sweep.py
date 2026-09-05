@@ -42,6 +42,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     TS,
     TSB,
+    TS_SCHEMA,
     TSD,
     TSL,
     V,
@@ -193,6 +194,16 @@ class TestNodeCarriers:
             return schema.__name__
 
         assert eval_node(schema_name, [1]) == ["SweepRow"]
+
+    def test_none_default_is_an_absent_optional_type_argument(self):
+        # ``tp: type[X] = None`` (the REST adaptors' ``cs_tp``): omitted, the
+        # body receives None; supplied, it matches like any type argument.
+        @compute_node
+        def schema_name(value: TS[int], schema: type[SCALAR] = None) -> TS[str]:
+            return "none" if schema is None else schema.__name__
+
+        assert eval_node(schema_name, [1]) == ["none"]
+        assert eval_node(schema_name, [1], schema=SweepRow) == ["SweepRow"]
 
 
 class TestGraphCarriers:
@@ -376,6 +387,51 @@ class TestOperatorCarriers:
             return const[TSD[str, TSB[Result[SweepRow]]]]({})
 
         assert eval_node(load[SweepRow]) == [{}]
+
+    def test_none_default_is_an_absent_optional_type_argument_on_an_overload(self):
+        # Registry path of the REST adaptors' ``cs_tp: type[REST_DATA] = None``:
+        # the overload registers, an omitted optional stays absent (None in
+        # the body), a supplied one matches.
+        @operator
+        def labelled(value: TS[int], schema: type[SCALAR] = None) -> TS[str]: ...
+
+        @compute_node(overloads=labelled)
+        def labelled_impl(value: TS[int], schema: type[SCALAR] = None) -> TS[str]:
+            return "none" if schema is None else schema.__name__
+
+        assert eval_node(labelled, [1]) == ["none"]
+        assert eval_node(labelled, [1], schema=SweepRow) == ["SweepRow"]
+
+    @pytest.mark.parametrize("size_var", [SIZE, TypeVar("SWEEP_N")], ids=["SIZE", "TypeVar"])
+    def test_size_carrier_follows_the_binding_on_an_overload(self, size_var):
+        # A bare variable bound as a size by the TSL input: the registry path
+        # follows that form for the deferred default and for a supplied size,
+        # exactly as the direct node/graph paths do.
+        N = size_var
+
+        @operator
+        def sized(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]: ...
+
+        @compute_node(overloads=sized)
+        def sized_impl(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]:
+            return n.SIZE
+
+        @graph
+        def auto(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs)
+
+        @graph
+        def supplied(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs, n=Size[2])
+
+        @graph
+        def mismatched(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs, n=Size[3])
+
+        assert eval_node(auto, [(1, 2)]) == [2]
+        assert eval_node(supplied, [(1, 2)]) == [2]
+        with pytest.raises(WiringError):
+            eval_node(mismatched, [(1, 2)])
 
     def test_collection_output_carrier_materialises_a_fixed_tuple(self):
         observed = []
@@ -886,6 +942,103 @@ class TestBareSubscriptOrder:
 
         assert eval_node(scale[int], [3]) == [6]
         assert eval_node(scale[SCALAR: str], ["a"]) == ["aa"]
+
+    def test_operator_bare_item_skips_a_collector_only_variable(self):
+        # ``publish(dataset, data: TS[Frame[SCHEMA]], _schema: type[SCHEMA],
+        # **options: TSB[TS_SCHEMA])``: the collector's schema variable binds
+        # from the supplied keywords and is not a bare-item target, so the
+        # bare item names SCHEMA.
+        observed = []
+
+        @operator
+        def tagged(value: TS[int], schema: type[SCALAR] = AUTO_RESOLVE,
+                   **options: TSB[TS_SCHEMA]) -> TS[str]: ...
+
+        @graph(overloads=tagged)
+        def tagged_impl(value: TS[int], schema: type[SCALAR] = AUTO_RESOLVE,
+                        **options: TSB[TS_SCHEMA]) -> TS[str]:
+            observed.append(schema)
+            return const(schema.__name__)
+
+        @graph
+        def app(value: TS[int]) -> TS[str]:
+            return tagged[SweepRow](value, extra=const(2))
+
+        assert eval_node(app, [1]) == ["SweepRow"]
+        assert observed == [SweepRow]
+
+    def test_operator_output_subscript_binds_out_for_a_concrete_output_overload(self):
+        # ``convert[TS[RestRequest]](request, value_type=...)``: the overload's
+        # own output is concrete, so only the subscript can bind OUT for its
+        # ``to: type[OUT] = OUT`` parameter.
+        observed = []
+
+        @operator
+        def to_row(value: TS[int], to: type[OUT] = DEFAULT[OUT]) -> OUT: ...
+
+        @compute_node(overloads=to_row)
+        def to_row_impl(value: TS[int], to: type[OUT] = OUT) -> TS[SweepRow]:
+            observed.append(to)
+            return SweepRow(value.value)
+
+        assert eval_node(to_row[TS[SweepRow]], [4]) == [SweepRow(4)]
+        assert observed == [TS[SweepRow]]
+
+    def test_resolver_sees_a_still_deferred_type_argument_as_its_default(self):
+        # ``if tp is AUTO_RESOLVE`` is the upstream resolver idiom: a deferred
+        # type argument the registry could not materialise before the
+        # resolvers reaches them as the declared default.
+        seen = []
+
+        def pick(mapping, schema):
+            seen.append(schema)
+            return SweepRow if schema is AUTO_RESOLVE else schema
+
+        @operator
+        def labelled(value: TS[int], schema: type[SCALAR_1] = AUTO_RESOLVE) -> TS[str]: ...
+
+        @compute_node(overloads=labelled, resolvers={SCALAR_1: pick})
+        def labelled_impl(value: TS[int], schema: type[SCALAR_1] = AUTO_RESOLVE) -> TS[str]:
+            return schema.__name__
+
+        assert eval_node(labelled, [1]) == ["SweepRow"]
+        assert seen == [AUTO_RESOLVE]
+
+    def test_type_argument_does_not_cheapen_an_input_variable_in_ranking(self):
+        # ``publish``: a ``TS[Frame[SCHEMA]]`` overload must keep outranking
+        # the generic ``TS[SCHEMA]`` one for a frame input when both carry
+        # ``_schema: type[SCHEMA]`` (the rank accumulator keeps the minimum
+        # weight per variable; the type argument prices its variables in
+        # its own key space).
+        import pyarrow as pa
+        from hgraph import SCHEMA, Frame
+
+        @operator
+        def publish_like(data: TS[Frame[SCHEMA]], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                         **options: TSB[TS_SCHEMA]) -> TS[str]: ...
+
+        @graph(overloads=publish_like)
+        def frame_overload(data: TS[Frame[SCHEMA]], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                           **options: TSB[TS_SCHEMA]) -> TS[str]:
+            return const("frame:" + _schema.__name__)
+
+        @graph(overloads=publish_like)
+        def row_overload(data: TS[SCHEMA], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                         **options: TSB[TS_SCHEMA]) -> TS[str]:
+            return const("row:" + _schema.__name__)
+
+        frame = pa.table({"value": [1]})
+
+        @graph
+        def app() -> TS[str]:
+            return publish_like(const(frame, tp=TS[Frame[SweepRow]]), partition=const("p"))
+
+        @graph
+        def row() -> TS[str]:
+            return publish_like(const(SweepRow(1)), partition=const("p"))
+
+        assert eval_node(app) == ["frame:SweepRow"]
+        assert eval_node(row) == ["row:SweepRow"]
 
     def test_operator_bare_item_with_two_variables_and_no_default_is_ambiguous(self):
         # RFC 0033 (compatibility table): the one subscript rule refuses a

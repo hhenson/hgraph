@@ -973,8 +973,11 @@ or materialised (``TypeArg::value()``).
    resolves (``materialise_deferred_carrier``), matches it against the
    carried pattern so variables the default mentions are bound too, writes
    the ``TypeCarrier`` into the normalised call, and retries the output.
-   This first run is best effort: what is still unresolved waits for the
-   resolvers;
+   ``OUT`` is the DSL's conventional output variable: once the output has
+   resolved, a deferred carrier defaulting to a bare ``OUT`` that nothing
+   bound binds it to that resolved output (an overload with a concrete
+   output and ``to: type[OUT] = OUT``). This first run is best effort: what
+   is still unresolved waits for the resolvers;
 5. ``default_resolver`` (``resolve_default_types`` / Python ``resolvers=``),
    which sees every binding the inputs, the supplied carriers, the requested
    output and step 4 made;
@@ -996,7 +999,10 @@ carrier resolves only through the registry.
 
 **Ranking.** A type argument ranks by its carried pattern (``type[TS[int]]``
 beats ``type[TS[T]]``); a size variable costs one point; an omitted carrier
-that fell back on a default costs one rank point like every default.
+that fell back on a default costs one rank point like every default. The
+carried pattern's variables are priced in their own key space (the
+accumulator keeps the minimum per variable), so ``type[SCHEMA]`` never
+cheapens the ``SCHEMA`` a ``TS[Frame[SCHEMA]]`` input already prices.
 
 **Family consistency.** A parameter name that is a ``TypeArg`` in one
 candidate must be a ``TypeArg`` in every candidate of the family that

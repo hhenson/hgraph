@@ -165,15 +165,25 @@ def _materialise_type_carrier(scope, type_argument):
     return None if resolved is None else _carrier_to_python(resolved)
 
 
-def _signature_type_variables(annotations):
+def _signature_type_variables(parameters, return_annotation=inspect.Signature.empty):
     """The type variables of a signature, in order of first appearance across
-    ``annotations`` (parameters first, then the return annotation); one
-    collector for every decorator kind (RFC 0033)."""
+    the parameters (annotation, then default) and the return annotation; one
+    collector for every decorator kind (RFC 0033). A variable that appears
+    only in a ``*args`` / ``**kwargs`` collector annotation is not a
+    bare-item target: it binds from the supplied arguments, so
+    ``publish[Row]`` on ``publish(..., _schema: type[SCHEMA], **options:
+    TSB[TS_SCHEMA])`` names ``SCHEMA``."""
     from .._types import _type_variables_of
 
+    collectors = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
     found = {}
-    for annotation in annotations:
-        for variable in _type_variables_of(annotation):
+    for parameter in parameters:
+        if parameter.kind in collectors:
+            continue
+        for variable in _type_variables_of((parameter.annotation, parameter.default)):
+            found.setdefault(_type_var_name(variable), variable)
+    if return_annotation is not inspect.Signature.empty:
+        for variable in _type_variables_of(return_annotation):
             found.setdefault(_type_var_name(variable), variable)
     return tuple(found.values())
 

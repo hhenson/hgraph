@@ -494,10 +494,10 @@ class _PyNode:
         cached = getattr(self, "_type_var_cache", None)
         if cached is not None:
             return cached
-        annotations = [param.annotation for param in self._params]
-        if self.has_output:
-            annotations.append(self._out_tp)
-        self._type_var_cache = _signature_type_variables(annotations)
+        import inspect
+
+        self._type_var_cache = _signature_type_variables(
+            self._params, self._out_tp if self.has_output else inspect.Signature.empty)
         return self._type_var_cache
 
     def _with_resolution(self, bindings):
@@ -749,8 +749,8 @@ class _PyNode:
             if typing.get_origin(param.annotation) is not type:
                 continue
             scalar_value = scalar_values.get(param.name, _MISSING)
-            if scalar_value is _MISSING:
-                continue
+            if scalar_value is _MISSING or scalar_value is None:
+                continue   # None: an absent optional type argument
             if scalar_value is AUTO_RESOLVE or isinstance(
                     scalar_value, (_TypeVarSentinel, typing.TypeVar)):
                 deferred.append((param, scalar_value))

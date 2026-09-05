@@ -16,7 +16,7 @@ from ._markers import (_INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _is_object_vt)
 from ._resolution import (_apply_resolvers, _carried_pattern, _carrier_to_python,
                           _carrier_value, _invoke_resolution_callable,
-                          _pin_type_arguments)
+                          _pin_type_arguments, _signature_type_variables)
 
 
 def _is_hidden_node_parameter(parameter):
@@ -45,15 +45,9 @@ class _Operator:
         self.__qualname__ = getattr(fn, "__qualname__", fn.__name__)
         self.__doc__ = fn.__doc__
         self._wiring_signature, self._default_type_var = _wiring_signature_of(fn)
-        variables = {}
-        for parameter in self._wiring_signature.parameters.values():
-            for variable in _type_variables_of(
-                    (parameter.annotation, parameter.default)):
-                variables.setdefault(_type_var_name(variable), variable)
-        for variable in _type_variables_of(
-                self._wiring_signature.return_annotation):
-            variables.setdefault(_type_var_name(variable), variable)
-        self._type_variables = tuple(variables.values())
+        self._type_variables = _signature_type_variables(
+            self._wiring_signature.parameters.values(),
+            self._wiring_signature.return_annotation)
         # Present the DECLARED signature to introspection (upstream parity;
         # dispatch still accepts any call shape and resolves overloads).
         import inspect
@@ -181,19 +175,26 @@ def _bridge_scalars(scalars):
     }
 
 
-def _resolvers_bridge(user_resolvers):
+def _resolvers_bridge(user_resolvers, deferred_defaults=None):
     """Run Python decorator resolvers during C++ overload selection.
 
     Output-only type variables must be resolved before the registry can select
     a candidate, so waiting for the wire trampoline is too late. Type
     arguments are matched and materialised by the registry itself (RFC
     0033): supplied ones are bound before this runs, deferred ones after it.
+    A deferred type argument the registry could not materialise yet reaches
+    a resolver as its declared default (``AUTO_RESOLVE``, the variable), as
+    it always did: ``if tp is AUTO_RESOLVE`` is the upstream resolver idiom.
     """
     if not user_resolvers:
         return None
+    deferred_defaults = dict(deferred_defaults or {})
 
     def _resolve(scope, scalars):
-        _apply_resolvers(scope, user_resolvers, _bridge_scalars(scalars))
+        seen = _bridge_scalars(scalars)
+        for name, default in deferred_defaults.items():
+            seen.setdefault(name, default)
+        _apply_resolvers(scope, user_resolvers, seen)
         return scope
 
     return _resolve
@@ -304,6 +305,7 @@ def _register_overload(target, impl, requires=None):
     sig = (getattr(impl, "_wiring_signature", None)
            or _wiring_signature_of(fn)[0])
     param_options, variadic, has_kwargs = [], False, False
+    deferred_defaults = {}
     kwargs_pattern = None
     positional = None
     for parameter in sig.parameters.values():
@@ -362,11 +364,19 @@ def _register_overload(target, impl, requires=None):
 
             type_argument = typing.get_args(annotation)[0]
             default = parameter.default
+            if default is inspect.Parameter.empty:
+                param_options.append(
+                    ((parameter.name, _hgraph.type_arg_pattern(_carried_pattern(type_argument), None)),))
+                continue
             if default is AUTO_RESOLVE:
                 default_pattern, default_carrier = _carried_pattern(type_argument), None
+                deferred_defaults[parameter.name] = default
             elif isinstance(default, (_TypeVarSentinel, typing.TypeVar, _GenericTsExpr)):
                 default_pattern, default_carrier = _carried_pattern(default), None
-            elif default is inspect.Parameter.empty:
+                deferred_defaults[parameter.name] = default
+            elif default is None:
+                # An optional type argument: absent when omitted, the body
+                # receives None (``cs_tp: type[REST_DATA] = None``).
                 default_pattern, default_carrier = None, None
             else:
                 default_pattern, default_carrier = None, _carrier_value(default)
@@ -407,7 +417,7 @@ def _register_overload(target, impl, requires=None):
     from itertools import product
 
     wire_fn = _overload_wire_trampoline(impl)
-    resolver_fn = _resolvers_bridge(getattr(impl, "_resolvers", None))
+    resolver_fn = _resolvers_bridge(getattr(impl, "_resolvers", None), deferred_defaults)
     requires_fn = _requires_bridge(requires)
     for params in product(*param_options):
         _hgraph.register_python_overload(
