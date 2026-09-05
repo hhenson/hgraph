@@ -27,8 +27,8 @@ namespace hgl::hgraph_ir
                     return std::move(result_);
                 }
 
-                lower_types();
                 lower_bindings();
+                lower_types();
                 lower_constraints();
                 lower_structures();
                 lower_operators();
@@ -74,8 +74,9 @@ namespace hgl::hgraph_ir
                         diagnostics_.report(syntax::Category::Type, range,
                                             "typed HIR has no compile-time value for " + std::string{role});
                     } else {
-                        target.kind      = ConstExprKind::Parameter;
-                        target.parameter = source_.symbol(reference->symbol).name;
+                        target.kind              = ConstExprKind::Parameter;
+                        target.parameter         = source_.symbol(reference->symbol).name;
+                        target.parameter_binding = binding(reference->symbol);
                     }
                 } else if (const auto *unary = std::get_if<hir::Unary>(&source.node)) {
                     target.kind  = ConstExprKind::Unary;
@@ -166,10 +167,15 @@ namespace hgl::hgraph_ir
                     bindings_.emplace(index, id);
                     result_.bindings.push_back(Binding{.name           = symbol.name,
                                                        .kind           = *kind,
-                                                       .type           = lower_type(symbol.type),
                                                        .owner_identity = declaration_identity(symbol.owner),
                                                        .index          = symbol.index,
                                                        .range          = symbol.range});
+                }
+                for (std::uint32_t index = 0; index < source_.symbols.size(); ++index) {
+                    const auto found = bindings_.find(index);
+                    if (found == bindings_.end()) { continue; }
+                    const hir::Symbol &symbol                  = source_.symbols[index];
+                    result_.bindings[found->second.value].type = lower_type(symbol.type, symbol.range);
                 }
             }
 
@@ -179,10 +185,18 @@ namespace hgl::hgraph_ir
                 return found == bindings_.end() ? BindingId{} : found->second;
             }
 
-            [[nodiscard]] TypeId lower_type(hir::TypeId source_id) {
+            [[nodiscard]] TypeId lower_type(hir::TypeId source_id, syntax::SourceRange fallback_range = {}) {
+                syntax::SourceRange occurrence_range = source_id.valid() ? source_.type(source_id).range : syntax::SourceRange{};
+                if (occurrence_range.end <= occurrence_range.begin) { occurrence_range = fallback_range; }
                 source_id = canonical(source_id);
                 if (!source_id.valid()) { return {}; }
-                if (const auto found = types_.find(source_id.value); found != types_.end()) { return found->second; }
+                if (const auto found = types_.find(source_id.value); found != types_.end()) {
+                    Type &existing = result_.types[found->second.value];
+                    if (existing.range.end <= existing.range.begin && occurrence_range.end > occurrence_range.begin) {
+                        existing.range = occurrence_range;
+                    }
+                    return found->second;
+                }
 
                 const TypeId id{static_cast<std::uint32_t>(result_.types.size())};
                 types_.emplace(source_id.value, id);
@@ -193,12 +207,14 @@ namespace hgl::hgraph_ir
                 target.kind             = source_type.kind;
                 target.scalar           = source_type.scalar;
                 target.nominal_identity = symbol_identity(source_type.symbol);
+                target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
-                for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child)); }
+                target.range            = occurrence_range;
+                for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, occurrence_range)); }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
                     TypeArgument lowered;
                     if (argument.kind == hir::TypeArgumentKind::Type) {
-                        lowered.type = lower_type(argument.type);
+                        lowered.type = lower_type(argument.type, argument.range);
                     } else {
                         lowered.value = lower_const_expr(argument.value, argument.range, "a generic type argument");
                     }
@@ -282,9 +298,12 @@ namespace hgl::hgraph_ir
                 return id;
             }
 
-            [[nodiscard]] TypeId lower_type(hir::TypeId source_id, const AppliedBindings &bindings) {
+            [[nodiscard]] TypeId lower_type(hir::TypeId source_id, const AppliedBindings &bindings,
+                                            syntax::SourceRange fallback_range = {}) {
+                syntax::SourceRange occurrence_range = source_id.valid() ? source_.type(source_id).range : syntax::SourceRange{};
+                if (occurrence_range.end <= occurrence_range.begin) { occurrence_range = fallback_range; }
                 source_id = canonical(source_id);
-                if (!source_id.valid() || bindings.empty()) { return lower_type(source_id); }
+                if (!source_id.valid() || bindings.empty()) { return lower_type(source_id, occurrence_range); }
                 const hir::Type &source_type = source_.type(source_id);
                 if (source_type.kind == hir::TypeKind::Symbol && source_type.symbol.valid()) {
                     if (const auto found = bindings.types.find(source_type.symbol.value); found != bindings.types.end()) {
@@ -296,12 +315,16 @@ namespace hgl::hgraph_ir
                 target.kind             = source_type.kind;
                 target.scalar           = source_type.scalar;
                 target.nominal_identity = symbol_identity(source_type.symbol);
+                target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
-                for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, bindings)); }
+                target.range            = occurrence_range;
+                for (hir::TypeId child : source_type.children) {
+                    target.children.push_back(lower_type(child, bindings, occurrence_range));
+                }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
                     TypeArgument lowered;
                     if (argument.kind == hir::TypeArgumentKind::Type) {
-                        lowered.type = lower_type(argument.type, bindings);
+                        lowered.type = lower_type(argument.type, bindings, argument.range);
                     } else {
                         lowered.value = lower_const_expr(argument.value, bindings, argument.range, "a generic type argument");
                     }
@@ -358,7 +381,8 @@ namespace hgl::hgraph_ir
 
             [[nodiscard]] GenericParameter lower_generic(const hir::GenericParameter &source) {
                 const hir::Symbol &symbol = source_.symbol(source.symbol);
-                return GenericParameter{symbol.name, source.is_const, lower_type(source.type), binding(source.symbol)};
+                return GenericParameter{symbol.name, source.is_const, lower_type(source.type, symbol.range),
+                                        binding(source.symbol)};
             }
 
             [[nodiscard]] Parameter lower_parameter(const hir::Parameter &source) {
@@ -366,7 +390,7 @@ namespace hgl::hgraph_ir
                 Parameter          target;
                 target.name          = symbol.name;
                 target.is_const      = source.is_const;
-                target.type          = lower_type(source.type);
+                target.type          = lower_type(source.type, symbol.range);
                 target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
                 target.binding       = binding(source.symbol);
                 return target;
@@ -461,7 +485,7 @@ namespace hgl::hgraph_ir
                     for (const hir::GenericParameter &generic : source->generics) {
                         target.generics.push_back(lower_generic(generic));
                     }
-                    for (hir::TypeId parent : source->parents) { target.parents.push_back(lower_type(parent)); }
+                    for (hir::TypeId parent : source->parents) { target.parents.push_back(lower_type(parent, declaration.range)); }
                     std::unordered_map<std::uint32_t, AppliedBindings> origin_bindings;
                     for (const hir::StructField &field : source->fields) {
                         if (!origin_bindings.contains(field.origin.value)) {
@@ -477,7 +501,7 @@ namespace hgl::hgraph_ir
                         const AppliedBindings &applied = origin_bindings.at(field.origin.value);
                         target.fields.push_back(StructField{
                             .name          = field.name,
-                            .type          = lower_type(field.type, applied),
+                            .type          = lower_type(field.type, applied, field.range),
                             .default_value = lower_const_expr(field.default_value, applied, field.range, "a struct field default"),
                             .origin_identity = declaration_identity(field.origin),
                             .optional        = field.optional,

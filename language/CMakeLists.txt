@@ -148,6 +148,17 @@ target_include_directories(hgl_graph_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_graph_ir PUBLIC hgl::ir)
 hgl_apply_warnings(hgl_graph_ir)
 
+# Canonical hgraph metadata materialization for execution backends. Keeping
+# this bridge separate prevents hgraph runtime types from entering hgraph IR.
+add_library(hgl_wiring_types STATIC
+    src/wiring/type_bridge.cpp
+)
+add_library(hgl::wiring_types ALIAS hgl_wiring_types)
+target_compile_features(hgl_wiring_types PUBLIC cxx_std_23)
+target_include_directories(hgl_wiring_types PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_wiring_types PUBLIC hgl::graph_ir hgraph::core)
+hgl_apply_warnings(hgl_wiring_types)
+
 # The direct-wiring backend (src/wiring): walks the resolved tree straight
 # into an hgraph Wiring for test, run and the REPL (developer guide,
 # "Direct-wiring backend", "First pass").
@@ -158,7 +169,7 @@ add_library(hgl_wiring STATIC
 add_library(hgl::wiring ALIAS hgl_wiring)
 target_compile_features(hgl_wiring PUBLIC cxx_std_23)
 target_include_directories(hgl_wiring PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_wiring PUBLIC hgl::ir hgraph::core)
+target_link_libraries(hgl_wiring PUBLIC hgl::ir hgl::wiring_types hgraph::core)
 if(TARGET hgraph::analytics)
     target_link_libraries(hgl_wiring PUBLIC hgraph::analytics)
     target_compile_definitions(hgl_wiring PRIVATE HGL_HAVE_ANALYTICS=1)

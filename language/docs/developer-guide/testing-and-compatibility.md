@@ -127,6 +127,14 @@ collection traversal, predicate lambdas, test-harness plans, single evaluation
 of block tails, and rejection of unresolved HIR.
 CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
 
+`tests/wiring/type_bridge_tests.cpp` (`hgl_wiring_type_tests`, CTest
+`hgraph_language_wiring_types`) independently locks the hgraph-IR/runtime type
+seam. It covers scalar and temporal constants, fixed lists, sets, maps, tick and
+duration windows, atomic tuples, applied generic nominal bundles and TSBs,
+inherited generic-field substitution, and the explicit fail-closed boundary for
+`const` generic Bundle identity. A nested `Wrapper<T>` / `Box<T>` case locks
+lexical generic identity independently of parameter spelling.
+
 Each valid guide example has a source-ranged typed-HIR snapshot containing
 stable declaration identities, canonical types, substitutions, typed
 constants, call targets, function kind, phase, and effects. Invalid examples

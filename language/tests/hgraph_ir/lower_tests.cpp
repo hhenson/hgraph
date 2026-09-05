@@ -326,7 +326,9 @@ operator recent<T, const N: i64>(values: rolling<T, N>) -> T
     const hgl::hgraph_ir::ConstExpr &size = lowered.graph->const_exprs[rolling->size.value];
     CHECK(size.kind == hgl::hgraph_ir::ConstExprKind::Parameter);
     CHECK(size.parameter == "N");
+    CHECK(size.parameter_binding.valid());
     CHECK(rolling->min_size == rolling->size);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("parameter N binding=n") != std::string::npos);
 }
 
 TEST_CASE("hgraph IR preserves aggregate and temporal parameter defaults", "[hgraph-ir][defaults]") {
