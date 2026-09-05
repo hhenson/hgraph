@@ -78,6 +78,48 @@ namespace hgl::hgraph_ir
             }
         }
 
+        void print_binding_id(std::ostream &out, BindingId id) {
+            if (id.valid()) {
+                out << 'n' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_value_id(std::ostream &out, ValueId id) {
+            if (id.valid()) {
+                out << 'v' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_statement_id(std::ostream &out, StatementId id) {
+            if (id.valid()) {
+                out << 'q' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_block_id(std::ostream &out, BlockId id) {
+            if (id.valid()) {
+                out << 'b' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_callable_id(std::ostream &out, CallableId id) {
+            if (id.valid()) {
+                out << 'f' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_range(std::ostream &out, syntax::SourceRange range) { out << " [" << range.begin << ".." << range.end << ')'; }
+
         template <typename IdType> void print_ids(std::ostream &out, char prefix, const std::vector<IdType> &ids) {
             out << '[';
             for (std::size_t index = 0; index < ids.size(); ++index) {
@@ -108,6 +150,113 @@ namespace hgl::hgraph_ir
                 case hir::BinaryOp::Or: return "or";
             }
             std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view phase_name(hir::Phase phase) noexcept {
+            switch (phase) {
+                case hir::Phase::Unknown: return "unknown";
+                case hir::Phase::Constant: return "constant";
+                case hir::Phase::Wiring: return "wiring";
+                case hir::Phase::Runtime: return "runtime";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view value_kind_name(hir::ValueKind kind) noexcept {
+            switch (kind) {
+                case hir::ValueKind::Unknown: return "unknown";
+                case hir::ValueKind::Void: return "void";
+                case hir::ValueKind::Constant: return "constant";
+                case hir::ValueKind::Signal: return "signal";
+                case hir::ValueKind::RuntimeValue: return "runtime-value";
+                case hir::ValueKind::Function: return "function";
+                case hir::ValueKind::Operator: return "operator";
+                case hir::ValueKind::Type: return "type";
+                case hir::ValueKind::Iterator: return "iterator";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view operation_kind_name(OperationKind kind) noexcept {
+            switch (kind) {
+                case OperationKind::None: return "none";
+                case OperationKind::ExactFunction: return "exact-function";
+                case OperationKind::NominalOperator: return "nominal-operator";
+                case OperationKind::Intrinsic: return "intrinsic";
+                case OperationKind::Constructor: return "constructor";
+                case OperationKind::Capability: return "capability";
+                case OperationKind::Index: return "index";
+                case OperationKind::Field: return "field";
+                case OperationKind::HarnessEval: return "harness-eval";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view assign_name(AssignOp op) noexcept {
+            switch (op) {
+                case AssignOp::Assign: return "assign";
+                case AssignOp::Add: return "add-assign";
+                case AssignOp::Sub: return "sub-assign";
+                case AssignOp::Mul: return "mul-assign";
+                case AssignOp::Div: return "div-assign";
+            }
+            std::unreachable();
+        }
+
+        void print_arguments(std::ostream &out, const std::vector<Argument> &arguments) {
+            out << '[';
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                if (!arguments[index].name.empty()) { out << arguments[index].name << ':'; }
+                print_value_id(out, arguments[index].value);
+            }
+            out << ']';
+        }
+
+        void print_operation(std::ostream &out, const Operation &operation) {
+            if (operation.kind == OperationKind::None) { return; }
+            out << " operation=" << operation_kind_name(operation.kind);
+            if (!operation.identity.empty()) { out << " identity=" << operation.identity; }
+            if (!operation.registry_name.empty()) { out << " registry=" << operation.registry_name; }
+            if (operation.callable.valid()) {
+                out << " callable=";
+                print_callable_id(out, operation.callable);
+            }
+            if (operation.candidate.valid()) {
+                out << " candidate=";
+                print_callable_id(out, operation.candidate);
+            }
+            if (!operation.candidate_identity.empty()) { out << " candidate-identity=" << operation.candidate_identity; }
+            if (!operation.candidate_label.empty()) { out << " candidate-label=" << std::quoted(operation.candidate_label); }
+            if (operation.capability.valid()) {
+                out << " capability=";
+                print_binding_id(out, operation.capability);
+            }
+            if (!operation.substitutions.empty()) {
+                out << " substitutions=[";
+                for (std::size_t index = 0; index < operation.substitutions.size(); ++index) {
+                    if (index != 0) { out << ", "; }
+                    const Substitution &substitution = operation.substitutions[index];
+                    if (substitution.parameter.valid()) {
+                        print_binding_id(out, substitution.parameter);
+                    } else {
+                        out << substitution.parameter_identity;
+                    }
+                    if (substitution.type.valid()) {
+                        out << ":";
+                        print_type_id(out, substitution.type);
+                    }
+                    if (substitution.value.valid()) {
+                        out << '=';
+                        print_const_expr_id(out, substitution.value);
+                    } else if (substitution.constant) {
+                        out << '=';
+                        print_constant(out, *substitution.constant);
+                    }
+                }
+                out << ']';
+            }
+            if (operation.deferred) { out << " deferred"; }
         }
 
         void print_signature(std::ostream &out, const std::vector<GenericParameter> &generics,
@@ -180,9 +329,9 @@ namespace hgl::hgraph_ir
     }  // namespace
 
     std::string print(const Module &module) {
-        std::ostringstream out;
-        out << "HGRAPH-IR " << (module.completion == Completion::Interfaces ? "interfaces" : "executable") << " module "
-            << module.path << '\n';
+        std::ostringstream                out;
+        static constexpr std::string_view completion_names[]{"interfaces", "bodies", "executable"};
+        out << "HGRAPH-IR " << completion_names[static_cast<std::size_t>(module.completion)] << " module " << module.path << '\n';
         out << "constant-expressions\n";
         for (std::size_t index = 0; index < module.const_exprs.size(); ++index) {
             const ConstExpr &expression = module.const_exprs[index];
@@ -409,9 +558,219 @@ namespace hgl::hgraph_ir
                     if (index != 0) { out << ", "; }
                     out << callable.capabilities[index].name << ':';
                     print_type_id(out, callable.capabilities[index].type);
+                    out << '@';
+                    print_binding_id(out, callable.capabilities[index].binding);
                 }
                 out << ']';
             }
+            if (callable.concise_body.valid()) {
+                out << " body=";
+                print_value_id(out, callable.concise_body);
+            }
+            if (callable.block_body.valid()) {
+                out << " body=";
+                print_block_id(out, callable.block_body);
+            }
+            out << '\n';
+        }
+
+        out << "bindings\n";
+        for (std::size_t index = 0; index < module.bindings.size(); ++index) {
+            static constexpr std::string_view names[]{
+                "type-parameter", "const-parameter", "signal-parameter", "let", "var", "state",
+                "capability",     "loop-value",      "lambda-parameter"};
+            const Binding &binding = module.bindings[index];
+            out << "  n" << index << ' ' << names[static_cast<std::size_t>(binding.kind)] << ' ' << binding.name << ':';
+            print_type_id(out, binding.type);
+            if (!binding.owner_identity.empty()) { out << " owner=" << binding.owner_identity; }
+            out << " index=" << binding.index;
+            print_range(out, binding.range);
+            out << '\n';
+        }
+
+        out << "values\n";
+        for (std::size_t index = 0; index < module.values.size(); ++index) {
+            const Value &value = module.values[index];
+            out << "  v" << index << ' ';
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, Literal>) {
+                        out << "literal ";
+                        print_constant(out, node.value);
+                    } else if constexpr (std::is_same_v<T, Reference>) {
+                        static constexpr std::string_view names[]{"binding", "callable", "operator", "struct", "intrinsic"};
+                        out << "reference " << names[static_cast<std::size_t>(node.kind)] << ' ';
+                        if (node.binding.valid()) {
+                            print_binding_id(out, node.binding);
+                        } else if (node.callable.valid()) {
+                            print_callable_id(out, node.callable);
+                        } else {
+                            out << node.identity;
+                        }
+                        if (!node.registry_name.empty()) { out << " registry=" << node.registry_name; }
+                    } else if constexpr (std::is_same_v<T, Unary>) {
+                        out << unary_name(node.op) << ' ';
+                        print_value_id(out, node.operand);
+                    } else if constexpr (std::is_same_v<T, Binary>) {
+                        out << binary_name(node.op) << ' ';
+                        print_value_id(out, node.lhs);
+                        out << ' ';
+                        print_value_id(out, node.rhs);
+                    } else if constexpr (std::is_same_v<T, Call>) {
+                        out << "call ";
+                        print_value_id(out, node.callee);
+                        out << " arguments=";
+                        print_arguments(out, node.arguments);
+                    } else if constexpr (std::is_same_v<T, Index>) {
+                        out << "index ";
+                        print_value_id(out, node.target);
+                        out << ' ';
+                        print_value_id(out, node.index);
+                    } else if constexpr (std::is_same_v<T, Field>) {
+                        out << "field ";
+                        print_value_id(out, node.target);
+                        out << ' ' << node.name;
+                    } else if constexpr (std::is_same_v<T, Sequence>) {
+                        out << "sequence [";
+                        for (std::size_t item = 0; item < node.elements.size(); ++item) {
+                            if (item != 0) { out << ", "; }
+                            if (node.elements[item].key.valid()) {
+                                print_value_id(out, node.elements[item].key);
+                                out << ':';
+                            }
+                            print_value_id(out, node.elements[item].value);
+                        }
+                        out << ']';
+                    } else if constexpr (std::is_same_v<T, Tuple>) {
+                        out << "tuple ";
+                        print_ids(out, 'v', node.elements);
+                    } else if constexpr (std::is_same_v<T, Lambda>) {
+                        out << "lambda parameters=";
+                        print_ids(out, 'n', node.parameters);
+                        out << " result=";
+                        print_type_id(out, node.result);
+                        out << " body=";
+                        print_value_id(out, node.body);
+                    } else if constexpr (std::is_same_v<T, Conditional>) {
+                        out << "if condition=";
+                        print_value_id(out, node.condition);
+                        out << " then=";
+                        print_block_id(out, node.then_block);
+                        if (node.otherwise.valid()) {
+                            out << " else=";
+                            print_value_id(out, node.otherwise);
+                        }
+                    } else if constexpr (std::is_same_v<T, BlockValue>) {
+                        out << "block ";
+                        print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, HarnessEval>) {
+                        out << "eval ";
+                        print_value_id(out, node.callee);
+                        out << " arguments=";
+                        print_arguments(out, node.arguments);
+                    } else {
+                        out << (node.delta ? "delta " : "construct ");
+                        print_type_id(out, node.type);
+                        out << " arguments=";
+                        print_arguments(out, node.arguments);
+                    }
+                },
+                value.node);
+            out << " type=";
+            print_type_id(out, value.type);
+            out << " phase=" << phase_name(value.phase) << " kind=" << value_kind_name(value.value_kind) << " effects=";
+            print_effects(out, value.effects);
+            print_operation(out, value.operation);
+            if (value.constant) {
+                out << " constant=";
+                print_constant(out, *value.constant);
+            }
+            print_range(out, value.range);
+            out << '\n';
+        }
+
+        out << "statements\n";
+        for (std::size_t index = 0; index < module.statements.size(); ++index) {
+            const Statement &statement = module.statements[index];
+            out << "  q" << index << ' ';
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
+                        out << (std::is_same_v<T, StateBinding> ? "state " : "local ");
+                        print_binding_id(out, node.binding);
+                        out << " type=";
+                        print_type_id(out, node.type);
+                        if (node.init.valid()) {
+                            out << " init=";
+                            print_value_id(out, node.init);
+                        }
+                    } else if constexpr (std::is_same_v<T, Inject>) {
+                        out << "inject ";
+                        print_ids(out, 'n', node.bindings);
+                    } else if constexpr (std::is_same_v<T, Lifecycle>) {
+                        out << (node.kind == LifecycleKind::Start ? "start " : "stop ");
+                        print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, Activation>) {
+                        out << "when condition=";
+                        print_value_id(out, node.condition);
+                        out << " body=";
+                        print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, Traversal>) {
+                        out << "for bindings=";
+                        print_ids(out, 'n', node.bindings);
+                        out << " iterable=";
+                        print_value_id(out, node.iterable);
+                        out << " body=";
+                        print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, Assignment>) {
+                        out << assign_name(node.op) << " place=";
+                        print_value_id(out, node.place);
+                        out << " value=";
+                        print_value_id(out, node.value);
+                    } else if constexpr (std::is_same_v<T, Return>) {
+                        out << "return ";
+                        print_value_id(out, node.value);
+                    } else if constexpr (std::is_same_v<T, Assert>) {
+                        out << "assert ";
+                        print_value_id(out, node.condition);
+                    } else {
+                        out << "evaluate ";
+                        print_value_id(out, node.value);
+                    }
+                },
+                statement.node);
+            out << " effects=";
+            print_effects(out, statement.effects);
+            print_range(out, statement.range);
+            out << '\n';
+        }
+
+        out << "blocks\n";
+        for (std::size_t index = 0; index < module.blocks.size(); ++index) {
+            const Block &block = module.blocks[index];
+            out << "  b" << index << " statements=[";
+            for (std::size_t item = 0; item < block.statements.size(); ++item) {
+                if (item != 0) { out << ", "; }
+                print_statement_id(out, block.statements[item]);
+            }
+            out << ']';
+            if (block.tail.valid()) {
+                out << " tail=";
+                print_value_id(out, block.tail);
+            }
+            out << " effects=";
+            print_effects(out, block.effects);
+            print_range(out, block.range);
+            out << '\n';
+        }
+
+        out << "tests\n";
+        for (const TestPlan &test : module.tests) {
+            out << "  " << test.identity << " body=";
+            print_block_id(out, test.body);
+            print_range(out, test.range);
             out << '\n';
         }
         return out.str();

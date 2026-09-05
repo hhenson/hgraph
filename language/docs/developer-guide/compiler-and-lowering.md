@@ -176,22 +176,29 @@ in the later native-interface stage. A dependency cycle, an unavailable native
 shape, or any other unresolved requirement reports a type diagnostic and
 leaves the module `Resolved`; it is never discarded by a temporary backend.
 
-`src/hgraph_ir/lower` now establishes the execution-facing boundary. Its first
-checkpoint copies typed HIR into an independently owned canonical type table,
+`src/hgraph_ir/lower` establishes the execution-facing boundary. It copies
+typed HIR into an independently owned canonical type table,
 a compile-time expression arena for type and window sizes and scalar or
 aggregate parameter and struct-field defaults, normalized generic requirements,
 effective nominal struct contracts, nominal operator contracts with registry
 spelling kept separate, and callable interfaces with visibility,
-composition/runtime classification, generics, effects, and capabilities.
+composition/runtime classification, generics, effects, and capabilities. The
+body checkpoint additionally owns addressable bindings, values, resolved
+operations, substitutions, statements, blocks, and test plans. Runtime control
+flow is explicit: state and local declarations, injectables, lifecycle blocks,
+ordered activations, collection traversal, assignment, return, assertion, and
+expression evaluation have distinct variants. Tail expressions are removed
+from the executable statement list so they cannot be evaluated twice.
 Effective fields retain their defining struct identity, while every constraint
 reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
 through each applied parent, so a child contract refers only to its own generic
 scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
-result is explicitly marked `Interfaces`: body/control-flow, state, lifecycle,
-activation, traversal, output, and provider plans must be lowered before it may
-be marked `Executable` or consumed by either backend.
+result is marked `Bodies`. No HIR symbol, expression, statement, block, or
+declaration ID remains in it. Provider selection and native execution planning
+are still required before it may be marked `Executable` or consumed by either
+backend.
 
 The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
 during migration. That adapter path is explicitly temporary; hgraph semantic

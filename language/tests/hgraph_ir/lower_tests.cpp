@@ -40,7 +40,7 @@ namespace
                 return selected;
             };
             if (!hgl::ir::complete_hir(language, operators, diagnostics)) { return; }
-            graph = hgl::hgraph_ir::lower_interfaces(language, diagnostics);
+            graph = hgl::hgraph_ir::lower(language, diagnostics);
         }
     };
 
@@ -59,7 +59,7 @@ namespace
     }
 }  // namespace
 
-TEST_CASE("every guide example lowers an hgraph IR interface", "[hgraph-ir][examples]") {
+TEST_CASE("every guide example lowers complete hgraph IR bodies", "[hgraph-ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));
 
@@ -75,11 +75,12 @@ TEST_CASE("every guide example lowers an hgraph IR interface", "[hgraph-ir][exam
         INFO(lowered.diagnostics.render(lowered.file));
         REQUIRE_FALSE(lowered.diagnostics.has_errors());
         REQUIRE(lowered.graph);
-        CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Interfaces);
+        CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Bodies);
         CHECK_FALSE(lowered.graph->types.empty());
         for (const hgl::hgraph_ir::Callable &function : lowered.graph->callables) {
             CHECK_FALSE(function.identity.empty());
             CHECK(function.result.valid());
+            CHECK((function.concise_body.valid() || function.block_body.valid()));
             for (const hgl::hgraph_ir::Parameter &parameter : function.parameters) { CHECK(parameter.type.valid()); }
         }
     }
@@ -134,6 +135,139 @@ export fn total(value: f64) -> f64 {
     CHECK(total->capabilities[1].type.valid());
     CHECK(hir::has_effect(total->effects, hir::Effect::WriteState));
     CHECK(hir::has_effect(total->effects, hir::Effect::WriteOutput));
+    REQUIRE(total->block_body.valid());
+
+    const hgl::hgraph_ir::Block &body = lowered.graph->blocks[total->block_body.value];
+    CHECK(std::ranges::any_of(body.statements, [&](hgl::hgraph_ir::StatementId id) {
+        return std::holds_alternative<hgl::hgraph_ir::StateBinding>(lowered.graph->statements[id.value].node);
+    }));
+    CHECK(std::ranges::any_of(body.statements, [&](hgl::hgraph_ir::StatementId id) {
+        return std::holds_alternative<hgl::hgraph_ir::Activation>(lowered.graph->statements[id.value].node);
+    }));
+    CHECK(std::ranges::any_of(lowered.graph->statements, [](const hgl::hgraph_ir::Statement &statement) {
+        return std::holds_alternative<hgl::hgraph_ir::Assignment>(statement.node);
+    }));
+}
+
+TEST_CASE("hgraph IR bodies resolve exact calls and native operator identities", "[hgraph-ir][bodies][operations]") {
+    Lowered lowered{R"(
+module checks.calls
+
+fn double(value: f64) -> f64 => value + value
+fn adjusted(value: f64) -> f64 => double(value) - 1.0
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(lowered.graph->callables.size() == 2);
+
+    const auto exact = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::ExactFunction;
+    });
+    REQUIRE(exact != lowered.graph->values.end());
+    CHECK(exact->operation.identity == "checks.calls.double");
+    REQUIRE(exact->operation.callable.valid());
+    CHECK(lowered.graph->callables[exact->operation.callable.value].identity == "checks.calls.double");
+
+    const auto add = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::NominalOperator && value.operation.registry_name == "add_";
+    });
+    REQUIRE(add != lowered.graph->values.end());
+    CHECK(add->operation.deferred);
+}
+
+TEST_CASE("hgraph IR bodies preserve lifecycle and capability calls once", "[hgraph-ir][bodies][lifecycle]") {
+    Lowered lowered{R"(
+module checks.lifecycle
+
+fn observed(value: f64) -> f64 {
+    inject out, logger
+    start { logger.info("start") }
+    when modified(value) { out = value }
+    stop { logger.info("stop") }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    std::size_t starts = 0;
+    std::size_t stops  = 0;
+    for (const hgl::hgraph_ir::Statement &statement : lowered.graph->statements) {
+        if (const auto *lifecycle = std::get_if<hgl::hgraph_ir::Lifecycle>(&statement.node)) {
+            lifecycle->kind == hgl::hgraph_ir::LifecycleKind::Start ? ++starts : ++stops;
+            const hgl::hgraph_ir::Block &block = lowered.graph->blocks[lifecycle->block.value];
+            CHECK(block.statements.empty());
+            CHECK(block.tail.valid());
+        }
+    }
+    CHECK(starts == 1);
+    CHECK(stops == 1);
+    const auto capability = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::Capability;
+    });
+    REQUIRE(capability != lowered.graph->values.end());
+    CHECK(capability->operation.capability.valid());
+    CHECK(capability->operation.identity == "logger.info");
+}
+
+TEST_CASE("hgraph IR bodies preserve traversal and predicate lambdas", "[hgraph-ir][bodies][collections]") {
+    Lowered lowered{R"(
+module checks.collections
+
+fn recent(values: map<str, f64>, const cutoff: datetime) -> i64 {
+    when modified(values) {
+        var count = 0
+        for key, value in items(values, fn(key, value) => last_modified(value) > cutoff) {
+            count += 1
+        }
+        return count
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const auto traversal = std::ranges::find_if(lowered.graph->statements, [](const hgl::hgraph_ir::Statement &statement) {
+        return std::holds_alternative<hgl::hgraph_ir::Traversal>(statement.node);
+    });
+    REQUIRE(traversal != lowered.graph->statements.end());
+    const auto &loop = std::get<hgl::hgraph_ir::Traversal>(traversal->node);
+    REQUIRE(loop.bindings.size() == 2);
+    CHECK(loop.iterable.valid());
+    CHECK(loop.block.valid());
+
+    const auto lambda = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return std::holds_alternative<hgl::hgraph_ir::Lambda>(value.node);
+    });
+    REQUIRE(lambda != lowered.graph->values.end());
+    CHECK(std::get<hgl::hgraph_ir::Lambda>(lambda->node).parameters.size() == 2);
+}
+
+TEST_CASE("hgraph IR bodies own test harness plans", "[hgraph-ir][bodies][tests]") {
+    Lowered lowered{R"(
+module checks.tests
+
+fn identity(value: f64) -> f64 => value
+test identity_ticks {
+    assert eval(identity, value: [1.0, _, 2.0]) == [1.0, _, 2.0]
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->tests.size() == 1);
+    CHECK(lowered.graph->tests.front().identity == "checks.tests.identity_ticks");
+    CHECK(lowered.graph->tests.front().body.valid());
+
+    const auto evaluation = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::HarnessEval;
+    });
+    REQUIRE(evaluation != lowered.graph->values.end());
+    REQUIRE(evaluation->operation.callable.valid());
+    CHECK(lowered.graph->callables[evaluation->operation.callable.value].identity == "checks.tests.identity");
 }
 
 TEST_CASE("hgraph IR preserves source implementation candidates", "[hgraph-ir][operators]") {
@@ -142,6 +276,7 @@ module checks.implementation
 
 operator choose<T>(value: T) -> T
 impl fn choose(value: f64) -> f64 => value
+fn selected(value: f64) -> f64 => choose(value)
 )"};
     INFO(lowered.diagnostics.render(lowered.file));
     REQUIRE_FALSE(lowered.diagnostics.has_errors());
@@ -149,11 +284,29 @@ impl fn choose(value: f64) -> f64 => value
 
     REQUIRE(lowered.graph->operators.size() == 1);
     CHECK(lowered.graph->operators.front().identity == "checks.implementation.choose");
-    REQUIRE(lowered.graph->callables.size() == 1);
+    REQUIRE(lowered.graph->callables.size() == 2);
     const hgl::hgraph_ir::Callable &implementation = lowered.graph->callables.front();
     CHECK(implementation.visibility == hgl::hgraph_ir::CallableVisibility::Implementation);
     CHECK(implementation.operator_identity == "checks.implementation.choose");
     CHECK(implementation.identity == "checks.implementation.choose#2");
+
+    const auto call = std::ranges::find_if(lowered.graph->values,
+                                           [](const hgl::hgraph_ir::Value &value) { return value.operation.candidate.valid(); });
+    REQUIRE(call != lowered.graph->values.end());
+    CHECK(call->operation.candidate_identity == implementation.identity);
+}
+
+TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {
+    hgl::hgraph_ir::Module module;
+    hgl::hgraph_ir::Value  value;
+    value.operation.kind = hgl::hgraph_ir::OperationKind::NominalOperator;
+    value.operation.substitutions.push_back(hgl::hgraph_ir::Substitution{
+        .parameter_identity = "N",
+        .constant           = hir::Constant{std::int64_t{42}},
+    });
+    module.values.push_back(std::move(value));
+
+    CHECK(hgl::hgraph_ir::print(module).find("substitutions=[N=42]") != std::string::npos);
 }
 
 TEST_CASE("hgraph IR owns symbolic compile-time type arguments", "[hgraph-ir][types]") {
@@ -315,7 +468,7 @@ requires T in {i64, f64}
 TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]") {
     hir::Module                  unresolved;
     hgl::syntax::DiagnosticSink  diagnostics;
-    const hgl::hgraph_ir::Module graph = hgl::hgraph_ir::lower_interfaces(unresolved, diagnostics);
+    const hgl::hgraph_ir::Module graph = hgl::hgraph_ir::lower(unresolved, diagnostics);
     CHECK(diagnostics.has_errors());
     CHECK(graph.completion == hgl::hgraph_ir::Completion::Interfaces);
 }

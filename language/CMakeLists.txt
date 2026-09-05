@@ -135,9 +135,9 @@ target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_ir PUBLIC hgl::semantics)
 hgl_apply_warnings(hgl_ir)
 
-# The execution-facing semantic IR (src/hgraph_ir). Its first checkpoint owns
-# canonical type and callable interfaces; following slices add executable
-# composition and runtime-node plans before either backend migrates here.
+# The execution-facing semantic IR (src/hgraph_ir). It owns canonical
+# contracts and structured callable/test bodies; provider planning advances
+# those bodies to an executable plan before either backend migrates here.
 add_library(hgl_graph_ir STATIC
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
