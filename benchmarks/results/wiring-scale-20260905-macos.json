@@ -7,7 +7,7 @@
       "suite": "core",
       "supported_modes": [
         "release",
-        "hg-cpp"
+        "current"
       ],
       "cycle_scale": 1.0,
       "size_scale": 1.0,
@@ -37,7 +37,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -63,7 +63,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -89,7 +89,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -115,7 +115,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -141,7 +141,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -174,14 +174,14 @@
         "reference_sha256": "872bd8f07fcec148317786be517ba7c73bc8c6023de50a4fe88cc68c0ae1eef1"
       }
     },
-    "hg-cpp": {
+    "current": {
       "scenario": "construct_dispatch_cases",
       "group": "Graph construction",
       "label": "dispatch with many registered cases",
       "suite": "core",
       "supported_modes": [
         "release",
-        "hg-cpp"
+        "current"
       ],
       "cycle_scale": 1.0,
       "size_scale": 1.0,
@@ -193,7 +193,7 @@
       "reference_sha256": "",
       "hgraph": "0.0.0",
       "python": "3.12.10",
-      "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
       "ok": true,
       "seconds": 0.099405,
       "cycles": 1,
@@ -211,7 +211,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -223,7 +223,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.09932,
           "cycles": 1,
@@ -237,7 +237,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -249,7 +249,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.099584,
           "cycles": 1,
@@ -263,7 +263,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -275,7 +275,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.099405,
           "cycles": 1,
@@ -289,7 +289,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -301,7 +301,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.099178,
           "cycles": 1,
@@ -315,7 +315,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -327,7 +327,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.100419,
           "cycles": 1,
@@ -357,7 +357,7 @@
       "suite": "core",
       "supported_modes": [
         "release",
-        "hg-cpp"
+        "current"
       ],
       "cycle_scale": 1.0,
       "size_scale": 1.0,
@@ -387,7 +387,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -413,7 +413,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -439,7 +439,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -465,7 +465,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -491,7 +491,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -524,14 +524,14 @@
         "reference_sha256": "872bd8f07fcec148317786be517ba7c73bc8c6023de50a4fe88cc68c0ae1eef1"
       }
     },
-    "hg-cpp": {
+    "current": {
       "scenario": "construct_overloads",
       "group": "Graph construction",
       "label": "Operator with many overloads at many call sites",
       "suite": "core",
       "supported_modes": [
         "release",
-        "hg-cpp"
+        "current"
       ],
       "cycle_scale": 1.0,
       "size_scale": 1.0,
@@ -543,7 +543,7 @@
       "reference_sha256": "",
       "hgraph": "0.0.0",
       "python": "3.12.10",
-      "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
       "ok": true,
       "seconds": 0.01144,
       "cycles": 1,
@@ -561,7 +561,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -573,7 +573,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.011705,
           "cycles": 1,
@@ -587,7 +587,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -599,7 +599,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.011343,
           "cycles": 1,
@@ -613,7 +613,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -625,7 +625,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.01148,
           "cycles": 1,
@@ -639,7 +639,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -651,7 +651,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.01144,
           "cycles": 1,
@@ -665,7 +665,7 @@
           "suite": "core",
           "supported_modes": [
             "release",
-            "hg-cpp"
+            "current"
           ],
           "cycle_scale": 1.0,
           "size_scale": 1.0,
@@ -677,7 +677,7 @@
           "reference_sha256": "",
           "hgraph": "0.0.0",
           "python": "3.12.10",
-          "native_module": "<repo>/benchmarks/.venv-hg-cpp-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
+          "native_module": "<repo>/benchmarks/.venv-current-3.12-darwin-arm64/lib/python3.12/site-packages/_hgraph.abi3.so",
           "ok": true,
           "seconds": 0.011434,
           "cycles": 1,

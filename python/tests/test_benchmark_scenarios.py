@@ -280,7 +280,7 @@ def test_benchmark_mesh_processes_dependencies_and_key_churn():
         [True],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     )
-    # hg-cpp settles the dependency chain within a cycle; upstream publishes
+    # current settles the dependency chain within a cycle; upstream publishes
     # its intermediate settlement. Both traces cover the same churn workload.
     assert actual in (
         [0, 84, 87, 97, 118],
@@ -493,14 +493,14 @@ def test_benchmark_set_churn_keeps_the_requested_live_size():
         [True],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     )
-    # hg_cpp deduplicates the unchanged length while upstream republishes
+    # Current hgraph deduplicates the unchanged length while upstream republishes
     # it, and a never-valid input stays silent until the first delta
     # (upstream parity, issue #116 family); both traces prove that every
     # add/remove delta preserved four live keys.
     assert actual in ([None, 4], [None, 4, 4, 4, 4])
 
 
-def test_hg_cpp_benchmark_reduce_without_zero_tracks_cardinality():
+def test_cpp_first_benchmark_reduce_without_zero_tracks_cardinality():
     @graph
     def app(values: TSD[int, TS[int]]) -> TS[int]:
         return reduce(bench._add_graph, values)
@@ -511,7 +511,7 @@ def test_hg_cpp_benchmark_reduce_without_zero_tracks_cardinality():
     ) == [None, 4, 10, 6, None]
 
 
-def test_hg_cpp_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
+def test_cpp_first_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
     @graph
     def app(trigger: TS[bool]) -> TS[int]:
         values = bench._dynamic_tsl_sparse_pulse(3, 4, 1)

@@ -11,7 +11,7 @@
 - current-source fingerprint: c25525254896f3f48945714151a205cd6193fabdff377397d1ad5e339bd72a7c
 - fresh-process samples: 3
 - RSS sampling interval: 5 ms
-- modes: hgraph 0.8.19 (`release`), current source (`hg-cpp`)
+- modes: hgraph 0.8.19 (`release`), current hgraph
 - reused fixed baseline cells: 0
 
 RSS values are medians in MiB; +/- is median absolute deviation. Peak delta is measured from the post-import/pre-run process state. Retained delta is measured after graph teardown and two Python GC passes.
@@ -22,11 +22,11 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 | mode | interpreter + psutil RSS | ready RSS | runtime load delta |
 |---|---:|---:|---:|
 | hgraph 0.8.19 (`release`) | 22.4 | 63.1 | 40.8 |
-| current source (`hg-cpp`) | 22.4 | 64.3 | 41.9 |
+| current hgraph | 22.4 | 64.3 | 41.9 |
 
 ## Static graph
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Wide/deep native graph - small (`construct_std__small`) | graph size | 2.1 +/- 0.0 | 2.2 +/- 0.0 | 1.05x | 2.1 +/- 0.0 | 2.2 +/- 0.0 | 42.5 | 23.0 |
 | Wide/deep native graph - medium (`construct_std__medium`) | graph size | 3.8 +/- 0.0 | 3.9 +/- 0.0 | 1.04x | 3.8 +/- 0.0 | 3.9 +/- 0.0 | 172.8 | 93.7 |
@@ -34,7 +34,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Bounded execution
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Native scalar hot loop - short (`tick_std__short`) | duration | 1.5 +/- 0.0 | 1.5 +/- 0.0 | 1.05x | 1.5 +/- 0.0 | 1.5 +/- 0.0 | 0.9 | 0.3 |
 | Native scalar hot loop - medium (`tick_std__medium`) | duration | 1.5 +/- 0.1 | 1.6 +/- 0.0 | 1.09x | 1.5 +/- 0.1 | 1.6 +/- 0.0 | 0.9 | 0.3 |
@@ -45,7 +45,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Process lifetime
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | hgraph 0.8.19 first-to-last growth | current source first-to-last growth | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | hgraph 0.8.19 first-to-last growth | current hgraph first-to-last growth | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Repeated small graph - once (`construct_std__repeat_once`) | graph executions | 1.7 +/- 0.0 | 1.7 +/- 0.0 | 1.00x | 1.7 +/- 0.0 | 1.7 +/- 0.0 | 0.0 +/- 0.0 | 0.0 +/- 0.0 | 8.6 | 4.5 |
 | Repeated small graph - ten (`construct_std__repeat_ten`) | graph executions | 1.7 +/- 0.0 | 1.7 +/- 0.0 | 1.02x | 1.7 +/- 0.0 | 1.7 +/- 0.0 | 0.0 +/- 0.0 | 0.1 +/- 0.0 | 8.6 | 4.5 |
@@ -57,7 +57,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Value storage
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | String arithmetic - short (`type_str_std__short`) | duration | 1.6 +/- 0.0 | 1.6 +/- 0.0 | 1.02x | 1.6 +/- 0.0 | 1.6 +/- 0.0 | 1.4 | 0.7 |
 | String arithmetic - long (`type_str_std__long`) | duration | 1.6 +/- 0.0 | 1.6 +/- 0.0 | 0.97x | 1.6 +/- 0.0 | 1.6 +/- 0.0 | 1.4 | 0.7 |
@@ -72,7 +72,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Keyed collections
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Dense TSD map/reduce - small (`tsd_dense_std__small`) | cardinality | 2.3 +/- 0.0 | 2.3 +/- 0.0 | 0.98x | 2.3 +/- 0.0 | 2.3 +/- 0.0 | 1.9 | 46.4 |
 | Dense TSD map/reduce - medium (`tsd_dense_std__medium`) | cardinality | 2.4 +/- 0.0 | 2.5 +/- 0.1 | 1.03x | 2.4 +/- 0.0 | 2.5 +/- 0.1 | 1.9 | 206.4 |
@@ -95,7 +95,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Nested graphs
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | TSD nested-graph reduce - small (`reduce_tsd_nested_graph_std__small`) | cardinality | 2.0 +/- 0.0 | 1.9 +/- 0.0 | 0.97x | 2.0 +/- 0.0 | 1.9 +/- 0.0 | 1.4 | 19.4 |
 | TSD nested-graph reduce - medium (`reduce_tsd_nested_graph_std__medium`) | cardinality | 2.0 +/- 0.0 | 2.0 +/- 0.0 | 0.98x | 2.0 +/- 0.0 | 2.0 +/- 0.0 | 1.4 | 78.6 |
@@ -109,7 +109,7 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## Services
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Multiplexed Python service adaptor - small (`service_adaptor_py__small`) | client count | 2.3 +/- 0.1 | 2.3 +/- 0.0 | 0.99x | 2.3 +/- 0.1 | 2.3 +/- 0.0 | 2.4 | 9.5 |
 | Multiplexed Python service adaptor - medium (`service_adaptor_py__medium`) | client count | 2.4 +/- 0.0 | 2.4 +/- 0.1 | 1.01x | 2.4 +/- 0.0 | 2.4 +/- 0.1 | 5.7 | 12.9 |
@@ -117,13 +117,13 @@ GraphDiagnostics columns are a separate C++-first run and are native-accounted b
 
 ## C++-first dynamic storage
 
-| profile | axis | hgraph 0.8.19 peak delta | current source peak delta | current source/hgraph 0.8.19 | hgraph 0.8.19 retained | current source retained | planned KiB | peak dynamic KiB |
+| profile | axis | hgraph 0.8.19 peak delta | current hgraph peak delta | current hgraph/hgraph 0.8.19 | hgraph 0.8.19 retained | current hgraph retained | planned KiB | peak dynamic KiB |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Dynamic TSL map/reduce - small (`reduce_dynamic_tsl_std__small`) | initial capacity | 2.1 +/- 0.0 | 2.3 +/- 0.0 | 1.09x | 2.1 +/- 0.0 | 2.3 +/- 0.0 | 1.7 | 63.8 |
 | Dynamic TSL map/reduce - medium (`reduce_dynamic_tsl_std__medium`) | initial capacity | 2.3 +/- 0.0 | 2.4 +/- 0.0 | 1.07x | 2.3 +/- 0.0 | 2.4 +/- 0.0 | 1.7 | 252.2 |
 | Dynamic TSL map/reduce - large (`reduce_dynamic_tsl_std__large`) | initial capacity | 3.5 +/- 0.0 | 3.8 +/- 0.0 | 1.09x | 3.5 +/- 0.0 | 3.8 +/- 0.0 | 1.7 | 1006.0 |
 
-## current source retained runtime registry growth
+## current hgraph retained runtime registry growth
 
 Counts are final-minus-pre-run cold-path cardinalities. They are process-lifetime structural records, not live graph instances.
 

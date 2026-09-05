@@ -49,7 +49,7 @@ def _sample(peak, retained, ready=100.0):
 
 
 def test_memory_profiles_reference_stable_scenarios_and_have_growth_context():
-    assert memory.DEFAULT_MODES == ("release", "hg-cpp")
+    assert memory.DEFAULT_MODES == ("release", "current")
     for profile in memory.memory_profiles.PROFILES.values():
         assert profile.scenario in memory.scenarios.SCENARIOS
         assert profile.growth_axis
@@ -103,7 +103,7 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
         {"tick_std__short": {
             "upstream-py": python,
             "upstream-cpp": legacy,
-            "hg-cpp": candidate,
+            "current": candidate,
         }},
         {"tick_std__short": {
             "ok": True,
@@ -147,7 +147,7 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     report = memory.render(
         {"construct_std__repeat_ten": {
             "upstream-cpp": memory.aggregate_samples([legacy_sample] * 3),
-            "hg-cpp": memory.aggregate_samples([candidate_sample] * 3),
+            "current": memory.aggregate_samples([candidate_sample] * 3),
         }},
         {},
         samples=3,
@@ -170,7 +170,7 @@ def test_current_source_registry_growth_is_reported_separately_from_live_memory(
     )
     report = memory.render(
         {"construct_std__repeat_ten": {
-            "hg-cpp": memory.aggregate_samples([candidate] * 3),
+            "current": memory.aggregate_samples([candidate] * 3),
         }},
         {},
         samples=3,

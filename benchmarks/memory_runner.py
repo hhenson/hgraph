@@ -1,10 +1,9 @@
 """Fresh-process memory runner for one stable memory profile.
 
 Process measurements intentionally run without GraphDiagnostics: the collector
-owns a record for every graph/node it sees and would contaminate RSS.  The
+owns a record for every graph/node it sees and would contaminate RSS. The
 separate ``inspector`` measurement mode reports native planned and dynamic
-storage for hg_cpp; its command-line spelling is retained for result-file
-compatibility.
+storage for the current hgraph build.
 """
 import argparse
 import gc
@@ -42,10 +41,7 @@ def _implementation_label() -> str:
         from importlib.metadata import version as distribution_version
         return distribution_version("hgraph")
     except Exception:
-        try:
-            return "hg_cpp " + distribution_version("hg_cpp")
-        except Exception:
-            return "unknown"
+        return "unknown"
 
 
 def _full_memory(process: psutil.Process) -> dict[str, float | None]:
@@ -62,7 +58,7 @@ def _full_memory(process: psutil.Process) -> dict[str, float | None]:
 
 
 def _runtime_registry_snapshot() -> dict[str, int] | None:
-    """Capture hg_cpp-only cold-path counts without GraphDiagnostics."""
+    """Capture current-build cold-path counts without GraphDiagnostics."""
     try:
         from hgraph.debug import runtime_registry_snapshot
     except (ImportError, AttributeError):

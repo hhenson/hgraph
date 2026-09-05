@@ -41,8 +41,8 @@ MIN_TD = hg.MIN_TD
 # the bench degrades with a clear message rather than an import error.
 REMOVE = getattr(hg, "REMOVE")
 
-ALL_MODES = ("upstream-py", "upstream-cpp", "release", "hg-cpp")
-CPP_FIRST_ONLY = ("release", "hg-cpp")
+ALL_MODES = ("upstream-py", "upstream-cpp", "release", "current")
+CPP_FIRST_ONLY = ("release", "current")
 
 
 @dataclass(frozen=True)
@@ -1279,7 +1279,7 @@ def tss_add_remove_std(cycle_scale: float, size_scale: float):
 # G. mesh_ with inter-key dependencies, items coming and going
 # ---------------------------------------------------------------------------
 
-# Self-reference inside a mesh: upstream spells it ``mesh_(fn)[key]``, hg_cpp
+# Self-reference inside a mesh: upstream spells it ``mesh_(fn)[key]``, current hgraph
 # spells it ``mesh_ref(key)`` — the one API divergence the bench shims over.
 if hasattr(hg, "mesh_ref"):
     def _mesh_self(cell_fn, key_port):

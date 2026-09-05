@@ -109,8 +109,8 @@ def ensure_psutil(executable: Path | str) -> str:
 def setup_modes(modes: list[str]) -> dict[str, str]:
     if any(mode.startswith("upstream") for mode in modes):
         performance.ensure_upstream_venv()
-    if "hg-cpp" in modes:
-        performance.ensure_hg_cpp_venv()
+    if "current" in modes:
+        performance.ensure_current_hgraph_venv()
     if "release" in modes:
         performance.ensure_release_venv()
     versions = {}
@@ -247,7 +247,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         if any(mode in per_mode for per_mode in results.values())
     ]
     comparison_mode = (
-        "hg-cpp" if "hg-cpp" in display_modes
+        "current" if "current" in display_modes
         else "release" if "release" in display_modes else None
     )
     ratio_modes = [
@@ -289,7 +289,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         *(
             [f"- current-source revision: {metadata['revision']}",
              f"- current-source fingerprint: {metadata['source_fingerprint']}"]
-            if "hg-cpp" in display_modes else []
+            if "current" in display_modes else []
         ),
         f"- fresh-process samples: {samples}",
         f"- RSS sampling interval: {interval_ms:g} ms",
@@ -598,7 +598,7 @@ def main() -> int:
 
     inspector = {}
     inspector_mode = (
-        "hg-cpp" if "hg-cpp" in modes
+        "current" if "current" in modes
         else "release" if "release" in modes else None
     )
     if inspector_mode is not None and not args.skip_inspector:
