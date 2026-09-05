@@ -13,6 +13,10 @@ namespace hgl::syntax
     /// newlines so several diagnostics can be reported from one run. The
     /// returned module is complete for every declaration that parsed.
     [[nodiscard]] ast::Module parse(const SourceFile &file, DiagnosticSink &diagnostics);
+
+    /// Temporary differential-testing entry point retained only while the
+    /// declarative parser takes over malformed-source diagnostics.
+    [[nodiscard]] ast::Module parse_with_legacy_parser(const SourceFile &file, DiagnosticSink &diagnostics);
 }  // namespace hgl::syntax
 
 #endif  // HGL_SYNTAX_PARSER_H

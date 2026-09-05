@@ -354,10 +354,13 @@ namespace hgl::syntax
 
         struct eval_expression
         {
-            static constexpr auto rule = token<TokenKind::KwEval> >>
-                                         token<TokenKind::LParen> + dsl::p<newlines> +
-                                             dsl::list(dsl::p<argument>, dsl::trailing_sep(dsl::p<comma_separator>)) +
-                                             dsl::p<newlines> + token<TokenKind::RParen>;
+            static constexpr auto next_argument =
+                dsl::peek(dsl::p<comma_separator> + expression_start) >> dsl::p<comma_separator> + dsl::p<argument>;
+            static constexpr auto trailing_comma = dsl::if_(dsl::p<comma_separator>);
+            static constexpr auto rule           = token<TokenKind::KwEval> >> token<TokenKind::LParen> + dsl::p<newlines> +
+                                                                                   dsl::recurse<expression> +
+                                                                                   dsl::while_(next_argument) + trailing_comma
+                                                                                   + dsl::p<newlines> + token<TokenKind::RParen>;
         };
 
         struct local_decl
@@ -506,7 +509,7 @@ namespace hgl::syntax
                 dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                 dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<constraint_call> |
                 dsl::peek(name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> |
-                dsl::peek(value_start) >> dsl::p<size_expression> | name;
+                dsl::peek(value_start) >> dsl::recurse<size_expression> | name;
         };
 
         struct constraint_term
@@ -656,6 +659,9 @@ namespace hgl::syntax
 
         [[nodiscard]] std::uint8_t encode(std::span<const Token> tokens, std::size_t position) noexcept {
             const Token &token = tokens[position];
+            if (token.kind == TokenKind::Identifier && token.text == "delta") {
+                return static_cast<std::uint8_t>(grammar::ContextToken::Delta);
+            }
             if (looks_like_applied_constructor(tokens, position)) {
                 return static_cast<std::uint8_t>(grammar::ContextToken::AppliedConstructor);
             }
@@ -668,7 +674,6 @@ namespace hgl::syntax
                 if (token.text == "map") { return static_cast<std::uint8_t>(grammar::ContextToken::Map); }
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
-                if (token.text == "delta") { return static_cast<std::uint8_t>(grammar::ContextToken::Delta); }
             }
             return static_cast<std::uint8_t>(token.kind);
         }

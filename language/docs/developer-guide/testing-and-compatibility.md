@@ -96,9 +96,11 @@ The selected lexy grammar now materializes the parser-independent,
 source-accurate syntax arena from the existing token stream. Tests require an
 exact reconstruction from lexical fragments, a complete production tree for
 valid source, explicit missing syntax after local recovery, and complete source
-retention after fatal syntax. Promotion to the sole syntax parser still
-requires the `ast::Module` projection described by ADR 0001; until then the
-hand-written parser remains the compiler's AST-producing path.
+retention after fatal syntax. Clean sources are structurally projected into
+`ast::Module`; every clean parser fixture compares the complete projected AST
+dump, including ranges, with the temporary legacy parser. The legacy parser is
+used only to preserve malformed-source messages until source-tree issues carry
+equivalent diagnostics.
 
 ## Typed HIR and hgraph IR
 

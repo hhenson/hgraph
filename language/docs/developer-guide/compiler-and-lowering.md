@@ -68,7 +68,9 @@ reconstruct the input even where several line breaks share one grammar token.
 `syntax_tree` owns the parser-independent source arena. Its production nodes
 and source tokens retain ranges, its lexical fragments retain all trivia, and
 its issue nodes distinguish zero-width missing tokens from unexpected source
-tokens. `ast` is an index-based semantic syntax arena: nodes are `std::variant`
+tokens. `ast_projection` structurally lowers a clean source arena into `ast`,
+performing no token parsing or syntax recovery. `ast` is an index-based
+semantic syntax arena: nodes are `std::variant`
 payloads addressed by `NodeId`, so the tree owns no pointers and a module is
 one movable value. `token_grammar` is the private lexy production grammar
 selected by ADR 0001. It parses the lexer's token stream, materializes the
@@ -76,15 +78,18 @@ source arena, and discards all lexy storage before returning. Every clean
 legacy-parser test and every checked-in HGL example must pass this declarative
 grammar. Focused malformed cases prove local recovery after three independent
 missing tokens and complete source retention after a fatal error. `parser`
-still produces `ast::Module` directly during this intermediate slice; it is
-the hand-written recursive-descent implementation that applies the newline
-rules. `ast_printer` dumps that arena one node per line for
+orchestrates lexing, source parsing, and AST projection. The hand-written
+recursive-descent implementation remains only as a temporary diagnostic
+fallback for malformed source while grammar issues gain compatible messages.
+`ast_printer` dumps the semantic arena one node per line for
 `hgl check --dump-ast` and the tests.
 
-This dual-parser state is deliberately temporary. The next parser slice
-projects the source arena into the existing `ast::Module` and makes that the
-compiler path. Only after equivalence tests pass may the hand-written syntax
-decisions be removed. Downstream compiler passes never receive lexy types.
+Clean compilation now has one grammatical path: declarative source syntax to
+structural AST projection. Differential tests require its complete AST dump,
+including source ranges, to equal the legacy parser for the clean syntax
+corpus. The next parser slice translates source-tree issues into user-facing
+diagnostics and removes the malformed-source fallback. Downstream compiler
+passes never receive lexy types.
 
 The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
