@@ -14,7 +14,7 @@ export fn plus(a: f64, b: f64) -> f64 => a + b
 export fn scaled_sum(a: f64, b: f64, const k: f64 = 2.0) -> f64 =>
     scale(plus(a, b), k)
 
-export fn above(x: f64, const threshold: f64) -> bool =>
+export fn above(x: f64, const threshold: f64 = 1e308 * 1e308) -> bool =>
     x > threshold
 
 export fn maybe_double(x: f64, const enabled: bool = true) -> f64 {
@@ -24,7 +24,7 @@ export fn maybe_double(x: f64, const enabled: bool = true) -> f64 {
     x
 }
 
-export fn offset_by(x: f64, const delta: i64) -> f64 {
+export fn offset_by(x: f64, const delta: i64 = -9223372036854775807 - 1) -> f64 {
     let shift = delta * 2
     x + shift
 }
