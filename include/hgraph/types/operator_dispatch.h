@@ -1340,23 +1340,21 @@ namespace hgraph
             else
             {
                 const TSValueTypeMetaData *expected = ts_resolver<S>::resolve(map);
-                if (expected == nullptr)
-                {
-                    throw std::logic_error("operator selected overload input schema is unresolved");
-                }
-                if (arg.kind == WiringArg::Kind::TimeSeries)
-                {
-                    if (arg.port.schema == nullptr)
-                    {
-                        return PortParam{w, WiringPortRef::null_source(expected)};
-                    }
+                if (arg.kind == WiringArg::Kind::TimeSeries) {
                     ResolutionMap scratch = map;
-                    if (!input_ts_pattern_match(to_pattern<S>(), arg.port.schema, scratch))
-                    {
+                    if (arg.port.schema != nullptr && !input_ts_pattern_match(to_pattern<S>(), arg.port.schema, scratch)) {
                         throw std::logic_error("operator selected overload input schema does not match");
                     }
+                    // Shape wildcards such as TSWAny deliberately do not
+                    // resolve to one canonical schema. Preserve the concrete
+                    // schema selected at this call site when constructing the
+                    // typed graph parameter.
+                    if (expected == nullptr) { expected = arg.port.schema; }
+                    if (expected == nullptr) { throw std::logic_error("operator selected overload input schema is unresolved"); }
+                    if (arg.port.schema == nullptr) { return PortParam{w, WiringPortRef::null_source(expected)}; }
                     return PortParam{w, graph_wiring_detail::adapt_source_for_input(w, expected, arg.port)};
                 }
+                if (expected == nullptr) { throw std::logic_error("operator selected overload input schema is unresolved"); }
                 return PortParam{w, wire_scalar_const(w, arg, expected)};
             }
         }

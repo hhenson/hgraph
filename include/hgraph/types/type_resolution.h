@@ -324,8 +324,16 @@ namespace hgraph
         }
     };
 
-    template <typename V>
-    struct ts_resolver<TSWAny<V>>
+    template <typename V, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    struct ts_resolver<TSWDuration<V, PeriodMicros, MinPeriodMicros>>
+    {
+        [[nodiscard]] static const TSValueTypeMetaData *resolve(const ResolutionMap &m) {
+            return TypeRegistry::instance().tsw_duration(scalar_resolver<V>::resolve(m), TimeDelta{PeriodMicros},
+                                                         TimeDelta{MinPeriodMicros});
+        }
+    };
+
+    template <typename V> struct ts_resolver<TSWAny<V>>
     {
         [[nodiscard]] static const TSValueTypeMetaData *resolve(const ResolutionMap &) noexcept { return nullptr; }
     };
@@ -373,6 +381,19 @@ namespace hgraph
                                  ts_resolver<typename ts_field_descriptor<Fields>::schema>::resolve(m)),
              ...);
             return TypeRegistry::instance().tsb(Name.sv(), fields);
+        }
+    };
+
+    template <typename ValueBundle, typename... Fields> struct ts_resolver<NominalTSB<ValueBundle, Fields...>>
+    {
+        [[nodiscard]] static const TSValueTypeMetaData *resolve(const ResolutionMap &m) {
+            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+            fields.reserve(sizeof...(Fields));
+            (fields.emplace_back(ts_field_descriptor<Fields>::field_name(),
+                                 ts_resolver<typename ts_field_descriptor<Fields>::schema>::resolve(m)),
+             ...);
+            const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+            return TypeRegistry::instance().tsb(value->name(), fields);
         }
     };
 
@@ -714,8 +735,16 @@ namespace hgraph
         }
     };
 
-    template <typename V>
-    struct ts_unifier<TSWAny<V>>
+    template <typename V, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    struct ts_unifier<TSWDuration<V, PeriodMicros, MinPeriodMicros>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m) {
+            c = unify_dereference(c);
+            scalar_unifier<V>::unify(c != nullptr && c->kind == TSTypeKind::TSW ? c->value_type : nullptr, m);
+        }
+    };
+
+    template <typename V> struct ts_unifier<TSWAny<V>>
     {
         static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
@@ -769,8 +798,14 @@ namespace hgraph
         }
     };
 
-    template <fixed_string Name, typename... Fields>
-    struct ts_unifier<TSB<Name, Fields...>>
+    template <fixed_string Name, typename... Fields> struct ts_unifier<TSB<Name, Fields...>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m) {
+            (type_resolution_detail::unify_tsb_field<Fields>(c, m), ...);
+        }
+    };
+
+    template <typename ValueBundle, typename... Fields> struct ts_unifier<NominalTSB<ValueBundle, Fields...>>
     {
         static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
         {

@@ -4501,49 +4501,49 @@ namespace hgraph::stdlib
             auto  ordered  = ordered_map_schemas(context, "ndx");
             if (!ordered.has_value()) { return; }
 
-            try {
+            // Leave the output unresolved on any failure; the real wiring path reports the error.
+            static_cast<void>(fallback_on_exception(false, [&] {
                 auto tag_at = [&](std::size_t index) {
-                    return index < ordered->arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[index])
-                                                            : WiringPortRef::ArgTag::None;
-                };
+                        return index < ordered->arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[index])
+                                                                : WiringPortRef::ArgTag::None;
+                    };
 
-                // A no_key TSL still anchors the size here so resolution
-                // succeeds and compose can reject it with the clear message.
-                bool        found_collection = false;
-                std::size_t size             = 0;
-                for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
-                    if (tag_at(i) == WiringPortRef::ArgTag::PassThrough) { continue; }
-                    const auto *tsl = time_series_schema_as<AnyTSL>(ordered->schemas[i]);
-                    if (tsl != nullptr) {
-                        found_collection = true;
-                        size             = tsl->fixed_size();
-                        break;
+                    // A no_key TSL still anchors the size here so resolution
+                    // succeeds and compose can reject it with the clear message.
+                    bool        found_collection = false;
+                    std::size_t size             = 0;
+                    for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
+                        if (tag_at(i) == WiringPortRef::ArgTag::PassThrough) { continue; }
+                        const auto *tsl = time_series_schema_as<AnyTSL>(ordered->schemas[i]);
+                        if (tsl != nullptr) {
+                            found_collection = true;
+                            size             = tsl->fixed_size();
+                            break;
+                        }
                     }
-                }
-                if (!found_collection) { return; }
+                    if (!found_collection) { return true; }
 
-                std::vector<const TSValueTypeMetaData *> schemas;
-                schemas.reserve(func->arity);
-                if (ordered->takes_key) { schemas.push_back(registry.ts(scalar_descriptor<Int>::value_meta())); }
-                for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
-                    if (tag_at(i) != WiringPortRef::ArgTag::PassThrough && tsl_arg_is_multiplexed(ordered->schemas[i], size)) {
-                        schemas.push_back(time_series_schema_as<AnyTSL>(ordered->schemas[i])->element_ts());
-                    } else {
-                        schemas.push_back(ordered->schemas[i]);
+                    std::vector<const TSValueTypeMetaData *> schemas;
+                    schemas.reserve(func->arity);
+                    if (ordered->takes_key) { schemas.push_back(registry.ts(scalar_descriptor<Int>::value_meta())); }
+                    for (std::size_t i = 0; i < ordered->schemas.size(); ++i) {
+                        if (tag_at(i) != WiringPortRef::ArgTag::PassThrough && tsl_arg_is_multiplexed(ordered->schemas[i], size)) {
+                            schemas.push_back(time_series_schema_as<AnyTSL>(ordered->schemas[i])->element_ts());
+                        } else {
+                            schemas.push_back(ordered->schemas[i]);
+                        }
                     }
-                }
 
-                const auto child_schemas =
-                    std::span<const TSValueTypeMetaData *const>{schemas.data(),
-                                                               schemas.size()};
-                Wiring probe = output_probe_parent(context.wiring);
-                CompiledSubGraph compiled = func->compile(probe, child_schemas);
-                if (compiled.output_schema != nullptr) {
-                    bind_graph_output(resolution, registry.tsl(compiled.output_schema, size), "O");
-                }
-            } catch (...) {
-                // Leave unresolved; the real wiring path reports the error.
-            }
+                    const auto child_schemas =
+                        std::span<const TSValueTypeMetaData *const>{schemas.data(),
+                                                                   schemas.size()};
+                    Wiring probe = output_probe_parent(context.wiring);
+                    CompiledSubGraph compiled = func->compile(probe, child_schemas);
+                    if (compiled.output_schema != nullptr) {
+                        bind_graph_output(resolution, registry.tsl(compiled.output_schema, size), "O");
+                    }
+                return true;
+            }));
         }
 
         inline void resolve_lifted_map_tsl_output(ResolutionMap &resolution, OperatorCallContext context) {

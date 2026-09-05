@@ -14,15 +14,16 @@ for hgraph, not a second runtime.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
 > specializations, and field-wise temporal struct composition. `src/codegen/`
-> emits that composition subset and the first scalar runtime-node subset as
-> public hgraph C++, including activation, aggregate recordable state, output,
-> and lifecycle hooks over state and `const` configuration. The driver compiles
-> and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
+> emits every checked-in example as public hgraph C++, including nominal and
+> generic structs, generic operators and windows, sparse deltas, runtime
+> collection traversal, activation, aggregate scalar recordable state, output,
+> logger injection, and lifecycle hooks over state and `const` configuration.
+> The driver compiles and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
 > Unix. REPL replacement stages the new image, swaps removable provider handles
 > at a quiescent boundary, and restores the old revision if activation fails. Typed HIR,
 > constructor inference, `const` generic metadata, multiple-parent
 > linearization, explicit optional-field
-> clearing, multi-registry module transactions, and broader runtime and
+> clearing, multi-registry module transactions, and the remaining runtime and
 > generated-C++ type support remain to be implemented.
 
 ## Guide map

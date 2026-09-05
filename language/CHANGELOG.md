@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Compile every checked-in language example through `hgl_add_module()`, adding
+  generated support for nominal and generic structs, sparse structural deltas,
+  generic operator implementations, fixed and duration windows, concise graph
+  functions, logger injection, borrowed collection traversal and predicates,
+  and keyed TSD output. Add native behavior coverage for the new forms and
+  preserve nominal hierarchy and generic identity in public static schemas.
+- Make `clang-format` a required final stage for every generated C++ module,
+  emit public and private operator contracts as transparent aliases instead of
+  derived marker classes, and give generated namespaces and internal contracts
+  source-level names. Generated result functions also omit unreachable fallback
+  throws after an unconditional return.
 - Make generated operator registration return a provider handle, add targeted
   provider activation, and use those handles for transactional runtime-bearing
   REPL sessions. The native loader ABI and cache advance to v2; a replacement

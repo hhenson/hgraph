@@ -1,0 +1,48 @@
+---
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 132
+
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignEscapedNewlines: Right
+AlignTrailingComments: true
+
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Always
+AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterControlStatement: false
+  AfterClass: true
+  AfterFunction: false
+  AfterNamespace: true
+  AfterStruct: true
+  BeforeCatch: false
+  BeforeElse: false
+  SplitEmptyFunction: false
+  SplitEmptyNamespace: false
+  SplitEmptyRecord: false
+  IndentBraces: false
+
+BreakBeforeBinaryOperators: None
+IndentCaseBlocks: true
+IndentCaseLabels: true
+IndentExternBlock: Indent
+IndentPPDirectives: BeforeHash
+NamespaceIndentation: All
+SpaceBeforeAssignmentOperators: true
+SpacesBeforeTrailingComments: 2
+SpaceBeforeCpp11BracedList: false
+UseCRLF: false
+ReflowComments: true
+Cpp11BracedListStyle: true

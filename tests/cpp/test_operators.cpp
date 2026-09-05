@@ -231,6 +231,16 @@ namespace
         }
     };
 
+    struct any_window_mean_ : Operator<"any_window_mean", In<"window", TSWAny<Float>>, Out<TS<Float>>>
+    {};
+    struct any_window_mean_graph
+    {
+        static constexpr auto  name = "any_window_mean_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TSWAny<Float>> window) {
+            return wire<stdlib::mean>(w, window).as<TS<Float>>();
+        }
+    };
+
     struct count_signal_ : Operator<"count_signal_op", In<"pulse", SIGNAL>, Out<TS<Int>>>
     {
     };
@@ -1162,6 +1172,19 @@ TEST_CASE("operators: graph implementations can be registered as overloads")
     CHECK_OUTPUT(eval_node<double_>(values<Int>(1, 2, 3)), values<Int>(2, 4, 6));
 }
 
+TEST_CASE("operators: graph implementations preserve a concrete schema through "
+          "a window wildcard") {
+    stdlib::register_standard_operators();
+    register_graph_overload<any_window_mean_, any_window_mean_graph>();
+
+    Wiring wiring;
+    auto   window = wire<stdlib::replay_impl, TSW<Float, 3, 1>>(wiring, std::string{"window"});
+    auto   result = wire<any_window_mean_>(wiring, window);
+
+    CHECK(result.erased().schema == schema_descriptor<TS<Float>>::ts_meta());
+    CHECK_NOTHROW(std::move(wiring).finish());
+}
+
 TEST_CASE("operators: SIGNAL node overloads accept any time-series input")
 {
     register_overload<count_signal_, count_signal_node>();
@@ -1356,6 +1379,29 @@ TEST_CASE("operators: generic Bundle patterns retain nominal origin and bind arg
         wiring, registry.ts(request), source);
     CHECK(adapted.schema == registry.ts(request));
     CHECK(adapted.is_peered_source());
+}
+
+TEST_CASE("operators: generic nominal TSB patterns retain their Bundle origin")
+{
+    using GenericBox = NominalBundle<"tests.pattern", "Box", false, BundleParents<>, BundleArguments<ScalarVar<"T">>,
+                                     Field<"value", ScalarVar<"T">>>;
+    using IntegerBox =
+        NominalBundle<"tests.pattern", "Box", false, BundleParents<>, BundleArguments<Int>, Field<"value", Int>>;
+    using IntegerOther =
+        NominalBundle<"tests.pattern", "Other", false, BundleParents<>, BundleArguments<Int>, Field<"value", Int>>;
+    using GenericBoxTS = NominalTSB<GenericBox, Field<"value", TS<ScalarVar<"T">>>>;
+    using IntegerBoxTS = NominalTSB<IntegerBox, Field<"value", TS<Int>>>;
+    using IntegerOtherTS = NominalTSB<IntegerOther, Field<"value", TS<Int>>>;
+
+    const TypePattern pattern = to_pattern<GenericBoxTS>();
+    ResolutionMap map;
+    REQUIRE(input_ts_pattern_match(pattern, ts_type<IntegerBoxTS>(), map));
+    CHECK(map.find_scalar("T") == scalar_type<Int>());
+    CHECK(ts_pattern_resolve(pattern, map) == ts_type<IntegerBoxTS>());
+    CHECK(ts_pattern_to_string(pattern).find("tests.pattern::Box[~T]") != std::string::npos);
+
+    ResolutionMap other_map;
+    CHECK_FALSE(input_ts_pattern_match(pattern, ts_type<IntegerOtherTS>(), other_map));
 }
 
 TEST_CASE("operators: typed Series and Frame patterns preserve their scalar structure")

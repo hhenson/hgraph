@@ -59,6 +59,24 @@ def test_conan_sdk_propagates_public_native_dependency_usage_requirements():
         assert "transitive_libs=True" in call.group(0), requirement
 
 
+def test_conan_language_declares_its_formatter_and_current_generated_namespace():
+    conan = (ROOT / "conanfile.py").read_text()
+    consumer = (ROOT / "test_package/hgl_consumer.cpp").read_text()
+
+    assert "def system_requirements(self):" in conan
+    assert "if not self.options.language:" in conan
+    for manager, package in {
+        "Apt": "clang-format",
+        "Dnf": "clang-tools-extra",
+        "Brew": "clang-format",
+        "Chocolatey": "llvm",
+    }.items():
+        assert f'({manager}, "{package}")' in conan
+    assert "host_package=False" in conan
+    assert "smoke::operators::twice" in consumer
+    assert "smoke::ops::twice" not in consumer
+
+
 def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
     project = load_project()
 

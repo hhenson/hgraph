@@ -768,17 +768,17 @@ arguments. The shared bridge owns:
 - detailed rejection diagnostics.
 
 The compiler may cache deterministic results but must not copy the matching
-algorithm. Generated C++ dispatches through the public marker again so
+algorithm. Generated C++ dispatches through the public contract alias again so
 descriptor or registry drift becomes an error.
 
-A source-defined operator lowers to a deterministic generated C++ marker. Each
-`impl fn` lowers to an explicitly registered graph or node candidate according
-to its classified body. An ordinary `fn` lowers as an exact callable and is not
-placed in a registry.
+A source-defined operator lowers to a deterministic alias of the corresponding
+`hgraph::Operator` contract. Each `impl fn` lowers to an explicitly registered
+graph or node candidate according to its classified body. An ordinary `fn`
+lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
 
-The generated marker or descriptor mapping must preserve the full nominal
+The generated contract alias or descriptor mapping must preserve the full nominal
 identity rather than using an unqualified registry string that could collide
 with another module.
 
@@ -1036,10 +1036,13 @@ device. The TOML run configuration is not in the first pass.
 
 ## C++ backend, first pass
 
-Status: implemented for the composition subset and, as of 2026-09-04, the
-first scalar runtime-node subset. File-based `test` and `run` compile/load that
-subset on Unix; broader runtime lowering, caching, Windows loading, and REPL
-replacement remain staged.
+Status: implemented for the composition and runtime forms exercised by every
+checked-in example as of 2026-09-05. This includes nominal and generic structs,
+generic operator implementations, fixed and duration windows, sparse struct
+deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
+collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
+`test` and `run` compile/load supported runtime modules on Unix; portable native
+loading and the remaining language-depth items are still staged.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1047,15 +1050,25 @@ source by default, into one directory with `--out-dir`, or split with
 `--include-dir` and `--src-dir`; `--print` writes both to stdout for tooling
 and tests. The namespace is the module name: `module examples.prices` emits
 `namespace examples::prices`, and a C++ keyword or a name the generated code
-reserves (`w`, `ops`, `compose`, ...) gets a trailing underscore.
+reserves (`w`, `operators`, `compose`, ...) gets a trailing underscore. Before
+the driver exposes the pair, it runs both files through `clang-format` with the
+repository's fixed generated-code style. That policy is embedded in the
+compiler, so invoking an installed `hgl` from a project with a different
+`.clang-format` file does not change its output. Formatting failure is a
+compilation diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT`
+overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
-- **Markers.** `namespace ops` holds one `hgraph::Operator<"module.name",
+- **Operator contracts.** `namespace operators` holds one transparent alias to
+  `hgraph::Operator<"module.name",
   In<...>..., Scalar<...>..., Out<...>>` per source `operator` and per
   `export fn`, so every public callable has a registry identity
-  (`examples.prices.smooth`) and a typed marker (`examples::prices::ops::smooth`).
-- **Graph structs.** Every function is a struct with `static constexpr auto
+  (`examples.prices.smooth`) and a typed contract
+  (`examples::prices::operators::smooth`). Generated code never subclasses an
+  operator merely to give the contract a C++ name.
+- **Graph implementation structs.** Every composition function has a plain
+  implementation struct with `static constexpr auto
   name` and a `compose(hgraph::Wiring &w, ...)`: `hgraph::Port<S>` for a
   temporal parameter, `hgraph::Scalar<"n", T>` for a `const` one, returning
   `hgraph::Port<S>` for the declared result. Exported functions are declared
@@ -1064,6 +1077,19 @@ What is emitted, in this order:
   namespace of the source, in dependency order (a recursive helper is a
   diagnostic). `const` parameter defaults become `static auto defaults()`
   so the registry applies them when the function is called by name.
+- **Structural types.** An exported source struct becomes a readable C++
+  declaration with `value_type` and `time_series` aliases. `NominalBundle`
+  preserves module-qualified identity, abstract parents, and concrete generic
+  arguments; `NominalTSB` preserves the recursively temporalized fields.
+  Constructors lower to `to_tsb`, an `atomic<S>` result aggregates that TSB
+  through `combine_cs`, and a runtime `delta<S>` builds and applies only its
+  supplied fields.
+- **Generic and window types.** Source type parameters become hgraph
+  `ScalarVar` patterns at operator boundaries and ordinary C++ template
+  parameters for structural declarations. A generic rolling parameter becomes
+  `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
+  or `TSWDuration<T, period_us, minimum_us>`. The selected call's concrete
+  window schema is retained when a graph implementation receives `TSWAny`.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
@@ -1099,14 +1125,21 @@ What is emitted, in this order:
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
-  block.
+  block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`.
+  Runtime `map`, `set`, and `list` parameters retain their typed selectors;
+  `keys`, `values`, and `items` become ordinary C++ range loops over current,
+  `modified`, `added`, or `removed` views. A concise iterator predicate is
+  inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
+  output selector and accumulates child writes in the cycle's delta.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
-  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
-  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node.
-  Private runtime helpers get translation-unit-local markers under the same
-  module-qualified identities so direct wiring can compose them without
-  exposing them in the module header. Registration creates a keyed provider
+  each `impl fn` with
+  `hgraph::register_graph_overload<operators::x, x>()` for a composition or
+  `hgraph::register_overload<operators::x, x>()` for a runtime node. Private
+  runtime helpers get readable aliases in a translation-unit-local
+  `operator_contracts` namespace under the same module-qualified identities,
+  so direct wiring can compose them without exposing them in the module
+  header. Registration creates a keyed provider
   installer named after the module, activates exactly that provider, and
   returns its opaque handle. Activation can nest under an aggregate library
   installer while preserving each provider's provenance. A scoped rollback
@@ -1125,17 +1158,15 @@ headers; the source includes the header plus the scope-guard utility used by
 registration rollback. Every emitted function is preceded by a `// file:line`
 comment; output is deterministic (basenames, no timestamps).
 
-The first pass fails closed, before writing either file, on: runtime sources
-and sinks, non-scalar runtime parameters, output, or state, runtime calls and
-collection traversal, injectables other than `out`, lifecycle access to
-temporal inputs or output, generics, struct declarations, duration rolling
-windows
-(hgraph has registry and runtime duration windows but no compile-time
-`TSW` marker for them — the parity matrix records the gap), tuple and list
-literals and other compound constants, `if` or a block used as a value,
-zoned and civil temporal literals, an `impl fn` of an imported operator,
-and a missing module declaration. Each is a `backend` diagnostic naming the
-construct.
+The first pass still fails closed, before writing either file, on: generated
+runtime sources, runtime calls, non-scalar state, output kinds other than the
+implemented scalar, nominal-struct, and map forms, injectables other than
+`out` and `logger`, lifecycle access to temporal inputs or output, optional
+field clearing in a sparse delta, generic constructor inference and typed
+`const` generic struct metadata, tuple and list literals and other compound
+constants, `if` or a block used as a value, zoned and civil temporal literals,
+an `impl fn` of an imported operator, and a missing module declaration. Each is
+a diagnostic naming the construct.
 
 `hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
 `emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs
@@ -1148,7 +1179,8 @@ generated wrappers into a package directory. The native module output path is
 expressed with a generator expression so multi-configuration builds do not add
 a configuration child directory, and an installed compiler executable is a
 file dependency of every generated output. The repository's codegen tests
-build `tests/codegen/parity.hgl` through exactly this function.
+build every file under `language/examples`, plus the parity and runtime
+fixtures, through exactly this function under the repository warning policy.
 
 ## Source mapping and generated artifacts
 
@@ -1180,7 +1212,8 @@ retain the build machine's compiler launcher. An installed executable also
 resolves the SDK include directory relative to its configured
 `CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
 the default `bin` and `include` names.
-`HGL_CXX` overrides the compiler for diagnostics/testing and
+`HGL_CXX` overrides the compiler for diagnostics/testing,
+`HGL_CLANG_FORMAT` overrides the required generated-code formatter, and
 `HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
 exports hgraph symbols and the generated image does not link a second static
 hgraph, so both use one registry. This path is currently Unix-only.

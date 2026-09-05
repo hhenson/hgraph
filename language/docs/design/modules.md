@@ -32,7 +32,7 @@ A native package that supports the language supplies a descriptor containing:
 - optional documentation and source links for diagnostics and tooling.
 
 The kernel descriptor additionally maps language operator tokens such as `+`
-and `==` to public hgraph operator markers. This is a syntax binding into the
+and `==` to public hgraph operator contracts. This is a syntax binding into the
 same registry, not a compiler-owned implementation.
 
 The descriptor contains declarations and build metadata, not executable user
@@ -145,8 +145,8 @@ provider module and complete candidate signature are part of the descriptor.
 The semantic IR records the canonical operator identity on every implementation
 candidate and operator call. It never reconstructs that identity later from a
 short string. A descriptor for a native package maps the canonical language
-identity to its public C++ marker and registration hook. Source-defined
-operators receive deterministic generated marker identities.
+identity to its public C++ contract alias and registration hook. Source-defined
+operators receive deterministic generated contract identities.
 
 ## Candidate universe and provider discovery
 

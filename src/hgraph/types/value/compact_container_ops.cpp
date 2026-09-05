@@ -26,14 +26,7 @@ namespace hgraph
         {
             if (!binding || !source) { return false; }
             if (binding.schema() == source.schema() || binding.plan() == source.plan()) { return true; }
-            try
-            {
-                return TypeRegistry::instance().value_is_a(source.schema(), binding.schema());
-            }
-            catch (...)
-            {
-                return false;
-            }
+            return TypeRegistry::instance().value_is_a(source.schema(), binding.schema());
         }
 
         void compact_list_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,

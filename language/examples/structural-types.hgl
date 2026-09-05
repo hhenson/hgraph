@@ -39,7 +39,7 @@ fn boxed_midpoint(value: f64) -> atomic<Box<f64>> =>
     Box<f64>(value: value)
 
 fn bid_delta(value: f64) -> Quote {
-    when modified(value) {
+    when modified(value) && valid(value) {
         return delta<Quote>(bid: value)
     }
 }

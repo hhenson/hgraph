@@ -70,6 +70,8 @@ namespace hgraph
     template <std::size_t N>
     fixed_string(const char (&)[N]) -> fixed_string<N>;
 
+    template <typename TBundle> struct value_schema_descriptor;
+
     // -----------------------------------------------------------------
     // Time-series marker types
     // -----------------------------------------------------------------
@@ -143,6 +145,14 @@ namespace hgraph
         static constexpr std::size_t min_period = MinPeriod;
     };
 
+    /** Duration-based sliding window with compile-time microsecond bounds. */
+    template <typename TValue, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros = PeriodMicros> struct TSWDuration
+    {
+        using value_type                                = TValue;
+        static constexpr std::int64_t period_micros     = PeriodMicros;
+        static constexpr std::int64_t min_period_micros = MinPeriodMicros;
+    };
+
     /** Window time-series schema wildcard; matches any tick/duration window period. */
     template <typename TValue>
     struct TSWAny
@@ -181,6 +191,30 @@ namespace hgraph
         static constexpr auto name_sv = Name;
     };
 
+    /** Immediate parents of a generated nominal Bundle declaration. */
+    template <typename... TParents> struct BundleParents
+    {};
+
+    /** Concrete type arguments of a generated generic Bundle specialization. */
+    template <typename... TArguments> struct BundleArguments
+    {};
+
+    /**
+     * Rich named value-layer compound used by generated language modules.
+     *
+     * ``Bundle`` remains the concise C++ authoring form. ``NominalBundle``
+     * additionally preserves the source namespace, abstract hierarchy, and
+     * concrete generic arguments that a language compiler already knows.
+     */
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents, typename TArguments,
+              typename... TFields>
+    struct NominalBundle
+    {
+        static constexpr auto namespace_sv  = Namespace;
+        static constexpr auto local_name_sv = LocalName;
+        static constexpr bool abstract      = Abstract;
+    };
+
     /** One-pointer, on-demand owner for a value-layer schema. */
     template <typename TValue>
     struct Owned
@@ -215,6 +249,16 @@ namespace hgraph
     struct TSB
     {
         static constexpr auto name_sv = Name;
+    };
+
+    /**
+     * Named TSB whose identity comes from a rich value-layer Bundle.
+     * Fields remain explicit because temporal structs are lifted recursively,
+     * rather than treating a nested Bundle as one atomic ``TS`` value.
+     */
+    template <typename TValueBundle, typename... TFields> struct NominalTSB
+    {
+        using value_bundle = TValueBundle;
     };
 
     /** Derive a TSB schema from a value-layer Bundle by lifting each field to ``TS<Field>``. */
@@ -819,6 +863,21 @@ namespace hgraph
         }
     };
 
+    template <typename TValue, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    struct schema_descriptor<TSWDuration<TValue, PeriodMicros, MinPeriodMicros>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return scalar_descriptor<TValue>::is_concrete(); }
+
+        [[nodiscard]] static const TSValueTypeMetaData *ts_meta() {
+            if constexpr (is_concrete()) {
+                return TypeRegistry::instance().tsw_duration(scalar_descriptor<TValue>::value_meta(), TimeDelta{PeriodMicros},
+                                                             TimeDelta{MinPeriodMicros});
+            } else {
+                return nullptr;
+            }
+        }
+    };
+
     template <typename TValue>
     struct schema_descriptor<TSWAny<TValue>>
     {
@@ -975,6 +1034,25 @@ namespace hgraph
         }
     };
 
+    template <typename TValueBundle, typename... TFields> struct schema_descriptor<NominalTSB<TValueBundle, TFields...>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept {
+            return value_schema_descriptor<TValueBundle>::is_concrete() && (ts_field_descriptor<TFields>::is_concrete() && ...);
+        }
+
+        [[nodiscard]] static const TSValueTypeMetaData *ts_meta() {
+            if constexpr (is_concrete()) {
+                const ValueTypeMetaData *value = value_schema_descriptor<TValueBundle>::value_meta();
+                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+                fields.reserve(sizeof...(TFields));
+                (fields.emplace_back(ts_field_descriptor<TFields>::field_name(), ts_field_descriptor<TFields>::ts_meta()), ...);
+                return TypeRegistry::instance().tsb(value->name(), fields);
+            } else {
+                return nullptr;
+            }
+        }
+    };
+
     template <fixed_string Name, fixed_string VarName, typename... TConstraints>
     struct schema_descriptor<TSB<Name, TsVar<VarName, TConstraints...>>>
     {
@@ -1053,6 +1131,78 @@ namespace hgraph
         }
     };
 
+    namespace static_schema_detail
+    {
+        template <typename TParents> struct bundle_parent_descriptors;
+
+        template <typename... TParents> struct bundle_parent_descriptors<BundleParents<TParents...>>
+        {
+            [[nodiscard]] static constexpr bool is_concrete() noexcept {
+                return (value_schema_descriptor<TParents>::is_concrete() && ...);
+            }
+
+            [[nodiscard]] static std::vector<const ValueTypeMetaData *> value_metas() {
+                return {value_schema_descriptor<TParents>::value_meta()...};
+            }
+        };
+
+        template <typename TArguments> struct bundle_argument_descriptors;
+
+        template <typename... TArguments> struct bundle_argument_descriptors<BundleArguments<TArguments...>>
+        {
+            [[nodiscard]] static constexpr bool is_concrete() noexcept {
+                return (scalar_descriptor<TArguments>::is_concrete() && ...);
+            }
+
+            [[nodiscard]] static std::vector<const ValueTypeMetaData *> value_metas() {
+                return {scalar_descriptor<TArguments>::value_meta()...};
+            }
+
+            [[nodiscard]] static std::string specialization_name(std::string_view origin) {
+                std::string name{origin};
+                if constexpr (sizeof...(TArguments) != 0) {
+                    name += '[';
+                    bool       first  = true;
+                    const auto append = [&](const ValueTypeMetaData *argument) {
+                        if (!first) { name += ", "; }
+                        first = false;
+                        name += argument->name();
+                    };
+                    (append(scalar_descriptor<TArguments>::value_meta()), ...);
+                    name += ']';
+                }
+                return name;
+            }
+        };
+    }  // namespace static_schema_detail
+
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents, typename TArguments,
+              typename... TFields>
+    struct value_schema_descriptor<NominalBundle<Namespace, LocalName, Abstract, TParents, TArguments, TFields...>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept {
+            return static_schema_detail::bundle_parent_descriptors<TParents>::is_concrete() &&
+                   static_schema_detail::bundle_argument_descriptors<TArguments>::is_concrete() &&
+                   (value_field_descriptor<TFields>::is_concrete() && ...);
+        }
+
+        [[nodiscard]] static const ValueTypeMetaData *value_meta() {
+            if constexpr (is_concrete()) {
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+                fields.reserve(sizeof...(TFields));
+                (fields.emplace_back(value_field_descriptor<TFields>::field_name(), value_field_descriptor<TFields>::value_meta()),
+                 ...);
+                return TypeRegistry::instance().bundle(
+                    Namespace.sv(),
+                    static_schema_detail::bundle_argument_descriptors<TArguments>::specialization_name(LocalName.sv()), fields,
+                    static_schema_detail::bundle_parent_descriptors<TParents>::value_metas(), Abstract, "__type__",
+                    static_schema_detail::bundle_argument_descriptors<TArguments>::value_metas());
+            } else {
+                return nullptr;
+            }
+        }
+    };
+
     template <typename... TFields>
     struct scalar_descriptor<UnNamedBundle<TFields...>> : value_schema_descriptor<UnNamedBundle<TFields...>>
     {
@@ -1062,6 +1212,12 @@ namespace hgraph
     struct scalar_descriptor<Bundle<Name, TFields...>> : value_schema_descriptor<Bundle<Name, TFields...>>
     {
     };
+
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents, typename TArguments,
+              typename... TFields>
+    struct scalar_descriptor<NominalBundle<Namespace, LocalName, Abstract, TParents, TArguments, TFields...>>
+        : value_schema_descriptor<NominalBundle<Namespace, LocalName, Abstract, TParents, TArguments, TFields...>>
+    {};
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_ROOT_STATIC_SCHEMA_H

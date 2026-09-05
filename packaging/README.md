@@ -13,10 +13,10 @@ out tree and publishes nothing.
 
 | Path | Purpose |
 |---|---|
-| `homebrew/Formula/hgraph.rb` | The formula: builds the SDK, `hgl` and the analytics extension from a release tarball, stages isocline as a resource so the build runs with FetchContent disconnected, and tests `hgl test` and `hgl --version`. |
+| `homebrew/Formula/hgraph.rb` | The formula: builds the SDK, `hgl` and the analytics extension from a release tarball, installs the `clang-format` used by every code-generation path, stages isocline as a resource so the build runs with FetchContent disconnected, and tests `hgl test` and `hgl --version`. |
 | `homebrew/Aliases/hgl` | `brew install hhenson/hgraph/hgl` resolves to the same formula. |
 | `homebrew/README.md`, `homebrew/.github/workflows/` | The tap repository's README and its `brew test-bot` / `brew pr-pull` workflows. Copied verbatim into `hhenson/homebrew-hgraph` at the release switch. |
-| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` (with the fmt, spdlog, simdjson and date it was built against, so `find_package(hgraph)` resolves inside the image), CMake, Ninja and `g++` so runtime functions and downstream packages compile inside the container; runs as the unprivileged user `hgl`. `Dockerfile.dockerignore` trims the build context. |
+| `docker/Dockerfile` | Multi-stage Debian image with `hgl`, the SDK under `/usr/local` (with the fmt, spdlog, simdjson and date it was built against, so `find_package(hgraph)` resolves inside the image), `clang-format`, CMake, Ninja and `g++` so generated C++ is formatted and runtime functions and downstream packages compile inside the container; runs as the unprivileged user `hgl`. `Dockerfile.dockerignore` trims the build context. |
 | `smoke/smoke.hgl` | The one-module smoke every channel runs after installing: `hgl test smoke.hgl` must report `twice_ticks ... ok`. |
 | `smoke/consumer/` | The installed-SDK consumer every channel builds: `find_package(hgraph)`, `hgl_add_module()` on `smoke.hgl`, and a `main.cpp` that evaluates the generated operator through the public harness and prints `hgl smoke consumer ok`. Homebrew installs the directory as `share/hgraph/smoke` and builds it in `brew test`; the Conan test package carries a copy (`test_package/smoke.hgl`, `hgl_consumer.cpp`) because an exported recipe cannot reach this directory. |
 

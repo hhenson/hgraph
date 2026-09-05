@@ -128,6 +128,8 @@ TEST_CASE("static_schema: TSW<T, period, min_period> descriptor matches registry
     REQUIRE(schema_descriptor<TSW<Float, 10, 3>>::ts_meta() == registry.tsw(float_meta, 10, 3));
     STATIC_REQUIRE(std::same_as<TSW<Float, 5>, TSW<Float, 5, 5>>);
     REQUIRE(schema_descriptor<TSW<Float, 5>>::ts_meta() == registry.tsw(float_meta, 5, 5));
+    REQUIRE(schema_descriptor<TSWDuration<Float, 5'000'000, 1'000'000>>::ts_meta() ==
+            registry.tsw_duration(float_meta, TimeDelta{5'000'000}, TimeDelta{1'000'000}));
     REQUIRE_FALSE(schema_descriptor<TSWAny<ScalarVar<"T">>>::is_concrete());
     REQUIRE(schema_descriptor<TSWAny<ScalarVar<"T">>>::ts_meta() == nullptr);
 }
@@ -219,6 +221,26 @@ TEST_CASE("static_schema: Bundle<\"Name\", ...> resolves to registry.bundle(name
     REQUIRE(got->is_named_bundle());
     REQUIRE(std::string(got->name()) == std::string("LabelledPoint"));
     REQUIRE(got == registry.bundle("LabelledPoint", {{"x", int_meta}, {"label", str_meta}}));
+}
+
+TEST_CASE("static_schema: NominalBundle preserves hierarchy and generic identity") {
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+
+    using Record = NominalBundle<"examples.models", "Record", true, BundleParents<>, BundleArguments<>, Field<"id", Int>>;
+    using Box    = NominalBundle<"examples.models", "Box", false, BundleParents<Record>, BundleArguments<Float>, Field<"id", Int>,
+                                 Field<"value", Float>>;
+    using BoxTS  = NominalTSB<Box, Field<"id", TS<Int>>, Field<"value", TS<Float>>>;
+
+    const auto *record = value_schema_descriptor<Record>::value_meta();
+    const auto *box    = value_schema_descriptor<Box>::value_meta();
+
+    REQUIRE(record->name() == "examples.models::Record");
+    REQUIRE(record->is_abstract_bundle());
+    REQUIRE(box->name() == "examples.models::Box[float]");
+    REQUIRE(box->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{record});
+    REQUIRE(box->bundle_generic_arguments() == std::vector<const ValueTypeMetaData *>{registry.value_type("float")});
+    REQUIRE(schema_descriptor<BoxTS>::ts_meta()->value_schema == box);
 }
 
 TEST_CASE("static_schema: TSBFromScalar lifts named and structural Bundle fields")
