@@ -1294,14 +1294,19 @@ determine whether its body describes:
 - runtime compute or sink behavior;
 - or another explicitly admitted hgraph implementation kind.
 
-The current provisional classifier applies these rules:
+The implemented provisional classifier currently applies these rules:
 
-1. A body containing no node-only construct becomes `CompositionFn`.
+1. A body containing no node-only construct and no iteration becomes
+   `CompositionFn`.
 2. The presence of `state`, `inject`, `start`, `when`, or `stop` makes the
    complete function a `RuntimeFn`, even when nested syntax is later rejected
-   by phase checking. Iteration follows the containing phase and is not itself
-   a runtime-classification trigger under the newly agreed target design.
+   by phase checking. The current compiler also treats every `for` statement as
+   a runtime-classification trigger.
 3. A body that mixes wiring-only and runtime-only constructs is rejected.
+
+The target classifier will instead let iteration inherit its containing phase;
+`for` will not by itself distinguish composition from runtime behavior. That
+change is an explicit compiler migration rather than current behavior.
 
 Classification is based on resolved source syntax. It must not be guessed
 from which imported overload happens to win, inferred from generated C++, or

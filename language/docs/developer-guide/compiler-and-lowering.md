@@ -981,8 +981,10 @@ walk:
   generic function is a `backend` diagnostic naming it;
 - the prelude intrinsics take the meaning of "Interim kernel table";
 - `if` selects a branch when its condition is a constant `bool`; a port
-  condition is a `backend` diagnostic until the guide decides whether it
-  lowers to `if_then_else`; the branch value is the arm's tail expression;
+  condition remains a `backend` diagnostic in the current prototype. The
+  agreed target is native switch-style child-graph execution, not eager wiring
+  of both outputs through `if_then_else`; the branch value is the arm's tail
+  expression;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,
