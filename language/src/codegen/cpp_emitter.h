@@ -15,10 +15,11 @@
 /// one header/source pair of public hgraph authoring code per module. It is
 /// planned from hgraph IR and prints names and types without linking the hgraph
 /// runtime, so what it emits is checked by the native compiler that builds the
-/// package. A temporary syntax adapter still supplies bodies and local
-/// annotations during the Stage E migration. Tests run generated graphs beside
-/// `hgl test` and exercise generated runtime nodes directly through hgraph's
-/// public harness.
+/// package. Body-local let, var, and state binding types also come from hgraph
+/// IR. A temporary syntax adapter still supplies executable bodies,
+/// expression-level type syntax, and dependency discovery during the Stage E
+/// migration. Tests run generated graphs beside `hgl test` and exercise
+/// generated runtime nodes directly through hgraph's public harness.
 namespace hgl::codegen
 {
     namespace ast = syntax::ast;

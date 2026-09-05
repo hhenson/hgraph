@@ -40,8 +40,9 @@ namespace hgl::codegen
         // ------------------------------------------------------------ types
 
         /// A normalized type used by the temporary C++ body printer. Public
-        /// interface instances come from hgraph IR; local annotations still
-        /// arrive through the syntax compatibility adapter.
+        /// interface instances and body-local binding types come from hgraph
+        /// IR; expression-level type syntax still arrives through the syntax
+        /// compatibility adapter.
         struct HType
         {
             enum class Kind : std::uint8_t {
@@ -363,6 +364,8 @@ namespace hgl::codegen
                 return std::get<ast::StructDecl>(module_.decl(decl).node);
             }
             void                                       bind_hgraph_declarations();
+            [[nodiscard]] const gir::Statement        &planned_statement(ast::StmtId id);
+            [[nodiscard]] const gir::Binding          &planned_binding(gir::BindingId id, SourceRange fallback);
             [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
             [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
             [[nodiscard]] const gir::StructContract &struct_contract(ast::DeclId decl) const { return *structures_.at(decl); }
@@ -486,6 +489,7 @@ namespace hgl::codegen
             std::unordered_map<ast::DeclId, const gir::Callable *>         callables_{};
             std::unordered_map<ast::DeclId, const gir::OperatorContract *> operators_{};
             std::unordered_map<ast::DeclId, const gir::StructContract *>   structures_{};
+            std::unordered_map<ast::StmtId, const gir::Statement *>        body_statements_{};
             bool                             uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int> local_counts_{};
@@ -518,6 +522,21 @@ namespace hgl::codegen
                 backend(item.range, "hgraph IR implementation '" + item.identity + "' has no canonical numeric identity");
             }
             return name + "_impl_" + item.identity.substr(marker + 1U);
+        }
+
+        const gir::Statement &Emitter::planned_statement(ast::StmtId id) {
+            const auto found = body_statements_.find(id);
+            if (found == body_statements_.end()) {
+                backend(module_.stmt(id).range, "the hgraph IR has no planned body binding for this syntax statement");
+            }
+            return *found->second;
+        }
+
+        const gir::Binding &Emitter::planned_binding(gir::BindingId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.bindings.size()) {
+                backend(fallback, "hgraph IR contains an invalid body binding ID");
+            }
+            return graph_.bindings[id.value];
         }
 
         void Emitter::bind_hgraph_declarations() {
@@ -630,6 +649,41 @@ namespace hgl::codegen
             }
             if (structures_.size() != resolved_.structs.size()) {
                 backend(SourceRange{}, "the hgraph IR and syntax construction adapter disagree on the module's structs");
+            }
+
+            std::size_t planned_body_bindings = 0;
+            for (const gir::Statement &item : graph_.statements) {
+                const bool is_local = std::holds_alternative<gir::LocalBinding>(item.node);
+                const bool is_state = std::holds_alternative<gir::StateBinding>(item.node);
+                if (!is_local && !is_state) { continue; }
+                ++planned_body_bindings;
+
+                ast::StmtId match = ast::no_node;
+                for (ast::StmtId id = 0; id < module_.stmts.size(); ++id) {
+                    const ast::Stmt &source = module_.stmt(id);
+                    if (source.range != item.range) { continue; }
+                    const bool source_is_local = std::holds_alternative<ast::LocalDecl>(source.node);
+                    const bool source_is_state = std::holds_alternative<ast::StateDecl>(source.node);
+                    if ((is_local && !source_is_local) || (is_state && !source_is_state)) { continue; }
+                    if (match != ast::no_node) {
+                        backend(item.range, "hgraph IR body-binding range matches more than one syntax statement");
+                    }
+                    match = id;
+                }
+                if (match == ast::no_node) { backend(item.range, "an hgraph IR body binding has no syntax body adapter"); }
+                if (!body_statements_.emplace(match, &item).second) {
+                    backend(item.range, "more than one hgraph IR body binding maps to the same syntax statement");
+                }
+            }
+
+            std::size_t syntax_body_bindings = 0;
+            for (const ast::Stmt &item : module_.stmts) {
+                if (std::holds_alternative<ast::LocalDecl>(item.node) || std::holds_alternative<ast::StateDecl>(item.node)) {
+                    ++syntax_body_bindings;
+                }
+            }
+            if (body_statements_.size() != syntax_body_bindings || planned_body_bindings != syntax_body_bindings) {
+                backend(SourceRange{}, "the hgraph IR and syntax body adapter disagree on local and state bindings");
             }
         }
 
@@ -2420,32 +2474,31 @@ namespace hgl::codegen
                     if constexpr (std::is_same_v<T, ast::LocalDecl>)
                     {
                         Value value = eval_expr(node.init, frame);
-                        if (node.type != ast::no_node)
-                        {
-                            const HType declared = type_of(node.type, frame);
-                            if (value.is_const())
-                            {
-                                value.code = as_const(value, declared, value.range, "'" + std::string{node.name.text} + "'");
-                                value.type = declared;
-                            }
-                            else if (value.is_port())
-                            {
-                                value.code = as_port(value, declared, value.range);
-                                value.type = declared;
-                            }
-                        }
                         if (value.kind != Value::Kind::Const && value.kind != Value::Kind::Port)
                         {
                             unsupported(stmt.range, "binding a function or operator to a local");
                         }
+                        const auto         &binding  = std::get<gir::LocalBinding>(planned_statement(id).node);
+                        const gir::Binding &name     = planned_binding(binding.binding, stmt.range);
+                        const HType         declared = planned_type(binding.type, stmt.range);
+                        if (value.is_const()) {
+                            value.code = as_const(value, declared, value.range, "'" + name.name + "'");
+                        } else {
+                            value.code = as_port(value, declared, value.range);
+                        }
+                        value.type = declared;
                         // A unique C++ local per declaration: HGL lets a
                         // later `let` shadow an earlier one in a block.
-                        const std::string base = cpp_name(node.name.text);
+                        const std::string base   = cpp_name(name.name);
                         std::string       local = base;
                         int              &suffix = local_counts_[base];
                         while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
                         local_names_.insert(local);
-                        out.line((node.mutable_ ? "auto " : "const auto ") + local + " = " + value.code + ";");
+                        if (name.kind != gir::BindingKind::LocalLet && name.kind != gir::BindingKind::LocalVar) {
+                            backend(stmt.range, "hgraph IR local statement refers to a non-local binding");
+                        }
+                        out.line((name.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " + value.code +
+                                 ";");
                         value.code       = local;
                         frame.locals[id] = std::move(value);
                     }
@@ -2650,13 +2703,15 @@ namespace hgl::codegen
                         {
                             fail(Category::Type, stmt.range, "a runtime local needs a scalar value");
                         }
-                        if (node.type != ast::no_node)
-                        {
-                            const HType declared = type_of(node.type, frame);
-                            value.code           = as_runtime(value, declared, value.range, "'" + std::string{node.name.text} + "'");
-                            value.type           = declared;
+                        const auto         &binding = std::get<gir::LocalBinding>(planned_statement(id).node);
+                        const gir::Binding &name    = planned_binding(binding.binding, stmt.range);
+                        if (name.kind != gir::BindingKind::LocalLet && name.kind != gir::BindingKind::LocalVar) {
+                            backend(stmt.range, "hgraph IR local statement refers to a non-local binding");
                         }
-                        const std::string base   = cpp_name(node.name.text);
+                        const HType declared     = planned_type(binding.type, stmt.range);
+                        value.code               = as_runtime(value, declared, value.range, "'" + name.name + "'");
+                        value.type               = declared;
+                        const std::string base   = cpp_name(name.name);
                         std::string       local  = base;
                         int              &suffix = local_counts_[base];
                         while (local_names_.contains(local))
@@ -2664,7 +2719,8 @@ namespace hgl::codegen
                             local = base + "_" + std::to_string(++suffix);
                         }
                         local_names_.insert(local);
-                        out.line((node.mutable_ ? "auto " : "const auto ") + local + " = " + value.code + ";");
+                        out.line((name.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " + value.code +
+                                 ";");
                         value.code = local;
                         value.selector.clear();
                         value.kind       = Value::Kind::Runtime;
@@ -3210,22 +3266,23 @@ namespace hgl::codegen
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::StateDecl>)
                         {
-                            if (node.type == ast::no_node)
-                            {
-                                backend(node.name.range, "a generated runtime state declaration "
-                                                         "needs an explicit scalar type");
+                            const auto         &binding = std::get<gir::StateBinding>(planned_statement(id).node);
+                            const gir::Binding &name    = planned_binding(binding.binding, stmt.range);
+                            if (name.kind != gir::BindingKind::State) {
+                                backend(stmt.range, "hgraph IR state statement refers to a non-state binding");
                             }
-                            const HType type = type_of(node.type, frame);
+                            const HType type = planned_type(binding.type, stmt.range);
                             if (type.kind != HType::Kind::Scalar)
                             {
-                                backend(module_.type(node.type).range, "the first runtime-node slice supports scalar state fields");
+                                backend(graph_type(binding.type, stmt.range).range,
+                                        "the first runtime-node slice supports scalar state fields");
                             }
                             if (node.init == ast::no_node)
                             {
                                 backend(node.name.range, "a generated runtime state field needs an initializer");
                             }
-                            info.states.push_back(RuntimeState{
-                                .id = id, .name = std::string{node.name.text}, .type = type, .init = node.init, .range = node.name.range});
+                            info.states.push_back(
+                                RuntimeState{.id = id, .name = name.name, .type = type, .init = node.init, .range = name.range});
                         }
                         else if constexpr (std::is_same_v<T, ast::InjectDecl>)
                         {
