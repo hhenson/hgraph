@@ -16,18 +16,19 @@ de facto intermediate representation.
 
 ## Parsing direction
 
-HGL will use a declarative parsing grammar or parsing DSL. PEG is a suitable
-family of techniques, but conformance to a particular parsing formalism is not
-the objective. The implementation is selected by an executable comparison of
-at least:
+HGL uses the declarative [lexy](https://github.com/foonathan/lexy) production
+DSL selected in [ADR 0001](decisions/0001-declarative-parser.md). PEG is a
+suitable family of techniques, but conformance to a particular parsing
+formalism is not the objective. The selection came from an executable
+comparison of at least:
 
 - a programming-language-oriented C++ parsing DSL with explicit lookahead,
   precedence, recovery, and parse-tree support;
 - a C++ PEG implementation whose grammar can be kept as a standalone,
   reviewable artifact.
 
-The comparison must cover the language's difficult cases rather than a toy
-expression grammar:
+The comparison and the production grammar cover the language's difficult
+cases rather than a toy expression grammar:
 
 - significant newlines and continuation after selected tokens;
 - comments and blank lines without losing source ranges;
