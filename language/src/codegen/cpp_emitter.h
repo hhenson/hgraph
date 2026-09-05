@@ -17,8 +17,10 @@
 /// runtime, so what it emits is checked by the native compiler that builds the
 /// package. Body-local let, var, and state binding types also come from hgraph
 /// IR. Internal callable dependencies are read from reachable hgraph-IR body
-/// operations. A temporary syntax adapter still supplies executable bodies and
-/// expression-level type syntax during the Stage E migration. Tests run
+/// operations. Concise composition bodies and their anonymous functions are
+/// emitted from those values and lexical bindings. A temporary syntax adapter
+/// still supplies block/runtime bodies and expression-level type syntax during
+/// the Stage E migration. Tests run
 /// generated graphs beside `hgl test` and exercise generated runtime nodes
 /// directly through hgraph's public harness.
 namespace hgl::codegen

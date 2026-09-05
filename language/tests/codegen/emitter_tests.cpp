@@ -583,6 +583,17 @@ export fn selected(value: f64) -> f64 => choose(value)
 
     unit.graph.operators.front().identity                = "renamed_ops.pick";
     unit.graph.operators.front().parameters.front().name = "item";
+    for (auto &value : unit.graph.values) {
+        if (auto *reference = std::get_if<hgl::hgraph_ir::Reference>(&value.node);
+            reference != nullptr && reference->kind == hgl::hgraph_ir::ReferenceKind::Operator &&
+            reference->identity == "renamed_ops.choose") {
+            reference->identity = unit.graph.operators.front().identity;
+        }
+        if (value.operation.kind == hgl::hgraph_ir::OperationKind::NominalOperator &&
+            value.operation.identity == "renamed_ops.choose") {
+            value.operation.identity = unit.graph.operators.front().identity;
+        }
+    }
     for (auto &callable : unit.graph.callables) {
         if (callable.visibility == hgl::hgraph_ir::CallableVisibility::Implementation) {
             callable.operator_identity = unit.graph.operators.front().identity;
@@ -805,6 +816,8 @@ export fn result(value: f64) -> f64 => first(value)
 
     SECTION("the planned dependency is authoritative") {
         dependency->operation.callable = third;
+        auto &callee                   = unit.graph.values[std::get<hgl::hgraph_ir::Call>(dependency->node).callee.value];
+        std::get<hgl::hgraph_ir::Reference>(callee.node).callable = third;
 
         const auto emitted = unit.emit();
         REQUIRE(emitted);
@@ -852,6 +865,49 @@ export fn result(value: f64) -> f64 => first(value)
 
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body block ID"));
+    }
+}
+
+TEST_CASE("emit-cpp renders concise bodies from hgraph IR", "[codegen][hgraph-ir][bodies]") {
+    Unit unit{R"(
+module planned_body
+
+export fn combine(a: f64, b: f64) -> f64 => a + b
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::ValueId body_id = unit.graph.callables.front().concise_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.values.size());
+    auto &body = unit.graph.values[body_id.value];
+    auto &sum  = std::get<hgl::hgraph_ir::Binary>(body.node);
+
+    SECTION("the planned operation is authoritative") {
+        sum.op                       = hgl::ir::hir::BinaryOp::Mul;
+        body.operation.identity      = "mul_";
+        body.operation.registry_name = "mul_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, a, b)"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b)"));
+    }
+
+    SECTION("planned lexical bindings are authoritative") {
+        auto &lhs                                             = unit.graph.values[sum.lhs.value];
+        auto &rhs                                             = unit.graph.values[sum.rhs.value];
+        std::get<hgl::hgraph_ir::Reference>(lhs.node).binding = std::get<hgl::hgraph_ir::Reference>(rhs.node).binding;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, b, b)"));
+    }
+
+    SECTION("an invalid planned body value fails closed") {
+        unit.graph.callables.front().concise_body = hgl::hgraph_ir::ValueId{static_cast<std::uint32_t>(unit.graph.values.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
     }
 }
 
