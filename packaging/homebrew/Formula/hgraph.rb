@@ -21,6 +21,7 @@ class Hgraph < Formula
   depends_on "cmake" => [:build, :test]
   depends_on "ninja" => [:build, :test]
   depends_on "apache-arrow"
+  depends_on "clang-format" # runtime dependency of hgl code generation
   depends_on "fmt"
   depends_on "howard-hinnant-date"
   depends_on "simdjson"

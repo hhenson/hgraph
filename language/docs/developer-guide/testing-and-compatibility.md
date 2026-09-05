@@ -399,7 +399,12 @@ and every fail-closed diagnostic.
 through `hgl_add_module()` under the repository's warnings and evaluates the
 generated graphs with `eval_node` — directly by struct and by registry name,
 where the `const` defaults apply — asserting the ticks the module's own
-`test` blocks assert. `tests/codegen/runtime.hgl` and
+`test` blocks assert. The same generated target compiles every checked-in HGL
+example. `generated_structural_tests.cpp`, `generated_generic_tests.cpp`, and
+`generated_example_tests.cpp` exercise nominal hierarchy and generic metadata,
+sparse structural deltas, fixed and duration window schemas, generic operator
+resolution, collection predicates and iteration, and keyed collection output.
+`tests/codegen/runtime.hgl` and
 `generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
 valid-and predicates, passive sampling, ordered state mutation and final-write
 behavior, selector metadata, prior-output access, lifecycle configuration, and

@@ -210,7 +210,7 @@ namespace hgraph
         std::string                name{};          ///< ``Var``: the variable name.
         const TSValueTypeMetaData *meta{nullptr};    ///< ``Concrete``: the interned TS schema.
         std::vector<const TSValueTypeMetaData *> constraints{};  ///< ``Var``: accepted concrete TS schemas.
-        ScalarPattern              scalar{};         ///< ``TS`` / ``TSS`` payload, ``TSD`` key.
+        ScalarPattern              scalar{};         ///< ``TS`` / ``TSS`` payload, ``TSD`` key, or generic nominal ``TSB`` value schema.
         std::vector<TypePattern>   children{};       ///< ``TSL`` elem / ``TSD`` value / ``REF`` target.
         std::vector<std::string>   field_names{};    ///< ``TSB`` fields, parallel to ``children``.
         std::string                bundle_name{};    ///< named ``TSB`` bundle name.
@@ -218,8 +218,11 @@ namespace hgraph
         std::string                size_name{};      ///< ``TSL`` size variable name.
         std::vector<std::size_t>   size_constraints{}; ///< ``TSL`` size variable accepted concrete sizes.
         std::size_t                min_size{0};      ///< ``TSW`` min period.
-        bool                       any_window{false}; ///< ``TSW`` wildcard over tick/duration window shape.
-        bool                       named_bundle{false}; ///< true for nominal ``TSB<Name,...>``.
+        std::int64_t               duration_micros{0};      ///< duration ``TSW`` period in microseconds.
+        std::int64_t               min_duration_micros{0};  ///< duration ``TSW`` minimum in microseconds.
+        bool                       any_window{false};       ///< ``TSW`` wildcard over tick/duration window shape.
+        bool                       duration_window{false};  ///< true for a concrete duration ``TSW``.
+        bool                       named_bundle{false};     ///< true for nominal ``TSB<Name,...>``.
         bool                       size_var{false};  ///< true when ``TSL`` size is a named variable.
         bool                       schema_var{false}; ///< true when ``TSB`` binds the whole schema to ``name``.
 
@@ -280,6 +283,16 @@ namespace hgraph
             p.scalar     = std::move(element);
             p.fixed_size = period;
             p.min_size   = min_period;
+            return p;
+        }
+        [[nodiscard]] static TypePattern tsw_duration(ScalarPattern element, std::int64_t period_micros,
+                                                      std::int64_t min_period_micros) {
+            TypePattern p;
+            p.kind                = Kind::TSW;
+            p.scalar              = std::move(element);
+            p.duration_window     = true;
+            p.duration_micros     = period_micros;
+            p.min_duration_micros = min_period_micros;
             return p;
         }
         [[nodiscard]] static TypePattern tsw_any(ScalarPattern element)
@@ -551,8 +564,15 @@ namespace hgraph
         }
     };
 
-    template <typename V>
-    struct ts_pattern_lower<TSWAny<V>>
+    template <typename V, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    struct ts_pattern_lower<TSWDuration<V, PeriodMicros, MinPeriodMicros>>
+    {
+        [[nodiscard]] static TypePattern lower() {
+            return TypePattern::tsw_duration(to_scalar_pattern<V>(), PeriodMicros, MinPeriodMicros);
+        }
+    };
+
+    template <typename V> struct ts_pattern_lower<TSWAny<V>>
     {
         [[nodiscard]] static TypePattern lower()
         {
@@ -605,6 +625,26 @@ namespace hgraph
         }
     };
 
+    template <typename ValueBundle, typename... Fields> struct ts_pattern_lower<NominalTSB<ValueBundle, Fields...>>
+    {
+        [[nodiscard]] static TypePattern lower() {
+            if constexpr (value_schema_descriptor<ValueBundle>::is_concrete())
+            {
+                const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+                return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                        type_pattern_detail::tsb_field_patterns<Fields...>(),
+                                        std::string{value->name()}, true);
+            }
+            else
+            {
+                TypePattern pattern = TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                                       type_pattern_detail::tsb_field_patterns<Fields...>(), {}, true);
+                pattern.scalar = to_scalar_pattern<ValueBundle>();
+                return pattern;
+            }
+        }
+    };
+
     template <fixed_string Name, fixed_string VarName, typename... C>
     struct ts_pattern_lower<TSB<Name, TsVar<VarName, C...>>>
     {
@@ -627,6 +667,30 @@ namespace hgraph
         [[nodiscard]] static ScalarPattern lower()
         {
             return ScalarPattern::var(std::string{Name.sv()}, type_pattern_detail::scalar_constraints<C...>());
+        }
+    };
+
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents,
+              typename... TArguments, typename... TFields>
+    struct scalar_pattern_lower<
+        NominalBundle<Namespace, LocalName, Abstract, TParents, BundleArguments<TArguments...>, TFields...>>
+    {
+        [[nodiscard]] static ScalarPattern lower()
+        {
+            using bundle_type =
+                NominalBundle<Namespace, LocalName, Abstract, TParents, BundleArguments<TArguments...>, TFields...>;
+            if constexpr (value_schema_descriptor<bundle_type>::is_concrete())
+            {
+                return ScalarPattern::concrete(value_schema_descriptor<bundle_type>::value_meta());
+            }
+            else
+            {
+                std::vector<ScalarPattern> arguments;
+                arguments.reserve(sizeof...(TArguments));
+                (arguments.push_back(to_scalar_pattern<TArguments>()), ...);
+                const std::string origin = std::string{Namespace.sv()} + "::" + std::string{LocalName.sv()};
+                return ScalarPattern::bundle_generic("__bundle__" + origin, origin, std::move(arguments));
+            }
         }
     };
 

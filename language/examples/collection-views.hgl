@@ -11,7 +11,7 @@ fn count_recent(
 ) -> i64 {
     inject logger
 
-    when modified(book) {
+    when modified(book) && valid(book) {
         var count = 0
 
         for key, value in items(
@@ -30,7 +30,7 @@ fn count_recent(
 fn audit_book(book: map<str, f64>) {
     inject logger
 
-    when modified(book) {
+    when modified(book) && valid(book) {
         for key, value in items(book, modified) {
             if valid(value) {
                 logger.info(key)
@@ -46,7 +46,7 @@ fn audit_book(book: map<str, f64>) {
 fn audit_membership(symbols: set<str>) {
     inject logger
 
-    when modified(symbols) {
+    when modified(symbols) && valid(symbols) {
         for symbol in values(symbols, added) {
             logger.info(symbol)
         }
@@ -58,7 +58,7 @@ fn audit_membership(symbols: set<str>) {
 }
 
 fn first_modified_index(samples: list<f64>) -> i64 {
-    when modified(samples) {
+    when modified(samples) && valid(samples) {
         for index, value in items(samples, modified) {
             if valid(value) {
                 return index

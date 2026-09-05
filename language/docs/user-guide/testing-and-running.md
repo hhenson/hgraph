@@ -187,8 +187,10 @@ The current `hgl` runs everything on this page that is written with
 - `hgl run` takes its configuration from the command line only; the
   `--config` file is not read yet;
 - file-based `test` and `run`, and the REPL, compile supported runtime
-  functions and non-generic `impl fn` candidates on Unix; generic functions
-  remain unsupported by every backend;
+  functions and generic `impl fn` candidates on Unix; an unresolved generic
+  composition call is still outside the direct-wiring path, while the generated
+  backend supports the concrete generic operator and window forms used by the
+  examples;
 - complete scalar struct values, type-only generic struct specializations,
   `atomic<S>` harness values, and simple field-wise temporal struct
   construction run; generic constructor inference, `const` generic struct

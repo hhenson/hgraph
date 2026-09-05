@@ -11,7 +11,8 @@ hgl --version
 The formula installs `bin/hgl`, the SDK headers and shared libraries, and
 the CMake packages (`lib/cmake/hgraph`, `lib/cmake/hgl`) that
 `find_package(hgraph)` and `hgl_add_module()` consume. Arrow, fmt, spdlog,
-simdjson and date come from homebrew-core; runtime (`state`/`when`)
+simdjson, date, and the `clang-format` used by code generation come from
+homebrew-core; runtime (`state`/`when`)
 functions compile at run time with the Xcode command-line tools on macOS
 and the `gcc` formula on Linux.
 

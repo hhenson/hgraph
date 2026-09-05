@@ -12,22 +12,19 @@
 #include <stdexcept>
 #include <vector>
 
-int main()
-{
+int main() {
     using hgraph::Float;
     using ticks = std::vector<std::optional<Float>>;
 
     hgraph::stdlib::register_standard_operators();
     smoke::register_operators();
 
-    if (hgraph::testing::eval_node<smoke::twice>(ticks{1.0, 2.0}) != ticks{2.0, 4.0})
-    {
+    if (hgraph::testing::eval_node<smoke::twice>(ticks{1.0, 2.0}) != ticks{2.0, 4.0}) {
         throw std::logic_error("smoke.twice did not double its input");
     }
     // Dispatch through the registry marker: the erased harness yields Values.
-    const auto by_name = hgraph::testing::eval_node<smoke::ops::twice>(ticks{3.0});
-    if (by_name.size() != 1 || !by_name[0] || by_name[0]->as<Float>() != 6.0)
-    {
+    const auto by_name = hgraph::testing::eval_node<smoke::operators::twice>(ticks{3.0});
+    if (by_name.size() != 1 || !by_name[0] || by_name[0]->as<Float>() != 6.0) {
         throw std::logic_error("smoke.twice is not registered by name");
     }
 
