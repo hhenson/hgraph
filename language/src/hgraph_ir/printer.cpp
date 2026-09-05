@@ -70,6 +70,23 @@ namespace hgl::hgraph_ir
             }
         }
 
+        void print_constraint_id(std::ostream &out, ConstraintId id) {
+            if (id.valid()) {
+                out << 'r' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        template <typename IdType> void print_ids(std::ostream &out, char prefix, const std::vector<IdType> &ids) {
+            out << '[';
+            for (std::size_t index = 0; index < ids.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                out << prefix << ids[index].value;
+            }
+            out << ']';
+        }
+
         [[nodiscard]] std::string_view unary_name(hir::UnaryOp op) noexcept {
             return op == hir::UnaryOp::Negate ? "negate" : "not";
         }
@@ -123,6 +140,22 @@ namespace hgl::hgraph_ir
             }
             out << ") -> ";
             print_type_id(out, result);
+        }
+
+        void print_generics(std::ostream &out, const std::vector<GenericParameter> &generics) {
+            if (generics.empty()) { return; }
+            out << '<';
+            for (std::size_t index = 0; index < generics.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                const GenericParameter &generic = generics[index];
+                if (generic.is_const) { out << "const "; }
+                out << generic.name;
+                if (generic.type.valid()) {
+                    out << ':';
+                    print_type_id(out, generic.type);
+                }
+            }
+            out << '>';
         }
 
         void print_effects(std::ostream &out, hir::Effect effects) {
@@ -259,6 +292,87 @@ namespace hgl::hgraph_ir
             out << '\n';
         }
 
+        out << "constraints\n";
+        for (std::size_t index = 0; index < module.constraints.size(); ++index) {
+            const Constraint &constraint = module.constraints[index];
+            out << "  r" << index << ' ';
+            std::visit(
+                [&](const auto &node) {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, ConstraintSymbol>) {
+                        out << "symbol " << node.identity;
+                    } else if constexpr (std::is_same_v<T, ConstraintType>) {
+                        out << "type ";
+                        print_type_id(out, node.type);
+                    } else if constexpr (std::is_same_v<T, ConstraintValue>) {
+                        out << "value ";
+                        print_const_expr_id(out, node.value);
+                    } else if constexpr (std::is_same_v<T, ConstraintSet>) {
+                        out << "set ";
+                        print_ids(out, 'r', node.elements);
+                    } else if constexpr (std::is_same_v<T, ConstraintCall>) {
+                        out << "call " << node.function_identity << " arguments=";
+                        print_ids(out, 'r', node.arguments);
+                    } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
+                        out << "operator " << node.operator_identity;
+                        if (!node.operator_registry_name.empty()) { out << " registry=" << node.operator_registry_name; }
+                        out << " arguments=";
+                        print_ids(out, 'r', node.arguments);
+                        out << " result=";
+                        print_type_id(out, node.result);
+                    } else if constexpr (std::is_same_v<T, ConstraintRelation>) {
+                        static constexpr std::string_view names[]{"equal", "in", "is"};
+                        out << names[static_cast<std::size_t>(node.op)] << ' ';
+                        print_constraint_id(out, node.lhs);
+                        out << ' ';
+                        print_constraint_id(out, node.rhs);
+                        if (!node.category.empty()) { out << " category=" << node.category; }
+                    } else if constexpr (std::is_same_v<T, ConstraintNot>) {
+                        out << "not ";
+                        print_constraint_id(out, node.operand);
+                    } else {
+                        out << (node.op == ConstraintLogicOp::And ? "and " : "or ");
+                        print_constraint_id(out, node.lhs);
+                        out << ' ';
+                        print_constraint_id(out, node.rhs);
+                    }
+                },
+                constraint.node);
+            out << '\n';
+        }
+
+        out << "structures\n";
+        for (const StructContract &structure : module.structures) {
+            out << "  ";
+            if (structure.exported) { out << "export "; }
+            if (structure.abstract) { out << "abstract "; }
+            out << "struct " << structure.identity;
+            print_generics(out, structure.generics);
+            if (!structure.parents.empty()) {
+                out << " parents=";
+                print_ids(out, 't', structure.parents);
+            }
+            if (structure.requirements.valid()) {
+                out << " requires=";
+                print_constraint_id(out, structure.requirements);
+            }
+            out << " fields=[";
+            for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                const StructField &field = structure.fields[index];
+                out << field.name;
+                if (field.optional) { out << '?'; }
+                out << ':';
+                print_type_id(out, field.type);
+                if (field.default_value.valid()) {
+                    out << '=';
+                    print_const_expr_id(out, field.default_value);
+                }
+                if (!field.origin_identity.empty()) { out << " origin=" << field.origin_identity; }
+            }
+            out << "]\n";
+        }
+
         out << "operators\n";
         for (const OperatorContract &op : module.operators) {
             out << "  " << (op.imported ? "import " : "define ") << op.identity;
@@ -266,6 +380,10 @@ namespace hgl::hgraph_ir
             if (!op.imported) {
                 out << ' ';
                 print_signature(out, op.generics, op.parameters, op.result);
+            }
+            if (op.requirements.valid()) {
+                out << " requires=";
+                print_constraint_id(out, op.requirements);
             }
             out << '\n';
         }
@@ -279,6 +397,10 @@ namespace hgl::hgraph_ir
             if (!callable.operator_registry_name.empty()) { out << " registry=" << callable.operator_registry_name; }
             out << ' ';
             print_signature(out, callable.generics, callable.parameters, callable.result);
+            if (callable.requirements.valid()) {
+                out << " requires=";
+                print_constraint_id(out, callable.requirements);
+            }
             out << " effects=";
             print_effects(out, callable.effects);
             if (!callable.capabilities.empty()) {
