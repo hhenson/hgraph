@@ -1458,8 +1458,9 @@ namespace hgraph
                                 ? TypeRegistry::instance().ts(scalar_schema)
                                 : nullptr,
                             table_projections, resolver, resolver_context);
-                    return true;
-                }));
+                        return true;
+                    },
+                    [&](const char *message) { entry.scalars.error = message; }));
             }
         }
 
