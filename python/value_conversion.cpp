@@ -413,7 +413,7 @@ namespace hgraph::python_bridge
                     else if (inferred.schema() != nullptr && field.type != nullptr &&
                              inferred.schema()->value_kind() == ValueTypeKind::Bundle &&
                              field.type->value_kind() == ValueTypeKind::Bundle &&
-                             TypeRegistry::instance().bundle_is_a(inferred.schema(), field.type))
+                             TypeRegistry::instance().value_is_a(inferred.schema(), field.type))
                     {
                         ++score;
                     }

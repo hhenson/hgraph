@@ -112,21 +112,21 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- One ancestry walker (family 4) ---
     Ratchet(
         id="bundle-only-ancestry",
-        baseline=23,
+        baseline=0,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bbundle_is_a\(",
-        owner="TypeRegistry::value_is_a covers bundles and opaque Python "
-        "values; bundle_is_a is the un-migrated remainder",
+        owner="TypeRegistry::value_is_a is the one nominal ancestry walk; the "
+        "bundle-only API was removed on 2026-09-05",
     ),
     Ratchet(
         id="stdlib-ancestry-walker",
-        baseline=4,
+        baseline=0,
         roots=("include/hgraph/lib/std", "src/hgraph/lib/std"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bdispatch_bundle_is_a\b",
-        owner="the registry owns ancestry; a lock-free is_a on its immutable "
-        "parent links replaces the std-operator copy",
+        owner="the registry owns ancestry; value_is_a is lock-free over the "
+        "immutable parent links, so no operator needs its own walker",
     ),
     # --- Operators read bindings from views (family 5) ---
     Ratchet(

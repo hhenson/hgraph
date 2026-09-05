@@ -281,7 +281,7 @@ struct PythonBundleBindingEntry {
       return true;
     }
     if (target->is_named_bundle() && source->is_named_bundle() &&
-        TypeRegistry::instance().bundle_is_a(source, target)) {
+        TypeRegistry::instance().value_is_a(source, target)) {
       return true;
     }
     if (target->field_count != source->field_count) {

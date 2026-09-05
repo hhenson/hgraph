@@ -344,156 +344,90 @@ namespace hgraph
         return named_bundle(qualified_bundle_name(bundle_namespace, local_name));
     }
 
-    bool TypeRegistry::bundle_is_a(const ValueTypeMetaData *candidate,
-                                   const ValueTypeMetaData *base) const
+    namespace
     {
-        const std::lock_guard lock(mutex_);
-        if (candidate == base) { return candidate != nullptr; }
-        if (candidate == nullptr || base == nullptr || !candidate->is_named_bundle() || !base->is_named_bundle())
+        // Nominal parent links are fixed when a schema is registered
+        // (BundleHierarchyMetaData: only the child list grows later), so the
+        // walks below need neither the registry lock nor a visited set. The
+        // hierarchy is a DAG whose depth is the inheritance depth; a diamond
+        // is revisited rather than tracked, which keeps the per-tick dispatch
+        // and accepts_source paths allocation-free.
+        bool nominal_is_a(const ValueTypeMetaData *candidate, const ValueTypeMetaData *base) noexcept
         {
+            if (candidate == base) { return candidate != nullptr; }
+            if (candidate == nullptr || base == nullptr || candidate->bundle_hierarchy == nullptr) { return false; }
+            for (const ValueTypeMetaData *parent : candidate->bundle_hierarchy->parents)
+            {
+                if (nominal_is_a(parent, base)) { return true; }
+            }
             return false;
         }
-        std::vector<const ValueTypeMetaData *> pending{candidate};
-        std::unordered_map<const ValueTypeMetaData *, bool> seen;
-        while (!pending.empty())
+
+        std::optional<std::size_t> nominal_distance(const ValueTypeMetaData *candidate,
+                                                    const ValueTypeMetaData *base) noexcept
         {
-            const ValueTypeMetaData *current = pending.back();
-            pending.pop_back();
-            if (!seen.emplace(current, true).second || current->bundle_hierarchy == nullptr) { continue; }
-            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
+            if (candidate == nullptr || base == nullptr) { return std::nullopt; }
+            if (candidate == base) { return 0; }
+            if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
+            std::optional<std::size_t> best;
+            for (const ValueTypeMetaData *parent : candidate->bundle_hierarchy->parents)
             {
-                if (parent == base) { return true; }
-                pending.push_back(parent);
+                if (const auto distance = nominal_distance(parent, base); distance.has_value())
+                {
+                    const std::size_t via = *distance + 1;
+                    best = best.has_value() ? std::min(*best, via) : via;
+                }
             }
+            return best;
         }
-        return false;
-    }
+
+        // Descend the covariant containers both schemas share - a Frame row
+        // and variadic-tuple elements - to the nominal pair underneath. One
+        // descent serves acceptance (value_is_a) and ranking
+        // (value_inheritance_distance), so the two can never disagree.
+        bool covariant_pair(const ValueTypeMetaData *&candidate, const ValueTypeMetaData *&base) noexcept
+        {
+            if (candidate->has(ValueTypeFlags::Frame) && base->has(ValueTypeFlags::Frame))
+            {
+                if (candidate->element_type == nullptr || base->element_type == nullptr ||
+                    candidate->key_type != base->key_type)
+                {
+                    return false;
+                }
+                candidate = candidate->element_type;
+                base      = base->element_type;
+            }
+            // try_value_kind: a malformed compact kind must not throw out of a
+            // noexcept walk (test_value.cpp pins that predicates reject it quietly).
+            while (candidate != base && candidate->try_value_kind() == ValueTypeKind::List &&
+                   base->try_value_kind() == ValueTypeKind::List &&
+                   candidate->has(ValueTypeFlags::VariadicTuple) && base->has(ValueTypeFlags::VariadicTuple))
+            {
+                candidate = candidate->element_type;
+                base      = base->element_type;
+                if (candidate == nullptr || base == nullptr) { return false; }
+            }
+            return true;
+        }
+    }  // namespace
 
     bool TypeRegistry::value_is_a(const ValueTypeMetaData *candidate,
-                                  const ValueTypeMetaData *base) const
+                                  const ValueTypeMetaData *base) const noexcept
     {
-        const std::lock_guard lock(mutex_);
         if (candidate == base) { return candidate != nullptr; }
         if (candidate == nullptr || base == nullptr) { return false; }
-        if (is_frame(candidate) && is_frame(base))
-        {
-            if (candidate->element_type == nullptr || base->element_type == nullptr ||
-                candidate->key_type != base->key_type)
-            {
-                return false;
-            }
-            candidate = candidate->element_type;
-            base = base->element_type;
-            if (candidate == base) { return true; }
-        }
-        while (candidate->value_kind() == ValueTypeKind::List &&
-               base->value_kind() == ValueTypeKind::List &&
-               candidate->has(ValueTypeFlags::VariadicTuple) &&
-               base->has(ValueTypeFlags::VariadicTuple))
-        {
-            candidate = candidate->element_type;
-            base = base->element_type;
-            if (candidate == base) { return candidate != nullptr; }
-            if (candidate == nullptr || base == nullptr) { return false; }
-        }
-        if (candidate->bundle_hierarchy == nullptr) { return false; }
-        std::vector<const ValueTypeMetaData *> pending{candidate};
-        std::unordered_map<const ValueTypeMetaData *, bool> seen;
-        while (!pending.empty())
-        {
-            const ValueTypeMetaData *current = pending.back();
-            pending.pop_back();
-            if (!seen.emplace(current, true).second || current->bundle_hierarchy == nullptr) { continue; }
-            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
-            {
-                if (parent == base) { return true; }
-                pending.push_back(parent);
-            }
-        }
-        return false;
-    }
-
-    std::optional<std::size_t> TypeRegistry::bundle_inheritance_distance(
-        const ValueTypeMetaData *candidate,
-        const ValueTypeMetaData *base) const
-    {
-        const std::lock_guard lock(mutex_);
-        if (candidate == nullptr || base == nullptr || !candidate->is_named_bundle() || !base->is_named_bundle())
-        {
-            return std::nullopt;
-        }
-        if (candidate == base) { return 0; }
-
-        std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> pending{{candidate, 0}};
-        std::unordered_map<const ValueTypeMetaData *, std::size_t> best_distance{{candidate, 0}};
-        std::optional<std::size_t> result;
-        while (!pending.empty())
-        {
-            const auto [current, distance] = pending.back();
-            pending.pop_back();
-            if (result.has_value() && distance >= *result) { continue; }
-            if (current->bundle_hierarchy == nullptr) { continue; }
-            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
-            {
-                const std::size_t parent_distance = distance + 1;
-                if (parent == base)
-                {
-                    result = !result.has_value() ? parent_distance : std::min(*result, parent_distance);
-                    continue;
-                }
-                const auto [found, inserted] = best_distance.emplace(parent, parent_distance);
-                if (!inserted && found->second <= parent_distance) { continue; }
-                found->second = parent_distance;
-                pending.emplace_back(parent, parent_distance);
-            }
-        }
-        return result;
+        if (!covariant_pair(candidate, base)) { return false; }
+        return nominal_is_a(candidate, base);
     }
 
     std::optional<std::size_t> TypeRegistry::value_inheritance_distance(
         const ValueTypeMetaData *candidate,
-        const ValueTypeMetaData *base) const
+        const ValueTypeMetaData *base) const noexcept
     {
-        const std::lock_guard lock(mutex_);
         if (candidate == nullptr || base == nullptr) { return std::nullopt; }
         if (candidate == base) { return 0; }
-        if (is_frame(candidate) && is_frame(base))
-        {
-            if (candidate->element_type == nullptr || base->element_type == nullptr ||
-                candidate->key_type != base->key_type)
-            {
-                return std::nullopt;
-            }
-            candidate = candidate->element_type;
-            base = base->element_type;
-            if (candidate == base) { return 0; }
-        }
-        if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
-
-        std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> pending{{candidate, 0}};
-        std::unordered_map<const ValueTypeMetaData *, std::size_t> best_distance{{candidate, 0}};
-        std::optional<std::size_t> result;
-        while (!pending.empty())
-        {
-            const auto [current, distance] = pending.back();
-            pending.pop_back();
-            if (result.has_value() && distance >= *result) { continue; }
-            if (current->bundle_hierarchy == nullptr) { continue; }
-            for (const ValueTypeMetaData *parent : current->bundle_hierarchy->parents)
-            {
-                const std::size_t parent_distance = distance + 1;
-                if (parent == base)
-                {
-                    result = !result.has_value() ? parent_distance : std::min(*result, parent_distance);
-                    continue;
-                }
-                const auto [found, inserted] = best_distance.emplace(parent, parent_distance);
-                if (!inserted && found->second <= parent_distance) { continue; }
-                found->second = parent_distance;
-                pending.emplace_back(parent, parent_distance);
-            }
-        }
-        return result;
+        if (!covariant_pair(candidate, base)) { return std::nullopt; }
+        return nominal_distance(candidate, base);
     }
 
     std::vector<const ValueTypeMetaData *> TypeRegistry::bundle_descendants(
@@ -517,7 +451,7 @@ namespace hgraph
                 entry->local_name != nullptr ? std::string_view{entry->local_name} : std::string_view{});
             if (candidate == nullptr) { continue; }
             if (candidate == base && !include_base) { continue; }
-            if (!bundle_is_a(candidate, base)) { continue; }
+            if (!value_is_a(candidate, base)) { continue; }
             if (!include_abstract && candidate->is_abstract_bundle()) { continue; }
             result.push_back(candidate);
         }
@@ -1508,7 +1442,7 @@ namespace hgraph
                                                 std::string{column_schema->name()} + ", " +
                                                 std::string{metadata_schema->name()} + "]";
             ValueTypeMetaData m(ValueTypeKind::Atomic,
-                                base->flags,
+                                base->flags | ValueTypeFlags::Frame,
                                 store_name_interned(label));
             m.element_type = column_schema;
             m.key_type = metadata_schema;

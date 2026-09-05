@@ -96,7 +96,9 @@ A scalar schema has one of nine kinds, recorded on its
     Bundle/indexed capability and must not assume field offsets merely because
     the schema kind is ``Bundle``.
 
-    Named Bundle metadata records immediate parents and children. Multiple
+    Named Bundle metadata records immediate parents and children. Parent
+    links are fixed at registration and are walked lock-free by
+    ``TypeRegistry::value_is_a`` (see *Operators > Nominal ancestry*). Multiple
     inheritance is allowed, but a child must contain every inherited field
     with exactly the inherited type. A child may add fields or restate an
     inherited field identically; it may not change one. Generic

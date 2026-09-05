@@ -490,8 +490,8 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
         "nominal_overload", std::span<const WiringArg>{args}, false);
     REQUIRE(resolved.impl != nullptr);
     CHECK(resolved.impl->label == "dog");
-    CHECK(registry.bundle_inheritance_distance(puppy, dog) == 1);
-    CHECK(registry.bundle_inheritance_distance(puppy, animal) == 2);
+    CHECK(registry.value_inheritance_distance(puppy, dog) == 1);
+    CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
 }
 
 TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload")

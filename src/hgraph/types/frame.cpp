@@ -168,7 +168,7 @@ namespace hgraph
                     "frame metadata identifies unknown schema '" + encoded_schema + "'");
             }
             if (expected != nullptr &&
-                !TypeRegistry::instance().bundle_is_a(actual, expected))
+                !TypeRegistry::instance().value_is_a(actual, expected))
             {
                 throw std::invalid_argument(
                     "frame metadata schema '" + encoded_schema +

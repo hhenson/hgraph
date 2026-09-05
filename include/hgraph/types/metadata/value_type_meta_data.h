@@ -134,6 +134,11 @@ namespace hgraph
         ShapedArray = 1u << 12,
         /** Immutable one-pointer handle into the process-wide shared-value arena. */
         Shared = 1u << 13,
+        /** A typed Frame schema interned by ``TypeRegistry::frame``: an atomic
+            whose ``element_type`` is the row Bundle and ``key_type`` the
+            metadata Bundle. Lets the nominal ancestry walk descend to the row
+            without a registry lookup. */
+        Frame = 1u << 14,
     };
 
     /** Bitwise OR over ``ValueTypeFlags``. */

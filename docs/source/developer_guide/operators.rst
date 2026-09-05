@@ -224,6 +224,19 @@ declared bundle inheritance, is also preserved. Scalar (configuration)
 parameters are unaffected and keep the standard numeric conversions of the
 ordinary ``wire<>`` scalar path.
 
+**Nominal ancestry.** There is one ancestry walk, ``TypeRegistry::value_is_a``,
+with ``value_inheritance_distance`` computed over the same descent, so
+acceptance and ranking can never disagree: both first descend the covariant
+containers the two schemas share (a ``Frame`` row, variadic-tuple elements)
+and then follow the registered parent links of the named-Bundle or
+opaque-Python hierarchy. Parent links are fixed when a schema is registered
+(only the child list grows later), so the walk takes no registry lock and
+allocates nothing; that is what lets dispatch selection, ``accepts_source``
+and target-link checks use it per tick. The bundle-only ``bundle_is_a`` and
+the std-operator copy ``dispatch_bundle_is_a`` were removed on 2026-09-05
+(they were the second and third walker the retrospective counted, and the
+distance function had drifted from the acceptance function on tuples).
+
 
 Variadic ``**kwargs`` candidates and pack patterns (issue #224)
 ---------------------------------------------------------------

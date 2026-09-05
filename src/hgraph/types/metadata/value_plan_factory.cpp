@@ -1518,7 +1518,7 @@ struct OwnedValueEntry {
       }
       const auto target = owned_target_type(*self.schema);
       return target.ops_ref().accepts_source(target, source) ||
-             TypeRegistry::instance().bundle_is_a(source.schema(),
+             TypeRegistry::instance().value_is_a(source.schema(),
                                                   self.schema->element_type);
     });
   }
@@ -1529,7 +1529,7 @@ struct OwnedValueEntry {
     if (target.ops_ref().accepts_source(target, source)) {
       return target;
     }
-    if (TypeRegistry::instance().bundle_is_a(source.schema(),
+    if (TypeRegistry::instance().value_is_a(source.schema(),
                                              self.schema->element_type)) {
       return source;
     }
@@ -1933,12 +1933,12 @@ struct SharedValueEntry {
         return true;
       }
       if (source.schema() != nullptr && source.schema()->is_shared()) {
-        return TypeRegistry::instance().bundle_is_a(source.schema()->element_type,
+        return TypeRegistry::instance().value_is_a(source.schema()->element_type,
                                                     self.schema->element_type);
       }
       const auto target = target_type(self);
       return target.ops_ref().accepts_source(target, source) ||
-             TypeRegistry::instance().bundle_is_a(source.schema(),
+             TypeRegistry::instance().value_is_a(source.schema(),
                                                   self.schema->element_type);
     });
   }
@@ -1949,7 +1949,7 @@ struct SharedValueEntry {
     if (target.ops_ref().accepts_source(target, source)) {
       return target;
     }
-    if (TypeRegistry::instance().bundle_is_a(source.schema(),
+    if (TypeRegistry::instance().value_is_a(source.schema(),
                                              self.schema->element_type)) {
       return source;
     }
@@ -1968,7 +1968,7 @@ struct SharedValueEntry {
     const auto *source_bundle = replacement != nullptr
                                     ? allocation_type(replacement).schema()
                                     : source.schema()->element_type;
-    if (!TypeRegistry::instance().bundle_is_a(source_bundle,
+    if (!TypeRegistry::instance().value_is_a(source_bundle,
                                               self.schema->element_type)) {
       throw std::invalid_argument(
           "Shared value received an incompatible source type");

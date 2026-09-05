@@ -72,7 +72,7 @@ namespace hgraph::detail
             {
                 return false;
             }
-            return TypeRegistry::instance().bundle_is_a(requested.value_schema, source->value_schema);
+            return TypeRegistry::instance().value_is_a(requested.value_schema, source->value_schema);
         }
 
         void unsubscribe_node(TSInputTargetActiveNode &node,
