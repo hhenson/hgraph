@@ -192,16 +192,19 @@ Deduplicating a captured source must not discard these per-branch contracts.
 The same forwarding rule applies independently to each escaping field when
 multiple results are bundled. A branch can supply a newly computed binding
 for one field and forward another field's incoming binding by reference.
-It does not imply an outer reference over the whole bundle, nor may it leave a
-`REF` wrapper on that field of the branch output. Lowering chooses the escaped
-binding's declared, non-`REF` temporal schema as the common output schema for
-each result slot. A forwarding branch retains its `REF` capture, then explicitly
-dereferences that connection at the branch-output boundary before packing the
-field; a computed branch already supplies the same ordinary temporal schema.
-The two branch bundles consequently have identical schemas at every field, not
-merely compatible root types. If the public native API cannot express that
-per-field reference adaptation, HGL must reject the conditional until the
-native support exists rather than send mismatched bundles to `switch_`.
+It does not imply an outer reference over the whole bundle. Lowering preserves
+the escaped binding's resolved declared temporal schema as the common output
+schema for each result slot. For an ordinary `T` result, a forwarding branch
+retains its `ref<T>` capture and explicitly dereferences that connection at the
+branch-output boundary before packing the field; a computed branch already
+supplies the same ordinary temporal schema. For an explicitly declared
+`ref<T>` result, the result slot remains `ref<T>` and a forwarding capture is
+packed without dereferencing it. Every branch must produce that same declared
+schema; a branch that cannot produce the required reference binding is rejected.
+The branch bundles consequently have identical schemas at every field, not
+merely compatible root types. If the public native API cannot express the
+required per-field reference adaptation, HGL must reject the conditional until
+the native support exists rather than send mismatched bundles to `switch_`.
 
 The corresponding design-corpus source is
 [conditional-results.hgl](../../stdlib/examples/conditional-results.hgl).
