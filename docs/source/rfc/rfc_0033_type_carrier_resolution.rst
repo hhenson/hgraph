@@ -61,8 +61,10 @@ This RFC moves the carrier into the registry's dispatch model:
   Python-side binding algebra deleted.
 
 Behaviour is pinned cell by cell in ``python/tests/test_type_carrier_sweep.py``
-(72 cells, landed in PR #662); the cells this RFC deliberately changes are
-listed under *Compatibility*.
+(77 cells: PR #662, open in the hardening stack that the implementation PRs
+build on; this RFC's own branch is documentation only and does not carry
+the sweep). The cells this RFC deliberately changes are listed under
+*Compatibility*.
 
 Motivation
 ----------
@@ -208,17 +210,25 @@ C++ contract
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Declared in ``include/hgraph/types/type_resolution.h`` next to
-``ResolutionMap``, because it is the value form of one map entry:
+``ResolutionMap``, because it is the value form of one map entry. A carrier
+is exactly one of the three ``ResolutionKind`` forms at a time, so it is a
+closed sum type -- the case ``AGENTS.md`` reserves ``std::variant`` for --
+and costs one pointer-or-size plus the alternative index (16 bytes), not
+three mostly-empty slots:
 
 .. code-block:: cpp
 
    struct TypeCarrier
    {
-       const TSValueTypeMetaData *ts{nullptr};      ///< ResolutionKind::TimeSeries
-       const ValueTypeMetaData   *scalar{nullptr};  ///< ResolutionKind::Scalar
-       std::optional<std::size_t> size{};           ///< ResolutionKind::Size
-       // Exactly one of the three is populated.
-       [[nodiscard]] ResolutionKind kind() const noexcept;
+       using Binding = std::variant<const TSValueTypeMetaData *,   // ResolutionKind::TimeSeries
+                                    const ValueTypeMetaData *,     // ResolutionKind::Scalar
+                                    std::size_t>;                  // ResolutionKind::Size
+       Binding binding;   ///< never empty; the alternative *is* the form
+
+       [[nodiscard]] ResolutionKind kind() const noexcept;                 // from binding.index()
+       [[nodiscard]] const TSValueTypeMetaData *ts() const noexcept;       // nullptr unless TimeSeries
+       [[nodiscard]] const ValueTypeMetaData   *scalar() const noexcept;   // nullptr unless Scalar
+       [[nodiscard]] std::optional<std::size_t> size() const noexcept;     // empty unless Size
        friend bool operator==(const TypeCarrier &, const TypeCarrier &) noexcept = default;
    };
    HGRAPH_DECLARE_STANDARD_SCALAR_BINDING(TypeCarrier);   // as WiredFn
@@ -289,9 +299,9 @@ matchers:
 
 It dispatches on ``param.carrier``:
 
-* ``TimeSeries`` -- ``input_ts_pattern_match(param.ts, carrier.ts, map)``;
-* ``Scalar`` -- ``scalar_pattern_match(param.scalar, carrier.scalar, map)``;
-* ``Size`` -- ``size_pattern_match(param.ts, *carrier.size, map)``.
+* ``TimeSeries`` -- ``input_ts_pattern_match(param.ts, carrier.ts(), map)``;
+* ``Scalar`` -- ``scalar_pattern_match(param.scalar, carrier.scalar(), map)``;
+* ``Size`` -- ``size_pattern_match(param.ts, *carrier.size(), map)``.
 
 A form mismatch (a TS carried where the parameter expects a scalar, or the
 reverse) is a candidate failure with the message *"parameter 'to' expects a
@@ -304,12 +314,11 @@ argument to be a scalar whose schema is the ``TypeCarrier`` schema and calls
 ``type_carrier_match``. Any other argument fails the candidate as a type
 mismatch, exactly as a wrong scalar does today.
 
-A ``Scalar`` parameter whose pattern admits the ``TypeCarrier`` schema (an
-unconstrained scalar variable such as the ``__any_scalar__`` lowering of an
-un-annotated or ``object`` parameter) still accepts a carrier argument as an
-opaque value; at the bridge it materialises back to the Python type object.
-This keeps ``def f(cls: object)`` called with a class working without a
-second path.
+A ``Scalar`` parameter never receives a ``TypeCarrier``. Arrival mints a
+carrier only for an argument that targets a ``TypeArg`` parameter (see
+*Bridge contract*), so a class passed as data -- ``const(OpaqueBase)``,
+``def f(cls: object)`` -- stays the opaque scalar value it is today and an
+unconstrained scalar variable can never bind to the carrier schema.
 
 Ranking
 ~~~~~~~
@@ -389,8 +398,16 @@ is unchanged.
 Declaring carriers from C++
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A descriptor joins ``In``, ``Out``, ``Scalar``, ``VarIn`` and ``VarKwIn`` in
-``operator_dispatch.h``:
+Candidate parameters are not read from the ``Operator<...>`` marker, which
+is documentary (``operators.rst``: "the operator signature is a suggestion,
+not a rule"). ``register_overload<Op, Impl>()`` derives them from the
+*implementation*: ``build_node_params<Impl>`` / ``build_graph_params<Impl>``
+(``operator_dispatch.h``) walk ``signature_args_of<Impl>`` -- the parameter
+list of ``Impl::eval`` (node overloads) or ``Impl::compose`` (graph
+overloads), or an explicit ``Impl::signature_args`` tuple -- and lower each
+``In<>``/``Scalar<>``/``VarIn<>``/``VarKwIn<>``/``Out<>`` to a
+``ParamPattern``. A carrier is declared the same way, as a parameter type in
+that list, at the position the call expects it:
 
 .. code-block:: cpp
 
@@ -401,27 +418,60 @@ A descriptor joins ``In``, ``Out``, ``Scalar``, ``VarIn`` and ``VarKwIn`` in
        that pattern). A concrete default comes from the ``defaults()`` hook
        as a ``TypeCarrier`` value, like any scalar default. */
    template <fixed_string Name, typename Pattern, typename Default = void>
-   struct TypeArg;
+   struct TypeArg;   // empty at evaluation: the dispatcher consumed it
 
-   struct nothing : Operator<"nothing", TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">>> {};
-   struct const_  : Operator<"const",
-                             Scalar<"value", ScalarVar<"T">>,
-                             TypeArg<"tp", TsVar<"S">, AutoResolve>,
-                             Scalar<"delay", TimeDelta>,
-                             Out<TsVar<"S">>> {};
+   struct const_source
+   {
+       static constexpr auto name              = "const";
+       static constexpr bool schedule_on_start = true;
+       static void resolve_default_types(ResolutionMap &resolution) { const_resolve_output(resolution); }
+       static void eval(Scalar<"value", ScalarVar<"T">> value,
+                        TypeArg<"tp", TsVar<"S">, AutoResolve>,     // position 1, as in 0.5
+                        Out<TsVar<"S">> out)
+       {
+           const_apply(value.value(), out);
+       }
+   };
+   // const_delayed declares (value, tp, delay, out); nothing declares (tp, out).
+   // The documentary markers list the carrier too, so labels and the Python
+   // signature render it:
+   struct const_ : Operator<"const", Scalar<"value", ScalarVar<"T">>,
+                            TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                            Scalar<"delay", TimeDelta>, Out<TsVar<"S">>> {};
 
-``to_pattern`` lowers ``TypeArg`` to a ``ParamPattern{Kind::TypeArg}`` with
-``carrier`` derived from ``Pattern`` (a TS pattern, a scalar pattern, or a
-``SizeVar``/fixed size) and ``default_pattern`` derived from ``Default``.
-The ``wire<>`` call arm accepts a ``TypeCarrier`` (or a
-``TSValueTypeMetaData*`` / ``ValueTypeMetaData*`` / ``std::size_t``, which it
-wraps) wherever a scalar argument is accepted today, so C++ callers can write
-``wire<nothing>(ts_schema<TS<Int>>())``.
+The lowering and the runtime treat it as follows:
 
-Declaring the carrier is what retires the Python name table: ``const``,
-``nothing`` and ``replay`` get their ``tp`` parameter at the index the table
-hard-codes, which is also the 0.5 reference's signature
-(``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``).
+* ``build_node_params`` / ``build_graph_params`` lower ``TypeArg`` to
+  ``ParamPattern{Kind::TypeArg}`` with ``carrier`` derived from ``Pattern``
+  (a TS pattern, a scalar pattern, or a ``SizeVar``/fixed size) and
+  ``default_pattern`` from ``Default``; ``apply_param_defaults`` accepts a
+  ``TypeCarrier`` from ``defaults()`` for it.
+* ``StaticNodeSignature`` excludes ``TypeArg`` parameters from the node's
+  input, scalar and state layout: a carrier is not a runtime field. The
+  ``eval`` invocation passes an empty ``TypeArg`` placeholder in its slot,
+  so an implementation's types keep coming from its template parameters.
+  Graph overloads (``compose``) receive the ``TypeCarrier`` from the
+  resolved call when they need it.
+* The ``wire<>`` call arm accepts a ``TypeCarrier`` (or a
+  ``TSValueTypeMetaData*`` / ``ValueTypeMetaData*`` / ``std::size_t``, which
+  it wraps) wherever a scalar argument is accepted, so C++ callers can write
+  ``wire<nothing>(w, ts_schema<TS<Int>>())``.
+* A resolver that infers the same variable (``const_resolve_output`` binds
+  ``S`` from ``T``) binds only when the variable is still free, so a supplied
+  carrier wins and the resolver keeps serving the omitted case, after which
+  the deferred carrier materialises from ``S``.
+* **Family consistency.** A parameter name that is a ``TypeArg`` in one
+  candidate of an operator must be a ``TypeArg`` in every candidate that
+  declares that name; ``register_overload`` rejects a candidate that
+  disagrees. This makes "is this argument a carrier?" a property of the
+  operator, which arrival relies on (below), and is the registered form of
+  the rule ``python_bridge.rst`` already states: which argument is a carrier
+  is a property of the signature, never of the operator name.
+
+Declaring the carrier on the concrete candidates is what retires the Python
+name table: ``const``, ``nothing`` and ``replay`` get their ``tp`` parameter
+at the index the table hard-codes, which is also the 0.5 reference's
+signature (``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``).
 
 Errors
 ~~~~~~
@@ -440,20 +490,29 @@ Bridge contract
 Arrival
 ~~~~~~~
 
-``py_wiring.cpp`` converts, by object identity:
+``py_wiring.cpp`` converts an argument to a ``TypeCarrier`` when it can only
+be a type, and otherwise only when it *targets a carrier parameter*:
 
-* a ``PyTsType`` (``TS[int]``, ``TSD[str, TS[int]]``, ``REF[...]``) to
-  ``TypeCarrier{ts}`` (today: ``PyTsMetaRef``);
-* a Python ``type`` object that is a registered or registrable scalar class
-  (RFC 0003 / RFC 0004, builtins, enums, ``CompoundScalar`` subclasses) to
-  ``TypeCarrier{scalar = _value_type(cls)}``; a ``TimeSeriesSchema`` subclass
-  to ``TypeCarrier{ts = TSB[cls]}`` (the ``_specialization`` rule for
-  services, now everywhere);
-* a ``Size[n]`` object to ``TypeCarrier{size = n}``;
-* everything else as today (ports, ``WiredFn``, scalar values, node handles).
+* a ``PyTsType`` (``TS[int]``, ``TSD[str, TS[int]]``, ``REF[...]``) is
+  unambiguous and always arrives as ``TypeCarrier{ts}`` (today:
+  ``PyTsMetaRef``); a ``Size[n]`` object likewise as ``TypeCarrier{size}``;
+* a Python ``type`` object is ambiguous -- ``const(OpaqueBase)`` passes a
+  class as *data* and must keep producing ``TS[object]`` -- so it arrives as
+  ``TypeCarrier{scalar = _value_type(cls)}`` (a ``TimeSeriesSchema``
+  subclass as ``TypeCarrier{ts = TSB[cls]}``, the services'
+  ``_specialization`` rule) only when the name or position it fills is a
+  carrier parameter of the operator being called, as reported by
+  ``OperatorRegistry::carrier_parameters(name)`` from the family-consistency
+  rule above; anywhere else it stays an opaque scalar value, exactly as
+  today;
+* everything else arrives as today (ports, ``WiredFn``, scalar values, node
+  handles).
 
-Nothing in arrival looks at the parameter; the object *is* a type, so it
-arrives as one.
+The Python paths that do not go through ``OperatorRegistry::resolve``
+(``@graph`` auto-resolution, ``_PyNode`` calls, service specialisation) know
+their own signature's ``type[...]`` parameters and mint the carrier for those
+explicitly through ``_hgraph.type_carrier(x)`` before calling
+``match_carrier``. No path decides from the object alone.
 
 ``ResolutionScope``
 ~~~~~~~~~~~~~~~~~~~
@@ -621,6 +680,12 @@ other cell of the sweep stays green through every PR.
      - accepted, meaning deferred to the registry
        (``test_operator_bare_item_with_two_variables_and_no_default_is_accepted``)
      - ``WiringError`` at subscript time, as a node already does (PR D)
+   * - Bare item on a generic ``@adaptor`` stub, ``stub[int]``
+     - refused with "requires TYPEVAR: concrete" while a reference service
+       and a service adaptor bind the sole variable
+       (``test_adaptor_bare_subscript_is_rejected_even_for_a_sole_variable``,
+       ``test_service_adaptor_bare_subscript_binds_the_sole_variable``)
+     - binds the sole variable on every stub (PR D)
    * - ``type[TSD[K, TS[int]]]`` graph argument given ``TSD[str, TS[str]]``
      - ``K`` bound, element unchecked
        (``test_graph_ts_type_argument_binds_variables_without_validating_the_rest``)
@@ -658,7 +723,8 @@ its operator and wiring shards run unchanged on each PR.
 Performance and memory
 ----------------------
 
-Wiring-time only. Per candidate, a supplied carrier costs one pattern match
+Wiring-time only. A ``TypeCarrier`` is 16 bytes and lives in the resolved
+call for the duration of one dispatch. Per candidate, a supplied carrier costs one pattern match
 instead of a throwaway variable bind plus a Python re-validation; a deferred
 carrier costs one map lookup per fixed-point pass. The Python two-pass
 (which ran user resolvers twice) and the trampoline value pass disappear, so
@@ -723,15 +789,33 @@ TS-only carriers
    Rejected. ``type[SCALAR]``, ``type[SIZE]`` and collection carriers are
    all in use (sweep groups A and B).
 
+Arrival by object identity alone
+   Rejected (review finding). Converting every Python class to a carrier
+   before knowing the parameter it fills conflates a class used as data
+   (``const(OpaqueBase)`` is ``TS[object]`` on purpose) with a type
+   argument, and would bind ``const``'s value variable to the carrier
+   schema. Arrival is role-directed: unambiguous type objects always, bare
+   classes only into carrier parameters.
+
+A three-slot carrier struct
+   Rejected (review finding). A carrier is one of three forms at a time;
+   two pointers and an optional size is 32 bytes of mostly-empty slots
+   where a closed sum type is the contract and costs 16.
+
+``TypeArg`` on the ``Operator<>`` marker only
+   Rejected (review finding). The marker is documentary; candidates derive
+   their parameters from each implementation's ``eval``/``compose``
+   signature, so the carrier has to be declared there to change dispatch.
+
 Unresolved questions
 --------------------
 
-1. Whether an unconstrained ``Scalar`` variable should accept a
-   ``TypeCarrier`` argument (this RFC says yes, as an opaque value) or
-   whether a class passed to a non-carrier parameter should be an error. The
-   permissive rule preserves ``def f(cls: object)``; revisit if the sweep
-   finds a case where binding a scalar variable to the carrier schema leaks
-   into an output type.
+1. Whether the family-consistency rule should also require carrier
+   parameters to sit at the same *position* in every candidate that
+   declares them. Names suffice for arrival by keyword; a positional bare
+   class is classified by the position's role across the family, which
+   only matters if candidates disagree. Registration can start by rejecting
+   disagreement and relax later.
 2. Which of the positional-``delay`` call sites for ``const``, if any, exist
    in the tree and downstream. PR B answers it with a sweep and either keeps
    the change or adds a deprecation path.
@@ -752,7 +836,10 @@ C++ (Catch2, ``tests/cpp``; PR B)
    the resolved output and a carrier supplying a variable the output needs is
    materialised first (the fixed point); ``type[TS[int]]`` outranks
    ``type[TS[SCALAR]]``; ``wire<nothing>`` and ``wire<const_>`` accept a
-   ``TypeCarrier`` from C++.
+   ``TypeCarrier`` from C++; ``register_overload`` rejects a candidate whose
+   ``tp`` is not a ``TypeArg`` when the family declares it as one, and
+   ``carrier_parameters("const")`` reports ``tp``; ``StaticNodeSignature``
+   leaves a ``TypeArg`` out of the scalar layout.
 
 Python (PR B, C, D)
    ``python/tests/test_type_carrier_sweep.py`` stays green through PR B and
@@ -836,7 +923,10 @@ Risks, and the pin that gates each
 Implementation status
 ---------------------
 
-Proposed. PR A (#662) is merged with the stack it belongs to; the C++
+Proposed. PR A (#662) is open in the hardening stack (#658 to #663) and
+carries the sweep and the ``wiring-type-carrier-sites`` ratchet; this RFC's
+branch is based on ``main`` and is documentation only, so the sweep is not
+in its history. PR B branches from the stack once #662 has landed. The C++
 survey that produced this design is recorded in the retrospective notes and
 in the sweep's module docstring. No implementation has started.
 
