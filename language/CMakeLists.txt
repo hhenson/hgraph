@@ -86,6 +86,16 @@ add_library(hgl_syntax STATIC
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp
 )
+# GCC diagnoses the overloaded lexy DSL operators as though they were built-in
+# arithmetic (`-Wparentheses`) and, after deep inlining, reports the library's
+# scoped parse-handler link as escaping (`-Wdangling-pointer`). Both are false
+# positives in template code instantiated by this one implementation TU. Keep
+# the narrow suppression here rather than weakening warnings for hgl_syntax or
+# exposing parser-library headers to its clients.
+set_property(SOURCE src/syntax/token_grammar.cpp APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-parentheses>"
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-dangling-pointer>"
+)
 add_library(hgl::syntax ALIAS hgl_syntax)
 target_compile_features(hgl_syntax PUBLIC cxx_std_23)
 target_include_directories(hgl_syntax PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
