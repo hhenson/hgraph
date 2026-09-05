@@ -30,6 +30,13 @@ export struct LabeledValue<U>: ValueBox<U> {
     label: str
 }
 
+export abstract struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+export struct Swap<X, Y>: Pair<Y, X> {}
+
 export abstract struct Instrument {
     symbol: str
     venue: str = null
@@ -45,6 +52,9 @@ fn make_quote(bid: f64, ask: f64) -> Quote =>
 
 fn boxed_midpoint(value: f64) -> atomic<Box<f64>> =>
     Box<f64>(value: value)
+
+export fn make_swapped(first: f64, second: i64) -> Swap<i64, f64> =>
+    Swap<i64, f64>(first: first, second: second)
 
 fn bid_delta(value: f64) -> Quote {
     when modified(value) && valid(value) {
