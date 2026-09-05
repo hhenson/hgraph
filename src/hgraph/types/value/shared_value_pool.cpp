@@ -1,4 +1,5 @@
 #include <hgraph/types/value/shared_value_pool.h>
+#include <hgraph/util/scope.h>
 
 #include "impl/lock_free_freelist.h"
 
@@ -150,19 +151,18 @@ private:
     };
     void *memory = MemoryUtils::allocator().allocate_storage(layout);
     std::size_t constructed = 0;
-    try {
-      for (; constructed < slots_per_slab_; ++constructed) {
-        ::new (allocation_at(memory, constructed))
-            SharedValueAllocation{.owner = this};
-      }
-      slabs_.push_back(Slab{memory, layout, slots_per_slab_});
-    } catch (...) {
+    auto rollback = UnwindCleanupGuard([&] {
       for (std::size_t index = 0; index < constructed; ++index) {
         allocation_at(memory, index)->~SharedValueAllocation();
       }
       MemoryUtils::allocator().deallocate_storage(memory, layout);
-      throw;
+    });
+    for (; constructed < slots_per_slab_; ++constructed) {
+      ::new (allocation_at(memory, constructed))
+          SharedValueAllocation{.owner = this};
     }
+    slabs_.push_back(Slab{memory, layout, slots_per_slab_});
+    rollback.release();
 
     slabs_count_.fetch_add(1, std::memory_order_relaxed);
     capacity_.fetch_add(slots_per_slab_, std::memory_order_relaxed);
