@@ -87,18 +87,19 @@ is a signature/body fragment; its enclosing generic declaration is omitted:
 
 ```text
 route(r: i64, l: list<ref<T>, S>) -> ref<T> {
-    when valid(r) and valid(l[r]) and (modified(r) or modified(l[r])) {
+    when valid(r) && r >= 0 && r < S && valid(l[r]) && (modified(r) || modified(l[r])) {
         return l[r]
     }
 }
 ```
 
-The first guard establishes that the index can be read. Short-circuit order
-then makes the selected entry available to its own validity and modification
-checks. The list itself is accessible, and indexing it obtains one opaque
-`ref<T>` element. This does not cross that element's reference boundary or read
-a value of `T`. The node returns the selected reference, establishing the
-connection through which consumers observe the selected time series.
+The first guard establishes that the index can be read, and the next two prove
+that it is in the fixed list's half-open range `[0, S)`. Short-circuit order
+therefore makes the selected entry available safely to its own validity and
+modification checks. The list itself is accessible, and indexing it obtains one
+opaque `ref<T>` element. This does not cross that element's reference boundary
+or read a value of `T`. The node returns the selected reference, establishing
+the connection through which consumers observe the selected time series.
 
 After that connection is established, value ticks from the selected target
 do not require this routing node to evaluate, copy the value, or emit it
