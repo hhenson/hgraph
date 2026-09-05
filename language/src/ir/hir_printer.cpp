@@ -57,6 +57,7 @@ namespace hgl::ir
         std::string_view type_kind_name(hir::TypeKind kind) noexcept {
             using hir::TypeKind;
             switch (kind) {
+                case TypeKind::Void: return "void";
                 case TypeKind::Scalar: return "scalar";
                 case TypeKind::Symbol: return "symbol";
                 case TypeKind::Tuple: return "tuple";
@@ -65,9 +66,53 @@ namespace hgl::ir
                 case TypeKind::Map: return "map";
                 case TypeKind::Rolling: return "rolling";
                 case TypeKind::Atomic: return "atomic";
+                case TypeKind::Iterator: return "iterator";
+                case TypeKind::Callable: return "callable";
+                case TypeKind::Capability: return "capability";
+                case TypeKind::HarnessSequence: return "harness-sequence";
                 case TypeKind::Deferred: return "deferred";
             }
             std::unreachable();
+        }
+
+        std::string_view operation_kind_name(hir::OperationKind kind) noexcept {
+            using hir::OperationKind;
+            switch (kind) {
+                case OperationKind::None: return "none";
+                case OperationKind::ExactFunction: return "exact-function";
+                case OperationKind::NominalOperator: return "nominal-operator";
+                case OperationKind::Intrinsic: return "intrinsic";
+                case OperationKind::Constructor: return "constructor";
+                case OperationKind::Capability: return "capability";
+                case OperationKind::Index: return "index";
+                case OperationKind::Field: return "field";
+                case OperationKind::HarnessEval: return "harness-eval";
+            }
+            std::unreachable();
+        }
+
+        void effects(std::ostream &out, hir::Effect value) {
+            struct Entry
+            {
+                hir::Effect      effect;
+                std::string_view name;
+            };
+            static constexpr Entry entries[]{
+                {hir::Effect::WireGraph, "wire"},           {hir::Effect::ReadRuntimeInput, "read-runtime"},
+                {hir::Effect::ReadState, "read-state"},     {hir::Effect::WriteLocal, "write-local"},
+                {hir::Effect::WriteState, "write-state"},   {hir::Effect::WriteOutput, "write-output"},
+                {hir::Effect::UseCapability, "capability"}, {hir::Effect::IterateCollection, "iterate"},
+                {hir::Effect::TestHarness, "test-harness"},
+            };
+            out << '[';
+            bool first = true;
+            for (const Entry &entry : entries) {
+                if (!hir::has_effect(value, entry.effect)) { continue; }
+                if (!first) { out << ", "; }
+                first = false;
+                out << entry.name;
+            }
+            out << ']';
         }
 
         std::string_view phase_name(hir::Phase phase) noexcept {
@@ -234,6 +279,7 @@ namespace hgl::ir
                     if (type.min_size.valid()) { out_ << " min-size=" << ref('e', type.min_size); }
                     if (type.unbounded) { out_ << " unbounded"; }
                     out_ << (type.value_position ? " value" : " signal");
+                    if (type.canonical.valid()) { out_ << " canonical=" << ref('t', type.canonical); }
                     range(out_, type.range);
                     out_ << '\n';
                 }
@@ -291,6 +337,43 @@ namespace hgl::ir
                             }
                         },
                         expression.node);
+                    if (expression.constant && !std::holds_alternative<hir::Literal>(expression.node)) {
+                        out_ << " constant=";
+                        constant(out_, *expression.constant);
+                    }
+                    if (expression.operation.kind != hir::OperationKind::None) {
+                        const hir::Operation &operation = expression.operation;
+                        out_ << " operation=" << operation_kind_name(operation.kind);
+                        if (operation.target.valid()) { out_ << ':' << ref('s', operation.target); }
+                        if (!operation.identity.empty()) { out_ << ':' << operation.identity; }
+                        if (operation.candidate.valid()) { out_ << " candidate=" << ref('s', operation.candidate); }
+                        if (!operation.candidate_label.empty()) {
+                            out_ << " candidate-label=" << std::quoted(operation.candidate_label);
+                        }
+                        if (!operation.substitutions.empty()) {
+                            out_ << " substitutions=[";
+                            for (std::size_t substitution = 0; substitution < operation.substitutions.size(); ++substitution) {
+                                if (substitution != 0) { out_ << ", "; }
+                                const hir::Substitution &value = operation.substitutions[substitution];
+                                out_ << (value.parameter.valid() ? ref('s', value.parameter) : value.name) << '=';
+                                if (value.type.valid()) {
+                                    out_ << ref('t', value.type);
+                                } else if (value.value.valid()) {
+                                    out_ << ref('e', value.value);
+                                } else if (value.constant) {
+                                    constant(out_, *value.constant);
+                                } else {
+                                    out_ << '_';
+                                }
+                            }
+                            out_ << ']';
+                        }
+                        if (operation.deferred) { out_ << " deferred"; }
+                    }
+                    if (module_.completion == hir::Completion::Typed) {
+                        out_ << " effects=";
+                        effects(out_, expression.effects);
+                    }
                     range(out_, expression.range);
                     out_ << '\n';
                 }
@@ -333,6 +416,10 @@ namespace hgl::ir
                             }
                         },
                         statement.node);
+                    if (module_.completion == hir::Completion::Typed) {
+                        out_ << " effects=";
+                        effects(out_, statement.effects);
+                    }
                     range(out_, statement.range);
                     out_ << '\n';
                 }
@@ -345,6 +432,10 @@ namespace hgl::ir
                     out_ << "  b" << index << " statements=";
                     refs(out_, 'q', block.statements);
                     out_ << " tail=" << ref('e', block.tail);
+                    if (module_.completion == hir::Completion::Typed) {
+                        out_ << " effects=";
+                        effects(out_, block.effects);
+                    }
                     range(out_, block.range);
                     out_ << '\n';
                 }
@@ -467,6 +558,12 @@ namespace hgl::ir
                                 print_signature(node.signature);
                                 out_ << " requires=" << ref('c', node.requirements) << " concise=" << ref('e', node.concise_body)
                                      << " block=" << ref('b', node.block_body);
+                                if (module_.completion == hir::Completion::Typed) {
+                                    out_ << " effects=";
+                                    effects(out_, node.effects);
+                                    out_ << " capabilities=";
+                                    refs(out_, 's', node.capabilities);
+                                }
                             } else if constexpr (std::is_same_v<T, hir::TestDecl>) {
                                 out_ << "test block=" << ref('b', node.block);
                             }

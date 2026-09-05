@@ -121,9 +121,11 @@ hgl_apply_warnings(hgl_semantics)
 # in later passes. Backends migrate to this boundary without depending on AST
 # node identities.
 add_library(hgl_ir STATIC
+    src/ir/canonical_types.cpp
     src/ir/hir.cpp
     src/ir/hir_printer.cpp
     src/ir/lower.cpp
+    src/ir/type_check.cpp
 )
 add_library(hgl::ir ALIAS hgl_ir)
 target_compile_features(hgl_ir PUBLIC cxx_std_23)
@@ -136,11 +138,12 @@ hgl_apply_warnings(hgl_ir)
 # "Direct-wiring backend", "First pass").
 add_library(hgl_wiring STATIC
     src/wiring/backend.cpp
+    src/wiring/operator_types.cpp
 )
 add_library(hgl::wiring ALIAS hgl_wiring)
 target_compile_features(hgl_wiring PUBLIC cxx_std_23)
 target_include_directories(hgl_wiring PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_wiring PUBLIC hgl::semantics hgraph::core)
+target_link_libraries(hgl_wiring PUBLIC hgl::ir hgraph::core)
 if(TARGET hgraph::analytics)
     target_link_libraries(hgl_wiring PUBLIC hgraph::analytics)
     target_compile_definitions(hgl_wiring PRIVATE HGL_HAVE_ANALYTICS=1)

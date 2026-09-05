@@ -141,7 +141,8 @@ follows the signature and precedes the body:
 > **Staging status:** `hgl check` parses and resolves `requires` clauses and
 > rejects decidably false closed struct requirements. Complete callable
 > substitution and operator-conformance checking remains part of typed-HIR
-> completion.
+> completion. Callable requirements currently fail closed during type
+> completion rather than being ignored by a backend.
 
 ```hgl
 fn add_numeric<U>(a: U, b: U) -> U

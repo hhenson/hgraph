@@ -107,14 +107,44 @@ flow, constraints, effective struct fields, and source ranges. Bare generic
 arguments become explicit type or value references. `hgl check --dump-hir`
 prints the deterministic diagnostic representation used by snapshot tests.
 
-This is the first checkpoint of the same HIR, not a complete typed program:
-`Module::completion` is `Resolved`, and unknown expression type, phase, and
-value-kind fields remain explicit. Canonical hgraph types, complete generic
-substitution, exact call selection, constant evaluation, phases, and effects
-advance it to `Typed` in the next pass. The direct-wiring and C++ backends still
-walk `ResolvedModule` beside this arena during migration. That adapter path is
-explicitly temporary; typed HIR followed by hgraph semantic IR becomes the
-only input to both backends.
+`src/ir/canonical_types` owns structural interning and source-to-canonical
+rewriting. `src/ir/type_check` advances that checkpoint from `Resolved` to
+`Typed`. It
+interns context-neutral source types independently of whether an occurrence is
+used as a temporal input or a `const` value, normalizes omitted rolling minima,
+rewrites signatures to canonical IDs, infers exact-function and local-operator
+generic substitutions, types lambdas from their collection context, folds
+scalar constants, and records a semantic identity for every call, intrinsic,
+constructor, field, and index operation. It also assigns wiring/runtime phases,
+summarizes effects on expressions, statements, blocks, and functions, and lists
+the capabilities admitted by each function. A failed pass leaves
+`Module::completion` as `Resolved`; `hgl check` succeeds only after the module
+is `Typed`.
+
+Native candidate selection crosses the narrow `OperatorResolver` port. The
+hgraph adapter constructs schema-only `WiringArg` values and calls
+`OperatorRegistry::resolve`, so argument normalization, `TypePattern`
+matching, `ResolutionMap` substitution, ranking, and `requires` predicates
+remain native contracts. HIR copies only the winning diagnostic label and
+resolved substitutions; it never stores an `OperatorImpl *`, provider lease,
+port, or wiring object. A call whose wiring-time value is not yet known (for
+example a `const` function parameter) and a higher-order call awaiting callable
+erasure retain their complete HGL result type and nominal identity but are
+marked `deferred`. Likewise, a sole source `impl fn` may be named directly,
+while two or more candidates remain deferred for hgraph ranking rather than
+being ranked by a compiler-private matcher. The current slice also checks that
+a sole source candidate is applicable before naming it.
+
+Callable `requires` evaluation and constraint-driven substitution are the
+remaining typed-HIR stage. Until that evaluator exists, a function or operator
+carrying a callable requirement reports a type diagnostic and the module stays
+`Resolved`. This fail-closed boundary prevents the temporary AST backends from
+silently executing a constraint they do not implement. Closed generic-struct
+requirements continue to be decided by the resolver as before.
+
+The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
+during migration. That adapter path is explicitly temporary; hgraph semantic
+IR becomes the only input to both backends in the following stages.
 
 ## Common function representation
 
@@ -431,14 +461,15 @@ preferred core extension is a source-type binding kind integrated
 with `ResolutionMap`; generating unrelated native variables and correlating
 them in a compiler-private table is not an acceptable second resolution model.
 
-The current public hgraph type pattern represents TSW sizes as either concrete
-tick values (`TypePattern::tsw`, which matches no duration window) or one
-wildcard over the complete window shape (`tsw_any`). It has no concrete
-duration form and does not yet bind named maximum and minimum size variables
-of either kind. Generic `rolling<T, max_size, min_size>` lowering, and exact
-matching of a duration window at a candidate boundary, therefore require a
-public TSW size-pattern extension integrated with `ResolutionMap`; the
-compiler must not approximate this with private matching logic.
+The public hgraph type pattern represents concrete tick windows with
+`TypePattern::tsw`, concrete duration windows with
+`TypePattern::tsw_duration`, and a wildcard over the complete window shape
+with `tsw_any`. It does not yet bind named maximum and minimum TSW size
+variables of either kind. Generic `rolling<T, max_size, min_size>` candidate
+selection therefore still requires a public TSW size-pattern extension
+integrated with `ResolutionMap`; the compiler must not approximate this with
+private matching logic. Concrete duration calls can already be resolved by the
+HIR registry adapter.
 
 List sizes need no such extension. hgraph's `TSL` pattern already carries a
 named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic

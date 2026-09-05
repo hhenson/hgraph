@@ -30,7 +30,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hir
 )
 set_tests_properties(hgraph_language_dump_hir PROPERTIES
-    PASS_REGULAR_EXPRESSION "HIR resolved module examples.stateful_node"
+    PASS_REGULAR_EXPRESSION "HIR typed module examples.stateful_node"
 )
 
 # Catch2 for the frontend unit tests: reuse the repository's target when the
@@ -92,6 +92,16 @@ hgl_link_runtime_executable(hgl_wiring_tests)
 hgl_apply_warnings(hgl_wiring_tests)
 
 add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
+
+# The type checker hands native candidate ranking to the hgraph registry while
+# retaining only copied, backend-independent selection data in HIR.
+add_executable(hgl_operator_type_tests wiring/operator_types_tests.cpp)
+target_compile_features(hgl_operator_type_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_operator_type_tests PRIVATE hgl::wiring Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_operator_type_tests)
+hgl_apply_warnings(hgl_operator_type_tests)
+
+add_test(NAME hgraph_language_operator_types COMMAND hgl_operator_type_tests)
 
 # The native module boundary translates registration failures through the
 # common scope/exception helper rather than maintaining a local catch ladder.
