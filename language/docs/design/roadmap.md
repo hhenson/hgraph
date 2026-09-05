@@ -85,6 +85,16 @@ headers remain private to the syntax implementation.
 
 ### C. Typed HIR
 
+Status: in progress. The resolved HIR checkpoint owns the complete program in
+a backend-independent arena, assigns stable identities to declarations,
+parameters, locals, state, injectables, loop values, anonymous parameters,
+types, imported operators, and intrinsics, and retains source type patterns,
+function kinds, control flow, constraints, and source ranges. Every checked-in
+guide example lowers, `hgl check --dump-hir` has a deterministic snapshot, and
+failed name resolution cannot fabricate a symbol. `Module::completion` remains
+`Resolved`: canonical type completion, substitutions, exact call selection,
+phases, and effects are the remaining work in this stage.
+
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source
   ranges;

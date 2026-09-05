@@ -25,6 +25,14 @@ foreach(_example IN LISTS _hgl_examples)
 endforeach()
 unset(_hgl_examples)
 
+add_test(
+    NAME hgraph_language_dump_hir
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hir
+)
+set_tests_properties(hgraph_language_dump_hir PROPERTIES
+    PASS_REGULAR_EXPRESSION "HIR resolved module examples.stateful_node"
+)
+
 # Catch2 for the frontend unit tests: reuse the repository's target when the
 # language is built as part of hgraph, else find or fetch it.
 if(NOT TARGET Catch2::Catch2WithMain)
@@ -64,6 +72,16 @@ target_compile_definitions(hgl_semantics_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE
 hgl_apply_warnings(hgl_semantics_tests)
 
 add_test(NAME hgraph_language_semantics COMMAND hgl_semantics_tests)
+
+# The first HIR boundary: every resolved name becomes a stable symbol and the
+# complete source program is copied into a backend-independent arena.
+add_executable(hgl_ir_tests ir/lower_tests.cpp)
+target_compile_features(hgl_ir_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_ir_tests PRIVATE hgl::ir Catch2::Catch2WithMain)
+target_compile_definitions(hgl_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+hgl_apply_warnings(hgl_ir_tests)
+
+add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").

@@ -182,7 +182,7 @@ Language source cannot declare an adaptor or embed C++.
 The intended command surface is:
 
 ```text
-hgl check path/to/program.hgl
+hgl check path/to/program.hgl [--dump-tokens] [--dump-ast] [--dump-hir]
 hgl test path/to/program.hgl [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
@@ -194,7 +194,7 @@ hgl repl
 
 | Command | Behavior |
 | --- | --- |
-| `check` | Parse, resolve, phase-check, and type-check without compiling |
+| `check` | Parse and resolve without compiling; the current prototype also constructs and can dump its resolved HIR |
 | `test` | Run the module's `test` declarations and report failing assertions |
 | `run` | Bind an entry to a mode, clock, and parameters, then execute it |
 | `emit-cpp` | Write the module as `program.h` and `program.cpp`, public hgraph C++ in the module's namespace |
@@ -209,6 +209,10 @@ The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 supported scalar runtime-node subset through a native cache on Unix; the REPL
 uses the same route when its session contains runtime declarations. `test`
 accepts test names after the file to run a selection.
+`check --dump-hir` is a compiler-development view with stable IDs and source
+ranges. Its leading `HIR resolved` state is intentional: complete type, phase,
+and effect checking is the next compiler stage, so the dump is not yet a
+promise that every expression is typed.
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
@@ -304,18 +308,22 @@ civil literals.
 
 ## One execution model
 
-`test`, `run`, `emit-cpp`, and the REPL share one checked semantic IR and one
-hgraph runtime. A program made only of composition functions is wired onto the
+The target architecture gives `test`, `run`, `emit-cpp`, and the REPL one
+checked semantic IR and one hgraph runtime. The current prototype shares
+parsing, name resolution, and the new resolved-HIR construction, but its direct
+and C++ backends still walk `ResolvedModule` independently while they migrate
+to hgraph IR. A program made only of composition functions is wired onto the
 runtime directly, in process. A file-based `test` or `run` containing supported
 runtime functions goes through generated C++, as does an ahead-of-time package.
-The REPL selects the same two routes from the complete accepted session:
+The REPL selects the same two routes from the accepted session:
 
 ```text
-source -> checked semantic IR -> direct wiring          -> hgraph runtime
-                              -> generated C++ -> native -> hgraph runtime
+source -> resolved AST + resolved HIR -> direct wiring          -> hgraph runtime
+                                  \-> generated C++ -> native -> hgraph runtime
 ```
 
-Both paths build the same graph. The scripted image resolves hgraph symbols
+Parity tests require both paths to build the same graph across their shared
+subset; hgraph IR will make that a structural invariant. The scripted image resolves hgraph symbols
 from the running `hgl` process, so it registers into that process's registry
 rather than linking a second static runtime. The compiler's parity suite holds
 the shared composition subset to the same ticks and executes the runtime
