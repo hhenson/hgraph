@@ -252,6 +252,33 @@ impl fn choose(value: i64) -> i64 => value
     }
 }
 
+TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
+    Unit unit{R"(
+module renamed_ops
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+export fn selected(value: f64) -> f64 => choose(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.operators.size() == 1);
+
+    unit.graph.operators.front().identity = "renamed_ops.pick";
+    for (auto &callable : unit.graph.callables) {
+        if (callable.visibility == hgl::hgraph_ir::CallableVisibility::Implementation) {
+            callable.operator_identity = unit.graph.operators.front().identity;
+        }
+    }
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "using pick = hgraph::Operator<"));
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value)"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::pick, pick_impl_"));
+    CHECK_FALSE(contains(emitted->source, "operators::choose"));
+}
+
 TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]")
 {
     Unit unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};

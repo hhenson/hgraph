@@ -1235,11 +1235,11 @@ namespace hgl::codegen
                     return value;
                 }
                 case BindingKind::LocalOperator: {
-                    const auto &op = std::get<ast::OperatorDecl>(module_.decl(binding.decl).node);
-                    Value       value;
+                    const gir::OperatorContract &op = operator_decl(binding.decl);
+                    Value                        value;
                     value.kind  = Value::Kind::LocalOperator;
                     value.decl  = binding.decl;
-                    value.name  = "operators::" + cpp_name(op.name.text);
+                    value.name  = "operators::" + cpp_name(local_identity(op.identity));
                     value.range = range;
                     return value;
                 }
