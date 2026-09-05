@@ -962,20 +962,37 @@ or materialised (``TypeArg::value()``).
    type is a schema value, not an input edge, so a top-level ``REF`` binds
    verbatim (``nothing[REF[TS[int]]]`` produces the reference it names)
    while a structural pattern keeps the usual REF transparency below the
-   top level. A deferred carrier binds nothing yet;
+   top level. A supplied carrier on a parameter with a deferred default is
+   also matched against that default pattern (``deferred_pattern_match``):
+   ``to=TS[X]`` on ``to: type[TS[SCALAR]] = OUT`` binds ``OUT``, and a
+   default already bound elsewhere fails the candidate (*"does not agree
+   with its default"*). A deferred carrier binds nothing yet;
 3. the ``**kwargs`` pack, as before;
-4. ``default_resolver`` (``resolve_default_types`` / Python ``resolvers=``),
-   which sees every binding a supplied carrier made;
-5. deferred carriers and the output resolve together to a fixed point:
+4. deferred carriers and the output resolve together to a fixed point:
    each pass materialises every deferred carrier whose default pattern
    resolves (``materialise_deferred_carrier``), matches it against the
    carried pattern so variables the default mentions are bound too, writes
-   the ``TypeCarrier`` into the normalised call, and retries the output;
+   the ``TypeCarrier`` into the normalised call, and retries the output.
+   This first run is best effort: what is still unresolved waits for the
+   resolvers;
+5. ``default_resolver`` (``resolve_default_types`` / Python ``resolvers=``),
+   which sees every binding the inputs, the supplied carriers, the requested
+   output and step 4 made;
+6. the fixed point of step 4 again, for the carriers a resolver completed;
    a carrier still unresolved when a pass makes no progress fails the
-   candidate (*"type argument 'tp' could not be resolved"*);
-6. ``requires_predicate`` (``requires_`` / ``requires=``), which sees the
+   candidate (*"type argument 'tp' could not be resolved"*), as does an
+   unresolved output;
+7. ``requires_predicate`` (``requires_`` / ``requires=``), which sees the
    complete map and the materialised carriers (``context.scalar_as<TypeCarrier>("tp")``);
-7. the winner's ``wire`` receives every carrier as a concrete value.
+8. the winner's ``wire`` receives every carrier as a concrete value.
+
+**Direct wiring.** ``wire<Impl, S>(w, ...)`` on an implementation struct
+(the C++ tests' ``wire<stdlib::replay_impl, TS<Int>>(w, key)``) does not
+dispatch: a deferred ``TypeArg`` may be omitted there
+(``call_args_detail::type_arg_deferred_v``) and its variables resolve from
+the ports and the explicit output schema; a supplied one unifies its
+carried pattern (``graph_wiring_detail::unify_type_argument``). A size
+carrier resolves only through the registry.
 
 **Ranking.** A type argument ranks by its carried pattern (``type[TS[int]]``
 beats ``type[TS[T]]``); a size variable costs one point; an omitted carrier
@@ -991,10 +1008,12 @@ the winning candidate -- and is the registered form of the standing ruling
 that which argument is a carrier is a property of the signature, never of
 the operator name (``python_bridge.rst``).
 
-``const`` and ``nothing`` declare ``tp`` at the 0.5 position
-(``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``); ``delay`` is keyword-only
-after it (``arg<"delay">(...)``). The Python-side carrier rules are retired
-in the stages RFC 0033 lists.
+``const``, ``nothing`` and ``replay`` declare ``tp`` at the 0.5 position
+(``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``,
+``replay(key, tp=AUTO_RESOLVE, recordable_id=...)``); ``delay`` is
+keyword-only after it (``arg<"delay">(...)``). The Python-side carrier rules
+are gone: ``python_bridge.rst`` describes what the bridge still does
+(pattern lowering, one subscript rule, re-spelling the materialised value).
 
 Variadic operator parameters
 ----------------------------

@@ -6114,6 +6114,9 @@ are fixed when the graph is built.
 ``key`` : scalar; ``str``
    Wiring-time name within the current recordable context.
 
+``tp`` : type-argument; ``type[OUT]``
+   The output time-series type, a type argument at the 0.5 position (``replay("price", TS[float])`` or ``replay[TS[float]]("price")``); resolved from the requested output when omitted. Optional in overloads that show ``= ...``.
+
 ``recordable_id`` : scalar; ``str``
    Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
@@ -6138,7 +6141,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay(key: str, recordable_id: str = ..., model: str = ...) -> OUT
+   replay(key: str, tp: type[OUT] = ..., recordable_id: str = ..., model: str = ...) -> OUT
 
 .. _python-operator-replay_data_frame:
 

@@ -93,6 +93,42 @@ namespace hgraph
         return matched;
     }
 
+    namespace
+    {
+        /** A supplied carrier is also the value of its deferred default (RFC 0033, "Deferred defaults"). */
+        bool deferred_pattern_match(const ParamPattern &param, const TypeCarrier &carrier, ResolutionMap &map,
+                                    std::string *why)
+        {
+            if (param.kind != ParamPattern::Kind::TypeArg || !param.default_pattern.has_value()) { return true; }
+            const ParamPattern::DeferredCarrier &deferred = *param.default_pattern;
+            bool                                 matched  = false;
+            switch (param.carrier)
+            {
+                case ResolutionKind::TimeSeries:
+                    matched = carrier.ts() != nullptr && output_ts_pattern_match(deferred.ts, carrier.ts(), map);
+                    break;
+                case ResolutionKind::Scalar:
+                    matched = carrier.scalar() != nullptr && scalar_pattern_match(deferred.scalar, carrier.scalar(), map);
+                    break;
+                case ResolutionKind::Size:
+                    matched = carrier.size().has_value() && size_pattern_match(deferred.ts, *carrier.size(), map);
+                    break;
+                default: break;
+            }
+            if (!matched && why != nullptr)
+            {
+                std::ostringstream carried;
+                carried << carrier;
+                ParamPattern as_default = param;
+                as_default.ts           = deferred.ts;
+                as_default.scalar       = deferred.scalar;
+                *why = fmt::format("{} does not agree with its default {}", carried.str(),
+                                   type_arg_pattern_to_string(as_default));
+            }
+            return matched;
+        }
+    }  // namespace
+
     std::optional<TypeCarrier> materialise_deferred_carrier(const ParamPattern &param, const ResolutionMap &map)
     {
         if (param.kind != ParamPattern::Kind::TypeArg || !param.default_pattern.has_value()) { return std::nullopt; }
@@ -588,6 +624,15 @@ namespace hgraph
                         if (why != nullptr) { *why = fmt::format("type argument {}: {}", i, reason); }
                         return false;
                     }
+                    // A supplied carrier is also the value of its deferred
+                    // default (``to: type[TS[SCALAR]] = OUT`` supplied binds
+                    // ``OUT``): the "must agree" rule of the retired Python
+                    // pass, once (RFC 0033, "Deferred defaults").
+                    if (!deferred_pattern_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
+                    {
+                        if (why != nullptr) { *why = fmt::format("type argument {}: {}", i, reason); }
+                        return false;
+                    }
                     continue;
                 }
 
@@ -785,6 +830,55 @@ namespace hgraph
                 }
             }
 
+            // Deferred type arguments and the output resolve together to a
+            // fixed point: a carrier defaulting to the output variable needs
+            // the output resolved first, and a carrier may supply a variable
+            // the output needs (RFC 0033, "Dispatch order"). The pass runs
+            // before the resolvers, so they see every variable the inputs,
+            // the supplied carriers and the requested output determine
+            // (``to: type[TS[SCALAR]] = OUT`` binds ``SCALAR`` from the
+            // requested output), and again after them for the carriers a
+            // resolver completes. Every carrier the winning candidate's
+            // wire receives is then a concrete value.
+            bool               output_resolved = !impl.has_output;
+            std::vector<bool>  materialised(deferred.size(), false);
+            std::size_t        pending = deferred.size();
+            const auto materialise_pass = [&]() -> bool {
+                for (bool progress = true; progress;)
+                {
+                    progress = false;
+                    for (std::size_t d = 0; d < deferred.size(); ++d)
+                    {
+                        if (materialised[d]) { continue; }
+                        const std::size_t   i     = deferred[d];
+                        const ParamPattern &param = impl.params[i];
+                        std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, map);
+                        if (!carrier.has_value()) { continue; }
+                        std::string reason;
+                        if (!type_carrier_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
+                        {
+                            if (why != nullptr)
+                            {
+                                *why = fmt::format("default for type argument '{}': {}", param.name, reason);
+                            }
+                            return false;
+                        }
+                        args[i].scalar_value = Value{*carrier};
+                        args[i].scalar_meta  = args[i].scalar_value.schema();
+                        materialised[d]      = true;
+                        --pending;
+                        progress = true;
+                    }
+                    if (!output_resolved && ts_pattern_resolve(impl.output, map) != nullptr)
+                    {
+                        output_resolved = true;
+                        progress        = true;
+                    }
+                }
+                return true;
+            };
+            if (!materialise_pass()) { return false; }
+
             OperatorCallContext context{args, impl.params, kwargs, global_state,
                                         wiring};
             if (impl.default_resolver)
@@ -801,45 +895,7 @@ namespace hgraph
                 if (!resolved) { return false; }
             }
 
-            // Deferred type arguments and the output resolve together to a
-            // fixed point: a carrier defaulting to the output variable needs
-            // the output resolved first, and a carrier may supply a variable
-            // the output needs (RFC 0033, "Dispatch order"). Every carrier the
-            // winning candidate's wire receives is then a concrete value.
-            bool               output_resolved = !impl.has_output;
-            std::vector<bool>  materialised(deferred.size(), false);
-            std::size_t        pending = deferred.size();
-            for (bool progress = true; progress;)
-            {
-                progress = false;
-                for (std::size_t d = 0; d < deferred.size(); ++d)
-                {
-                    if (materialised[d]) { continue; }
-                    const std::size_t   i     = deferred[d];
-                    const ParamPattern &param = impl.params[i];
-                    std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, map);
-                    if (!carrier.has_value()) { continue; }
-                    std::string reason;
-                    if (!type_carrier_match(param, *carrier, map, why != nullptr ? &reason : nullptr))
-                    {
-                        if (why != nullptr)
-                        {
-                            *why = fmt::format("default for type argument '{}': {}", param.name, reason);
-                        }
-                        return false;
-                    }
-                    args[i].scalar_value = Value{*carrier};
-                    args[i].scalar_meta  = args[i].scalar_value.schema();
-                    materialised[d]      = true;
-                    --pending;
-                    progress = true;
-                }
-                if (!output_resolved && ts_pattern_resolve(impl.output, map) != nullptr)
-                {
-                    output_resolved = true;
-                    progress        = true;
-                }
-            }
+            if (!materialise_pass()) { return false; }
             if (pending != 0)
             {
                 if (why != nullptr)

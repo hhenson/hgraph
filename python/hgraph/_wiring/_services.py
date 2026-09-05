@@ -22,8 +22,9 @@ from ._graph import _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
 from ._node import (_PyNode, _bind_with_defaults, _partial_binding_plan,
                     _warn_deprecated)
-from ._resolution import (_apply_resolvers, _python_value_for_binding,
-                          _resolution_binding)
+from ._resolution import (_apply_resolvers, _bind_resolution, _carried_pattern,
+                          _materialise_type_carrier, _pin_type_arguments,
+                          _signature_type_variables)
 
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
@@ -354,24 +355,11 @@ def _specialization(item, owner, signature, resolvers=None):
 
 
 def _service_type_variables(signature):
-    """Return public Python TypeVars retained by a service signature."""
-    found = {}
-
-    def visit(annotation):
-        if isinstance(annotation, (_TypeVarSentinel, typing.TypeVar)):
-            found.setdefault(_type_var_name(annotation), annotation)
-            return
-        if isinstance(annotation, _GenericTsExpr):
-            for variable in annotation.variables:
-                visit(variable)
-            return
-        for argument in typing.get_args(annotation):
-            visit(argument)
-
-    for parameter in signature.parameters.values():
-        visit(parameter.annotation)
-    visit(signature.return_annotation)
-    return tuple(found.values())
+    """The public type variables of a service signature, in order of first
+    appearance (the one collector, RFC 0033)."""
+    annotations = [parameter.annotation for parameter in signature.parameters.values()]
+    annotations.append(signature.return_annotation)
+    return _signature_type_variables(annotations)
 
 
 def _copy_service_resolution(resolution):
@@ -390,6 +378,21 @@ def _copy_service_resolution(resolution):
             raise TypeError(
                 f"unsupported service resolution binding {name}={value!r}")
     return copied
+
+
+def _pinned_entries(stub, item, owner):
+    """The one subscript rule (RFC 0033) for service and adaptor stubs: bare
+    items bind the stub's still-unresolved variables (DEFAULT first, then in
+    first-appearance order); named entries pass through as ``TYPEVAR: type``
+    slices for ``_specialization``."""
+    resolution = getattr(stub, "_resolution", None)
+    unresolved = tuple(
+        variable for variable in getattr(stub, "_type_variables", ())
+        if resolution is None or not resolution.is_resolved(_type_var_name(variable)))
+    pins = _pin_type_arguments(
+        unresolved, item, default_var=getattr(stub, "_default_type_var", None), owner=owner)
+    by_name = {_type_var_name(variable): variable for variable in unresolved}
+    return tuple(slice(by_name.get(name, name), value) for name, value in pins.items())
 
 
 def _service_needs_resolution(stub):
@@ -460,18 +463,15 @@ def _apply_service_defaults(signature, resolution):
         default = parameter.default
         if default in (inspect.Parameter.empty, AUTO_RESOLVE):
             continue
-        if isinstance(default, _GenericTsExpr):
-            resolved = resolution.resolve_ts(_pattern_of(default))
+        if isinstance(default, (_GenericTsExpr, _TypeVarSentinel, typing.TypeVar)):
+            # A deferred default (``tp: type[X] = TS[K]`` / ``= OTHER``):
+            # the registry's materialisation of the default's pattern.
+            try:
+                resolved = resolution.materialise(_carried_pattern(default))
+            except (RuntimeError, ValueError, TypeError):
+                resolved = None
             if resolved is not None:
-                resolution.bind_ts(name, resolved)
-        elif isinstance(default, (_TypeVarSentinel, typing.TypeVar)):
-            default_name = _type_var_name(default)
-            if (resolved := resolution.find_scalar(default_name)) is not None:
-                resolution.bind_scalar(name, resolved)
-            elif (resolved := resolution.find_ts(default_name)) is not None:
-                resolution.bind_ts(name, resolved)
-            elif (resolved := resolution.find_size(default_name)) is not None:
-                resolution.bind_size(name, resolved)
+                _bind_resolution(resolution, name, resolved)
         else:
             _PyNode._bind_resolved(resolution, name, default)
     return resolution
@@ -724,19 +724,7 @@ class _ServiceStub:
         if not _service_needs_resolution(self) and not self._specialization:
             raise TypeError(f"service '{self.__name__}' is not generic")
 
-        items = item if isinstance(item, tuple) else (item,)
-        if not all(isinstance(binding, slice) for binding in items):
-            variables = [
-                variable for variable in self._type_variables
-                if self._resolution is None
-                or _type_var_name(variable) not in self._resolution.bindings
-            ]
-            if len(variables) != 1 or len(items) != 1:
-                raise TypeError(
-                    f"service '{self.__name__}' cannot infer which type variable "
-                    f"to bind; use TYPEVAR: concrete")
-            item = slice(variables[0], items[0])
-
+        item = _pinned_entries(self, item, f"service '{self.__name__}'")
         resolution, specialization, variables = _specialization(
             item, f"service '{self.__name__}'", self._signature,
             self._resolvers)
@@ -1085,6 +1073,7 @@ class _AdaptorStub(_AdaptorClientStub):
     def __getitem__(self, item):
         if not _service_needs_resolution(self) and not self._specialization:
             raise TypeError(f"adaptor '{self.__name__}' is not generic")
+        item = _pinned_entries(self, item, f"adaptor '{self.__name__}'")
         resolution, specialization, variables = _specialization(
             item, f"adaptor '{self.__name__}'", self._signature,
             self._resolvers)
@@ -1927,13 +1916,11 @@ def _bind_registered_impl(implementation, path, config):
         import typing
 
         args = typing.get_args(param.annotation)
-        sentinel = args[0] if args else None
-        if not isinstance(sentinel, _TypeVarSentinel):
+        if typing.get_origin(param.annotation) is not type or not args:
             continue
-        binding = _resolution_binding(resolution, sentinel)
-        if binding is not None:
-            resolved_config[param.name] = _python_value_for_binding(
-                sentinel, binding)
+        resolved = _materialise_type_carrier(resolution, args[0])
+        if resolved is not None:
+            resolved_config[param.name] = resolved
 
     cache_key = None
     if not registration_contexts:

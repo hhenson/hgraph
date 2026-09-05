@@ -282,19 +282,19 @@ class TestGraphCarriers:
         assert eval_node(size_of, [(1, 2)], resolution_dict={"tsl": TSL[TS[int], Size[2]]}) == [2]
         assert not isinstance(observed[0], int) and observed[0].SIZE == 2
 
-    def test_size_carrier_by_subscript_materialises_as_a_plain_int(self):
-        # blueprint risk 3: a Size pinned by subscript reaches the body as the
-        # int 3, whereas the auto-resolved form (previous test) is a Size
-        # object with a SIZE attribute.
+    def test_size_carrier_by_subscript_materialises_like_auto_resolve(self):
+        # RFC 0033 (compatibility table): a Size pinned by subscript reaches
+        # the body as the Size object with a SIZE attribute, exactly like the
+        # auto-resolved form (previous test) and the 0.5 reference.
         observed = []
 
         @graph
         def size_of(tsl: TSL[TS[int], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
             observed.append(_sz)
-            return const(_sz if isinstance(_sz, int) else _sz.SIZE)
+            return const(_sz.SIZE)
 
         assert eval_node(size_of[Size[3]], [(1, 2, 3)]) == [3]
-        assert observed == [3]
+        assert not isinstance(observed[0], int) and observed[0].SIZE == 3
 
     def test_bare_class_default_is_used_as_the_carrier_value(self):
         @graph
@@ -449,12 +449,9 @@ class TestServiceCarriers:
 
 
 class TestAdaptorCarriers:
-    """Generic adaptors and service adaptors specialise by subscript too, and
-    the two stubs have their own rules: ``_AdaptorStub`` takes only
-    ``TYPEVAR: concrete`` entries while ``_ServiceAdaptorStub`` (like a
-    reference service) also binds a bare item to its sole variable. That is
-    blueprint risk 1's per-kind inconsistency on the adaptor side; the pins
-    flip together when one subscript rule lands.
+    """Generic adaptors and service adaptors specialise by subscript through
+    the one subscript rule (RFC 0033): ``TYPEVAR: concrete`` entries pin, a
+    bare item binds the sole unresolved variable on every stub.
     """
 
     @staticmethod
@@ -487,13 +484,24 @@ class TestAdaptorCarriers:
 
         assert eval_node(app, [2, None, 4]) == [3, None, 5]
 
-    def test_adaptor_bare_subscript_is_rejected_even_for_a_sole_variable(self):
-        # blueprint risk 1 (per-kind inconsistency): the adaptor stub refuses
-        # a bare item outright; a reference service and a service adaptor
-        # bind it to the sole unresolved variable.
-        _, sweep_adaptor, _ = self._adaptors()
-        with pytest.raises(TypeError, match="requires TYPEVAR: concrete"):
-            sweep_adaptor[int]
+    def test_adaptor_bare_subscript_binds_the_sole_variable(self):
+        # RFC 0033 (compatibility table): the adaptor stub binds a bare item
+        # to its sole unresolved variable, as a reference service and a
+        # service adaptor do.
+        payload, sweep_adaptor, _ = self._adaptors()
+        int_adaptor = sweep_adaptor[int]
+
+        @hg.adaptor_impl(interfaces=(int_adaptor,))
+        def impl(path: str):
+            value = hg.from_graph(int_adaptor, path=path)
+            hg.to_graph(int_adaptor, value + 1, path=path)
+
+        @graph
+        def app(value: TS[int]) -> TS[int]:
+            hg.register_adaptor("sweep_bare", impl)
+            return sweep_adaptor(value, path="sweep_bare")
+
+        assert eval_node(app, [2, None, 4]) == [3, None, 5]
 
     def test_adaptor_constraint_violation_is_rejected(self):
         payload, sweep_adaptor, _ = self._adaptors()
@@ -516,8 +524,6 @@ class TestAdaptorCarriers:
         assert eval_node(app, [2, None, 4]) == [2, None, 4]
 
     def test_service_adaptor_bare_subscript_binds_the_sole_variable(self):
-        # blueprint risk 1: the service-adaptor stub accepts exactly what the
-        # adaptor stub above refuses.
         _, _, sweep_service_adaptor = self._adaptors()
         assert sweep_service_adaptor[int] is not None
 
@@ -646,11 +652,10 @@ class TestNegatives:
         with pytest.raises(WiringError):
             one_var[int, str]
 
-    def test_graph_ts_type_argument_binds_variables_without_validating_the_rest(self):
-        # Finding (blueprint PR B target): the graph path matches a
-        # type[TSD[K, TS[int]]] argument only to bind K; the concrete TS[int]
-        # element is not checked, so TSD[str, TS[str]] is accepted. The C++
-        # matcher rejects the outer mismatch; the pin flips in PR C.
+    def test_graph_ts_type_argument_is_matched_against_the_whole_pattern(self):
+        # RFC 0033 (compatibility table): a supplied type argument matches the
+        # whole carried pattern through the one matcher, so the TS[str]
+        # element is rejected against TS[int]; the well-typed call binds K.
         @graph
         def key_name(
             tsd_type: type[TSD[K, TS[int]]],
@@ -662,7 +667,14 @@ class TestNegatives:
         def app() -> TS[str]:
             return key_name(TSD[str, TS[str]])
 
-        assert eval_node(app) == ["str"]
+        with pytest.raises(WiringError, match="does not match"):
+            eval_node(app)
+
+        @graph
+        def well_typed() -> TS[str]:
+            return key_name(TSD[str, TS[int]])
+
+        assert eval_node(well_typed) == ["str"]
 
 
 # --------------------------------------------------------------------------
@@ -875,14 +887,16 @@ class TestBareSubscriptOrder:
         assert eval_node(scale[int], [3]) == [6]
         assert eval_node(scale[SCALAR: str], ["a"]) == ["aa"]
 
-    def test_operator_bare_item_with_two_variables_and_no_default_is_accepted(self):
-        # blueprint risk 1 (per-kind inconsistency): a node refuses this with
-        # "K, V ... DEFAULT" at subscript time, an operator accepts it and
-        # defers the meaning of the bare item to the registry's output rule.
+    def test_operator_bare_item_with_two_variables_and_no_default_is_ambiguous(self):
+        # RFC 0033 (compatibility table): the one subscript rule refuses a
+        # bare item on an operator with two free variables and no DEFAULT,
+        # exactly as a node does; a named entry still pins.
         @operator
         def two(lhs: TS[K], rhs: TS[V]) -> TS[bool]: ...
 
-        assert two[str] is not None
+        with pytest.raises(WiringError, match="DEFAULT"):
+            two[str]
+        assert two[K: str] is not None
 
 
 # --------------------------------------------------------------------------

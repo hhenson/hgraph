@@ -343,13 +343,18 @@ A carrier the call omitted takes, in this order:
    *before* matching, like any other default, and therefore **binds** the
    variables of the carried pattern (``SCALAR`` becomes ``SweepRow`` above).
 2. ``default_pattern`` when present -- a deferred carrier. Nothing binds at
-   match time. After the resolvers ran, the dispatcher resolves the default
-   pattern in the map (``AUTO_RESOLVE`` lowers to the carried pattern itself;
-   ``= OUT`` to the variable ``OUT``; ``= TS[K]`` to that pattern), builds
-   the ``TypeCarrier``, and then matches it against the carried pattern with
+   match time. The dispatcher resolves the default pattern in the map
+   (``AUTO_RESOLVE`` lowers to the carried pattern itself; ``= OUT`` to the
+   variable ``OUT``; ``= TS[K]`` to that pattern), builds the
+   ``TypeCarrier``, and then matches it against the carried pattern with
    ``type_carrier_match`` so that variables the default mentions but the
    inputs did not bind (``SCALAR`` in ``to: type[TS[SCALAR]] = OUT``) are
-   bound from it.
+   bound from it. A carrier the call *supplied* on such a parameter is
+   also matched against the default pattern (``deferred_pattern_match``):
+   ``to=TS[X]`` on ``to: type[TS[SCALAR]] = OUT`` binds ``OUT`` to
+   ``TS[X]``, and a default already bound to something else fails the
+   candidate with *"does not agree with its default"* -- the "must agree"
+   rule of the retired Python pass, once.
 3. Neither -- the candidate fails with *"missing required argument 'to'"*.
 
 Deferred carriers are materialised to a fixed point interleaved with output
@@ -374,21 +379,28 @@ For every candidate of ``OperatorRegistry::resolve``:
    ``TypeArg`` with a ``default_pattern`` is recorded as deferred; an omitted
    ``TypeArg`` with neither default fails the candidate.
 3. The ``**kwargs`` pack pattern, as today.
-4. ``default_resolver`` (the user's ``resolvers=``). It sees every binding
-   from step 2, including the ones supplied carriers made.
-5. Output resolution and deferred-carrier materialisation, iterated together
-   until neither makes progress.
-6. ``requires_predicate`` (the user's ``requires=``). It sees the complete
+4. Output resolution and deferred-carrier materialisation, iterated together
+   until neither makes progress (best effort: what is still unresolved
+   waits for the resolvers). A resolver therefore sees every variable the
+   inputs, the supplied carriers and the requested output determine --
+   ``SCALAR`` in ``to: type[TS[SCALAR]] = OUT`` under a requested output.
+5. ``default_resolver`` (the user's ``resolvers=``).
+6. Step 4 again, for the carriers a resolver completed; a deferred carrier
+   or the output still unresolved fails the candidate.
+7. ``requires_predicate`` (the user's ``requires=``). It sees the complete
    map, and at the bridge the materialised carrier values.
-7. The winning candidate's ``wire`` receives the normalised call
+8. The winning candidate's ``wire`` receives the normalised call
    (``ResolvedOperatorCall``) with every carrier present as a ``TypeCarrier``
    scalar, supplied or materialised.
 
-Steps 4 and 6 are where today's behaviour is pinned by the sweep's group C
+Steps 4 to 7 are where today's behaviour is pinned by the sweep's group C
 (``test_resolvers_run_after_the_carrier_is_bound``,
 ``test_requires_sees_the_materialised_carrier_value``,
 ``test_requires_after_resolver_sees_the_resolved_carrier``); the order above
-preserves each of them and makes the Python second pass unnecessary.
+preserves each of them and makes the Python second pass unnecessary. The
+fixed point runs on both sides of the resolvers for the same reason the
+Python pass ran twice: a resolver may need a variable a deferred carrier
+supplies, and may supply one a deferred carrier needs.
 
 Carriers never enter a node's scalar layout from the C++ side: a C++
 implementation receives its types as template parameters, so a ``TypeArg``
@@ -589,11 +601,16 @@ Python contract
 One subscript rule
 ~~~~~~~~~~~~~~~~~~
 
-``_pin_type_arguments(signature, items, *, default_var, kind)`` in
-``_resolution.py`` returns ``{variable_name: pinned_value}``:
+``_pin_type_arguments(variables, items, *, default_var, owner)`` in
+``_resolution.py`` returns ``{variable_name: pinned_value}`` (``default_var``
+is a name: the ``DEFAULT[...]`` variable may appear only in a default value,
+``_output_type: type[TSD[K, V]] = DEFAULT[OUT]``, and is still the first
+bare-item target):
 
-1. slice items (``fn[VAR: X]``) pin the named variable; the name must be a
-   variable of the signature;
+1. slice items (``fn[VAR: X]``) pin the named variable; a name the
+   signature does not declare seeds the scope and binds nothing the
+   signature uses (the 0.5 reference accepts
+   ``extract_tsd[TIME_SERIES_TYPE: TS[int]]`` on a non-generic node);
 2. bare items fill the ``DEFAULT[...]`` variable first, then the remaining
    variables in order of first appearance in the signature; a single bare
    item with no ``DEFAULT`` and more than one remaining variable, or more
@@ -713,6 +730,11 @@ other cell of the sweep stays green through every PR.
        time-series inputs
      - not fillable (graph fills carriers only)
      - fillable, as on a node (PR D)
+   * - ``replay(key, <positional str>)``
+     - reaches ``recordable_id`` (``tp`` was not declared)
+     - lands on ``tp`` and is rejected; ``recordable_id`` is a keyword after
+       ``tp`` as in the 0.5 signature (PR D; the persistence override test
+       passes it by keyword)
    * - ``const(value, <positional non-type>)``
      - reaches ``delay``
      - rejected; ``delay`` is keyword-only after ``tp`` as in the 0.5
@@ -933,22 +955,52 @@ Implementation status
 ---------------------
 
 Proposed. PR A (#662) merged 2026-09-05 with the sweep and the
-``wiring-type-carrier-sites`` ratchet. PR B (core matcher, C++ declaration,
-bridge rename and ``match_carrier``) and PR C (the reverse-binding registry
-with its own reset method, ``ResolutionScope.materialise``, the shadow
-dictionaries deleted and ``types-shadow-schema-dicts`` at zero) are in
-review, stacked; they record these deviations from the text above:
+``wiring-type-carrier-sites`` ratchet. PR B (#671, core matcher, C++
+declaration, bridge rename and ``match_carrier``) and PR C (#672, the
+reverse-binding registry with its own reset method,
+``ResolutionScope.materialise``, the shadow dictionaries deleted and
+``types-shadow-schema-dicts`` at zero) merged 2026-09-05. PR D (the Python
+cutover: ``type_arg_pattern`` registration, ``_pin_type_arguments`` and the
+one collector, the deletion list, ``replay`` declaring ``tp``, the name
+table gone, the compatibility cells flipped, ``wiring-type-carrier-sites``
+at zero) is in review. Two refinements to the contract came out of the
+sweep during PR D and are folded into the text above: a supplied carrier
+also matches its deferred default pattern (``deferred_pattern_match``), and
+the deferred fixed point runs before the resolvers as well as after them.
+The operator-name branches (``apply``, ``const``, ``with_columns``,
+``getattr_``; ``wiring-operator-name-branches`` 8 to 4) move to a follow-up
+PR so that PR D stays a review of one thing; the RFC moves to ``Accepted``
+with it. The PRs record these deviations from the text above:
 
 * ``TypeCarrier`` and ``ResolutionKind`` live in
   ``include/hgraph/types/type_carrier.h`` (dependency-free) rather than in
   ``type_resolution.h``, so the descriptor vocabulary in ``static_schema.h``
   can name the carrier without a header cycle; ``type_resolution.h``
   includes it.
-* A size carrier reaches Python as a plain ``int`` until PR D changes the
-  materialisation to a ``Size[n]`` object together with the subscript rule.
-* ``replay`` does not yet declare ``tp``: its C++ implementation takes
-  ``(key, recordable_id, model, ...)`` scalars and the Python name table
-  still intercepts the positional type; it moves with the table in PR D.
+* A size carrier crosses the bridge as a plain ``int``; ``_carrier_to_python``
+  re-spells it as the ``Size``-like object (``.SIZE``) for a Python body, so
+  the subscript and ``AUTO_RESOLVE`` forms agree (PR D).
+* ``replay`` declares ``tp`` at position 1 in the marker and in both
+  implementations (in-memory and the persistence frame backend); the C++
+  harness wrapper passes the placeholder. On the direct ``wire<T>`` path a
+  deferred ``TypeArg`` may be omitted (``type_arg_deferred_v``) and a
+  supplied one unifies its carried pattern -- the C++ tests wire
+  ``replay_impl`` directly with an explicit output schema (PR D).
+* ``const``'s target-directed value conversion in ``PyWiring::wire`` takes
+  the family's positional type argument as its target when no output was
+  requested (``carrier_parameters("const")``), replacing the name table's
+  promotion of the positional type into ``output_type`` (PR D).
+* Role-directed arrival is done on the Python side of the bridge
+  (``_core.wire`` → ``_apply_type_argument_roles``): the family's
+  ``carrier_parameters`` name the slots, ``_carrier_value`` turns a class /
+  schema / size into the schema it names and ``_hgraph.type_carrier`` mints
+  the ``TypeCarrier`` scalar; ``AUTO_RESOLVE`` and a type variable at such a
+  slot arrive as ``None`` (deferred). The C++ arrival keeps minting for a
+  ``TS[...]`` expression only (PR D).
+* ``_pin_type_arguments`` takes the ``DEFAULT`` variable by name, because
+  the marked variable may appear only in a default value
+  (``= DEFAULT[OUT]`` on a ``type[TSD[K, V]]`` parameter) and is still the
+  first bare-item target (PR D).
 * ``python_type_for_value`` rebuilds a canonical spelling for a structural
   schema no annotation produced (review finding on PR C: a
   ``tuple[K, ...]`` resolved from a bound ``K`` has no registration), so

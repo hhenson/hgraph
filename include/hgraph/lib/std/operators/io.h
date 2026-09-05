@@ -198,6 +198,9 @@ namespace hgraph::stdlib
     /** Replay stored ticks for a key as an explicitly selected output type.
         Replay timing and availability follow the active record/replay mode and backend.
         @param key Wiring-time name within the current recordable context.
+        @param tp The output time-series type, a type argument at the 0.5 position
+        (``replay("price", TS[float])`` or ``replay[TS[float]]("price")``); resolved
+        from the requested output when omitted.
         @param recordable_id Optional explicit identity; context supplies it when omitted.
         @param partition_names Stored names used for flattened TSD key columns.
         @param removed_names Stored names used for TSD removal-flag columns.
@@ -214,7 +217,7 @@ namespace hgraph::stdlib
         positions = hg.replay[TSD[str, TS[float]]](
             key="positions", partition_names=("symbol",))
         @endcode */
-    struct replay : Operator<"replay", Scalar<"key", Str>, Out<TsVar<"O">>>
+    struct replay : Operator<"replay", Scalar<"key", Str>, TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">>>
     {
     };
 

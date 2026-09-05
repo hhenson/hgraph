@@ -578,8 +578,10 @@ namespace hgraph::persistence
             return record_replay::effective_backend_is(context, FRAME_BACKEND);
         }
 
+        // ``tp`` at the 0.5 position (RFC 0033): ``replay(key, tp=AUTO_RESOLVE, ...)``.
         static void start(
-            Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+            Scalar<"key", Str> key, TypeArg<"tp", TsVar<"O">, AutoResolve>,
+            Scalar<"recordable_id", Str> recordable_id,
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,
@@ -649,7 +651,8 @@ namespace hgraph::persistence
         }
 
         static void eval(
-            Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+            Scalar<"key", Str> key, TypeArg<"tp", TsVar<"O">, AutoResolve>,
+            Scalar<"recordable_id", Str> recordable_id,
             Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
             Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
             Scalar<"date_key", Str> date_key, Scalar<"as_of_key", Str> as_of_key,

@@ -229,22 +229,38 @@ namespace hgraph::python_bridge
             // value schema (const((1,2,3), tp=TS[tuple[int,...]]) builds
             // the variadic tuple, not a generic mutable list). Perform this
             // before generic argument conversion: an empty tuple/map has no
-            // inferable element schema without the target.
+            // inferable element schema without the target. The target is the
+            // requested output or, absent one, the family's type argument
+            // supplied positionally (const(1, TS[float]), RFC 0033): the
+            // carried type is the output the dispatcher will bind.
             std::optional<Value> target_const;
-            if (name == "const" && output_type.has_value() && output_type->meta != nullptr &&
-                output_type->meta->value_schema != nullptr && nb::len(args) >= 1)
+            std::optional<PyTsType> target = output_type;
+            if (name == "const" && !target.has_value())
+            {
+                const auto carriers = OperatorRegistry::instance().carrier_parameters(name);
+                for (const std::size_t position : carriers.positions)
+                {
+                    if (position < nb::len(args) && nb::isinstance<PyTsType>(args[position]))
+                    {
+                        target = nb::cast<PyTsType &>(args[position]);
+                        break;
+                    }
+                }
+            }
+            if (name == "const" && target.has_value() && target->meta != nullptr &&
+                target->meta->value_schema != nullptr && nb::len(args) >= 1)
             {
                 // Whole value first, then the DELTA form (a partial value -
                 // dict over a TSL/TSD, set delta, ...) at the canonical delta
                 // schema; if both fail, generic conversion below reports the
                 // ordinary mismatch.
                 target_const = fallback_on_exception(std::optional<Value>{}, [&] {
-                    return std::optional<Value>{py_to_value_as(args[0], output_type->meta->value_schema)};
+                    return std::optional<Value>{py_to_value_as(args[0], target->meta->value_schema)};
                 });
                 if (!target_const.has_value())
                 {
                     target_const = fallback_on_exception(std::optional<Value>{}, [&] {
-                        return std::optional<Value>{py_to_delta(args[0], output_type->meta)};
+                        return std::optional<Value>{py_to_delta(args[0], target->meta)};
                     });
                 }
                 if (!target_const.has_value())

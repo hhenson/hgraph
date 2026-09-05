@@ -60,6 +60,26 @@ namespace hgraph::python_bridge
             return param;
         }
 
+        /** A Python ``type[X]`` where ``X`` is a bare variable lowers to a scalar
+            variable pattern, but the variable may be bound as a time series or a
+            size by the signature's other patterns (``type[OUT]``, ``type[SIZE]``):
+            follow the map's binding kind, exactly as the resolution reads did. */
+        void follow_bound_form(ParamPattern &param, const ResolutionMap &map)
+        {
+            if (param.carrier != ResolutionKind::Scalar || param.scalar.kind != ScalarPattern::Kind::Var) { return; }
+            if (map.find_scalar(param.scalar.name) != nullptr) { return; }
+            if (map.find_ts(param.scalar.name) != nullptr)
+            {
+                param.carrier = ResolutionKind::TimeSeries;
+                param.ts      = TypePattern::var(param.scalar.name);
+            }
+            else if (map.find_size(param.scalar.name).has_value())
+            {
+                param.carrier = ResolutionKind::Size;
+                param.ts      = TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), param.scalar.name);
+            }
+        }
+
         /** A type argument crosses back as the type it carries: a ``TsType``,
             the Python annotation of a scalar schema, or a plain size. */
         nb::object operator_scalar_to_py(const ValueView &value)
@@ -1272,6 +1292,38 @@ namespace hgraph::python_bridge
           },
           nb::arg("schema_variable"), nb::arg("qualified_origin"), nb::arg("arguments"));
 
+    nb::class_<PyTypeArgPattern>(m, "TypeArgPattern")
+        .def("__repr__", [](const PyTypeArgPattern &self) {
+            return "type[" + type_arg_pattern_to_string(self.param) + "]" +
+                   (self.param.default_pattern.has_value() ? std::string{"=..."} : std::string{});
+        });
+    m.def(
+        "type_arg_pattern",
+        [](nb::object carried, nb::object default_pattern) {
+            // A Python overload's ``type[...]`` parameter (RFC 0033): the
+            // carried pattern (TypePattern / ScalarPattern / SizePattern) and,
+            // when the default is a pattern (AUTO_RESOLVE, DEFAULT[X], = X,
+            // = TS[K]), the deferred default the dispatcher materialises after
+            // the resolvers. A bare-variable default of another form (an
+            // OUT default on a scalar-lowered carrier) is reconciled at
+            // materialisation from the map's binding kind.
+            PyTypeArgPattern result;
+            result.param = carried_param_from_python(carried, "type_arg_pattern");
+            if (!default_pattern.is_none())
+            {
+                ParamPattern deferred = carried_param_from_python(default_pattern, "type_arg_pattern default");
+                result.param.default_pattern = ParamPattern::DeferredCarrier{deferred.ts, deferred.scalar};
+                if (deferred.carrier != result.param.carrier)
+                {
+                    // Keep the carried form; the deferred form follows the map at
+                    // materialisation (a bare variable named as OUT/SIZE).
+                    result.param.default_pattern->ts     = deferred.ts;
+                    result.param.default_pattern->scalar = deferred.scalar;
+                }
+            }
+            return result;
+        },
+        nb::arg("carried"), nb::arg("default_pattern") = nb::none());
     m.def("size_pattern_var", [](const std::string &name) {
         return PySizePattern{true, name, 0};
     });
@@ -1315,7 +1367,18 @@ namespace hgraph::python_bridge
                      // against its carried pattern, binding into this scope.
                      ParamPattern param = carried_param_from_python(pattern, "match_carrier");
                      TypeCarrier  carrier;
-                     if (nb::isinstance<PyTsType>(value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
+                     const bool   bare_variable =
+                         param.carrier == ResolutionKind::Scalar && param.scalar.kind == ScalarPattern::Kind::Var;
+                     if (nb::isinstance<PyTsType>(value))
+                     {
+                         carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta);
+                         if (bare_variable)
+                         {
+                             // ``type[OUT]`` given a time series: the bare variable takes that form.
+                             param.carrier = ResolutionKind::TimeSeries;
+                             param.ts      = TypePattern::var(param.scalar.name);
+                         }
+                     }
                      else if (nb::isinstance<PyValueType>(value))
                      {
                          carrier = TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta);
@@ -1323,6 +1386,12 @@ namespace hgraph::python_bridge
                      else if (nb::isinstance<nb::int_>(value))
                      {
                          carrier = TypeCarrier::of_size(nb::cast<std::size_t>(value));
+                         if (bare_variable)
+                         {
+                             // ``type[SIZE]`` given a size: the bare variable is a size variable.
+                             param.carrier = ResolutionKind::Size;
+                             param.ts = TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), param.scalar.name);
+                         }
                      }
                      else
                      {
@@ -1337,6 +1406,7 @@ namespace hgraph::python_bridge
                      // scope and handed back as the type it carries (RFC
                      // 0033); None while a variable it needs is unbound.
                      ParamPattern param = carried_param_from_python(pattern, "materialise");
+                     follow_bound_form(param, self.map);
                      param.default_pattern = ParamPattern::DeferredCarrier{param.ts, param.scalar};
                      const std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, self.map);
                      if (!carrier.has_value()) { return nb::none(); }
@@ -1666,6 +1736,35 @@ namespace hgraph::python_bridge
             {
                 auto         entry = nb::cast<nb::tuple>(item);
                 ParamPattern pp;
+                if (nb::isinstance<PyTypeArgPattern>(entry[1]))
+                {
+                    // A type argument (RFC 0033): the parameter is the
+                    // carried pattern; a concrete default is a carrier.
+                    pp      = nb::cast<PyTypeArgPattern &>(entry[1]).param;
+                    pp.name = nb::cast<std::string>(entry[0]);
+                    if (nb::len(entry) > 2 && !entry[2].is_none())
+                    {
+                        nb::handle  default_value = entry[2];
+                        TypeCarrier carrier;
+                        if (nb::isinstance<PyTsType>(default_value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(default_value).meta); }
+                        else if (nb::isinstance<PyValueType>(default_value))
+                        {
+                            carrier = TypeCarrier::of_scalar(nb::cast<PyValueType &>(default_value).meta);
+                        }
+                        else if (nb::isinstance<nb::int_>(default_value))
+                        {
+                            carrier = TypeCarrier::of_size(nb::cast<std::size_t>(default_value));
+                        }
+                        else
+                        {
+                            throw nb::type_error("a type argument's concrete default must be a TsType, ValueType or size");
+                        }
+                        static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+                        pp.default_value = Value{carrier};
+                    }
+                    impl.params.push_back(std::move(pp));
+                    continue;
+                }
                 pp.name = nb::cast<std::string>(entry[0]);
                 if (nb::isinstance<PyTypePattern>(entry[1]))
                 {
@@ -1701,10 +1800,15 @@ namespace hgraph::python_bridge
                 {
                     if (i != 0) { out += ", "; }
                     if (impl.variadic && i + 1 == impl.params.size()) { out += "*"; }
-                    out += impl.params[i].kind == ParamPattern::Kind::Input
-                               ? ts_pattern_to_string(impl.params[i].ts)
-                               : scalar_pattern_to_string(impl.params[i].scalar);
-                    if (impl.params[i].default_value.has_value()) { out += "=…"; }
+                    switch (impl.params[i].kind)
+                    {
+                        case ParamPattern::Kind::Input: out += ts_pattern_to_string(impl.params[i].ts); break;
+                        case ParamPattern::Kind::TypeArg:
+                            out += "type[" + type_arg_pattern_to_string(impl.params[i]) + "]";
+                            break;
+                        default: out += scalar_pattern_to_string(impl.params[i].scalar); break;
+                    }
+                    if (impl.params[i].has_default()) { out += "=…"; }
                 }
                 if (impl.has_kwargs)
                 {
