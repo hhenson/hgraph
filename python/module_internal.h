@@ -158,6 +158,10 @@ namespace hgraph::python_bridge
     enum_from_python_registry();
 
     [[nodiscard]] Value                   py_to_value_as(nb::handle object, const ValueTypeMetaData *meta);
+    /** The DSL's schema for a Python annotation or class through the
+        registered resolver (``bridge_state.h``), ``nullptr`` when there is no
+        resolver or the DSL has no schema for it. */
+    [[nodiscard]] const ValueTypeMetaData *python_annotation_schema(nb::handle annotation);
     [[nodiscard]] Value                   py_to_delta(nb::handle object, const TSValueTypeMetaData *ts);
     void                                  install_value_conversion_hooks(nb::module_ &module);
 }  // namespace hgraph::python_bridge

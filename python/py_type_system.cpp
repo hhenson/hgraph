@@ -987,6 +987,12 @@ namespace hgraph::python_bridge
             python_bridge::native_scalar_type_for_python(python_type);
         return meta != nullptr ? nb::cast(PyValueType{meta}) : nb::none();
     });
+    m.def(
+        "set_python_annotation_schema_resolver",
+        [](nb::object resolver) { python_bridge::python_annotation_schema_resolver_slot() = std::move(resolver); },
+        nb::arg("resolver"),
+        "Register the DSL's annotation-to-schema producer (RFC 0033): schema-free conversion asks it "
+        "for an unregistered class, a Python value callable for its declared result type.");
     m.def("python_type_for_value", [](PyValueType value) -> nb::object {
         return python_type_for_value_meta(value.meta);
     });

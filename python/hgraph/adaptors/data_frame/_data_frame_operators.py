@@ -10,6 +10,7 @@ from hgraph._frame import as_arrow_table
 
 from hgraph import (
     AUTO_RESOLVE,
+    DEFAULT,
     SCALAR,
     TS_SCHEMA,
     TSB,
@@ -256,8 +257,12 @@ def concat_frames(ts1, ts2):
     return concat(ts1, ts2)
 
 
-def _with_columns_signature(ts, **columns):
-    pass
+def _with_columns_signature(
+    ts: TS[Frame[ROW]], _tp_out: type[ROW_1] = DEFAULT[ROW_1], **columns: TSB[TS_SCHEMA],
+):
+    """The public ``with_columns`` shape: ``with_columns[Row](ts, **columns)``
+    names the projected row schema through the DEFAULT variable (RFC 0033),
+    ``with_columns(ts, **columns)`` keeps the input's."""
 
 
 with_columns = operator_function("with_columns", signature=_with_columns_signature)

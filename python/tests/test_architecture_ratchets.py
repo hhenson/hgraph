@@ -94,7 +94,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(
         id="wiring-operator-name-branches",
-        baseline=8,
+        baseline=4,
         roots=("python/hgraph/_wiring",),
         suffixes=(".py",),
         pattern=r"self\.__name__\s*(==|in)\s",

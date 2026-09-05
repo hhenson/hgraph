@@ -100,7 +100,11 @@ def test_native_operator_callables_expose_user_signatures():
         "ungroup": "(ts)",
         "sorted_": "(ts, by, descending=False)",
         "concat": "(ts1, ts2)",
-        "with_columns": "(ts, **columns)",
+        # The released ``with_columns[Row](ts, **columns)`` spelling names the
+        # projected row through the public signature's DEFAULT variable
+        # (RFC 0033), so the signature declares it rather than a name branch.
+        "with_columns": "(ts: TS[Frame['ROW']], _tp_out: type[~ROW_1] = DEFAULT[~ROW_1], "
+                        "**columns: TSB[TS_SCHEMA])",
     }
     assert {
         name: str(inspect.signature(getattr(df, name))) for name in expected

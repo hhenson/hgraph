@@ -644,6 +644,11 @@ nb::object &delta_shaper_slot() {
   return *slot;
 }
 
+nb::object &python_annotation_schema_resolver_slot() {
+  static auto *slot = new nb::object{};
+  return *slot;
+}
+
 PyInferValueFn &py_infer_value_slot() {
   static PyInferValueFn slot = nullptr;
   return slot;
