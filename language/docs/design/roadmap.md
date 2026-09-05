@@ -4,18 +4,25 @@ Status: active staged delivery
 
 ## North-star outcome
 
-The target is to express the graph and node implementations currently supplied
-by hgraph core as HGL standard-library modules. The migration leaves a smaller
-C++ runtime kernel containing graph execution, storage, type and operator
-resolution, public authoring contracts, approved injected capabilities, and
-native primitives which HGL code calls. It does not make hgraph core depend on
-the HGL compiler at runtime.
+The target is to author the graph and node implementations currently supplied
+by hgraph core as HGL standard-library modules. HGL is an ahead-of-time source
+language: those modules transpile to reviewed C++ implementations and are
+compiled into the distribution. The shipped implementation, runtime semantics,
+and first-class native authoring surface therefore remain C++. The migration
+leaves a smaller hand-written C++ runtime kernel containing graph execution,
+storage, type and operator resolution, public authoring contracts, approved
+injected capabilities, and native primitives which generated C++ calls. It does
+not make hgraph core depend on the HGL compiler at runtime.
 
-Production distributions may build standard-library HGL ahead of time and ship
-its generated, formatted C++ or compiled artifacts. Python and C++ compatibility
+Production distributions build standard-library HGL ahead of time and ship its
+generated, formatted C++ and compiled artifacts. Generated sources are retained
+as inspectable implementation inputs; they use the same public native contracts
+as hand-written C++ and do not create an HGL runtime. Python and C++ compatibility
 surfaces continue to expose the public hgraph operators and resolve to those
-registered implementations. The compiler and generated standard library remain
-a downstream consumer of the public hgraph SDK.
+registered C++ implementations. During compiler incubation, the compiler and
+generated standard library remain a parallel downstream consumer of the public
+hgraph SDK; promotion into core is a deliberate build-time migration rather than
+a reversal of the C++-first runtime boundary.
 
 Every current graph and node implementation enters a migration inventory. An
 implementation may remain in C++ only when it is explicitly classified as one
