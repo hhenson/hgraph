@@ -1010,9 +1010,11 @@ output resolves it from the callable's declared result type: the
 output, a Python callable's return annotation) and ``apply``'s
 ``default_resolver`` binds the output variable from it. ``const(value)``
 infers ``T`` from the value's schema; a Python object whose class the
-registries have never seen is typed by the DSL on demand (the bridge's
-annotation-schema resolver), so a ``CompoundScalar`` instance infers its
-nominal Bundle and any other class its opaque nominal type.
+registries have never seen is typed by the DSL once per registry generation
+before conversion looks at the value (the bridge's annotation-schema
+resolver), so an ``Enum``/``IntEnum``/``StrEnum`` member infers its nominal
+enum, a ``CompoundScalar`` instance its nominal Bundle and any other class
+its opaque nominal type.
 
 **Family consistency.** A parameter name that is a ``TypeArg`` in one
 candidate must be a ``TypeArg`` in every candidate of the family that

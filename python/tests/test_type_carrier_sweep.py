@@ -1122,6 +1122,38 @@ class TestNameKeyedCarriers:
 
         assert eval_node(g) == [SweepRow(4)]
 
+    def test_const_of_an_enum_member_infers_the_nominal_enum_on_first_use(self):
+        # Review finding on PR E: an Enum registered lazily must be seen
+        # before the primitive checks, or IntEnum/StrEnum members infer int/str
+        # and a plain Enum member ``object``. Fresh classes, never annotated.
+        from enum import Enum, IntEnum, StrEnum
+
+        class Plain(Enum):
+            RED = 1
+
+        class Level(IntEnum):
+            LOW = 3
+
+        class Mode(StrEnum):
+            FAST = "fast"
+
+        @graph
+        def plain() -> TS[Plain]:
+            return const(Plain.RED)
+
+        @graph
+        def level() -> TS[Level]:
+            return const(Level.LOW)
+
+        @graph
+        def mode() -> TS[Mode]:
+            return const(Mode.FAST)
+
+        assert eval_node(plain) == [Plain.RED]
+        assert eval_node(level) == [Level.LOW]
+        assert eval_node(mode) == [Mode.FAST]
+        assert eval_node(level)[0] is Level.LOW
+
     def test_with_columns_bare_subscript_names_the_projected_row(self):
         # was: a ``with_columns`` branch rewriting ``[Row]`` into
         # ``TS[Frame[Row]]``; now the public signature's DEFAULT[ROW_1] takes
