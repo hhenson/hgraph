@@ -43,6 +43,152 @@ namespace hgl::ir::detail
         return types_.same_value(lhs, rhs);
     }
 
+    bool ConstraintSolver::operand_equivalent(const Operand &lhs, const Operand &rhs) const {
+        if (lhs.kind != rhs.kind) { return false; }
+        switch (lhs.kind) {
+            case OperandKind::Type: return types_.same(lhs.type, rhs.type);
+            case OperandKind::Value:
+                if (lhs.value.valid() && rhs.value.valid()) { return same_value(lhs.value, rhs.value); }
+                if (lhs.variable.valid() && rhs.variable.valid()) { return lhs.variable == rhs.variable; }
+                if (lhs.variable.valid() && rhs.value.valid()) {
+                    const auto *reference = std::get_if<SymbolRef>(&module_.expr(rhs.value).node);
+                    return reference != nullptr && reference->symbol == lhs.variable;
+                }
+                if (rhs.variable.valid() && lhs.value.valid()) {
+                    const auto *reference = std::get_if<SymbolRef>(&module_.expr(lhs.value).node);
+                    return reference != nullptr && reference->symbol == rhs.variable;
+                }
+                return false;
+            case OperandKind::TypeSet:
+                return lhs.types.size() == rhs.types.size() && std::ranges::all_of(lhs.types, [&](TypeId item) {
+                           return std::ranges::any_of(rhs.types, [&](TypeId candidate) { return types_.same(item, candidate); });
+                       });
+            case OperandKind::ValueSet:
+                return lhs.values.size() == rhs.values.size() && std::ranges::all_of(lhs.values, [&](ExprId item) {
+                           return std::ranges::any_of(rhs.values, [&](ExprId candidate) { return same_value(item, candidate); });
+                       });
+            case OperandKind::FieldSet:
+                {
+                    std::vector<std::string> left  = lhs.fields;
+                    std::vector<std::string> right = rhs.fields;
+                    std::ranges::sort(left);
+                    std::ranges::sort(right);
+                    return left == right;
+                }
+            case OperandKind::Boolean: return lhs.known == rhs.known && (!lhs.known || lhs.boolean == rhs.boolean);
+            case OperandKind::Invalid: return false;
+        }
+        return false;
+    }
+
+    bool ConstraintSolver::relation_implies(const ConstraintRelation &premise, GenericSubstitution &premise_substitution,
+                                            const ConstraintRelation &goal, GenericSubstitution &goal_substitution) {
+        if (premise.op != goal.op) { return false; }
+        const Operand premise_lhs = operand(premise.lhs, premise_substitution);
+        const Operand goal_lhs    = operand(goal.lhs, goal_substitution);
+        if (premise.op == ConstraintRelationOp::Is) {
+            return premise.category == goal.category && operand_equivalent(premise_lhs, goal_lhs);
+        }
+        const Operand premise_rhs = operand(premise.rhs, premise_substitution);
+        const Operand goal_rhs    = operand(goal.rhs, goal_substitution);
+        if (premise.op == ConstraintRelationOp::Equal) {
+            return (operand_equivalent(premise_lhs, goal_lhs) && operand_equivalent(premise_rhs, goal_rhs)) ||
+                   (operand_equivalent(premise_lhs, goal_rhs) && operand_equivalent(premise_rhs, goal_lhs));
+        }
+        if (!operand_equivalent(premise_lhs, goal_lhs)) { return false; }
+        if (premise_rhs.kind == OperandKind::TypeSet && goal_rhs.kind == OperandKind::TypeSet) {
+            return std::ranges::all_of(premise_rhs.types, [&](TypeId item) {
+                return std::ranges::any_of(goal_rhs.types, [&](TypeId candidate) { return types_.same(item, candidate); });
+            });
+        }
+        if (premise_rhs.kind == OperandKind::ValueSet && goal_rhs.kind == OperandKind::ValueSet) {
+            return std::ranges::all_of(premise_rhs.values, [&](ExprId item) {
+                return std::ranges::any_of(goal_rhs.values, [&](ExprId candidate) { return same_value(item, candidate); });
+            });
+        }
+        if (premise_rhs.kind == OperandKind::FieldSet && goal_rhs.kind == OperandKind::FieldSet) {
+            return std::ranges::all_of(premise_rhs.fields,
+                                       [&](const std::string &item) { return std::ranges::contains(goal_rhs.fields, item); });
+        }
+        return operand_equivalent(premise_rhs, goal_rhs);
+    }
+
+    bool ConstraintSolver::atomic_equivalent(ConstraintId premise_id, GenericSubstitution &premise_substitution,
+                                             ConstraintId goal_id, GenericSubstitution &goal_substitution) {
+        const Constraint &premise = module_.constraint(premise_id);
+        const Constraint &goal    = module_.constraint(goal_id);
+        if (const auto *premise_relation = std::get_if<ConstraintRelation>(&premise.node)) {
+            const auto *goal_relation = std::get_if<ConstraintRelation>(&goal.node);
+            return goal_relation != nullptr &&
+                   relation_implies(*premise_relation, premise_substitution, *goal_relation, goal_substitution);
+        }
+        if (const auto *premise_requirement = std::get_if<OperatorRequirement>(&premise.node)) {
+            const auto *goal_requirement = std::get_if<OperatorRequirement>(&goal.node);
+            if (goal_requirement == nullptr ||
+                !identity_matches(operator_identity(premise_requirement->op), operator_identity(goal_requirement->op)) ||
+                premise_requirement->arguments.size() != goal_requirement->arguments.size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < premise_requirement->arguments.size(); ++index) {
+                if (!operand_equivalent(operand(premise_requirement->arguments[index], premise_substitution),
+                                        operand(goal_requirement->arguments[index], goal_substitution))) {
+                    return false;
+                }
+            }
+            if (premise_requirement->result.valid() != goal_requirement->result.valid()) { return false; }
+            return !premise_requirement->result.valid() || types_.same(premise_substitution.apply(premise_requirement->result),
+                                                                       goal_substitution.apply(goal_requirement->result));
+        }
+        if (const auto *premise_call = std::get_if<ConstraintCall>(&premise.node)) {
+            const auto *goal_call = std::get_if<ConstraintCall>(&goal.node);
+            if (goal_call == nullptr ||
+                !identity_matches(operator_identity(premise_call->function), operator_identity(goal_call->function)) ||
+                premise_call->arguments.size() != goal_call->arguments.size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < premise_call->arguments.size(); ++index) {
+                if (!operand_equivalent(operand(premise_call->arguments[index], premise_substitution),
+                                        operand(goal_call->arguments[index], goal_substitution))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (const auto *premise_not = std::get_if<ConstraintNot>(&premise.node)) {
+            const auto *goal_not = std::get_if<ConstraintNot>(&goal.node);
+            return goal_not != nullptr &&
+                   atomic_equivalent(premise_not->operand, premise_substitution, goal_not->operand, goal_substitution);
+        }
+        return operand_equivalent(operand(premise_id, premise_substitution), operand(goal_id, goal_substitution));
+    }
+
+    bool ConstraintSolver::premise_implies(ConstraintId premise_id, GenericSubstitution &premise_substitution, ConstraintId goal,
+                                           GenericSubstitution &goal_substitution) {
+        const Constraint &premise = module_.constraint(premise_id);
+        if (const auto *logic = std::get_if<ConstraintLogic>(&premise.node)) {
+            const bool lhs = premise_implies(logic->lhs, premise_substitution, goal, goal_substitution);
+            const bool rhs = premise_implies(logic->rhs, premise_substitution, goal, goal_substitution);
+            return logic->op == ConstraintLogicOp::And ? lhs || rhs : lhs && rhs;
+        }
+        return atomic_equivalent(premise_id, premise_substitution, goal, goal_substitution);
+    }
+
+    bool ConstraintSolver::premises_prove(ConstraintId goal_id, GenericSubstitution &goal_substitution,
+                                          std::span<const ConstraintPremise> premises) {
+        const Constraint &goal = module_.constraint(goal_id);
+        if (const auto *logic = std::get_if<ConstraintLogic>(&goal.node)) {
+            const bool lhs = premises_prove(logic->lhs, goal_substitution, premises);
+            const bool rhs = premises_prove(logic->rhs, goal_substitution, premises);
+            return logic->op == ConstraintLogicOp::And ? lhs && rhs : lhs || rhs;
+        }
+        GenericSubstitution empty{module_, types_};
+        return std::ranges::any_of(premises, [&](const ConstraintPremise &premise) {
+            if (!premise.requirement.valid()) { return false; }
+            GenericSubstitution &bindings = premise.substitution == nullptr ? empty : *premise.substitution;
+            return premise_implies(premise.requirement, bindings, goal_id, goal_substitution);
+        });
+    }
+
     ConstraintSolver::Operand ConstraintSolver::type_operand(TypeId type, GenericSubstitution &substitution) {
         type = types_.canonical(type);
         if (!type.valid()) { return {}; }
@@ -269,7 +415,8 @@ namespace hgl::ir::detail
     }
 
     ConstraintSolver::Truth ConstraintSolver::evaluate_operator(const OperatorRequirement &requirement,
-                                                                GenericSubstitution &substitution, syntax::SourceRange range) {
+                                                                GenericSubstitution &substitution, syntax::SourceRange range,
+                                                                std::span<const ConstraintPremise> premises) {
         if (!requirement.op.valid()) { return Truth::False; }
         OperatorQuery        query;
         std::vector<Operand> arguments;
@@ -336,7 +483,9 @@ namespace hgl::ir::detail
         if (query.expected_result.valid() && !contract_substitution.unify(contract->signature.result, query.expected_result)) {
             return Truth::False;
         }
-        if (!solve(contract->requirements, contract_substitution, range, "operator contract", false)) { return Truth::False; }
+        if (!solve(contract->requirements, contract_substitution, range, "operator contract", false, premises)) {
+            return Truth::False;
+        }
         for (const GenericParameter &generic : contract->generics) {
             if (generic.is_const ? !contract_substitution.has_value(generic.symbol)
                                  : !contract_substitution.has_type(generic.symbol)) {
@@ -377,7 +526,9 @@ namespace hgl::ir::detail
             if (matches && query.expected_result.valid()) {
                 matches = types_.same(candidate_substitution.apply(candidate->signature.result), query.expected_result);
             }
-            if (matches) { matches = solve(candidate->requirements, candidate_substitution, {}, "implementation", false); }
+            if (matches) {
+                matches = solve(candidate->requirements, candidate_substitution, {}, "implementation", false, premises);
+            }
             for (const GenericParameter &generic : candidate->generics) {
                 if (generic.is_const ? !candidate_substitution.has_value(generic.symbol)
                                      : !candidate_substitution.has_type(generic.symbol)) {
@@ -395,7 +546,8 @@ namespace hgl::ir::detail
         return Truth::False;
     }
 
-    ConstraintSolver::Truth ConstraintSolver::evaluate(ConstraintId id, GenericSubstitution &substitution) {
+    ConstraintSolver::Truth ConstraintSolver::evaluate(ConstraintId id, GenericSubstitution &substitution,
+                                                       std::span<const ConstraintPremise> premises) {
         if (!id.valid()) { return Truth::True; }
         const Constraint &constraint = module_.constraint(id);
         return std::visit(
@@ -404,24 +556,24 @@ namespace hgl::ir::detail
                 if constexpr (std::is_same_v<T, ConstraintRelation>) {
                     return evaluate_relation(node, substitution);
                 } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
-                    return evaluate_operator(node, substitution, constraint.range);
+                    return evaluate_operator(node, substitution, constraint.range, premises);
                 } else if constexpr (std::is_same_v<T, ConstraintNot>) {
                     const std::string previous_failure = failure_detail_;
-                    const Truth       value            = evaluate(node.operand, substitution);
+                    const Truth       value            = evaluate(node.operand, substitution, premises);
                     if (value == Truth::Unresolved) { return value; }
                     if (value == Truth::False) { failure_detail_ = previous_failure; }
                     return value == Truth::True ? Truth::False : Truth::True;
                 } else if constexpr (std::is_same_v<T, ConstraintLogic>) {
                     if (node.op == ConstraintLogicOp::Or) {
                         const std::string previous_failure = failure_detail_;
-                        const Truth       lhs              = evaluate(node.lhs, substitution);
+                        const Truth       lhs              = evaluate(node.lhs, substitution, premises);
                         if (lhs == Truth::True) {
                             failure_detail_ = previous_failure;
                             return Truth::True;
                         }
                         const std::string lhs_failure = failure_detail_;
                         failure_detail_               = previous_failure;
-                        const Truth rhs               = evaluate(node.rhs, substitution);
+                        const Truth rhs               = evaluate(node.rhs, substitution, premises);
                         if (rhs == Truth::True) {
                             failure_detail_ = previous_failure;
                             return Truth::True;
@@ -432,9 +584,9 @@ namespace hgl::ir::detail
                         if (lhs == Truth::False && rhs == Truth::False) { return Truth::False; }
                         return Truth::Unresolved;
                     }
-                    const Truth lhs = evaluate(node.lhs, substitution);
+                    const Truth lhs = evaluate(node.lhs, substitution, premises);
                     if (lhs == Truth::False) { return Truth::False; }
-                    const Truth rhs = evaluate(node.rhs, substitution);
+                    const Truth rhs = evaluate(node.rhs, substitution, premises);
                     if (rhs == Truth::False) { return Truth::False; }
                     return lhs == Truth::True && rhs == Truth::True ? Truth::True : Truth::Unresolved;
                 } else {
@@ -486,7 +638,7 @@ namespace hgl::ir::detail
     }
 
     bool ConstraintSolver::solve(ConstraintId requirement, GenericSubstitution &substitution, syntax::SourceRange use_range,
-                                 std::string_view subject, bool report) {
+                                 std::string_view subject, bool report, std::span<const ConstraintPremise> premises) {
         if (!requirement.valid()) { return true; }
         if (evaluation_depth_ == 0U) { failure_detail_.clear(); }
         if (evaluation_depth_ > module_.constraints.size()) {
@@ -510,8 +662,13 @@ namespace hgl::ir::detail
             }
             if (!changed) { break; }
         }
-        const Truth result = evaluate(requirement, substitution);
+        const std::string previous_failure = failure_detail_;
+        const Truth       result           = evaluate(requirement, substitution, premises);
         if (result == Truth::True) { return true; }
+        if (premises_prove(requirement, substitution, premises)) {
+            failure_detail_ = previous_failure;
+            return true;
+        }
         if (!report) { return false; }
         const syntax::SourceRange range = use_range.empty() ? module_.constraint(requirement).range : use_range;
         if (result == Truth::False) {

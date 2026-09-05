@@ -634,6 +634,37 @@ fn apply_unresolved(value: i64) -> i64 {
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
+TEST_CASE("generic requirements are premises for nested constrained calls", "[ir][typed][constraints]") {
+    Lowered lowered{R"(
+module checks.nested_constraint_premise
+
+fn inner<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+fn outer<U>(value: U) -> U
+requires U in {i64, f64}
+=> inner(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    Lowered rejected{R"(
+module checks.insufficient_constraint_premise
+
+fn inner<T>(value: T) -> T
+requires T in {i64}
+=> value
+
+fn outer<U>(value: U) -> U
+requires U in {i64, f64}
+=> inner(value)
+)"};
+    require_clean(rejected);
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("function call requirements are not satisfied") != std::string::npos);
+}
+
 TEST_CASE("generic struct construction evaluates structural requirements", "[ir][typed][constraints][structs]") {
     Lowered lowered{R"(
 module checks.struct_constraint

@@ -175,6 +175,15 @@ namespace hgl::ir
                                                      inherited_substitution_ ? &*inherited_substitution_ : nullptr);
             }
 
+            [[nodiscard]] std::vector<detail::ConstraintPremise> active_constraint_premises() {
+                std::vector<detail::ConstraintPremise> premises;
+                if (active_requirements_.valid()) { premises.push_back({active_requirements_, nullptr}); }
+                if (inherited_requirements_.valid()) {
+                    premises.push_back({inherited_requirements_, inherited_substitution_ ? &*inherited_substitution_ : nullptr});
+                }
+                return premises;
+            }
+
             [[nodiscard]] bool runtime_owner(DeclarationId id) const noexcept {
                 const FunctionDecl *fn = function(id);
                 return fn != nullptr && fn->kind == FunctionKind::Runtime;
@@ -706,7 +715,8 @@ namespace hgl::ir
                     }
                 }
                 if (expected.valid()) { (void)bindings.unify(fn.signature.result, expected); }
-                (void)constraint_solver_.solve(fn.requirements, bindings, expression.range, "function call");
+                const auto premises = active_constraint_premises();
+                (void)constraint_solver_.solve(fn.requirements, bindings, expression.range, "function call", true, premises);
                 require_complete_bindings(fn.generics, bindings, expression.range, "function call");
                 for (std::size_t index = 0; index < bound.size(); ++index) {
                     if (!bound[index].valid()) { continue; }
@@ -755,7 +765,10 @@ namespace hgl::ir
                     if (!bindings.unify(parameter.type, argument.type)) { return false; }
                 }
                 if (expected.valid() && !bindings.unify(candidate.signature.result, expected)) { return false; }
-                if (!constraint_solver_.solve(candidate.requirements, bindings, {}, "implementation", false)) { return false; }
+                const auto premises = active_constraint_premises();
+                if (!constraint_solver_.solve(candidate.requirements, bindings, {}, "implementation", false, premises)) {
+                    return false;
+                }
                 for (const GenericParameter &generic : candidate.generics) {
                     if (generic.is_const ? !bindings.has_value(generic.symbol) : !bindings.has_type(generic.symbol)) {
                         return false;
@@ -814,7 +827,9 @@ namespace hgl::ir
                     }
                 }
                 if (expected.valid()) { (void)contract_bindings.unify(op.signature.result, expected); }
-                (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call");
+                const auto premises = active_constraint_premises();
+                (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call", true,
+                                               premises);
                 require_complete_bindings(op.generics, contract_bindings, expression.range, "operator call");
                 expression.type          = contract_bindings.apply(op.signature.result);
                 const SymbolId candidate = sole_local_candidate(target, bound, expected);
@@ -1273,8 +1288,9 @@ namespace hgl::ir
                 unwrapped = unwrap_atomic(applied);
                 detail::GenericSubstitution struct_substitution{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, struct_substitution);
+                const auto premises = active_constraint_premises();
                 (void)constraint_solver_.solve(structure->requirements, struct_substitution, expression.range,
-                                               "struct construction");
+                                               "struct construction", true, premises);
                 std::size_t positional = 0;
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
