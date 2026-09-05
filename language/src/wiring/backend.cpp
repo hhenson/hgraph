@@ -16,6 +16,7 @@
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
@@ -30,6 +31,7 @@
 #include <compare>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -193,6 +195,33 @@ namespace hgl::wiring
                 case hir::BinaryOp::Or: return "||";
             }
             return "?";
+        }
+
+        [[nodiscard]] std::optional<hgraph::Int> checked_integer_add(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
+            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
+            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
+            return lhs + rhs;
+        }
+
+        [[nodiscard]] std::optional<hgraph::Int> checked_integer_subtract(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
+            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
+            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
+            return lhs - rhs;
+        }
+
+        [[nodiscard]] std::optional<hgraph::Int> checked_integer_multiply(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
+            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
+            if (lhs == 0 || rhs == 0) { return 0; }
+            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
+            if (lhs > 0) {
+                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
+            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
+                return std::nullopt;
+            }
+            return lhs * rhs;
         }
 
         std::string describe_view(const hgraph::ValueView &view) {
@@ -427,13 +456,22 @@ namespace hgl::wiring
         Slot Compiler::fold_unary(hir::UnaryOp op, const Slot &operand, SourceRange range) {
             if (op == hir::UnaryOp::Negate) {
                 if (operand.meta() == types_.int_type) {
-                    return make_const(hgraph::Value{hgraph::Int{-operand.value.view().checked_as<hgraph::Int>()}}, range);
+                    const hgraph::Int value = operand.value.view().checked_as<hgraph::Int>();
+                    if (value == std::numeric_limits<hgraph::Int>::min()) {
+                        fail(Category::Type, range, "overflow in an integer constant expression");
+                    }
+                    return make_const(hgraph::Value{hgraph::Int{-value}}, range);
                 }
                 if (operand.meta() == types_.float_type) {
                     return make_const(hgraph::Value{hgraph::Float{-operand.value.view().checked_as<hgraph::Float>()}}, range);
                 }
                 if (operand.meta() == types_.timedelta_type) {
-                    return make_const(hgraph::Value{-operand.value.view().checked_as<hgraph::TimeDelta>()}, range);
+                    try {
+                        return make_const(
+                            hgraph::Value{hgraph::checked_negate(operand.value.view().checked_as<hgraph::TimeDelta>())}, range);
+                    } catch (const std::overflow_error &) {
+                        fail(Category::Type, range, "overflow in a temporal constant expression");
+                    }
                 }
                 fail(Category::Type, range, "unary '-' needs a number, got " + std::string{operand.meta()->name()});
             }
@@ -458,12 +496,20 @@ namespace hgl::wiring
                      "'" + binary_spelling(op) + "' is not defined for " + std::string{lhs.meta()->name()} + " and " +
                          std::string{rhs.meta()->name()});
             };
+            const auto integer = [&](std::optional<hgraph::Int> value) -> Slot {
+                if (!value) { fail(Category::Type, range, "overflow in an integer constant expression"); }
+                return make_const(hgraph::Value{*value}, range);
+            };
+            const auto temporal = [&](auto operation) -> Slot {
+                try {
+                    return make_const(hgraph::Value{operation()}, range);
+                } catch (const std::overflow_error &) { fail(Category::Type, range, "overflow in a temporal constant expression"); }
+            };
             switch (op) {
                 case hir::BinaryOp::Add:
                     if (lhs_int && rhs_int) {
-                        return make_const(hgraph::Value{hgraph::Int{lhs.value.view().checked_as<hgraph::Int>() +
-                                                                    rhs.value.view().checked_as<hgraph::Int>()}},
-                                          range);
+                        return integer(checked_integer_add(lhs.value.view().checked_as<hgraph::Int>(),
+                                                           rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) + number(rhs)}, range); }
                     if (lhs.meta() == types_.str_type && rhs.meta() == types_.str_type) {
@@ -472,50 +518,54 @@ namespace hgl::wiring
                             range);
                     }
                     if (lhs.meta() == types_.timedelta_type && rhs.meta() == types_.timedelta_type) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::TimeDelta>() +
-                                                        rhs.value.view().checked_as<hgraph::TimeDelta>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_add(lhs.value.view().checked_as<hgraph::TimeDelta>(),
+                                                       rhs.value.view().checked_as<hgraph::TimeDelta>());
+                        });
                     }
                     if (lhs.meta() == types_.datetime_type && rhs.meta() == types_.timedelta_type) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::DateTime>() +
-                                                        rhs.value.view().checked_as<hgraph::TimeDelta>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_add(lhs.value.view().checked_as<hgraph::DateTime>(),
+                                                       rhs.value.view().checked_as<hgraph::TimeDelta>());
+                        });
                     }
                     return type_error();
                 case hir::BinaryOp::Sub:
                     if (lhs_int && rhs_int) {
-                        return make_const(hgraph::Value{hgraph::Int{lhs.value.view().checked_as<hgraph::Int>() -
-                                                                    rhs.value.view().checked_as<hgraph::Int>()}},
-                                          range);
+                        return integer(checked_integer_subtract(lhs.value.view().checked_as<hgraph::Int>(),
+                                                                rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) - number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs.meta() == types_.timedelta_type) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::TimeDelta>() -
-                                                        rhs.value.view().checked_as<hgraph::TimeDelta>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_subtract(lhs.value.view().checked_as<hgraph::TimeDelta>(),
+                                                            rhs.value.view().checked_as<hgraph::TimeDelta>());
+                        });
                     }
                     if (lhs.meta() == types_.datetime_type && rhs.meta() == types_.timedelta_type) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::DateTime>() -
-                                                        rhs.value.view().checked_as<hgraph::TimeDelta>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_subtract(lhs.value.view().checked_as<hgraph::DateTime>(),
+                                                            rhs.value.view().checked_as<hgraph::TimeDelta>());
+                        });
                     }
                     if (lhs.meta() == types_.datetime_type && rhs.meta() == types_.datetime_type) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::DateTime>() -
-                                                        rhs.value.view().checked_as<hgraph::DateTime>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_subtract(lhs.value.view().checked_as<hgraph::DateTime>(),
+                                                            rhs.value.view().checked_as<hgraph::DateTime>());
+                        });
                     }
                     return type_error();
                 case hir::BinaryOp::Mul:
                     if (lhs_int && rhs_int) {
-                        return make_const(hgraph::Value{hgraph::Int{lhs.value.view().checked_as<hgraph::Int>() *
-                                                                    rhs.value.view().checked_as<hgraph::Int>()}},
-                                          range);
+                        return integer(checked_integer_multiply(lhs.value.view().checked_as<hgraph::Int>(),
+                                                                rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) * number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs_int) {
-                        return make_const(hgraph::Value{lhs.value.view().checked_as<hgraph::TimeDelta>() *
-                                                        rhs.value.view().checked_as<hgraph::Int>()},
-                                          range);
+                        return temporal([&] {
+                            return hgraph::checked_multiply(lhs.value.view().checked_as<hgraph::TimeDelta>(),
+                                                            rhs.value.view().checked_as<hgraph::Int>());
+                        });
                     }
                     return type_error();
                 case hir::BinaryOp::Div:
@@ -528,14 +578,20 @@ namespace hgl::wiring
                     if (lhs_int && rhs_int) {
                         const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
                         if (divisor == 0) { fail(Category::Type, range, "division by zero"); }
-                        return make_const(hgraph::Value{hgraph::Int{lhs.value.view().checked_as<hgraph::Int>() % divisor}}, range);
+                        const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
+                        return make_const(
+                            hgraph::Value{hgraph::Int{
+                                dividend == std::numeric_limits<hgraph::Int>::min() && divisor == -1 ? 0 : dividend % divisor}},
+                            range);
                     }
                     return type_error();
                 case hir::BinaryOp::Equal:
                 case hir::BinaryOp::NotEqual:
                     {
                         bool equal = false;
-                        if (numeric) {
+                        if (lhs_int && rhs_int) {
+                            equal = lhs.value.view().checked_as<hgraph::Int>() == rhs.value.view().checked_as<hgraph::Int>();
+                        } else if (numeric) {
                             equal = number(lhs) == number(rhs);
                         } else if (lhs.meta() == rhs.meta()) {
                             equal = lhs.value.view().equals(rhs.value.view());
@@ -550,7 +606,9 @@ namespace hgl::wiring
                 case hir::BinaryOp::GreaterEqual:
                     {
                         std::partial_ordering order = std::partial_ordering::unordered;
-                        if (numeric) {
+                        if (lhs_int && rhs_int) {
+                            order = lhs.value.view().checked_as<hgraph::Int>() <=> rhs.value.view().checked_as<hgraph::Int>();
+                        } else if (numeric) {
                             order = number(lhs) <=> number(rhs);
                         } else if (lhs.meta() == rhs.meta()) {
                             order = lhs.value.view().compare(rhs.value.view());
@@ -1407,6 +1465,14 @@ namespace hgl::wiring
                         wire("replay", {scalar_arg(hgraph::Value{key}, "key")}, range, true, parameter_schema);
                 }
             }
+            if (cycles == 0) { backend(range, "eval requires at least one time-series harness input to bound execution"); }
+            hgraph::DateTime harness_end;
+            try {
+                if (cycles > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
+                    throw std::overflow_error{"harness cycle count"};
+                }
+                harness_end = hgraph::checked_add(hgraph::MIN_ST, hgraph::TimeDelta{static_cast<std::int64_t>(cycles)});
+            } catch (const std::overflow_error &) { backend(range, "eval harness is too long to schedule safely"); }
 
             Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(callee_slot.callable, callee, range)
                                                                         : invoke(callee_slot.callable, callee);
@@ -1427,7 +1493,7 @@ namespace hgl::wiring
                     hgraph::testing::set_replay_deltas(graph.global_state(), keys[index], inputs[index]);
                 }
                 hgraph::GraphExecutorBuilder builder;
-                builder.graph_builder(std::move(graph)).start_time(hgraph::MIN_ST).end_time(hgraph::MAX_ET);
+                builder.graph_builder(std::move(graph)).start_time(hgraph::MIN_ST).end_time(harness_end);
                 hgraph::GraphExecutorValue executor = builder.make_executor();
                 auto                       view     = executor.view();
                 view.run();

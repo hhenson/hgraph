@@ -589,7 +589,12 @@ namespace hgl::ir
                     }
                     expression.type = operand.type;
                     if (operand.constant && std::holds_alternative<std::int64_t>(*operand.constant)) {
-                        expression.constant = Constant{-std::get<std::int64_t>(*operand.constant)};
+                        const std::int64_t value = std::get<std::int64_t>(*operand.constant);
+                        if (value == std::numeric_limits<std::int64_t>::min()) {
+                            type_error(expression.range, "overflow in an integer constant expression");
+                        } else {
+                            expression.constant = Constant{-value};
+                        }
                     } else if (operand.constant && std::holds_alternative<double>(*operand.constant)) {
                         expression.constant = Constant{-std::get<double>(*operand.constant)};
                     }
@@ -637,6 +642,40 @@ namespace hgl::ir
                         if (const auto *right = std::get_if<bool>(&b)) {
                             expression.constant = Constant{op == BinaryOp::And ? (*left && *right) : (*left || *right)};
                         }
+                    }
+                    return;
+                }
+                const auto *left_integer  = std::get_if<std::int64_t>(&a);
+                const auto *right_integer = std::get_if<std::int64_t>(&b);
+                if (left_integer && right_integer && op != BinaryOp::Div) {
+                    std::optional<std::int64_t> result;
+                    switch (op) {
+                        case BinaryOp::Add: result = checked_add(*left_integer, *right_integer); break;
+                        case BinaryOp::Sub: result = checked_sub(*left_integer, *right_integer); break;
+                        case BinaryOp::Mul: result = checked_mul(*left_integer, *right_integer); break;
+                        case BinaryOp::Rem:
+                            if (*right_integer == 0) {
+                                type_error(expression.range, "remainder by zero in a constant expression");
+                                return;
+                            }
+                            result = *left_integer == std::numeric_limits<std::int64_t>::min() && *right_integer == -1
+                                         ? 0
+                                         : *left_integer % *right_integer;
+                            break;
+                        case BinaryOp::Less: expression.constant = Constant{*left_integer < *right_integer}; return;
+                        case BinaryOp::LessEqual: expression.constant = Constant{*left_integer <= *right_integer}; return;
+                        case BinaryOp::Greater: expression.constant = Constant{*left_integer > *right_integer}; return;
+                        case BinaryOp::GreaterEqual: expression.constant = Constant{*left_integer >= *right_integer}; return;
+                        case BinaryOp::Equal: expression.constant = Constant{*left_integer == *right_integer}; return;
+                        case BinaryOp::NotEqual: expression.constant = Constant{*left_integer != *right_integer}; return;
+                        case BinaryOp::Div:
+                        case BinaryOp::And:
+                        case BinaryOp::Or: std::unreachable();
+                    }
+                    if (!result) {
+                        type_error(expression.range, "overflow in an integer constant expression");
+                    } else {
+                        expression.constant = Constant{*result};
                     }
                     return;
                 }

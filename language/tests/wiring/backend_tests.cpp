@@ -111,6 +111,39 @@ test folding {
     CHECK(result.passed);
 }
 
+TEST_CASE("folded integer constants retain full i64 precision", "[wiring][constants][integer]") {
+    Unit unit{R"(
+module t
+
+test exact {
+    9007199254740993 + 0
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    TestOptions options;
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(result.tail == "9007199254740993");
+}
+
+TEST_CASE("activated constant arithmetic diagnoses overflow", "[wiring][constants][overflow]") {
+    Unit             unit{R"(
+module t
+
+fn add_one(const value: duration) -> duration => value + 1us
+
+test overflow {
+    add_one(106751991d4h54s775ms807us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Type, "overflow in a temporal constant expression"));
+}
+
 TEST_CASE("var assignment retains the initializer's static type", "[wiring]") {
     SECTION("an inferred i64 cannot be narrowed") {
         Unit unit{R"(
@@ -234,6 +267,41 @@ test defaults_apply {
         INFO(result.name << ": " << result.message);
         CHECK(result.passed);
     }
+}
+
+TEST_CASE("eval rejects a const-only harness with no execution bound", "[wiring][harness]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{schedule}
+
+fn heartbeat(const every: duration) -> datetime => last_modified(schedule(every))
+
+test const_only {
+    eval(heartbeat, every: 1us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Backend, "at least one time-series harness input to bound execution"));
+}
+
+TEST_CASE("eval bounds scheduled work by the longest harness input", "[wiring][harness]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{schedule}
+
+fn heartbeat(trigger: f64, const every: duration) -> datetime => last_modified(schedule(every))
+
+test bounded {
+    eval(heartbeat, trigger: [1.0, 2.0], every: 1us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
 }
 
 TEST_CASE("nominal struct values apply defaults and inheritance", "[wiring]") {

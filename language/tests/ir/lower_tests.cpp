@@ -303,6 +303,50 @@ fn overflow() -> duration => 106751991d4h54s775ms807us + 1us
     CHECK(lowered.diagnostics.render(lowered.file).find("overflow in a temporal constant expression") != std::string::npos);
 }
 
+TEST_CASE("typed HIR folds integer constants without floating-point loss", "[ir][typed][const][integer]") {
+    Lowered lowered{R"(
+module checks.integer_constants
+
+fn exact() -> i64 => 9007199254740993 + 0
+fn ordered() -> bool => 9007199254740993 > 9007199254740992
+fn distinct() -> bool => 9007199254740993 != 9007199254740992
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool exact    = false;
+    bool ordered  = false;
+    bool distinct = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        const auto *binary = std::get_if<hir::Binary>(&expression.node);
+        if (binary == nullptr || !expression.constant) { continue; }
+        if (binary->op == hir::BinaryOp::Add) {
+            const auto *value = std::get_if<std::int64_t>(&*expression.constant);
+            exact             = value != nullptr && *value == 9'007'199'254'740'993;
+        } else if (binary->op == hir::BinaryOp::Greater) {
+            const auto *value = std::get_if<bool>(&*expression.constant);
+            ordered           = value != nullptr && *value;
+        } else if (binary->op == hir::BinaryOp::NotEqual) {
+            const auto *value = std::get_if<bool>(&*expression.constant);
+            distinct          = value != nullptr && *value;
+        }
+    }
+    CHECK(exact);
+    CHECK(ordered);
+    CHECK(distinct);
+}
+
+TEST_CASE("typed HIR diagnoses integer constant overflow", "[ir][typed][const][integer]") {
+    Lowered lowered{R"(
+module checks.integer_overflow
+
+fn overflow() -> i64 => 9223372036854775807 + 1
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("overflow in an integer constant expression") != std::string::npos);
+}
+
 TEST_CASE("typed HIR does not implicitly widen time-series collection elements", "[ir][typed][types][collection]") {
     Lowered lowered{R"(
 module checks.collection_widening
