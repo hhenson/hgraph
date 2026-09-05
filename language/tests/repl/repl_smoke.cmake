@@ -20,7 +20,7 @@ impl fn magnitude(value: f64) -> f64 {
 }
 fn magnitude_graph(value: f64) -> f64 => magnitude(value)
 eval(magnitude_graph, value: [-2.0, 3.0])
-fn unsupported<U>(a: U, b: U) -> U => a
+fn same<U>(a: U, b: U) -> U => a
 eval(magnitude_graph, value: [4.0, -5.0])
 :quit
 ")
@@ -34,8 +34,7 @@ execute_process(
 if(NOT status EQUAL 0)
     message(FATAL_ERROR "hgl repl exited ${status}\n${output}\n${errors}")
 endif()
-foreach(expected "hgl> 3\n" "[3.0, 4.0]" "[2.0, 3.0]" "[4.0, 5.0]"
-        "a generic function is not supported by emit-cpp yet")
+foreach(expected "hgl> 3\n" "[3.0, 4.0]" "[2.0, 3.0]" "[4.0, 5.0]")
     string(FIND "${output}" "${expected}" at)
     if(at EQUAL -1)
         message(FATAL_ERROR "hgl repl output lacks '${expected}':\n${output}\n${errors}")

@@ -287,16 +287,20 @@ a trailing underscore in this wrapper (`class` becomes `class_`) while their
 operator registry name remains unchanged; aliases that would collide are a
 generation error.
 
-What `emit-cpp` lowers today is the composition subset `hgl test` runs, the
-first scalar runtime-node subset, and non-generic `operator` / `impl fn`
-declarations. The runtime subset supports scalar temporal inputs and output,
-`modified`/`valid` guards, ordered `when` handlers, scalar recordable `state`,
-`return`, `inject out`, and lifecycle blocks over state and `const`
-configuration. It reports, by name,
-and writes nothing for runtime sources or sinks, non-scalar runtime signatures
-or state, runtime calls or collection traversal, other injectables, lifecycle
-temporal-input/output access, generics, structs, duration rolling windows,
-tuple and list literals, `if` used as a value, and zoned or civil literals.
+What `emit-cpp` lowers today includes every checked-in example: composition
+functions, runtime functions and sinks, source operators and implementations,
+nominal and generic structs, fixed and duration rolling windows, sparse struct
+deltas, concise functions passed to `map`, collection inputs and iteration,
+scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
+writes, `inject logger`, and lifecycle blocks over state and `const`
+configuration. The generated package tests compile every example as C++.
+
+It still reports, by name, and writes nothing for generated runtime sources,
+runtime function calls, non-scalar state, injectables other than `out` and
+`logger`, lifecycle access to temporal inputs or output, optional-field clearing
+in a sparse delta, generic constructor inference and typed `const` generic
+struct metadata, compound constant literals, `if` used as a value, and zoned or
+civil literals.
 
 ## One execution model
 

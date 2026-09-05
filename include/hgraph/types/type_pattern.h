@@ -218,8 +218,11 @@ namespace hgraph
         std::string                size_name{};      ///< ``TSL`` size variable name.
         std::vector<std::size_t>   size_constraints{}; ///< ``TSL`` size variable accepted concrete sizes.
         std::size_t                min_size{0};      ///< ``TSW`` min period.
-        bool                       any_window{false}; ///< ``TSW`` wildcard over tick/duration window shape.
-        bool                       named_bundle{false}; ///< true for nominal ``TSB<Name,...>``.
+        std::int64_t               duration_micros{0};      ///< duration ``TSW`` period in microseconds.
+        std::int64_t               min_duration_micros{0};  ///< duration ``TSW`` minimum in microseconds.
+        bool                       any_window{false};       ///< ``TSW`` wildcard over tick/duration window shape.
+        bool                       duration_window{false};  ///< true for a concrete duration ``TSW``.
+        bool                       named_bundle{false};     ///< true for nominal ``TSB<Name,...>``.
         bool                       size_var{false};  ///< true when ``TSL`` size is a named variable.
         bool                       schema_var{false}; ///< true when ``TSB`` binds the whole schema to ``name``.
 
@@ -280,6 +283,16 @@ namespace hgraph
             p.scalar     = std::move(element);
             p.fixed_size = period;
             p.min_size   = min_period;
+            return p;
+        }
+        [[nodiscard]] static TypePattern tsw_duration(ScalarPattern element, std::int64_t period_micros,
+                                                      std::int64_t min_period_micros) {
+            TypePattern p;
+            p.kind                = Kind::TSW;
+            p.scalar              = std::move(element);
+            p.duration_window     = true;
+            p.duration_micros     = period_micros;
+            p.min_duration_micros = min_period_micros;
             return p;
         }
         [[nodiscard]] static TypePattern tsw_any(ScalarPattern element)
@@ -551,8 +564,15 @@ namespace hgraph
         }
     };
 
-    template <typename V>
-    struct ts_pattern_lower<TSWAny<V>>
+    template <typename V, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    struct ts_pattern_lower<TSWDuration<V, PeriodMicros, MinPeriodMicros>>
+    {
+        [[nodiscard]] static TypePattern lower() {
+            return TypePattern::tsw_duration(to_scalar_pattern<V>(), PeriodMicros, MinPeriodMicros);
+        }
+    };
+
+    template <typename V> struct ts_pattern_lower<TSWAny<V>>
     {
         [[nodiscard]] static TypePattern lower()
         {
@@ -602,6 +622,16 @@ namespace hgraph
             return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
                                     type_pattern_detail::tsb_field_patterns<Fields...>(),
                                     std::string{Name.sv()}, true);
+        }
+    };
+
+    template <typename ValueBundle, typename... Fields> struct ts_pattern_lower<NominalTSB<ValueBundle, Fields...>>
+    {
+        [[nodiscard]] static TypePattern lower() {
+            const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+            return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                    type_pattern_detail::tsb_field_patterns<Fields...>(),
+                                    value != nullptr ? std::string{value->name()} : std::string{}, true);
         }
     };
 

@@ -310,8 +310,11 @@ namespace hgraph::stdlib
         {
         };
 
-        template <typename T>
-        inline constexpr bool is_tsb_schema_v = is_tsb_schema<T>::value;
+        template <typename ValueBundle, typename... Fields>
+        struct is_tsb_schema<NominalTSB<ValueBundle, Fields...>> : std::true_type
+        {};
+
+        template <typename T> inline constexpr bool is_tsb_schema_v = is_tsb_schema<T>::value;
 
         template <typename T>
         struct tsl_schema_traits;
@@ -336,8 +339,12 @@ namespace hgraph::stdlib
             static constexpr std::size_t field_count = sizeof...(Fields);
         };
 
-        template <fixed_string Name, typename... Fields>
-        struct tsb_schema_traits<TSB<Name, Fields...>>
+        template <fixed_string Name, typename... Fields> struct tsb_schema_traits<TSB<Name, Fields...>>
+        {
+            static constexpr std::size_t field_count = sizeof...(Fields);
+        };
+
+        template <typename ValueBundle, typename... Fields> struct tsb_schema_traits<NominalTSB<ValueBundle, Fields...>>
         {
             static constexpr std::size_t field_count = sizeof...(Fields);
         };

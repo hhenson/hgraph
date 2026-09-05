@@ -150,8 +150,10 @@ The first backend emits only public SDK constructs:
 
 - Functions classified as composition become graph structs with `compose`
   methods and typed `Port` and `Scalar` parameters.
-- Source `operator` declarations become deterministic nominal C++ markers;
-  `impl fn` implementations register explicitly against those markers.
+- Source `operator` declarations become transparent aliases to deterministic
+  nominal `hgraph::Operator` contracts; `impl fn` implementations register
+  explicitly against those exact types. Generated code does not subclass a
+  contract solely to name it.
 - Ordinary `export fn` declarations become public exact-callable entries;
   unexported exact functions remain module implementation details.
 - Struct declarations become nominal Bundle and recursively temporalized TSB
@@ -186,6 +188,10 @@ Generated translation units use `#line` directives or equivalent source maps
 so native compiler diagnostics refer to language source. A compiler error in
 generated implementation detail is considered a compiler defect and should
 include a retained generated-artifact path for diagnosis.
+Both the header and source pass through the compiler-selected `clang-format`
+before they are printed, written, cached, or compiled. A formatting failure is
+a compiler failure, so generated code remains deterministic and suitable for
+human inspection.
 
 ## Two backends, one wiring
 

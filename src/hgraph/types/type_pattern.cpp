@@ -391,7 +391,10 @@ namespace hgraph
                     return false;
                 }
                 return pattern.any_window ||
-                       (!concrete->is_duration_based() && pattern.fixed_size == concrete->period() &&
+                       (pattern.duration_window && concrete->is_duration_based() &&
+                        pattern.duration_micros == concrete->time_range().count() &&
+                        pattern.min_duration_micros == concrete->min_time_range().count()) ||
+                       (!pattern.duration_window && !concrete->is_duration_based() && pattern.fixed_size == concrete->period() &&
                         pattern.min_size == concrete->min_period());
             case TypePattern::Kind::TSB:
                 if (concrete->kind != TSTypeKind::TSB) { return false; }
@@ -608,8 +611,10 @@ namespace hgraph
             case TypePattern::Kind::TSW:
             {
                 const ValueTypeMetaData *element = scalar_pattern_resolve(pattern.scalar, map);
-                return element != nullptr && !pattern.any_window ? registry.tsw(element, pattern.fixed_size, pattern.min_size)
-                                                                 : nullptr;
+                if (element == nullptr || pattern.any_window) { return nullptr; }
+                return pattern.duration_window ? registry.tsw_duration(element, TimeDelta{pattern.duration_micros},
+                                                                       TimeDelta{pattern.min_duration_micros})
+                                               : registry.tsw(element, pattern.fixed_size, pattern.min_size);
             }
             case TypePattern::Kind::TSB:
             {
@@ -809,8 +814,12 @@ namespace hgraph
                 {
                     return fmt::format("TSW[{}, *]", scalar_pattern_to_string(pattern.scalar));
                 }
-                return fmt::format("TSW[{}, {}, {}]", scalar_pattern_to_string(pattern.scalar),
-                                   pattern.fixed_size, pattern.min_size);
+                if (pattern.duration_window) {
+                    return fmt::format("TSW[{}, duration={}us, min={}us]", scalar_pattern_to_string(pattern.scalar),
+                                       pattern.duration_micros, pattern.min_duration_micros);
+                }
+                return fmt::format("TSW[{}, {}, {}]", scalar_pattern_to_string(pattern.scalar), pattern.fixed_size,
+                                   pattern.min_size);
             case TypePattern::Kind::TSB:
             {
                 if (pattern.schema_var) { return fmt::format("TSB[~{}]", pattern.name); }

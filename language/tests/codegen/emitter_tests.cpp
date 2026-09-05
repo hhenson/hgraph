@@ -403,8 +403,7 @@ export fn sampled(value: f64) -> f64 {
     }
 }
 
-TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
-{
+TEST_CASE("emit-cpp fails closed on constructs it does not lower", "[codegen]") {
     SECTION("a runtime call")
     {
         Unit unit{R"(
@@ -416,18 +415,6 @@ export fn sampled(x: f64) -> f64 {
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
-    }
-    SECTION("an unsupported runtime injectable")
-    {
-        Unit unit{R"(
-module t
-export fn logged(x: f64) -> f64 {
-    inject logger
-    when modified(x) { return x }
-}
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "injectable 'logger' is not supported by emit-cpp yet"));
     }
     SECTION("runtime state without an explicit type")
     {
@@ -454,26 +441,6 @@ export fn seeded(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
-    SECTION("a struct declaration")
-    {
-        Unit unit{R"(
-module t
-export struct Quote { bid: f64 }
-export fn twice(x: f64) -> f64 => x * 2.0
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "a struct declaration is not supported by emit-cpp yet"));
-    }
-    SECTION("a duration rolling window")
-    {
-        Unit unit{R"(
-module t
-use hgraph.std::{mean}
-export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "duration rolling window"));
-    }
     SECTION("a non-positive rolling size")
     {
         Unit unit{R"(
@@ -492,15 +459,6 @@ export fn recent(window: rolling<f64, -1>) -> f64 => window
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
     }
-    SECTION("a generic function")
-    {
-        Unit unit{R"(
-module t
-export fn same<U>(a: U, b: U) -> U => a
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "a generic function is not supported by emit-cpp yet"));
-    }
     SECTION("a missing module declaration")
     {
         // The front end rejects the unit before the emitter sees it; the
@@ -509,6 +467,44 @@ export fn same<U>(a: U, b: U) -> U => a
         CHECK(unit.diagnostics.has_errors());
         CHECK(unit.has(Category::Module, "module declaration"));
     }
+}
+
+TEST_CASE("emit-cpp lowers structural, generic, duration, and logger forms", "[codegen]") {
+    Unit       unit{R"(
+module t
+use hgraph.std::{mean}
+
+export struct Quote {
+    bid: f64
+    venue: str = null
+}
+
+export struct Box<T> {
+    value: T
+}
+
+export fn same<U>(a: U, b: U) -> U => a
+
+export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
+
+export fn logged(value: f64) -> f64 {
+    inject logger
+    when modified(value) && valid(value) {
+        logger.info("value")
+        return value
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "hgraph::NominalBundle<\"t\", \"Quote\", "
+                                    "false, hgraph::BundleParents<>"));
+    CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
+    CHECK(contains(emitted->header, "hgraph::ScalarVar<\"U\">"));
+    CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
+    CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
+    CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
 }
 
 TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]")
@@ -559,6 +555,6 @@ export fn twice(x: f64) -> f64 {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "const auto x_1 = hgraph::wire<hgraph::stdlib::mul_>(w, x, hgraph::Float{2.0});"));
-    CHECK(contains(emitted->source, "return x_1.as<hgraph::TS<hgraph::Float>>();"));
+    CHECK(contains(emitted->source, "hgraph::Float{2.0})"));
+    CHECK(contains(emitted->source, "return x_1;"));
 }

@@ -100,10 +100,41 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 # beside `hgl test` and the native-only runtime-node behavior.
 hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl codegen/runtime.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
+hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
+hgl_apply_warnings(hgl_structural_fixture)
+hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
+hgl_apply_warnings(hgl_generic_fixture)
+hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hgl)
+hgl_apply_warnings(hgl_collection_fixture)
+hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
+hgl_apply_warnings(hgl_stateful_fixture)
+hgl_add_module(hgl_basic_examples_fixture STATIC
+    HGL
+        ../examples/midpoint.hgl
+        ../examples/runtime-choice.hgl
+    LINK_LIBRARIES
+        hgraph::analytics
+)
+hgl_apply_warnings(hgl_basic_examples_fixture)
 
-add_executable(hgl_generated_tests codegen/generated_tests.cpp codegen/generated_runtime_tests.cpp)
+add_executable(hgl_generated_tests
+    codegen/generated_tests.cpp
+    codegen/generated_runtime_tests.cpp
+    codegen/generated_structural_tests.cpp
+    codegen/generated_generic_tests.cpp
+    codegen/generated_example_tests.cpp
+)
 target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
-target_link_libraries(hgl_generated_tests PRIVATE hgl_codegen_fixture hgl::wiring Catch2::Catch2WithMain)
+target_link_libraries(hgl_generated_tests PRIVATE
+    hgl_codegen_fixture
+    hgl_structural_fixture
+    hgl_generic_fixture
+    hgl_collection_fixture
+    hgl_stateful_fixture
+    hgl_basic_examples_fixture
+    hgl::wiring
+    Catch2::Catch2WithMain
+)
 hgl_link_runtime_executable(hgl_generated_tests)
 hgl_apply_warnings(hgl_generated_tests)
 
@@ -163,7 +194,7 @@ if(UNIX)
     )
 endif()
 
-# The command itself: composition and the first scalar runtime-node slice emit.
+# The command itself: representative composition and runtime modules emit.
 add_test(
     NAME hgraph_language_emit_midpoint
     COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl --print

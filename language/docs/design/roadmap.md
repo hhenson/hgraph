@@ -2,7 +2,7 @@
 
 Status: initial design
 
-## Prototype checkpoint (2026-09-04)
+## Prototype checkpoint (2026-09-05)
 
 The prototype deliberately permits incompatible AST and implementation
 changes while these slices are being exercised. The current tree implements
@@ -11,30 +11,34 @@ abstract-only single inheritance, effective fields, constructor completeness,
 generic argument roles, and statically decidable closed requirements; and
 directly wires scalar Bundle values, `atomic<S>` values, type-only generic
 specializations, sparse scalar deltas, and simple field-wise temporal structs.
-The generated C++ backend also lowers the first scalar runtime-node subset:
-ordered activation, aggregate recordable state, direct and terminating output,
-and lifecycle hooks over state and `const` configuration.
+The generated C++ backend lowers every checked-in example: ordered activation,
+aggregate scalar recordable state, direct, prior-value, and keyed TSD output,
+logger injection, lifecycle hooks over state and `const` configuration,
+nominal/generic structs and sparse deltas, generic operators, fixed and duration
+windows, concise `map` functions, and borrowed runtime collection iteration.
+Generated headers and sources are mandatory `clang-format` output and public
+operator contracts are transparent aliases rather than derived marker classes.
 
 The implementation fails closed where the public or language contract is not
 settled: multiple-parent field order, constructor inference, typed `const`
-generic Bundle metadata, explicit optional-field clearing, temporal deltas,
-callable generic substitution, replaceable runtime images, portable
-scripted loading, and runtime collection or generic lowering. Slice numbering
+generic Bundle metadata, explicit optional-field clearing, consumption of
+temporal deltas, general callable substitution, portable scripted loading, and
+runtime calls. Slice numbering
 below still describes the intended end-to-end acceptance rather than a claim
 that all earlier deliverables are complete.
 
 The C++ backend exists as a first pass: `hgl emit-cpp` lowers the same
-composition subset the direct-wiring backend accepts, the first scalar runtime
-node subset, and non-generic source `operator` / `impl fn` declarations to a
+composition subset the direct-wiring backend accepts, the runtime forms above,
+and generic source `operator` / `impl fn` declarations to a
 header/source pair, and `hgl_add_module()` builds it into a package with an
 optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
-Structs, generics, duration rolling windows (no compile-time hgraph marker
-yet), compound constant literals, `if` as a value, and runtime constructs
-outside the scalar subset fail closed with a diagnostic that names the
-construct. The REPL edits lines with history and completion on a terminal.
+Generated runtime sources and calls, compound constant literals, `if` as a
+value, and runtime constructs outside the supported selector/output forms fail
+closed with a diagnostic that names the construct. The REPL edits lines with
+history and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,
@@ -131,7 +135,7 @@ Deliverables:
   delta ranges and heterogeneous TSB expansion;
 - hgraph kernel module descriptor;
 - source and imported nominal operator resolution through the hgraph resolver;
-- generated markers and explicit registration for source-defined operator
+- transparent contract aliases and explicit registration for source-defined operator
   implementations;
 - package-target and locked-dependency candidate-universe construction,
   independent of source imports and without declaration re-exports;
@@ -142,9 +146,9 @@ Deliverables:
   candidate removal, failed-install rollback, and live-plan lease support
   (implemented); registration ownership for the remaining module surfaces is
   still required;
-- public hgraph TSW patterns that match a concrete duration window and bind
-  named maximum and minimum size generics of either kind, and a compile-time
-  duration `TSW` marker (the parity matrix records the gap);
+- public hgraph TSW patterns that bind named maximum and minimum size generics
+  of either kind (the wildcard and compile-time duration marker are
+  implemented);
 - standard-library ordering overloads for `Time` and `CivilDateTime`, so the
   language's temporal operation table is hgraph's;
 - a `ZonedTime` core scalar (`CivilTime` plus `ZoneId`, registered as
@@ -156,14 +160,14 @@ Deliverables:
   generics, plus open structural patterns for required-field matching;
 - source mapping (`#line` or a sidecar map; the first pass writes source
   comments) and the module descriptor for generated packages;
-- `hgl emit-cpp` (done for the composition subset and first scalar runtime-node
-  subset) and the
+- `hgl emit-cpp` (done for every checked-in example) and the
   `hgl_add_module()` CMake function that builds packages, including the Python
   extension module and wrappers (done); there is no `hgl build`;
 - the backend parity suite: every `hgl test` the direct-wiring backend
   accepts is also run through generated C++ and must record the same ticks
-  (seeded by `tests/codegen/parity.hgl`; the examples follow as they become
-  emittable).
+  (seeded by `tests/codegen/parity.hgl`; every checked-in example is now
+  generated and compiled, with focused native behavior coverage for the newly
+  supported forms).
 
 The hgraph-side requirements above are tracked here while the language design
 is still moving. Once agreed they are promoted to an RFC in
