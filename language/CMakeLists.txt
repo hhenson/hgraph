@@ -84,6 +84,7 @@ add_library(hgl_syntax STATIC
     src/syntax/syntax_tree.cpp
     src/syntax/ast.cpp
     src/syntax/ast_projection.cpp
+    src/syntax/syntax_diagnostics.cpp
     src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp

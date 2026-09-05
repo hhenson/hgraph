@@ -35,6 +35,8 @@ namespace hgl::syntax
 
         template <ContextToken Kind> inline constexpr auto contextual = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
 
+        template <TokenKind... Kinds> inline constexpr auto token_choice = (token<Kinds> / ...);
+
         inline constexpr auto identifier      = token<TokenKind::Identifier>;
         inline constexpr auto newline         = token<TokenKind::Newline>;
         inline constexpr auto contextual_name = contextual<ContextToken::In> / contextual<ContextToken::Atomic> /
@@ -42,7 +44,22 @@ namespace hgl::syntax
                                                 contextual<ContextToken::Set> / contextual<ContextToken::Map> /
                                                 contextual<ContextToken::Rolling> / contextual<ContextToken::Unbounded> /
                                                 contextual<ContextToken::Delta> / contextual<ContextToken::AppliedConstructor>;
-        inline constexpr auto name            = identifier / contextual_name;
+        inline constexpr auto reserved_name =
+            token_choice<TokenKind::KwModule, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport, TokenKind::KwAbstract,
+                         TokenKind::KwImpl, TokenKind::KwOperator, TokenKind::KwFn, TokenKind::KwStruct, TokenKind::KwConst,
+                         TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState,
+                         TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart,
+                         TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwTest, TokenKind::KwAssert,
+                         TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool,
+                         TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr, TokenKind::KwDate, TokenKind::KwTime,
+                         TokenKind::KwDateTime, TokenKind::KwDuration, TokenKind::KwCivilDateTime, TokenKind::KwZonedDateTime,
+                         TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
+
+        inline constexpr auto ordinary_name = identifier / contextual_name;
+        inline constexpr auto raw_name      = ordinary_name / reserved_name;
+
+        struct name
+        { static constexpr auto rule = raw_name; };
 
         struct newlines
         { static constexpr auto rule = dsl::while_(newline); };
@@ -57,10 +74,10 @@ namespace hgl::syntax
         };
 
         struct module_path
-        { static constexpr auto rule = name + dsl::while_(token<TokenKind::Dot> >> name); };
+        { static constexpr auto rule = dsl::p<name> + dsl::while_(token<TokenKind::Dot> >> dsl::p<name>); };
 
         struct qualified_name
-        { static constexpr auto rule = name >> dsl::if_(token<TokenKind::ColonColon> >> name); };
+        { static constexpr auto rule = dsl::p<name> >> dsl::if_(token<TokenKind::ColonColon> >> dsl::p<name>); };
 
         inline constexpr auto scalar_type = token<TokenKind::KwBool> / token<TokenKind::KwI64> / token<TokenKind::KwF64> /
                                             token<TokenKind::KwStr> / token<TokenKind::KwDate> / token<TokenKind::KwTime> /
@@ -68,13 +85,13 @@ namespace hgl::syntax
                                             token<TokenKind::KwCivilDateTime> / token<TokenKind::KwZonedDateTime> /
                                             token<TokenKind::KwZonedTime> / token<TokenKind::KwTimeZone>;
 
-        inline constexpr auto type_start = scalar_type / name;
+        inline constexpr auto type_start = scalar_type / ordinary_name;
 
         struct expression;
         struct type;
 
         inline constexpr auto expression_start =
-            name / token<TokenKind::Placeholder> / token<TokenKind::IntLiteral> / token<TokenKind::FloatLiteral> /
+            ordinary_name / token<TokenKind::Placeholder> / token<TokenKind::IntLiteral> / token<TokenKind::FloatLiteral> /
             token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> / token<TokenKind::KwTrue> /
             token<TokenKind::KwFalse> / token<TokenKind::KwNull> / token<TokenKind::Minus> / token<TokenKind::Bang> /
             token<TokenKind::LParen> / token<TokenKind::LBracket> / token<TokenKind::KwFn> / token<TokenKind::KwIf> /
@@ -99,8 +116,8 @@ namespace hgl::syntax
         {
             static constexpr auto rule = dsl::peek(contextual<ContextToken::Tuple> + token<TokenKind::Less>) >>
                                          contextual<ContextToken::Tuple> + token<TokenKind::Less> + dsl::p<newlines> +
-                                             dsl::list(dsl::peek(type_start) >> dsl::recurse<type>,
-                                                       dsl::trailing_sep(dsl::p<comma_separator>)) +
+                                             dsl::if_(dsl::list(dsl::peek(type_start) >> dsl::recurse<type>,
+                                                                dsl::trailing_sep(dsl::p<comma_separator>))) +
                                              dsl::p<newlines> + token<TokenKind::Greater>;
         };
 
@@ -155,12 +172,10 @@ namespace hgl::syntax
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> |
-                                         dsl::peek(name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
+                                         dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
                                          dsl::peek(expression_start) >> dsl::recurse<size_expression>;
         };
-
-        template <TokenKind... Kinds> inline constexpr auto token_choice = (token<Kinds> / ...);
 
         template <TokenKind... Kinds> struct continued_operator
         {
@@ -223,8 +238,8 @@ namespace hgl::syntax
 
         struct argument
         {
-            static constexpr auto named = dsl::peek(name + token<TokenKind::Colon>) >>
-                                          name + token<TokenKind::Colon> + dsl::p<newlines> + dsl::recurse<expression>;
+            static constexpr auto named = dsl::peek(raw_name + token<TokenKind::Colon>) >>
+                                          dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + dsl::recurse<expression>;
             static constexpr auto rule  = named | dsl::peek(expression_start) >> dsl::recurse<expression>;
         };
 
@@ -246,7 +261,7 @@ namespace hgl::syntax
         { static constexpr auto rule = dsl::p<arguments>; };
 
         struct field_postfix
-        { static constexpr auto rule = token<TokenKind::Dot> >> name; };
+        { static constexpr auto rule = token<TokenKind::Dot> >> dsl::p<name>; };
 
         struct postfix
         { static constexpr auto rule = dsl::p<call_postfix> | dsl::p<index_postfix> | dsl::p<field_postfix>; };
@@ -261,11 +276,12 @@ namespace hgl::syntax
         struct explicit_construct
         {
             static constexpr auto
-                normal = contextual<ContextToken::AppliedConstructor> >>
-                         dsl::if_(token<TokenKind::ColonColon> >> name) + dsl::p<generic_arguments> + dsl::p<arguments>;
-            static constexpr auto delta = contextual<ContextToken::Delta> >> token<TokenKind::Less> + dsl::p<newlines> +
-                                                                                 dsl::p<type> + dsl::p<newlines> +
-                                                                                 token<TokenKind::Greater> + dsl::p<arguments>;
+                normal = dsl::peek(contextual<ContextToken::AppliedConstructor>) >>
+                         dsl::p<name> +
+                             dsl::if_(token<TokenKind::ColonColon> >> dsl::p<name>) + dsl::p<generic_arguments> + dsl::p<arguments>;
+            static constexpr auto delta = dsl::peek(contextual<ContextToken::Delta>) >>
+                                          dsl::p<name> + token<TokenKind::Less> + dsl::p<newlines> + dsl::p<type> +
+                                              dsl::p<newlines> + token<TokenKind::Greater> + dsl::p<arguments>;
             static constexpr auto rule  = normal | delta;
         };
 
@@ -298,12 +314,14 @@ namespace hgl::syntax
 
         struct tuple_or_group
         {
-            static constexpr auto
-                rule = token<TokenKind::LParen> >>
-                       dsl::p<newlines> + dsl::p<tuple_element> +
-                           dsl::if_(dsl::p<comma_separator> >>
-                                    dsl::if_(dsl::list(dsl::p<tuple_element>, dsl::trailing_sep(dsl::p<comma_separator>)))) +
-                           dsl::p<newlines> + token<TokenKind::RParen>;
+            static constexpr auto rule =
+                token<TokenKind::LParen> >>
+                dsl::p<newlines> +
+                    dsl::if_(dsl::peek(expression_start) >>
+                             dsl::p<tuple_element> +
+                                  dsl::if_(dsl::p<comma_separator> >>
+                                           dsl::if_(dsl::list(dsl::p<tuple_element>, dsl::trailing_sep(dsl::p<comma_separator>))))) +
+                     dsl::p<newlines> + token<TokenKind::RParen>;
         };
 
         struct sequence_element
@@ -324,7 +342,7 @@ namespace hgl::syntax
         };
 
         struct anonymous_parameter
-        { static constexpr auto rule = name >> dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>); };
+        { static constexpr auto rule = dsl::p<name> >> dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>); };
 
         struct anonymous_function
         {
@@ -366,25 +384,25 @@ namespace hgl::syntax
         struct local_decl
         {
             static constexpr auto rule = token_choice<TokenKind::KwLet, TokenKind::KwVar> >>
-                                         name + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
+                                         dsl::p<name> + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
                                              token<TokenKind::Assign> + dsl::p<newlines> + dsl::recurse<expression>;
         };
 
         struct state_decl
         {
             static constexpr auto rule = token<TokenKind::KwState> >>
-                                         name + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
+                                         dsl::p<name> + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
                                              token<TokenKind::Assign> + dsl::p<newlines> + dsl::recurse<expression>;
         };
 
         struct inject_decl
         {
-            static constexpr auto next_name = dsl::peek(dsl::p<newlines> + token<TokenKind::Comma> + dsl::p<newlines> + name) >>
-                                              dsl::p<newlines> + token<TokenKind::Comma> + dsl::p<newlines> + name;
+            static constexpr auto next_name = dsl::peek(dsl::p<newlines> + token<TokenKind::Comma> + dsl::p<newlines> + raw_name) >>
+                                              dsl::p<newlines> + token<TokenKind::Comma> + dsl::p<newlines> + dsl::p<name>;
             static constexpr auto trailing_comma =
                 dsl::peek(dsl::p<newlines> + token<TokenKind::Comma>) >> dsl::p<newlines> + token<TokenKind::Comma>;
             static constexpr auto rule = token<TokenKind::KwInject> >>
-                                         dsl::p<newlines> + name + dsl::while_(next_name) + dsl::if_(trailing_comma);
+                                         dsl::p<newlines> + dsl::p<name> + dsl::while_(next_name) + dsl::if_(trailing_comma);
         };
 
         struct lifecycle_stmt
@@ -396,7 +414,7 @@ namespace hgl::syntax
         struct for_stmt
         {
             static constexpr auto rule = token<TokenKind::KwFor> >>
-                                         name + dsl::if_(token<TokenKind::Comma> >> name) +
+                                         dsl::p<name> + dsl::if_(token<TokenKind::Comma> >> dsl::p<name>) +
                                              contextual<ContextToken::In> + dsl::recurse<expression> + dsl::recurse<block>;
         };
 
@@ -432,8 +450,11 @@ namespace hgl::syntax
 
         struct block_item
         {
-            static constexpr auto rule = dsl::peek(statement_start) >>
+            static constexpr auto item = dsl::peek(statement_start) >>
                                          dsl::p<statement> + (newline >> dsl::p<newlines> | dsl::peek(token<TokenKind::RBrace>));
+            static constexpr auto recovery =
+                dsl::recover(dsl::peek(newline + (statement_start / token<TokenKind::RBrace>)) >> newline);
+            static constexpr auto rule = dsl::try_(item, recovery);
         };
 
         struct block
@@ -445,8 +466,8 @@ namespace hgl::syntax
         struct generic_parameter
         {
             static constexpr auto constant =
-                token<TokenKind::KwConst> >> name + token<TokenKind::Colon> + dsl::p<newlines> + dsl::p<type>;
-            static constexpr auto rule = constant | name;
+                token<TokenKind::KwConst> >> dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + dsl::p<type>;
+            static constexpr auto rule = constant | dsl::p<name>;
         };
 
         struct generic_parameters
@@ -459,7 +480,7 @@ namespace hgl::syntax
 
         struct parameter
         {
-            static constexpr auto regular  = name >>
+            static constexpr auto regular  = dsl::p<name> >>
                                              dsl::try_(token<TokenKind::Colon>) + dsl::p<newlines> + dsl::p<type> +
                                                  dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::recurse<expression>);
             static constexpr auto constant = token<TokenKind::KwConst> >> regular;
@@ -490,13 +511,13 @@ namespace hgl::syntax
 
         struct constraint_call
         {
-            static constexpr auto
-                rule = dsl::peek(name + dsl::if_(token<TokenKind::ColonColon> >> name) + token<TokenKind::LParen>) >>
-                       dsl::p<qualified_name> + token<TokenKind::LParen> + dsl::p<newlines> +
-                           dsl::if_(dsl::list(dsl::peek(type_start / expression_start / token<TokenKind::LBrace>) >>
-                                                  dsl::recurse<constraint_operand>,
-                                              dsl::trailing_sep(dsl::p<comma_separator>))) +
-                           dsl::p<newlines> + token<TokenKind::RParen>;
+            static constexpr auto rule =
+                dsl::peek(ordinary_name + dsl::if_(token<TokenKind::ColonColon> >> ordinary_name) + token<TokenKind::LParen>) >>
+                dsl::p<qualified_name> + token<TokenKind::LParen> + dsl::p<newlines> +
+                    dsl::if_(dsl::list(dsl::peek(type_start / expression_start / token<TokenKind::LBrace>) >>
+                                           dsl::recurse<constraint_operand>,
+                                       dsl::trailing_sep(dsl::p<comma_separator>))) +
+                    dsl::p<newlines> + token<TokenKind::RParen>;
         };
 
         struct constraint_operand
@@ -508,15 +529,15 @@ namespace hgl::syntax
             static constexpr auto rule =
                 dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                 dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<constraint_call> |
-                dsl::peek(name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> |
-                dsl::peek(value_start) >> dsl::recurse<size_expression> | name;
+                dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> |
+                dsl::peek(value_start) >> dsl::recurse<size_expression> | dsl::p<name>;
         };
 
         struct constraint_term
         {
             static constexpr auto relation    = token<TokenKind::EqualEqual> >> dsl::p<constraint_operand> |
                                                 contextual<ContextToken::In> >> dsl::p<constraint_operand> |
-                                                token<TokenKind::KwIs> >> (token<TokenKind::KwStruct> | name);
+                                                token<TokenKind::KwIs> >> (token<TokenKind::KwStruct> | dsl::p<name>);
             static constexpr auto requirement = token<TokenKind::Arrow> >> dsl::p<newlines> + dsl::p<type>;
             static constexpr auto atom        = token<TokenKind::Bang> >> dsl::recurse<constraint_term> |
                                                 token<TokenKind::LParen> >> dsl::p<newlines> + dsl::recurse<constraint> +
@@ -555,22 +576,23 @@ namespace hgl::syntax
                 dsl::peek(token<TokenKind::KwExport> + token<TokenKind::KwFn>) | token<TokenKind::KwImpl> | token<TokenKind::KwFn>;
             static constexpr auto
                 rule = dsl::peek(start) >>
-                       dsl::opt(visibility) + token<TokenKind::KwFn> + name
-                           + dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> +
-                           (newline >> dsl::p<newlines> + body | body);
+                       dsl::opt(visibility) + token<TokenKind::KwFn> + dsl::p<name> + dsl::if_(dsl::p<generic_parameters>) +
+                           dsl::p<signature> + dsl::p<optional_requires_clause> + (newline >> dsl::p<newlines> + body | body);
         };
 
         struct operator_decl
         {
-            static constexpr auto
-                rule = token<TokenKind::KwOperator> >>
-                       name + dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause>;
+            static constexpr auto body = dsl::p<continued_operator<TokenKind::FatArrow>> >> dsl::p<expression> | dsl::p<block>;
+            static constexpr auto rule =
+                token<TokenKind::KwOperator> >>
+                dsl::p<name> +
+                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> + dsl::if_(body);
         };
 
         struct struct_member
         {
             static constexpr auto rule =
-                name >>
+                dsl::p<name> >>
                 (token<TokenKind::Colon> >>
                      dsl::p<newlines> + dsl::p<type> + dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::p<expression>) |
                  token<TokenKind::Assign> >> dsl::p<newlines> + dsl::p<expression>);
@@ -578,8 +600,8 @@ namespace hgl::syntax
 
         struct struct_body_item
         {
-            static constexpr auto rule =
-                dsl::peek(name) >> dsl::p<struct_member> + (newline >> dsl::p<newlines> | dsl::peek(token<TokenKind::RBrace>));
+            static constexpr auto rule = dsl::peek(dsl::p<name>) >> dsl::p<struct_member> + (newline >> dsl::p<newlines> |
+                                                                                             dsl::peek(token<TokenKind::RBrace>));
         };
 
         struct struct_decl
@@ -595,23 +617,23 @@ namespace hgl::syntax
                 dsl::peek(token<TokenKind::KwAbstract> + token<TokenKind::KwStruct>) | token<TokenKind::KwStruct>;
             static constexpr auto
                 rule = dsl::peek(start) >>
-                       modifiers + token<TokenKind::KwStruct> + name +
+                       modifiers + token<TokenKind::KwStruct> + dsl::p<name> +
                            dsl::if_(dsl::p<generic_parameters>) + dsl::if_(parents) + dsl::p<optional_requires_clause> +
                            (newline >> dsl::p<newlines> + body | body);
         };
 
         struct use_decl
         {
-            static constexpr auto import_set =
-                token<TokenKind::ColonColon> >>
-                token<TokenKind::LBrace> + dsl::p<newlines> +
-                    dsl::list(name, dsl::trailing_sep(dsl::p<comma_separator>)) + dsl::p<newlines> + token<TokenKind::RBrace>;
-            static constexpr auto alias = token<TokenKind::KwAs> >> name;
-            static constexpr auto rule  = token<TokenKind::KwUse> >> dsl::p<module_path> + (import_set | alias);
+            static constexpr auto import_set = token<TokenKind::ColonColon> >>
+                                               token<TokenKind::LBrace> + dsl::p<newlines> +
+                                                   dsl::if_(dsl::list(dsl::p<name>, dsl::trailing_sep(dsl::p<comma_separator>))) +
+                                                   dsl::p<newlines> + token<TokenKind::RBrace>;
+            static constexpr auto alias      = token<TokenKind::KwAs> >> dsl::p<name>;
+            static constexpr auto rule       = token<TokenKind::KwUse> >> dsl::p<module_path> + (import_set | alias);
         };
 
         struct test_decl
-        { static constexpr auto rule = token<TokenKind::KwTest> >> name + dsl::p<block>; };
+        { static constexpr auto rule = token<TokenKind::KwTest> >> dsl::p<name> + dsl::p<block>; };
 
         struct declaration
         {
@@ -619,16 +641,27 @@ namespace hgl::syntax
                 dsl::p<use_decl> | dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
         };
 
+        inline constexpr auto declaration_start =
+            token<TokenKind::KwUse> / token<TokenKind::KwFn> / token<TokenKind::KwOperator> / token<TokenKind::KwStruct> /
+            token<TokenKind::KwTest> / token<TokenKind::KwExport> / token<TokenKind::KwImpl> / token<TokenKind::KwAbstract>;
+
         struct declaration_line
-        { static constexpr auto rule = dsl::p<declaration> >> dsl::p<line_end>; };
+        {
+            static constexpr auto line     = dsl::p<declaration> >> dsl::p<line_end>;
+            static constexpr auto recovery = dsl::recover(dsl::peek(newline + declaration_start) >> newline);
+            static constexpr auto rule     = dsl::try_(line, recovery);
+        };
+
+        struct invalid_declaration_line
+        { static constexpr auto rule = dsl::peek_not(dsl::eof) >> dsl::until(newline).or_eof(); };
 
         struct module_decl
         { static constexpr auto rule = token<TokenKind::KwModule> >> dsl::p<module_path>; };
 
         struct module
         {
-            static constexpr auto rule =
-                dsl::p<newlines> + dsl::p<module_decl> + dsl::p<line_end> + dsl::while_(dsl::p<declaration_line>) + dsl::eof;
+            static constexpr auto rule = dsl::p<newlines> + dsl::try_(dsl::p<module_decl> + dsl::p<line_end>) +
+                                         dsl::while_(dsl::p<declaration_line> | dsl::p<invalid_declaration_line>) + dsl::eof;
         };
     }  // namespace grammar
 
@@ -659,7 +692,8 @@ namespace hgl::syntax
 
         [[nodiscard]] std::uint8_t encode(std::span<const Token> tokens, std::size_t position) noexcept {
             const Token &token = tokens[position];
-            if (token.kind == TokenKind::Identifier && token.text == "delta") {
+            if (token.kind == TokenKind::Identifier && token.text == "delta" && position + 1 < tokens.size() &&
+                tokens[position + 1].kind == TokenKind::Less) {
                 return static_cast<std::uint8_t>(grammar::ContextToken::Delta);
             }
             if (looks_like_applied_constructor(tokens, position)) {
@@ -817,6 +851,21 @@ namespace hgl::syntax
                 }
                 output.tree.issues.push_back(issue);
             }
+            for (const SyntaxNode &node : output.tree.nodes) {
+                if (node.kind != SyntaxKind::InvalidDeclarationLine) { continue; }
+                output.tree.issues.push_back(
+                    SyntaxIssue{SyntaxIssueKind::Unexpected, node.range, std::nullopt, SyntaxKind::Module});
+                output.grammar.recovered = true;
+                ++output.grammar.error_count;
+                for (std::size_t index = 0; index < tokens.size(); ++index) {
+                    if (tokens[index].range.begin < node.range.begin) { continue; }
+                    output.grammar.first_error_token = std::min(output.grammar.first_error_token, index);
+                    break;
+                }
+            }
+            std::stable_sort(
+                output.tree.issues.begin(), output.tree.issues.end(),
+                [](const SyntaxIssue &left, const SyntaxIssue &right) { return left.range.begin < right.range.begin; });
             return output;
         }
     }  // namespace

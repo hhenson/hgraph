@@ -27,8 +27,9 @@ namespace hgl::syntax
                     if (node(child).kind == SyntaxKind::ModuleDecl) {
                         add_declaration(project_module_decl(child));
                     } else if (node(child).kind == SyntaxKind::DeclarationLine) {
-                        const SyntaxNodeId declaration = only_child(child, SyntaxKind::Declaration);
-                        add_declaration(project_declaration(declaration));
+                        if (const auto declaration = find_child(child, SyntaxKind::Declaration)) {
+                            add_declaration(project_declaration(*declaration));
+                        }
                     }
                 }
                 return std::move(module_);
@@ -140,10 +141,23 @@ namespace hgl::syntax
                 return ast::Name{token.text, token.range};
             }
 
-            [[nodiscard]] std::vector<ast::Name> direct_names(SyntaxNodeId id) const {
+            [[nodiscard]] std::vector<ast::Name> direct_names(SyntaxNodeId id, std::string_view role = {}) {
                 std::vector<ast::Name> names;
-                for (const SyntaxTokenId child : child_tokens(id)) {
-                    if (source_token(child).kind == TokenKind::Identifier) { names.push_back(name(child)); }
+                const auto             append_name = [&](SyntaxNodeId name_node) {
+                    const std::vector<SyntaxTokenId> tokens = child_tokens(name_node);
+                    require(tokens.size() == 1, "name production does not contain exactly one token");
+                    const Token &token = source_token(tokens.front());
+                    if (!role.empty() && is_keyword(token.kind)) {
+                        diagnostics_.report(Category::Parse, token.range,
+                                            "'" + std::string{token.text} + "' is a reserved word and cannot be used as " +
+                                                std::string{role});
+                    }
+                    names.push_back(name(tokens.front()));
+                };
+                if (node(id).kind == SyntaxKind::Name) {
+                    append_name(id);
+                } else {
+                    for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Name)) { append_name(child); }
                 }
                 return names;
             }
@@ -240,14 +254,18 @@ namespace hgl::syntax
                         for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Type)) {
                             type.children.push_back(project_type(child, value_position));
                         }
+                        if (type.children.empty()) {
+                            diagnostics_.report(Category::Parse, syntax.range, "a tuple type has at least one element");
+                        }
                         break;
                     case SyntaxKind::ListType:
                         {
                             type.kind = ast::TypeKind::List;
                             type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
-                            const std::vector<ast::Name> names = direct_names(id);
-                            type.unbounded                     = std::ranges::any_of(
-                                names, [](const ast::Name &candidate) { return candidate.text == "unbounded"; });
+                            const std::vector<SyntaxTokenId> tokens = descendant_tokens(id);
+                            type.unbounded                          = std::ranges::any_of(tokens, [&](SyntaxTokenId token) {
+                                return source_token(token).kind == TokenKind::Identifier && source_token(token).text == "unbounded";
+                            });
                             if (const auto size = find_child(id, SyntaxKind::SizeExpression)) {
                                 type.size = project_expression(*size);
                             }
@@ -300,6 +318,8 @@ namespace hgl::syntax
                             } else {
                                 argument.value = project_expression(value);
                             }
+                        } else if (node(value).kind == SyntaxKind::Name) {
+                            argument.name = direct_names(value).front();
                         } else {
                             argument.type = project_type(value, true);
                         }
@@ -481,7 +501,10 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::ExprId project_tuple(SyntaxNodeId id) {
                 const std::vector<SyntaxNodeId> elements = child_nodes(id, SyntaxKind::TupleElement);
-                require(!elements.empty(), "tuple or group has no expression");
+                if (elements.empty()) {
+                    diagnostics_.report(Category::Parse, node(id).range, "expected an expression; '()' is not a value");
+                    return module_.add(ast::Expr{node(id).range, ast::TupleLiteral{}});
+                }
                 if (elements.size() == 1 && child_nodes(id, SyntaxKind::CommaSeparator).empty()) {
                     return project_expression(elements.front());
                 }
@@ -596,7 +619,9 @@ namespace hgl::syntax
                 ast::Block result;
                 result.range = node(id).range;
                 for (const SyntaxNodeId item : child_nodes(id, SyntaxKind::BlockItem)) {
-                    result.statements.push_back(project_statement(only_child(item, SyntaxKind::Statement)));
+                    if (const auto statement = find_child(item, SyntaxKind::Statement)) {
+                        result.statements.push_back(project_statement(*statement));
+                    }
                 }
                 if (!result.statements.empty()) {
                     const ast::Stmt &last = module_.stmt(result.statements.back());
@@ -615,7 +640,7 @@ namespace hgl::syntax
                             const std::vector<SyntaxTokenId> tokens = child_tokens(statement);
                             require(!tokens.empty(), "local declaration has no introducer");
                             result.mutable_                    = source_token(tokens.front()).kind == TokenKind::KwVar;
-                            const std::vector<ast::Name> names = direct_names(statement);
+                            const std::vector<ast::Name> names = direct_names(statement, "a variable name");
                             require(names.size() == 1, "local declaration has an invalid name");
                             result.name = names.front();
                             if (const auto type = find_child(statement, SyntaxKind::Type)) {
@@ -801,6 +826,12 @@ namespace hgl::syntax
                 result.lhs = lhs;
                 if (*relation == ast::ConstraintRelationOp::Is) {
                     bool found = false;
+                    for (const SyntaxNodeId category : child_nodes(id, SyntaxKind::Name)) {
+                        const std::vector<ast::Name> names = direct_names(category);
+                        require(names.size() == 1, "is relation category has an invalid name");
+                        result.category = names.front();
+                        found           = true;
+                    }
                     for (const SyntaxTokenId token : tokens) {
                         const Token &source = source_token(token);
                         if (source.kind == TokenKind::Identifier || source.kind == TokenKind::KwStruct) {
@@ -864,6 +895,12 @@ namespace hgl::syntax
                                 return module_.add(
                                     ast::Constraint{module_.expr(expression).range, ast::ConstraintValue{expression}});
                             }
+                        case SyntaxKind::Name:
+                            {
+                                const std::vector<ast::Name> names = direct_names(value);
+                                require(names.size() == 1, "constraint name has an invalid shape");
+                                return module_.add(ast::Constraint{node(value).range, ast::ConstraintName{names.front()}});
+                            }
                         default: malformed("invalid constraint operand child");
                     }
                 }
@@ -891,7 +928,7 @@ namespace hgl::syntax
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::GenericParameter)) {
                     ast::GenericParameter parameter;
                     parameter.is_const                 = !child_tokens(child, TokenKind::KwConst).empty();
-                    const std::vector<ast::Name> names = direct_names(child);
+                    const std::vector<ast::Name> names = direct_names(child, "a generic parameter name");
                     require(names.size() == 1, "generic parameter has an invalid name");
                     parameter.name = names.front();
                     if (parameter.is_const) { parameter.type = project_type(only_child(child, SyntaxKind::Type), true); }
@@ -905,7 +942,7 @@ namespace hgl::syntax
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Parameter)) {
                     ast::Parameter parameter;
                     parameter.is_const                 = !child_tokens(child, TokenKind::KwConst).empty();
-                    const std::vector<ast::Name> names = direct_names(child);
+                    const std::vector<ast::Name> names = direct_names(child, "a parameter name");
                     require(names.size() == 1, "parameter has an invalid name");
                     parameter.name = names.front();
                     parameter.type = project_type(only_child(child, SyntaxKind::Type), parameter.is_const);
@@ -956,12 +993,14 @@ namespace hgl::syntax
             [[nodiscard]] ast::Decl project_use_decl(SyntaxNodeId id) {
                 ast::UseDecl result;
                 result.path                        = direct_names(only_child(id, SyntaxKind::ModulePath));
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "an imported name");
                 if (!child_tokens(id, TokenKind::KwAs).empty()) {
                     require(names.size() == 1, "aliased use declaration has an invalid alias");
                     result.alias = names.front();
                 } else {
-                    require(!names.empty(), "selective use declaration imports no names");
+                    if (names.empty()) {
+                        diagnostics_.report(Category::Parse, node(id).range, "an import set names at least one declaration");
+                    }
                     result.names = names;
                 }
                 return ast::Decl{node(id).range, std::move(result)};
@@ -974,7 +1013,7 @@ namespace hgl::syntax
                 } else if (!child_tokens(id, TokenKind::KwImpl).empty()) {
                     result.visibility = ast::FunctionVisibility::Impl;
                 }
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "a function name");
                 require(names.size() == 1, "function has an invalid name");
                 result.name = names.front();
                 if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
@@ -1000,6 +1039,10 @@ namespace hgl::syntax
                 }
                 result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
                 result.requirements = project_optional_requires(id);
+                if (find_child(id, SyntaxKind::Expression) || find_child(id, SyntaxKind::Block)) {
+                    diagnostics_.report(Category::Parse, node(id).range,
+                                        "an operator declaration has no body; implement it with 'impl fn'");
+                }
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
