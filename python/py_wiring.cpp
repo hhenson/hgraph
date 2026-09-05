@@ -875,7 +875,9 @@ namespace hgraph::python_bridge
             else if (nb::isinstance<PyTsType>(object))
             {
                 arg.kind         = WiringArg::Kind::Scalar;
-                arg.scalar_value = Value{PyTsMetaRef{nb::cast<PyTsType &>(object).meta}};
+                // A type argument (RFC 0033); the carrier scalar registers on first use.
+                arg.scalar_meta  = scalar_descriptor<TypeCarrier>::value_meta();
+                arg.scalar_value = Value{TypeCarrier::of_ts(nb::cast<PyTsType &>(object).meta)};
                 arg.scalar_meta  = arg.scalar_value.schema();
             }
             else if (nb::isinstance<PyWiredFn>(object))

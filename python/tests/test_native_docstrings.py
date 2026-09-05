@@ -127,7 +127,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert len(overloads) > 1
         assert any(
             [(name, pattern, has_default)
-             for name, _, pattern, has_default in parameters]
+             for name, _, pattern, has_default, _ in parameters]
             == [("lhs", "TS[int]", False), ("rhs", "TS[int]", False)]
             and has_output and output_pattern == "TS[int]"
             for (parameters, _, _, _, _, has_output, output_pattern) in overloads
@@ -138,7 +138,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         # in-memory shapes.
         replay_overloads = _hgraph.operator_overload_signatures("replay")
         assert any(
-            ("recordable_id", False, "str", True) in parameters
+            ("recordable_id", False, "str", True, None) in parameters
             for parameters, *_ in replay_overloads
         )
 

@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/type_carrier.h>   // ResolutionKind, TypeCarrier
 
 #include <fmt/format.h>
 
@@ -19,15 +20,6 @@
 
 namespace hgraph
 {
-    /** The three disjoint binding stores carried by ``ResolutionMap``. */
-    enum class ResolutionKind
-    {
-        TimeSeries,
-        Scalar,
-        Size,
-        Any
-    };
-
     /**
      * Wiring-time resolution of type variables (``TsVar`` / ``ScalarVar``) to concrete
      * registry metadata. A generic node is authored once over deferred schemas; at the

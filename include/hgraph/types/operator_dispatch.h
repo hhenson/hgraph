@@ -198,22 +198,70 @@ namespace hgraph
         };
     }  // namespace operator_dispatch_detail
 
-    /** One operator parameter pattern: an input (time-series) pattern or a scalar pattern. */
+    /**
+     * One operator parameter pattern: an input (time-series) pattern, a scalar
+     * pattern, or a *type argument* (RFC 0033) whose carried pattern is
+     * matched against the type the caller passes.
+     */
     struct ParamPattern
     {
         enum class Kind
         {
             Input,
-            Scalar
+            Scalar,
+            TypeArg
         };
 
         Kind          kind{Kind::Input};
         std::string   name{};     ///< Wiring parameter name when available.
-        TypePattern   ts{};       ///< ``Input``.
-        ScalarPattern scalar{};   ///< ``Scalar``.
-        /** Default for an omitted argument (scalars; the impl's ``defaults()`` hook). */
+        /** ``Input``; ``TypeArg``: the carried time-series pattern, or the size
+            pattern (a ``TSL`` shell whose ``size_name``/``fixed_size`` is the
+            carried size). */
+        TypePattern   ts{};
+        ScalarPattern scalar{};   ///< ``Scalar``; ``TypeArg``: the carried scalar pattern.
+        /** Default for an omitted argument (scalars; the impl's ``defaults()`` hook;
+            a ``TypeCarrier`` value for a type argument). */
         std::optional<Value> default_value{};
+
+        // ---- TypeArg only ----
+        /** Which form the carrier takes: a time-series schema, a scalar schema or a size. */
+        ResolutionKind carrier{ResolutionKind::TimeSeries};
+        /** A deferred default: a pattern resolved in the candidate's map after
+            the resolvers ran (``AutoResolve`` lowers to the carried pattern
+            itself; another pattern type to that pattern). The one of ``ts`` /
+            ``scalar`` that matches ``carrier`` is used. */
+        struct DeferredCarrier
+        {
+            TypePattern   ts{};
+            ScalarPattern scalar{};
+        };
+        std::optional<DeferredCarrier> default_pattern{};
+
+        [[nodiscard]] bool has_default() const noexcept
+        {
+            return default_value.has_value() || default_pattern.has_value();
+        }
     };
+
+    /**
+     * Match a supplied type argument against a ``TypeArg`` parameter's carried
+     * pattern, binding variables in ``map``. Fails when the carrier's form
+     * differs from the parameter's (``carrier``) or the carried type does not
+     * match; ``why`` receives the reason when supplied.
+     */
+    [[nodiscard]] HGRAPH_EXPORT bool type_carrier_match(const ParamPattern &param,
+                                                        const TypeCarrier  &carrier,
+                                                        ResolutionMap      &map,
+                                                        std::string        *why = nullptr);
+    /**
+     * Resolve a deferred type argument's default pattern in ``map``. Empty
+     * while a variable it needs is still unbound (the dispatcher retries at
+     * its fixed point) or when the parameter has no deferred default.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::optional<TypeCarrier>
+    materialise_deferred_carrier(const ParamPattern &param, const ResolutionMap &map);
+    /** ``type[...]`` label of a ``TypeArg`` parameter's carried pattern. */
+    [[nodiscard]] HGRAPH_EXPORT std::string type_arg_pattern_to_string(const ParamPattern &param);
 
     /** Scalar-aware view of one operator call, passed to optional resolvers / predicates. */
     struct OperatorCallContext
@@ -232,7 +280,7 @@ namespace hgraph
         {
             for (std::size_t i = 0; i < args.size() && i < params.size(); ++i)
             {
-                if (params[i].kind == ParamPattern::Kind::Scalar &&
+                if (params[i].kind != ParamPattern::Kind::Input &&
                     params[i].name == name &&
                     args[i].kind == WiringArg::Kind::Scalar)
                 {
@@ -380,9 +428,12 @@ namespace hgraph
     {
         std::string        name{};
         ParamPattern::Kind kind{ParamPattern::Kind::Input};
-        /** Human-readable native type pattern (for example ``TS[int]`` or ``T``). */
+        /** Human-readable native type pattern (for example ``TS[int]``, ``T``, ``type[TS[T]]``). */
         std::string        type_pattern{};
         bool               has_default{false};
+        /** ``TypeArg`` only: the form the carrier takes, so a bridge can name
+            the carried pattern's variables in the right vocabulary. */
+        std::optional<ResolutionKind> carrier{};
     };
 
     /**
@@ -534,6 +585,20 @@ namespace hgraph
             output operators - a bare subscript type is then an INPUT
             constraint (``to_json[tp]``). Unknown names return true. */
         [[nodiscard]] bool output_is_selective(std::string_view name) const;
+        /**
+         * The type-argument parameters of an operator family (RFC 0033): the
+         * names some candidate declares as ``TypeArg`` and the positions they
+         * occupy. Registration keeps a name's role consistent across the
+         * family, so the answer is a property of the operator, which is what
+         * lets a bridge decide whether an argument is a type before it
+         * knows the winning candidate.
+         */
+        struct CarrierParameters
+        {
+            std::vector<std::string> names{};
+            std::vector<std::size_t> positions{};
+        };
+        [[nodiscard]] CarrierParameters carrier_parameters(std::string_view name) const;
 
         /** Common time-series callable shape for higher-order erasure.
             Returns nullopt when overloads disagree or require scalar
@@ -824,6 +889,86 @@ namespace hgraph
         }
 
         // Build the runtime parameter patterns (in eval order) for a C++ static-node implementation.
+        // ---- TypeArg lowering (RFC 0033) ----
+        template <typename P> struct size_var_traits;
+        template <fixed_string Name, std::size_t... C>
+        struct size_var_traits<SizeVar<Name, C...>>
+        {
+            static std::string              name() { return std::string{Name.sv()}; }
+            static std::vector<std::size_t> constraints() { return {C...}; }
+        };
+        template <typename P> struct is_size_var_marker : std::false_type {};
+        template <fixed_string Name, std::size_t... C>
+        struct is_size_var_marker<SizeVar<Name, C...>> : std::true_type {};
+
+        template <typename P> struct is_ts_marker : std::false_type {};
+        template <typename V> struct is_ts_marker<TS<V>> : std::true_type {};
+        template <typename V> struct is_ts_marker<TSS<V>> : std::true_type {};
+        template <typename K, typename V> struct is_ts_marker<TSD<K, V>> : std::true_type {};
+        template <typename E, auto N> struct is_ts_marker<TSL<E, N>> : std::true_type {};
+        template <typename V, std::size_t P, std::size_t M> struct is_ts_marker<TSW<V, P, M>> : std::true_type {};
+        template <typename V> struct is_ts_marker<TSWAny<V>> : std::true_type {};
+        template <typename S> struct is_ts_marker<REF<S>> : std::true_type {};
+        template <> struct is_ts_marker<SIGNAL> : std::true_type {};
+        template <typename... F> struct is_ts_marker<UnNamedTSB<F...>> : std::true_type {};
+        template <fixed_string N, typename... F> struct is_ts_marker<TSB<N, F...>> : std::true_type {};
+        template <fixed_string N, typename... C> struct is_ts_marker<TsVar<N, C...>> : std::true_type {};
+
+        /** Lower a carried pattern type to its form and pattern. */
+        template <typename P>
+        void lower_carried_pattern(ResolutionKind &carrier, TypePattern &ts, ScalarPattern &scalar)
+        {
+            if constexpr (is_size_var_marker<P>::value)
+            {
+                carrier = ResolutionKind::Size;
+                ts      = TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"),
+                                               size_var_traits<P>::name(), size_var_traits<P>::constraints());
+            }
+            else if constexpr (is_ts_marker<P>::value)
+            {
+                carrier = ResolutionKind::TimeSeries;
+                ts      = to_pattern<P>();
+            }
+            else
+            {
+                carrier = ResolutionKind::Scalar;
+                scalar  = to_scalar_pattern<P>();
+            }
+        }
+
+        template <typename P>
+        [[nodiscard]] ParamPattern type_arg_param_pattern(std::string name)
+        {
+            using pattern_type = typename P::pattern_type;
+            using default_type = typename P::default_type;
+            // Declaring a type argument registers the carrier scalar, so
+            // Value{TypeCarrier} is constructible wherever a family with one
+            // exists (and again after every registry reset, through the
+            // standard operators that declare it).
+            static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+            ParamPattern pp;
+            pp.kind = ParamPattern::Kind::TypeArg;
+            pp.name = std::move(name);
+            lower_carried_pattern<pattern_type>(pp.carrier, pp.ts, pp.scalar);
+            if constexpr (std::is_same_v<default_type, AutoResolve>)
+            {
+                pp.default_pattern = ParamPattern::DeferredCarrier{pp.ts, pp.scalar};
+            }
+            else if constexpr (!std::is_void_v<default_type>)
+            {
+                ParamPattern::DeferredCarrier deferred;
+                ResolutionKind                form{};
+                lower_carried_pattern<default_type>(form, deferred.ts, deferred.scalar);
+                if (form != pp.carrier)
+                {
+                    throw std::logic_error("TypeArg '" + pp.name +
+                                           "' default pattern is not the same form as its carried pattern");
+                }
+                pp.default_pattern = std::move(deferred);
+            }
+            return pp;
+        }
+
         template <typename Impl>
         [[nodiscard]] std::vector<ParamPattern> build_node_params()
         {
@@ -841,6 +986,10 @@ namespace hgraph
                             pp.kind = ParamPattern::Kind::Input;
                             pp.name = std::string{P::field_name.sv()};
                             pp.ts   = to_pattern<typename graph_wiring_detail::in_param_schema<P>::type>();
+                        }
+                        else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+                        {
+                            pp = type_arg_param_pattern<P>(std::string{P::field_name.sv()});
                         }
                         else
                         {
@@ -932,6 +1081,10 @@ namespace hgraph
                     pp.ts = TypePattern::var(std::string{"__erased_port_"} + std::to_string(I));
                 }
             }
+            else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+            {
+                pp = type_arg_param_pattern<P>(std::string{P::field_name.sv()});
+            }
             else
             {
                 pp.kind   = ParamPattern::Kind::Scalar;
@@ -972,8 +1125,9 @@ namespace hgraph
                         else if constexpr (layout::variadic && I > layout::variadic_index &&
                                            I < layout::pattern_total)
                         {
-                            static_assert(static_node_detail::is_scalar_selector<P>::value,
-                                          "parameters after VarIn must be keyword-only Scalar<\"name\", T>");
+                            static_assert(static_node_detail::is_scalar_selector<P>::value ||
+                                              static_node_detail::is_type_arg_selector<P>::value,
+                                          "parameters after VarIn must be keyword-only Scalar<\"name\", T> or TypeArg");
                         }
                     }(),
                     ...);
@@ -1219,6 +1373,15 @@ namespace hgraph
             {
                 return make_graph_port_arg<Param>(w, map, arg);
             }
+            else if constexpr (static_node_detail::is_type_arg_selector<Param>::value)
+            {
+                const auto *carrier = arg.scalar_value.template try_as<TypeCarrier>();
+                if (carrier == nullptr)
+                {
+                    throw std::logic_error("operator graph type argument is not a resolved TypeCarrier");
+                }
+                return Param{*carrier};
+            }
             else
             {
                 return make_graph_scalar_arg<Param>(map, arg);
@@ -1324,11 +1487,31 @@ namespace hgraph
             }
         }
 
+        /** A type argument ranks by its carried pattern: ``type[TS[int]]`` beats
+            ``type[TS[SCALAR]]``; a size variable costs one point. */
+        inline void collect_param_rank(const ParamPattern &param, RankAccumulator &acc)
+        {
+            switch (param.kind)
+            {
+                case ParamPattern::Kind::Input: collect_ts_rank(param.ts, acc); break;
+                case ParamPattern::Kind::Scalar: collect_scalar_rank(param.scalar, acc, 1); break;
+                case ParamPattern::Kind::TypeArg:
+                    switch (param.carrier)
+                    {
+                        case ResolutionKind::TimeSeries: collect_ts_rank(param.ts, acc); break;
+                        case ResolutionKind::Scalar: collect_scalar_rank(param.scalar, acc, 1); break;
+                        default:
+                            if (param.ts.size_var) { acc.add_var("size:" + param.ts.size_name, 1); }
+                            break;
+                    }
+                    break;
+            }
+        }
+
         [[nodiscard]] inline int param_pattern_rank(const ParamPattern &param)
         {
             RankAccumulator acc;
-            if (param.kind == ParamPattern::Kind::Input) { collect_ts_rank(param.ts, acc); }
-            else { collect_scalar_rank(param.scalar, acc, 1); }
+            collect_param_rank(param, acc);
             return acc.total();
         }
 
@@ -1337,12 +1520,7 @@ namespace hgraph
         {
             RankAccumulator   acc;
             const std::size_t count = skip_variadic_tail && !params.empty() ? params.size() - 1 : params.size();
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                const ParamPattern &p = params[i];
-                if (p.kind == ParamPattern::Kind::Input) { collect_ts_rank(p.ts, acc); }
-                else { collect_scalar_rank(p.scalar, acc, 1); }
-            }
+            for (std::size_t i = 0; i < count; ++i) { collect_param_rank(params[i], acc); }
             return acc.total();
         }
 
@@ -1357,9 +1535,13 @@ namespace hgraph
             {
                 if (i != 0) { out += ", "; }
                 if (impl.variadic && i + 1 == params.size()) { out += "*"; }
-                out += params[i].kind == ParamPattern::Kind::Input ? ts_pattern_to_string(params[i].ts)
-                                                                   : scalar_pattern_to_string(params[i].scalar);
-                if (params[i].default_value.has_value()) { out += "=…"; }
+                switch (params[i].kind)
+                {
+                    case ParamPattern::Kind::Input: out += ts_pattern_to_string(params[i].ts); break;
+                    case ParamPattern::Kind::Scalar: out += scalar_pattern_to_string(params[i].scalar); break;
+                    case ParamPattern::Kind::TypeArg: out += "type[" + type_arg_pattern_to_string(params[i]) + "]"; break;
+                }
+                if (params[i].has_default()) { out += "=…"; }
             }
             if (impl.has_kwargs)
             {
@@ -1464,6 +1646,19 @@ namespace hgraph
                         result.scalar_meta  = scalar_descriptor<WiredFn>::value_meta();
                         result.scalar_value = Value{static_cast<WiredFn>(arg)};
                     }
+                    else if constexpr (std::is_pointer_v<AA> &&
+                                       std::is_convertible_v<AA, const TSValueTypeMetaData *>)
+                    {
+                        // A schema pointer is a type argument (RFC 0033).
+                        result.scalar_meta  = scalar_descriptor<TypeCarrier>::value_meta();
+                        result.scalar_value = Value{TypeCarrier::of_ts(arg)};
+                    }
+                    else if constexpr (std::is_pointer_v<AA> &&
+                                       std::is_convertible_v<AA, const ValueTypeMetaData *>)
+                    {
+                        result.scalar_meta  = scalar_descriptor<TypeCarrier>::value_meta();
+                        result.scalar_value = Value{TypeCarrier::of_scalar(arg)};
+                    }
                     else if constexpr (static_node_detail::is_scalar_selector<AA>::value)
                     {
                         result.scalar_meta = graph_wiring_detail::scalar_argument_meta(arg);
@@ -1517,6 +1712,11 @@ namespace hgraph
                 // unwired input).
                 throw std::logic_error("operator scalar default value must not be empty");
             }
+            if (it->kind == ParamPattern::Kind::TypeArg &&
+                value.schema() != scalar_descriptor<TypeCarrier>::value_meta())
+            {
+                throw std::logic_error("operator type-argument default must be a TypeCarrier");
+            }
             it->default_value = std::move(value);
         }
 
@@ -1530,7 +1730,16 @@ namespace hgraph
                 {
                     std::apply(
                         [&](const auto &...entries) {
-                            (apply_one_param_default(impl, entries.name, Value{entries.value}), ...);
+                            (
+                                [&] {
+                                    if constexpr (std::is_same_v<std::remove_cvref_t<decltype(entries.value)>,
+                                                                 TypeCarrier>)
+                                    {
+                                        static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+                                    }
+                                    apply_one_param_default(impl, entries.name, Value{entries.value});
+                                }(),
+                                ...);
                         },
                         Impl::defaults());
                 }

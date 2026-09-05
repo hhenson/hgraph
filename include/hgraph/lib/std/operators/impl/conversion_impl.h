@@ -126,7 +126,12 @@ namespace hgraph::stdlib
 
         static void resolve_default_types(ResolutionMap &resolution) { const_resolve_output(resolution); }
 
-        static void eval(Scalar<"value", ScalarVar<"T">> value, Out<TsVar<"S">> out)
+        // ``tp`` is the 0.5 signature's type argument at position 1
+        // (``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``): supplied, it
+        // binds ``S`` before the resolver runs; omitted, it materialises from
+        // ``S`` after it (RFC 0033).
+        static void eval(Scalar<"value", ScalarVar<"T">> value, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                         Out<TsVar<"S">> out)
         {
             const_apply(value.value(), out);  // erased copy of the configured value
         }
@@ -148,8 +153,8 @@ namespace hgraph::stdlib
             sched.schedule(delay.value());   // now + delay (now == start_time during start)
         }
 
-        static void eval(Scalar<"value", ScalarVar<"T">> value, Scalar<"delay", TimeDelta> delay,
-                         Out<TsVar<"S">> out)
+        static void eval(Scalar<"value", ScalarVar<"T">> value, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                         Scalar<"delay", TimeDelta> delay, Out<TsVar<"S">> out)
         {
             static_cast<void>(delay);   // delay drives the start schedule; eval just applies the value
             const_apply(value.value(), out);
@@ -3013,7 +3018,11 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "nothing";
 
-        static void eval(Out<TsVar<"O">> out) { static_cast<void>(out); }  // never ticks
+        // ``nothing(tp)``: the type argument IS the output type.
+        static void eval(TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">> out)
+        {
+            static_cast<void>(out);  // never ticks
+        }
     };
 
     // One translation unit per group (conversion_impl_<group>.cpp); see

@@ -1025,7 +1025,7 @@ struct py_compute_recordable_node {
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
       Scalar<"scalars", ScalarVar<"SV">>,
-      Scalar<"recordable_state_schema", PyTsMetaRef>,
+      Scalar<"recordable_state_schema", TypeCarrier>,
       Scalar<"start_fn", PyNodeRef>, Scalar<"start_enabled", Bool>,
       Scalar<"start_config", Str>, Scalar<"start_scalars", ScalarVar<"SSV">>,
       Scalar<"stop_fn", PyNodeRef>, Scalar<"stop_enabled", Bool>,
@@ -1036,12 +1036,12 @@ struct py_compute_recordable_node {
   static void resolve_default_types(ResolutionMap &resolution,
                                     OperatorCallContext context) {
     const auto *schema =
-        context.scalar_as<PyTsMetaRef>("recordable_state_schema");
-    if (schema == nullptr || schema->meta == nullptr) {
+        context.scalar_as<TypeCarrier>("recordable_state_schema");
+    if (schema == nullptr || schema->ts() == nullptr) {
       throw std::invalid_argument(
           "python recordable-state node requires a concrete state schema");
     }
-    resolution.bind_ts("RS", schema->meta);
+    resolution.bind_ts("RS", schema->ts());
   }
 
   static void
@@ -1414,7 +1414,7 @@ struct op_py_compute_recordable
     : Operator<"__py_compute_recordable", In<"args", TsVar<"A">>,
                Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
                Scalar<"scalars", ScalarVar<"SV">>,
-               Scalar<"recordable_state_schema", PyTsMetaRef>,
+               Scalar<"recordable_state_schema", TypeCarrier>,
                Scalar<"start_fn", PyNodeRef>, Scalar<"start_enabled", Bool>,
                Scalar<"start_config", Str>,
                Scalar<"start_scalars", ScalarVar<"SSV">>,

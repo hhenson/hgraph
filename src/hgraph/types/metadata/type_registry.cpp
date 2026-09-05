@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value_callable.h>
+#include <hgraph/types/type_carrier.h>
 
 #include <cstdint>
 #include <mutex>
@@ -42,6 +43,7 @@ namespace hgraph
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(TimeSeriesReference);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ValueCallable);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(WiredFn);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(TypeCarrier);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Period);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateTime);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZoneId);

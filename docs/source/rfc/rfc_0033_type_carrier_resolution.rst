@@ -557,10 +557,14 @@ different object for the same schema is ignored, so aliases
 (``Mapping[str, int]`` after ``dict[str, int]``) are deterministic and the
 sweep's lattice uses canonical spellings.
 
-``reset_registries()`` (``python/module.cpp``) clears it with the other
-bridge registries, so the slot dies with the metadata. That is the defect
-the dictionaries carry today: nothing clears them, and a freed handle reused
-for a new schema aliases the old annotation.
+The registry owns its own reset entry point, ``clear_python_type_registry()``,
+exactly as the other bridge registries do (``clear_python_bundle_bindings``,
+``clear_native_scalar_types``, ``clear_python_opaque_types``); registration
+never resets anything as a side effect, and ``reset_registries()``
+(``python/module.cpp``) calls that method beside the others so the slot dies
+with the metadata. That is the defect the dictionaries carry today: nothing
+clears them, and a freed handle reused for a new schema aliases the old
+annotation.
 
 ``_TS_SCALAR_TYPES`` is keyed by TS handle and only ever yields the TS's
 value type's annotation; it collapses into the same registry through
@@ -923,12 +927,25 @@ Risks, and the pin that gates each
 Implementation status
 ---------------------
 
-Proposed. PR A (#662) is open in the hardening stack (#658 to #663) and
-carries the sweep and the ``wiring-type-carrier-sites`` ratchet; this RFC's
-branch is based on ``main`` and is documentation only, so the sweep is not
-in its history. PR B branches from the stack once #662 has landed. The C++
-survey that produced this design is recorded in the retrospective notes and
-in the sweep's module docstring. No implementation has started.
+Proposed. PR A (#662) merged 2026-09-05 with the sweep and the
+``wiring-type-carrier-sites`` ratchet. PR B (core matcher, C++ declaration,
+bridge rename and ``match_carrier``) is in review; it records these
+deviations from the text above:
+
+* ``TypeCarrier`` and ``ResolutionKind`` live in
+  ``include/hgraph/types/type_carrier.h`` (dependency-free) rather than in
+  ``type_resolution.h``, so the descriptor vocabulary in ``static_schema.h``
+  can name the carrier without a header cycle; ``type_resolution.h``
+  includes it.
+* A size carrier reaches Python as a plain ``int`` until PR D changes the
+  materialisation to a ``Size[n]`` object together with the subscript rule.
+* ``replay`` does not yet declare ``tp``: its C++ implementation takes
+  ``(key, recordable_id, model, ...)`` scalars and the Python name table
+  still intercepts the positional type; it moves with the table in PR D.
+* The internal positional ``delay`` caller (``stream_impl.h``) now passes
+  ``arg<"delay">(...)``; no other positional ``delay`` call exists in the
+  tree (Unresolved question 2 answered for the tree; downstream is a
+  deprecation note in PR D).
 
 References
 ----------

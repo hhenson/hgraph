@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
+#include <hgraph/types/type_carrier.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -253,6 +254,47 @@ namespace hgraph
         static constexpr auto name_sv = Name;
     };
 
+    /**
+     * ``TypeArg`` default marker: the omitted argument resolves from the
+     * carried pattern itself after the candidate's resolvers ran (Python's
+     * ``AUTO_RESOLVE``). See ``TypeArg``.
+     */
+    struct AutoResolve
+    {
+    };
+
+    /**
+     * A wiring-time *type argument* parameter (RFC 0033): the value the caller
+     * passes is a type — a time-series schema, a scalar schema or a size —
+     * and matching it binds the variables of ``Pattern`` in the candidate's
+     * resolution map, before the resolvers run. Declared in an
+     * implementation's ``eval`` / ``compose`` parameter list at the position
+     * the call expects it, exactly like ``Scalar<>``; it is not a runtime
+     * field (``StaticNodeSignature`` leaves it out of the scalar layout) and
+     * ``eval`` receives an empty placeholder, so a node's types keep coming
+     * from its template parameters. A graph ``compose`` receives the
+     * ``TypeCarrier`` the dispatcher matched or materialised.
+     *
+     * ``Pattern`` is the carried pattern: a time-series marker (``TsVar<"O">``,
+     * ``TS<ScalarVar<"T">>``), a scalar marker (``ScalarVar<"T">``, ``Int``)
+     * or a ``SizeVar<"N">``. ``Default`` is ``void`` (required argument),
+     * ``AutoResolve`` (deferred: materialised from ``Pattern`` after the
+     * resolvers) or another pattern type (deferred: materialised from that
+     * pattern, then matched against ``Pattern``). A concrete default comes
+     * from the ``defaults()`` hook as a ``TypeCarrier`` value.
+     */
+    template <fixed_string Name, typename Pattern, typename Default = void>
+    struct TypeArg
+    {
+        static constexpr auto field_name = Name;
+        using pattern_type              = Pattern;
+        using default_type              = Default;
+
+        TypeCarrier carrier{};
+
+        [[nodiscard]] const TypeCarrier &value() const noexcept { return carrier; }
+    };
+
     /** Scalar tuple shape that can match either a runtime tuple or homogeneous tuple-list. */
     template <typename... TElements>
     struct UnknownTuple
@@ -401,6 +443,8 @@ namespace hgraph
         struct scalar_name<Time>        { static constexpr std::string_view value{"time"};        };
         template <>
         struct scalar_name<Bytes>       { static constexpr std::string_view value{"bytes"};       };
+        template <>
+        struct scalar_name<TypeCarrier> { static constexpr std::string_view value{"type"};        };
     }  // namespace static_schema_detail
 
     /**

@@ -382,10 +382,17 @@ def collect_inventory() -> dict[str, Any]:
              kwargs_pattern, has_output, output_pattern) = raw_overload
             parameters = tuple({
                 "name": parameter_name,
-                "kind": "time-series" if is_time_series else "scalar",
+                "kind": (
+                    "type-argument" if type_argument is not None
+                    else "time-series" if is_time_series else "scalar"
+                ),
+                # A type argument's carrier form (RFC 0033): its variables are
+                # named in that form's vocabulary (``type[OUT]``).
+                "type_argument": type_argument,
                 "type_pattern": type_pattern,
                 "has_default": bool(has_default),
-            } for parameter_name, is_time_series, type_pattern, has_default in raw_parameters)
+            } for parameter_name, is_time_series, type_pattern, has_default, type_argument
+              in raw_parameters)
             overloads.append({
                 "parameters": parameters,
                 "variadic": bool(variadic),
@@ -772,10 +779,29 @@ def _typing_parameter_name(name: str, used: set[str]) -> str | None:
     return candidate
 
 
+def _pattern_category(parameter: dict[str, Any]) -> str:
+    """Public-vocabulary category of a parameter's pattern (a type argument
+    is named by the form it carries)."""
+    if parameter["kind"] == "time-series" or parameter.get("type_argument") in ("time-series", "size"):
+        return "time_series"
+    return "scalar"
+
+
+def _name_inputs_then_output(formatter: PublicTypePatternFormatter, overload: dict[str, Any]) -> None:
+    """Name the time-series inputs first, then the output, so a type argument
+    carrying the output type renders as ``type[OUT]``; naming is idempotent."""
+    for parameter in overload["parameters"]:
+        if parameter["kind"] == "time-series":
+            formatter.format(parameter["type_pattern"], category="time_series")
+    if overload["has_output"]:
+        formatter.format(overload["output_pattern"], category="time_series", output=True)
+
+
 def _overload_key(overload: dict[str, Any]) -> tuple[Any, ...]:
     return (
         tuple((parameter["name"], parameter["kind"], parameter["type_pattern"],
-               parameter["has_default"]) for parameter in overload["parameters"]),
+               parameter["has_default"], parameter.get("type_argument"))
+              for parameter in overload["parameters"]),
         overload["variadic"],
         overload["positional_params"],
         overload["has_kwargs"],
@@ -795,6 +821,7 @@ def _unique_overloads(operator: dict[str, Any]) -> list[dict[str, Any]]:
 def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
     parameters = list(overload["parameters"])
     formatter = PublicTypePatternFormatter()
+    _name_inputs_then_output(formatter, overload)
     variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
     positional_count = min(overload["positional_params"], len(parameters))
     rendered = []
@@ -803,17 +830,14 @@ def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
         default = " = ..." if parameter["has_default"] else ""
         pattern = formatter.format(
             parameter["type_pattern"],
-            category="time_series" if parameter["kind"] == "time-series" else "scalar",
+            category=_pattern_category(parameter),
         )
         rendered.append(f"{parameter_name}: {pattern}{default}")
     if variadic_parameter is not None:
         parameter_name = variadic_parameter["name"] or "args"
         pattern = formatter.format(
             variadic_parameter["type_pattern"],
-            category=(
-                "time_series" if variadic_parameter["kind"] == "time-series"
-                else "scalar"
-            ),
+            category=_pattern_category(variadic_parameter),
         )
         rendered.append(f"*{parameter_name}: {pattern}")
     elif positional_count < len(parameters):
@@ -823,7 +847,7 @@ def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
         default = " = ..." if parameter["has_default"] else ""
         pattern = formatter.format(
             parameter["type_pattern"],
-            category="time_series" if parameter["kind"] == "time-series" else "scalar",
+            category=_pattern_category(parameter),
         )
         rendered.append(f"{parameter_name}: {pattern}{default}")
     if overload["has_kwargs"]:
@@ -923,6 +947,7 @@ def _operator_parameter_entries(operator: dict[str, Any]) -> tuple[dict[str, Any
     entries: dict[str, dict[str, Any]] = {}
     formatter = PublicTypePatternFormatter()
     for overload in _unique_overloads(operator):
+        _name_inputs_then_output(formatter, overload)
         parameters = overload["parameters"]
         for index, parameter in enumerate(parameters):
             name = parameter["name"] or f"arg{index}"
@@ -936,7 +961,7 @@ def _operator_parameter_entries(operator: dict[str, Any]) -> tuple[dict[str, Any
             category = parameter["kind"]
             pattern = formatter.format(
                 parameter["type_pattern"],
-                category="time_series" if category == "time-series" else "scalar",
+                category=_pattern_category(parameter),
             )
             if pattern not in entry["patterns"]:
                 entry["patterns"].append(pattern)
@@ -1136,6 +1161,9 @@ _SCALAR_ANNOTATIONS = {
 
 def _parameter_annotation(parameter: dict[str, Any]) -> str:
     pattern = parameter["type_pattern"]
+    if parameter["kind"] == "type-argument":
+        # A type argument is a type object (``TS[int]``, a class, a Size).
+        return "object"
     if parameter["kind"] == "scalar":
         if pattern in {"callable", "fn"}:
             return "_Callable[..., object]"

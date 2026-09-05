@@ -1021,6 +1021,9 @@ are fixed when the graph is built.
 ``value`` : scalar; ``SCALAR``, ``py_object``
    Python value adapted to the selected time-series schema.
 
+``tp`` : type-argument; ``type[OUT]``
+   The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+
 ``delay`` : scalar; ``timedelta``
    Optional engine-time delay before the single tick.
 
@@ -1041,8 +1044,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   const(value: SCALAR) -> OUT
-   const(value: SCALAR, delay: timedelta) -> OUT
+   const(value: SCALAR, tp: type[OUT] = ...) -> OUT
+   const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta) -> OUT
    const(value: py_object) -> OUT
    const(value: py_object, delay: timedelta) -> OUT
 
@@ -2756,7 +2759,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_2]]``, ``TS[Frame[SCALAR_2, SCALAR_3]]``
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
    Collection, mapping, list, bundle, or other indexable input.
 
 ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
@@ -5023,6 +5026,15 @@ Create an invalid source of an explicitly selected type that never ticks. This i
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tp`` : type-argument; ``type[OUT]``
+   The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
@@ -5039,7 +5051,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   nothing() -> OUT
+   nothing(tp: type[OUT] = ...) -> OUT
 
 .. _python-operator-null_sink:
 

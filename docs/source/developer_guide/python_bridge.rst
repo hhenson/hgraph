@@ -50,6 +50,8 @@ File                          Contents
                               ``src/hgraph/python/impl/``.
 ``py_carriers.h``             Small cross-TU carrier structs handed to/from
                               Python (``PyTsType``, ``PyValueType``, patterns,
+                              -- a ``TS[...]`` *argument* crosses as the core
+                              ``TypeCarrier`` scalar, RFC 0033 --
                               ``PyPort``, ``PyNodeRef``/``PyNodeRecord``,
                               ``PySender``, ``PyServiceDesc``, switch/dispatch
                               cases, feedback) and their ``std::hash`` /
@@ -362,6 +364,17 @@ ruling (see :doc:`operators` and the parity matrix). Calling-convention
 questions (does a subscript name the output? does a scalar kwarg lift to
 ``const``?) are answered by registry introspection
 (``operator_output_is_selective``, resolution retries), never by name.
+
+A ``TS[...]`` expression passed as an *argument* is a type argument
+(RFC 0033): ``py_wiring.cpp`` mints the core ``TypeCarrier`` scalar for it,
+the registry matches it against a ``TypeArg`` parameter's carried pattern
+(``type_carrier_match``, exposed to Python as
+``ResolutionScope.match_carrier``), and ``operator_scalar_to_py`` hands it
+back to resolvers, ``requires`` and the wire trampoline as the type it
+carries (a ``TsType``, the Python annotation of a scalar schema through
+``python_type_for_value``, or a plain size). The remaining Python-side
+carrier rules (subscripts, collectors, the shadow dictionaries) retire in
+the RFC's later stages.
 
 Python-defined operators register under ``__pyop__{qualname}_{id:x}`` — the
 id-suffix exists because the C++ operator registry is process-global and

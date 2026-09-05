@@ -38,7 +38,8 @@ namespace hgraph::stdlib
         delayed = hg.const("ready", delay=timedelta(seconds=1))
         @endcode */
     struct const_
-        : Operator<"const", Scalar<"value", ScalarVar<"T">>, Scalar<"delay", TimeDelta>, Out<TsVar<"S">>>
+        : Operator<"const", Scalar<"value", ScalarVar<"T">>, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                   Scalar<"delay", TimeDelta>, Out<TsVar<"S">>>
     {
     };
 
@@ -192,7 +193,7 @@ namespace hgraph::stdlib
         @code{.py}
         absent = hg.nothing[TS[int]]()
         @endcode */
-    struct nothing : Operator<"nothing", Out<TsVar<"O">>>
+    struct nothing : Operator<"nothing", TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">>>
     {
     };
 

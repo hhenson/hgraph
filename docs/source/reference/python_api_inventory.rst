@@ -593,7 +593,7 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`nothing <python-operator-nothing>`
-     - ``nothing() -> OUT``
+     - ``nothing(tp: type[OUT] = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`null_sink <python-operator-null_sink>`
      - ``null_sink(ts: TIME_SERIES_TYPE) -> None``

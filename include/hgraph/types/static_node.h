@@ -1851,6 +1851,12 @@ namespace hgraph
         template <typename T> struct is_scalar_selector : std::false_type {};
         template <fixed_string N, typename V> struct is_scalar_selector<Scalar<N, V>> : std::true_type {};
 
+        // A TypeArg is a wiring-time parameter (it takes a caller-visible
+        // argument slot) but not a runtime field: the dispatcher consumes it.
+        template <typename T> struct is_type_arg_selector : std::false_type {};
+        template <fixed_string N, typename P, typename D>
+        struct is_type_arg_selector<TypeArg<N, P, D>> : std::true_type {};
+
         template <typename A, typename B> struct same_input_name : std::false_type {};
         template <fixed_string AName, typename ASchema, auto... AP, fixed_string BName, typename BSchema, auto... BP>
         struct same_input_name<In<AName, ASchema, AP...>, In<BName, BSchema, BP...>>
@@ -2011,6 +2017,8 @@ namespace hgraph
             using type = std::tuple<In<N, S, P...>>;
         };
         template <fixed_string N, typename V> struct wire_param_tuple<Scalar<N, V>> { using type = std::tuple<Scalar<N, V>>; };
+        template <fixed_string N, typename P, typename D>
+        struct wire_param_tuple<TypeArg<N, P, D>> { using type = std::tuple<TypeArg<N, P, D>>; };
 
         template <typename Tuple> struct wire_params_of_tuple;
         template <typename... Es>
@@ -2200,6 +2208,15 @@ namespace hgraph
             {
                 return Scalar<N, V>{frame.scalar_at(Slot)};
             }
+        };
+
+        // A type argument was consumed at dispatch; eval receives an empty
+        // placeholder in its slot (the node's types are its template
+        // parameters).
+        template <fixed_string N, typename P, typename D>
+        struct arg_provider<TypeArg<N, P, D>>
+        {
+            static TypeArg<N, P, D> get(const NodeView &, DateTime) noexcept { return TypeArg<N, P, D>{}; }
         };
 
         template <>

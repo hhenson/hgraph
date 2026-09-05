@@ -23,14 +23,58 @@ namespace hgraph::python_bridge
 {
     namespace
     {
+        nb::object python_type_for_value_meta(const ValueTypeMetaData *meta);
+
+        /** A type argument crosses back as the type it carries: a ``TsType``,
+            the Python annotation of a scalar schema, or a plain size. */
         nb::object operator_scalar_to_py(const ValueView &value)
         {
-            if (const auto *type = value.try_as<PyTsMetaRef>())
+            if (const auto *carrier = value.try_as<TypeCarrier>())
             {
-                return nb::cast(PyTsType{type->meta});
+                switch (carrier->kind())
+                {
+                    case ResolutionKind::TimeSeries: return nb::cast(PyTsType{carrier->ts()});
+                    case ResolutionKind::Scalar: return python_type_for_value_meta(carrier->scalar());
+                    default: return nb::int_(*carrier->size());
+                }
             }
             return value_to_py(value);
         }
+
+    /** The Python annotation a value schema came from, rebuilt from the
+        registries (RFC 0033: the reverse binding). Shared by the module
+        function and the type-argument unwrap. */
+    nb::object python_type_for_value_meta(const ValueTypeMetaData *meta)
+    {
+        if (meta == nullptr) { return nb::none(); }
+        if (meta == TypeRegistry::instance().any())
+        {
+            return nb::module_::import_("builtins").attr("object");
+        }
+        nb::object opaque = python_bridge::python_type_for_opaque(meta);
+        if (!opaque.is_none()) { return opaque; }
+        nb::object native =
+            python_bridge::python_type_for_native_scalar(meta);
+        if (!native.is_none()) { return native; }
+        const auto bundle = bundle_class_info_registry().find(meta);
+        if (bundle != bundle_class_info_registry().end() && bundle->second.type.is_valid())
+        {
+            return bundle->second.specialization.is_valid()
+                       ? bundle->second.specialization
+                       : bundle->second.type;
+        }
+        const auto enumeration = enum_class_registry().find(meta);
+        if (enumeration != enum_class_registry().end()) { return enumeration->second; }
+
+        const std::string_view name = meta->name();
+        nb::module_ builtins = nb::module_::import_("builtins");
+        if (name == "bool") { return builtins.attr("bool"); }
+        if (name == "int") { return builtins.attr("int"); }
+        if (name == "float") { return builtins.attr("float"); }
+        if (name == "str") { return builtins.attr("str"); }
+        if (name == "bytes") { return builtins.attr("bytes"); }
+        return nb::cast(PyValueType{meta});
+    }
     }  // namespace
 
     void register_builtin_native_scalar_types()
@@ -846,34 +890,7 @@ namespace hgraph::python_bridge
         return meta != nullptr ? nb::cast(PyValueType{meta}) : nb::none();
     });
     m.def("python_type_for_value", [](PyValueType value) -> nb::object {
-        if (value.meta == nullptr) { return nb::none(); }
-        if (value.meta == TypeRegistry::instance().any())
-        {
-            return nb::module_::import_("builtins").attr("object");
-        }
-        nb::object opaque = python_bridge::python_type_for_opaque(value.meta);
-        if (!opaque.is_none()) { return opaque; }
-        nb::object native =
-            python_bridge::python_type_for_native_scalar(value.meta);
-        if (!native.is_none()) { return native; }
-        const auto bundle = bundle_class_info_registry().find(value.meta);
-        if (bundle != bundle_class_info_registry().end() && bundle->second.type.is_valid())
-        {
-            return bundle->second.specialization.is_valid()
-                       ? bundle->second.specialization
-                       : bundle->second.type;
-        }
-        const auto enumeration = enum_class_registry().find(value.meta);
-        if (enumeration != enum_class_registry().end()) { return enumeration->second; }
-
-        const std::string_view name = value.meta->name();
-        nb::module_ builtins = nb::module_::import_("builtins");
-        if (name == "bool") { return builtins.attr("bool"); }
-        if (name == "int") { return builtins.attr("int"); }
-        if (name == "float") { return builtins.attr("float"); }
-        if (name == "str") { return builtins.attr("str"); }
-        if (name == "bytes") { return builtins.attr("bytes"); }
-        return nb::cast(value);
+        return python_type_for_value_meta(value.meta);
     });
     register_builtin_native_scalar_types();
     m.def("ts", [](PyValueType v) { return PyTsType{TypeRegistry::instance().ts(v.meta)}; });
@@ -1181,6 +1198,44 @@ namespace hgraph::python_bridge
                      }
                  },
                  nb::arg("pattern"))
+            .def("match_carrier",
+                 [](PyResolutionScope &self, nb::object pattern, nb::object value) -> bool {
+                     // The one carrier matcher (RFC 0033): a type argument
+                     // against its carried pattern, binding into this scope.
+                     ParamPattern param;
+                     param.kind = ParamPattern::Kind::TypeArg;
+                     if (nb::isinstance<PyTypePattern>(pattern))
+                     {
+                         param.ts      = nb::cast<PyTypePattern &>(pattern).pattern;
+                         param.carrier = ResolutionKind::TimeSeries;
+                     }
+                     else if (nb::isinstance<PyScalarPattern>(pattern))
+                     {
+                         param.scalar  = nb::cast<PyScalarPattern &>(pattern).pattern;
+                         param.carrier = ResolutionKind::Scalar;
+                     }
+                     else
+                     {
+                         throw nb::type_error("match_carrier pattern must be a TypePattern or ScalarPattern");
+                     }
+                     TypeCarrier carrier;
+                     if (nb::isinstance<PyTsType>(value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
+                     else if (nb::isinstance<PyValueType>(value))
+                     {
+                         carrier = TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta);
+                     }
+                     else if (nb::isinstance<nb::int_>(value))
+                     {
+                         carrier       = TypeCarrier::of_size(nb::cast<std::size_t>(value));
+                         param.carrier = ResolutionKind::Size;
+                     }
+                     else
+                     {
+                         throw nb::type_error("match_carrier value must be a TsType, a ValueType or a size");
+                     }
+                     return type_carrier_match(param, carrier, self.map);
+                 },
+                 nb::arg("pattern"), nb::arg("value"))
             .def("bind_ts", [](PyResolutionScope &self, const std::string &name, PyTsType meta) {
                 self.map.bind_ts(name, meta.meta);
             })
@@ -1430,11 +1485,25 @@ namespace hgraph::python_bridge
                 nb::list parameters;
                 for (const OperatorSignatureParameter &parameter : signature.parameters)
                 {
+                    // The fifth slot names a type argument's carrier form
+                    // (RFC 0033) so the public vocabulary can render its
+                    // variables as time-series, scalar or size names.
+                    nb::object type_argument = nb::none();
+                    if (parameter.carrier.has_value())
+                    {
+                        switch (*parameter.carrier)
+                        {
+                            case ResolutionKind::TimeSeries: type_argument = nb::str("time-series"); break;
+                            case ResolutionKind::Scalar: type_argument = nb::str("scalar"); break;
+                            default: type_argument = nb::str("size"); break;
+                        }
+                    }
                     parameters.append(nb::make_tuple(
                         parameter.name,
                         parameter.kind == ParamPattern::Kind::Input,
                         parameter.type_pattern,
-                        parameter.has_default));
+                        parameter.has_default,
+                        std::move(type_argument)));
                 }
                 nb::object kwargs_pattern = signature.kwargs_pattern.has_value()
                                                 ? nb::cast(*signature.kwargs_pattern)
@@ -1542,7 +1611,7 @@ namespace hgraph::python_bridge
                     nb::dict scalars;
                     for (std::size_t i = 0; i < context.args.size() && i < context.params.size(); ++i)
                     {
-                        if (context.params[i].kind == ParamPattern::Kind::Scalar &&
+                        if (context.params[i].kind != ParamPattern::Kind::Input &&
                             context.args[i].kind == WiringArg::Kind::Scalar &&
                             context.args[i].scalar_value.has_value())
                         {
@@ -1564,7 +1633,7 @@ namespace hgraph::python_bridge
                     nb::dict scalars;
                     for (std::size_t i = 0; i < context.args.size() && i < context.params.size(); ++i)
                     {
-                        if (context.params[i].kind == ParamPattern::Kind::Scalar &&
+                        if (context.params[i].kind != ParamPattern::Kind::Input &&
                             context.args[i].kind == WiringArg::Kind::Scalar &&
                             context.args[i].scalar_value.has_value())
                         {
