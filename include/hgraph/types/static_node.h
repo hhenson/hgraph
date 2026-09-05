@@ -97,7 +97,10 @@ namespace hgraph
         template <typename S> struct is_scalar_ts : std::false_type {};
         template <typename V> struct is_scalar_ts<TS<V>> : std::true_type {};
         template <typename V, std::size_t P, std::size_t M> struct is_scalar_ts<TSW<V, P, M>> : std::true_type {};
-        template <> struct is_scalar_ts<SIGNAL> : std::true_type {};
+        template <typename V, std::int64_t P, std::int64_t M> struct is_scalar_ts<TSWDuration<V, P, M>> : std::true_type
+        {};
+        template <> struct is_scalar_ts<SIGNAL> : std::true_type
+        {};
 
         /** The user-supplied per-entry delta input for child schema ``C``: the bare
          *  scalar for ``TS`` / ``SIGNAL`` / ``TSW``, otherwise a prebuilt child-delta
@@ -106,7 +109,14 @@ namespace hgraph
         template <typename V> struct delta_input<TS<V>> { using type = V; };
         template <typename V> struct delta_input<TS<SeriesOf<V>>> { using type = Series; };
         template <typename V, typename M> struct delta_input<TS<FrameOf<V, M>>> { using type = Frame; };
-        template <typename V, std::size_t P, std::size_t M> struct delta_input<TSW<V, P, M>> { using type = V; };
+        template <typename V, std::size_t P, std::size_t M> struct delta_input<TSW<V, P, M>>
+        {
+            using type = V;
+        };
+        template <typename V, std::int64_t P, std::int64_t M> struct delta_input<TSWDuration<V, P, M>>
+        {
+            using type = V;
+        };
         template <> struct delta_input<SIGNAL> { using type = bool; };
         template <typename C> using delta_input_t = typename delta_input<C>::type;
 
@@ -139,6 +149,9 @@ namespace hgraph
         template <typename... Fields> struct is_static_tsb_schema<Kwargs<Fields...>> : std::true_type {};
         template <fixed_string Name, typename... Fields>
         struct is_static_tsb_schema<TSB<Name, Fields...>> : std::true_type {};
+        template <typename ValueBundle, typename... Fields>
+        struct is_static_tsb_schema<NominalTSB<ValueBundle, Fields...>> : std::true_type
+        {};
 
         /**
          * Named so the constraint below is a concept rather than a bare
@@ -164,8 +177,11 @@ namespace hgraph
             template <fixed_string FieldName>
             using lookup = tsb_field_lookup<FieldName, Fields...>;
         };
-        template <fixed_string Name, typename... Fields>
-        struct static_tsb_schema_traits<TSB<Name, Fields...>>
+        template <fixed_string Name, typename... Fields> struct static_tsb_schema_traits<TSB<Name, Fields...>>
+        {
+            template <fixed_string FieldName> using lookup = tsb_field_lookup<FieldName, Fields...>;
+        };
+        template <typename ValueBundle, typename... Fields> struct static_tsb_schema_traits<NominalTSB<ValueBundle, Fields...>>
         {
             template <fixed_string FieldName>
             using lookup = tsb_field_lookup<FieldName, Fields...>;
@@ -437,8 +453,11 @@ namespace hgraph
         struct tsb_delta_builder<TSB<Name, Fields...>> : tsb_delta_builder<UnNamedTSB<Fields...>>
         {};
 
-        template <typename... Fields>
-        struct empty_delta_builder<UnNamedTSB<Fields...>>
+        template <typename ValueBundle, typename... Fields>
+        struct tsb_delta_builder<NominalTSB<ValueBundle, Fields...>> : tsb_delta_builder<UnNamedTSB<Fields...>>
+        {};
+
+        template <typename... Fields> struct empty_delta_builder<UnNamedTSB<Fields...>>
         {
             [[nodiscard]] static Value build()
             {
@@ -450,6 +469,10 @@ namespace hgraph
 
         template <fixed_string Name, typename... Fields>
         struct empty_delta_builder<TSB<Name, Fields...>> : empty_delta_builder<UnNamedTSB<Fields...>>
+        {};
+
+        template <typename ValueBundle, typename... Fields>
+        struct empty_delta_builder<NominalTSB<ValueBundle, Fields...>> : empty_delta_builder<UnNamedTSB<Fields...>>
         {};
     }  // namespace static_node_detail
 
@@ -1090,7 +1113,40 @@ namespace hgraph
         [[nodiscard]] TValue at(std::size_t index) const { return TSWInputView::at(index).template checked_as<TValue>(); }
         [[nodiscard]] TValue operator[](std::size_t index) const { return at(index); }
         [[nodiscard]] TValue front() const { return TSWInputView::front().template checked_as<TValue>(); }
-        [[nodiscard]] TValue back() const { return TSWInputView::back().template checked_as<TValue>(); }
+        [[nodiscard]] TValue    back() const { return TSWInputView::back().template checked_as<TValue>(); }
+        [[nodiscard]] ValueView delta() const { return delta_value(); }
+    };
+
+    template <fixed_string Name, typename TValue, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros, auto... TPolicies>
+    class In<Name, TSWDuration<TValue, PeriodMicros, MinPeriodMicros>, TPolicies...> : public TSWInputView
+    {
+      public:
+        using schema                     = TSWDuration<TValue, PeriodMicros, MinPeriodMicros>;
+        using value_type                 = TValue;
+        static constexpr auto field_name = Name;
+        static constexpr auto activity   = static_node_detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity   = static_node_detail::resolved_input_validity<TPolicies...>();
+
+        explicit In(TSInputView view) noexcept : TSWInputView(std::move(view)) {}
+
+        [[nodiscard]] TValue    at(std::size_t index) const { return TSWInputView::at(index).template checked_as<TValue>(); }
+        [[nodiscard]] TValue    operator[](std::size_t index) const { return at(index); }
+        [[nodiscard]] TValue    front() const { return TSWInputView::front().template checked_as<TValue>(); }
+        [[nodiscard]] TValue    back() const { return TSWInputView::back().template checked_as<TValue>(); }
+        [[nodiscard]] ValueView delta() const { return delta_value(); }
+    };
+
+    template <fixed_string Name, typename TValue, auto... TPolicies>
+    class In<Name, TSWAny<TValue>, TPolicies...> : public TSWInputView
+    {
+      public:
+        using schema                     = TSWAny<TValue>;
+        using value_type                 = TValue;
+        static constexpr auto field_name = Name;
+        static constexpr auto activity   = static_node_detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity   = static_node_detail::resolved_input_validity<TPolicies...>();
+
+        explicit In(TSInputView view) noexcept : TSWInputView(std::move(view)) {}
         [[nodiscard]] ValueView delta() const { return delta_value(); }
     };
 
@@ -1645,6 +1701,21 @@ namespace hgraph
         [[nodiscard]] auto get() const { return field<FieldName>(); }
     };
 
+    template <typename TValueBundle, typename... TFields> class Out<NominalTSB<TValueBundle, TFields...>> : public TSBOutputView
+    {
+      public:
+        using schema = NominalTSB<TValueBundle, TFields...>;
+
+        Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSBOutputView(std::move(view)) {}
+
+        template <fixed_string FieldName> [[nodiscard]] auto field() const {
+            using lookup = static_node_detail::tsb_field_lookup<FieldName, TFields...>;
+            static_assert(lookup::found, "Out<NominalTSB>::field requested an unknown field");
+            return Out<typename lookup::type>{TSBOutputView::at(lookup::index), evaluation_time()};
+        }
+        template <fixed_string FieldName> [[nodiscard]] auto get() const { return field<FieldName>(); }
+    };
+
     /**
      * Window time-series output (``TSW<T>``): inherits ``TSWOutputView`` and adds
      * typed ``push``.
@@ -1654,6 +1725,25 @@ namespace hgraph
     {
       public:
         using schema     = TSW<TValue, Period, MinPeriod>;
+        using value_type = TValue;
+
+        Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSWOutputView(std::move(view)) {}
+
+        template <typename U> void push(U &&value) const {
+            Value wrapped{std::forward<U>(value)};
+            TSWOutputView::begin_mutation(evaluation_time()).push(wrapped.view());
+        }
+
+        void clear() const { TSWOutputView::begin_mutation(evaluation_time()).clear(); }
+
+        void apply(const ValueView &value) const { TSWOutputView::begin_mutation(evaluation_time()).push(value); }
+    };
+
+    template <typename TValue, std::int64_t PeriodMicros, std::int64_t MinPeriodMicros>
+    class Out<TSWDuration<TValue, PeriodMicros, MinPeriodMicros>> : public TSWOutputView
+    {
+      public:
+        using schema     = TSWDuration<TValue, PeriodMicros, MinPeriodMicros>;
         using value_type = TValue;
 
         Out(TSOutputView view, DateTime /*evaluation_time*/) noexcept : TSWOutputView(std::move(view)) {}

@@ -79,12 +79,12 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(emitted->module_name == "hgl.codegen.parity");
     CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
 
-    // The header declares the exported graphs and their operator markers.
+    // The header declares the exported graphs and transparent operator aliases.
     CHECK(contains(emitted->header, "#pragma once"));
     CHECK(contains(emitted->header, "namespace hgl::codegen::parity"));
-    CHECK(contains(emitted->header, "struct plus : hgraph::Operator<\"hgl.codegen.parity.plus\", "
+    CHECK(contains(emitted->header, "using plus = hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
-                                    "hgraph::Out<hgraph::TS<hgraph::Float>>> {};"));
+                                    "hgraph::Out<hgraph::TS<hgraph::Float>>>;"));
     CHECK(contains(emitted->header, "[[maybe_unused]] static constexpr auto name = \"hgl.codegen.parity.plus\";"));
     CHECK(contains(emitted->header, "static hgraph::Port<hgraph::TS<hgraph::Float>> compose(hgraph::Wiring &, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
@@ -112,7 +112,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "(void)registry.remove_provider(provider);"));
     CHECK(contains(emitted->source, "rollback.release();"));
     CHECK(contains(emitted->source, "return provider;"));
-    CHECK(contains(emitted->source, "hgraph::register_graph_overload<ops::plus, plus>();"));
+    CHECK(contains(emitted->source, "hgraph::register_graph_overload<operators::plus, plus>();"));
     CHECK(contains(emitted->source, "// parity.hgl:"));
 
     // Deterministic: the same input prints the same pair.
@@ -337,11 +337,12 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->header, "if (!sum.valid())"));
     CHECK(contains(emitted->header, "sum.set((sum.value().checked_as<hgraph::Float>() + (a.value() + b.value())));"));
     CHECK(contains(emitted->header, "hgl_output.set(sum.value().checked_as<hgraph::Float>());"));
-    CHECK(contains(emitted->source, "hgraph::register_overload<ops::total, total>();"));
-    CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<operators::total, total>();"));
+    CHECK_FALSE(contains(emitted->source, "register_graph_overload<operators::total"));
     CHECK_FALSE(contains(emitted->header, "private_total"));
-    CHECK(contains(emitted->source, "struct hgl_internal_operator_"));
-    CHECK(contains(emitted->source, "hgraph::register_overload<hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "namespace operator_contracts"));
+    CHECK(contains(emitted->source, "using private_total = hgraph::Operator<"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<operator_contracts::private_total, private_total>()"));
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
@@ -402,8 +403,19 @@ export fn sampled(value: f64) -> f64 {
     }
 }
 
-TEST_CASE("emit-cpp fails closed on what the first pass does not lower", "[codegen]")
-{
+TEST_CASE("emit-cpp fails closed on constructs it does not lower", "[codegen]") {
+    SECTION("a const-generic struct")
+    {
+        Unit unit{R"(
+module t
+export struct Tag<const n: i64> {
+    value: i64
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend,
+                       "const generic struct arguments require typed constant Bundle metadata in hgraph"));
+    }
     SECTION("a runtime call")
     {
         Unit unit{R"(
@@ -415,18 +427,6 @@ export fn sampled(x: f64) -> f64 {
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
-    }
-    SECTION("an unsupported runtime injectable")
-    {
-        Unit unit{R"(
-module t
-export fn logged(x: f64) -> f64 {
-    inject logger
-    when modified(x) { return x }
-}
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "injectable 'logger' is not supported by emit-cpp yet"));
     }
     SECTION("runtime state without an explicit type")
     {
@@ -453,26 +453,6 @@ export fn seeded(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
-    SECTION("a struct declaration")
-    {
-        Unit unit{R"(
-module t
-export struct Quote { bid: f64 }
-export fn twice(x: f64) -> f64 => x * 2.0
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "a struct declaration is not supported by emit-cpp yet"));
-    }
-    SECTION("a duration rolling window")
-    {
-        Unit unit{R"(
-module t
-use hgraph.std::{mean}
-export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "duration rolling window"));
-    }
     SECTION("a non-positive rolling size")
     {
         Unit unit{R"(
@@ -491,15 +471,6 @@ export fn recent(window: rolling<f64, -1>) -> f64 => window
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
     }
-    SECTION("a generic function")
-    {
-        Unit unit{R"(
-module t
-export fn same<U>(a: U, b: U) -> U => a
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "a generic function is not supported by emit-cpp yet"));
-    }
     SECTION("a missing module declaration")
     {
         // The front end rejects the unit before the emitter sees it; the
@@ -508,6 +479,44 @@ export fn same<U>(a: U, b: U) -> U => a
         CHECK(unit.diagnostics.has_errors());
         CHECK(unit.has(Category::Module, "module declaration"));
     }
+}
+
+TEST_CASE("emit-cpp lowers structural, generic, duration, and logger forms", "[codegen]") {
+    Unit       unit{R"(
+module t
+use hgraph.std::{mean}
+
+export struct Quote {
+    bid: f64
+    venue: str = null
+}
+
+export struct Box<T> {
+    value: T
+}
+
+export fn same<U>(a: U, b: U) -> U => a
+
+export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
+
+export fn logged(value: f64) -> f64 {
+    inject logger
+    when modified(value) && valid(value) {
+        logger.info("value")
+        return value
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "hgraph::NominalBundle<\"t\", \"Quote\", "
+                                    "false, hgraph::BundleParents<>"));
+    CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
+    CHECK(contains(emitted->header, "hgraph::ScalarVar<\"U\">"));
+    CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
+    CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
+    CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
 }
 
 TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]")
@@ -519,7 +528,7 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     const auto emitted = unit.emit();
     REQUIRE(emitted);
     CHECK(emitted->namespace_name == "t::new_");
-    CHECK(contains(emitted->header, "struct w_ : hgraph::Operator<\"t.new.w\""));
+    CHECK(contains(emitted->header, "using w_ = hgraph::Operator<\"t.new.w\""));
     CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }
@@ -558,6 +567,6 @@ export fn twice(x: f64) -> f64 {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "const auto x_1 = hgraph::wire<hgraph::stdlib::mul_>(w, x, hgraph::Float{2.0});"));
-    CHECK(contains(emitted->source, "return x_1.as<hgraph::TS<hgraph::Float>>();"));
+    CHECK(contains(emitted->source, "hgraph::Float{2.0})"));
+    CHECK(contains(emitted->source, "return x_1;"));
 }

@@ -1728,6 +1728,10 @@ namespace hgraph
         {
             using type = TSB<Name, typename dereferenced_static_field<TFields>::type...>;
         };
+        template <typename ValueBundle, typename... TFields> struct dereferenced_static_schema<NominalTSB<ValueBundle, TFields...>>
+        {
+            using type = NominalTSB<ValueBundle, typename dereferenced_static_field<TFields>::type...>;
+        };
 
         template <auto Lhs, auto Rhs>
         [[nodiscard]] consteval bool static_size_equivalent()
@@ -2060,6 +2064,25 @@ namespace hgraph
                 auto fields = structural_arg_detail::inferred_named_tsb_fields(arg);
                 if (fields.empty()) { return nullptr; }
                 return TypeRegistry::instance().tsb(Name.sv(), fields);
+            }
+        };
+
+        template <typename ValueBundle, typename... Fields> struct structural_arg_schema_infer<NominalTSB<ValueBundle, Fields...>>
+        {
+            [[nodiscard]] static const TSValueTypeMetaData *infer(const WiringStructuralSourceArg &arg) {
+                if (arg.children.size() != sizeof...(Fields)) { return nullptr; }
+                auto fields = structural_arg_detail::inferred_tsb_fields<Fields...>(arg, std::index_sequence_for<Fields...>{});
+                for (const auto &field : fields) {
+                    if (field.second == nullptr) { return nullptr; }
+                }
+                const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+                return TypeRegistry::instance().tsb(value->name(), fields);
+            }
+            [[nodiscard]] static const TSValueTypeMetaData *infer(const WiringNamedStructuralSourceArg &arg) {
+                auto fields = structural_arg_detail::inferred_named_tsb_fields(arg);
+                if (fields.empty()) { return nullptr; }
+                const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+                return TypeRegistry::instance().tsb(value->name(), fields);
             }
         };
 

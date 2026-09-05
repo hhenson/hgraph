@@ -129,9 +129,11 @@ hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.
 add_library(hgl_driver STATIC
+    src/driver/cpp_formatter.cpp
     src/driver/driver.cpp
     src/driver/line_reader.cpp
     src/driver/native_module.cpp
+    src/driver/process.cpp
 )
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
@@ -159,12 +161,15 @@ set_target_properties(hgl PROPERTIES ENABLE_EXPORTS ON)
 # these evaluated paths also support the in-tree compiler and external/system
 # dependencies selected by this build.
 set(_hgl_native_config_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
+find_program(HGL_CLANG_FORMAT_EXECUTABLE
+    NAMES clang-format clang-format-23 clang-format-22 clang-format-21 clang-format-20 clang-format-19 clang-format-18
+    REQUIRED)
 file(RELATIVE_PATH _hgl_install_include_from_bindir
     "${CMAKE_INSTALL_FULL_BINDIR}/"
     "${CMAKE_INSTALL_FULL_INCLUDEDIR}/")
 file(GENERATE
     OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
-    CONTENT "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>)hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>)hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view link_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n"
+    CONTENT "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>)hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>)hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view link_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n"
     TARGET hgl)
 target_include_directories(hgl_driver PRIVATE "${_hgl_native_config_dir}")
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search

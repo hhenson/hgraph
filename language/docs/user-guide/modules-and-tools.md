@@ -222,9 +222,9 @@ constructs `emit-cpp` does not yet lower are listed under
 ```cpp
 namespace examples::prices
 {
-    namespace ops
+    namespace operators
     {
-        struct smooth : hgraph::Operator<"examples.prices.smooth", ...> {};
+        using smooth = hgraph::Operator<"examples.prices.smooth", ...>;
     }
     struct smooth
     {
@@ -243,6 +243,15 @@ Exported functions become graph structs a C++ author wires with
 `register_operators()` — operators any hgraph front end reaches by name,
 `examples.prices.smooth`. The returned provider handle owns that registration.
 Module-internal functions stay inside the `.cpp`.
+
+The compiler runs both generated C++ files through `clang-format` before it
+prints, writes, caches, or compiles them. `clang-format` is therefore a tool
+dependency of `hgl`; set `HGL_CLANG_FORMAT` to select a particular executable.
+The repository's `.clang-format` policy is embedded in the compiler, so the
+result does not depend on a consuming project's local formatter settings. The
+generated `operators` namespace contains transparent type aliases rather than
+derived marker classes, so the registry contract visible in the source is the
+exact hgraph `Operator` type.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
@@ -278,16 +287,20 @@ a trailing underscore in this wrapper (`class` becomes `class_`) while their
 operator registry name remains unchanged; aliases that would collide are a
 generation error.
 
-What `emit-cpp` lowers today is the composition subset `hgl test` runs, the
-first scalar runtime-node subset, and non-generic `operator` / `impl fn`
-declarations. The runtime subset supports scalar temporal inputs and output,
-`modified`/`valid` guards, ordered `when` handlers, scalar recordable `state`,
-`return`, `inject out`, and lifecycle blocks over state and `const`
-configuration. It reports, by name,
-and writes nothing for runtime sources or sinks, non-scalar runtime signatures
-or state, runtime calls or collection traversal, other injectables, lifecycle
-temporal-input/output access, generics, structs, duration rolling windows,
-tuple and list literals, `if` used as a value, and zoned or civil literals.
+What `emit-cpp` lowers today includes every checked-in example: composition
+functions, runtime functions and sinks, source operators and implementations,
+nominal and generic structs, fixed and duration rolling windows, sparse struct
+deltas, concise functions passed to `map`, collection inputs and iteration,
+scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
+writes, `inject logger`, and lifecycle blocks over state and `const`
+configuration. The generated package tests compile every example as C++.
+
+It still reports, by name, and writes nothing for generated runtime sources,
+runtime function calls, non-scalar state, injectables other than `out` and
+`logger`, lifecycle access to temporal inputs or output, optional-field clearing
+in a sparse delta, generic constructor inference and typed `const` generic
+struct metadata, compound constant literals, `if` used as a value, and zoned or
+civil literals.
 
 ## One execution model
 
@@ -317,8 +330,9 @@ identified or no per-user cache root is available, the command uses a transient
 image instead of a shared temporary cache.
 `HGL_DISABLE_CACHE=1` forces a transient compile, while `HGL_CACHE_TRACE=1`
 prints cache hits, misses, and publication fallbacks. `HGL_ARTIFACT_DIR`
-selects where transient and failed builds are written, and `HGL_CXX` overrides
-the compiler. Cache entries are immutable and safe for concurrent command
+selects where transient and failed builds are written, `HGL_CXX` overrides the
+compiler, and `HGL_CLANG_FORMAT` overrides the formatter used for generated
+C++. Cache entries are immutable and safe for concurrent command
 processes; this prototype does not yet prune them automatically.
 
 The initial REPL rebuilds the whole session after each accepted runtime
