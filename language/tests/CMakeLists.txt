@@ -45,6 +45,7 @@ endif()
 add_executable(hgl_syntax_tests
     syntax/temporal_tests.cpp
     syntax/lexer_tests.cpp
+    syntax/token_grammar_tests.cpp
     syntax/parser_tests.cpp
 )
 target_compile_features(hgl_syntax_tests PRIVATE cxx_std_23)

@@ -20,6 +20,18 @@ option(HGL_ENABLE_LINE_EDITING
     "Give the REPL line editing, history and completion (isocline, fetched at configure time)"
     ON)
 
+# The declarative grammar selected in ADR 0001. It is private to hgl_syntax:
+# parser-template types must not leak into the compiler's public pass contracts.
+include(FetchContent)
+set(LEXY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    lexy
+    GIT_REPOSITORY https://github.com/foonathan/lexy.git
+    GIT_TAG        v2025.05.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(lexy)
+
 if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
@@ -70,12 +82,14 @@ add_library(hgl_syntax STATIC
     src/syntax/token.cpp
     src/syntax/lexer.cpp
     src/syntax/ast.cpp
+    src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp
 )
 add_library(hgl::syntax ALIAS hgl_syntax)
 target_compile_features(hgl_syntax PUBLIC cxx_std_23)
 target_include_directories(hgl_syntax PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_syntax PRIVATE foonathan::lexy::core)
 hgl_apply_warnings(hgl_syntax)
 
 # The resolver (src/semantics): scopes, the interim kernel table, phase

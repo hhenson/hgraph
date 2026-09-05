@@ -1,5 +1,7 @@
 #include "syntax/ast_printer.h"
+#include "syntax/lexer.h"
 #include "syntax/parser.h"
+#include "syntax/token_grammar.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -49,6 +51,17 @@ namespace
         Parsed parsed{text};
         INFO(parsed.diagnostics.render(parsed.file));
         REQUIRE_FALSE(parsed.diagnostics.has_errors());
+        DiagnosticSink grammar_diagnostics;
+        LexResult grammar_tokens = lex(parsed.file, grammar_diagnostics);
+        REQUIRE_FALSE(grammar_diagnostics.has_errors());
+        const GrammarResult grammar = parse_token_grammar(grammar_tokens.tokens);
+        if (grammar.first_error_token < grammar_tokens.tokens.size())
+        {
+            const Token &token = grammar_tokens.tokens[grammar.first_error_token];
+            INFO("declarative grammar stopped at " << token_kind_name(token.kind) << " '"
+                                                    << token.text << "'");
+        }
+        REQUIRE(grammar.accepted);
         return dump(parsed);
     }
 

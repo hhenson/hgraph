@@ -66,6 +66,9 @@ current versus target architecture is explicit.
 
 ### B. Parser evaluation and migration
 
+Status: lexy selected and the token grammar runs in conformance mode; the
+source-accurate arena, AST projection, and hand-written-parser removal remain.
+
 - build representative grammar spikes for the shortlisted C++ parser tools;
 - measure valid parsing, multi-error recovery, source fidelity, grammar
   readability, debug/release compile cost, and portability;
