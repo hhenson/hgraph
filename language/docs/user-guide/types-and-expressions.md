@@ -137,9 +137,11 @@ and removed after wiring.
 
 ## Structured values
 
-> **Staging status:** the declaration, generic, inheritance, construction,
-> optional-field, and delta semantics in this section are agreed design, but
-> the current `hgl check` parser does not implement them yet.
+> **Implementation status:** declarations, type-generic applications,
+> abstract-only single inheritance, construction, optional fields, and sparse
+> delta syntax are implemented. Constructor inference, typed `const` generic
+> metadata, explicit optional-field clearing, and the remaining nested/runtime
+> lowering cases fail closed as listed in the developer roadmap.
 
 A `struct` declares one nominal structured type. It is module-internal unless
 it is exported, and its fields are public and immutable:

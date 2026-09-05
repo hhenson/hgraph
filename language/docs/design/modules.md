@@ -1,6 +1,6 @@
 # Modules and native extensions
 
-Status: initial design
+Status: accepted module boundary; descriptor format remains open
 
 ## Boundary
 
@@ -30,6 +30,11 @@ A native package that supports the language supplies a descriptor containing:
 - explicit module initialization, registry installation, deinitialization, and
   registration-removal entry points;
 - optional documentation and source links for diagnostics and tooling.
+
+Exact native value functions and opaque state use the same descriptor and
+lifecycle. Their phase, effect, ownership, and safety requirements are defined
+in [Native interface](native-interface.md). They do not introduce a second
+foreign-function or package mechanism.
 
 The kernel descriptor additionally maps language operator tokens such as `+`
 and `==` to public hgraph operator contracts. This is a syntax binding into the
@@ -285,6 +290,12 @@ An imported adaptor owns:
 The language function supplies temporal arguments and `const` policy values.
 Dynamic behavior is represented by temporal inputs and explicit hgraph runtime
 functions, not by escaping to native code.
+
+Runtime functions may call exact native value operations admitted by a module
+descriptor. Those calls are deliberately narrower than adaptor exposure: the
+first slice permits non-blocking, non-throwing scalar evaluation over owned
+opaque node state. It does not permit callbacks, native threads, raw pointers,
+or direct adaptor implementation in HGL.
 
 ## Package manifest
 

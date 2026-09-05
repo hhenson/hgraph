@@ -3,7 +3,12 @@
 Status: target pipeline with agreed structured-value lowering and provisional
 generic, module, and runtime semantics
 
-All execution modes share one pipeline:
+The normative pass boundaries, dependency rules, and migration away from the
+resolved syntax tree are recorded in
+[Compiler architecture](../design/compiler-architecture.md). This section
+describes the current prototype and its lowering details.
+
+All execution modes share one target pipeline:
 
 ```text
 source
@@ -49,9 +54,9 @@ The source manager owns file identities, byte offsets, line/column lookup, and
 snippets. Diagnostics refer to source identities rather than scattering raw
 filesystem paths through the AST.
 
-`src/syntax/` is implemented as follows. `source` holds a file's path, text,
-and line table; every token and node carries a half-open byte range into
-it. `diagnostic` collects `Category`-tagged diagnostics with optional notes
+`src/syntax/` is currently implemented as follows. `source` holds a file's
+path, text, and line table; every token and node carries a half-open byte range
+into it. `diagnostic` collects `Category`-tagged diagnostics with optional notes
 and renders them as `path:line:col: category: message` plus the source line
 and a caret. `temporal` parses and validates the temporal literal spellings
 of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
@@ -62,7 +67,10 @@ payloads addressed by `NodeId`, so the tree owns no pointers and a module is
 one movable value. `parser` is a hand-written recursive-descent parser over
 the token vector that applies the newline rules of the syntax guide and
 recovers at the synchronization points listed there; `ast_printer` dumps
-the tree one node per line for `hgl check --dump-ast` and the tests.
+the tree one node per line for `hgl check --dump-ast` and the tests. The
+accepted parser migration replaces the hand-written implementation with a
+declarative grammar and source-accurate recovery while initially preserving the
+AST result consumed below.
 
 The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
@@ -76,7 +84,9 @@ bindings, constraint identities, struct metadata, and function kinds instead
 of building the typed HIR. Hgraph's resolver still types every operator the
 direct-wiring backend wires, so the HIR becomes necessary when callable
 substitution or the C++ backend needs canonical types ahead of hgraph. Until
-then `src/wiring/` walks the resolved syntax tree directly.
+then `src/wiring/` walks the resolved syntax tree directly. This is explicitly
+temporary: typed HIR followed by hgraph semantic IR will become the only input
+to both backends.
 
 ## Common function representation
 

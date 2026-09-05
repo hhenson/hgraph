@@ -1,6 +1,6 @@
 # Architecture
 
-Status: initial design
+Status: accepted direction; prototype migration is tracked in the roadmap
 
 ## Purpose
 
@@ -34,6 +34,10 @@ the directory into a separate repository without changing hgraph core.
   dependencies of the compiler or generated programs that do not use them.
 - Preserve the same graph, node, type, overload, lifecycle, and record/replay
   semantics as native C++ hgraph authoring.
+- Make the HGL standard library expressive enough to replace the algorithmic
+  graph and node implementations currently hand-authored in hgraph core,
+  retaining C++ only for the runtime kernel and explicitly classified native
+  primitives.
 
 ## Non-goals
 
@@ -105,11 +109,15 @@ not part of the desired semantics.
 
 ## Compiler pipeline
 
+The detailed pass contracts and dependency rules are defined in
+[Compiler architecture](compiler-architecture.md). The parser and IR decisions
+are recorded under [Architecture decision records](decisions/README.md).
+
 All execution modes share one pipeline:
 
 ```text
 source
-  -> lexer and parser
+  -> source-accurate lexer and parser
   -> package target and module-closure resolution
   -> module descriptor and candidate-universe loading
   -> name and module resolution
@@ -143,6 +151,11 @@ language project must not clone its matching or ranking rules.
 The hgraph semantic IR is backend-neutral in representation but hgraph-specific
 in meaning. It distinguishes wiring operations from evaluation operations and
 retains source ranges for every declaration and expression.
+
+Typed HIR is the last representation of HGL language semantics. Hgraph
+semantic IR is the only input to both backends. The current prototype's direct
+walk over `ResolvedModule` is migration debt, not a permitted third backend
+contract.
 
 ## C++ backend contract
 
@@ -192,6 +205,11 @@ Both the header and source pass through the compiler-selected `clang-format`
 before they are printed, written, cached, or compiled. A formatting failure is
 a compiler failure, so generated code remains deterministic and suitable for
 human inspection.
+
+Exact calls into a native value library use the constrained descriptor contract
+in [Native interface](native-interface.md). Generated code may make a direct
+C++ call through the package's public header or wrapper, but neither source HGL
+nor the compiler accepts arbitrary inline C++.
 
 ## Two backends, one wiring
 
@@ -283,8 +301,8 @@ The initial project owns:
 
 Compiler components are split into `syntax`, `semantics`, `wiring` (the
 direct-wiring backend), `codegen` (the C++ backend) and `driver` (the commands
-and the REPL); `ir` arrives when the two backends stop walking the resolved
-tree directly. Empty framework libraries are intentionally deferred. The
+and the REPL). The next architecture stack adds `ir` and removes direct
+backend access to the resolved syntax tree. The
 `cmake/` directory holds the consumer-facing `HglLanguage.cmake` and the
 Python-module template it configures.
 
