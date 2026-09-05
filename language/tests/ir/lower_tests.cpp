@@ -292,6 +292,29 @@ fn generic<const N: i64>(values: list<f64, N + 1>) -> f64 => 1.0
     REQUIRE(complete(lowered));
 }
 
+TEST_CASE("typed HIR diagnoses temporal constant overflow", "[ir][typed][const][temporal]") {
+    Lowered lowered{R"(
+module checks.temporal_overflow
+
+fn overflow() -> duration => 106751991d4h54s775ms807us + 1us
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("overflow in a temporal constant expression") != std::string::npos);
+}
+
+TEST_CASE("typed HIR does not implicitly widen time-series collection elements", "[ir][typed][types][collection]") {
+    Lowered lowered{R"(
+module checks.collection_widening
+
+fn widen(xs: list<i64>) -> list<f64> => xs
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file)
+              .find("function result requires an implicit conversion inside a time-series collection") != std::string::npos);
+}
+
 TEST_CASE("typed HIR preserves fixed list sizes during assignment", "[ir][typed][types][list]") {
     Lowered valid{R"(
 module checks.fixed_list_assignment

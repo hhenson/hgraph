@@ -134,6 +134,22 @@ test widening {
     }
 }
 
+TEST_CASE("composition results preserve their runtime schema", "[wiring][types]") {
+    Unit             unit{R"(
+module t
+
+fn widen(x: i64) -> f64 => x
+
+test widening {
+    assert eval(widen, x: [1, 2]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("eval drives a composition through the harness", "[wiring]") {
     Unit unit{R"(
 module t
