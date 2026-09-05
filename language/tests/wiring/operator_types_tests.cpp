@@ -54,6 +54,28 @@ fn average(window: rolling<f64, 20>) -> f64 => mean(window)
     CHECK(found);
 }
 
+TEST_CASE("native operator typing recovers an inferred result for nested calls", "[ir][operator-types]") {
+    Unit unit{R"(
+module checks.nested_native_types
+use hgraph.std::{mean}
+
+fn scaled_average(window: rolling<f64, 20>) -> f64 => mean(window) * 2.0
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.complete());
+
+    bool found = false;
+    for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
+        if (expression.operation.identity != "mean") { continue; }
+        found = true;
+        CHECK(expression.type.valid());
+        CHECK(unit.hir.type(expression.type).scalar == hgl::ir::hir::ScalarType::F64);
+        CHECK_FALSE(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
 TEST_CASE("higher-order operator typing remains explicit and deferred", "[ir][operator-types]") {
     Unit unit{R"(
 module checks.higher_order_types
