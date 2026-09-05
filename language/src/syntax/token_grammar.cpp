@@ -506,7 +506,7 @@ namespace hgl::syntax
                                              dsl::list(dsl::peek(type_start / expression_start / token<TokenKind::LBrace>) >>
                                                            dsl::recurse<constraint_operand>,
                                                        dsl::trailing_sep(dsl::p<comma_separator>)) +
-                                             token<TokenKind::RBrace>;
+                                             dsl::p<newlines> + token<TokenKind::RBrace>;
         };
 
         struct constraint_call
