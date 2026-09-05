@@ -62,24 +62,29 @@ and a caret. `temporal` parses and validates the temporal literal spellings
 of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
 and zone) and prints the canonical spelling. `lexer` produces one token
 vector per file, with comments as trivia and one `Newline` token per run of
-terminators. `ast` is an index-based arena: nodes are `std::variant`
+terminators. It also records non-overlapping source fragments for every token,
+whitespace run, physical line break, and line comment; those fragments exactly
+reconstruct the input even where several line breaks share one grammar token.
+`syntax_tree` owns the parser-independent source arena. Its production nodes
+and source tokens retain ranges, its lexical fragments retain all trivia, and
+its issue nodes distinguish zero-width missing tokens from unexpected source
+tokens. `ast` is an index-based semantic syntax arena: nodes are `std::variant`
 payloads addressed by `NodeId`, so the tree owns no pointers and a module is
 one movable value. `token_grammar` is the private lexy production grammar
-selected by ADR 0001. It currently parses the lexer's token stream in
-conformance mode: every clean legacy-parser test and every checked-in HGL
-example must also pass the declarative grammar, and a focused malformed case
-proves recovery after three independent missing tokens. `parser` remains the
-AST projection path during this intermediate slice; it is the hand-written
-recursive-descent implementation that applies the newline rules and produces
-the existing arena. `ast_printer` dumps that arena one node per line for
+selected by ADR 0001. It parses the lexer's token stream, materializes the
+source arena, and discards all lexy storage before returning. Every clean
+legacy-parser test and every checked-in HGL example must pass this declarative
+grammar. Focused malformed cases prove local recovery after three independent
+missing tokens and complete source retention after a fatal error. `parser`
+still produces `ast::Module` directly during this intermediate slice; it is
+the hand-written recursive-descent implementation that applies the newline
+rules. `ast_printer` dumps that arena one node per line for
 `hgl check --dump-ast` and the tests.
 
 This dual-parser state is deliberately temporary. The next parser slice
-materializes a lexy-free, source-accurate syntax arena from the declarative
-parse, including trivia and recovered input, then projects that arena into the
-existing `ast::Module`. Only after equivalence tests pass may the hand-written
-syntax decisions be removed. Downstream compiler passes never receive lexy
-types.
+projects the source arena into the existing `ast::Module` and makes that the
+compiler path. Only after equivalence tests pass may the hand-written syntax
+decisions be removed. Downstream compiler passes never receive lexy types.
 
 The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of

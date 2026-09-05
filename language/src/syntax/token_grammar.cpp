@@ -6,8 +6,11 @@
 #include <lexy/input/string_input.hpp>
 #include <lexy/parse_tree.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace hgl::syntax
 {
@@ -669,31 +672,156 @@ namespace hgl::syntax
             }
             return static_cast<std::uint8_t>(token.kind);
         }
+
+        [[nodiscard]] std::optional<TokenKind> decode_expected(std::uint8_t encoded) noexcept {
+            if (encoded <= static_cast<std::uint8_t>(TokenKind::Error)) { return static_cast<TokenKind>(encoded); }
+            if (encoded >= static_cast<std::uint8_t>(grammar::ContextToken::In) &&
+                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::AppliedConstructor)) {
+                return TokenKind::Identifier;
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] SyntaxKind production_kind(std::string_view name) noexcept {
+            if (const std::size_t grammar = name.find("grammar::"); grammar != std::string_view::npos) {
+                name.remove_prefix(grammar + std::string_view{"grammar::"}.size());
+            } else if (const std::size_t scope = name.rfind("::"); scope != std::string_view::npos) {
+                name.remove_prefix(scope + 2);
+            }
+            if (const std::size_t arguments = name.find('<'); arguments != std::string_view::npos) {
+                name = name.substr(0, arguments);
+            }
+            return syntax_kind_from_name(name);
+        }
+
+        [[nodiscard]] std::uint32_t source_offset(std::span<const Token> tokens, std::size_t token_index,
+                                                  std::uint32_t source_size) noexcept {
+            if (token_index >= tokens.size() || tokens[token_index].kind == TokenKind::EndOfFile) { return source_size; }
+            return tokens[token_index].range.begin;
+        }
+
+        [[nodiscard]] SourceRange source_range(std::span<const Token> tokens, std::size_t begin_token, std::size_t end_token,
+                                               std::uint32_t source_size) noexcept {
+            const std::uint32_t begin = source_offset(tokens, begin_token, source_size);
+            if (tokens.empty() || begin_token >= end_token) { return {begin, begin}; }
+            const std::size_t last = std::min(end_token - 1, tokens.size() - 1);
+            if (tokens[last].kind == TokenKind::EndOfFile) { return {begin, source_size}; }
+            return {begin, tokens[last].range.end};
+        }
+
+        struct RawIssue
+        {
+            std::size_t              token_index{0};
+            std::optional<TokenKind> expected{};
+            SyntaxKind               context{SyntaxKind::Unknown};
+        };
+
+        template <typename ParseTree>
+        void materialize_parse_tree(SyntaxTree &syntax, const ParseTree &parsed, const std::string &input_bytes,
+                                    std::span<const Token> source_tokens) {
+            if (parsed.empty()) { return; }
+
+            const auto               *input_begin = reinterpret_cast<const unsigned char *>(input_bytes.data());
+            std::vector<SyntaxNodeId> parents;
+            for (const auto event : parsed.traverse()) {
+                if (event.event == lexy::traverse_event::enter) {
+                    const auto lexeme = event.node.covering_lexeme();
+                    const auto begin  = static_cast<std::size_t>(lexeme.begin() - input_begin);
+                    const auto end    = static_cast<std::size_t>(lexeme.end() - input_begin);
+                    SyntaxNode node;
+                    node.kind   = production_kind(event.node.kind().name());
+                    node.range  = source_range(source_tokens, begin, end, syntax.source_size);
+                    node.parent = parents.empty() ? no_syntax_node : parents.back();
+
+                    const SyntaxNodeId id = static_cast<SyntaxNodeId>(syntax.nodes.size());
+                    syntax.nodes.push_back(std::move(node));
+                    if (parents.empty()) {
+                        syntax.root            = id;
+                        syntax.nodes[id].range = {0, syntax.source_size};
+                    } else {
+                        syntax.nodes[parents.back()].children.push_back(SyntaxChild{SyntaxChildKind::Node, id});
+                    }
+                    parents.push_back(id);
+                } else if (event.event == lexy::traverse_event::exit) {
+                    parents.pop_back();
+                } else {
+                    const auto lexeme     = event.node.lexeme();
+                    const auto begin      = static_cast<std::size_t>(lexeme.begin() - input_begin);
+                    const auto end        = static_cast<std::size_t>(lexeme.end() - input_begin);
+                    const bool unexpected = event.node.kind() == lexy::error_token_kind;
+                    for (std::size_t token_index = begin; token_index < end && token_index < source_tokens.size(); ++token_index) {
+                        if (source_tokens[token_index].kind == TokenKind::EndOfFile) { continue; }
+                        const SyntaxTokenId id = static_cast<SyntaxTokenId>(syntax.tokens.size());
+                        syntax.tokens.push_back(SyntaxToken{source_tokens[token_index].kind, source_tokens[token_index].range,
+                                                            token_index, unexpected});
+                        if (!parents.empty()) {
+                            syntax.nodes[parents.back()].children.push_back(SyntaxChild{SyntaxChildKind::Token, id});
+                        }
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] SyntaxParseResult parse_impl(std::span<const Token> tokens, std::span<const SourceFragment> fragments,
+                                                   std::uint32_t source_size) {
+            std::string input_bytes;
+            input_bytes.reserve(tokens.size());
+            for (std::size_t position = 0; position < tokens.size(); ++position) {
+                if (tokens[position].kind != TokenKind::EndOfFile) {
+                    input_bytes.push_back(static_cast<char>(encode(tokens, position)));
+                }
+            }
+
+            const auto                            input = lexy::string_input<lexy::byte_encoding>{input_bytes};
+            lexy::parse_tree_for<decltype(input)> parsed;
+            std::vector<RawIssue>                 raw_issues;
+            std::size_t                           first_error    = std::numeric_limits<std::size_t>::max();
+            const auto                            error_callback = lexy::callback([&](const auto &context, const auto &error) {
+                const auto *begin    = reinterpret_cast<const unsigned char *>(input_bytes.data());
+                const auto  position = static_cast<std::size_t>(error.position() - begin);
+                if (first_error == std::numeric_limits<std::size_t>::max()) { first_error = position; }
+
+                RawIssue issue;
+                issue.token_index = position;
+                issue.context     = production_kind(context.production());
+                if constexpr (requires { error.character(); }) {
+                    issue.expected = decode_expected(static_cast<std::uint8_t>(error.character()));
+                }
+                raw_issues.push_back(issue);
+            });
+            const auto                            result = lexy::parse_as_tree<grammar::module>(parsed, input, error_callback);
+
+            SyntaxParseResult output;
+            output.grammar          = GrammarResult{!result.is_fatal_error(), result.is_recovered_error(), result.error_count(),
+                                                    parsed.size(), first_error};
+            output.tree.source_size = source_size;
+            output.tree.fragments.assign(fragments.begin(), fragments.end());
+            materialize_parse_tree(output.tree, parsed, input_bytes, tokens);
+
+            for (const RawIssue &raw : raw_issues) {
+                const std::uint32_t offset = source_offset(tokens, raw.token_index, source_size);
+                SyntaxIssue         issue;
+                issue.expected = raw.expected;
+                issue.context  = raw.context;
+                if (raw.expected.has_value()) {
+                    issue.kind  = SyntaxIssueKind::Missing;
+                    issue.range = {offset, offset};
+                } else {
+                    issue.kind  = SyntaxIssueKind::Unexpected;
+                    issue.range = raw.token_index < tokens.size() ? tokens[raw.token_index].range : SourceRange{offset, offset};
+                }
+                output.tree.issues.push_back(issue);
+            }
+            return output;
+        }
     }  // namespace
 
     GrammarResult parse_token_grammar(std::span<const Token> tokens) {
-        std::string input_bytes;
-        input_bytes.reserve(tokens.size());
-        for (std::size_t position = 0; position < tokens.size(); ++position) {
-            const Token &token = tokens[position];
-            if (token.kind != TokenKind::EndOfFile) { input_bytes.push_back(static_cast<char>(encode(tokens, position))); }
-        }
+        const std::uint32_t source_size = tokens.empty() ? 0 : tokens.back().range.end;
+        return parse_impl(tokens, {}, source_size).grammar;
+    }
 
-        const auto                            input = lexy::string_input<lexy::byte_encoding>{input_bytes};
-        lexy::parse_tree_for<decltype(input)> tree;
-        std::size_t                           first_error    = std::numeric_limits<std::size_t>::max();
-        const auto                            error_callback = lexy::callback([&](const auto &, const auto &error) {
-            if (first_error == std::numeric_limits<std::size_t>::max()) {
-                const auto *begin = reinterpret_cast<const unsigned char *>(input_bytes.data());
-                first_error       = static_cast<std::size_t>(error.position() - begin);
-            }
-        });
-        const auto                            result         = lexy::parse_as_tree<grammar::module>(tree, input, error_callback);
-
-        std::size_t node_count = 0;
-        for (const auto event : tree.traverse()) {
-            if (event.event == lexy::traverse_event::enter || event.event == lexy::traverse_event::leaf) { ++node_count; }
-        }
-        return GrammarResult{!result.is_fatal_error(), result.is_recovered_error(), result.error_count(), node_count, first_error};
+    SyntaxParseResult parse_source_syntax(const SourceFile &file, const LexResult &lexed) {
+        return parse_impl(lexed.tokens, lexed.fragments, static_cast<std::uint32_t>(file.text().size()));
     }
 }  // namespace hgl::syntax

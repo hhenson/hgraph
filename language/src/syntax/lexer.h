@@ -1,7 +1,6 @@
 #ifndef HGL_SYNTAX_LEXER_H
 #define HGL_SYNTAX_LEXER_H
 
-#include "syntax/ast.h"
 #include "syntax/diagnostic.h"
 #include "syntax/source.h"
 #include "syntax/token.h"
@@ -12,8 +11,9 @@ namespace hgl::syntax
 {
     struct LexResult
     {
-        std::vector<Token>        tokens;    ///< ends with EndOfFile
-        std::vector<ast::Comment> comments;  ///< `//` trivia in source order
+        std::vector<Token>          tokens;     ///< ends with EndOfFile
+        std::vector<SourceComment>  comments;   ///< `//` trivia in source order
+        std::vector<SourceFragment> fragments;  ///< lossless lexical source order
     };
 
     /// Tokenize a whole file (developer guide, "Lexical rules" and

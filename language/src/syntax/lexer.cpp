@@ -45,13 +45,14 @@ namespace hgl::syntax
                 Token token;
                 token.kind  = kind;
                 token.range = {begin, finish};
-                token.text  = src_.substr(begin, finish - begin);
-                result_.tokens.push_back(std::move(token));
+                push(std::move(token));
             }
 
             void push(Token token)
             {
                 token.text = src_.substr(token.range.begin, token.range.end - token.range.begin);
+                result_.fragments.push_back(SourceFragment{SourceFragmentKind::Token, token.range,
+                                                           result_.tokens.size()});
                 result_.tokens.push_back(std::move(token));
             }
 
@@ -65,7 +66,7 @@ namespace hgl::syntax
                 const char c = peek();
                 if (c == ' ' || c == '\t' || c == '\r')
                 {
-                    ++pos_;
+                    whitespace();
                     return;
                 }
                 if (c == '\n')
@@ -101,6 +102,14 @@ namespace hgl::syntax
                 punctuation();
             }
 
+            void whitespace()
+            {
+                const std::uint32_t begin = pos_;
+                while (peek() == ' ' || peek() == '\t' || peek() == '\r') { ++pos_; }
+                result_.fragments.push_back(
+                    SourceFragment{SourceFragmentKind::Whitespace, {begin, pos_}, no_token_index});
+            }
+
             // One Newline token per run of terminators; the run may contain
             // blank lines, spaces, and comments.
             void newline()
@@ -110,16 +119,31 @@ namespace hgl::syntax
                 if (!result_.tokens.empty() && result_.tokens.back().kind == TokenKind::Newline)
                 {
                     result_.tokens.back().range.end = pos_;
+                    result_.tokens.back().text = src_.substr(result_.tokens.back().range.begin,
+                                                             result_.tokens.back().range.end -
+                                                                 result_.tokens.back().range.begin);
+                    result_.fragments.push_back(SourceFragment{SourceFragmentKind::LineBreak,
+                                                               {begin, pos_},
+                                                               result_.tokens.size() - 1});
                     return;
                 }
-                push(TokenKind::Newline, begin, pos_);
+                Token token;
+                token.kind  = TokenKind::Newline;
+                token.range = {begin, pos_};
+                token.text  = src_.substr(begin, pos_ - begin);
+                result_.tokens.push_back(std::move(token));
+                result_.fragments.push_back(SourceFragment{SourceFragmentKind::LineBreak,
+                                                           {begin, pos_},
+                                                           result_.tokens.size() - 1});
             }
 
             void comment()
             {
                 const std::uint32_t begin = pos_;
                 while (pos_ < src_.size() && src_[pos_] != '\n') { ++pos_; }
-                result_.comments.push_back(ast::Comment{{begin, pos_}});
+                result_.comments.push_back(SourceComment{{begin, pos_}});
+                result_.fragments.push_back(
+                    SourceFragment{SourceFragmentKind::LineComment, {begin, pos_}, no_token_index});
             }
 
             void identifier()

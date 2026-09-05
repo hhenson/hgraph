@@ -127,11 +127,77 @@ fn broken(a f64, b i64, c str) -> f64 => a
     const LexResult lexed = lex(file, diagnostics);
     REQUIRE_FALSE(diagnostics.has_errors());
 
-    const GrammarResult result = parse_token_grammar(lexed.tokens);
-    REQUIRE(result.accepted);
-    REQUIRE(result.recovered);
-    REQUIRE(result.error_count == 3);
-    REQUIRE(result.syntax_node_count > 0);
-    REQUIRE(result.first_error_token == 7);
-    REQUIRE(lexed.tokens[result.first_error_token].kind == TokenKind::KwF64);
+    const SyntaxParseResult parsed = parse_source_syntax(file, lexed);
+    REQUIRE(parsed.grammar.accepted);
+    REQUIRE(parsed.grammar.recovered);
+    REQUIRE(parsed.grammar.error_count == 3);
+    REQUIRE(parsed.grammar.syntax_node_count > 0);
+    REQUIRE(parsed.grammar.first_error_token == 7);
+    REQUIRE(lexed.tokens[parsed.grammar.first_error_token].kind == TokenKind::KwF64);
+    REQUIRE(parsed.tree.has_root());
+    REQUIRE(parsed.tree.source_is_complete());
+    REQUIRE(parsed.tree.reconstruct(file) == file.text());
+    REQUIRE(parsed.tree.issues.size() == 3);
+    for (const SyntaxIssue &issue : parsed.tree.issues) {
+        REQUIRE(issue.kind == SyntaxIssueKind::Missing);
+        REQUIRE(issue.range.empty());
+        REQUIRE(issue.expected == TokenKind::Colon);
+        REQUIRE(issue.context == SyntaxKind::Parameter);
+    }
+}
+
+TEST_CASE("the source syntax tree preserves structure and every source byte", "[token-grammar][source-accurate]") {
+    SourceFile file{"tree.hgl", R"(module example.tree
+
+// retained trivia
+export fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
+)"};
+    DiagnosticSink  diagnostics;
+    const LexResult lexed = lex(file, diagnostics);
+    REQUIRE_FALSE(diagnostics.has_errors());
+
+    const SyntaxParseResult parsed = parse_source_syntax(file, lexed);
+    REQUIRE(parsed.grammar.accepted);
+    REQUIRE_FALSE(parsed.grammar.recovered);
+    REQUIRE(parsed.tree.has_root());
+    REQUIRE(parsed.tree.nodes[parsed.tree.root].kind == SyntaxKind::Module);
+    REQUIRE(parsed.tree.nodes[parsed.tree.root].range == SourceRange{0, static_cast<std::uint32_t>(file.text().size())});
+    REQUIRE(parsed.tree.source_is_complete());
+    REQUIRE(parsed.tree.reconstruct(file) == file.text());
+    REQUIRE(parsed.tree.issues.empty());
+
+    REQUIRE(std::ranges::none_of(parsed.tree.nodes,
+                                 [](const SyntaxNode &node) { return node.kind == SyntaxKind::Unknown; }));
+
+    std::vector<bool> retained(lexed.tokens.size() - 1, false);
+    for (const SyntaxToken &token : parsed.tree.tokens) {
+        REQUIRE(token.source_token_index < retained.size());
+        REQUIRE_FALSE(retained[token.source_token_index]);
+        retained[token.source_token_index] = true;
+        REQUIRE(token.kind == lexed.tokens[token.source_token_index].kind);
+        REQUIRE(token.range == lexed.tokens[token.source_token_index].range);
+        REQUIRE_FALSE(token.unexpected);
+    }
+    REQUIRE(std::ranges::all_of(retained, [](bool value) { return value; }));
+    REQUIRE(std::ranges::count_if(parsed.tree.fragments, [](const SourceFragment &fragment) {
+                return fragment.kind == SourceFragmentKind::LineComment;
+            }) == 1);
+}
+
+TEST_CASE("fatal syntax still retains the complete source", "[token-grammar][source-accurate][recovery]") {
+    SourceFile file{"fatal.hgl", R"(module fatal
+fn broken() => )
+)"};
+    DiagnosticSink  diagnostics;
+    const LexResult lexed = lex(file, diagnostics);
+    REQUIRE_FALSE(diagnostics.has_errors());
+
+    const SyntaxParseResult parsed = parse_source_syntax(file, lexed);
+    REQUIRE_FALSE(parsed.grammar.accepted);
+    REQUIRE(parsed.tree.source_is_complete());
+    REQUIRE(parsed.tree.reconstruct(file) == file.text());
+    REQUIRE_FALSE(parsed.tree.issues.empty());
+    REQUIRE(std::ranges::any_of(parsed.tree.issues,
+                                [](const SyntaxIssue &issue) { return issue.kind == SyntaxIssueKind::Unexpected; }));
 }

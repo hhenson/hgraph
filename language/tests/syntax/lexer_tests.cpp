@@ -69,6 +69,42 @@ TEST_CASE("one newline token per run of terminators including comments", "[lexer
     REQUIRE(lexed.file.slice(lexed.result.comments[1].range) == "// second");
 }
 
+TEST_CASE("source fragments retain every byte without coalescing trivia", "[lexer][source-accurate]")
+{
+    Lexed lexed{"a \t// first\n\n  // second\nb"};
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+
+    std::string   reconstructed;
+    std::uint32_t next = 0;
+    for (const SourceFragment &fragment : lexed.result.fragments)
+    {
+        REQUIRE(fragment.range.begin == next);
+        REQUIRE_FALSE(fragment.range.empty());
+        reconstructed += lexed.file.slice(fragment.range);
+        next = fragment.range.end;
+    }
+    REQUIRE(next == lexed.file.text().size());
+    REQUIRE(reconstructed == lexed.file.text());
+
+    const std::vector<SourceFragmentKind> fragment_kinds{
+        SourceFragmentKind::Token,       SourceFragmentKind::Whitespace,
+        SourceFragmentKind::LineComment, SourceFragmentKind::LineBreak,
+        SourceFragmentKind::LineBreak,   SourceFragmentKind::Whitespace,
+        SourceFragmentKind::LineComment, SourceFragmentKind::LineBreak,
+        SourceFragmentKind::Token,
+    };
+    std::vector<SourceFragmentKind> actual_kinds;
+    for (const SourceFragment &fragment : lexed.result.fragments)
+    {
+        actual_kinds.push_back(fragment.kind);
+    }
+    REQUIRE(actual_kinds == fragment_kinds);
+    REQUIRE(lexed.result.fragments[3].token_index == 1);
+    REQUIRE(lexed.result.fragments[4].token_index == 1);
+    REQUIRE(lexed.result.fragments[7].token_index == 1);
+    REQUIRE(lexed.result.tokens[1].text == "\n\n  // second\n");
+}
+
 TEST_CASE("integer and float literals", "[lexer]")
 {
     Lexed lexed{"42 3.5 1e5 2.5E-3 7."};
