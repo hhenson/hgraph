@@ -177,6 +177,7 @@ NB_MODULE(_hgraph, m)
         python_bridge::clear_python_bundle_bindings();
         python_bridge::clear_native_scalar_types();
         python_bridge::clear_python_opaque_types();
+        python_bridge::clear_python_type_registry();   // the reverse binding dies with the metadata
         reset_all_registries();
         ++python_registry_generation;
         stdlib::register_standard_operators();

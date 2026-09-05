@@ -555,10 +555,12 @@ annotation that produced the schema), exposed as
 ``_value_type`` in ``_types.py`` for every schema it produces, not only TS
 payloads. ``python_type_for_value`` consults it first, after the
 ``any -> object`` rule and before the opaque/native/bundle/enum/builtin
-chain. The first registration for a schema wins; a later registration with a
-different object for the same schema is ignored, so aliases
-(``Mapping[str, int]`` after ``dict[str, int]``) are deterministic and the
-sweep's lattice uses canonical spellings.
+chain. The most recent registration for a schema wins, as the dictionaries
+did: one interned schema has many spellings (``Mapping[str, int]``,
+``dict[str, int]``), the sweep pins ``T -> schema -> T`` for the spelling
+written at each site, and ``AUTO_RESOLVE`` hands back the spelling written
+at the site that resolved. (PR C tried first-wins for determinism; it broke
+those pins in any process that had spelled the schema differently earlier.)
 
 The registry owns its own reset entry point, ``clear_python_type_registry()``,
 exactly as the other bridge registries do (``clear_python_bundle_bindings``,
@@ -718,7 +720,7 @@ other cell of the sweep stays green through every PR.
        ``delay``)
    * - Alias annotations for one schema
      - last ``_value_type`` call wins
-     - first wins (PR C)
+     - unchanged (PR C keeps last-wins; see *Reverse binding*)
    * - ``reset_registries()`` then a new schema at a recycled address
      - stale annotation (latent)
      - cleared with the registries; regression test added (PR C)
@@ -932,8 +934,10 @@ Implementation status
 
 Proposed. PR A (#662) merged 2026-09-05 with the sweep and the
 ``wiring-type-carrier-sites`` ratchet. PR B (core matcher, C++ declaration,
-bridge rename and ``match_carrier``) is in review; it records these
-deviations from the text above:
+bridge rename and ``match_carrier``) and PR C (the reverse-binding registry
+with its own reset method, ``ResolutionScope.materialise``, the shadow
+dictionaries deleted and ``types-shadow-schema-dicts`` at zero) are in
+review, stacked; they record these deviations from the text above:
 
 * ``TypeCarrier`` and ``ResolutionKind`` live in
   ``include/hgraph/types/type_carrier.h`` (dependency-free) rather than in

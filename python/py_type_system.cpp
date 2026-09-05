@@ -51,6 +51,12 @@ namespace hgraph::python_bridge
         {
             return nb::module_::import_("builtins").attr("object");
         }
+        // The annotation the DSL wrote for this schema (RFC 0033 reverse
+        // binding); the only source that can rebuild a parameterised generic.
+        if (const auto bound = python_type_registry().find(meta); bound != python_type_registry().end())
+        {
+            return bound->second;
+        }
         nb::object opaque = python_bridge::python_type_for_opaque(meta);
         if (!opaque.is_none()) { return opaque; }
         nb::object native =
@@ -892,6 +898,19 @@ namespace hgraph::python_bridge
     m.def("python_type_for_value", [](PyValueType value) -> nb::object {
         return python_type_for_value_meta(value.meta);
     });
+    m.def(
+        "bind_python_type",
+        [](PyValueType value, nb::object python_type) {
+            // The most recent registration wins, as the shadow dictionaries
+            // did: a schema has one interned identity but many spellings
+            // (``Mapping[str, int]``, ``dict[str, int]``), and AUTO_RESOLVE
+            // hands back the spelling written at the site that resolved.
+            // Never a reset: clear_python_type_registry is the reset method.
+            if (value.meta == nullptr) { return; }
+            python_type_registry().insert_or_assign(value.meta, std::move(python_type));
+        },
+        nb::arg("value_type"), nb::arg("python_type"),
+        "Record the Python annotation a value schema came from (RFC 0033 reverse binding).");
     register_builtin_native_scalar_types();
     m.def("ts", [](PyValueType v) { return PyTsType{TypeRegistry::instance().ts(v.meta)}; });
     m.def("ref_ts", [](PyTsType target) { return PyTsType{TypeRegistry::instance().ref(target.meta)}; });
@@ -1236,6 +1255,35 @@ namespace hgraph::python_bridge
                      return type_carrier_match(param, carrier, self.map);
                  },
                  nb::arg("pattern"), nb::arg("value"))
+            .def("materialise",
+                 [](const PyResolutionScope &self, nb::object pattern) -> nb::object {
+                     // A deferred type argument's default, resolved in this
+                     // scope and handed back as the type it carries (RFC
+                     // 0033); None while a variable it needs is unbound.
+                     ParamPattern                  param;
+                     ParamPattern::DeferredCarrier deferred;
+                     param.kind = ParamPattern::Kind::TypeArg;
+                     if (nb::isinstance<PyTypePattern>(pattern))
+                     {
+                         deferred.ts   = nb::cast<PyTypePattern &>(pattern).pattern;
+                         param.carrier = ResolutionKind::TimeSeries;
+                     }
+                     else if (nb::isinstance<PyScalarPattern>(pattern))
+                     {
+                         deferred.scalar = nb::cast<PyScalarPattern &>(pattern).pattern;
+                         param.carrier   = ResolutionKind::Scalar;
+                     }
+                     else
+                     {
+                         throw nb::type_error("materialise pattern must be a TypePattern or ScalarPattern");
+                     }
+                     param.default_pattern = std::move(deferred);
+                     const std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, self.map);
+                     if (!carrier.has_value()) { return nb::none(); }
+                     static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+                     return operator_scalar_to_py(Value{*carrier}.view());
+                 },
+                 nb::arg("pattern"))
             .def("bind_ts", [](PyResolutionScope &self, const std::string &name, PyTsType meta) {
                 self.map.bind_ts(name, meta.meta);
             })

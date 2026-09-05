@@ -208,7 +208,9 @@ Each entry names the layer that owns the rule:
   mode is fixed when the node is built;
 * Python wiring choosing a type carrier by operator name, or keeping a shadow
   schema-to-Python-type dictionary, when the resolver and the registry own
-  both;
+  both (the dictionaries are gone since RFC 0033's PR C: the bridge's
+  reverse-binding registry is the one schema-to-annotation authority, and
+  the ratchet holds it at zero);
 * a second or third ancestry walker beside ``TypeRegistry::value_is_a``;
 * operators recomputing ``value_type_for_active_realization`` instead of
   reading the binding from their bound views;
@@ -276,7 +278,8 @@ oracle: the sweep wires the same consumer two ways and requires identical
    lattice and the bare-subscript pinning order of each decorator kind. Its
    oracle is *pinned current behaviour*: the carrier rules live once per
    decorator kind in Python wiring today (seven subscript rules, three
-   type-variable collectors, two shadow schema dictionaries) and the
+   type-variable collectors; the two shadow schema dictionaries were the
+   first to go, in PR C) and the
    type-carrier blueprint moves the matching into the C++ resolver in stages,
    so the sweep records every per-kind inconsistency (``blueprint risk N``
    comments) and every cell that raises, and each stage is verified against

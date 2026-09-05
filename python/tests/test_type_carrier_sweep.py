@@ -55,7 +55,7 @@ from hgraph import (
     nothing,
     operator,
 )
-from hgraph._types import _resolution_value_type, _value_type
+from hgraph._types import _value_type
 from hgraph.test import eval_node
 
 # Sweep-prefixed: named scalars intern on their bare name (#653).
@@ -688,10 +688,11 @@ _LATTICE = [
 @pytest.mark.parametrize("python_type", _LATTICE, ids=lambda t: getattr(t, "__name__", repr(t)))
 def test_reverse_binding_round_trips_through_a_constructed_ts(python_type):
     # The path AUTO_RESOLVE takes: TS[T] records T against the value schema
-    # (the shadow dictionaries, blueprint section 4), so the schema of a
-    # constructed time series reads back as T.
+    # in the bridge's reverse-binding registry (RFC 0033, PR C; formerly the
+    # shadow dictionaries), so the schema of a constructed time series reads
+    # back as T through the one registry function.
     value_type = _hgraph.ts_value_vt(TS[python_type].handle)
-    assert _resolution_value_type(value_type) == python_type
+    assert _hgraph.python_type_for_value(value_type) == python_type
 
 
 @pytest.mark.parametrize("python_type", [int, float, str, bool, date, datetime, SweepRow, SweepColour],
@@ -704,12 +705,56 @@ def test_native_reverse_binding_rebuilds_atomics_and_nominal_types(python_type):
     "python_type", [tuple[int, ...], frozenset[int], Mapping[str, int]],
     ids=["tuple", "frozenset", "Mapping"],
 )
-def test_native_reverse_binding_cannot_rebuild_parameterised_generics(python_type):
-    # Finding pinned for blueprint PR D: the native side cannot hand back the
-    # parameterised Python annotation for a collection schema (it returns the
-    # ValueType itself, or a builtin spelling for a Mapping); only the
-    # constructed-TS path above knows T, through the shadow dictionaries.
-    assert _hgraph.python_type_for_value(_value_type(python_type)) != python_type
+def test_native_reverse_binding_rebuilds_parameterised_generics(python_type):
+    # Flipped in PR C (RFC 0033): the registry hands back the parameterised
+    # annotation the DSL wrote, which the opaque/native/bundle/enum lookups
+    # could not rebuild; before, the shadow dictionaries were the only path.
+    assert _hgraph.python_type_for_value(_value_type(python_type)) == python_type
+
+
+def test_reverse_binding_hands_back_the_most_recent_spelling():
+    # One interned schema, many spellings: the registry keeps the spelling
+    # written most recently, as the shadow dictionaries did, so the site that
+    # resolved reads back what it wrote.
+    class SweepAliasRow(CompoundScalar):
+        x: int
+
+    first = _value_type(Mapping[str, SweepAliasRow])
+    assert _hgraph.python_type_for_value(first) == Mapping[str, SweepAliasRow]
+    second = _value_type(dict[str, SweepAliasRow])
+    assert first == second
+    assert _hgraph.python_type_for_value(second) == dict[str, SweepAliasRow]
+
+
+def test_reverse_binding_dies_with_the_metadata_on_reset():
+    # The shadow dictionaries were keyed by native handles and never cleared,
+    # so a handle recycled after reset_registries() could alias a new schema
+    # to an old annotation. The registry is cleared with the metadata: after
+    # a reset a fresh schema reads back as what was written for it.
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import os
+        import _hgraph
+        from hgraph import TS  # noqa: F401 (package import initialises the bridge)
+        from hgraph._types import _value_type
+
+        before = _value_type(tuple[int, ...])
+        assert _hgraph.python_type_for_value(before) == tuple[int, ...]
+        _hgraph.reset_registries()
+        after = _value_type(frozenset[int])
+        assert _hgraph.python_type_for_value(after) == frozenset[int], \
+            _hgraph.python_type_for_value(after)
+        # Linux: reset + ordinary interpreter exit dies in the final GC.
+        os._exit(0)
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 # --------------------------------------------------------------------------

@@ -373,8 +373,23 @@ the registry matches it against a ``TypeArg`` parameter's carried pattern
 back to resolvers, ``requires`` and the wire trampoline as the type it
 carries (a ``TsType``, the Python annotation of a scalar schema through
 ``python_type_for_value``, or a plain size). The remaining Python-side
-carrier rules (subscripts, collectors, the shadow dictionaries) retire in
-the RFC's later stages.
+carrier rules (subscripts, collectors) retire in the RFC's later stages.
+
+**Reverse binding** (RFC 0033, PR C). ``python_type_for_value`` is the one
+schema-to-Python-type authority. It consults the bridge's
+``python_type_registry()`` first -- the annotation the DSL wrote for a
+schema, recorded by ``_value_type`` through ``_hgraph.bind_python_type``
+for every schema it produces, the most recent registration wins -- and only then the
+opaque, native-scalar, Bundle, enum and builtin lookups, which cannot
+rebuild a parameterised generic such as ``tuple[int, ...]`` or an alias.
+The registry owns its reset entry point, ``clear_python_type_registry``,
+which ``reset_registries`` calls beside the other bridge registries;
+registration never resets anything as a side effect. This replaced the two
+Python-side shadow dictionaries (``_TS_SCALAR_TYPES`` /
+``_VALUE_SCALAR_TYPES``), which were keyed by native handles and never
+cleared -- a handle recycled after a reset could alias a new schema to an
+old annotation. ``ResolutionScope.materialise(pattern)`` resolves a
+deferred type argument's default in a scope and projects it the same way.
 
 Python-defined operators register under ``__pyop__{qualname}_{id:x}`` — the
 id-suffix exists because the C++ operator registry is process-global and

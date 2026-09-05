@@ -129,6 +129,22 @@ struct HGRAPH_LOCAL NB_EXPORT_SHARED PyBundleClassInfo {
     std::unordered_map<const void *, PyBundleClassInfo> &
     bundle_class_info_registry();
 
+/**
+ * Reverse binding (RFC 0033): the Python annotation each value schema came
+ * from -- ``tuple[int, ...]``, ``Mapping[str, int]``, an alias -- strongly
+ * held so ``python_type_for_value`` can hand back what the DSL wrote, which
+ * the opaque/native/bundle/enum lookups cannot rebuild for parameterised
+ * generics. Written by ``_value_type`` through ``bind_python_type`` for every
+ * schema it produces; the most recent registration for a schema wins (one
+ * interned schema has many spellings, and AUTO_RESOLVE hands back the one
+ * written at the resolving site). Registration never resets anything: the registry owns
+ * its own reset entry point, ``clear_python_type_registry``, which
+ * ``reset_registries`` calls beside the other bridge registries so the
+ * binding dies with the metadata.
+ */
+[[nodiscard]] HGRAPH_EXPORT std::unordered_map<const void *, nb::object> &python_type_registry();
+HGRAPH_EXPORT void clear_python_type_registry() noexcept;
+
 /** Structural ``TSB[CompoundScalar]`` schema -> its scalar Bundle schema.
  * The TS runtime remains structural; this bridge-only association restores the
  * declared Python value class when a Python node reads the complete TSB value.

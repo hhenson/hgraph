@@ -676,6 +676,16 @@ bundle_class_info_registry() {
   return *registry;
 }
 
+std::unordered_map<const void *, nb::object> &python_type_registry() {
+  static auto *registry = new std::unordered_map<const void *, nb::object>{};
+  return *registry;
+}
+
+void clear_python_type_registry() noexcept {
+  nb::gil_scoped_acquire gil;
+  python_type_registry().clear();
+}
+
 std::unordered_map<const void *, const void *> &tsb_compound_value_registry() {
   static auto *registry = new std::unordered_map<const void *, const void *>{};
   return *registry;
