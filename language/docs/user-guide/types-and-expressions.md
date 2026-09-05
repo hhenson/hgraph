@@ -302,6 +302,13 @@ requires T in {i64, f64}
 equalities, constant predicates, and nominal operator requirements have the
 same meaning here as on a generic function.
 
+> **Staging status:** The prototype currently performs complete requirement
+> evaluation when it checks a struct constructor. Other appearances of an
+> applied generic struct retain the normalized requirement in typed HIR, but
+> validation there remains fail-closed until canonical nominal-type metadata is
+> available to every consumer. Arbitrary constant expressions beyond equality
+> and closed-set membership are also still deferred.
+
 In the initial design, a struct's type arguments are canonical value types,
 not temporal policies. Put `atomic` at the field where temporal expansion is
 controlled:

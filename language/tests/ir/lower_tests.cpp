@@ -382,18 +382,291 @@ fn wrong() -> f64 {
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
-TEST_CASE("typed HIR fails closed until callable requirements are evaluated", "[ir][typed][constraints]") {
+TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
     Lowered lowered{R"(
 module checks.constraints
 
-fn identity<T>(value: T) -> T
+fn add_numeric<T>(value: T) -> T
 requires T in {i64, f64}
+=> value + value
+
+fn accepted(value: i64) -> i64 => add_numeric(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    CHECK(lowered.hir.completion == hir::Completion::Typed);
+
+    Lowered rejected{R"(
+module checks.rejected_constraint
+
+fn add_numeric<T>(value: T) -> T
+requires T in {i64, f64}
+=> value + value
+
+fn rejected(value: str) -> str => add_numeric(value)
+)"};
+    require_clean(rejected);
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("requirements are not satisfied") != std::string::npos);
+    CHECK(rejected.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR equality constraints infer reflected field types", "[ir][typed][constraints]") {
+    Lowered lowered{R"(
+module checks.reflected_constraint
+
+abstract struct Priced {
+    bid: f64
+}
+
+struct Quote: Priced {
+    size: i64
+}
+
+fn reflected<U, V>(value: U, const name: str) -> V
+requires U is struct
+      && name in fields(U)
+      && V == field_type(U, name)
+=> null
+
+fn apply_reflected(value: Quote) -> i64 {
+    let result = reflected(value, "size")
+    result
+}
+
+fn read_bid<U>(value: U) -> f64
+requires U is struct
+      && has_fields(U, {"bid"})
+      && field_type(U, "bid") == f64
+=> value.bid
+
+fn apply_read_bid(value: Quote) -> f64 => read_bid(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::ExactFunction || !expression.operation.target.valid() ||
+            lowered.hir.symbol(expression.operation.target).name != "reflected") {
+            continue;
+        }
+        found = true;
+        CHECK(expression.type.valid());
+        CHECK(lowered.hir.type(expression.type).kind == hir::TypeKind::Scalar);
+        CHECK(lowered.hir.type(expression.type).scalar == hir::ScalarType::I64);
+        REQUIRE(expression.operation.substitutions.size() == 2U);
+        CHECK(expression.operation.substitutions[1].type == expression.type);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR operator requirements admit generic body operations", "[ir][typed][constraints][operators]") {
+    Lowered lowered{R"(
+module checks.operator_constraint
+
+operator add<T>(lhs: T, rhs: T) -> T
+impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
+
+fn double<T>(value: T) -> T
+requires add(T, T) -> T
+=> value + value
+
+fn apply_double(value: f64) -> f64 => double(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    Lowered rejected{R"(
+module checks.operator_constraint_rejected
+
+operator add<T>(lhs: T, rhs: T) -> T
+impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
+
+fn double<T>(value: T) -> T
+requires add(T, T) -> T
+=> value + value
+
+fn apply_double(value: i64) -> i64 => double(value)
+)"};
+    require_clean(rejected);
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("operator requirement has no implementation") != std::string::npos);
+    CHECK(rejected.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("operator implementations inherit contract requirements", "[ir][typed][constraints][operators]") {
+    Lowered lowered{R"(
+module checks.inherited_operator_constraint
+
+operator add<T>(lhs: T, rhs: T) -> T
+impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
+
+operator double<T>(value: T) -> T
+requires add(T, T) -> T
+
+impl fn double(value: f64) -> f64 => value + value
+fn apply_double(value: f64) -> f64 => double(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("operator requirements apply the target contract constraints", "[ir][typed][constraints][operators]") {
+    Lowered rejected{R"(
+module checks.effective_operator_constraint
+
+operator choose<T>(value: T) -> T
+requires T in {f64}
+
+impl fn choose(value: i64) -> i64 => value
+
+fn requires_choose<T>(value: T) -> T
+requires choose(T) -> T
 => value
+
+fn apply(value: i64) -> i64 => requires_choose(value)
+)"};
+    require_clean(rejected);
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("function call requirements are not satisfied") != std::string::npos);
+}
+
+TEST_CASE("operator requirements carry const arguments", "[ir][typed][constraints][operators]") {
+    Lowered lowered{R"(
+module checks.const_operator_requirement
+
+operator retain(const value: i64) -> i64
+impl fn retain(const value: i64) -> i64 => value
+
+fn accepts(const value: i64) -> i64
+requires retain(value) -> i64
+=> value
+
+fn apply() -> i64 => accepts(3)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("operator implementations must conform to their contract", "[ir][typed][constraints][operators]") {
+    Lowered wrong_name{R"(
+module checks.operator_parameter_name
+
+operator choose<T>(value: T) -> T
+impl fn choose(other: f64) -> f64 => other
+)"};
+    require_clean(wrong_name);
+    CHECK_FALSE(complete(wrong_name));
+    CHECK(wrong_name.diagnostics.render(wrong_name.file).find("implementation signature does not conform") != std::string::npos);
+
+    Lowered wrong_result{R"(
+module checks.operator_result_type
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: i64) -> f64 => 1.0
+)"};
+    require_clean(wrong_result);
+    CHECK_FALSE(complete(wrong_result));
+    CHECK(wrong_result.diagnostics.render(wrong_result.file).find("implementation signature does not conform") !=
+          std::string::npos);
+}
+
+TEST_CASE("source candidates with unresolved generics remain deferred", "[ir][typed][constraints][operators]") {
+    Lowered lowered{R"(
+module checks.unresolved_candidate_generic
+
+operator choose<T>(value: T) -> T
+impl fn choose<T, U>(value: T) -> T => value
+fn apply_it(value: f64) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator || !expression.operation.target.valid() ||
+            lowered.hir.symbol(expression.operation.target).name != "choose") {
+            continue;
+        }
+        found = true;
+        CHECK_FALSE(expression.operation.candidate.valid());
+        CHECK(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("constraint logic admits resolved alternatives without inferring through them", "[ir][typed][constraints]") {
+    Lowered lowered{R"(
+module checks.constraint_logic
+
+fn scalar_value<T>(value: T) -> T
+requires T in {i64} || T in {str}
+=> value
+
+fn not_text<T>(value: T) -> T
+requires !(T in {str})
+=> value
+
+fn apply_scalar(value: str) -> str => scalar_value(value)
+fn apply_not(value: i64) -> i64 => not_text(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("unresolved constraint dependencies fail closed", "[ir][typed][constraints]") {
+    Lowered lowered{R"(
+module checks.unresolved_constraint
+
+fn unresolved<U, V>(value: U) -> V
+requires V == field_type(U, "missing")
+=> null
+
+fn apply_unresolved(value: i64) -> i64 {
+    unresolved(value)
+    1
+}
 )"};
     require_clean(lowered);
     CHECK_FALSE(complete(lowered));
-    CHECK(lowered.diagnostics.render(lowered.file).find("callable 'requires' evaluation is not implemented") != std::string::npos);
+    CHECK(lowered.diagnostics.render(lowered.file).find("requirements could not be resolved") != std::string::npos);
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("generic struct construction evaluates structural requirements", "[ir][typed][constraints][structs]") {
+    Lowered lowered{R"(
+module checks.struct_constraint
+
+struct WithId<T>
+requires T is struct && has_fields(T, {"id"})
+{
+    value: T
+}
+
+struct Record { id: i64 }
+fn make(value: Record) -> WithId<Record> => WithId<Record>(value: value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    Lowered rejected{R"(
+module checks.struct_constraint_rejected
+
+struct WithId<T>
+requires T is struct && has_fields(T, {"id"})
+{
+    value: T
+}
+
+struct Missing { name: str }
+fn make(value: Missing) -> WithId<Missing> => WithId<Missing>(value: value)
+)"};
+    require_clean(rejected);
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("struct construction requirements are not satisfied") !=
+          std::string::npos);
+    CHECK(rejected.hir.completion == hir::Completion::Resolved);
 }
 
 TEST_CASE("typed HIR records runtime state and capability effects", "[ir][typed][effects]") {

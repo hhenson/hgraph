@@ -99,3 +99,27 @@ fn double(values: map<str, f64>) -> map<str, f64> =>
     }
     CHECK(found);
 }
+
+TEST_CASE("operator requirements use native registry viability", "[ir][operator-types][constraints]") {
+    Unit unit{R"(
+module checks.native_requirement
+use hgraph.std::{add}
+
+fn double<T>(value: T) -> T
+requires add(T, T) -> T
+=> value + value
+
+fn apply_double(value: f64) -> f64 => double(value)
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.complete());
+
+    bool found_body_operation = false;
+    for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
+        if (expression.operation.identity != "add_") { continue; }
+        found_body_operation = true;
+        CHECK(expression.operation.target.valid());
+    }
+    CHECK(found_body_operation);
+}
