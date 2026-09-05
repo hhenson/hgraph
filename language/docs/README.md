@@ -29,11 +29,22 @@ out so examples do not imply an implemented compatibility promise.
    generic construction, inherited defaults, optional fields, sparse deltas,
    runtime state, lifecycle, activation, output, tests and running, and syntax
    decisions.
-3. [Modules and native extensions](design/modules.md) — how C++ packages become
+3. [Compiler architecture](design/compiler-architecture.md) — source fidelity,
+   pass contracts, typed HIR, hgraph IR, backend boundaries, and the parser
+   migration.
+4. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.
-4. [Roadmap](design/roadmap.md) — vertical slices and their acceptance gates.
-5. [Distribution and deployment](design/distribution.md) — release train,
+5. [Native interface](design/native-interface.md) — constrained scalar kernels,
+   opaque state, phase/effect/ownership metadata, and why ordinary HGL has no
+   inline C++ escape.
+6. [Documentation architecture](design/documentation.md) — audience boundaries,
+   feature status, executable examples, and code documentation.
+7. [Architecture decisions](design/decisions/README.md) — numbered decisions
+   that constrain several compiler passes or artifacts.
+8. [Roadmap](design/roadmap.md) — vertical slices, the compiler architecture
+   stack, core-library migration, and acceptance gates.
+9. [Distribution and deployment](design/distribution.md) — release train,
    package channels (Homebrew first), the relocatable native context, and
    what a host needs to run an HGL program.
 

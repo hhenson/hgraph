@@ -3,6 +3,12 @@
 The language is complete only when source reaches observable hgraph behavior.
 Parser-only milestones remain intermediate progress.
 
+The pass and documentation gates below follow
+[Compiler architecture](../design/compiler-architecture.md) and
+[Documentation architecture](../design/documentation.md). They are target
+acceptance requirements while the prototype still walks `ResolvedModule`
+directly.
+
 The lists below are the acceptance matrix, not a claim that every item has
 landed. At the 2026-09-03 prototype checkpoint, syntax tests cover struct,
 generic application, constraint, `null`, and delta nodes; resolver tests cover
@@ -66,6 +72,42 @@ operator of that name in scope.
 Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
 unless a later RFC deliberately reintroduces one.
+
+The declarative-parser comparison runs the same corpus through each candidate
+implementation and additionally records:
+
+- byte ranges and retained comments for valid source;
+- unexpected and missing syntax for malformed source;
+- at least three useful diagnostics from one file with independent errors;
+- exact newline-continuation behavior around operators, commas, braces, and
+  declaration boundaries;
+- nested generic closers without changing comparison-token behavior;
+- debug and release compiler time and object size in an isolated parser target;
+- representative GCC, Clang, and MSVC builds.
+
+The production parser is not selected from a toy grammar or throughput alone.
+Parser-library headers remain private to the syntax implementation and are not
+included by syntax clients or test support headers.
+
+## Typed HIR and hgraph IR
+
+Each valid guide example has a source-ranged typed-HIR snapshot containing
+stable declaration identities, canonical types, substitutions, typed
+constants, call targets, function kind, phase, and effects. Invalid examples
+prove that incomplete or contradictory types never reach hgraph IR.
+
+Hgraph-IR snapshots cover composition calls, runtime state and initialization,
+injectables, lifecycle operations, activation and validity guards, collection
+borrows, output effects, and provider requirements. They deliberately contain
+no C++ spellings or direct-wiring runtime objects.
+
+Architecture tests inspect target dependencies and includes. Once a backend is
+migrated, it may not include `syntax/ast.h`, consume `ResolvedModule`, perform
+name lookup, classify a function, or infer a generic substitution. Removing a
+temporary adapter is part of the stack's acceptance, not later cleanup.
+
+`hgl check --dump-hir` and `--dump-hgraph-ir` outputs are deterministic and
+covered as diagnostic formats. They are not persisted compatibility formats.
 
 ## Resolver
 
