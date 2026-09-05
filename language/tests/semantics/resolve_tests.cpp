@@ -19,14 +19,10 @@ namespace
     // a table so they stay hgraph-free (developer guide, "Frontend
     // components").
     const std::vector<std::string_view> registry{
-        "add_", "div_", "map_", "keys_", "valid", "modified", "mean", "if_then_else", "schedule",
-        "hgraph.analytics.rolling_mean",
+        "add_", "div_", "map_", "keys_", "valid", "modified", "mean", "if_then_else", "schedule", "hgraph.analytics.rolling_mean",
     };
 
-    bool table_lookup(std::string_view name)
-    {
-        return std::find(registry.begin(), registry.end(), name) != registry.end();
-    }
+    bool table_lookup(std::string_view name) { return std::find(registry.begin(), registry.end(), name) != registry.end(); }
 
     struct Resolved
     {
@@ -37,44 +33,34 @@ namespace
 
         explicit Resolved(std::string text)
             : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
-              result{resolve(file, module, table_lookup, diagnostics)}
-        {
-        }
+              result{resolve(file, module, table_lookup, diagnostics)} {}
 
-        [[nodiscard]] std::vector<std::string> messages() const
-        {
+        [[nodiscard]] std::vector<std::string> messages() const {
             std::vector<std::string> out;
             for (const Diagnostic &diagnostic : diagnostics.diagnostics()) { out.push_back(diagnostic.message); }
             return out;
         }
 
-        [[nodiscard]] bool has(Category category, std::string_view fragment) const
-        {
-            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(),
-                               [&](const Diagnostic &d) {
-                                   return d.category == category && d.message.find(fragment) != std::string::npos;
-                               });
+        [[nodiscard]] bool has(Category category, std::string_view fragment) const {
+            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [&](const Diagnostic &d) {
+                return d.category == category && d.message.find(fragment) != std::string::npos;
+            });
         }
 
         // The binding of the first (possibly qualified) name spelled `text`.
-        [[nodiscard]] const Binding *binding_of(std::string_view text) const
-        {
-            for (ast::ExprId id = 0; id < module.exprs.size(); ++id)
-            {
+        [[nodiscard]] const Binding *binding_of(std::string_view text) const {
+            for (ast::ExprId id = 0; id < module.exprs.size(); ++id) {
                 const auto *name      = std::get_if<ast::NameRef>(&module.expr(id).node);
                 const auto *qualified = std::get_if<ast::QualifiedRef>(&module.expr(id).node);
-                if ((name != nullptr && name->name.text == text) || (qualified != nullptr && qualified->name.text == text))
-                {
+                if ((name != nullptr && name->name.text == text) || (qualified != nullptr && qualified->name.text == text)) {
                     return &result.binding(id);
                 }
             }
             return nullptr;
         }
 
-        [[nodiscard]] const ast::FunctionDecl &function(std::string_view text) const
-        {
-            for (const ast::DeclId id : result.functions)
-            {
+        [[nodiscard]] const ast::FunctionDecl &function(std::string_view text) const {
+            for (const ast::DeclId id : result.functions) {
                 const auto &fn = std::get<ast::FunctionDecl>(module.decl(id).node);
                 if (fn.name.text == text) { return fn; }
             }
@@ -82,20 +68,16 @@ namespace
             throw 0;
         }
 
-        [[nodiscard]] FunctionKind kind_of(std::string_view text) const
-        {
-            for (const ast::DeclId id : result.functions)
-            {
+        [[nodiscard]] FunctionKind kind_of(std::string_view text) const {
+            for (const ast::DeclId id : result.functions) {
                 if (std::get<ast::FunctionDecl>(module.decl(id).node).name.text == text) { return result.kind(id); }
             }
             FAIL("no function " << text);
             throw 0;
         }
 
-        [[nodiscard]] ast::DeclId struct_id(std::string_view text) const
-        {
-            for (const ast::DeclId id : result.structs)
-            {
+        [[nodiscard]] ast::DeclId struct_id(std::string_view text) const {
+            for (const ast::DeclId id : result.structs) {
                 if (std::get<ast::StructDecl>(module.decl(id).node).name.text == text) { return id; }
             }
             FAIL("no struct " << text);
@@ -103,8 +85,7 @@ namespace
         }
     };
 
-    Resolved resolve_clean(std::string text)
-    {
+    Resolved resolve_clean(std::string text) {
         Resolved resolved{std::move(text)};
         INFO(resolved.diagnostics.render(resolved.file));
         REQUIRE_FALSE(resolved.diagnostics.has_errors());
@@ -112,8 +93,7 @@ namespace
     }
 }  // namespace
 
-TEST_CASE("kernel imports bind to registry names", "[semantics]")
-{
+TEST_CASE("kernel imports bind to registry names", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
 
@@ -135,16 +115,14 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
     CHECK(resolved.result.aliases[0].module == "hgraph.std");
 }
 
-TEST_CASE("only the kernel modules link in the first pass", "[semantics]")
-{
+TEST_CASE("only the kernel modules link in the first pass", "[semantics]") {
     const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse "
                             "hgraph.std::{nothing_like_this}\n"};
     CHECK(resolved.has(Category::Module, "module 'market.pricing' is not available"));
     CHECK(resolved.has(Category::Module, "hgraph.std does not export 'nothing_like_this'"));
 }
 
-TEST_CASE("names resolve through the scope chain", "[semantics]")
-{
+TEST_CASE("names resolve through the scope chain", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
 
@@ -169,8 +147,7 @@ fn f(y: f64, const k: i64 = 2) -> f64 {
     CHECK_FALSE(is_intrinsic("helper"));
 }
 
-TEST_CASE("an import shadows an intrinsic and a parameter shadows both", "[semantics]")
-{
+TEST_CASE("an import shadows an intrinsic and a parameter shadows both", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
 
@@ -184,8 +161,7 @@ fn g(x: f64) -> f64 => valid(x)
     CHECK(resolved.binding_of("valid")->kind == BindingKind::Operator);
 }
 
-TEST_CASE("unknown names and misuse are reported", "[semantics]")
-{
+TEST_CASE("unknown names and misuse are reported", "[semantics]") {
     const Resolved resolved{R"(
 module t
 
@@ -206,8 +182,7 @@ test t {
     CHECK(resolved.has(Category::Type, "'_' is only valid in a harness sequence"));
 }
 
-TEST_CASE("functions classify from their statement forms", "[semantics]")
-{
+TEST_CASE("functions classify from their statement forms", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
 
@@ -232,8 +207,7 @@ fn lifecycle(x: f64) -> f64 {
     CHECK(resolved.result.functions.size() == 3);
 }
 
-TEST_CASE("implementations bind to an operator in scope", "[semantics]")
-{
+TEST_CASE("implementations bind to an operator in scope", "[semantics]") {
     const Resolved bound = resolve_clean(R"(
 module t
 
@@ -251,8 +225,7 @@ impl fn valid(x: f64) -> bool => true
     CHECK(clash.has(Category::Name, "'fn valid' conflicts with operator hgraph.std::valid"));
 }
 
-TEST_CASE("tests are declarations, not values", "[semantics]")
-{
+TEST_CASE("tests are declarations, not values", "[semantics]") {
     const Resolved resolved{R"(
 module t
 
@@ -268,8 +241,7 @@ fn g(x: f64) -> f64 => check_f
     CHECK(resolved.has(Category::Name, "'check_f' is a test, not a value"));
 }
 
-TEST_CASE("struct hierarchy resolves effective fields and defaults", "[semantics]")
-{
+TEST_CASE("struct hierarchy resolves effective fields and defaults", "[semantics]") {
     const Resolved    resolved   = resolve_clean(R"(
 module t
 
@@ -301,42 +273,35 @@ fn make() -> atomic<Future> => Future(symbol: "F", expiry: @2026-12-18)
     CHECK(fields[3].name == "expiry");
 }
 
-TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]")
-{
-    SECTION("concrete parents are final")
-    {
+TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
+    SECTION("concrete parents are final") {
         const Resolved resolved{"module t\nstruct Base {}\nstruct Child: Base {}\n"};
         CHECK(resolved.has(Category::Type, "only an abstract struct may be inherited"));
     }
-    SECTION("inherited field types cannot be redeclared")
-    {
+    SECTION("inherited field types cannot be redeclared") {
         const Resolved resolved{"module t\nabstract struct Base { value: f64 "
                                 "}\nstruct Child: Base { value: i64 }\n"};
         CHECK(resolved.has(Category::Type, "cannot be redeclared with a type"));
     }
-    SECTION("required fields cannot become optional")
-    {
+    SECTION("required fields cannot become optional") {
         const Resolved resolved{"module t\nabstract struct Base { value: f64 "
                                 "}\nstruct Child: Base { value = null }\n"};
         CHECK(resolved.has(Category::Type, "only an optional inherited field may have a null default"));
     }
-    SECTION("self recursion and inheritance cycles are rejected")
-    {
+    SECTION("self recursion and inheritance cycles are rejected") {
         const Resolved recursive{"module t\nstruct Node { next: Node }\n"};
         CHECK(recursive.has(Category::Type, "self-recursive struct fields are not supported"));
         const Resolved cycle{"module t\nabstract struct A: B {}\nabstract struct B: A {}\n"};
         CHECK(cycle.has(Category::Type, "struct inheritance cycle reaches"));
     }
-    SECTION("multiple parent order fails closed")
-    {
+    SECTION("multiple parent order fails closed") {
         const Resolved resolved{"module t\nabstract struct A {}\nabstract struct B "
                                 "{}\nstruct C: A, B {}\n"};
         CHECK(resolved.has(Category::Type, "awaits the stable field-order rule"));
     }
 }
 
-TEST_CASE("generic structs validate applications and decidable requirements", "[semantics]")
-{
+TEST_CASE("generic structs validate applications and decidable requirements", "[semantics]") {
     const Resolved valid = resolve_clean(R"(
 module t
 
@@ -378,8 +343,7 @@ fn bad(x: Box<atomic<f64>>) => x
     CHECK(temporal_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
 }
 
-TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]")
-{
+TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
 use hgraph.std as std
@@ -402,8 +366,7 @@ fn f<T>(x: T) -> T requires T is class && mystery(T) { x }
     CHECK(bad.has(Category::Type, "is not a compile-time reflection function"));
 }
 
-TEST_CASE("struct construction enforces complete and sparse forms", "[semantics]")
-{
+TEST_CASE("struct construction enforces complete and sparse forms", "[semantics]") {
     const Resolved valid = resolve_clean(R"(
 module t
 struct Quote {
@@ -439,15 +402,13 @@ fn abstract_value() => Base(id: 1)
     CHECK(invalid.has(Category::Type, "abstract struct 'Base' is not constructible"));
 }
 
-TEST_CASE("every guide example resolves", "[semantics]")
-{
+TEST_CASE("every guide example resolves", "[semantics]") {
     // The examples exercise generics, inject, impl fn, and the intrinsics;
     // the resolver must accept them all (the backend limits what runs).
     const std::vector<std::string_view> names{
         "collection-views", "midpoint", "operators-and-generics", "runtime-choice", "stateful-node", "structural-types",
     };
-    for (const std::string_view name : names)
-    {
+    for (const std::string_view name : names) {
         const std::string path = std::string{HGL_EXAMPLES_DIR} + "/" + std::string{name} + ".hgl";
         std::ifstream     in{path};
         REQUIRE(in.is_open());
