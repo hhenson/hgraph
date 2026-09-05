@@ -108,8 +108,11 @@ arguments become explicit type or value references. `hgl check --dump-hir`
 prints the deterministic diagnostic representation used by snapshot tests.
 
 `src/ir/canonical_types` owns structural interning and source-to-canonical
-rewriting. `src/ir/type_check` advances that checkpoint from `Resolved` to
-`Typed`. It
+rewriting. `src/ir/generic_substitution` owns unification and substitution for
+both call matching and constraints. `src/ir/constraint_solver` owns fixed-point
+equality inference, Boolean admission, structural reflection, and nominal
+operator viability. `src/ir/type_check` orchestrates those services and
+advances the checkpoint from `Resolved` to `Typed`. It
 interns context-neutral source types independently of whether an occurrence is
 used as a temporal input or a `const` value, normalizes omitted rolling minima,
 rewrites signatures to canonical IDs, infers exact-function and local-operator
@@ -135,12 +138,33 @@ while two or more candidates remain deferred for hgraph ranking rather than
 being ranked by a compiler-private matcher. The current slice also checks that
 a sole source candidate is applicable before naming it.
 
-Callable `requires` evaluation and constraint-driven substitution are the
-remaining typed-HIR stage. Until that evaluator exists, a function or operator
-carrying a callable requirement reports a type diagnostic and the module stays
-`Resolved`. This fail-closed boundary prevents the temporary AST backends from
-silently executing a constraint they do not implement. Closed generic-struct
-requirements continue to be decided by the resolver as before.
+Callable constraints now use the same substitution object as signature
+matching. Positive conjunctive equalities may bind an output-only type or
+`const` value; closed sets, `struct`, `fields`, `has_fields`, `field_type`,
+`&&`, `||`, and `!` are then evaluated as admission predicates. The checker
+uses closed numeric domains, reflected field types, and explicit operator
+requirements as facts when validating a generic body. Local `impl fn`
+signatures are checked against their local contract, inherit its requirements,
+and combine them with candidate requirements at selection. Imported operator
+requirements use `OperatorResolver`, so native viability remains an hgraph
+decision.
+
+While checking a generic body, the declaration's normalized `requires`
+expression is an explicit proof premise. An `impl fn` also receives its
+operator contract through the conformance substitution. A nested function,
+operator, implementation, or struct-construction requirement is accepted when
+it evaluates concretely or follows from those premises. Conjunction requires
+both goals, disjunction requires either goal, a disjunctive premise must imply
+the goal on every branch, and a narrower closed set implies a wider one. This
+is compile-time implication only; no requirement becomes a per-tick runtime
+test.
+
+Residual arbitrary constant predicates, imported-contract conformance,
+constrained generic-struct applications outside construction sites, and native
+nominal-struct reflection still need descriptor support. A dependency cycle,
+an unavailable native shape, or any other unresolved requirement reports a
+type diagnostic and leaves the module `Resolved`; it is never discarded by a
+temporary backend.
 
 The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
 during migration. That adapter path is explicitly temporary; hgraph semantic
@@ -541,6 +565,13 @@ make that candidate more specific. Consequently two same-ranked candidates
 whose predicates both accept remain ambiguous. The compiler must not use
 source order, import order, registration order, or an attempted general proof
 of predicate implication as a tie-break.
+
+The typed-HIR prototype implements this division directly. Its constraint
+solver may establish viability for one exactly applicable local source
+implementation, but multiple applicable implementations remain unresolved
+until source providers are registered with hgraph. Imported requirements are
+schema-only `OperatorResolver` probes and therefore use native matching and
+ranking. Neither path stores a registry pointer in HIR.
 
 The current TSB pattern is closed: its field names and count must exactly match
 the concrete schema. `has_fields(U, {"a", "b"})` can initially lower to
