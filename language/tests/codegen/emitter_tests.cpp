@@ -823,6 +823,13 @@ export fn result(value: f64) -> f64 => first(value)
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
     }
+
+    SECTION("a missing planned dependency fails closed") {
+        dependency->operation.callable = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
 }
 
 TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")

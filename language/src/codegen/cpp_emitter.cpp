@@ -3775,7 +3775,10 @@ namespace hgl::codegen
             if (!id.valid()) { return; }
             const gir::Value &value = planned_value(id, fallback);
             if (!calls.values.insert(id.value).second) { return; }
-            if (value.operation.kind == gir::OperationKind::ExactFunction && value.operation.callable.valid()) {
+            if (value.operation.kind == gir::OperationKind::ExactFunction) {
+                if (!value.operation.callable.valid()) {
+                    backend(value.range, "hgraph IR contains an invalid callable dependency ID");
+                }
                 calls.calls.insert(value.operation.callable.value);
             }
             std::visit(
