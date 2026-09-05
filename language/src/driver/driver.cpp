@@ -122,7 +122,7 @@ namespace hgl::driver
             unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
             if (ir::complete_hir(unit.hir, wiring::resolve_operator_types, unit.diagnostics)) {
-                unit.hgraph = hgraph_ir::lower_interfaces(unit.hir, unit.diagnostics);
+                unit.hgraph = hgraph_ir::lower(unit.hir, unit.diagnostics);
             }
             unit.ok = !unit.diagnostics.has_errors();
         }

@@ -114,15 +114,17 @@ arguments, fail-closed unbound identities, and the deterministic source-ranged
 `--dump-hir` format. Every checked-in guide example now reaches `HIR typed`.
 
 `tests/hgraph_ir/lower_tests.cpp` (`hgl_graph_ir_tests`, CTest
-`hgraph_language_hgraph_ir`) proves that every guide example reaches an
-interface-only hgraph IR module with self-contained types and callable
-signatures. Focused cases cover canonical versus native registry identities,
+`hgraph_language_hgraph_ir`) proves that every guide example reaches a
+`Bodies` hgraph IR module with self-contained contracts, callables, bindings,
+values, control flow, and tests. Focused cases cover canonical versus native registry identities,
 runtime classification and capabilities, distinct source implementation
 identities, compile-time generic expressions, aggregate defaults, complete
 temporal spellings, normalized operator and callable requirements, abstract and
-concrete nominal contracts, inherited field origin/default metadata,
-renamed inherited type and `const` parameters, and rejection of unresolved
-HIR.
+concrete nominal contracts, inherited field origin/default metadata, renamed
+inherited type and `const` parameters, exact call targets, deferred
+nominal operators, state, lifecycle, capability calls, activation, assignment,
+collection traversal, predicate lambdas, test-harness plans, single evaluation
+of block tails, and rejection of unresolved HIR.
 CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
 
 Each valid guide example has a source-ranged typed-HIR snapshot containing
@@ -130,10 +132,11 @@ stable declaration identities, canonical types, substitutions, typed
 constants, call targets, function kind, phase, and effects. Invalid examples
 prove that incomplete or contradictory types never reach hgraph IR.
 
-Once executable lowering is added, hgraph-IR snapshots cover composition calls, runtime state and initialization,
-injectables, lifecycle operations, activation and validity guards, collection
-borrows, output effects, and provider requirements. They deliberately contain
-no C++ spellings or direct-wiring runtime objects.
+Hgraph-IR snapshots now cover composition calls, runtime state and
+initialization, injectables, lifecycle operations, activation and validity
+guards, collection traversal, output effects, and test harnesses. They
+deliberately contain no C++ spellings or direct-wiring runtime objects. The
+remaining executable-plan checkpoint adds concrete provider requirements.
 
 Architecture tests inspect target dependencies and includes. Once a backend is
 migrated, it may not include `syntax/ast.h`, consume `ResolvedModule`, perform

@@ -14,11 +14,10 @@ namespace hgl::hgraph_ir
     {
         namespace hir = ir::hir;
 
-        class InterfaceLowerer
+        class Lowerer
         {
           public:
-            InterfaceLowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics)
-                : source_{source}, diagnostics_{diagnostics} {
+            Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
                 result_.path = source.path;
             }
 
@@ -29,10 +28,13 @@ namespace hgl::hgraph_ir
                 }
 
                 lower_types();
+                lower_bindings();
                 lower_constraints();
                 lower_structures();
                 lower_operators();
                 lower_callables();
+                lower_tests();
+                if (!diagnostics_.has_errors()) { result_.completion = Completion::Bodies; }
                 return std::move(result_);
             }
 
@@ -123,10 +125,58 @@ namespace hgl::hgraph_ir
                 const hir::Symbol &symbol = source_.symbol(id);
                 if (!symbol.canonical_name.empty()) { return symbol.canonical_name; }
                 if (symbol.kind == hir::SymbolKind::Struct || symbol.kind == hir::SymbolKind::Operator ||
-                    symbol.kind == hir::SymbolKind::Function) {
+                    symbol.kind == hir::SymbolKind::Function || symbol.kind == hir::SymbolKind::Test) {
                     return source_.path + "." + symbol.name;
                 }
                 return symbol.name;
+            }
+
+            [[nodiscard]] std::string declaration_identity(hir::DeclarationId id) const {
+                if (!id.valid()) { return {}; }
+                const hir::Declaration &declaration = source_.declaration(id);
+                std::string             identity    = symbol_identity(declaration.symbol);
+                if (const auto *function = std::get_if<hir::FunctionDecl>(&declaration.node);
+                    function != nullptr && function->visibility == hir::Visibility::Implementation) {
+                    identity += "#" + std::to_string(id.value);
+                }
+                return identity;
+            }
+
+            [[nodiscard]] static std::optional<BindingKind> lower_binding_kind(hir::SymbolKind kind) noexcept {
+                switch (kind) {
+                    case hir::SymbolKind::TypeParameter: return BindingKind::TypeParameter;
+                    case hir::SymbolKind::ConstParameter: return BindingKind::ConstParameter;
+                    case hir::SymbolKind::SignalParameter: return BindingKind::SignalParameter;
+                    case hir::SymbolKind::LocalLet: return BindingKind::LocalLet;
+                    case hir::SymbolKind::LocalVar: return BindingKind::LocalVar;
+                    case hir::SymbolKind::State: return BindingKind::State;
+                    case hir::SymbolKind::InjectedCapability: return BindingKind::Capability;
+                    case hir::SymbolKind::LoopValue: return BindingKind::LoopValue;
+                    case hir::SymbolKind::LambdaParameter: return BindingKind::LambdaParameter;
+                    default: return std::nullopt;
+                }
+            }
+
+            void lower_bindings() {
+                for (std::uint32_t index = 0; index < source_.symbols.size(); ++index) {
+                    const hir::Symbol               &symbol = source_.symbols[index];
+                    const std::optional<BindingKind> kind   = lower_binding_kind(symbol.kind);
+                    if (!kind) { continue; }
+                    const BindingId id{static_cast<std::uint32_t>(result_.bindings.size())};
+                    bindings_.emplace(index, id);
+                    result_.bindings.push_back(Binding{.name           = symbol.name,
+                                                       .kind           = *kind,
+                                                       .type           = lower_type(symbol.type),
+                                                       .owner_identity = declaration_identity(symbol.owner),
+                                                       .index          = symbol.index,
+                                                       .range          = symbol.range});
+                }
+            }
+
+            [[nodiscard]] BindingId binding(hir::SymbolId source_id) const noexcept {
+                if (!source_id.valid()) { return {}; }
+                const auto found = bindings_.find(source_id.value);
+                return found == bindings_.end() ? BindingId{} : found->second;
             }
 
             [[nodiscard]] TypeId lower_type(hir::TypeId source_id) {
@@ -308,7 +358,7 @@ namespace hgl::hgraph_ir
 
             [[nodiscard]] GenericParameter lower_generic(const hir::GenericParameter &source) {
                 const hir::Symbol &symbol = source_.symbol(source.symbol);
-                return GenericParameter{symbol.name, source.is_const, lower_type(source.type)};
+                return GenericParameter{symbol.name, source.is_const, lower_type(source.type), binding(source.symbol)};
             }
 
             [[nodiscard]] Parameter lower_parameter(const hir::Parameter &source) {
@@ -318,6 +368,7 @@ namespace hgl::hgraph_ir
                 target.is_const      = source.is_const;
                 target.type          = lower_type(source.type);
                 target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
+                target.binding       = binding(source.symbol);
                 return target;
             }
 
@@ -394,11 +445,6 @@ namespace hgl::hgraph_ir
                 for (std::uint32_t index = 0; index < source_.constraints.size(); ++index) {
                     (void)lower_constraint(hir::ConstraintId{index});
                 }
-            }
-
-            [[nodiscard]] std::string declaration_identity(hir::DeclarationId id) const {
-                if (!id.valid()) { return {}; }
-                return symbol_identity(source_.declaration(id).symbol);
             }
 
             void lower_structures() {
@@ -487,16 +533,269 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            [[nodiscard]] CallableId callable(hir::SymbolId source_id) const noexcept {
+                if (!source_id.valid()) { return {}; }
+                const auto found = callables_.find(source_id.value);
+                return found == callables_.end() ? CallableId{} : found->second;
+            }
+
+            [[nodiscard]] Reference lower_reference(hir::SymbolId source_id) const {
+                Reference target;
+                if (!source_id.valid()) { return target; }
+                const hir::Symbol &source = source_.symbol(source_id);
+                if (const BindingId id = binding(source_id); id.valid()) {
+                    target.kind    = ReferenceKind::Binding;
+                    target.binding = id;
+                    return target;
+                }
+                target.identity      = symbol_identity(source_id);
+                target.registry_name = source.external_name;
+                switch (source.kind) {
+                    case hir::SymbolKind::Function:
+                        target.kind     = ReferenceKind::Callable;
+                        target.callable = callable(source_id);
+                        break;
+                    case hir::SymbolKind::Operator:
+                    case hir::SymbolKind::ImportedOperator: target.kind = ReferenceKind::Operator; break;
+                    case hir::SymbolKind::Struct: target.kind = ReferenceKind::Struct; break;
+                    case hir::SymbolKind::Intrinsic: target.kind = ReferenceKind::Intrinsic; break;
+                    default: target.kind = ReferenceKind::Binding; break;
+                }
+                return target;
+            }
+
+            [[nodiscard]] static OperationKind lower_operation_kind(hir::OperationKind kind) noexcept {
+                switch (kind) {
+                    case hir::OperationKind::None: return OperationKind::None;
+                    case hir::OperationKind::ExactFunction: return OperationKind::ExactFunction;
+                    case hir::OperationKind::NominalOperator: return OperationKind::NominalOperator;
+                    case hir::OperationKind::Intrinsic: return OperationKind::Intrinsic;
+                    case hir::OperationKind::Constructor: return OperationKind::Constructor;
+                    case hir::OperationKind::Capability: return OperationKind::Capability;
+                    case hir::OperationKind::Index: return OperationKind::Index;
+                    case hir::OperationKind::Field: return OperationKind::Field;
+                    case hir::OperationKind::HarnessEval: return OperationKind::HarnessEval;
+                }
+                std::unreachable();
+            }
+
+            [[nodiscard]] std::string binding_identity(hir::SymbolId source_id) const {
+                if (!source_id.valid()) { return {}; }
+                const hir::Symbol &symbol = source_.symbol(source_id);
+                const std::string  owner  = declaration_identity(symbol.owner);
+                return owner.empty() ? symbol.name : owner + "::" + symbol.name;
+            }
+
+            [[nodiscard]] Operation lower_operation(const hir::Operation &source, syntax::SourceRange range) {
+                Operation target;
+                target.kind            = lower_operation_kind(source.kind);
+                target.callable        = callable(source.target);
+                target.candidate       = callable(source.candidate);
+                target.capability      = binding(source.target);
+                target.identity        = source.identity;
+                target.candidate_label = source.candidate_label;
+                target.deferred        = source.deferred;
+                if (source.target.valid()) {
+                    const hir::Symbol &symbol = source_.symbol(source.target);
+                    if (target.identity.empty()) { target.identity = symbol_identity(source.target); }
+                    target.registry_name = symbol.external_name;
+                }
+                if (source.kind == hir::OperationKind::Index || source.kind == hir::OperationKind::Field) {
+                    target.registry_name = source.identity;
+                }
+                if (source.kind == hir::OperationKind::NominalOperator && target.registry_name.empty() &&
+                    !source.identity.empty() && !source.target.valid()) {
+                    target.registry_name = source.identity;
+                }
+                if (source.candidate.valid()) {
+                    target.candidate_identity = target.candidate.valid() ? result_.callables[target.candidate.value].identity
+                                                                         : symbol_identity(source.candidate);
+                }
+                for (const hir::Substitution &substitution : source.substitutions) {
+                    target.substitutions.push_back(Substitution{
+                        .parameter = binding(substitution.parameter),
+                        .parameter_identity =
+                            substitution.parameter.valid() ? binding_identity(substitution.parameter) : substitution.name,
+                        .type     = lower_type(substitution.type),
+                        .value    = lower_const_expr(substitution.value, range, "an operation substitution"),
+                        .constant = substitution.constant,
+                    });
+                }
+                return target;
+            }
+
+            [[nodiscard]] std::vector<Argument> lower_arguments(const std::vector<hir::Argument> &source) {
+                std::vector<Argument> target;
+                target.reserve(source.size());
+                for (const hir::Argument &argument : source) {
+                    target.push_back(Argument{argument.name, lower_value(argument.value), argument.range});
+                }
+                return target;
+            }
+
+            [[nodiscard]] ValueId lower_value(hir::ExprId source_id) {
+                if (!source_id.valid()) { return {}; }
+                if (const auto found = values_.find(source_id.value); found != values_.end()) { return found->second; }
+
+                const ValueId id{static_cast<std::uint32_t>(result_.values.size())};
+                values_.emplace(source_id.value, id);
+                result_.values.emplace_back();
+
+                const hir::Expr &source = source_.expr(source_id);
+                Value            target;
+                target.range      = source.range;
+                target.type       = lower_type(source.type);
+                target.phase      = source.phase;
+                target.value_kind = source.value_kind;
+                target.effects    = source.effects;
+                target.constant   = source.constant;
+                target.operation  = lower_operation(source.operation, source.range);
+                target.node       = std::visit(
+                    [&](const auto &node) -> ValueNode {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, hir::Literal>) {
+                            return Literal{node.value};
+                        } else if constexpr (std::is_same_v<T, hir::SymbolRef>) {
+                            return lower_reference(node.symbol);
+                        } else if constexpr (std::is_same_v<T, hir::Unary>) {
+                            return Unary{node.op, lower_value(node.operand)};
+                        } else if constexpr (std::is_same_v<T, hir::Binary>) {
+                            return Binary{node.op, lower_value(node.lhs), lower_value(node.rhs)};
+                        } else if constexpr (std::is_same_v<T, hir::Call>) {
+                            return Call{lower_value(node.callee), lower_arguments(node.arguments)};
+                        } else if constexpr (std::is_same_v<T, hir::Index>) {
+                            return Index{lower_value(node.target), lower_value(node.index)};
+                        } else if constexpr (std::is_same_v<T, hir::Field>) {
+                            return Field{lower_value(node.target), node.name, node.name_range};
+                        } else if constexpr (std::is_same_v<T, hir::Sequence>) {
+                            Sequence lowered;
+                            for (const hir::SequenceElement &element : node.elements) {
+                                lowered.elements.push_back(SequenceElement{lower_value(element.key), lower_value(element.value)});
+                            }
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::Tuple>) {
+                            Tuple lowered;
+                            for (hir::ExprId element : node.elements) { lowered.elements.push_back(lower_value(element)); }
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::Lambda>) {
+                            Lambda lowered;
+                            for (hir::SymbolId parameter : node.parameters) { lowered.parameters.push_back(binding(parameter)); }
+                            lowered.result = lower_type(node.result);
+                            lowered.body   = lower_value(node.body);
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::If>) {
+                            return Conditional{lower_value(node.condition), lower_block(node.then_block),
+                                               lower_value(node.otherwise)};
+                        } else if constexpr (std::is_same_v<T, hir::BlockExpr>) {
+                            return BlockValue{lower_block(node.block)};
+                        } else if constexpr (std::is_same_v<T, hir::Eval>) {
+                            return HarnessEval{lower_value(node.callee), lower_arguments(node.arguments)};
+                        } else {
+                            return Construct{lower_type(node.type), lower_arguments(node.arguments), node.delta};
+                        }
+                    },
+                    source.node);
+                result_.values[id.value] = std::move(target);
+                return id;
+            }
+
+            [[nodiscard]] static AssignOp lower_assign_op(hir::AssignOp op) noexcept {
+                switch (op) {
+                    case hir::AssignOp::Assign: return AssignOp::Assign;
+                    case hir::AssignOp::Add: return AssignOp::Add;
+                    case hir::AssignOp::Sub: return AssignOp::Sub;
+                    case hir::AssignOp::Mul: return AssignOp::Mul;
+                    case hir::AssignOp::Div: return AssignOp::Div;
+                }
+                std::unreachable();
+            }
+
+            [[nodiscard]] StatementId lower_statement(hir::StmtId source_id) {
+                if (!source_id.valid()) { return {}; }
+                if (const auto found = statements_.find(source_id.value); found != statements_.end()) { return found->second; }
+
+                const StatementId id{static_cast<std::uint32_t>(result_.statements.size())};
+                statements_.emplace(source_id.value, id);
+                result_.statements.emplace_back();
+
+                const hir::Stmt &source = source_.stmt(source_id);
+                Statement        target;
+                target.range   = source.range;
+                target.effects = source.effects;
+                target.node    = std::visit(
+                    [&](const auto &node) -> StatementNode {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, hir::LocalDecl>) {
+                            return LocalBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
+                        } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
+                            return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
+                        } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
+                            Inject lowered;
+                            for (hir::SymbolId symbol : node.symbols) { lowered.bindings.push_back(binding(symbol)); }
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::LifecycleBlock>) {
+                            return Lifecycle{node.is_stop ? LifecycleKind::Stop : LifecycleKind::Start, lower_block(node.block)};
+                        } else if constexpr (std::is_same_v<T, hir::WhenStmt>) {
+                            return Activation{lower_value(node.condition), lower_block(node.block)};
+                        } else if constexpr (std::is_same_v<T, hir::ForStmt>) {
+                            Traversal lowered;
+                            for (hir::SymbolId symbol : node.bindings) { lowered.bindings.push_back(binding(symbol)); }
+                            lowered.iterable = lower_value(node.iterable);
+                            lowered.block    = lower_block(node.block);
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::AssignStmt>) {
+                            return Assignment{lower_assign_op(node.op), lower_value(node.place), lower_value(node.value)};
+                        } else if constexpr (std::is_same_v<T, hir::ReturnStmt>) {
+                            return Return{lower_value(node.value)};
+                        } else if constexpr (std::is_same_v<T, hir::AssertStmt>) {
+                            return Assert{lower_value(node.condition)};
+                        } else {
+                            return Evaluate{lower_value(node.expr)};
+                        }
+                    },
+                    source.node);
+                result_.statements[id.value] = std::move(target);
+                return id;
+            }
+
+            [[nodiscard]] BlockId lower_block(hir::BlockId source_id) {
+                if (!source_id.valid()) { return {}; }
+                if (const auto found = blocks_.find(source_id.value); found != blocks_.end()) { return found->second; }
+
+                const BlockId id{static_cast<std::uint32_t>(result_.blocks.size())};
+                blocks_.emplace(source_id.value, id);
+                result_.blocks.emplace_back();
+
+                const hir::Block &source = source_.block(source_id);
+                Block             target;
+                target.range   = source.range;
+                target.effects = source.effects;
+                for (std::size_t index = 0; index < source.statements.size(); ++index) {
+                    const hir::StmtId statement = source.statements[index];
+                    if (source.tail.valid() && index + 1U == source.statements.size()) {
+                        if (const auto *tail = std::get_if<hir::ExprStmt>(&source_.stmt(statement).node);
+                            tail != nullptr && tail->expr == source.tail) {
+                            continue;
+                        }
+                    }
+                    target.statements.push_back(lower_statement(statement));
+                }
+                target.tail              = lower_value(source.tail);
+                result_.blocks[id.value] = std::move(target);
+                return id;
+            }
+
             void lower_callables() {
+                // Register all interfaces first so calls to later declarations
+                // can name their target by stable CallableId.
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::FunctionDecl>(&declaration.node);
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
+                    const CallableId id{static_cast<std::uint32_t>(result_.callables.size())};
+                    callables_.emplace(declaration.symbol.value, id);
                     Callable target;
                     target.visibility = lower_visibility(source->visibility);
-                    target.identity   = symbol_identity(declaration.symbol);
-                    if (target.visibility == CallableVisibility::Implementation) {
-                        target.identity += "#" + std::to_string(declaration.id.value);
-                    }
+                    target.identity   = declaration_identity(declaration.id);
                     target.kind =
                         source->kind == hir::FunctionKind::Composition ? CallableKind::Composition : CallableKind::RuntimeNode;
                     target.effects = source->effects;
@@ -510,9 +809,26 @@ namespace hgl::hgraph_ir
                     target.requirements = lower_constraint(source->requirements);
                     for (hir::SymbolId capability : source->capabilities) {
                         const hir::Symbol &symbol = source_.symbol(capability);
-                        target.capabilities.push_back(Capability{symbol.name, lower_type(symbol.type)});
+                        target.capabilities.push_back(Capability{symbol.name, lower_type(symbol.type), binding(capability)});
                     }
                     result_.callables.push_back(std::move(target));
+                }
+
+                for (const hir::Declaration &declaration : source_.declarations) {
+                    const auto *source = std::get_if<hir::FunctionDecl>(&declaration.node);
+                    if (source == nullptr || !declaration.symbol.valid()) { continue; }
+                    Callable &target    = result_.callables[callable(declaration.symbol).value];
+                    target.concise_body = lower_value(source->concise_body);
+                    target.block_body   = lower_block(source->block_body);
+                }
+            }
+
+            void lower_tests() {
+                for (const hir::Declaration &declaration : source_.declarations) {
+                    const auto *source = std::get_if<hir::TestDecl>(&declaration.node);
+                    if (source == nullptr || !declaration.symbol.valid()) { continue; }
+                    result_.tests.push_back(
+                        TestPlan{declaration_identity(declaration.id), lower_block(source->block), declaration.range});
                 }
             }
 
@@ -522,10 +838,13 @@ namespace hgl::hgraph_ir
             std::unordered_map<std::uint32_t, TypeId>       types_{};
             std::unordered_map<std::uint32_t, ConstExprId>  const_exprs_{};
             std::unordered_map<std::uint32_t, ConstraintId> constraints_{};
+            std::unordered_map<std::uint32_t, BindingId>    bindings_{};
+            std::unordered_map<std::uint32_t, CallableId>   callables_{};
+            std::unordered_map<std::uint32_t, ValueId>      values_{};
+            std::unordered_map<std::uint32_t, StatementId>  statements_{};
+            std::unordered_map<std::uint32_t, BlockId>      blocks_{};
         };
     }  // namespace
 
-    Module lower_interfaces(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) {
-        return InterfaceLowerer{source, diagnostics}.run();
-    }
+    Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) { return Lowerer{source, diagnostics}.run(); }
 }  // namespace hgl::hgraph_ir

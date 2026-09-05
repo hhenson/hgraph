@@ -186,8 +186,10 @@ classification, phase checking, or generic substitution.
 
 `hgl check --dump-hgraph-ir` exposes a readable, source-ranged form for tests
 and compiler diagnosis. The interface checkpoint owns all type, constant,
-constraint, struct, operator, and callable references in hgraph-IR arenas;
-execution-plan lowering may not recover them from HIR declarations.
+constraint, struct, operator, and callable references in hgraph-IR arenas. The
+body checkpoint owns bindings, values, semantic operations, substitutions,
+statements, blocks, and test plans, with no HIR IDs remaining. Execution-plan
+lowering may not recover either contracts or bodies from HIR declarations.
 
 ### Backends
 

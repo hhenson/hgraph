@@ -38,7 +38,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hgraph-ir
 )
 set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
-    PASS_REGULAR_EXPRESSION "HGRAPH-IR interfaces module examples.stateful_node"
+    PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
 # Catch2 for the frontend unit tests: reuse the repository's target when the
