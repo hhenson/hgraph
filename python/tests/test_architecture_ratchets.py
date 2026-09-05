@@ -109,6 +109,17 @@ RATCHETS: tuple[Ratchet, ...] = (
         pattern=r"_(TS|VALUE)_SCALAR_TYPES\b",
         owner="the registry is the single schema-to-Python-type authority",
     ),
+    # --- Type carriers are matched by the resolver (family 3) ---
+    Ratchet(
+        id="wiring-type-carrier-sites",
+        baseline=20,
+        roots=("python/hgraph/_wiring", "python/hgraph/_types.py"),
+        suffixes=(".py",),
+        pattern=r"\b(_binding_for_type_value|_match_type_argument|apply_type_carriers|"
+        r"_resolved_placeholder_value|_bind_native_resolution)\b",
+        owner="type carriers are matched by the resolver (blueprint PR B/C); "
+        "these Python-side binding sites are the copies to retire",
+    ),
     # --- One ancestry walker (family 4) ---
     Ratchet(
         id="bundle-only-ancestry",
@@ -145,8 +156,9 @@ RATCHETS: tuple[Ratchet, ...] = (
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bPyObject_Hash\b",
-        owner="one PythonObjectOps table; translation units that hash a "
-        "Python object",
+        owner="python_bridge::object_hash/equals/compare/str are the one set "
+        "of Python-object primitives (bridge_state.cpp); every ops table "
+        "delegates to them",
         mode="files",
     ),
     Ratchet(

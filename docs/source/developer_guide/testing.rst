@@ -259,6 +259,27 @@ oracle: the sweep wires the same consumer two ways and requires identical
    full-value tick by design; such a source sweeps only the shapes where
    the trace oracle holds.
 
+``python/tests/test_type_carrier_sweep.py``
+   A *type carrier* is a ``type[...]`` parameter however it is supplied: a
+   bare subscript ``fn[X]``, a named one ``fn[VAR: X]``, an explicit keyword
+   ``to=X``, a ``DEFAULT[X]`` or bare ``= X`` default, ``AUTO_RESOLVE``, a
+   scalar argument carrying a TS type or a type variable, a collection type,
+   or a ``Size[n]``. Axes: decorator kind (``compute_node``, ``graph``,
+   ``@operator`` with node and graph overloads, a generic reference service)
+   × carrier source × consumer (the body reading the materialised value,
+   ``requires=`` seeing it, ``resolvers=`` seeing the binding) × ordering ×
+   negative cells, plus the reverse binding ``T → schema → T`` over the scalar
+   lattice and the bare-subscript pinning order of each decorator kind. Its
+   oracle is *pinned current behaviour*: the carrier rules live once per
+   decorator kind in Python wiring today (seven subscript rules, three
+   type-variable collectors, two shadow schema dictionaries) and the
+   type-carrier blueprint moves the matching into the C++ resolver in stages,
+   so the sweep records every per-kind inconsistency (``blueprint risk N``
+   comments) and every cell that raises, and each stage is verified against
+   it; a pin that a stage changes on purpose changes in that stage's PR. The
+   ``wiring-type-carrier-sites`` ratchet counts the Python-side binding
+   helpers the stages retire.
+
 Each sweep carries a ``KNOWN_GAPS`` table of products that fail today, marked
 ``xfail(strict=True)``: a fix must delete its entry in the same change, and a
 regression turns the entry from an expected failure into a failing test. When
