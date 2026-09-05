@@ -726,6 +726,48 @@ def test_reverse_binding_hands_back_the_most_recent_spelling():
     assert _hgraph.python_type_for_value(second) == dict[str, SweepAliasRow]
 
 
+def test_reverse_binding_rebuilds_a_structural_schema_produced_by_resolution():
+    # A schema no Python annotation produced (a bound variable inside
+    # tuple[K, ...]) reads back as the canonical spelling built from its
+    # elements, the spellings the full-value projection uses.
+    class SweepResolvedRow(CompoundScalar):
+        x: int
+
+    element = _value_type(SweepResolvedRow)
+    assert _hgraph.python_type_for_value(_hgraph.tuple_vt(element)) == tuple[SweepResolvedRow, ...]
+    assert _hgraph.python_type_for_value(_hgraph.set_vt(element)) == frozenset[SweepResolvedRow]
+    assert _hgraph.python_type_for_value(_hgraph.map_vt(_value_type(str), element)) == dict[str, SweepResolvedRow]
+    assert _hgraph.python_type_for_value(_hgraph.fixed_tuple_vt([_value_type(str), element])) == tuple[str, SweepResolvedRow]
+
+
+def test_scope_materialises_a_deferred_type_argument_in_every_form():
+    # ResolutionScope.materialise (RFC 0033, PR C): a deferred default's
+    # pattern resolved in the scope, projected as the type it carries; None
+    # while a variable it needs is unbound.
+    from hgraph._types import _scalar_pattern
+
+    class SweepMaterialisedRow(CompoundScalar):
+        x: int
+
+    scope = _hgraph.ResolutionScope()
+    assert scope.materialise(_scalar_pattern(tuple[K, ...])) is None
+    assert scope.materialise(_hgraph.size_pattern_var("N")) is None
+    scope.bind_scalar("K", _value_type(SweepMaterialisedRow))
+    scope.bind_size("N", 3)
+    # scalar form, structural: the annotation is rebuilt from the bound element
+    assert scope.materialise(_scalar_pattern(tuple[K, ...])) == tuple[SweepMaterialisedRow, ...]
+    assert scope.materialise(_scalar_pattern(K)) is SweepMaterialisedRow
+    # size form
+    assert scope.materialise(_hgraph.size_pattern_var("N")) == 3
+    assert scope.materialise(_hgraph.size_pattern_value(2)) == 2
+    # time-series form
+    assert scope.materialise(TS[K].pattern) == TS[SweepMaterialisedRow].handle
+    # and the matcher accepts a size pattern with a size value
+    other = _hgraph.ResolutionScope()
+    assert other.match_carrier(_hgraph.size_pattern_var("M"), 4)
+    assert other.find_size("M") == 4
+
+
 def test_reverse_binding_dies_with_the_metadata_on_reset():
     # The shadow dictionaries were keyed by native handles and never cleared,
     # so a handle recycled after reset_registries() could alias a new schema

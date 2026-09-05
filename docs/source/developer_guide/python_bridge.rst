@@ -388,8 +388,14 @@ registration never resets anything as a side effect. This replaced the two
 Python-side shadow dictionaries (``_TS_SCALAR_TYPES`` /
 ``_VALUE_SCALAR_TYPES``), which were keyed by native handles and never
 cleared -- a handle recycled after a reset could alias a new schema to an
-old annotation. ``ResolutionScope.materialise(pattern)`` resolves a
-deferred type argument's default in a scope and projects it the same way.
+old annotation. A structural schema that no annotation produced -- a bound
+variable inside ``tuple[K, ...]`` resolved by the matcher -- reads back as
+the canonical spelling rebuilt from its elements (``tuple[T, ...]``,
+``tuple[A, B]``, ``frozenset[T]``, ``dict[K, V]``), the spellings the
+full-value projection already uses; an element the registries cannot name
+keeps the schema handle. ``ResolutionScope.materialise(pattern)`` resolves
+a deferred type argument's default in a scope -- a ``TypePattern``,
+``ScalarPattern`` or ``SizePattern`` -- and projects it the same way.
 
 Python-defined operators register under ``__pyop__{qualname}_{id:x}`` — the
 id-suffix exists because the C++ operator registry is process-global and

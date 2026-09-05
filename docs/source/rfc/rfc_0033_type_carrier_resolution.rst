@@ -949,6 +949,11 @@ review, stacked; they record these deviations from the text above:
 * ``replay`` does not yet declare ``tp``: its C++ implementation takes
   ``(key, recordable_id, model, ...)`` scalars and the Python name table
   still intercepts the positional type; it moves with the table in PR D.
+* ``python_type_for_value`` rebuilds a canonical spelling for a structural
+  schema no annotation produced (review finding on PR C: a
+  ``tuple[K, ...]`` resolved from a bound ``K`` has no registration), so
+  ``ResolutionScope.materialise`` always hands back an annotation; it also
+  accepts a ``SizePattern``.
 * The internal positional ``delay`` caller (``stream_impl.h``) now passes
   ``arg<"delay">(...)``; no other positional ``delay`` call exists in the
   tree (Unresolved question 2 answered for the tree; downstream is a

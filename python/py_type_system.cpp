@@ -25,6 +25,41 @@ namespace hgraph::python_bridge
     {
         nb::object python_type_for_value_meta(const ValueTypeMetaData *meta);
 
+        /** A Python pattern as the carried pattern of a ``TypeArg`` parameter:
+            a ``TypePattern`` (time-series form), a ``ScalarPattern`` (scalar
+            form) or a ``SizePattern`` (size form, kept as the ``TSL`` shell the
+            size matcher reads). */
+        ParamPattern carried_param_from_python(nb::handle pattern, const char *method)
+        {
+            ParamPattern param;
+            param.kind = ParamPattern::Kind::TypeArg;
+            if (nb::isinstance<PyTypePattern>(pattern))
+            {
+                param.ts      = nb::cast<PyTypePattern &>(pattern).pattern;
+                param.carrier = ResolutionKind::TimeSeries;
+            }
+            else if (nb::isinstance<PyScalarPattern>(pattern))
+            {
+                param.scalar  = nb::cast<PyScalarPattern &>(pattern).pattern;
+                param.carrier = ResolutionKind::Scalar;
+            }
+            else if (nb::isinstance<PySizePattern>(pattern))
+            {
+                const auto &size = nb::cast<PySizePattern &>(pattern);
+                param.carrier    = ResolutionKind::Size;
+                param.ts = size.variable
+                               ? TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), size.name)
+                               : TypePattern::tsl(TypePattern::var("__type_arg_size_element__"), size.value);
+            }
+            else
+            {
+                const std::string message =
+                    std::string{method} + " pattern must be a TypePattern, ScalarPattern or SizePattern";
+                throw nb::type_error(message.c_str());
+            }
+            return param;
+        }
+
         /** A type argument crosses back as the type it carries: a ``TsType``,
             the Python annotation of a scalar schema, or a plain size. */
         nb::object operator_scalar_to_py(const ValueView &value)
@@ -79,6 +114,63 @@ namespace hgraph::python_bridge
         if (name == "float") { return builtins.attr("float"); }
         if (name == "str") { return builtins.attr("str"); }
         if (name == "bytes") { return builtins.attr("bytes"); }
+
+        // A structural schema first produced by resolution (a bound variable
+        // inside tuple[K, ...]) has no registered annotation: rebuild the
+        // canonical spelling from its elements, the same spellings the
+        // full-value projection uses. An element the registries cannot name
+        // keeps the schema handle, as before.
+        const auto element_annotation = [&](const ValueTypeMetaData *element) -> nb::object {
+            nb::object annotation = python_type_for_value_meta(element);
+            return nb::isinstance<PyValueType>(annotation) ? nb::object{} : annotation;
+        };
+        const auto subscript = [&](const char *type_name, nb::object argument) {
+            return builtins.attr(type_name).attr("__class_getitem__")(std::move(argument));
+        };
+        switch (meta->try_value_kind().value_or(ValueTypeKind::Atomic))
+        {
+            case ValueTypeKind::List:
+                if (meta->has(ValueTypeFlags::VariadicTuple) && meta->element_type != nullptr)
+                {
+                    if (nb::object element = element_annotation(meta->element_type); element.is_valid())
+                    {
+                        return subscript("tuple", nb::make_tuple(element, builtins.attr("Ellipsis")));
+                    }
+                }
+                break;
+            case ValueTypeKind::Tuple:
+            {
+                nb::list elements;
+                for (std::size_t index = 0; index < meta->field_count; ++index)
+                {
+                    nb::object element = element_annotation(meta->fields[index].type);
+                    if (!element.is_valid()) { return nb::cast(PyValueType{meta}); }
+                    elements.append(std::move(element));
+                }
+                return subscript("tuple", nb::tuple(elements));
+            }
+            case ValueTypeKind::Set:
+                if (meta->element_type != nullptr)
+                {
+                    if (nb::object element = element_annotation(meta->element_type); element.is_valid())
+                    {
+                        return subscript("frozenset", std::move(element));
+                    }
+                }
+                break;
+            case ValueTypeKind::Map:
+                if (meta->key_type != nullptr && meta->element_type != nullptr)
+                {
+                    nb::object key   = element_annotation(meta->key_type);
+                    nb::object value = element_annotation(meta->element_type);
+                    if (key.is_valid() && value.is_valid())
+                    {
+                        return subscript("dict", nb::make_tuple(std::move(key), std::move(value)));
+                    }
+                }
+                break;
+            default: break;
+        }
         return nb::cast(PyValueType{meta});
     }
     }  // namespace
@@ -1221,23 +1313,8 @@ namespace hgraph::python_bridge
                  [](PyResolutionScope &self, nb::object pattern, nb::object value) -> bool {
                      // The one carrier matcher (RFC 0033): a type argument
                      // against its carried pattern, binding into this scope.
-                     ParamPattern param;
-                     param.kind = ParamPattern::Kind::TypeArg;
-                     if (nb::isinstance<PyTypePattern>(pattern))
-                     {
-                         param.ts      = nb::cast<PyTypePattern &>(pattern).pattern;
-                         param.carrier = ResolutionKind::TimeSeries;
-                     }
-                     else if (nb::isinstance<PyScalarPattern>(pattern))
-                     {
-                         param.scalar  = nb::cast<PyScalarPattern &>(pattern).pattern;
-                         param.carrier = ResolutionKind::Scalar;
-                     }
-                     else
-                     {
-                         throw nb::type_error("match_carrier pattern must be a TypePattern or ScalarPattern");
-                     }
-                     TypeCarrier carrier;
+                     ParamPattern param = carried_param_from_python(pattern, "match_carrier");
+                     TypeCarrier  carrier;
                      if (nb::isinstance<PyTsType>(value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
                      else if (nb::isinstance<PyValueType>(value))
                      {
@@ -1245,8 +1322,7 @@ namespace hgraph::python_bridge
                      }
                      else if (nb::isinstance<nb::int_>(value))
                      {
-                         carrier       = TypeCarrier::of_size(nb::cast<std::size_t>(value));
-                         param.carrier = ResolutionKind::Size;
+                         carrier = TypeCarrier::of_size(nb::cast<std::size_t>(value));
                      }
                      else
                      {
@@ -1260,24 +1336,8 @@ namespace hgraph::python_bridge
                      // A deferred type argument's default, resolved in this
                      // scope and handed back as the type it carries (RFC
                      // 0033); None while a variable it needs is unbound.
-                     ParamPattern                  param;
-                     ParamPattern::DeferredCarrier deferred;
-                     param.kind = ParamPattern::Kind::TypeArg;
-                     if (nb::isinstance<PyTypePattern>(pattern))
-                     {
-                         deferred.ts   = nb::cast<PyTypePattern &>(pattern).pattern;
-                         param.carrier = ResolutionKind::TimeSeries;
-                     }
-                     else if (nb::isinstance<PyScalarPattern>(pattern))
-                     {
-                         deferred.scalar = nb::cast<PyScalarPattern &>(pattern).pattern;
-                         param.carrier   = ResolutionKind::Scalar;
-                     }
-                     else
-                     {
-                         throw nb::type_error("materialise pattern must be a TypePattern or ScalarPattern");
-                     }
-                     param.default_pattern = std::move(deferred);
+                     ParamPattern param = carried_param_from_python(pattern, "materialise");
+                     param.default_pattern = ParamPattern::DeferredCarrier{param.ts, param.scalar};
                      const std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, self.map);
                      if (!carrier.has_value()) { return nb::none(); }
                      static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
