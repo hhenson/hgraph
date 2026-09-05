@@ -204,6 +204,13 @@ reports a conflict for a plain `fn` whose name is an in-scope operator. A bound
 implementation is a provider candidate and rejects an `export` modifier; only
 an unbound exact function may be exported directly.
 
+The resolved module stores that selected binding on the implementation
+declaration itself. Lowering copies it to `FunctionDecl::operator_contract` as
+a stable HIR symbol. Imported symbols keep the defining-module identity
+(`hgraph.std.valid`) separate from the current native registry key (`valid`),
+so neither type checking nor later descriptor generation reconstructs a
+contract from the implementation's short name.
+
 ## Function classification
 
 The classifier consumes resolved syntax and assigns `CompositionFn` or

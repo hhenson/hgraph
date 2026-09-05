@@ -111,6 +111,7 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
     CHECK(resolved.result.imports[3].registry_name == "hgraph.analytics.rolling_mean");
     CHECK(resolved.binding_of("add")->kind == BindingKind::Operator);
     CHECK(resolved.binding_of("add")->registry_name == "add_");
+    CHECK(resolved.binding_of("add")->operator_identity == "hgraph.std.add");
     REQUIRE(resolved.result.aliases.size() == 1);
     CHECK(resolved.result.aliases[0].module == "hgraph.std");
 }
@@ -216,6 +217,20 @@ use hgraph.std::{valid}
 impl fn valid(x: f64) -> bool => true
 )");
     CHECK(bound.result.functions.size() == 1);
+    const Binding &imported = bound.result.implementation_binding(bound.result.functions.front());
+    CHECK(imported.kind == BindingKind::Operator);
+    CHECK(imported.registry_name == "valid");
+    CHECK(imported.operator_identity == "hgraph.std.valid");
+
+    const Resolved local    = resolve_clean(R"(
+module t
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+)");
+    const Binding &declared = local.result.implementation_binding(local.result.functions.front());
+    CHECK(declared.kind == BindingKind::LocalOperator);
+    CHECK(declared.operator_identity == "t.choose");
 
     const Resolved unbound{"module t\n\nimpl fn nothing(x: f64) -> bool => true\n"};
     CHECK(unbound.has(Category::Module, "'impl fn nothing' has no operator named 'nothing' in scope"));

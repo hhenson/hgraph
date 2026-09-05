@@ -44,6 +44,7 @@ namespace hgl::semantics
                 result_.bindings.resize(module.exprs.size());
                 result_.type_bindings.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
+                result_.implementation_bindings.resize(module.decls.size());
                 result_.kinds.resize(module.decls.size(), FunctionKind::Composition);
                 result_.struct_info.resize(module.decls.size());
             }
@@ -120,8 +121,9 @@ namespace hgl::semantics
                     if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         result_.operators.push_back(id);
                         Binding binding;
-                        binding.kind = BindingKind::LocalOperator;
-                        binding.decl = id;
+                        binding.kind              = BindingKind::LocalOperator;
+                        binding.decl              = id;
+                        binding.operator_identity = result_.module_path + "." + std::string{op->name.text};
                         declare(op->name, binding, "in the module");
                     }
                 }
@@ -149,6 +151,8 @@ namespace hgl::semantics
                         report(Category::Module, fn.name.range,
                                "'impl fn " + std::string{fn.name.text} + "' has no operator named '" + std::string{fn.name.text} +
                                    "' in scope");
+                    } else {
+                        result_.implementation_bindings[id] = *existing;
                     }
                     // An implementation is reached through its operator's identity,
                     // never as an unqualified value of its own.
@@ -167,14 +171,14 @@ namespace hgl::semantics
             }
 
             [[nodiscard]] std::string operator_identity(const Binding &binding) const {
-                if (binding.kind == BindingKind::Operator) {
-                    for (const ImportedOperator &import : result_.imports) {
-                        if (import.registry_name == binding.registry_name) { return import.module + "::" + import.name; }
+                if (!binding.operator_identity.empty()) {
+                    std::string identity = binding.operator_identity;
+                    if (const std::size_t split = identity.rfind('.'); split != std::string::npos) {
+                        identity.replace(split, 1, "::");
                     }
-                    return binding.registry_name;
+                    return identity;
                 }
-                const auto &op = std::get<ast::OperatorDecl>(module_.decl(binding.decl).node);
-                return result_.module_path + "::" + std::string{op.name.text};
+                return binding.registry_name;
             }
 
             void resolve_use(const ast::UseDecl &use, SourceRange range) {
@@ -212,8 +216,9 @@ namespace hgl::semantics
                     }
                     result_.imports.push_back(ImportedOperator{std::string{name.text}, path, *registry_name, name.range});
                     Binding binding;
-                    binding.kind          = BindingKind::Operator;
-                    binding.registry_name = *registry_name;
+                    binding.kind              = BindingKind::Operator;
+                    binding.registry_name     = *registry_name;
+                    binding.operator_identity = path + "." + std::string{name.text};
                     declare(name, binding, "in the module");
                 }
             }
@@ -561,9 +566,10 @@ namespace hgl::semantics
                         return;
                     }
                     Binding binding;
-                    binding.kind          = BindingKind::Operator;
-                    binding.registry_name = *registry_name;
-                    result_.bindings[id]  = binding;
+                    binding.kind              = BindingKind::Operator;
+                    binding.registry_name     = *registry_name;
+                    binding.operator_identity = alias.module + "." + std::string{ref.name.text};
+                    result_.bindings[id]      = binding;
                     return;
                 }
                 report(Category::Name, ref.qualifier.range, "unknown module alias '" + std::string{ref.qualifier.text} + "'");
@@ -735,8 +741,9 @@ namespace hgl::semantics
                                         report(Category::Module, node.name.range,
                                                alias.module + " does not export '" + std::string{node.name.text} + "'");
                                     } else {
-                                        binding.kind          = BindingKind::Operator;
-                                        binding.registry_name = *name;
+                                        binding.kind              = BindingKind::Operator;
+                                        binding.registry_name     = *name;
+                                        binding.operator_identity = alias.module + "." + std::string{node.name.text};
                                     }
                                     break;
                                 }

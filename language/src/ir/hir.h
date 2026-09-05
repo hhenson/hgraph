@@ -85,9 +85,12 @@ namespace hgl::ir::hir
 
     struct Symbol
     {
-        SymbolKind          kind{SymbolKind::Module};
-        std::string         name{};
-        std::string         external_name{};
+        SymbolKind  kind{SymbolKind::Module};
+        std::string name{};
+        /// Native registry key for an imported operator or intrinsic.
+        std::string external_name{};
+        /// Stable defining-module identity, independent of registry spelling.
+        std::string         canonical_name{};
         DeclarationId       owner{};
         syntax::SourceRange range{};
         TypeId              type{};
@@ -527,8 +530,10 @@ namespace hgl::ir::hir
     };
     struct FunctionDecl
     {
-        Visibility                    visibility{Visibility::Internal};
-        FunctionKind                  kind{FunctionKind::Composition};
+        Visibility   visibility{Visibility::Internal};
+        FunctionKind kind{FunctionKind::Composition};
+        /// The nominal operator implemented by an `impl fn`.
+        SymbolId                      operator_contract{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
         ConstraintId                  requirements{};

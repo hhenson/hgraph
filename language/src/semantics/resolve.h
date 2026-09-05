@@ -20,8 +20,7 @@ namespace hgl::semantics
 {
     namespace ast = syntax::ast;
 
-    enum class BindingKind : std::uint8_t
-    {
+    enum class BindingKind : std::uint8_t {
         Unbound,
         Local,          ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
         Parameter,      ///< `decl` is the function, `index` the parameter
@@ -42,19 +41,22 @@ namespace hgl::semantics
         std::uint32_t index{0};
         bool          second{false};  ///< compatibility marker for the second `for` binder
         std::string   registry_name{};
+        /// Canonical defining-module identity for an operator binding. This is
+        /// distinct from `registry_name`, which is the current native dispatch
+        /// key and may use a compatibility spelling such as `add_`.
+        std::string operator_identity{};
     };
 
-    enum class FunctionKind : std::uint8_t
-    {
+    enum class FunctionKind : std::uint8_t {
         Composition,
         Runtime,
     };
 
     struct ImportedOperator
     {
-        std::string   name;           ///< the short name in scope
-        std::string   module;         ///< `hgraph.std` / `hgraph.analytics`
-        std::string   registry_name;  ///< the hgraph registry name
+        std::string         name;           ///< the short name in scope
+        std::string         module;         ///< `hgraph.std` / `hgraph.analytics`
+        std::string         registry_name;  ///< the hgraph registry name
         syntax::SourceRange range{};
     };
 
@@ -83,10 +85,11 @@ namespace hgl::semantics
     struct ResolvedModule
     {
         std::string                   module_path;
-        std::vector<Binding>          bindings;             ///< indexed by ExprId
-        std::vector<Binding>          type_bindings;        ///< indexed by TypeId
-        std::vector<Binding>          constraint_bindings;  ///< indexed by ConstraintId
-        std::vector<FunctionKind>     kinds;                ///< indexed by DeclId
+        std::vector<Binding>          bindings;                 ///< indexed by ExprId
+        std::vector<Binding>          type_bindings;            ///< indexed by TypeId
+        std::vector<Binding>          constraint_bindings;      ///< indexed by ConstraintId
+        std::vector<Binding>          implementation_bindings;  ///< selected operator, indexed by DeclId
+        std::vector<FunctionKind>     kinds;                    ///< indexed by DeclId
         std::vector<ImportedOperator> imports;
         std::vector<ModuleAlias>      aliases;
         std::vector<ast::DeclId>      functions;
@@ -95,10 +98,11 @@ namespace hgl::semantics
         std::vector<ast::DeclId>      tests;
         std::vector<StructInfo>       struct_info;  ///< indexed by DeclId
 
-        [[nodiscard]] const Binding    &binding(ast::ExprId id) const noexcept { return bindings[id]; }
-        [[nodiscard]] const Binding    &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }
-        [[nodiscard]] const Binding    &constraint_binding(ast::ConstraintId id) const noexcept { return constraint_bindings[id]; }
-        [[nodiscard]] FunctionKind      kind(ast::DeclId id) const noexcept { return kinds[id]; }
+        [[nodiscard]] const Binding &binding(ast::ExprId id) const noexcept { return bindings[id]; }
+        [[nodiscard]] const Binding &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }
+        [[nodiscard]] const Binding &constraint_binding(ast::ConstraintId id) const noexcept { return constraint_bindings[id]; }
+        [[nodiscard]] const Binding &implementation_binding(ast::DeclId id) const noexcept { return implementation_bindings[id]; }
+        [[nodiscard]] FunctionKind   kind(ast::DeclId id) const noexcept { return kinds[id]; }
         [[nodiscard]] const StructInfo &structure(ast::DeclId id) const noexcept { return struct_info[id]; }
     };
 

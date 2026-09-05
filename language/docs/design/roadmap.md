@@ -108,7 +108,9 @@ premise environment for nested constrained calls and constructions. Imported
 viability queries delegate to `OperatorRegistry`; local viability accepts
 exactly one applicable source implementation without inventing a ranking rule.
 Local implementations are checked against, and inherit requirements from,
-their local operator contract.
+their local operator contract. Every implementation now also retains its
+resolved nominal operator symbol, with imported defining-module identity kept
+separate from native registry spelling.
 
 The remaining work in this stage is imported operator-contract conformance,
 arbitrary residual `const` predicates, public native nominal-struct metadata,
