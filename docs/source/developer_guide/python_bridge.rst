@@ -42,6 +42,12 @@ File                          Contents
 ``module_internal.h``         ``PyObj`` (the object-scalar carrier) + the
                               value-conversion API shared with
                               ``value_conversion.cpp``.
+``object_semantics.h``        The Python-object value contract
+                              (``object_hash`` / ``object_equals`` /
+                              ``object_compare`` / ``object_str``), the one
+                              definition every ops table that stores a
+                              ``PyObject`` delegates to; implemented behind
+                              ``src/hgraph/python/impl/``.
 ``py_carriers.h``             Small cross-TU carrier structs handed to/from
                               Python (``PyTsType``, ``PyValueType``, patterns,
                               ``PyPort``, ``PyNodeRef``/``PyNodeRecord``,
@@ -391,7 +397,9 @@ Value and reference crossings
   needs conversion, extend its ops, not ``value_conversion.cpp``.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
-  ``object_str`` in ``bridge_state.cpp`` define what hashing, equality,
+  ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,
+  implemented in ``src/hgraph/python/impl/object_semantics.cpp`` so semantic
+  owners depend on the contract and not on bridge state -- define what hashing, equality,
   ordering and rendering mean for a stored ``PyObject`` (address-hash
   fallback for unhashable objects, equality that keeps equal values on
   equal hashes, ordering that maps comparison errors to unordered). The

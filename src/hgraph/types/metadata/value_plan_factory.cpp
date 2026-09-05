@@ -4,6 +4,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/object_semantics.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
 #endif

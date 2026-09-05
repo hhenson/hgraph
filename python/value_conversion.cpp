@@ -1,6 +1,7 @@
 #include "module_internal.h"
 
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/python/object_semantics.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/type_realization.h>
 

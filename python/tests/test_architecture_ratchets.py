@@ -156,8 +156,10 @@ RATCHETS: tuple[Ratchet, ...] = (
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bPyObject_Hash\b",
-        owner="one PythonObjectOps table; translation units that hash a "
-        "Python object",
+        owner="python_bridge::object_hash/equals/compare/str "
+        "(include/hgraph/python/object_semantics.h, implemented in "
+        "src/hgraph/python/impl/object_semantics.cpp) are the one set of "
+        "Python-object primitives; every ops table delegates to them",
         mode="files",
     ),
     Ratchet(
