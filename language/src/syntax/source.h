@@ -1,7 +1,9 @@
 #ifndef HGL_SYNTAX_SOURCE_H
 #define HGL_SYNTAX_SOURCE_H
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -23,6 +25,32 @@ namespace hgl::syntax
         }
 
         friend constexpr bool operator==(SourceRange, SourceRange) noexcept = default;
+    };
+
+    struct SourceComment
+    {
+        SourceRange range{};
+    };
+
+    enum class SourceFragmentKind : std::uint8_t
+    {
+        Token,
+        Whitespace,
+        LineBreak,
+        LineComment,
+    };
+
+    inline constexpr std::size_t no_token_index = std::numeric_limits<std::size_t>::max();
+
+    /// One non-overlapping piece of the original source. Together the
+    /// fragments cover the file byte-for-byte and in source order. Physical
+    /// line breaks remain separate even when the grammar tokenizes a run of
+    /// them as one newline.
+    struct SourceFragment
+    {
+        SourceFragmentKind kind{SourceFragmentKind::Whitespace};
+        SourceRange        range{};
+        std::size_t        token_index{no_token_index};
     };
 
     /// One-based line and column of a byte offset (columns count bytes).
