@@ -4,6 +4,8 @@
 #include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
 #include "driver/native_module.h"
+#include "ir/hir_printer.h"
+#include "ir/lower.h"
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
@@ -38,7 +40,7 @@ namespace hgl::driver
         {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
-                         "  hgl check <file> [--dump-tokens] [--dump-ast]\n"
+                         "  hgl check <file> [--dump-tokens] [--dump-ast] [--dump-hir]\n"
                          "  hgl test <file> [test-name]...\n"
                          "  hgl run <file> [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
@@ -108,7 +110,8 @@ namespace hgl::driver
             syntax::DiagnosticSink     diagnostics{};
             syntax::ast::Module        module{};
             semantics::ResolvedModule  resolved{};
-            bool                       ok{false};
+            ir::hir::Module             hir{};
+            bool                        ok{false};
 
             Unit(std::string path, std::string text) : file{std::move(path), std::move(text)} {}
         };
@@ -118,7 +121,9 @@ namespace hgl::driver
             unit.module = syntax::parse(unit.file, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
             unit.resolved = semantics::resolve(unit.file, unit.module, wiring::has_operator, unit.diagnostics);
-            unit.ok       = !unit.diagnostics.has_errors();
+            if (unit.diagnostics.has_errors()) { return; }
+            unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
+            unit.ok  = !unit.diagnostics.has_errors();
         }
 
         std::optional<Unit> load(const std::string &path)
@@ -188,10 +193,12 @@ namespace hgl::driver
             std::optional<std::string> path;
             bool                       want_tokens = false;
             bool                       want_ast    = false;
+            bool                       want_hir    = false;
             for (const std::string_view argument : arguments)
             {
                 if (argument == "--dump-tokens") { want_tokens = true; }
                 else if (argument == "--dump-ast") { want_ast = true; }
+                else if (argument == "--dump-hir") { want_hir = true; }
                 else if (argument.starts_with("--")) { return usage_error("unknown option '" + std::string{argument} + "'"); }
                 else if (path) { return usage_error("check takes one file"); }
                 else { path = std::string{argument}; }
@@ -214,6 +221,7 @@ namespace hgl::driver
             }
             frontend(unit);
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
+            if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
             if (unit.diagnostics.has_errors())
             {
                 std::cerr << unit.diagnostics.render(unit.file);

@@ -138,8 +138,10 @@ described in [Types and expressions](types-and-expressions.md#generic-structured
 A trailing `requires` clause constrains an otherwise generic declaration. It
 follows the signature and precedes the body:
 
-> **Staging status:** this syntax and its semantics are agreed design, but the
-> current `hgl check` parser does not implement `requires` yet.
+> **Staging status:** `hgl check` parses and resolves `requires` clauses and
+> rejects decidably false closed struct requirements. Complete callable
+> substitution and operator-conformance checking remains part of typed-HIR
+> completion.
 
 ```hgl
 fn add_numeric<U>(a: U, b: U) -> U

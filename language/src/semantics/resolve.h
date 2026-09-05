@@ -23,7 +23,7 @@ namespace hgl::semantics
     enum class BindingKind : std::uint8_t
     {
         Unbound,
-        Local,          ///< `let`/`var`/`for` binding: `stmt` (+ `second` for a pair pattern)
+        Local,          ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
         Parameter,      ///< `decl` is the function, `index` the parameter
         Generic,        ///< `decl` is the function, `index` the generic parameter
         Struct,         ///< `decl` is the nominal struct declaration
@@ -40,7 +40,7 @@ namespace hgl::semantics
         ast::DeclId   decl{ast::no_node};
         ast::StmtId   stmt{ast::no_node};
         std::uint32_t index{0};
-        bool          second{false};
+        bool          second{false};  ///< compatibility marker for the second `for` binder
         std::string   registry_name{};
     };
 

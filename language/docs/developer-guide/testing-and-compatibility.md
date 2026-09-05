@@ -6,8 +6,9 @@ Parser-only milestones remain intermediate progress.
 The pass and documentation gates below follow
 [Compiler architecture](../design/compiler-architecture.md) and
 [Documentation architecture](../design/documentation.md). They are target
-acceptance requirements while the prototype still walks `ResolvedModule`
-directly.
+acceptance requirements while both execution backends still walk
+`ResolvedModule` directly. The driver also constructs the first resolved HIR
+checkpoint so its migration contract is continuously exercised.
 
 The lists below are the acceptance matrix, not a claim that every item has
 landed. At the 2026-09-03 prototype checkpoint, syntax tests cover struct,
@@ -103,6 +104,15 @@ declarations and statements after recovery. No second parser exists in the
 compiler or test path.
 
 ## Typed HIR and hgraph IR
+
+Current checkpoint: `tests/ir/lower_tests.cpp` (`hgl_ir_tests`, CTest
+`hgraph_language_ir`) lowers every checked-in guide example and requires every
+value, type, and constraint name to carry a valid stable symbol. Focused cases
+cover multiple injectables declared together, state identity, anonymous
+parameters that shadow enclosing loop bindings, bare type and `const` generic
+arguments, fail-closed unbound identities, and the deterministic source-ranged
+`--dump-hir` format. The current dump says `HIR resolved`; it does not claim
+that the target assertions below have passed.
 
 Each valid guide example has a source-ranged typed-HIR snapshot containing
 stable declaration identities, canonical types, substitutions, typed

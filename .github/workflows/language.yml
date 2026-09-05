@@ -109,7 +109,7 @@ jobs:
       - name: Build hgl and its suites
         run: >-
           cmake --build build-language --parallel ${{ matrix.parallel }} --target
-          hgl hgl_syntax_tests hgl_semantics_tests hgl_wiring_tests
+          hgl hgl_syntax_tests hgl_semantics_tests hgl_ir_tests hgl_wiring_tests
           hgl_native_module_tests hgl_codegen_tests hgl_codegen_fixture
           hgl_generated_tests
       - name: Run the language suites
@@ -119,6 +119,7 @@ jobs:
         run: |
           build-language/language/hgl --version
           build-language/language/hgl check language/examples/midpoint.hgl
+          build-language/language/hgl check language/examples/stateful-node.hgl --dump-hir
           build-language/language/hgl emit-cpp language/examples/midpoint.hgl --out-dir build-language/emitted
           test -f build-language/emitted/midpoint.h
           test -f build-language/emitted/midpoint.cpp
