@@ -169,6 +169,8 @@ prototype. The serialization is diagnostic, not a compatibility format.
 Hgraph IR is the lowering boundary between language semantics and execution.
 It distinguishes:
 
+- canonical types, compile-time expressions, normalized requirements, and
+  effective nominal struct contracts;
 - wiring-time constants, exact calls, and nominal operator calls;
 - runtime node state layout and initialization;
 - injected capabilities;
@@ -183,7 +185,9 @@ include syntax AST headers or redo name lookup, type inference, function
 classification, phase checking, or generic substitution.
 
 `hgl check --dump-hgraph-ir` exposes a readable, source-ranged form for tests
-and compiler diagnosis.
+and compiler diagnosis. The interface checkpoint owns all type, constant,
+constraint, struct, operator, and callable references in hgraph-IR arenas;
+execution-plan lowering may not recover them from HIR declarations.
 
 ### Backends
 
