@@ -64,13 +64,22 @@ and zone) and prints the canonical spelling. `lexer` produces one token
 vector per file, with comments as trivia and one `Newline` token per run of
 terminators. `ast` is an index-based arena: nodes are `std::variant`
 payloads addressed by `NodeId`, so the tree owns no pointers and a module is
-one movable value. `parser` is a hand-written recursive-descent parser over
-the token vector that applies the newline rules of the syntax guide and
-recovers at the synchronization points listed there; `ast_printer` dumps
-the tree one node per line for `hgl check --dump-ast` and the tests. The
-accepted parser migration replaces the hand-written implementation with a
-declarative grammar and source-accurate recovery while initially preserving the
-AST result consumed below.
+one movable value. `token_grammar` is the private lexy production grammar
+selected by ADR 0001. It currently parses the lexer's token stream in
+conformance mode: every clean legacy-parser test and every checked-in HGL
+example must also pass the declarative grammar, and a focused malformed case
+proves recovery after three independent missing tokens. `parser` remains the
+AST projection path during this intermediate slice; it is the hand-written
+recursive-descent implementation that applies the newline rules and produces
+the existing arena. `ast_printer` dumps that arena one node per line for
+`hgl check --dump-ast` and the tests.
+
+This dual-parser state is deliberately temporary. The next parser slice
+materializes a lexy-free, source-accurate syntax arena from the declarative
+parse, including trivia and recovered input, then projects that arena into the
+existing `ast::Module`. Only after equivalence tests pass may the hand-written
+syntax decisions be removed. Downstream compiler passes never receive lexy
+types.
 
 The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
