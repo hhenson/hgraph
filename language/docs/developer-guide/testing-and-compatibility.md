@@ -339,6 +339,8 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - nominal operator identity by defining module and declaration name;
 - an `impl fn` binding to a local operator or the one selectively imported
   operator;
+- the resolved implementation and typed HIR retaining that operator's
+  canonical identity separately from its native registry key;
 - `impl fn` with no operator in scope, and a plain `fn` conflicting with an
   in-scope operator name;
 - adding or removing an unrelated `use` never changing whether an existing

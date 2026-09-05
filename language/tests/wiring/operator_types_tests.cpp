@@ -45,7 +45,7 @@ fn average(window: rolling<f64, 20>) -> f64 => mean(window)
 
     bool found = false;
     for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
-        if (expression.operation.identity != "mean") { continue; }
+        if (expression.operation.identity != "hgraph.std.mean") { continue; }
         found = true;
         CHECK_FALSE(expression.operation.candidate_label.empty());
         CHECK_FALSE(expression.operation.deferred);
@@ -67,7 +67,7 @@ fn scaled_average(window: rolling<f64, 20>) -> f64 => mean(window) * 2.0
 
     bool found = false;
     for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
-        if (expression.operation.identity != "mean") { continue; }
+        if (expression.operation.identity != "hgraph.std.mean") { continue; }
         found = true;
         CHECK(expression.type.valid());
         CHECK(unit.hir.type(expression.type).scalar == hgl::ir::hir::ScalarType::F64);
@@ -90,7 +90,8 @@ fn double(values: map<str, f64>) -> map<str, f64> =>
 
     bool found = false;
     for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
-        if (expression.operation.kind != hgl::ir::hir::OperationKind::NominalOperator || expression.operation.identity != "map_") {
+        if (expression.operation.kind != hgl::ir::hir::OperationKind::NominalOperator ||
+            expression.operation.identity != "hgraph.std.map") {
             continue;
         }
         found = true;
@@ -117,7 +118,7 @@ fn apply_double(value: f64) -> f64 => double(value)
 
     bool found_body_operation = false;
     for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
-        if (expression.operation.identity != "add_") { continue; }
+        if (expression.operation.identity != "hgraph.std.add") { continue; }
         found_body_operation = true;
         CHECK(expression.operation.target.valid());
     }

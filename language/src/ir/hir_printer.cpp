@@ -249,6 +249,7 @@ namespace hgl::ir
                     const hir::Symbol &symbol = module_.symbols[index];
                     out_ << "  s" << index << ' ' << symbol_kind_name(symbol.kind) << ' ' << symbol.name;
                     if (!symbol.external_name.empty()) { out_ << " external=" << symbol.external_name; }
+                    if (!symbol.canonical_name.empty()) { out_ << " canonical-name=" << symbol.canonical_name; }
                     out_ << " owner=" << ref('d', symbol.owner) << " type=" << ref('t', symbol.type) << " index=" << symbol.index;
                     range(out_, symbol.range);
                     out_ << '\n';
@@ -555,6 +556,7 @@ namespace hgl::ir
                                 static constexpr std::string_view visibility[]{"internal", "export", "impl"};
                                 out_ << visibility[static_cast<std::size_t>(node.visibility)] << ' '
                                      << (node.kind == hir::FunctionKind::Composition ? "composition" : "runtime") << " function";
+                                if (node.operator_contract.valid()) { out_ << " operator=" << ref('s', node.operator_contract); }
                                 print_generics(node.generics);
                                 print_signature(node.signature);
                                 out_ << " requires=" << ref('c', node.requirements) << " concise=" << ref('e', node.concise_body)

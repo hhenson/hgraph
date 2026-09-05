@@ -406,6 +406,12 @@ namespace hgl::ir::detail
     std::string ConstraintSolver::operator_identity(SymbolId symbol) const {
         if (!symbol.valid()) { return {}; }
         const Symbol &value = module_.symbol(symbol);
+        return value.canonical_name.empty() ? value.name : value.canonical_name;
+    }
+
+    std::string ConstraintSolver::operator_registry_name(SymbolId symbol) const {
+        if (!symbol.valid()) { return {}; }
+        const Symbol &value = module_.symbol(symbol);
         return value.external_name.empty() ? value.name : value.external_name;
     }
 
@@ -420,7 +426,7 @@ namespace hgl::ir::detail
         if (!requirement.op.valid()) { return Truth::False; }
         OperatorQuery        query;
         std::vector<Operand> arguments;
-        query.identity = operator_identity(requirement.op);
+        query.identity = operator_registry_name(requirement.op);
         query.range    = range;
         for (ConstraintId argument : requirement.arguments) {
             Operand value = operand(argument, substitution);
@@ -497,8 +503,8 @@ namespace hgl::ir::detail
         std::size_t admitted = 0;
         for (const Declaration &declaration : module_.declarations) {
             const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
-            if (!candidate || candidate->visibility != Visibility::Implementation || !declaration.symbol.valid() ||
-                module_.symbol(declaration.symbol).name != symbol.name ||
+            if (!candidate || candidate->visibility != Visibility::Implementation ||
+                candidate->operator_contract != requirement.op ||
                 candidate->signature.parameters.size() != query.arguments.size()) {
                 continue;
             }
@@ -714,7 +720,7 @@ namespace hgl::ir::detail
             return find_required_operation(logic->rhs, identity, arguments, substitution);
         }
         const auto *required = std::get_if<OperatorRequirement>(&constraint.node);
-        if (!required || !identity_matches(operator_identity(required->op), identity) ||
+        if (!required || !identity_matches(operator_registry_name(required->op), identity) ||
             required->arguments.size() != arguments.size()) {
             return std::nullopt;
         }

@@ -105,6 +105,12 @@ namespace hgl::ir
 
             [[nodiscard]] std::string type_name(TypeId id) const { return canonical_types_.name(id); }
 
+            [[nodiscard]] std::string operator_identity(SymbolId id) const {
+                if (!id.valid()) { return {}; }
+                const Symbol &symbol = module_.symbol(id);
+                return symbol.canonical_name.empty() ? symbol.name : symbol.canonical_name;
+            }
+
             [[nodiscard]] const FunctionDecl *function(DeclarationId id) const noexcept {
                 if (!id.valid() || id.value >= module_.declarations.size()) { return nullptr; }
                 return std::get_if<FunctionDecl>(&module_.declaration(id).node);
@@ -113,14 +119,6 @@ namespace hgl::ir
             [[nodiscard]] FunctionDecl *function(DeclarationId id) noexcept {
                 if (!id.valid() || id.value >= module_.declarations.size()) { return nullptr; }
                 return std::get_if<FunctionDecl>(&module_.declarations[id.value].node);
-            }
-
-            [[nodiscard]] const OperatorDecl *local_operator(std::string_view name) const noexcept {
-                for (const Declaration &declaration : module_.declarations) {
-                    const auto *op = std::get_if<OperatorDecl>(&declaration.node);
-                    if (op && declaration.symbol.valid() && module_.symbol(declaration.symbol).name == name) { return op; }
-                }
-                return nullptr;
             }
 
             void check_implementation_conformance(const Declaration &declaration, const FunctionDecl &implementation,
@@ -277,8 +275,8 @@ namespace hgl::ir
                             check_signature_defaults(node.signature);
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
                             active_requirements_ = node.requirements;
-                            if (node.visibility == Visibility::Implementation && declaration.symbol.valid()) {
-                                if (const OperatorDecl *contract = local_operator(module_.symbol(declaration.symbol).name)) {
+                            if (node.visibility == Visibility::Implementation && node.operator_contract.valid()) {
+                                if (const OperatorDecl *contract = operator_decl(node.operator_contract)) {
                                     inherited_requirements_ = contract->requirements;
                                     inherited_substitution_.emplace(module_, canonical_types_);
                                     check_implementation_conformance(declaration, node, *contract, *inherited_substitution_);
@@ -833,11 +831,9 @@ namespace hgl::ir
 
             [[nodiscard]] SymbolId sole_local_candidate(SymbolId op, const std::vector<ExprId> &arguments, TypeId expected) {
                 std::vector<SymbolId> candidates;
-                const std::string     name = module_.symbol(op).name;
                 for (const Declaration &declaration : module_.declarations) {
                     const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
-                    if (!candidate || candidate->visibility != Visibility::Implementation || !declaration.symbol.valid() ||
-                        module_.symbol(declaration.symbol).name != name) {
+                    if (!candidate || candidate->visibility != Visibility::Implementation || candidate->operator_contract != op) {
                         continue;
                     }
                     candidates.push_back(declaration.symbol);
@@ -885,7 +881,7 @@ namespace hgl::ir
                 expression.operation = Operation{.kind          = OperationKind::NominalOperator,
                                                  .target        = target,
                                                  .candidate     = candidate,
-                                                 .identity      = module_.path + "." + module_.symbol(target).name,
+                                                 .identity      = operator_identity(target),
                                                  .substitutions = contract_bindings.materialize(op.generics),
                                                  .deferred      = !candidate.valid()};
             }
@@ -963,7 +959,7 @@ namespace hgl::ir
                 finish_call_semantics(expression, argument_ids);
                 expression.operation = Operation{.kind            = OperationKind::NominalOperator,
                                                  .target          = target,
-                                                 .identity        = symbol.external_name,
+                                                 .identity        = operator_identity(target),
                                                  .candidate_label = std::move(selection.candidate_label),
                                                  .substitutions   = std::move(selection.substitutions),
                                                  .deferred        = selection.deferred};
