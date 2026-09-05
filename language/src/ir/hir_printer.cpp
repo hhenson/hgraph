@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace hgl::ir
 {
@@ -50,6 +51,7 @@ namespace hgl::ir
                 case SymbolKind::ImportedOperator: return "imported-operator";
                 case SymbolKind::Intrinsic: return "intrinsic";
             }
+            std::unreachable();
         }
 
         std::string_view type_kind_name(hir::TypeKind kind) noexcept {
@@ -65,6 +67,7 @@ namespace hgl::ir
                 case TypeKind::Atomic: return "atomic";
                 case TypeKind::Deferred: return "deferred";
             }
+            std::unreachable();
         }
 
         std::string_view phase_name(hir::Phase phase) noexcept {
@@ -75,6 +78,7 @@ namespace hgl::ir
                 case Phase::Wiring: return "wiring";
                 case Phase::Runtime: return "runtime";
             }
+            std::unreachable();
         }
 
         std::string_view value_kind_name(hir::ValueKind kind) noexcept {
@@ -90,6 +94,7 @@ namespace hgl::ir
                 case ValueKind::Type: return "type";
                 case ValueKind::Iterator: return "iterator";
             }
+            std::unreachable();
         }
 
         std::string_view unary_name(hir::UnaryOp op) noexcept { return op == hir::UnaryOp::Negate ? "negate" : "not"; }
@@ -111,6 +116,7 @@ namespace hgl::ir
                 case BinaryOp::And: return "and";
                 case BinaryOp::Or: return "or";
             }
+            std::unreachable();
         }
 
         std::string_view assign_name(hir::AssignOp op) noexcept {
@@ -122,6 +128,22 @@ namespace hgl::ir
                 case AssignOp::Mul: return "mul-assign";
                 case AssignOp::Div: return "div-assign";
             }
+            std::unreachable();
+        }
+
+        void string_literal(std::ostream &out, std::string_view value) {
+            out << '"';
+            for (const char character : value) {
+                switch (character) {
+                    case '\\': out << "\\\\"; break;
+                    case '"': out << "\\\""; break;
+                    case '\n': out << "\\n"; break;
+                    case '\r': out << "\\r"; break;
+                    case '\t': out << "\\t"; break;
+                    default: out << character; break;
+                }
+            }
+            out << '"';
         }
 
         void arguments(std::ostream &out, const std::vector<hir::Argument> &values) {
@@ -145,7 +167,7 @@ namespace hgl::ir
                     } else if constexpr (std::is_same_v<T, bool>) {
                         out << (item ? "true" : "false");
                     } else if constexpr (std::is_same_v<T, std::string>) {
-                        out << std::quoted(item);
+                        string_literal(out, item);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                         out << syntax::canonical_spelling(item);
                     } else {

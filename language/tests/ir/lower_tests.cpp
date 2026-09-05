@@ -122,6 +122,16 @@ TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
     CHECK(count >= 6);
 }
 
+TEST_CASE("HIR string constants stay on one escaped line", "[ir][printer]") {
+    Lowered lowered{R"(module checks.strings
+fn escaped(const value: str = "a\nb\r\t\"\\") -> str => value
+)"};
+    require_clean(lowered);
+
+    const std::string printed = hgl::ir::print_hir(lowered.hir);
+    CHECK(printed.find(R"(literal "a\nb\r\t\"\\")") != std::string::npos);
+}
+
 TEST_CASE("the resolved HIR dump is deterministic and source ranged", "[ir][snapshot]") {
     Lowered lowered{"module checks.snapshot\n\nfn add_one(value: f64) -> f64 => value + 1.0\n"};
     require_clean(lowered);
