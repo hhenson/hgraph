@@ -581,6 +581,17 @@ Types and scalars
    * - ``TSL``
      - Full
      - Fixed and dynamic.
+   * - Type arguments (``type[...]``, RFC 0033)
+     - Full, two accepted deviations
+     - Matched, deferred, materialised and ranked by the registry; the parity
+       templates ``type_argument_*`` replay the four fix shapes identically
+       against 0.5. Accepted deviations found by them: ``const(1, TS[float])``
+       converts the value at the selected type here, where 0.5 raises
+       ``TypeError`` at runtime (additive); a ``type[SCALAR]`` carrier resolved
+       from ``TS[frozenset[int]]`` reads back as ``frozenset[int]`` here (the
+       reverse binding hands back what was written) where 0.5 spells it
+       ``collections.abc.Set[int]`` -- the same parameterised generic, which
+       is what the template compares.
    * - ``Frame[Rows, Metadata]``
      - Full for typed value transport and metadata-aware table transforms
      - Metadata is encoded field by field in Arrow schema metadata: supported

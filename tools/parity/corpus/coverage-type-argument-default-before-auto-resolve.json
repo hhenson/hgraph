@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-default-before-auto-resolve",
+  "description": "RFC 0033 fix shape: a bare graph subscript fills the DEFAULT variable even though an AUTO_RESOLVE type argument is declared first; the keyword fills the other.",
+  "template": "type_argument_default_order",
+  "inputs": {
+    "value": [
+      1,
+      null,
+      2,
+      3,
+      null,
+      5
+    ]
+  },
+  "parameters": {
+    "pinned": "str",
+    "inferred": "float"
+  },
+  "features": [
+    "shape:TS",
+    "type-argument:default-before-auto-resolve",
+    "syntax:bare-subscript",
+    "compatibility:release-0.5"
+  ]
+}

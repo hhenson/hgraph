@@ -329,6 +329,21 @@ and extending as new regressions are identified:
   ``debug_``, and both ordinary graph evaluation and Arrow's standalone
   ``eval_`` runner.  Its first seed found that ``eval_`` closed the graph before
   client-defined concrete leaves were registered.
+- ``type_argument_positional``, ``type_argument_default_order``,
+  ``type_argument_size_pin`` and ``type_argument_collection`` cover the four
+  type-argument fix shapes the 2026-09 fix-series retrospective catalogued
+  and RFC 0033 moved into the registry: the type as the positional argument
+  after the value (``const(value, TS[float])``, ``nothing(TS[int])``), a
+  bare graph subscript filling the ``DEFAULT`` variable ahead of an
+  ``AUTO_RESOLVE`` one declared first, a ``type[SIZE]`` resolved from a
+  ``TSL`` input or pinned by ``g[Size[n]]`` reaching the body as the
+  ``Size`` object, and a ``type[SCALAR]`` carrier resolved from a
+  ``TS[tuple[int, ...]]`` / ``TS[frozenset[int]]`` input reading back as the
+  parameterised generic.  Each is written in its released 0.5 spelling and
+  makes the materialised type observable on every tick, so a wrong carrier
+  form diverges rather than merely wiring.  The ``coverage-type-argument-*``
+  corpus recipes pin them; they are corpus-only (no generator strategy),
+  like the other public-contract templates.
 
 When a new compatibility issue is fixed, extend this list: either an
 existing template's generated space must provably contain the issue's

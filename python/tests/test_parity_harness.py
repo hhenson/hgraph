@@ -269,6 +269,52 @@ def test_realtime_default_start_recipe_requires_one_boolean_probe():
         validate_recipe(Recipe.from_dict(raw))
 
 
+def _type_argument_recipe(template, inputs, parameters):
+    return Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": f"test-{template.replace('_', '-')}",
+            "description": "test",
+            "template": template,
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": ["compatibility:release-0.5"],
+        }
+    )
+
+
+_TYPE_ARGUMENT_ACCEPTED = [
+    # RFC 0033 fix shapes: each template accepts exactly its bounded space.
+    ("type_argument_positional", {"value": [1, None, 2.5]}, {"mode": "nothing", "offset": 2}),
+    ("type_argument_default_order", {"value": [1, None]}, {"pinned": "str", "inferred": "float"}),
+    ("type_argument_size_pin", {"values": [[1, 2], None]}, {"mode": "subscript", "size": 2}),
+    ("type_argument_collection", {"values": [[1, 2], None, []]}, {"collection": "frozenset"}),
+]
+
+_TYPE_ARGUMENT_REJECTED = [
+    ("type_argument_positional", {"value": [1]}, {"mode": "replay"}, "mode must be one of"),
+    ("type_argument_positional", {"value": [1]}, {"offset": 1000}, "offset must be an integer"),
+    ("type_argument_positional", {"value": ["x"]}, {}, "value ticks must be numbers"),
+    ("type_argument_default_order", {"value": [1]}, {"pinned": "complex"}, "pinned must be one of"),
+    ("type_argument_size_pin", {"values": [[1, 2, 3]]}, {"size": 2}, "integer lists of the declared size"),
+    ("type_argument_size_pin", {"values": [[1]]}, {"size": 9}, "size must be an integer in"),
+    ("type_argument_collection", {"values": [[1]]}, {"collection": "list"}, "collection must be one of"),
+    ("type_argument_collection", {"value": [[1]]}, {}, "requires inputs"),
+]
+
+
+@pytest.mark.parametrize("template,inputs,parameters", _TYPE_ARGUMENT_ACCEPTED)
+def test_type_argument_templates_accept_bounded_parameters(template, inputs, parameters):
+    validate_recipe(_type_argument_recipe(template, inputs, parameters))
+
+
+@pytest.mark.parametrize("template,inputs,parameters,message", _TYPE_ARGUMENT_REJECTED)
+def test_type_argument_templates_reject_unbounded_parameters(template, inputs, parameters, message):
+    recipe = _type_argument_recipe(template, inputs, parameters)
+    with pytest.raises(RecipeError, match=message):
+        validate_recipe(recipe)
+
+
 def test_value_consumer_reference_recipe_rejects_parameters():
     raw = {
         "schema_version": 1,
