@@ -109,30 +109,39 @@ hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hg
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
-hgl_add_module(hgl_basic_examples_fixture STATIC
-    HGL
-        ../examples/midpoint.hgl
-        ../examples/runtime-choice.hgl
-    LINK_LIBRARIES
-        hgraph::analytics
-)
-hgl_apply_warnings(hgl_basic_examples_fixture)
 
-add_executable(hgl_generated_tests
+set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
-    codegen/generated_example_tests.cpp
 )
-target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
-target_link_libraries(hgl_generated_tests PRIVATE
+set(_hgl_generated_test_libraries
     hgl_codegen_fixture
     hgl_structural_fixture
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
-    hgl_basic_examples_fixture
+)
+if(TARGET hgraph::analytics)
+    # These two examples intentionally exercise an imported extension. Keep
+    # the core language build usable when that independent extension is off.
+    hgl_add_module(hgl_basic_examples_fixture STATIC
+        HGL
+            ../examples/midpoint.hgl
+            ../examples/runtime-choice.hgl
+        LINK_LIBRARIES
+            hgraph::analytics
+    )
+    hgl_apply_warnings(hgl_basic_examples_fixture)
+    list(APPEND _hgl_generated_test_sources codegen/generated_example_tests.cpp)
+    list(APPEND _hgl_generated_test_libraries hgl_basic_examples_fixture)
+endif()
+
+add_executable(hgl_generated_tests ${_hgl_generated_test_sources})
+target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_generated_tests PRIVATE
+    ${_hgl_generated_test_libraries}
     hgl::wiring
     Catch2::Catch2WithMain
 )
@@ -140,6 +149,8 @@ hgl_link_runtime_executable(hgl_generated_tests)
 hgl_apply_warnings(hgl_generated_tests)
 
 add_test(NAME hgraph_language_generated COMMAND hgl_generated_tests)
+unset(_hgl_generated_test_sources)
+unset(_hgl_generated_test_libraries)
 
 add_test(
     NAME hgraph_language_test_parity
@@ -239,10 +250,12 @@ add_test(
 
 # The guide's test example passes end to end through the driver
 # (user guide, "Testing and running").
-add_test(
-    NAME hgraph_language_test_midpoint
-    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
-)
-set_tests_properties(hgraph_language_test_midpoint PROPERTIES
-    PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
-)
+if(TARGET hgraph::analytics)
+    add_test(
+        NAME hgraph_language_test_midpoint
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+    )
+    set_tests_properties(hgraph_language_test_midpoint PROPERTIES
+        PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
+    )
+endif()
