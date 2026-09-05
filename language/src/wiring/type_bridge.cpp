@@ -17,13 +17,8 @@ namespace hgl::wiring
     {
         namespace hir = ir::hir;
 
-        const hgraph::stdlib::RegisteredStandardTypes &standard_types() {
-            static const auto types = hgraph::stdlib::register_standard_types();
-            return types;
-        }
-
-        const hgraph::ValueTypeMetaData *scalar_meta(hir::ScalarType type) noexcept {
-            const auto &types = standard_types();
+        const hgraph::ValueTypeMetaData *scalar_meta(hir::ScalarType                                type,
+                                                     const hgraph::stdlib::RegisteredStandardTypes &types) noexcept {
             switch (type) {
                 case hir::ScalarType::Bool: return types.bool_type;
                 case hir::ScalarType::I64: return types.int_type;
@@ -49,8 +44,16 @@ namespace hgl::wiring
     }  // namespace
 
     TypeBridge::TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics)
-        : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()} {
-        (void)standard_types();
+        : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()},
+          types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {}
+
+    void TypeBridge::refresh_registry() {
+        const std::uint64_t current = registry_.reset_generation();
+        if (generation_ == current) { return; }
+        values_.clear();
+        schemas_.clear();
+        types_      = hgraph::stdlib::register_standard_types(registry_);
+        generation_ = registry_.reset_generation();
     }
 
     void TypeBridge::report(syntax::SourceRange range, std::string message) {
@@ -92,6 +95,7 @@ namespace hgl::wiring
     }
 
     std::optional<hgraph::Value> TypeBridge::literal(hgraph_ir::ConstExprId expression) {
+        refresh_registry();
         if (!expression.valid() || expression.value >= module_.const_exprs.size()) { return std::nullopt; }
         const hgraph_ir::ConstExpr &source = module_.const_exprs[expression.value];
         if (source.kind != hgraph_ir::ConstExprKind::Literal || !source.literal) {
@@ -130,7 +134,7 @@ namespace hgl::wiring
     std::optional<std::int64_t> TypeBridge::integer(hgraph_ir::ConstExprId expression, syntax::SourceRange range,
                                                     std::string_view role) {
         const std::optional<hgraph::Value> value = literal(expression);
-        if (value && value->schema() == standard_types().int_type) {
+        if (value && value->schema() == types_.int_type) {
             const std::int64_t result = value->view().checked_as<hgraph::Int>();
             if (result >= 0) { return result; }
         }
@@ -216,6 +220,7 @@ namespace hgl::wiring
     }
 
     const hgraph::ValueTypeMetaData *TypeBridge::value(hgraph_ir::TypeId id) {
+        refresh_registry();
         if (!id.valid() || id.value >= module_.types.size()) { return nullptr; }
         if (const auto found = values_.find(id.value); found != values_.end()) { return found->second; }
         const hgraph::ValueTypeMetaData *result = value(id, Bindings{});
@@ -229,7 +234,7 @@ namespace hgl::wiring
         switch (type.kind) {
             case hir::TypeKind::Scalar:
                 {
-                    const hgraph::ValueTypeMetaData *result = scalar_meta(type.scalar);
+                    const hgraph::ValueTypeMetaData *result = scalar_meta(type.scalar, types_);
                     if (result == nullptr) { report(type.range, "unsupported scalar value type"); }
                     return result;
                 }
@@ -263,7 +268,11 @@ namespace hgl::wiring
                     std::size_t size = 0;
                     if (type.size.valid()) {
                         const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
-                        if (!count || *count < 0) { return nullptr; }
+                        if (!count) { return nullptr; }
+                        if (*count <= 0) {
+                            report(type.range, "a fixed list size must be positive");
+                            return nullptr;
+                        }
                         size = static_cast<std::size_t>(*count);
                     }
                     return registry_.list(element, size);
@@ -300,6 +309,7 @@ namespace hgl::wiring
     }
 
     const hgraph::TSValueTypeMetaData *TypeBridge::schema(hgraph_ir::TypeId id) {
+        refresh_registry();
         if (!id.valid() || id.value >= module_.types.size()) { return nullptr; }
         if (const auto found = schemas_.find(id.value); found != schemas_.end()) { return found->second; }
         const hgraph::TSValueTypeMetaData *result = schema(id, Bindings{});
@@ -313,7 +323,7 @@ namespace hgl::wiring
         switch (type.kind) {
             case hir::TypeKind::Scalar:
                 {
-                    const hgraph::ValueTypeMetaData *meta = scalar_meta(type.scalar);
+                    const hgraph::ValueTypeMetaData *meta = scalar_meta(type.scalar, types_);
                     if (meta != nullptr) { return registry_.ts(meta); }
                     report(type.range, "unsupported scalar time-series type");
                     return nullptr;
@@ -340,7 +350,11 @@ namespace hgl::wiring
                     std::size_t size = 0;
                     if (type.size.valid()) {
                         const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
-                        if (!count || *count < 0) { return nullptr; }
+                        if (!count) { return nullptr; }
+                        if (*count <= 0) {
+                            report(type.range, "a fixed list size must be positive");
+                            return nullptr;
+                        }
                         size = static_cast<std::size_t>(*count);
                     }
                     return registry_.tsl(element, size);
@@ -367,23 +381,28 @@ namespace hgl::wiring
                     const std::optional<hgraph::Value> period_value  = literal(type.size);
                     const std::optional<hgraph::Value> minimum_value = literal(type.min_size);
                     if (!period_value || !minimum_value) { return nullptr; }
-                    if (period_value->schema() == standard_types().timedelta_type) {
-                        if (minimum_value->schema() != standard_types().timedelta_type) {
+                    if (period_value->schema() == types_.timedelta_type) {
+                        if (minimum_value->schema() != types_.timedelta_type) {
                             report(type.range, "a minimum rolling duration must be a duration constant");
                             return nullptr;
                         }
-                        return registry_.tsw_duration(element, period_value->view().checked_as<hgraph::TimeDelta>(),
-                                                      minimum_value->view().checked_as<hgraph::TimeDelta>());
+                        const hgraph::TimeDelta period  = period_value->view().checked_as<hgraph::TimeDelta>();
+                        const hgraph::TimeDelta minimum = minimum_value->view().checked_as<hgraph::TimeDelta>();
+                        if (period <= hgraph::TimeDelta{0} || minimum < hgraph::TimeDelta{0} || minimum > period) {
+                            report(type.range,
+                                   "rolling durations require a positive maximum and a non-negative minimum no larger than it");
+                            return nullptr;
+                        }
+                        return registry_.tsw_duration(element, period, minimum);
                     }
-                    if (period_value->schema() != standard_types().int_type ||
-                        minimum_value->schema() != standard_types().int_type) {
+                    if (period_value->schema() != types_.int_type || minimum_value->schema() != types_.int_type) {
                         report(type.range, "a rolling size must be an i64 or duration constant");
                         return nullptr;
                     }
                     const std::int64_t period  = period_value->view().checked_as<hgraph::Int>();
                     const std::int64_t minimum = minimum_value->view().checked_as<hgraph::Int>();
-                    if (period <= 0 || minimum < 0) {
-                        report(type.range, "rolling sizes require a positive maximum and non-negative minimum");
+                    if (period <= 0 || minimum < 0 || minimum > period) {
+                        report(type.range, "rolling sizes require a positive maximum and a non-negative minimum no larger than it");
                         return nullptr;
                     }
                     return registry_.tsw(element, static_cast<std::size_t>(period), static_cast<std::size_t>(minimum));

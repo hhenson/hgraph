@@ -4,6 +4,7 @@
 #include "hgraph_ir/ir.h"
 #include "syntax/diagnostic.h"
 
+#include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value.h>
 
@@ -46,11 +47,14 @@ namespace hgl::wiring
                                                                std::string_view role);
         [[nodiscard]] const hgraph::ValueTypeMetaData *nominal_value(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *nominal_schema(const hgraph_ir::Type &type, const Bindings &outer);
+        void                                             refresh_registry();
         void                                             report(syntax::SourceRange range, std::string message);
 
         const hgraph_ir::Module                                               &module_;
         syntax::DiagnosticSink                                                &diagnostics_;
         hgraph::TypeRegistry                                                  &registry_;
+        hgraph::stdlib::RegisteredStandardTypes                                types_{};
+        std::uint64_t                                                          generation_{0};
         std::unordered_map<std::uint32_t, const hgraph::ValueTypeMetaData *>   values_{};
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
     };
