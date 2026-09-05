@@ -22,6 +22,14 @@ requires T in {i64, f64}
     upper: T
 }
 
+export abstract struct ValueBox<T> {
+    value: T
+}
+
+export struct LabeledValue<U>: ValueBox<U> {
+    label: str
+}
+
 export abstract struct Instrument {
     symbol: str
     venue: str = null
