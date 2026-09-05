@@ -165,8 +165,13 @@ does not remove the existing native map or reduce APIs.
 
 Loop result construction, the precise recognition and operator contracts for
 deferred reductions, other cross-iteration dependencies, graph-phase
-predicates, and loop exits remain to be worked through. No new source spelling
-for explicit `map`, `reduce`, or their policies is introduced here.
+predicates, and loop exits remain to be worked through. So does the
+disambiguation of a function whose only phase-sensitive operation is runtime
+collection traversal: once iteration follows its containing phase, such a body
+contains no existing construct that selects runtime evaluation. Whether this
+needs an explicit phase marker or another rule is deliberately unresolved. No
+new source spelling for that distinction, explicit `map`, `reduce`, or their
+policies is introduced here.
 
 ## Implementation status
 

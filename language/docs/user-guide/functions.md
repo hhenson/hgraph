@@ -633,9 +633,13 @@ children accumulate into one output delta; repeated writes to the same child
 use the last value. `inject out` is invalid on an outputless function and `out`
 is initially restricted to evaluation code rather than `start` or `stop`.
 
-A runtime function without `when` uses hgraph's ordinary policy: any temporal
-input can activate it and all ordinary inputs must be valid. `when` is needed
-only to customize activation, validity, or ordered conditional handling.
+Once some other node-only construct classifies a function as runtime, omitting
+`when` uses hgraph's ordinary policy: any temporal input can activate it and
+all ordinary inputs must be valid. `when` is then needed only to customize
+activation, validity, or ordered conditional handling. A function whose only
+runtime operation is collection traversal cannot yet select this phase without
+also using an existing node-only construct. The explicit phase-disambiguation
+syntax, if any, remains to be designed.
 
 The exact conditional-expression spelling, structural metadata aggregation,
 ephemeral cache syntax, and calls between runtime functions remain provisional.

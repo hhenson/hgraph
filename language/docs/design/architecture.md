@@ -79,9 +79,12 @@ backend phases:
 | Compute or sink | Evaluation | Read admitted runtime inputs, update declared state, produce the contracted tick or side effect | Add topology, resolve overloads, acquire arbitrary external resources |
 | Imported adaptor or service | Native C++ | Own callbacks, threads, queues, protocols, and resources through hgraph lifecycle contracts | Expose unrestricted native execution to language source |
 
-The current provisional rule classifies an ordinary body as composition. A
-`state` or `inject` declaration, a `start`, `when`, or `stop` block, or runtime
-collection iteration classifies the complete function as runtime evaluation.
+The current provisional implementation classifies an ordinary body as
+composition. A `state` or `inject` declaration, a `start`, `when`, or `stop`
+block, or any collection iteration classifies the complete function as runtime
+evaluation. The target model instead lets iteration follow the phase selected
+by the containing body; iterator-only runtime functions therefore need a
+still-unresolved disambiguation rule before that classifier migration.
 Composition bodies flatten through hgraph wiring, while runtime bodies lower
 to typed static C++ hooks whose instance data uses hgraph selectors and plans.
 

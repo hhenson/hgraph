@@ -1313,7 +1313,11 @@ The implemented provisional classifier currently applies these rules:
 
 The target classifier will instead let iteration inherit its containing phase;
 `for` will not by itself distinguish composition from runtime behavior. That
-change is an explicit compiler migration rather than current behavior.
+change is an explicit compiler migration rather than current behavior. It also
+leaves iterator-only runtime functions ambiguous because they contain no
+existing node-only construct. The language must resolve that boundary before
+the classifier migration, but this document does not invent an explicit phase
+marker or another disambiguation rule.
 
 Classification is based on resolved source syntax. It must not be guessed
 from which imported overload happens to win, inferred from generated C++, or
@@ -1340,8 +1344,10 @@ and phase checking derive one safe node policy across the complete body:
 - handler-specific activation, validity, and other predicates remain ordered
   runtime conditions.
 
-A runtime function with no `when` uses hgraph's default policy: every ordinary
-temporal input is active and required-valid.
+A function classified as runtime by another node-only construct but containing
+no `when` uses hgraph's default policy: every ordinary temporal input is active
+and required-valid. This does not by itself classify an otherwise ordinary or
+iterator-only body as runtime.
 
 ## Runtime state, injectables, and lifecycle
 
