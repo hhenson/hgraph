@@ -84,7 +84,7 @@ export fn lifecycle_value(value: f64) -> f64 {
 }
 
 export fn configured_total(value: f64, const initial: f64 = 10.0) -> f64 {
-    state total: f64 = initial
+    state total = initial
 
     when modified(value) && valid(value) {
         total += value
