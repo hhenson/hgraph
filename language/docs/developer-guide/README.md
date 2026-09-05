@@ -47,8 +47,12 @@ for hgraph, not a second runtime.
 The design records provide project boundaries and rationale:
 
 - [Architecture](../design/architecture.md)
+- [Compiler architecture](../design/compiler-architecture.md)
 - [Language model](../design/language-model.md)
 - [Modules and native extensions](../design/modules.md)
+- [Native interface](../design/native-interface.md)
+- [Documentation architecture](../design/documentation.md)
+- [Architecture decisions](../design/decisions/README.md)
 - [Roadmap](../design/roadmap.md)
 
 ## Sources of truth
