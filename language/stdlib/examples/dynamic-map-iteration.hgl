@@ -1,0 +1,9 @@
+// Agreed design example; dynamic graph-phase iteration is not implemented yet.
+// Independent bodies lower to one sink child graph per key, with shared captures.
+// Loop-carried reductions are deferred; see language/docs/design/iteration.md.
+
+fn observe(book: map<str, f64>, offset: f64) {
+    for value in values(book) {
+        debug_print("adjusted", value + offset)
+    }
+}

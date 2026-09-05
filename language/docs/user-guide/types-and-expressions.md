@@ -104,12 +104,68 @@ shapes recursively:
 | `map<str, f64>` | Keyed temporal map from `str` to temporal `f64` |
 | `rolling<f64, 20, 5>` | Rolling window of at most 20 `f64` values, valid from 5 values |
 | `rolling<f64, 5m>` | Rolling window of the last five minutes of `f64` values |
-| a structured value type | Structural bundle whose fields are temporal |
+| an HGL-declared structured value type | Structural bundle whose fields are temporal |
 
 A structural tuple is hgraph's un-named bundle with positional fields, so its
 children may have different types and `pair[0]` is positional field access. A
 homogeneous `tuple<f64, f64>` is still a tuple, not a two-element list: tuples
 are accessed by position, lists are sized and traversed.
+
+## Imported values and references
+
+Status: agreed source semantics; implementation is separate from this design
+update. See [Type extensions](../design/type-extensions.md) for the complete
+agreement and the collection-reference mapping still under discussion.
+
+Imported C++ and Python types are scalar values, like `i64`, `f64`, and `str`.
+They are atomic leaves in a temporal signature, require no `atomic` annotation,
+and remain scalar values in `const` positions. Native fields do not recursively
+become time series. This differs from an HGL-declared struct, whose temporal
+form is a bundle of fields.
+
+`ref<T>` describes a reference to the temporal shape of `T`. For example,
+`ref<map<i64, str>>` corresponds to `REF[TSD[int, TS[str]]]`. Reference wrappers
+are ignored when checking underlying type compatibility, including within
+structures, but their representation and access semantics are preserved.
+Invalid placements remain invalid: `map<ref<i64>, str>` is an error because
+map keys cannot be references.
+
+The user or component designer specifies `ref` to express an intention to
+pass through a time series without observing or interacting with its values.
+It is not the default form of a connection or a general automatic rewrite of
+the author's type declarations. For generated conditional branches, the
+compiler uses a reference input when that branch only forwards an incoming
+binding; an ordinary temporal input is sufficient when processing is assured.
+See [forwarding an existing binding](../design/control-flow.md#forwarding-an-existing-binding).
+
+Inside a node, a reference is opaque and ticks only when its binding changes.
+Code in a `when` handler cannot read fields, index elements, or traverse values
+below a reference layer. During wiring, access below that layer is allowed and
+causes dereferencing to obtain the element's connection. It does not read a
+runtime value while wiring.
+
+A node may index `list<ref<T>, S>` to select and return an opaque reference:
+the list is outside the reference boundary. It cannot index through
+`ref<list<T, S>>`, where the list is below that boundary. Returning a selected
+reference establishes a connection; subsequent target value ticks do not
+require the selecting node to copy and forward each value. See the
+[routing example](../design/type-extensions.md#selecting-and-forwarding-a-reference).
+
+## SIGNAL inputs
+
+Status: agreed input semantics; HGL spelling and compiler implementation remain
+separate discussion and implementation work. See
+[SIGNAL inputs](../design/type-extensions.md#signal-inputs).
+
+SIGNAL accepts a time-series input and exposes only `modified`, `valid`, and
+`last_modified`. It has no accessible value or delta payload, regardless of
+what the native representation may store internally. It cannot be used to
+read fields, index data, perform arithmetic, or test a Boolean payload.
+
+SIGNAL is input-only: there is no SIGNAL result or signal-emission syntax.
+Its observation operations are primarily useful in nodes. Graph functions may
+also accept SIGNAL inputs and pass them to other components; the graph itself
+still executes only during wiring.
 
 ## List sizes
 
@@ -604,7 +660,21 @@ hold evaluation-local scalar values and are recreated whenever the containing
 block executes. Use `state`, not `var`, for a value that must survive into a
 later evaluation.
 
-An initializer is required in the first language slice. `let` cannot be
+The current compiler requires an initializer. The agreed
+[conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
+also permits a typed declaration such as `var r: i64` before an `if`, with
+both branches assigning `r` and later statements using its remapped switch
+output. This form is not implemented yet, supplies no implicit initial value,
+and does not make an unassigned variable readable.
+
+In this design, using an escaping variable without a binding on every path
+reaching that use is a compile-time error. An existing incoming binding can
+be forwarded by an unassigned branch; without one, the relevant path must
+assign the variable. This is
+[definite assignment](../design/control-flow.md#definite-assignment), separate
+from the runtime validity of the connected time series.
+
+`let` cannot be
 assigned again. A `var` may use ordinary and compound assignment, but its type
 is fixed by its annotation or, when unannotated, by its initializer. The normal
 `i64`-to-`f64` widening is allowed when the fixed type is `f64`; assigning an
@@ -686,6 +756,18 @@ tick or delta.
 
 ## Collection views and iteration
 
+Status: phase-dependent iteration is agreed design; graph iteration and its
+classification changes are separate compiler work. `for`, `keys`, `values`,
+and `items` follow the containing phase rather than themselves forcing a
+runtime node. A graph loop over a supported wiring-time iterable receives
+scalar values; over a fixed temporal structure it receives child connections.
+For dynamic maps and lists, independent bodies lower through native mapping,
+with one child graph per key or index. Loop-carried reductions are initially
+unsupported; future map reductions are unordered, while lists may require the
+linear reduction option to preserve index order. See
+[Iteration](../design/iteration.md) for examples, restrictions, and the
+deferred reduction option.
+
 `key_set(value)` exposes the keys of a temporal map as `set<K>`. It works in
 both function phases: a composition function receives the live set-valued
 time-series projection, while a runtime function receives the current borrowed
@@ -754,10 +836,13 @@ Iterator predicates are pure filters. They may read admitted values and
 capture surrounding bindings, but they cannot mutate a `var`, `state`, or
 `out`, and cannot invoke an effect such as logging.
 
-These iterators are evaluation-local borrowed views. They may be consumed by a
-`for` loop but cannot be returned, stored in state, assigned to output, or kept
-for a later evaluation. Collection traversal is not available during graph
-composition; use graph operations such as `key_set` and `map` there instead.
+These runtime iterators are evaluation-local borrowed views. They may be
+consumed by a `for` loop but cannot be returned, stored in state, assigned to
+output, or kept for a later evaluation. Graph-phase iteration instead visits
+wiring-time values or fixed child connections, or describes independently
+mapped child graphs for dynamic collections; it does not read these runtime
+borrowed views. Graph-phase predicate behavior remains a separate design
+decision, and dynamic-loop reductions are deferred.
 
 ## Open scalar edge cases
 

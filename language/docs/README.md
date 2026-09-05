@@ -36,8 +36,25 @@ out so examples do not imply an implemented compatibility promise.
 5. [Distribution and deployment](design/distribution.md) — release train,
    package channels (Homebrew first), the relocatable native context, and
    what a host needs to run an HGL program.
+6. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
+   imported types, `ref<T>`, reference-transparent type compatibility, opaque
+   node access, wiring-time dereferencing, and input-only SIGNAL observation.
+7. [Conditional control flow](design/control-flow.md) — wiring-time selection,
+   switch-style temporal conditions in graph functions, and node conditionals.
+8. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
+   and fixed child connections, independent dynamic graph loops, runtime
+   traversal, and deferred map/reduce accumulation.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language
 behavior; the developer guide is the source of truth for implementation
 constraints.
+
+## Standard-library design corpus
+
+The [standard-library folder](../stdlib/README.md) collects agreed HGL examples
+to drive core-library coverage and expose missing language features. It starts
+with conditional-result, fixed-list, and independent dynamic-map iteration
+examples; a complete component catalogue remains to be developed. These design
+examples are separate from the compiler's runnable example corpus and are not
+a claim of implemented support.

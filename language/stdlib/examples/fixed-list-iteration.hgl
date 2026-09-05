@@ -1,0 +1,9 @@
+// Agreed design example; graph-phase iteration is not implemented yet.
+// Wiring visits three child connections and composes one sink for each.
+// See language/docs/design/iteration.md.
+
+fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        debug_print("sample", sample)
+    }
+}

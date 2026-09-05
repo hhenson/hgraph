@@ -727,7 +727,7 @@ requires U is struct
 
 In this example the first two predicates establish that field lookup is valid,
 and the equality resolves or checks `V`. `fields` is deliberately distinct
-from the runtime collection iterator `keys`; constraint reflection operates on
+from collection traversal with `keys`; constraint reflection operates on
 the canonical source type and does not expose its expanded hgraph schema.
 
 An operator requirement is resolved against the nominal operator selected by
@@ -906,6 +906,24 @@ they hold canonical scalar values local to the executing block. Runtime `var`
 storage is recreated on every block execution and is never added to the
 function's recordable state. A value that crosses evaluations must use `state`.
 
+The agreed
+[conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
+extends this baseline with typed, uninitialized declarations such as
+`var r: i64`. The declaration introduces the enclosing variable; branch
+assignments supply its output connection, and lowering remaps the binding
+after the switch. Count any used expression result alongside the escaping
+bindings: one result is returned directly; several are returned through a
+compiler-generated bundle. The grammar above still
+describes the current initializer-required implementation. No default value
+or runtime state cell is implied by the new declaration form.
+
+The target design also requires definite-assignment analysis for escaping
+variables. At a use, every path reaching it must supply a binding, either by
+assignment or by forwarding an existing incoming binding. Otherwise reject
+the use at compile time; do not synthesize a never-ticking source to fill the
+gap. This is static binding analysis, not runtime time-series validity
+checking. See [Definite assignment](../design/control-flow.md#definite-assignment).
+
 The statement and expression productions are:
 
 ```ebnf
@@ -953,10 +971,38 @@ The final statement of a block is its tail expression when it is an
 expression. `if` is a primary expression, so it is an operand only when
 parenthesized (`(if c { 1 } else { 2 }) + 1`); as a statement its value is
 discarded. A bare `{ ... }` in expression position is a block expression.
-Which conditions a composition body may branch on is a
-classification question (the open item on temporal conditions), not a
-grammar one: the parser accepts `if` uniformly and the classifier
-diagnoses the cases the current slice does not lower.
+The parser accepts `if` uniformly. Its meaning depends on context: a
+wiring-time Boolean chooses composition, a temporal Boolean in composition
+uses the agreed native switch strategy, and a runtime-node condition is an
+ordinary current-value conditional. See
+[Conditional control flow](../design/control-flow.md). The temporal composition
+case remains unimplemented in the current backends; their rejection is an
+implementation limit rather than an unresolved choice of strategy.
+
+Under the agreed temporal composition design, `return` targets the enclosing
+HGL function, not a compiler-generated branch lambda. Lowering must identify
+early-return paths and place the remaining function body in the non-returning
+path's continuation before deriving branch captures and result signatures.
+The continuation's computations share that branch's lifetime. Definite
+assignment considers only paths reaching a use, excluding paths that return
+before it. See [Early returns](../design/control-flow.md#early-returns-and-continuations).
+This is a target lowering requirement, not implemented backend behavior.
+
+An outputless temporal conditional uses the native sink-switch path without a
+synthetic output. Sinks inside the branch are wired through the switch; sinks
+outside it remain unconditionally wired. The graph body still describes
+wiring, and the sink nodes perform runtime effects. Result and escape analysis
+determines whether a switch is outputless, independently of the enclosing
+function's return annotation. See
+[Outputless conditionals](../design/control-flow.md#outputless-conditionals).
+
+Expression results and escaping assignments may coexist in one conditional.
+Include both in the generated branch output signature and remap each to its
+consumer. The binding receiving the whole expression result is not an
+escaping variable; only the variables assigned inside the branches require
+prior declarations. This uses the existing expression and assignment syntax;
+no source-level bundle declaration or reserved result-field name is needed.
+See [Mixed results](../design/control-flow.md#expression-results-and-escaping-assignments).
 
 Expression precedence is:
 
@@ -1173,8 +1219,8 @@ registered live TSS projection and has temporal source type `set<K>`. In a
 `RuntimeFn` it produces an evaluation-local borrowed set view over the current
 TSD key set.
 
-`keys`, `values`, and `items` produce runtime-only iterator types. They accept
-the collection followed by an optional predicate:
+In runtime evaluation, `keys`, `values`, and `items` produce evaluation-local
+iterator types. They accept the collection followed by an optional predicate:
 
 ```ebnf
 collection_iterator
@@ -1183,11 +1229,19 @@ collection_iterator
 ```
 
 The calls are parsed as ordinary call expressions. The grammar above records
-their checked intrinsic shapes rather than adding special parser nodes. A
-runtime collection iterator is a node-only construct and therefore classifies
-its containing function as `RuntimeFn`. The iterator must be consumed directly
-by `for`; it is neither a canonical value nor a temporal port and cannot escape
-the current evaluation.
+their checked intrinsic shapes rather than adding special parser nodes.
+Under the agreed phase-dependent design, these calls no longer force the
+containing function to be a `RuntimeFn`. This section describes their runtime
+interpretation: the iterator must be consumed directly by `for`; it is neither
+a canonical value nor a temporal port and cannot escape the current
+evaluation. In graph composition, a supported wiring-time iterable provides
+scalar values and a fixed temporal structure provides child connections.
+Independent dynamic graph-loop bodies lower through per-key or per-index
+mapping. The initial dynamic subset rejects assignments to enclosing variables
+and loop-carried reductions; it must not silently change the function's phase.
+Unordered map reduction and ordered, linear list reduction are deferred
+options, not initial lowering support. See [Iteration](../design/iteration.md)
+for the target design and its separate compiler implementation work.
 
 Traversal and built-in delta-predicate support is:
 
@@ -1243,9 +1297,10 @@ determine whether its body describes:
 The current provisional classifier applies these rules:
 
 1. A body containing no node-only construct becomes `CompositionFn`.
-2. The presence of `state`, `inject`, `start`, `when`, `stop`, or a runtime
-   collection iterator makes the complete function a `RuntimeFn`, even when
-   nested syntax is later rejected by phase checking.
+2. The presence of `state`, `inject`, `start`, `when`, or `stop` makes the
+   complete function a `RuntimeFn`, even when nested syntax is later rejected
+   by phase checking. Iteration follows the containing phase and is not itself
+   a runtime-classification trigger under the newly agreed target design.
 3. A body that mixes wiring-only and runtime-only constructs is rejected.
 
 Classification is based on resolved source syntax. It must not be guessed

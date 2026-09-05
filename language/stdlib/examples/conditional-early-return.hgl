@@ -1,0 +1,12 @@
+// Agreed design example; temporal early-return lowering is not implemented yet.
+// The remaining function body belongs to the false branch's continuation.
+// See language/docs/design/control-flow.md.
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    return r * 2
+}
