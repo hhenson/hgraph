@@ -137,6 +137,14 @@ typed nominal call marked `deferred`; the hgraph-IR pass resolves them at the
 first point where those inputs exist. Multiple source `impl fn` candidates are
 also left to the same hgraph ranking contract.
 
+Generic unification and application live in `src/ir/generic_substitution`.
+Constraint inference and admission live in `src/ir/constraint_solver`; that
+layer evaluates the normalized constraint arena but reaches native overloads
+only through the `OperatorResolver` port. The type checker supplies active
+requirements as facts to generic body checking and combines a local operator
+contract with its implementation without copying overload ranking into the
+compiler.
+
 ### Typed HIR
 
 HIR is the last representation of HGL as a language. It contains:

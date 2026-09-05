@@ -138,11 +138,14 @@ described in [Types and expressions](types-and-expressions.md#generic-structured
 A trailing `requires` clause constrains an otherwise generic declaration. It
 follows the signature and precedes the body:
 
-> **Staging status:** `hgl check` parses and resolves `requires` clauses and
-> rejects decidably false closed struct requirements. Complete callable
-> substitution and operator-conformance checking remains part of typed-HIR
-> completion. Callable requirements currently fail closed during type
-> completion rather than being ignored by a backend.
+> **Staging status:** `hgl check` evaluates closed type sets, `struct`
+> admission, field reflection, positive-conjunction equality inference,
+> Boolean composition, and nominal operator requirements during typed-HIR
+> completion. Local implementations inherit their local operator contract and
+> are checked for signature conformance. A requirement still fails closed when
+> it needs an arbitrary residual constant predicate, imported operator-contract
+> metadata, native nominal-struct metadata, or source-candidate ranking that has
+> not yet crossed the shared hgraph registry boundary.
 
 ```hgl
 fn add_numeric<U>(a: U, b: U) -> U
