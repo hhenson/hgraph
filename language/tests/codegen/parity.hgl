@@ -9,6 +9,16 @@ module hgl.codegen.parity
 
 fn scale(x: f64, const k: f64) -> f64 => x * k
 
+fn duration_default(
+    x: f64,
+    const delay: duration = 0us - 9223372036854775807us - 1us,
+) -> f64 {
+    if delay < 0us {
+        return x + 0.0
+    }
+    x + 0.0
+}
+
 export fn plus(a: f64, b: f64) -> f64 => a + b
 
 export fn scaled_sum(a: f64, b: f64, const k: f64 = 2.0) -> f64 =>

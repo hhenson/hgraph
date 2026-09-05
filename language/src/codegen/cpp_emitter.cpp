@@ -1073,7 +1073,9 @@ namespace hgl::codegen
         }
 
         std::optional<Value> temporal_constant(syntax::TemporalValue literal, SourceRange range) {
-            const std::string micros = std::to_string(literal.micros);
+            const std::string micros = literal.micros == std::numeric_limits<std::int64_t>::min()
+                                           ? "std::numeric_limits<hgraph::TimeDelta::rep>::min()"
+                                           : std::to_string(literal.micros);
             switch (literal.kind) {
                 case syntax::TemporalKind::Date:
                     return make_const("hgraph::Date{std::chrono::sys_days{std::chrono::days{" + micros + "}}}",
