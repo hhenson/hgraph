@@ -121,6 +121,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->header, "static auto defaults() { return std::tuple{hgraph::arg<\"k\">(hgraph::Float{2.0})}; }"));
     CHECK(contains(emitted->header, "std::numeric_limits<hgraph::Float>::infinity()"));
     CHECK(contains(emitted->header, "std::numeric_limits<hgraph::Int>::min()"));
+    CHECK(contains(emitted->source, "std::numeric_limits<hgraph::TimeDelta::rep>::min()"));
     CHECK(contains(emitted->header, "hgraph::OperatorProviderHandle register_operators();"));
     CHECK_FALSE(contains(emitted->header, "struct scale\n"));  // module-internal (scaled_sum is exported)
 
