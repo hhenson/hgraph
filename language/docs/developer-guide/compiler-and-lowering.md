@@ -46,8 +46,8 @@ src/
   hgraph_ir/    execution-facing types, callable interfaces, and plans
   wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
                 harness sequences, test runner
-  codegen/      hgraph-IR declaration and dependency planning, temporary AST
-                body printer, generated C++ and source maps
+  codegen/      hgraph-IR declaration, dependency, and body emission,
+                generated C++ and source maps
   driver/       check, test, emit-cpp, build, run
   repl/         session assembly over the driver
 ```
@@ -229,13 +229,16 @@ block tails directly. Runtime validity and input-activity analysis walks those
 graph-IR values and bindings rather than resolving source expressions again.
 Internal callable dependencies are likewise discovered by walking reachable
 hgraph-IR values, statements, and blocks, and exact local-call operations
-determine definition order and recursion diagnostics. The adapter remains only
-for expression-level type syntax from the AST and `ResolvedModule`.
+determine definition order and recursion diagnostics. Every emitted type,
+constant, expression, statement, and block now comes from hgraph IR; the
+obsolete AST type/expression/call evaluator has been removed.
 
-This seam keeps the generated package readable while preventing declaration
-policy from drifting between execution paths. The next Stage E checkpoint
-moves expression-level type syntax to hgraph IR. Only after that move may
-`codegen` drop its syntax and resolver dependencies.
+`codegen` still retains one non-semantic frontend seam. It associates each
+planned declaration range with a source declaration ID to preserve source
+order, source comments, diagnostics, and current emission grouping, and rejects
+missing, duplicate, extra, or incompatible association shapes. The next Stage
+E checkpoint moves those ordering and source-map handles into hgraph IR so
+`codegen` can drop its syntax and resolver dependencies completely.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1242,8 +1245,9 @@ nominal struct layouts, construction defaults, and local/state binding types.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit
-directly from graph-IR statements and blocks. Expression-level type syntax
-remains behind the temporary AST adapter.
+directly from graph-IR statements and blocks. The obsolete AST
+type/expression/call evaluator has been removed; only temporary
+source-declaration association remains.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1268,10 +1272,10 @@ callable/operator parameter and result types. Supported callable parameter
 defaults and omitted local-call arguments also use the graph-IR compile-time
 expression arena. Composition and runtime blocks use graph-IR statements,
 values, exact function targets, lifecycle plans, capabilities, and lexical
-bindings throughout. The adapter cannot silently add or omit a planned
-declaration or body binding. Struct layout and omitted-field defaults come from
-hgraph IR. Only expression-level type syntax still uses the retained syntax
-tree.
+bindings throughout. The source-declaration association cannot silently add or
+omit a planned declaration or body binding. Struct layout and omitted-field
+defaults come from hgraph IR; no emitted type or expression is read from the
+retained syntax tree.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",

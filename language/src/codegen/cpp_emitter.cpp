@@ -29,7 +29,6 @@ namespace hgl::codegen
 
     namespace
     {
-        using semantics::BindingKind;
         using syntax::Category;
         using syntax::SourceRange;
 
@@ -39,10 +38,9 @@ namespace hgl::codegen
 
         // ------------------------------------------------------------ types
 
-        /// A normalized type used by the temporary C++ body printer. Public
-        /// interface instances and body-local binding types come from hgraph
-        /// IR; expression-level type syntax still arrives through the syntax
-        /// compatibility adapter.
+        /// A normalized native spelling derived from canonical hgraph IR.
+        /// Code generation consumes this representation without re-running
+        /// frontend name, type, or phase analysis.
         struct HType
         {
             enum class Kind : std::uint8_t {
@@ -146,14 +144,12 @@ namespace hgl::codegen
             std::string selector{};
             /// Const: the value type. Port: the temporal type, Unknown when the
             /// registry decides it (an operator result).
-            HType       type{};
-            ast::DeclId decl{ast::no_node};
+            HType              type{};
             gir::CallableId    callable{};
             std::string name{};
             SourceRange range{};
             bool               structured_delta{false};
             std::vector<HType> iterator_types{};
-            ast::ExprId        iterator_predicate{ast::no_node};
             gir::ValueId       planned_iterator_predicate{};
             /// Known numeric value of a constant expression. Const parameters
             /// deliberately leave this empty: they are values at composition
@@ -173,12 +169,6 @@ namespace hgl::codegen
             ast::DeclId                           fn{ast::no_node};
             std::vector<Value>                    params{};
             std::unordered_map<std::uint32_t, Value> planned_bindings{};
-            std::unordered_map<ast::StmtId, Value> locals{};
-            std::unordered_map<ast::StmtId, Value> second_locals{};
-            std::unordered_map<std::string, Value> injects{};
-            std::unordered_map<std::size_t, HType> generic_types{};
-            ast::ExprId                            anonymous{ast::no_node};
-            std::vector<Value>                     anonymous_params{};
             bool                                   runtime{false};
             bool                                   runtime_inputs_available{true};
             bool                                   output_available{false};
@@ -400,8 +390,6 @@ namespace hgl::codegen
             [[nodiscard]] static std::string           operator_registry_name(const gir::OperatorContract &op) {
                 return op.registry_name.empty() ? op.identity : op.registry_name;
             }
-            [[nodiscard]] const ast::GenericParameter &generic_parameter(ast::DeclId decl, std::size_t index) const;
-            [[nodiscard]] std::string                  slice(SourceRange range) const { return std::string{file_.slice(range)}; }
             [[nodiscard]] std::string where(SourceRange range) const
             {
                 const syntax::Location at = file_.location(range.begin);
@@ -409,7 +397,6 @@ namespace hgl::codegen
             }
 
             // -- types
-            [[nodiscard]] HType type_of(ast::TypeId id, Frame &frame);
             using PlannedTypeBindings = std::unordered_map<std::uint32_t, HType>;
             [[nodiscard]] HType planned_type(gir::TypeId id, SourceRange fallback = {},
                                              const PlannedTypeBindings *bindings = nullptr);
@@ -429,12 +416,9 @@ namespace hgl::codegen
             [[nodiscard]] Value                       planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
                                                                         const PlannedTypeBindings *bindings);
             [[nodiscard]] std::string value_type(const HType &type, SourceRange range);
-            [[nodiscard]] std::string schema(const HType &type, SourceRange range);
-            [[nodiscard]] std::string size_text(ast::ExprId id, Frame &frame, std::string_view what);
+            [[nodiscard]] std::string                 schema(const HType &type, SourceRange range);
 
             // -- expressions
-            [[nodiscard]] Value eval_expr(ast::ExprId id, Frame &frame);
-            [[nodiscard]] Value eval_name(ast::ExprId id, Frame &frame);
             [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
             [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
@@ -448,13 +432,6 @@ namespace hgl::codegen
             bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range);
             [[nodiscard]] std::string planned_operator_marker(std::string_view identity, std::string_view registry_name,
                                                               SourceRange range);
-            [[nodiscard]] Value eval_call(const ast::Call &call, SourceRange range, Frame &frame);
-            [[nodiscard]] Value eval_construct(ast::DeclId decl, ast::TypeId type, const std::vector<ast::Argument> &arguments,
-                                               bool delta, SourceRange range, Frame &frame);
-            [[nodiscard]] Value lower_map_call(const Value &callee, const ast::Call &call, SourceRange range, Frame &frame);
-            [[nodiscard]] Value eval_intrinsic(const Value &callee, const ast::Call &call, SourceRange range, Frame &frame);
-            [[nodiscard]] Value call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments, SourceRange range,
-                                              Frame &frame);
             [[nodiscard]] Value fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range);
             [[nodiscard]] Value fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
             [[nodiscard]] Value wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
@@ -463,9 +440,6 @@ namespace hgl::codegen
             [[nodiscard]] std::string argument_code(const Value &value);
             [[nodiscard]] std::string as_port(const Value &value, const HType &temporal, SourceRange range);
             [[nodiscard]] std::string as_const(const Value &value, const HType &target, SourceRange range, const std::string &what);
-            [[nodiscard]] std::vector<ast::ExprId> bind_arguments(ast::DeclId decl, const std::vector<ast::Argument> &arguments,
-                                                                  SourceRange range);
-
             // -- statements
             void emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback);
             void emit_planned_statement(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
@@ -694,13 +668,6 @@ namespace hgl::codegen
         }
 
         // ------------------------------------------------------------ types
-
-        const ast::GenericParameter &Emitter::generic_parameter(ast::DeclId decl, std::size_t index) const {
-            const ast::DeclNode &node = module_.decl(decl).node;
-            if (const auto *fn = std::get_if<ast::FunctionDecl>(&node)) { return fn->generics.at(index); }
-            if (const auto *op = std::get_if<ast::OperatorDecl>(&node)) { return op->generics.at(index); }
-            return std::get<ast::StructDecl>(node).generics.at(index);
-        }
 
         const gir::Type &Emitter::graph_type(gir::TypeId id, SourceRange fallback) {
             if (!id.valid() || id.value >= graph_.types.size()) { backend(fallback, "hgraph IR contains an invalid type ID"); }
@@ -1144,151 +1111,6 @@ namespace hgl::codegen
             result.atomic_code =
                 "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
             return result;
-        }
-
-        std::string Emitter::size_text(ast::ExprId id, Frame &frame, std::string_view what)
-        {
-            const Value value = eval_expr(id, frame);
-            const auto  size  = integer_value(value);
-            if (!value.is_const() || !value.type.is(ast::ScalarType::I64) || !size || *size < 0)
-            {
-                fail(Category::Type, module_.expr(id).range, std::string{what} + " must be a non-negative i64 constant");
-            }
-            return std::to_string(*size);
-        }
-
-        HType Emitter::type_of(ast::TypeId id, Frame &frame)
-        {
-            const ast::Type &type = module_.type(id);
-            switch (type.kind)
-            {
-                case ast::TypeKind::Scalar: return scalar_type(type.scalar);
-                case ast::TypeKind::Named: {
-                    const semantics::Binding &binding = resolved_.type_binding(id);
-                    if (binding.kind == BindingKind::Generic) {
-                        if (const auto found = frame.generic_types.find(binding.index); found != frame.generic_types.end()) {
-                            return found->second;
-                        }
-                        const ast::GenericParameter &parameter = generic_parameter(binding.decl, binding.index);
-                        if (parameter.is_const) { backend(type.range, "a const generic cannot be used as a value type"); }
-                        HType result;
-                        result.kind     = HType::Kind::Generic;
-                        result.cpp_type = "hgraph::ScalarVar<" + quote(parameter.name.text) + ">";
-                        return result;
-                    }
-                    if (binding.kind == BindingKind::Struct) {
-                        const ast::StructDecl &decl = structure(binding.decl);
-                        HType                  result;
-                        result.kind             = HType::Kind::Struct;
-                        result.declaration      = binding.decl;
-                        result.nominal_identity = resolved_.module_path + "." + std::string{decl.name.text};
-                        result.cpp_type         = cpp_name(decl.name.text);
-
-                        std::vector<std::string> arguments;
-                        arguments.reserve(type.arguments.size());
-                        for (const ast::GenericArgument &argument : type.arguments) {
-                            if (argument.type != ast::no_node) {
-                                HType child = type_of(argument.type, frame);
-                                arguments.push_back(value_type(child, module_.type(argument.type).range));
-                                result.children.push_back(std::move(child));
-                            } else if (argument.value != ast::no_node) {
-                                const Value value   = eval_expr(argument.value, frame);
-                                const auto  integer = integer_value(value);
-                                if (!integer) {
-                                    backend(argument.range, "a generated const struct argument must be an i64 literal");
-                                }
-                                arguments.push_back(std::to_string(*integer));
-                            } else {
-                                backend(argument.range, "an unresolved struct type argument");
-                            }
-                        }
-                        if (!arguments.empty()) { result.cpp_type += "<" + join(arguments, ", ") + ">"; }
-                        return result;
-                    }
-                    backend(type.range, "unresolved named type '" + std::string{type.name.text} + "'");
-                }
-                case ast::TypeKind::Tuple: {
-                    HType result;
-                    result.kind = HType::Kind::Tuple;
-                    for (const ast::TypeId child : type.children) { result.children.push_back(type_of(child, frame)); }
-                    return result;
-                }
-                case ast::TypeKind::List: {
-                    HType result;
-                    result.kind = HType::Kind::List;
-                    result.children.push_back(type_of(type.children[0], frame));
-                    if (type.size != ast::no_node) { result.size = size_text(type.size, frame, "a list size"); }
-                    return result;
-                }
-                case ast::TypeKind::Set: {
-                    HType result;
-                    result.kind = HType::Kind::Set;
-                    result.children.push_back(type_of(type.children[0], frame));
-                    return result;
-                }
-                case ast::TypeKind::Map: {
-                    HType result;
-                    result.kind = HType::Kind::Map;
-                    result.children.push_back(type_of(type.children[0], frame));
-                    result.children.push_back(type_of(type.children[1], frame));
-                    return result;
-                }
-                case ast::TypeKind::Rolling: {
-                    HType result;
-                    result.kind = HType::Kind::Rolling;
-                    result.children.push_back(type_of(type.children[0], frame));
-                    const semantics::Binding &size_binding = resolved_.binding(type.size);
-                    if (size_binding.kind == BindingKind::Generic) {
-                        // The current hgraph window wildcard preserves the
-                        // scalar type while the concrete period remains bound
-                        // by the actual input schema at wiring time.
-                        return result;
-                    }
-                    const Value size = eval_expr(type.size, frame);
-                    if (size.is_const() && size.type.is(ast::ScalarType::Duration)) {
-                        result.duration_window = true;
-                        const auto *literal    = std::get_if<ast::TemporalLiteral>(&module_.expr(type.size).node);
-                        if (literal == nullptr) {
-                            fail(Category::Type, module_.expr(type.size).range,
-                                 "a generated duration rolling size must be a duration literal");
-                        }
-                        result.size = std::to_string(literal->value.micros);
-                        if (type.min_size == ast::no_node) {
-                            result.min_size = result.size;
-                        } else {
-                            const auto *minimum = std::get_if<ast::TemporalLiteral>(&module_.expr(type.min_size).node);
-                            if (minimum == nullptr || minimum->value.kind != syntax::TemporalKind::Duration) {
-                                fail(Category::Type, module_.expr(type.min_size).range,
-                                     "a duration rolling minimum must be a duration literal");
-                            }
-                            result.min_size = std::to_string(minimum->value.micros);
-                        }
-                        return result;
-                    }
-                    if (!size.is_const() || !size.type.is(ast::ScalarType::I64))
-                    {
-                        fail(Category::Type, module_.expr(type.size).range,
-                             "a rolling size is a positive i64 constant or a duration");
-                    }
-                    const auto max_size = integer_value(size);
-                    if (!max_size || *max_size <= 0)
-                    {
-                        fail(Category::Type, module_.expr(type.size).range,
-                             "a rolling size is a positive i64 constant or a duration");
-                    }
-                    result.size     = std::to_string(*max_size);
-                    result.min_size = type.min_size == ast::no_node ? result.size
-                                                                     : size_text(type.min_size, frame, "a rolling minimum");
-                    return result;
-                }
-                case ast::TypeKind::Atomic: {
-                    HType result;
-                    result.kind = HType::Kind::Atomic;
-                    result.children.push_back(type_of(type.children[0], frame));
-                    return result;
-                }
-            }
-            backend(type.range, "unsupported type");
         }
 
         std::string Emitter::value_type(const HType &type, SourceRange range)
@@ -1795,6 +1617,8 @@ namespace hgl::codegen
             return "hgraph::stdlib::" + name;
         }
 
+        // -------------------------------------------------------- expressions
+
         Value Emitter::eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame) {
             switch (reference.kind) {
                 case gir::ReferenceKind::Binding:
@@ -1813,10 +1637,10 @@ namespace hgl::codegen
                     }
                 case gir::ReferenceKind::Callable:
                     {
+                        (void)syntax_callable(reference.callable, range);
                         Value result;
                         result.kind     = Value::Kind::Function;
                         result.callable = reference.callable;
-                        result.decl     = syntax_callable(reference.callable, range);
                         result.range    = range;
                         return result;
                     }
@@ -1938,219 +1762,6 @@ namespace hgl::codegen
                     }
                 },
                 expression.node);
-        }
-
-        // -------------------------------------------------------- expressions
-
-        Value Emitter::eval_name(ast::ExprId id, Frame &frame)
-        {
-            const semantics::Binding &binding = resolved_.binding(id);
-            const SourceRange         range   = module_.expr(id).range;
-            switch (binding.kind)
-            {
-                case BindingKind::Local: {
-                        const auto &locals = binding.second ? frame.second_locals : frame.locals;
-                        const auto  found  = locals.find(binding.stmt);
-                        if (found == locals.end()) {
-                            const auto injected = frame.injects.find(slice(range));
-                            if (injected == frame.injects.end()) {
-                                backend(range, "'" + slice(range) + "' is not bound in this function");
-                            }
-                            Value value = injected->second;
-                            value.range = range;
-                            return value;
-                        }
-                    Value value = found->second;
-                    value.range = range;
-                    return value;
-                }
-                case BindingKind::Parameter: {
-                        if (binding.decl == ast::no_node) {
-                            if (binding.stmt != frame.anonymous || binding.index >= frame.anonymous_params.size()) {
-                                backend(range, "'" + slice(range) + "' is not bound in this anonymous function");
-                            }
-                            Value value = frame.anonymous_params[binding.index];
-                            value.range = range;
-                            return value;
-                        }
-                    if (binding.decl != frame.fn || binding.index >= frame.params.size())
-                    {
-                        backend(range, "'" + slice(range) + "' is not a parameter of this function");
-                    }
-                    if (frame.runtime && !frame.runtime_inputs_available &&
-                        !function(frame.fn).signature.parameters[binding.index].is_const)
-                    {
-                        fail(Category::Phase, range,
-                             "temporal parameters are not available in runtime lifecycle blocks");
-                    }
-                    Value value = frame.params[binding.index];
-                    value.range = range;
-                    return value;
-                }
-                case BindingKind::Generic: unsupported(range, "a generic parameter");
-                case BindingKind::Struct:
-                    {
-                        Value value;
-                        value.kind  = Value::Kind::Struct;
-                        value.decl  = binding.decl;
-                        value.range = range;
-                        return value;
-                    }
-                case BindingKind::Function:
-                    {
-                        Value value;
-                        value.kind  = Value::Kind::Function;
-                        value.decl  = binding.decl;
-                        value.range = range;
-                        return value;
-                    }
-                case BindingKind::Operator: {
-                    // The kernel table: `hgraph.std::x` is the marker
-                    // `hgraph::stdlib::<registry name>`; `hgraph.analytics::x` is
-                    // `hgraph::analytics::x` (registry `hgraph.analytics.x`).
-                    Value value;
-                    value.kind  = Value::Kind::Operator;
-                    value.range = range;
-                    const std::string &registry = binding.registry_name;
-                    if (registry.starts_with("hgraph.analytics."))
-                    {
-                        uses_analytics_ = true;
-                        value.name      = "hgraph::analytics::" + registry.substr(std::string_view{"hgraph.analytics."}.size());
-                    }
-                    else { value.name = "hgraph::stdlib::" + registry; }
-                    return value;
-                }
-                case BindingKind::LocalOperator: {
-                    const gir::OperatorContract &op = operator_decl(binding.decl);
-                    Value                        value;
-                    value.kind  = Value::Kind::LocalOperator;
-                    value.decl  = binding.decl;
-                    value.name  = "operators::" + cpp_name(local_identity(op.identity));
-                    value.range = range;
-                    return value;
-                }
-                case BindingKind::Intrinsic: {
-                    Value value;
-                    value.kind  = Value::Kind::Intrinsic;
-                    value.name  = binding.registry_name;
-                    value.range = range;
-                    return value;
-                }
-                case BindingKind::Test:
-                case BindingKind::Unbound: break;
-            }
-            backend(range, "'" + slice(range) + "' has no value");
-        }
-
-        Value Emitter::eval_expr(ast::ExprId id, Frame &frame)
-        {
-            const ast::Expr &expr = module_.expr(id);
-            return std::visit(
-                [&](const auto &node) -> Value {
-                    using T = std::decay_t<decltype(node)>;
-                    if constexpr (std::is_same_v<T, ast::IntLiteral>)
-                    {
-                        return make_const(integer_literal(node.value), scalar_type(ast::ScalarType::I64), expr.range,
-                                          static_cast<std::int64_t>(node.value));
-                    }
-                    else if constexpr (std::is_same_v<T, ast::FloatLiteral>)
-                    {
-                        return make_const("hgraph::Float{" + float_literal(node.value) + "}", scalar_type(ast::ScalarType::F64),
-                                          expr.range, node.value);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::StringLiteral>)
-                    {
-                        return make_const("hgraph::Str{" + quote(node.value) + "}", scalar_type(ast::ScalarType::Str), expr.range);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::BoolLiteral>)
-                    {
-                        return make_const(node.value ? "true" : "false", scalar_type(ast::ScalarType::Bool), expr.range);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::NullLiteral>) { unsupported(expr.range, "'null'"); }
-                    else if constexpr (std::is_same_v<T, ast::TemporalLiteral>)
-                    {
-                        if (std::optional<Value> value = temporal_constant(node.value, expr.range)) { return std::move(*value); }
-                        backend(expr.range, "zoned and civil literals are not supported by the first pass");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Placeholder>)
-                    {
-                        fail(Category::Type, expr.range, "'_' is only valid in a harness sequence");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::NameRef> || std::is_same_v<T, ast::QualifiedRef>)
-                    {
-                        return eval_name(id, frame);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Unary>)
-                    {
-                        const Value operand = eval_expr(node.operand, frame);
-                        if (operand.is_const() || operand.is_runtime())
-                        {
-                            return fold_unary(node.op, operand, expr.range);
-                        }
-                        if (!operand.is_port())
-                        {
-                            backend(expr.range, "this operand has no value");
-                        }
-                        return wire(node.op == ast::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_",
-                                    {operand.code}, expr.range);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Binary>)
-                    {
-                        const Value lhs = eval_expr(node.lhs, frame);
-                        const Value rhs = eval_expr(node.rhs, frame);
-                        if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime()))
-                        {
-                            return fold_binary(node.op, lhs, rhs, expr.range);
-                        }
-                        return wire_binary(node.op, lhs, rhs, expr.range);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Call>) { return eval_call(node, expr.range, frame); }
-                    else if constexpr (std::is_same_v<T, ast::Index>)
-                    {
-                        const Value target = eval_expr(node.target, frame);
-                        const Value index  = eval_expr(node.index, frame);
-                        if (target.is_port())
-                        {
-                            return wire("hgraph::stdlib::getitem_", {target.code, argument_code(index)}, expr.range);
-                        }
-                        unsupported(expr.range, "indexing a constant");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Field>)
-                    {
-                        const Value target = eval_expr(node.target, frame);
-                        if (target.kind == Value::Kind::Intrinsic && target.name == "logger") {
-                            Value value;
-                            value.kind  = Value::Kind::Intrinsic;
-                            value.name  = "logger." + std::string{node.field.text};
-                            value.range = expr.range;
-                            return value;
-                        }
-                        if (target.is_port())
-                        {
-                            return wire("hgraph::stdlib::getattr_", {target.code, "hgraph::Str{" + quote(node.field.text) + "}"},
-                                        expr.range);
-                        }
-                        unsupported(expr.range, "field access on a constant");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::SequenceLiteral>) { unsupported(expr.range, "a list literal"); }
-                    else if constexpr (std::is_same_v<T, ast::TupleLiteral>) { unsupported(expr.range, "a tuple literal"); }
-                    else if constexpr (std::is_same_v<T, ast::AnonymousFn>)
-                    {
-                        backend(expr.range, "anonymous functions are not supported by the first pass");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::If>) { unsupported(expr.range, "'if' used as a value"); }
-                    else if constexpr (std::is_same_v<T, ast::BlockExpr>) { unsupported(expr.range, "a block used as a value"); }
-                    else if constexpr (std::is_same_v<T, ast::Eval>)
-                    {
-                        fail(Category::Type, expr.range, "'eval' is only valid in a test");
-                    } else if constexpr (std::is_same_v<T, ast::Construct>) {
-                        const semantics::Binding &binding = resolved_.type_binding(node.type);
-                        return eval_construct(binding.decl, node.type, node.arguments, node.delta, expr.range, frame);
-                    } else {
-                        static_assert(sizeof(T) == 0, "unhandled expression node");
-                    }
-                },
-                expr.node);
         }
 
         // ------------------------------------------------------------- calls
@@ -2565,461 +2176,6 @@ namespace hgl::codegen
                 case Value::Kind::Void: break;
             }
             fail(Category::Type, planned_value(call.callee, expression.range).range, "this value is not callable");
-        }
-
-        Value Emitter::eval_call(const ast::Call &call, SourceRange range, Frame &frame)
-        {
-            const Value callee = eval_expr(call.callee, frame);
-            if (frame.runtime && callee.kind != Value::Kind::Intrinsic && callee.kind != Value::Kind::Struct) {
-                backend(range, "calls in a runtime function are not supported by emit-cpp yet");
-            }
-            switch (callee.kind)
-            {
-                case Value::Kind::Operator:
-                case Value::Kind::LocalOperator: {
-                        if (callee.name == "hgraph::stdlib::map_" &&
-                            std::ranges::any_of(call.arguments, [&](const ast::Argument &argument) {
-                                return std::holds_alternative<ast::AnonymousFn>(module_.expr(argument.value).node);
-                            })) {
-                            return lower_map_call(callee, call, range, frame);
-                        }
-                    std::vector<std::string> args;
-                    args.reserve(call.arguments.size());
-                    for (const ast::Argument &argument : call.arguments)
-                    {
-                        std::string code = argument_code(eval_expr(argument.value, frame));
-                        if (!argument.name.empty())
-                        {
-                            code = "hgraph::arg<" + quote(argument.name.text) + ">(" + code + ")";
-                        }
-                        args.push_back(std::move(code));
-                    }
-                    return wire(callee.name, args, range);
-                }
-                case Value::Kind::Struct: return eval_construct(callee.decl, ast::no_node, call.arguments, false, range, frame);
-                case Value::Kind::Function: return call_function(callee.decl, call.arguments, range, frame);
-                case Value::Kind::Intrinsic: return eval_intrinsic(callee, call, range, frame);
-                case Value::Kind::Const:
-                case Value::Kind::Port:
-                case Value::Kind::Runtime:
-                case Value::Kind::Iterator:
-                case Value::Kind::Void:
-                    break;
-            }
-            fail(Category::Type, module_.expr(call.callee).range,
-                 "'" + slice(module_.expr(call.callee).range) + "' is not callable");
-        }
-
-        Value Emitter::lower_map_call(const Value &callee, const ast::Call &call, SourceRange range, Frame &frame) {
-            ast::ExprId        anonymous_id = ast::no_node;
-            std::vector<Value> inputs;
-            for (const ast::Argument &argument : call.arguments) {
-                if (std::holds_alternative<ast::AnonymousFn>(module_.expr(argument.value).node)) {
-                    if (anonymous_id != ast::no_node) {
-                        backend(module_.expr(argument.value).range, "map takes one anonymous function");
-                    }
-                    anonymous_id = argument.value;
-                } else {
-                    inputs.push_back(eval_expr(argument.value, frame));
-                }
-            }
-            const auto &anonymous = std::get<ast::AnonymousFn>(module_.expr(anonymous_id).node);
-            if (anonymous.parameters.size() != inputs.size()) {
-                fail(Category::Type, module_.expr(anonymous_id).range,
-                     "the map function parameter count must match its mapped inputs");
-            }
-
-            Frame lambda;
-            lambda.fn = ast::no_node;
-            lambda.params.resize(inputs.size());
-            std::vector<std::string> parameters{"hgraph::Wiring &w"};
-            for (std::size_t index = 0; index < inputs.size(); ++index) {
-                const Value &input = inputs[index];
-                if (!input.is_port() || input.type.kind != HType::Kind::Map) {
-                    backend(input.range, "the first anonymous map slice takes temporal map inputs");
-                }
-                HType parameter_type = input.type.children[1];
-                if (anonymous.parameters[index].type != ast::no_node) {
-                    parameter_type = type_of(anonymous.parameters[index].type, lambda);
-                }
-                const std::string name = cpp_name(anonymous.parameters[index].name.text);
-                lambda.params[index]   = make_port(name, parameter_type, anonymous.parameters[index].name.range);
-                parameters.push_back("hgraph::Port<" + schema(parameter_type, anonymous.parameters[index].name.range) + "> " +
-                                     name);
-            }
-            lambda.anonymous        = anonymous_id;
-            lambda.anonymous_params = lambda.params;
-
-            const Value lambda_result = eval_expr(anonymous.body, lambda);
-            HType       result_type   = lambda_result.type;
-            if (anonymous.result != ast::no_node) { result_type = type_of(anonymous.result, lambda); }
-            if (result_type.kind == HType::Kind::Unknown) {
-                backend(module_.expr(anonymous.body).range, "the anonymous map result type cannot be inferred");
-            }
-
-            const std::string helper = "hgl_anonymous_" + std::to_string(++anonymous_function_index_);
-            generated_helpers_.line("// " + where(module_.expr(anonymous_id).range));
-            generated_helpers_.open("struct " + helper);
-            generated_helpers_.line("static constexpr auto name = " +
-                                    quote(module_name_ + ".<anonymous:" + std::to_string(anonymous_function_index_) + ">") + ";");
-            generated_helpers_.line("static hgraph::Port<" + schema(result_type, module_.expr(anonymous.body).range) +
-                                    "> compose(" + join(parameters, ", ") + ")");
-            generated_helpers_.open("");
-            generated_helpers_.line("return " + as_port(lambda_result, result_type, module_.expr(anonymous.body).range) + ";");
-            generated_helpers_.close();
-            generated_helpers_.close(";");
-            generated_helpers_.line();
-
-            std::vector<std::string> args{"hgraph::fn<" + helper + ">()"};
-            for (const Value &input : inputs) { args.push_back(argument_code(input)); }
-
-            HType mapped;
-            mapped.kind = HType::Kind::Map;
-            mapped.children.push_back(inputs.front().type.children[0]);
-            mapped.children.push_back(result_type);
-            Value result = wire(callee.name, args, range, mapped);
-            result.code += ".as<" + schema(mapped, range) + ">()";
-            return result;
-        }
-
-        Value Emitter::eval_construct(ast::DeclId decl, ast::TypeId type_id, const std::vector<ast::Argument> &arguments,
-                                      bool delta, SourceRange range, Frame &frame) {
-            const gir::StructContract   &contract = struct_contract(decl);
-            HType                        type;
-            if (type_id != ast::no_node) {
-                type = type_of(type_id, frame);
-            } else {
-                if (!contract.generics.empty()) {
-                    backend(range, "generic struct '" + std::string{local_identity(contract.identity)} +
-                                       "' needs explicit type arguments");
-                }
-                type.kind             = HType::Kind::Struct;
-                type.declaration      = decl;
-                type.nominal_identity = contract.identity;
-                type.cpp_type         = cpp_name(local_identity(contract.identity));
-            }
-
-            const PlannedTypeBindings planned_generics = planned_struct_bindings(contract, type, range);
-            if (type_id != ast::no_node) {
-                type.declaration      = decl;
-                type.nominal_identity = contract.identity;
-                type.cpp_type         = cpp_name(local_identity(contract.identity));
-                std::vector<std::string> type_arguments;
-                type_arguments.reserve(type.children.size());
-                for (const HType &argument : type.children) { type_arguments.push_back(value_type(argument, range)); }
-                if (!type_arguments.empty()) { type.cpp_type += "<" + join(type_arguments, ", ") + ">"; }
-            }
-
-            const auto argument_for = [&](std::string_view field) -> ast::ExprId {
-                for (const ast::Argument &argument : arguments) {
-                    if (argument.name.text == field) { return argument.value; }
-                }
-                return ast::no_node;
-            };
-
-            std::vector<std::string>                   temporal_fields;
-            std::vector<std::pair<std::size_t, Value>> delta_fields;
-            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
-                const gir::StructField &field       = contract.fields[index];
-                ast::ExprId             value_id    = argument_for(field.name);
-                const HType       field_type  = planned_type(field.type, field.range, &planned_generics);
-                const SourceRange field_range = graph_type(field.type, field.range).range;
-
-                if (value_id == ast::no_node) {
-                    if (delta) { continue; }
-                    if (field.default_value.valid()) {
-                        if (planned_null(field.default_value, field.range)) {
-                            if (!field.optional) {
-                                fail(Category::Type, graph_constant(field.default_value, field.range).range,
-                                     "required field '" + field.name + "' cannot be null");
-                            }
-                            temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) +
-                                                      ">(w)");
-                            continue;
-                        }
-                        Value value = planned_field_value(field.default_value, field.range, &planned_generics);
-                        temporal_fields.push_back(as_port(value, field_type, value.range));
-                        continue;
-                    }
-                    if (!field.optional) {
-                        backend(range,
-                                "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
-                    }
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, field_range) + ">(w)");
-                    continue;
-                }
-                if (std::holds_alternative<ast::NullLiteral>(module_.expr(value_id).node)) {
-                    if (delta) {
-                        backend(module_.expr(value_id).range, "clearing an optional struct field needs a native clear-delta "
-                                                              "operation");
-                    }
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, field_range) + ">(w)");
-                    continue;
-                }
-
-                Value value = eval_expr(value_id, frame);
-                if (delta) {
-                    if (!frame.runtime || (!value.is_const() && !value.is_runtime())) {
-                        backend(module_.expr(value_id).range, "a structured delta is only available in a runtime function");
-                    }
-                    value.code = as_runtime(value, field_type, value.range, "field '" + field.name + "'");
-                    value.type = field_type;
-                    delta_fields.emplace_back(index, std::move(value));
-                } else {
-                    temporal_fields.push_back(as_port(value, field_type, value.range));
-                }
-            }
-
-            if (delta) {
-                std::string code =
-                    "[&]() { hgraph::BundleBuilder builder{hgraph::delta_value_binding<" + schema(type, range) + ">()}; ";
-                for (const auto &[index, value] : delta_fields) {
-                    code += "builder.set(" + std::to_string(index) + ", hgraph::Value{" + value.code + "}); ";
-                }
-                code += "return builder.build(); }()";
-                Value result            = make_runtime(std::move(code), type, range);
-                result.structured_delta = true;
-                return result;
-            }
-
-            Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
-                                         (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
-                                     type, range);
-            result.atomic_code =
-                "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
-            return result;
-        }
-
-        Value Emitter::eval_intrinsic(const Value &callee, const ast::Call &call, SourceRange range, Frame &frame)
-        {
-            const std::string &name = callee.name;
-            if (name.starts_with("logger.")) {
-                if (!frame.runtime) { fail(Category::Phase, range, "logger methods are only available in runtime hooks"); }
-                if (name != "logger.info") { unsupported(range, "logger method '" + name.substr(7) + "'"); }
-                if (call.arguments.size() != 1) {
-                    fail(Category::Type, range, "'logger.info' takes one message in the first slice");
-                }
-                const Value message = eval_expr(call.arguments.front().value, frame);
-                if ((!message.is_const() && !message.is_runtime()) || !message.type.is(ast::ScalarType::Str)) {
-                    fail(Category::Type, message.range, "'logger.info' takes a str message");
-                }
-                Value result;
-                result.kind  = Value::Kind::Void;
-                result.code  = "logger.log(2, " + message.code + ")";
-                result.range = range;
-                return result;
-            }
-            if (name == "valid" || name == "modified" || name == "all_valid")
-            {
-                if (call.arguments.empty())
-                {
-                    fail(Category::Type, range, "'" + name + "' takes at least one time-series argument");
-                }
-                if (frame.runtime)
-                {
-                    std::vector<std::string> tests;
-                    tests.reserve(call.arguments.size());
-                    for (const ast::Argument &argument : call.arguments)
-                    {
-                        const Value value = eval_expr(argument.value, frame);
-                        if (!value.is_runtime() || value.selector.empty())
-                        {
-                            fail(Category::Type, module_.expr(argument.value).range,
-                                 "'" + name + "' takes time-series selectors in a runtime function");
-                        }
-                        const std::string method =
-                            name == "modified" ? "modified()" : name == "all_valid" ? "all_valid()" : "valid()";
-                        tests.push_back(value.selector + "." + method);
-                    }
-                    return make_runtime("(" + join(tests, name == "modified" ? " || " : " && ") + ")", scalar_type(ast::ScalarType::Bool),
-                                        range);
-                }
-                const std::string op   = name == "modified" ? "hgraph::stdlib::modified" : "hgraph::stdlib::valid";
-                const std::string fold = name == "modified" ? "hgraph::stdlib::or_" : "hgraph::stdlib::and_";
-                std::optional<Value> result;
-                for (const ast::Argument &argument : call.arguments)
-                {
-                    const Value value = eval_expr(argument.value, frame);
-                    if (!value.is_port())
-                    {
-                        fail(Category::Type, module_.expr(argument.value).range, "'" + name + "' takes time-series arguments");
-                    }
-                    Value flag = wire(op, {value.code}, range);
-                    result     = result ? wire(fold, {result->code, flag.code}, range) : flag;
-                }
-                return *result;
-            }
-            if (name == "last_modified" || name == "key_set")
-            {
-                if (call.arguments.size() != 1) { fail(Category::Type, range, "'" + name + "' takes one time-series argument"); }
-                const Value value = eval_expr(call.arguments[0].value, frame);
-                if (frame.runtime)
-                {
-                    if (name == "key_set")
-                    {
-                        backend(range, "runtime collection traversal is not supported by emit-cpp yet");
-                    }
-                    if (!value.is_runtime() || value.selector.empty())
-                    {
-                        fail(Category::Type, module_.expr(call.arguments[0].value).range,
-                             "'last_modified' takes a time-series selector in a runtime function");
-                    }
-                    return make_runtime(value.selector + ".last_modified_time()", scalar_type(ast::ScalarType::DateTime), range);
-                }
-                if (!value.is_port())
-                {
-                    fail(Category::Type, module_.expr(call.arguments[0].value).range, "'" + name + "' takes a time-series argument");
-                }
-                return wire(name == "last_modified" ? "hgraph::stdlib::last_modified_time" : "hgraph::stdlib::keys_", {value.code},
-                            range);
-            }
-            if (name == "keys" || name == "values" || name == "items") {
-                if (!frame.runtime) {
-                    backend(range, "'" + name +
-                                       "' is a runtime traversal; it is not available in a "
-                                       "composition body");
-                }
-                if (call.arguments.empty() || call.arguments.size() > 2) {
-                    fail(Category::Type, range, "'" + name + "' takes a collection and an optional predicate");
-                }
-                const Value source = eval_expr(call.arguments.front().value, frame);
-                if (!source.is_runtime() || source.selector.empty()) {
-                    fail(Category::Type, source.range, "'" + name + "' takes a runtime collection selector");
-                }
-
-                std::string predicate;
-                ast::ExprId general_predicate = ast::no_node;
-                if (call.arguments.size() == 2) {
-                    const ast::ExprId predicate_id   = call.arguments[1].value;
-                    const ast::Expr  &predicate_expr = module_.expr(predicate_id);
-                    if (std::holds_alternative<ast::AnonymousFn>(predicate_expr.node)) {
-                        general_predicate = predicate_id;
-                    } else {
-                        const Value value = eval_expr(predicate_id, frame);
-                        if (value.kind != Value::Kind::Intrinsic || (value.name != "valid" && value.name != "modified" &&
-                                                                     value.name != "added" && value.name != "removed")) {
-                            fail(Category::Type, predicate_expr.range,
-                                 "an iterator predicate is a metadata predicate or concise fn");
-                        }
-                        predicate = value.name;
-                    }
-                }
-
-                std::string method = name;
-                if (!predicate.empty()) {
-                    if (source.type.kind == HType::Kind::Set && name == "values") {
-                        method = predicate == "added" ? "added" : predicate == "removed" ? "removed" : name;
-                    } else {
-                        method = predicate + "_" + name;
-                    }
-                }
-
-                Value result;
-                result.kind               = Value::Kind::Iterator;
-                result.code               = source.selector + "." + method + "()";
-                result.type               = source.type;
-                result.name               = name;
-                result.range              = range;
-                result.iterator_predicate = general_predicate;
-                if (source.type.kind == HType::Kind::Map) {
-                    if (name == "keys") {
-                        result.iterator_types.push_back(source.type.children[0]);
-                    } else if (name == "values") {
-                        result.iterator_types.push_back(source.type.children[1]);
-                    } else {
-                        result.iterator_types = {source.type.children[0], source.type.children[1]};
-                    }
-                } else if (source.type.kind == HType::Kind::Set && name == "values") {
-                    result.iterator_types.push_back(source.type.children[0]);
-                } else if (source.type.kind == HType::Kind::List) {
-                    if (name == "values") {
-                        result.iterator_types.push_back(source.type.children[0]);
-                    } else {
-                        result.iterator_types = {scalar_type(ast::ScalarType::I64), source.type.children[0]};
-                    }
-                } else {
-                    backend(source.range, "this collection does not support '" + name + "'");
-                }
-                return result;
-            }
-            backend(range, "'" + name +
-                               "' is a runtime traversal; it is not available in a composition body of the first pass");
-        }
-
-        std::vector<ast::ExprId> Emitter::bind_arguments(ast::DeclId decl, const std::vector<ast::Argument> &arguments,
-                                                         SourceRange range) {
-            const gir::Callable     &fn     = callable(decl);
-            const auto              &params = fn.parameters;
-            std::vector<ast::ExprId> bound(params.size(), ast::no_node);
-            std::size_t              next = 0;
-            for (const ast::Argument &argument : arguments)
-            {
-                const SourceRange at = module_.expr(argument.value).range;
-                if (argument.name.empty())
-                {
-                    if (next >= params.size())
-                    {
-                        fail(Category::Type, at,
-                             "'" + std::string{callable_name(decl)} + "' takes " + std::to_string(params.size()) + " arguments");
-                    }
-                    if (bound[next] != ast::no_node) { fail(Category::Type, at, "positional argument after a named one"); }
-                    bound[next++] = argument.value;
-                    continue;
-                }
-                const auto found = std::find_if(params.begin(), params.end(),
-                                                [&](const gir::Parameter &param) { return param.name == argument.name.text; });
-                if (found == params.end())
-                {
-                    fail(Category::Name, argument.name.range,
-                         "'" + std::string{callable_name(decl)} + "' has no parameter named '" + std::string{argument.name.text} +
-                             "'");
-                }
-                const auto index = static_cast<std::size_t>(found - params.begin());
-                if (bound[index] != ast::no_node)
-                {
-                    fail(Category::Name, argument.name.range, "'" + std::string{argument.name.text} + "' is given twice");
-                }
-                bound[index] = argument.value;
-                next         = std::max(next, index + 1);
-            }
-            for (std::size_t i = 0; i < params.size(); ++i)
-            {
-                if (bound[i] == ast::no_node && !params[i].default_value.valid()) {
-                    fail(Category::Type, range,
-                         "'" + std::string{callable_name(decl)} + "' needs an argument for '" + params[i].name + "'");
-                }
-            }
-            return bound;
-        }
-
-        /// A call to a module function becomes `wire<name>(w, args...)`: the
-        /// callee is a graph struct, so its compose parameters take the
-        /// arguments in declaration order, defaults folded in here as the
-        /// direct backend does.
-        Value Emitter::call_function(ast::DeclId decl, const std::vector<ast::Argument> &arguments, SourceRange range, Frame &frame)
-        {
-            check_supported(decl);
-            const gir::Callable           &planned = callable(decl);
-            const std::vector<ast::ExprId> bound   = bind_arguments(decl, arguments, range);
-            std::vector<std::string>       args(planned.parameters.size());
-            for (std::size_t i = 0; i < planned.parameters.size(); ++i) {
-                const gir::Parameter &param = planned.parameters[i];
-                Value                 arg =
-                    bound[i] != ast::no_node ? eval_expr(bound[i], frame) : planned_constant(param.default_value, planned.range);
-                const HType type = planned_type(param.type, planned.range);
-                if (param.is_const)
-                {
-                    args[i] = as_const(arg, type, arg.range, "parameter '" + param.name + "'");
-                }
-                else { args[i] = as_port(arg, type, arg.range); }
-            }
-            HType result;
-            if (has_planned_result(planned.result, planned.range)) { result = planned_type(planned.result, planned.range); }
-            Value value = wire(callable_cpp_name(decl), args, range, result);
-            if (!has_planned_result(planned.result, planned.range)) { value.kind = Value::Kind::Void; }
-            return value;
         }
 
         // -------------------------------------------------------- statements
@@ -3887,9 +3043,6 @@ namespace hgl::codegen
             frame.output_available         = include_output;
             frame.params.resize(planned.parameters.size());
             frame.planned_bindings.clear();
-            frame.locals.clear();
-            frame.second_locals.clear();
-            frame.injects.clear();
             local_counts_.clear();
             local_names_.clear();
             local_names_.insert("hgl_state");

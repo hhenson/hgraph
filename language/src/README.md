@@ -12,11 +12,13 @@ them.
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
-| `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission plus a temporary AST type-syntax adapter | hgraph IR to formatted C++ and build artifacts |
+| `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission plus temporary source-declaration association | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
-During migration, `ResolvedModule` and the syntax AST remain a compatibility
-boundary only for expression-level type syntax.
+During migration, `ResolvedModule` and the syntax AST remain only to associate
+planned declarations with source declaration IDs and ranges for diagnostics,
+source order, and source maps. The backend no longer walks syntax types,
+expressions, statements, or blocks.
 Module identity, callable visibility and classification, operator binding,
 exports, registration planning, callable/operator interfaces, supported
 callable parameter defaults, nominal struct declarations and field layouts,
@@ -26,7 +28,7 @@ functions also walk graph-IR values, operations, and lexical bindings directly;
 composition and runtime block bodies additionally consume graph-IR statements,
 blocks, lifecycle plans, capabilities, and lexical bindings. New language
 semantics belong in HIR construction, not in either backend. The remaining
-adapter is named here and must be removed as Stage E advances.
+source-declaration association must be removed as Stage E advances.
 
 Every new pass documents:
 
