@@ -1,6 +1,7 @@
 #ifndef HGL_CODEGEN_CPP_EMITTER_H
 #define HGL_CODEGEN_CPP_EMITTER_H
 
+#include "hgraph_ir/ir.h"
 #include "semantics/resolve.h"
 #include "syntax/ast.h"
 #include "syntax/diagnostic.h"
@@ -12,10 +13,12 @@
 
 /// The C++ backend, first pass (developer guide, "C++ backend, first pass"):
 /// one header/source pair of public hgraph authoring code per module. It is
-/// hgraph-free like the resolver — it prints names and types — so what it
-/// emits is checked by the native compiler that builds the package. Tests run
-/// generated graphs beside `hgl test` and exercise generated runtime nodes
-/// directly through hgraph's public harness.
+/// planned from hgraph IR and prints names and types without linking the hgraph
+/// runtime, so what it emits is checked by the native compiler that builds the
+/// package. A temporary syntax adapter still supplies bodies, types, and
+/// signatures during the Stage E migration. Tests run generated graphs beside
+/// `hgl test` and exercise generated runtime nodes directly through hgraph's
+/// public harness.
 namespace hgl::codegen
 {
     namespace ast = syntax::ast;
@@ -49,8 +52,8 @@ namespace hgl::codegen
     /// Emit the module. Returns nullopt after reporting a diagnostic; every
     /// construct outside the first pass is reported as a `backend`
     /// diagnostic that names the construct.
-    [[nodiscard]] std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const ast::Module &module,
-                                                        const semantics::ResolvedModule &resolved,
+    [[nodiscard]] std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph,
+                                                        const ast::Module &module, const semantics::ResolvedModule &resolved,
                                                         const EmitOptions &options, syntax::DiagnosticSink &diagnostics);
 }  // namespace hgl::codegen
 

@@ -1,4 +1,7 @@
 #include "codegen/cpp_emitter.h"
+#include "hgraph_ir/lower.h"
+#include "ir/lower.h"
+#include "ir/type_check.h"
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 
@@ -32,11 +35,81 @@ namespace
         DiagnosticSink diagnostics;
         ast::Module    module;
         ResolvedModule resolved;
+        hgl::ir::hir::Module   hir;
+        hgl::hgraph_ir::Module graph;
+
+        [[nodiscard]] hgl::hgraph_ir::Module declaration_plan() const {
+            hgl::hgraph_ir::Module plan;
+            plan.path = resolved.module_path;
+            for (const ast::DeclId id : resolved.operators) {
+                const auto &op = std::get<ast::OperatorDecl>(module.decl(id).node);
+                plan.operators.push_back(
+                    {.identity = resolved.module_path + "." + std::string{op.name.text}, .range = module.decl(id).range});
+            }
+            for (const ast::DeclId id : resolved.functions) {
+                const auto              &fn = std::get<ast::FunctionDecl>(module.decl(id).node);
+                hgl::hgraph_ir::Callable callable;
+                callable.identity = resolved.module_path + "." + std::string{fn.name.text};
+                callable.range    = module.decl(id).range;
+                switch (fn.visibility) {
+                    case ast::FunctionVisibility::Internal:
+                        callable.visibility = hgl::hgraph_ir::CallableVisibility::Internal;
+                        break;
+                    case ast::FunctionVisibility::Export: callable.visibility = hgl::hgraph_ir::CallableVisibility::Export; break;
+                    case ast::FunctionVisibility::Impl:
+                        {
+                            callable.visibility = hgl::hgraph_ir::CallableVisibility::Implementation;
+                            callable.identity += "#" + std::to_string(id);
+                            const Binding &binding          = resolved.implementation_binding(id);
+                            callable.operator_identity      = binding.operator_identity;
+                            callable.operator_registry_name = binding.registry_name;
+                            if (binding.kind == BindingKind::LocalOperator) {
+                                const auto &op             = std::get<ast::OperatorDecl>(module.decl(binding.decl).node);
+                                callable.operator_identity = resolved.module_path + "." + std::string{op.name.text};
+                            } else if (!callable.operator_identity.empty() &&
+                                       std::none_of(plan.operators.begin(), plan.operators.end(), [&](const auto &candidate) {
+                                           return candidate.identity == callable.operator_identity;
+                                       })) {
+                                plan.operators.push_back({.identity      = callable.operator_identity,
+                                                          .registry_name = callable.operator_registry_name,
+                                                          .imported      = true,
+                                                          .range         = module.decl(id).range});
+                            }
+                            break;
+                        }
+                }
+                callable.kind = resolved.kind(id) == FunctionKind::Runtime ? hgl::hgraph_ir::CallableKind::RuntimeNode
+                                                                           : hgl::hgraph_ir::CallableKind::Composition;
+                plan.callables.push_back(std::move(callable));
+            }
+            return plan;
+        }
 
         explicit Unit(std::string text, std::string path = "unit.hgl")
-            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)},
-              resolved{resolve(file, module, kernel_has, diagnostics)}
-        {
+            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
+            resolved = resolve(file, module, kernel_has, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir                                       = hgl::ir::lower_to_hir(module, resolved, diagnostics);
+            const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
+                hgl::ir::OperatorSelection selected;
+                selected.result = query.expected_result;
+                if (!selected.result.valid() && !query.arguments.empty()) { selected.result = query.arguments.front().type; }
+                selected.deferred = true;
+                return selected;
+            };
+            hgl::ir::hir::Module        typed = hir;
+            hgl::syntax::DiagnosticSink graph_diagnostics;
+            if (hgl::ir::complete_hir(typed, operators, graph_diagnostics)) {
+                hgl::hgraph_ir::Module lowered = hgl::hgraph_ir::lower(typed, graph_diagnostics);
+                if (!graph_diagnostics.has_errors()) {
+                    graph = std::move(lowered);
+                    return;
+                }
+            }
+            // Backend-negative tests deliberately stop before typed HIR. They
+            // still need the declaration plan that production obtains from
+            // hgraph IR so the legacy body adapter can report its own error.
+            graph = declaration_plan();
         }
 
         [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {})
@@ -45,7 +118,7 @@ namespace
             REQUIRE_FALSE(diagnostics.has_errors());
             if (options.header_name.empty()) { options.header_name = "unit.h"; }
             if (options.tool_version.empty()) { options.tool_version = "test"; }
-            return emit_cpp(file, module, resolved, options, diagnostics);
+            return emit_cpp(file, graph, module, resolved, options, diagnostics);
         }
 
         [[nodiscard]] bool has(Category category, std::string_view fragment) const
@@ -121,6 +194,89 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     REQUIRE(second);
     CHECK(second->header == emitted->header);
     CHECK(second->source == emitted->source);
+}
+
+TEST_CASE("emit-cpp plans module and callable identity from hgraph IR", "[codegen][hgraph-ir]") {
+    Unit unit{R"(
+module old
+
+fn hidden(value: f64) -> f64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 1);
+    unit.graph.path                         = "planned.module";
+    unit.graph.callables.front().identity   = "planned.module.exposed";
+    unit.graph.callables.front().visibility = hgl::hgraph_ir::CallableVisibility::Export;
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(emitted->module_name == "planned.module");
+    CHECK(emitted->namespace_name == "planned::module");
+    CHECK(emitted->exports == std::vector<std::string>{"exposed"});
+    CHECK(contains(emitted->header, "namespace planned::module"));
+    CHECK(contains(emitted->header, "struct exposed"));
+    CHECK(contains(emitted->header, "static constexpr auto name = \"planned.module.exposed\""));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
+}
+
+TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codegen][hgraph-ir]") {
+    Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    unit.graph.callables.clear();
+
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "syntax body adapter disagree"));
+}
+
+TEST_CASE("emit-cpp gives operator implementations distinct readable C++ names", "[codegen][hgraph-ir][operators]") {
+    Unit unit{R"(
+module overloads
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+impl fn choose(value: i64) -> i64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 2);
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    for (const auto &implementation : unit.graph.callables) {
+        const std::size_t marker = implementation.identity.find_last_of('#');
+        REQUIRE(marker != std::string::npos);
+        const std::string concrete = "choose_impl_" + implementation.identity.substr(marker + 1U);
+        CHECK(contains(emitted->source, "struct " + concrete));
+        CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + concrete + ">()"));
+    }
+}
+
+TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
+    Unit unit{R"(
+module renamed_ops
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+export fn selected(value: f64) -> f64 => choose(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.operators.size() == 1);
+
+    unit.graph.operators.front().identity = "renamed_ops.pick";
+    for (auto &callable : unit.graph.callables) {
+        if (callable.visibility == hgl::hgraph_ir::CallableVisibility::Implementation) {
+            callable.operator_identity = unit.graph.operators.front().identity;
+        }
+    }
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "using pick = hgraph::Operator<"));
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value)"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::pick, pick_impl_"));
+    CHECK_FALSE(contains(emitted->source, "operators::choose"));
 }
 
 TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]")

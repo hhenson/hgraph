@@ -24,6 +24,8 @@
 // native compiler and hgraph registry check each emitted package.
 namespace hgl::codegen
 {
+    namespace gir = hgraph_ir;
+
     namespace
     {
         using semantics::BindingKind;
@@ -316,11 +318,9 @@ namespace hgl::codegen
         class Emitter
         {
           public:
-            Emitter(const syntax::SourceFile &file, const ast::Module &module, const semantics::ResolvedModule &resolved,
-                    const EmitOptions &options, syntax::DiagnosticSink &diagnostics)
-                : file_{file}, module_{module}, resolved_{resolved}, options_{options}, diagnostics_{diagnostics}
-            {
-            }
+            Emitter(const syntax::SourceFile &file, const gir::Module &graph, const ast::Module &module,
+                    const semantics::ResolvedModule &resolved, const EmitOptions &options, syntax::DiagnosticSink &diagnostics)
+                : file_{file}, graph_{graph}, module_{module}, resolved_{resolved}, options_{options}, diagnostics_{diagnostics} {}
 
             [[nodiscard]] EmittedModule emit();
 
@@ -346,6 +346,15 @@ namespace hgl::codegen
             }
             [[nodiscard]] const ast::StructDecl &structure(ast::DeclId decl) const {
                 return std::get<ast::StructDecl>(module_.decl(decl).node);
+            }
+            void                                       bind_hgraph_declarations();
+            [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
+            [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
+            [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
+            [[nodiscard]] std::string_view             callable_name(ast::DeclId decl) const;
+            [[nodiscard]] std::string                  callable_cpp_name(ast::DeclId decl);
+            [[nodiscard]] static std::string           operator_registry_name(const gir::OperatorContract &op) {
+                return op.registry_name.empty() ? op.identity : op.registry_name;
             }
             [[nodiscard]] const ast::GenericParameter &generic_parameter(ast::DeclId decl, std::size_t index) const;
             [[nodiscard]] std::string                  slice(SourceRange range) const { return std::string{file_.slice(range)}; }
@@ -431,6 +440,7 @@ namespace hgl::codegen
             void collect_calls_block(ast::BlockId id, std::set<ast::DeclId> &calls);
 
             const syntax::SourceFile        &file_;
+            const gir::Module                                             &graph_;
             const ast::Module               &module_;
             const semantics::ResolvedModule &resolved_;
             const EmitOptions               &options_;
@@ -438,6 +448,10 @@ namespace hgl::codegen
             std::string                      basename_{};
             std::string                      namespace_{};
             std::string                      module_name_{};
+            std::vector<ast::DeclId>                                       callable_declarations_{};
+            std::vector<ast::DeclId>                                       operator_declarations_{};
+            std::unordered_map<ast::DeclId, const gir::Callable *>         callables_{};
+            std::unordered_map<ast::DeclId, const gir::OperatorContract *> operators_{};
             bool                             uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int> local_counts_{};
@@ -445,6 +459,85 @@ namespace hgl::codegen
             Writer                               generated_helpers_{};
             std::size_t                          anonymous_function_index_{0};
         };
+
+        std::string_view Emitter::local_identity(std::string_view identity) noexcept {
+            const std::size_t separator = identity.find_last_of('.');
+            return separator == std::string_view::npos ? identity : identity.substr(separator + 1);
+        }
+
+        std::string_view Emitter::callable_name(ast::DeclId decl) const {
+            const gir::Callable &item = callable(decl);
+            if (item.visibility == gir::CallableVisibility::Implementation && !item.operator_identity.empty()) {
+                return local_identity(item.operator_identity);
+            }
+            return local_identity(item.identity);
+        }
+
+        std::string Emitter::callable_cpp_name(ast::DeclId decl) {
+            const gir::Callable &item = callable(decl);
+            std::string          name = cpp_name(callable_name(decl));
+            if (item.visibility != gir::CallableVisibility::Implementation) { return name; }
+
+            const std::size_t marker = item.identity.find_last_of('#');
+            if (marker == std::string::npos || marker + 1U == item.identity.size() ||
+                item.identity.find_first_not_of("0123456789", marker + 1U) != std::string::npos) {
+                backend(item.range, "hgraph IR implementation '" + item.identity + "' has no canonical numeric identity");
+            }
+            return name + "_impl_" + item.identity.substr(marker + 1U);
+        }
+
+        void Emitter::bind_hgraph_declarations() {
+            const auto function_for_range = [&](SourceRange range) {
+                ast::DeclId match = ast::no_node;
+                for (const ast::DeclId id : resolved_.functions) {
+                    if (module_.decl(id).range != range) { continue; }
+                    if (match != ast::no_node) {
+                        backend(range, "hgraph IR callable range matches more than one syntax declaration");
+                    }
+                    match = id;
+                }
+                return match;
+            };
+            for (const gir::Callable &item : graph_.callables) {
+                const ast::DeclId id = function_for_range(item.range);
+                if (id == ast::no_node) {
+                    backend(item.range, "hgraph IR callable '" + item.identity + "' has no syntax body adapter");
+                }
+                if (!callables_.emplace(id, &item).second) {
+                    backend(item.range, "more than one hgraph IR callable maps to the same syntax declaration");
+                }
+                callable_declarations_.push_back(id);
+            }
+            if (callable_declarations_.size() != resolved_.functions.size()) {
+                backend(SourceRange{}, "the hgraph IR and syntax body adapter disagree on the module's callables");
+            }
+
+            const auto operator_for_range = [&](SourceRange range) {
+                ast::DeclId match = ast::no_node;
+                for (const ast::DeclId id : resolved_.operators) {
+                    if (module_.decl(id).range != range) { continue; }
+                    if (match != ast::no_node) {
+                        backend(range, "hgraph IR operator range matches more than one syntax declaration");
+                    }
+                    match = id;
+                }
+                return match;
+            };
+            for (const gir::OperatorContract &item : graph_.operators) {
+                if (item.imported) { continue; }
+                const ast::DeclId id = operator_for_range(item.range);
+                if (id == ast::no_node) {
+                    backend(item.range, "hgraph IR operator '" + item.identity + "' has no syntax signature adapter");
+                }
+                if (!operators_.emplace(id, &item).second) {
+                    backend(item.range, "more than one hgraph IR operator maps to the same syntax declaration");
+                }
+                operator_declarations_.push_back(id);
+            }
+            if (operator_declarations_.size() != resolved_.operators.size()) {
+                backend(SourceRange{}, "the hgraph IR and syntax signature adapter disagree on the module's operators");
+            }
+        }
 
         // ------------------------------------------------------------ types
 
@@ -1142,11 +1235,11 @@ namespace hgl::codegen
                     return value;
                 }
                 case BindingKind::LocalOperator: {
-                    const auto &op = std::get<ast::OperatorDecl>(module_.decl(binding.decl).node);
-                    Value       value;
+                    const gir::OperatorContract &op = operator_decl(binding.decl);
+                    Value                        value;
                     value.kind  = Value::Kind::LocalOperator;
                     value.decl  = binding.decl;
-                    value.name  = "operators::" + cpp_name(op.name.text);
+                    value.name  = "operators::" + cpp_name(local_identity(op.identity));
                     value.range = range;
                     return value;
                 }
@@ -1724,7 +1817,7 @@ namespace hgl::codegen
             }
             HType result;
             if (fn.signature.result != ast::no_node) { result = type_of(fn.signature.result, callee); }
-            Value value = wire(cpp_name(fn.name.text), args, range, result);
+            Value value = wire(callable_cpp_name(decl), args, range, result);
             if (fn.signature.result == ast::no_node) { value.kind = Value::Kind::Void; }
             return value;
         }
@@ -2626,10 +2719,7 @@ namespace hgl::codegen
         }
 
         void Emitter::check_supported(ast::DeclId decl) {
-            if (resolved_.kind(decl) == semantics::FunctionKind::Runtime)
-            {
-                static_cast<void>(runtime_info(decl));
-            }
+            if (callable(decl).kind == gir::CallableKind::RuntimeNode) { static_cast<void>(runtime_info(decl)); }
         }
 
         std::string Emitter::runtime_signature(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, bool with_names,
@@ -2766,9 +2856,8 @@ namespace hgl::codegen
             frame.fn      = decl;
             frame.runtime = true;
             out.line("// " + where(module_.decl(decl).range));
-            out.open("struct " + cpp_name(fn.name.text));
-            out.line("[[maybe_unused]] static constexpr auto name = " +
-                     quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+            out.open("struct " + callable_cpp_name(decl));
+            out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
             emit_runtime_defaults(decl, out);
             if (!info.states.empty())
             {
@@ -2777,7 +2866,7 @@ namespace hgl::codegen
                 {
                     fields.push_back("hgraph::Field<" + quote(state.name) + ", " + schema(state.type, state.range) + ">");
                 }
-                out.line("using recordable_state = hgraph::TSB<" + quote(module_name_ + "." + std::string{fn.name.text} + ".state") + ", " +
+                out.line("using recordable_state = hgraph::TSB<" + quote(callable(decl).identity + ".state") + ", " +
                          join(fields, ", ") + ">;");
             }
 
@@ -2952,8 +3041,7 @@ namespace hgl::codegen
         void Emitter::emit_function(ast::DeclId decl, Writer &out, Form form)
         {
             check_supported(decl);
-            if (resolved_.kind(decl) == semantics::FunctionKind::Runtime)
-            {
+            if (callable(decl).kind == gir::CallableKind::RuntimeNode) {
                 if (form != Form::InlineStruct)
                 {
                     backend(module_.decl(decl).range, "a generated runtime node must be "
@@ -2965,7 +3053,7 @@ namespace hgl::codegen
             const ast::FunctionDecl &fn = function(decl);
             Frame                    frame;
             frame.fn = decl;
-            const std::string name = cpp_name(fn.name.text);
+            const std::string name = callable_cpp_name(decl);
 
             out.line("// " + where(module_.decl(decl).range));
             if (form == Form::OutOfLine)
@@ -2975,8 +3063,7 @@ namespace hgl::codegen
             else
             {
                 out.open("struct " + name);
-                out.line("[[maybe_unused]] static constexpr auto name = " +
-                         quote(module_name_ + "." + std::string{fn.name.text}) + ";");
+                out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 std::vector<std::string> defaults;
@@ -3128,9 +3215,8 @@ namespace hgl::codegen
         std::vector<ast::DeclId> Emitter::ordered_internal_functions()
         {
             std::vector<ast::DeclId> internal;
-            for (const ast::DeclId id : resolved_.functions)
-            {
-                if (function(id).visibility == ast::FunctionVisibility::Internal) { internal.push_back(id); }
+            for (const ast::DeclId id : callable_declarations_) {
+                if (callable(id).visibility == gir::CallableVisibility::Internal) { internal.push_back(id); }
             }
             std::map<ast::DeclId, std::set<ast::DeclId>> deps;
             for (const ast::DeclId id : internal)
@@ -3158,7 +3244,7 @@ namespace hgl::codegen
                 if (visiting.contains(id))
                 {
                     backend(module_.decl(id).range,
-                            "'" + std::string{function(id).name.text} + "' is recursive; recursive functions are not supported");
+                            "'" + std::string{callable_name(id)} + "' is recursive; recursive functions are not supported");
                 }
                 visiting.insert(id);
                 for (const ast::DeclId dep : deps[id]) { visit(dep); }
@@ -3174,8 +3260,9 @@ namespace hgl::codegen
 
         EmittedModule Emitter::emit()
         {
+            bind_hgraph_declarations();
             EmittedModule result;
-            result.module_name = resolved_.module_path;
+            result.module_name = graph_.path;
             if (result.module_name.empty()) { fail(Category::Module, SourceRange{0, 0}, "emit-cpp needs a module declaration"); }
             {
                 std::string ns;
@@ -3202,12 +3289,11 @@ namespace hgl::codegen
             std::vector<ast::DeclId> exports;
             std::vector<ast::DeclId> impls;
             std::map<std::string, std::string> cpp_functions;
-            for (const ast::DeclId id : resolved_.functions)
-            {
+            for (const ast::DeclId id : callable_declarations_) {
                 check_supported(id);
                 const ast::FunctionDecl &fn = function(id);
-                const std::string        source_name{fn.name.text};
-                const std::string        generated_name = cpp_name(source_name);
+                const std::string        source_name{callable_name(id)};
+                const std::string        generated_name = callable_cpp_name(id);
                 if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
                     !inserted && found->second != source_name)
                 {
@@ -3226,8 +3312,8 @@ namespace hgl::codegen
                                                       "' as '" + generated_parameter + "'");
                     }
                 }
-                if (fn.visibility == ast::FunctionVisibility::Export) { exports.push_back(id); }
-                if (fn.visibility == ast::FunctionVisibility::Impl) { impls.push_back(id); }
+                if (callable(id).visibility == gir::CallableVisibility::Export) { exports.push_back(id); }
+                if (callable(id).visibility == gir::CallableVisibility::Implementation) { impls.push_back(id); }
             }
             const std::vector<ast::DeclId> internal = ordered_internal_functions();
 
@@ -3239,9 +3325,7 @@ namespace hgl::codegen
             for (const ast::DeclId id : impls) { emit_function(id, private_functions, Form::InlineStruct); }
             Writer public_functions;
             for (const ast::DeclId id : exports) {
-                if (resolved_.kind(id) == semantics::FunctionKind::Composition) {
-                    emit_function(id, public_functions, Form::OutOfLine);
-                }
+                if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
             }
 
             Writer body;
@@ -3251,7 +3335,7 @@ namespace hgl::codegen
                 body.indent();
                 body.open("namespace");
                 const bool has_internal_runtime = std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
-                    return resolved_.kind(id) == semantics::FunctionKind::Runtime;
+                    return callable(id).kind == gir::CallableKind::RuntimeNode;
                 });
                 if (has_internal_runtime)
                 {
@@ -3259,11 +3343,10 @@ namespace hgl::codegen
                 }
                 for (const ast::DeclId id : internal)
                 {
-                    if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
+                    if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                     Frame frame;
                     frame.fn = id;
-                    body.line("using " + cpp_name(function(id).name.text) + " = " +
-                              operator_contract(id, result.module_name + "." + std::string{function(id).name.text}, frame) + ";");
+                    body.line("using " + callable_cpp_name(id) + " = " + operator_contract(id, callable(id).identity, frame) + ";");
                 }
                 if (has_internal_runtime)
                 {
@@ -3287,38 +3370,32 @@ namespace hgl::codegen
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
             for (const ast::DeclId id : exports)
             {
-                const std::string name = cpp_name(function(id).name.text);
-                const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
+                const std::string name         = callable_cpp_name(id);
+                const std::string registration = callable(id).kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
                 body.line(registration + "<operators::" + name + ", " + name + ">();");
             }
             for (const ast::DeclId id : internal)
             {
-                if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
-                const std::string name = cpp_name(function(id).name.text);
+                if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
+                const std::string name = callable_cpp_name(id);
                 body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name + ">();");
             }
             for (const ast::DeclId id : impls)
             {
-                const ast::FunctionDecl &fn = function(id);
-                bool                     bound = false;
-                for (const ast::DeclId op_id : resolved_.operators)
-                {
-                    if (std::get<ast::OperatorDecl>(module_.decl(op_id).node).name.text == fn.name.text)
-                    {
-                        bound = true;
-                        break;
-                    }
-                }
-                if (!bound)
-                {
+                const gir::Callable &implementation = callable(id);
+                const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
+                    return candidate.identity == implementation.operator_identity;
+                });
+                if (contract == graph_.operators.end() || contract->imported) {
                     unsupported(module_.decl(id).range, "an impl fn of an imported operator");
                 }
-                const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
+                const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                body.line(registration + "<operators::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
+                body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
+                          callable_cpp_name(id) + ">();");
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
@@ -3353,26 +3430,23 @@ namespace hgl::codegen
             header.line("{");
             header.indent();
             for (const ast::DeclId id : resolved_.structs) { emit_struct(id, header); }
-            if (!resolved_.operators.empty() || !exports.empty())
-            {
+            if (!operator_declarations_.empty() || !exports.empty()) {
                 header.line("/// Operator contracts for the module's public callables.");
                 header.open("namespace operators");
-                for (const ast::DeclId id : resolved_.operators)
-                {
-                    const auto &op = std::get<ast::OperatorDecl>(module_.decl(id).node);
-                    Frame       frame;
+                for (const ast::DeclId id : operator_declarations_) {
+                    const gir::OperatorContract &op = operator_decl(id);
+                    Frame                        frame;
                     header.line("// " + where(module_.decl(id).range));
-                    header.line("using " + cpp_name(op.name.text) + " = " +
-                                operator_contract(id, result.module_name + "." + std::string{op.name.text}, frame) + ";");
+                    header.line("using " + cpp_name(local_identity(op.identity)) + " = " +
+                                operator_contract(id, operator_registry_name(op), frame) + ";");
                 }
                 for (const ast::DeclId id : exports)
                 {
-                    const ast::FunctionDecl &fn = function(id);
-                    Frame                    frame;
+                    Frame frame;
                     frame.fn = id;
                     header.line("// " + where(module_.decl(id).range));
-                    header.line("using " + cpp_name(fn.name.text) + " = " +
-                                operator_contract(id, result.module_name + "." + std::string{fn.name.text}, frame) + ";");
+                    header.line("using " + callable_cpp_name(id) + " = " + operator_contract(id, callable(id).identity, frame) +
+                                ";");
                 }
                 header.close("  // namespace operators");
                 header.line();
@@ -3380,8 +3454,8 @@ namespace hgl::codegen
             for (const ast::DeclId id : exports)
             {
                 emit_function(id, header,
-                              resolved_.kind(id) == semantics::FunctionKind::Runtime ? Form::InlineStruct : Form::Declaration);
-                result.exports.push_back(std::string{function(id).name.text});
+                              callable(id).kind == gir::CallableKind::RuntimeNode ? Form::InlineStruct : Form::Declaration);
+                result.exports.push_back(std::string{callable_name(id)});
             }
             header.line("/// Register the module's operators and implementations with the hgraph");
             header.line("/// registry and return the exact removable provider generation.");
@@ -3424,7 +3498,7 @@ namespace hgl::codegen
                         backend(module_.decl(exports[i]).range,
                                 "Python export '" + name + "' collides with '" + found->second + "' as '" + alias + "'");
                     }
-                    py += "    " + quote(alias) + ": _hgl_operator_function(" + quote(result.module_name + "." + name) + "),\n";
+                    py += "    " + quote(alias) + ": _hgl_operator_function(" + quote(callable(exports[i]).identity) + "),\n";
                     names.push_back(quote(alias));
                 }
                 py += "})\n\n__all__ = [" + join(names, ", ") + "]\n";
@@ -3434,11 +3508,10 @@ namespace hgl::codegen
         }
     }  // namespace
 
-    std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const ast::Module &module,
+    std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph, const ast::Module &module,
                                           const semantics::ResolvedModule &resolved, const EmitOptions &options,
-                                          syntax::DiagnosticSink &diagnostics)
-    {
-        Emitter emitter{file, module, resolved, options, diagnostics};
+                                          syntax::DiagnosticSink &diagnostics) {
+        Emitter emitter{file, graph, module, resolved, options, diagnostics};
         try
         {
             return emitter.emit();
