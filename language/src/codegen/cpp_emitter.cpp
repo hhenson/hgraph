@@ -1,6 +1,7 @@
 #include "codegen/cpp_emitter.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -267,8 +268,16 @@ namespace hgl::codegen
             return out + "\"";
         }
 
-        std::string float_literal(double value)
-        {
+        std::string integer_literal(std::int64_t value) {
+            if (value == std::numeric_limits<std::int64_t>::min()) { return "std::numeric_limits<hgraph::Int>::min()"; }
+            return "hgraph::Int{" + std::to_string(value) + "}";
+        }
+
+        std::string float_literal(double value) {
+            if (std::isnan(value)) { return "std::numeric_limits<hgraph::Float>::quiet_NaN()"; }
+            if (std::isinf(value)) {
+                return std::string{std::signbit(value) ? "-" : ""} + "std::numeric_limits<hgraph::Float>::infinity()";
+            }
             char buffer[64];
             std::snprintf(buffer, sizeof buffer, "%.17g", value);
             std::string text{buffer};
@@ -615,8 +624,7 @@ namespace hgl::codegen
                         } else if constexpr (std::is_same_v<T, bool>) {
                             return make_const(literal ? "true" : "false", scalar_type(ast::ScalarType::Bool), range);
                         } else if constexpr (std::is_same_v<T, std::int64_t>) {
-                            return make_const("hgraph::Int{" + std::to_string(literal) + "}", scalar_type(ast::ScalarType::I64),
-                                              range, literal);
+                            return make_const(integer_literal(literal), scalar_type(ast::ScalarType::I64), range, literal);
                         } else if constexpr (std::is_same_v<T, double>) {
                             return make_const("hgraph::Float{" + float_literal(literal) + "}", scalar_type(ast::ScalarType::F64),
                                               range, literal);
@@ -1576,8 +1584,8 @@ namespace hgl::codegen
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, ast::IntLiteral>)
                     {
-                        return make_const("hgraph::Int{" + std::to_string(node.value) + "}", scalar_type(ast::ScalarType::I64),
-                                          expr.range, static_cast<std::int64_t>(node.value));
+                        return make_const(integer_literal(node.value), scalar_type(ast::ScalarType::I64), expr.range,
+                                          static_cast<std::int64_t>(node.value));
                     }
                     else if constexpr (std::is_same_v<T, ast::FloatLiteral>)
                     {
@@ -3678,6 +3686,7 @@ namespace hgl::codegen
             header.line();
             header.line("#include <chrono>");
             header.line("#include <cstdint>");
+            header.line("#include <limits>");
             header.line("#include <stdexcept>");
             header.line("#include <tuple>");
             header.line();
